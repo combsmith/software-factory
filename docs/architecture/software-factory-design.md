@@ -799,16 +799,16 @@ removing a hold label, requesting changes, resolving a thread, approving, mergin
 #### The issue Lifecycle
 
 Decided by the Maintainer on 2026-10-11. Like the pull request's, an issue's State is derived at
-every pass and never stored: from its labels, from the pull requests that close it, and from the
-run records.
+every pass and never stored: from the issue's own content and labels, from the pull requests that
+close it, and from the run records.
 
 ```mermaid
 stateDiagram-v2
   [*] --> new
-  new --> triaged: factory:triaged added (human)
+  new --> triaged: a triage Run reported
   new --> ready: factory:ready added (human)
-  triaged --> ready: factory:ready added (human)
-  ready --> triaged: factory:ready removed (human)
+  triaged --> ready: Readiness holds on this content, or factory:ready added (human)
+  ready --> triaged: the content changed before work began
   ready --> in_progress: the opening Run is admitted, or a draft pull request closes the issue
   in_progress --> ready: the opening Run ended and opened no pull request
   in_progress --> in_review: the pull request is marked ready
@@ -818,26 +818,63 @@ stateDiagram-v2
   in_review --> ready: the pull request closed unmerged, the first time
   in_progress --> held: the pull request closed unmerged, the second time
   in_review --> held: the pull request closed unmerged, the second time
+  triaged --> held
   ready --> held
-  held --> ready: Hold released (human)
+  held --> triaged: Hold released (human)
   done --> [*]
   declined --> [*]
 ```
 
 | State | Derived from | Next actor | Stale after |
 |---|---|---|---|
-| `new` | Open, with neither `factory:triaged` nor `factory:ready` | A person. An advising Role may comment; advice moves nothing | None |
-| `triaged` | Carries `factory:triaged` and not `factory:ready` | A person, who adds `factory:ready` | None |
-| `ready` | Carries `factory:ready`; no open pull request closes it; no Run holds it | The Controller, which admits the opening Run. Until the Factory has an author, the Maintainer's session opens the pull request | 30 min |
+| `new` | Open, and no triage Run has reported on it | `business-analyst`, which investigates it, if the issue is inside or admitted. Otherwise the Maintainer, who admits it or does not | 30 min, once a Run may be admitted |
+| `triaged` | A triage Run has reported, and Readiness does not hold on the current content | The readiness Lens, if it has not reported on this content. Otherwise the person its open Findings are assigned to | 24 h |
+| `ready` | Readiness holds on the current content, or a person with write access added `factory:ready`; no open pull request closes the issue; no Run holds it | The Controller, which admits the opening Run. Until the Factory has an author, the Maintainer's session opens the pull request | 30 min |
 | `in_progress` | A Run holds the issue, or its one linked pull request is a draft | The author Roles, and the Maintainer approving the contract (§4.8) | 24 h |
 | `in_review` | Its linked pull request is open and not a draft | The pull request's Lifecycle. The issue admits nothing of its own | As the pull request |
 | `held` | A Hold; or two open pull requests close it; or its pull request has twice closed unmerged; or its Run ceiling is reached | As the Hold states | 24 h, or the Hold's own time |
 | `done` | Closed, and a merged pull request with a non-empty diff closes it | None | None |
 | `declined` | Closed in any other way | None | None |
 
-Any state may move to `declined` when a person closes the issue, and to `held` on a Hold. A label
-counts only when a person with write access added it; one added by a Factory App is ignored, so
-nothing the Factory writes can bring an issue under its own control.
+Any state may move to `declined` when a person closes the issue, and to `held` on a Hold. A Hold
+released returns the issue to whichever State the facts then give.
+
+**Triage.** A `new` issue admits a triage Run. `business-analyst` investigates it and writes what
+it found, and what the issue should say, as a comment through its own App. Other Roles are
+consulted as Lenses on the issue, each through the same contract (§3.7). The issue is then
+`triaged`, and it stays there while it is researched and defined. Unchanged content admits no
+second triage Run. New content does: an edit to the issue, or a comment from a person with write
+access.
+
+**Readiness** is to an issue what Convergence is to a pull request, and is one Kernel function of
+facts and run records:
+
+1. every Lens required for this class of issue has reported on the current content;
+2. the readiness Result covers every criterion of the rubric for readiness, each one `met` or
+   `not_applicable` with a reason (§3.14);
+3. no Hold is in place.
+
+When Readiness holds, the issue is `ready` with no action from a person. What "sufficiently
+researched and defined" means is therefore the rubric, and a rubric is among the paths only the
+Maintainer approves (§5.1). The Role that judges Readiness is not the Role that wrote the
+definition: the authority table names the owner of the `readiness` category, and no Role judges
+its own work (§5.4). That owner is `scrum-master`, from the triage Intents onward. An issue whose content changes
+after Readiness held, and before work began, is `triaged` again until Readiness holds on the new
+content. Once a pull request closes the issue, the acceptance contract governs and an edit to the
+issue unwinds nothing.
+
+A person may still add `factory:ready`. The issue is then `ready` whatever triage has said, and
+this is the only way to `ready` until the triage Intents are built.
+
+**Who may cause a Run.** The Factory now moves an issue to `ready` by itself, so the limits are on
+what it will look at, and on who decides. A triage Run is admitted only on an issue opened by a
+person with write access, or one the Maintainer has admitted with `factory:admit`; I-25 and I-36
+hold for an issue as for a pull request, with the author's latest edit in place of the latest
+push. An issue's content is its title, its body and the comments of people with write access; a
+stranger's comment is not content, changes no identity and admits nothing. A label counts only
+when a person with write access added it. Readiness is decided by the Kernel from a Result's
+coverage, never from what a Role says in prose. The Maintainer's own gate comes next: no
+implementing Run starts until the Maintainer has approved the contract at its commit (§4.8).
 
 **How an issue becomes a pull request.** The opening Run creates the work's branch and a draft pull
 request whose description closes the issue. From the fix and implement Intents onward that first
@@ -846,16 +883,22 @@ the only join between the two items. It is read at every pass and written nowher
 request a person opens by hand, closing the issue, moves the issue in exactly the same way. A pull
 request the Factory opens closes exactly one issue.
 
-**What bounds it.** Every Run on the issue and on its pull request counts toward one ceiling. A
-pull request closed unmerged returns its issue to `ready` once; the second time the issue is
-`held` and assigned to the Maintainer. Only a person releases a Hold or renews the allowance
-(I-28). The stale times above are starting figures, to be calibrated like the others (§6.1).
+**What bounds it.** Every Run on the issue and on its pull request counts toward one ceiling,
+triage Runs among them. A pull request closed unmerged returns its issue to `ready` once; the
+second time the issue is `held` and assigned to the Maintainer. Only a person releases a Hold or
+renews the allowance (I-28). The stale times above are starting figures, to be calibrated like the
+others (§6.1).
 
-**What a pass reads.** Every open issue, at two depths. For an issue that is `new` or `triaged` it
-reads the number, the labels and who added them, in a listing of a hundred to a request. For an
-issue that is `ready` or beyond it reads the full facts. Runs are admitted only from `ready`
-onward. A pass's cost therefore grows with the backlog, slowly; trial P-8 measures it against the
-budget of §7.3 before anything depends on it.
+**What a pass reads.** Every open issue, at two depths. For each it reads, in a listing of a
+hundred to a request, the number, the author and whether the author has write access, the labels
+and who added them, and when it last changed. For an issue on which a decision may be due it reads
+the full facts. A pass's cost therefore grows with the backlog, slowly; trial P-8 measures it
+against the budget of §7.3 before anything depends on it. Triage also spends the model window on
+every inside issue that is opened, which the capacity rules count like any other Run.
+
+**When it is built.** The Lifecycle is declared as data in slice 0. The triage Intents come with
+the remaining personas (§9.1, slice 6). Until then an issue is moved to `ready` by a person's
+label, and the Lifecycle behaves as it will when the Roles arrive.
 
 ### 4.2 Convergence and the gate
 
@@ -1054,8 +1097,7 @@ Every human control is one ordinary GitHub action, the same for every Role and e
 
 | Control | What the Maintainer does | Effect |
 |---|---|---|
-| Mark an issue triaged | Add the label `factory:triaged` | The issue is `triaged`. Nothing is admitted on it |
-| Start work on an issue | Add the label `factory:ready` | The issue is `ready`, and the next pass may admit its opening Run |
+| Start work on an issue | Add the label `factory:ready` | The issue is `ready` whatever triage has said, and the next pass may admit its opening Run |
 | Hold | Add the label `factory:hold` | No Run is admitted on the item; an in-flight Run writes nothing (I-6, I-21) |
 | Release | Remove the label | The next pass resumes, with a fresh allowance of attempts (I-28) |
 | Hands-off | Add the label `factory:hands-off` | The Factory watches the item and never acts on it |
@@ -1067,10 +1109,11 @@ Every human control is one ordinary GitHub action, the same for every Role and e
 | Pause | Set the variable `FACTORY_PAUSED` for the org or a repo | No Run is admitted in that scope; only a person clears it |
 | Re-evaluate | Nothing | Every pass evaluates every open item |
 
-A pass reads every open issue, the unlabelled ones only as a listing (§4.1, the issue Lifecycle),
-and admits Runs only on those that carry `factory:ready`. This replaces the earlier answer,
-recorded in §9.8, that a pass reads labelled issues alone: the Maintainer decided on 2026-10-11
-that `new` and `triaged` are States the Factory derives.
+A pass reads every open issue, most of them only as a listing (§4.1, the issue Lifecycle). It
+admits a triage Run on a `new` issue that is inside or admitted, and an opening Run on a `ready`
+one. This replaces the earlier answer, recorded in §9.8, that a pass reads labelled issues alone:
+the Maintainer decided on 2026-10-11 that `new` and `triaged` are States the Factory derives, and
+that the Factory moves an issue to `ready` when Readiness holds.
 
 The Factory reaches the Maintainer the same way, through GitHub. When an item becomes "needs you",
 the Controller assigns it to the Maintainer, or requests their review on a pull request, and
@@ -1216,8 +1259,8 @@ A token is still narrowed at mint time to the Effects one Result requests.
 | `solution-architect` | Shadow | None | `architecture` | Nothing until promoted; then its own App |
 | `devops-lead` | Shadow | None | `delivery`, and Consumer entries | Nothing until promoted; then its own App |
 | `sre-lead` | Shadow | None | `reliability` | Nothing until promoted; then its own App |
-| `business-analyst` | Advisor on issues | None | None | Its own App when it first comments |
-| `scrum-master` | Advisor on planning | None | None | Its own App when it first comments |
+| `business-analyst` | Advisor on issues; from the triage Intents, investigates and defines `new` issues | None | None | Its own App when it first comments |
+| `scrum-master` | Advisor on planning; from the triage Intents, judges Readiness | None | `readiness` | Its own App when it first comments |
 | Controller | Not a Role | None | None | Its own App: the control room, the status on the item, labels and the queue |
 | Reader | Not a Role | None | None | Nothing. Every `run` job reads through it |
 
@@ -1349,7 +1392,8 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-24 | With the Maintainer as the only code owner of a path, does the machine user's approval fail to satisfy code-owner review there? | It fails to satisfy it |
 | P-25 | Does resolving a reviewer's thread cause that reviewer to re-post it, reply, or approve? | No, with the configuration of §4.2 |
 | P-22 | How soon after it is started does a Run appear in the list of run records? | Soon enough that a pass never admits the same Run twice; the item's lane and I-21 cover the gap |
-| P-32 | Can the actor who added a label to an issue be read as a fact, in the same listing that reads the labels? | Yes, or the label's actor is read only for issues that carry a control label |
+| P-32 | Can the actor who added a label to an issue, and whether an issue's author has write access, be read as facts in the same listing that reads the labels? | Yes, or both are read only for issues on which a decision may be due |
+| P-34 | Can an issue's content (title, body, and the comments of people with write access) be read with each author's permission, and is its identity unchanged when a stranger comments? | Yes to both |
 | P-33 | Can the issue a pull request closes be read from a draft, an open and a closed-unmerged pull request alike? | Yes to all three, or the count of unmerged closes is taken from the run records |
 
 ### 6.1 The order to run them in
@@ -1363,8 +1407,8 @@ An assumption audit on 2026-10-10 ranked each trial by what breaks if its answer
 | **3. Before the control room** | P-11, P-19, P-21 (publishing the page); P-16, P-18 (retention and final steps) | The page is published another way, or history is shorter |
 | **4. As they come up** | P-6, P-10, P-12, P-15 | A detail changes |
 
-P-32 and P-33 belong to the issue Lifecycle (§4.1) and are run before the Factory's own author is
-built. P-8 now measures a pass that lists every open issue.
+P-32, P-33 and P-34 belong to the issue Lifecycle (§4.1). P-33 is run before the Factory's own
+author is built; P-32 and P-34 before the triage Intents. P-8 now measures a pass that lists every open issue.
 
 Two assumptions are not trials. Whether a subscription used only by automation is within the
 vendor's terms is a question for the Maintainer and the vendor. And the numbers this document
