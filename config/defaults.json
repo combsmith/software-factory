@@ -1,0 +1,22 @@
+{
+  "approver": "donpetry-bot",
+  "author_role": "dev-lead",
+  "owner_role": "pr-review",
+  "required_lenses": {
+    "deterministic": [
+      "lint",
+      "workflow-security",
+      "tests"
+    ],
+    "model": [
+      "pr-review"
+    ]
+  },
+  "limits": {
+    "max_attempts": 3,
+    "max_rounds": 3,
+    "max_runs_per_item": 10,
+    "org_max_active_runs": 4,
+    "max_diff_lines": 4000
+  }
+}

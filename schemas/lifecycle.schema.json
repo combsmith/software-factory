@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "The declared Lifecycle of one type of Work item.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "work_item",
+    "states",
+    "initial",
+    "terminal",
+    "stale_after_minutes",
+    "transitions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "lifecycle/1"
+    },
+    "work_item": {
+      "enum": [
+        "pull_request",
+        "issue"
+      ]
+    },
+    "states": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "string"
+      }
+    },
+    "initial": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "terminal": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "stale_after_minutes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "transitions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "by",
+          "bound"
+        ],
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "by": {
+            "enum": [
+              "factory",
+              "human",
+              "platform",
+              "lens"
+            ]
+          },
+          "bound": {
+            "enum": [
+              "max_rounds",
+              "max_attempts",
+              "max_runs_per_item",
+              null
+            ]
+          }
+        }
+      }
+    }
+  }
+}

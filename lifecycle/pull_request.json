@@ -1,0 +1,390 @@
+{
+  "schema": "lifecycle/1",
+  "work_item": "pull_request",
+  "states": [
+    "draft",
+    "verifying",
+    "addressing",
+    "adjudicating",
+    "converged",
+    "queued",
+    "held",
+    "merged",
+    "closed",
+    "not_served"
+  ],
+  "initial": [
+    "draft",
+    "verifying"
+  ],
+  "terminal": [
+    "merged",
+    "closed",
+    "not_served"
+  ],
+  "stale_after_minutes": {
+    "draft": 1440,
+    "verifying": 30,
+    "addressing": 30,
+    "adjudicating": 30,
+    "converged": 15,
+    "queued": 15,
+    "held": 1440
+  },
+  "transitions": [
+    {
+      "from": "draft",
+      "to": "closed",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "merged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "verifying",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "verifying",
+      "to": "closed",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "verifying",
+      "to": "merged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "verifying",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "verifying",
+      "to": "draft",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "closed",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "merged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "draft",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "verifying",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "closed",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "merged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "draft",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "verifying",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "closed",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "merged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "draft",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "verifying",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "closed",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "merged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "draft",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "verifying",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "closed",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "merged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "draft",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "verifying",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "addressing",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "adjudicating",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "converged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "queued",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "addressing",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "adjudicating",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "converged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "queued",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "verifying",
+      "to": "addressing",
+      "by": "lens",
+      "bound": null
+    },
+    {
+      "from": "verifying",
+      "to": "converged",
+      "by": "lens",
+      "bound": null
+    },
+    {
+      "from": "verifying",
+      "to": "adjudicating",
+      "by": "lens",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "adjudicating",
+      "by": "factory",
+      "bound": "max_attempts"
+    },
+    {
+      "from": "addressing",
+      "to": "converged",
+      "by": "lens",
+      "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "addressing",
+      "by": "factory",
+      "bound": "max_rounds"
+    },
+    {
+      "from": "adjudicating",
+      "to": "converged",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "addressing",
+      "by": "lens",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "queued",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "adjudicating",
+      "by": "lens",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "converged",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "addressing",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "verifying",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    }
+  ]
+}

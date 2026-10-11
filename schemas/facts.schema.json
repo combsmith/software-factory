@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Facts: what GitHub holds about one pull request, read in one pass. No prose.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "item",
+    "state",
+    "is_draft",
+    "class",
+    "author",
+    "last_pusher",
+    "targets_protected",
+    "mergeable",
+    "content_id",
+    "diff",
+    "labels",
+    "admitted_at",
+    "last_push_at",
+    "last_writer_action_at",
+    "reviews",
+    "threads",
+    "checks",
+    "queue",
+    "complete",
+    "read_at"
+  ],
+  "properties": {
+    "schema": {
+      "const": "facts/1"
+    },
+    "item": {
+      "$ref": "#/$defs/item"
+    },
+    "state": {
+      "enum": [
+        "open",
+        "closed",
+        "merged"
+      ]
+    },
+    "is_draft": {
+      "type": "boolean"
+    },
+    "class": {
+      "enum": [
+        "agent",
+        "maintainer",
+        "dependency",
+        "outside"
+      ]
+    },
+    "author": {
+      "type": "string",
+      "minLength": 1
+    },
+    "last_pusher": {
+      "type": "string",
+      "minLength": 1
+    },
+    "targets_protected": {
+      "type": "boolean"
+    },
+    "mergeable": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "content_id": {
+      "$ref": "#/$defs/content_id"
+    },
+    "diff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files",
+        "lines",
+        "truncated"
+      ],
+      "properties": {
+        "files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "admitted_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "last_push_at": {
+      "$ref": "#/$defs/time"
+    },
+    "last_writer_action_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "actor",
+          "state",
+          "commit",
+          "content_id"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "approved",
+              "changes_requested",
+              "commented"
+            ]
+          },
+          "commit": {
+            "type": "string"
+          },
+          "content_id": {
+            "$ref": "#/$defs/content_id"
+          }
+        }
+      }
+    },
+    "threads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "resolved",
+          "opened_by",
+          "severity",
+          "resolved_by",
+          "opened_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "resolved": {
+            "type": "boolean"
+          },
+          "opened_by": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "name",
+              "can_write"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "human",
+                  "lens"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "can_write": {
+                "type": "boolean"
+              }
+            }
+          },
+          "severity": {
+            "enum": [
+              "blocking",
+              "major",
+              "minor",
+              "info",
+              null
+            ]
+          },
+          "resolved_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "opened_at": {
+            "$ref": "#/$defs/time"
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "lens",
+          "conclusion"
+        ],
+        "properties": {
+          "lens": {
+            "type": "string"
+          },
+          "conclusion": {
+            "enum": [
+              "success",
+              "failure",
+              "pending",
+              "neutral"
+            ]
+          }
+        }
+      }
+    },
+    "queue": {
+      "type": "boolean"
+    },
+    "complete": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviews",
+        "threads",
+        "checks",
+        "diff"
+      ],
+      "properties": {
+        "reviews": {
+          "type": "boolean"
+        },
+        "threads": {
+          "type": "boolean"
+        },
+        "checks": {
+          "type": "boolean"
+        },
+        "diff": {
+          "type": "boolean"
+        }
+      }
+    },
+    "read_at": {
+      "$ref": "#/$defs/time"
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "type",
+        "number"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "pattern": "^[^/]+/[^/]+$"
+        },
+        "type": {
+          "enum": [
+            "pull_request",
+            "issue"
+          ]
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "time": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "content_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{4,64}$"
+    }
+  }
+}

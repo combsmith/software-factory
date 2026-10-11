@@ -1,0 +1,68 @@
+{
+  "schema": "facts/1",
+  "item": {
+    "repo": "petry-projects/software-factory",
+    "type": "pull_request",
+    "number": 42
+  },
+  "state": "open",
+  "is_draft": false,
+  "class": "maintainer",
+  "author": "don-petry",
+  "last_pusher": "don-petry",
+  "targets_protected": true,
+  "mergeable": true,
+  "content_id": "sha256:5d0c",
+  "diff": {
+    "files": 3,
+    "lines": 120,
+    "truncated": false
+  },
+  "labels": [],
+  "admitted_at": null,
+  "last_push_at": "2026-10-11T12:00:00Z",
+  "last_writer_action_at": "2026-10-11T12:00:00Z",
+  "reviews": [],
+  "threads": [
+    {
+      "id": "PRRT_kw7",
+      "resolved": false,
+      "opened_by": {
+        "kind": "lens",
+        "name": "pr-review",
+        "can_write": true
+      },
+      "severity": "major",
+      "resolved_by": null,
+      "opened_at": "2026-10-11T12:15:00Z"
+    },
+    {
+      "id": "PRRT_kw1",
+      "resolved": false,
+      "opened_by": {
+        "kind": "lens",
+        "name": "coderabbit",
+        "can_write": false
+      },
+      "severity": null,
+      "resolved_by": null,
+      "opened_at": "2026-10-11T12:15:00Z"
+    }
+  ],
+  "checks": [
+    {
+      "lens": "lint",
+      "conclusion": "success"
+    },
+    {
+      "lens": "workflow-security",
+      "conclusion": "success"
+    },
+    {
+      "lens": "tests",
+      "conclusion": "success"
+    }
+  ],
+  "queue": false,
+  "read_at": "2026-10-11T12:20:00Z"
+}

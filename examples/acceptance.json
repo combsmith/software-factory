@@ -1,0 +1,32 @@
+{
+  "schema": "acceptance/1",
+  "item": {
+    "repo": "petry-projects/markets",
+    "type": "issue",
+    "number": 512
+  },
+  "criteria": [
+    {
+      "id": "AC-1",
+      "statement": "A stall with no bookings is listed as available.",
+      "priority": "P0",
+      "check": {
+        "kind": "test",
+        "ref": "tests/acceptance/test_availability.py::test_unbooked_stall_is_available"
+      }
+    },
+    {
+      "id": "AC-2",
+      "statement": "No new runtime dependency is added.",
+      "priority": "P1",
+      "check": {
+        "kind": "static",
+        "ref": "dependency-diff"
+      }
+    }
+  ],
+  "protected_paths": [
+    "acceptance/512.json",
+    "tests/acceptance/test_availability.py"
+  ]
+}

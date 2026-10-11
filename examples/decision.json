@@ -1,0 +1,20 @@
+{
+  "schema": "decision/1",
+  "item": {
+    "repo": "petry-projects/software-factory",
+    "type": "pull_request",
+    "number": 42
+  },
+  "state": "addressing",
+  "reason": "findings_open",
+  "evidence": [
+    "PRRT_kw7"
+  ],
+  "attention": "failed",
+  "outcome": "admit",
+  "admit": {
+    "role": "dev-lead",
+    "intent": "fix-findings",
+    "content_id": "sha256:5d0c"
+  }
+}

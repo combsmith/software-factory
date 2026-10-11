@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "What the Kernel decided for one Work item in one pass.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "item",
+    "state",
+    "reason",
+    "evidence",
+    "attention",
+    "outcome"
+  ],
+  "properties": {
+    "schema": {
+      "const": "decision/1"
+    },
+    "item": {
+      "$ref": "#/$defs/item"
+    },
+    "state": {
+      "enum": [
+        "draft",
+        "verifying",
+        "addressing",
+        "adjudicating",
+        "converged",
+        "queued",
+        "held",
+        "merged",
+        "closed",
+        "not_served",
+        null
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "pattern": "^[a-z_]+$"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "attention": {
+      "enum": [
+        "needs_you",
+        "failed",
+        "review",
+        "ready",
+        "working",
+        "none"
+      ]
+    },
+    "outcome": {
+      "enum": [
+        "nothing",
+        "defer",
+        "hold",
+        "act",
+        "admit"
+      ]
+    },
+    "action": {
+      "enum": [
+        "issue_approval",
+        "enqueue"
+      ]
+    },
+    "content_id": {
+      "$ref": "#/$defs/content_id"
+    },
+    "admit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "intent",
+        "content_id"
+      ],
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "intent": {
+          "type": "string"
+        },
+        "content_id": {
+          "$ref": "#/$defs/content_id"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "type",
+        "number"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "pattern": "^[^/]+/[^/]+$"
+        },
+        "type": {
+          "enum": [
+            "pull_request",
+            "issue"
+          ]
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "content_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{4,64}$"
+    }
+  }
+}

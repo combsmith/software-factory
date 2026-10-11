@@ -1,0 +1,18 @@
+{
+  "schema": "acceptance/1",
+  "item": {
+    "repo": "petry-projects/software-factory",
+    "type": "pull_request",
+    "number": 42
+  },
+  "criteria": [
+    {
+      "id": "AC-1",
+      "statement": "It should work properly.",
+      "priority": "P0"
+    }
+  ],
+  "protected_paths": [
+    "x"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schema": "decision/1",
+  "item": {
+    "repo": "petry-projects/software-factory",
+    "type": "pull_request",
+    "number": 42
+  },
+  "state": "held",
+  "reason": "The reviewer thinks this is fine.",
+  "evidence": [],
+  "attention": "needs_you",
+  "outcome": "hold"
+}

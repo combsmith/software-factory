@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "What the Kernel is told about required Lenses, Roles and limits.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "approver",
+    "author_role",
+    "owner_role",
+    "required_lenses",
+    "limits"
+  ],
+  "properties": {
+    "approver": {
+      "type": "string"
+    },
+    "author_role": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "owner_role": {
+      "type": "string"
+    },
+    "required_lenses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deterministic",
+        "model"
+      ],
+      "properties": {
+        "deterministic": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "model": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_attempts",
+        "max_rounds",
+        "max_runs_per_item",
+        "org_max_active_runs",
+        "max_diff_lines"
+      ],
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_rounds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_runs_per_item": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "org_max_active_runs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_diff_lines": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

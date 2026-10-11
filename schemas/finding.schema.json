@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "One observation by a Lens, with an identity that is not text.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "source",
+    "surface",
+    "category",
+    "severity",
+    "criterion",
+    "content_id"
+  ],
+  "properties": {
+    "schema": {
+      "const": "finding/1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lens",
+        "kind",
+        "actor"
+      ],
+      "properties": {
+        "lens": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "role",
+            "advisory",
+            "tool",
+            "human"
+          ]
+        },
+        "actor": {
+          "type": "string"
+        }
+      }
+    },
+    "surface": {
+      "$ref": "#/$defs/surface"
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "category": {
+      "enum": [
+        "functional",
+        "security",
+        "architecture",
+        "delivery",
+        "reliability",
+        "requirements",
+        "mechanical",
+        "uncategorised",
+        "human"
+      ]
+    },
+    "severity": {
+      "enum": [
+        "blocking",
+        "major",
+        "minor",
+        "info"
+      ]
+    },
+    "criterion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "adopted_from": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lens",
+        "surface"
+      ],
+      "properties": {
+        "lens": {
+          "type": "string"
+        },
+        "surface": {
+          "$ref": "#/$defs/surface"
+        }
+      }
+    },
+    "content_id": {
+      "$ref": "#/$defs/content_id"
+    }
+  },
+  "$defs": {
+    "content_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{4,64}$"
+    },
+    "surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "key"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "thread",
+            "alert",
+            "annotation",
+            "check",
+            "role"
+          ]
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

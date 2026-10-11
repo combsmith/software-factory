@@ -1,0 +1,15 @@
+{
+  "run": "r_01JA6Z",
+  "item": {
+    "repo": "petry-projects/software-factory",
+    "type": "pull_request",
+    "number": 42
+  },
+  "role": "pr-review",
+  "intent": "review-change",
+  "content_id": "sha256:5d0c",
+  "status": "completed",
+  "conclusion": "success",
+  "outcome": null,
+  "started_at": "2026-10-11T12:05:00Z"
+}

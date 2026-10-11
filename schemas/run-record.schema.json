@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "One Run, as the records port reports it after checking workflow, event and repo.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run",
+    "item",
+    "role",
+    "intent",
+    "content_id",
+    "status",
+    "conclusion",
+    "outcome",
+    "started_at"
+  ],
+  "properties": {
+    "run": {
+      "type": "string",
+      "minLength": 1
+    },
+    "item": {
+      "$ref": "#/$defs/item"
+    },
+    "role": {
+      "type": "string"
+    },
+    "intent": {
+      "type": "string"
+    },
+    "content_id": {
+      "$ref": "#/$defs/content_id"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "in_progress",
+        "completed"
+      ]
+    },
+    "conclusion": {
+      "enum": [
+        "success",
+        "failure",
+        "cancelled",
+        "timed_out",
+        null
+      ]
+    },
+    "outcome": {
+      "enum": [
+        "item",
+        "capacity",
+        "environment",
+        "superseded",
+        null
+      ]
+    },
+    "started_at": {
+      "$ref": "#/$defs/time"
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "type",
+        "number"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "pattern": "^[^/]+/[^/]+$"
+        },
+        "type": {
+          "enum": [
+            "pull_request",
+            "issue"
+          ]
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "time": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "content_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{4,64}$"
+    }
+  }
+}

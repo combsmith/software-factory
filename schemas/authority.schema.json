@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Who decides each category of Finding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "author_role",
+    "max_rounds",
+    "categories",
+    "escalation"
+  ],
+  "properties": {
+    "schema": {
+      "const": "authority/1"
+    },
+    "author_role": {
+      "type": "string"
+    },
+    "max_rounds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "shadow_sample": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "shadow_budget": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "categories": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "owner"
+        ],
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "shadow": {
+            "type": "string"
+          },
+          "may_accept": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "fixed",
+                "declined",
+                "deferred",
+                "not_applicable"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "escalation": {
+      "const": "hold_for_maintainer"
+    }
+  }
+}

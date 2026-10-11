@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "The least a reviewing Role must check, and how it grades what it finds. A floor, not a ceiling.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "role",
+    "intent",
+    "version",
+    "criteria"
+  ],
+  "properties": {
+    "schema": {
+      "const": "rubric/1"
+    },
+    "role": {
+      "type": "string"
+    },
+    "intent": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "statement",
+          "category",
+          "evidence",
+          "severity_if_violated"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Z]+-[0-9]+$"
+          },
+          "statement": {
+            "type": "string",
+            "minLength": 10
+          },
+          "category": {
+            "enum": [
+              "functional",
+              "security",
+              "architecture",
+              "delivery",
+              "reliability",
+              "requirements",
+              "mechanical",
+              "uncategorised",
+              "human"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 3
+          },
+          "severity_if_violated": {
+            "enum": [
+              "blocking",
+              "major",
+              "minor",
+              "info"
+            ]
+          },
+          "applies_when": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "paths"
+            ],
+            "properties": {
+              "paths": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

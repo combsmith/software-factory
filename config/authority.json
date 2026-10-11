@@ -1,0 +1,82 @@
+{
+  "schema": "authority/1",
+  "author_role": "dev-lead",
+  "max_rounds": 3,
+  "shadow_sample": 0.25,
+  "shadow_budget": 30,
+  "categories": {
+    "functional": {
+      "owner": "pr-review",
+      "shadow": "qa-lead",
+      "may_accept": [
+        "fixed",
+        "declined",
+        "deferred",
+        "not_applicable"
+      ]
+    },
+    "security": {
+      "owner": "pr-review",
+      "shadow": "security-lead",
+      "may_accept": [
+        "fixed",
+        "not_applicable"
+      ]
+    },
+    "architecture": {
+      "owner": "pr-review",
+      "shadow": "solution-architect",
+      "may_accept": [
+        "fixed",
+        "declined",
+        "deferred",
+        "not_applicable"
+      ]
+    },
+    "delivery": {
+      "owner": "pr-review",
+      "shadow": "devops-lead",
+      "may_accept": [
+        "fixed",
+        "declined",
+        "deferred",
+        "not_applicable"
+      ]
+    },
+    "reliability": {
+      "owner": "pr-review",
+      "shadow": "sre-lead",
+      "may_accept": [
+        "fixed",
+        "declined",
+        "deferred",
+        "not_applicable"
+      ]
+    },
+    "requirements": {
+      "owner": "pr-review",
+      "may_accept": [
+        "fixed",
+        "declined",
+        "deferred",
+        "not_applicable"
+      ]
+    },
+    "uncategorised": {
+      "owner": "pr-review",
+      "may_accept": [
+        "fixed",
+        "declined",
+        "deferred",
+        "not_applicable"
+      ]
+    },
+    "mechanical": {
+      "owner": "none"
+    },
+    "human": {
+      "owner": "human"
+    }
+  },
+  "escalation": "hold_for_maintainer"
+}
