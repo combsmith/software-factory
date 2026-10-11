@@ -35,8 +35,8 @@ never reads it, so it can be wrong without anything going wrong.
 **It is built review-first,** in a repo of its own, served by its own newest Release. The first
 milestone is the Factory approving one of its own pull requests.
 
-**Not yet designed** (§9.9): how an issue becomes a pull request; how a Release is cut; what the
-Factory does as capacity runs short; how an interrupted Run resumes; the scorecard's sums.
+**Not yet designed** (§9.9): how a Release is cut; what the Factory does as capacity runs short;
+how an interrupted Run resumes; the scorecard's sums.
 
 ## 1. Purpose
 
@@ -796,9 +796,66 @@ Pause is not a state: it stops Admission for a scope and leaves each item where 
 Human transitions are declared like any other: marking ready, converting to draft, adding or
 removing a hold label, requesting changes, resolving a thread, approving, merging by Override.
 
-The issue Lifecycle is sketched only, because the review Intent is built first: `new`, `triaged`,
-`ready`, `in_progress`, `in_review` (the pull request's Lifecycle governs), `done`, `declined`,
-`held`. `done` requires a merged change with a non-empty diff that closes the issue.
+#### The issue Lifecycle
+
+Decided by the Maintainer on 2026-10-11. Like the pull request's, an issue's State is derived at
+every pass and never stored: from its labels, from the pull requests that close it, and from the
+run records.
+
+```mermaid
+stateDiagram-v2
+  [*] --> new
+  new --> triaged: factory:triaged added (human)
+  new --> ready: factory:ready added (human)
+  triaged --> ready: factory:ready added (human)
+  ready --> triaged: factory:ready removed (human)
+  ready --> in_progress: the opening Run is admitted, or a draft pull request closes the issue
+  in_progress --> ready: the opening Run ended and opened no pull request
+  in_progress --> in_review: the pull request is marked ready
+  in_review --> in_progress: the pull request is converted to draft (human)
+  in_review --> done: the pull request merged with a non-empty diff
+  in_progress --> ready: the pull request closed unmerged, the first time
+  in_review --> ready: the pull request closed unmerged, the first time
+  in_progress --> held: the pull request closed unmerged, the second time
+  in_review --> held: the pull request closed unmerged, the second time
+  ready --> held
+  held --> ready: Hold released (human)
+  done --> [*]
+  declined --> [*]
+```
+
+| State | Derived from | Next actor | Stale after |
+|---|---|---|---|
+| `new` | Open, with neither `factory:triaged` nor `factory:ready` | A person. An advising Role may comment; advice moves nothing | None |
+| `triaged` | Carries `factory:triaged` and not `factory:ready` | A person, who adds `factory:ready` | None |
+| `ready` | Carries `factory:ready`; no open pull request closes it; no Run holds it | The Controller, which admits the opening Run. Until the Factory has an author, the Maintainer's session opens the pull request | 30 min |
+| `in_progress` | A Run holds the issue, or its one linked pull request is a draft | The author Roles, and the Maintainer approving the contract (§4.8) | 24 h |
+| `in_review` | Its linked pull request is open and not a draft | The pull request's Lifecycle. The issue admits nothing of its own | As the pull request |
+| `held` | A Hold; or two open pull requests close it; or its pull request has twice closed unmerged; or its Run ceiling is reached | As the Hold states | 24 h, or the Hold's own time |
+| `done` | Closed, and a merged pull request with a non-empty diff closes it | None | None |
+| `declined` | Closed in any other way | None | None |
+
+Any state may move to `declined` when a person closes the issue, and to `held` on a Hold. A label
+counts only when a person with write access added it; one added by a Factory App is ignored, so
+nothing the Factory writes can bring an issue under its own control.
+
+**How an issue becomes a pull request.** The opening Run creates the work's branch and a draft pull
+request whose description closes the issue. From the fix and implement Intents onward that first
+commit is `qa-lead`'s contract and its failing tests (§4.8). The closing reference GitHub holds is
+the only join between the two items. It is read at every pass and written nowhere else, so a pull
+request a person opens by hand, closing the issue, moves the issue in exactly the same way. A pull
+request the Factory opens closes exactly one issue.
+
+**What bounds it.** Every Run on the issue and on its pull request counts toward one ceiling. A
+pull request closed unmerged returns its issue to `ready` once; the second time the issue is
+`held` and assigned to the Maintainer. Only a person releases a Hold or renews the allowance
+(I-28). The stale times above are starting figures, to be calibrated like the others (§6.1).
+
+**What a pass reads.** Every open issue, at two depths. For an issue that is `new` or `triaged` it
+reads the number, the labels and who added them, in a listing of a hundred to a request. For an
+issue that is `ready` or beyond it reads the full facts. Runs are admitted only from `ready`
+onward. A pass's cost therefore grows with the backlog, slowly; trial P-8 measures it against the
+budget of §7.3 before anything depends on it.
 
 ### 4.2 Convergence and the gate
 
@@ -997,7 +1054,8 @@ Every human control is one ordinary GitHub action, the same for every Role and e
 
 | Control | What the Maintainer does | Effect |
 |---|---|---|
-| Start work on an issue | Add the label `factory:ready` | The issue comes under Factory control |
+| Mark an issue triaged | Add the label `factory:triaged` | The issue is `triaged`. Nothing is admitted on it |
+| Start work on an issue | Add the label `factory:ready` | The issue is `ready`, and the next pass may admit its opening Run |
 | Hold | Add the label `factory:hold` | No Run is admitted on the item; an in-flight Run writes nothing (I-6, I-21) |
 | Release | Remove the label | The next pass resumes, with a fresh allowance of attempts (I-28) |
 | Hands-off | Add the label `factory:hands-off` | The Factory watches the item and never acts on it |
@@ -1009,8 +1067,10 @@ Every human control is one ordinary GitHub action, the same for every Role and e
 | Pause | Set the variable `FACTORY_PAUSED` for the org or a repo | No Run is admitted in that scope; only a person clears it |
 | Re-evaluate | Nothing | Every pass evaluates every open item |
 
-A pass reads only the issues that carry `factory:ready`, so its cost follows the work in hand and
-not the size of the backlog. The rest of the issue Lifecycle is not yet written.
+A pass reads every open issue, the unlabelled ones only as a listing (§4.1, the issue Lifecycle),
+and admits Runs only on those that carry `factory:ready`. This replaces the earlier answer,
+recorded in §9.8, that a pass reads labelled issues alone: the Maintainer decided on 2026-10-11
+that `new` and `triaged` are States the Factory derives.
 
 The Factory reaches the Maintainer the same way, through GitHub. When an item becomes "needs you",
 the Controller assigns it to the Maintainer, or requests their review on a pull request, and
@@ -1289,6 +1349,8 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-24 | With the Maintainer as the only code owner of a path, does the machine user's approval fail to satisfy code-owner review there? | It fails to satisfy it |
 | P-25 | Does resolving a reviewer's thread cause that reviewer to re-post it, reply, or approve? | No, with the configuration of §4.2 |
 | P-22 | How soon after it is started does a Run appear in the list of run records? | Soon enough that a pass never admits the same Run twice; the item's lane and I-21 cover the gap |
+| P-32 | Can the actor who added a label to an issue be read as a fact, in the same listing that reads the labels? | Yes, or the label's actor is read only for issues that carry a control label |
+| P-33 | Can the issue a pull request closes be read from a draft, an open and a closed-unmerged pull request alike? | Yes to all three, or the count of unmerged closes is taken from the run records |
 
 ### 6.1 The order to run them in
 
@@ -1300,6 +1362,9 @@ An assumption audit on 2026-10-10 ranked each trial by what breaks if its answer
 | **2. Before the first approval** | P-9, P-20 (chaining and the outside tick); P-5, P-23, P-25 (resolving others' threads); P-2 (an App in the merge queue); P-30 (cutting a Release); P-27, P-14, P-4 (forks, caches, narrowed tokens); P-26 (the sandbox) | One mechanism is replaced and the design stands. If threads cannot be resolved by an App, required thread resolution is dropped in repos the Factory serves |
 | **3. Before the control room** | P-11, P-19, P-21 (publishing the page); P-16, P-18 (retention and final steps) | The page is published another way, or history is shorter |
 | **4. As they come up** | P-6, P-10, P-12, P-15 | A detail changes |
+
+P-32 and P-33 belong to the issue Lifecycle (§4.1) and are run before the Factory's own author is
+built. P-8 now measures a pass that lists every open issue.
 
 Two assumptions are not trials. Whether a subscription used only by automation is within the
 vendor's terms is a question for the Maintainer and the vendor. And the numbers this document
@@ -1888,7 +1953,7 @@ Found by explaining the design on one page and by comparing it with the PRD grou
 
 | Requirement | State |
 |---|---|
-| FR-1, for issues | The issue Lifecycle is a list of state names. How an issue becomes a pull request is not designed |
+| FR-1, for issues | Designed in §4.1 on 2026-10-11. Not yet declared as data, nor checked for termination |
 | FR-6, resumable Runs | Not designed. A Run that times out pushes nothing and starts again |
 | FR-12, the injection test suite | Required before promotion; not designed |
 | FR-14, shared-branch safety | The rule is stated; the push guard is to be carried over from the POC |
