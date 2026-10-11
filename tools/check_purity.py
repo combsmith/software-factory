@@ -66,7 +66,9 @@ def run(root: pathlib.Path = ROOT) -> list:
             if docstring or isinstance(node, (ast.Import, ast.ImportFrom, ast.FunctionDef)):
                 continue
             value = getattr(node, "value", None) if isinstance(node, (ast.Assign, ast.AnnAssign)) else None
-            if value is None:
+            if isinstance(node, ast.AsyncFunctionDef):
+                problems.append("%s:%d defines an async function; the Kernel waits on nothing" % (name, node.lineno))
+            elif value is None:
                 problems.append("%s:%d runs when the module is imported; a module holds constants and functions"
                                 % (name, node.lineno))
             elif not _constant(value):

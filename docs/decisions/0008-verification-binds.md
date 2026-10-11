@@ -7,8 +7,8 @@ as it stood on 2026-10-11. That file records how this was reached; this one is t
 
 The Factory's own verification is a required check from the first commit. It is hermetic: it reads
 nothing outside the commit it judges. It is deterministic: randomised exploration runs on a
-schedule and blocks nothing. One command, `make verify`, runs locally exactly what the required
-check runs. The Maintainer's own approval never depends on the Factory running.
+schedule and blocks nothing. Two commands, `make verify` and then
+`python3 -m tools.mutants`, run locally exactly what the required check runs. The Maintainer's own approval never depends on the Factory running.
 
 ## Why
 
@@ -20,7 +20,7 @@ check and a human approval are the way out.
 
 | Boundary | Check |
 |---|---|
-| One command runs every check | `tools/verify.py`, `tests/test_tools.py::test_every_check_is_run_by_verify` |
+| One command runs every check and every test | `tools/verify.py`, `tests/test_tools.py::test_every_check_is_run_by_verify` |
 | The check is hermetic: nothing in this repo can import a module that reaches the network | `tools/check_repo.py` |
 | The check is deterministic: the simulator runs fixed seeds, and a seed replays exactly | `tests/test_simulator.py::test_a_seed_replays_exactly` |
 | The tests can fail: each Kernel rule, broken on purpose, is noticed | `tools/mutants.py` |

@@ -74,10 +74,10 @@ Held by: `tools/check_authority.py`, `tests/test_decide.py::test_approver_is_nev
 
 ```text
 yes   "the Factory's model credential, an environment secret restricted to the default branch"
-no    any value, in a file, a test, a log line, a commit message or a document
+no    any value, in any file here: code, a test, an example, a document
 ```
 
-Org standard: the org's AGENTS.md, "Security & Secrets", and push-protection.md, "What Counts as a Secret". The same rule. The check here is narrower than the org's scanners, which push protection still applies.
+Org standard: the org's AGENTS.md, "Security & Secrets", and push-protection.md, "What Counts as a Secret". The same rule. The check here is a net with wide holes; the org's gitleaks job and push protection are the real ones.
 Held by: `tests/test_tools.py::test_something_shaped_like_a_credential_is_caught`
 
 ## Nothing is fetched
@@ -87,9 +87,9 @@ import urllib.request      # refused: not in the allowed list
 ```
 
 No dependency, no download and no module that reaches the network, so the required check reads
-nothing outside the commit it judges.
+nothing outside the commit it judges. The org's secret scan is a separate workflow and the one exception.
 
-Org standard: none. It departs from push-protection.md, "Required CI job", and from the org tools that are installed by a download: decision 0014.
+Org standard: none. The one fetch is the org's own, push-protection.md, "Required CI job"; the org tools installed by a download are departed from: decision 0014.
 Held by: `tools/check_repo.py`
 
 ## The Factory cannot change what governs it

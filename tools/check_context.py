@@ -65,7 +65,9 @@ def _named(text: str, root: pathlib.Path, here: pathlib.Path) -> list:
         name = re.sub(r":\d+$", "", name)
         if not PATHLIKE.match(name):
             continue
-        if not (name.split("/")[0] in top or name.endswith(SUFFIXES) or ("/" in name and EXTENSION.search(name))):
+        first = name.split("/")[0]
+        if not (first in top or name.endswith(SUFFIXES) or ("/" in name and EXTENSION.search(name))
+                or (name.endswith("/") and first not in PLANNED)):
             continue
         target = root / name if (root / name).exists() else here / name
         ok = target.exists()

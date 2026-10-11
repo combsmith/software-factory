@@ -1,15 +1,14 @@
 # Workflows
 
-How a workflow is written here. Each rule shows its example first, then says what holds it. Every
-rule has workflows that break it, and only it, under `examples/workflows/invalid/`. A workflow is
-written in a narrow form the check can read: block style, bare keys, one key to a line. Any other
-spelling is refused, so that no rule is dodged by one.
+Each rule shows its example first, then says what holds it. Every rule has workflows that break
+it, and only it, under `examples/workflows/invalid/`. A workflow is written in a narrow form the
+check can read: block style, bare keys, one key to a line. Any other spelling is refused.
 An org standard is cited from petry-projects/.github at commit 9e2daad, by file and heading.
 
 ## The whole of a good workflow
 
 ```yaml
-# The required check, `factory / verify`. It runs what `make verify` runs, on the commit and nothing else.
+# The required check, `factory / verify`: `make verify` and the mutation check, on the commit and nothing else.
 name: factory
 on:
   pull_request:
@@ -91,10 +90,11 @@ Held by: `examples/workflows/invalid/expression.text-run-as-a-command.yml`, `exa
 ```
 
 A `run:` line is `make` and a target, or `python3 -m` and a module of this repo, and nothing
-else. That one rule keeps out installs, downloads, conditions and a failure swallowed with a pipe.
+else: no install, download, condition or swallowed failure. One workflow is exempt, by name and
+held by its hash: the org's secret scan, which downloads gitleaks.
 
-Org standard: the org's AGENTS.md, "Decision Logic Lives in a Pure, Tested Script". Stricter here: a limit of ten lines. Fetching nothing departs from push-protection.md, "Required CI job": decision 0014.
-Held by: `examples/workflows/invalid/length.logic-in-a-workflow.yml`, `examples/workflows/invalid/install.fetched-at-run-time.yml`, `examples/workflows/invalid/install.a-decision-in-shell.yml`
+Org standard: the org's AGENTS.md, "Decision Logic Lives in a Pure, Tested Script". Stricter here: a limit of ten lines, and nothing fetched but by push-protection.md, "Required CI job", which runs as the org wrote it.
+Held by: `examples/workflows/invalid/length.logic-in-a-workflow.yml`, `examples/workflows/invalid/install.fetched-at-run-time.yml`, `examples/workflows/invalid/install.a-decision-in-shell.yml`, `tests/test_tools.py::test_an_exempt_workflow_is_held_word_for_word`
 
 ## A required check always reports
 

@@ -51,6 +51,8 @@ MUTANTS = [
      '    if len(recent) >= limits["max_runs_per_item"]:\n', "    if False:\n"),
     ("a capacity fault does not defer", "kernel/decide.py",
      "    if until is not None and until > now:\n", "    if False:\n"),
+    ("an unreadable count of active Runs is trusted", "kernel/decide.py",
+     "    if active is None:\n", "    if active is None and False:\n"),
     ("the org limit is ignored", "kernel/decide.py",
      '    if active >= limits["org_max_active_runs"]:\n', "    if False:\n"),
 ]

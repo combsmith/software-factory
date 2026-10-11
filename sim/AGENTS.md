@@ -8,7 +8,7 @@ no rule of its own: every decision comes from `kernel/`. Time is the counter `mi
 |---|---|
 | Draw only with `random()`, through `pick()`; other draws differ between Python versions | `tools/check_repo.py` |
 | Every set of facts made here is valid, so a new fact is added here with its schema | `tests/test_simulator.py::test_invariants_hold_under_faults` |
-| Every transition the Kernel makes here is declared in `lifecycle/pull_request.json` | `tests/test_simulator.py::test_invariants_hold_under_faults` |
+| Every transition a pass makes here is declared in `lifecycle/pull_request.json` | `tests/test_simulator.py::test_invariants_hold_under_faults` |
 | A failure names its seed, and the seed replays | `tests/test_simulator.py::test_a_seed_replays_exactly` |
 | A rule the fake applies about GitHub cites a response recorded from the real platform | waiting on `adapters/` |
 

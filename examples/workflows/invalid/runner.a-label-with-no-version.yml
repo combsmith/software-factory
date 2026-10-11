@@ -1,4 +1,4 @@
-# Must be rejected. A runner chosen by an expression is whatever the expression says that day.
+# Must be rejected. A runner label with no version is whatever machine carries the label that day.
 name: factory
 on:
   pull_request:

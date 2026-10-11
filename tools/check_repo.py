@@ -112,7 +112,7 @@ def run(root: pathlib.Path = ROOT) -> list:
             if shape.search(text):
                 problems.append("%s: holds something shaped like a credential" % rel)
         if path.suffix == ".py" and rel.parts[0] != "tests" and \
-                re.search(r"^test_|_tests?$", path.stem):
+                re.search(r"(?:^test_)|(?:_tests?$)", path.stem):
             problems.append("%s: a test outside tests/ is never run" % rel)
         if rel.parts[0] == "tests" and path.suffix == ".py" and len(rel.parts) > 2:
             problems.append("%s: a test below tests/ is never found; keep tests in tests/ itself" % rel)

@@ -10,6 +10,7 @@ that must be rejected for that rule and no other. A rule with no counter-example
 """
 from __future__ import annotations
 
+import hashlib
 import pathlib
 import re
 
@@ -19,7 +20,7 @@ RULES = {
             "or quoted key",
     "pin": "an action is pinned to a full commit hash with its version beside it; one of the org's own "
            "reusable workflows, to its channel tag; nothing local but a reusable workflow",
-    "target": "a workflow runs only on pull_request, merge_group, schedule, workflow_dispatch or "
+    "target": "a workflow runs only on pull_request, merge_group, push, schedule, workflow_dispatch or "
               "workflow_call, and never on pull_request_target",
     "permissions": "permissions are declared at the top and grant nothing that can write; never read-all or write-all",
     "expression": "an expression stands only as the whole of a value under env:, with: or secrets:, or in if:",
@@ -34,7 +35,12 @@ RULES = {
     "credentials": "every checkout sets persist-credentials: false",
     "soft": "no step or job continues on error",
 }
-EVENTS = {"pull_request", "merge_group", "schedule", "workflow_dispatch", "workflow_call"}
+EVENTS = {"pull_request", "merge_group", "push", "schedule", "workflow_dispatch", "workflow_call"}
+# A workflow the org requires as it wrote it. It is exempt from the rules named and from no other,
+# and it is held to its text by a hash taken with the pins left out: to change it, change this.
+EXEMPT = {
+    "ci.yml": (("install",), "b44cacc1fd6c04cf7b907fc81ecbf3748d0e49a717f9ba8c1e7aa781d1a9ad16"),    # the org's secret scan downloads gitleaks
+}
 MAX_RUN_LINES = 10
 ENTRY = re.compile(r"^( *)(- )?([A-Za-z_][\w-]*):(?: (.*))?$")
 ITEM = re.compile(r"^( *)- (\S.*)$")
@@ -191,8 +197,14 @@ def run(root: pathlib.Path = ROOT) -> list:
     live = sorted((root / ".github" / "workflows").glob("*.y*ml"))
     example = root / "examples" / "workflows" / "verify.yml"
     for path in live + sorted((root / "examples" / "workflows").glob("*.y*ml")):
-        for rule, message in lint(path.read_text(errors="replace")):
-            problems.append("%s: [%s] %s. The rule: %s" % (path.relative_to(root), rule, message, RULES[rule]))
+        text = path.read_text(errors="replace")
+        spared, held = EXEMPT.get(path.name, ((), None)) if path in live else ((), None)
+        if held and hashlib.sha256(PIN.sub("@PIN", text).encode()).hexdigest() != held:
+            problems.append("%s is exempt from a rule, so it is held word for word, and it has changed; "
+                            "if the change is meant, record its new hash in EXEMPT" % path.relative_to(root))
+        for rule, message in lint(text):
+            if rule not in spared:
+                problems.append("%s: [%s] %s. The rule: %s" % (path.relative_to(root), rule, message, RULES[rule]))
     for folder in sorted((root / ".github").glob("actions*")):
         problems.append("%s: a local action is not read by this check; write a reusable workflow"
                         % folder.relative_to(root))
