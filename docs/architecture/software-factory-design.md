@@ -832,7 +832,7 @@ stateDiagram-v2
   ready --> new: acceptance lapsed
   ready --> in_progress: the opening Run is admitted, or a linked draft appears
   in_progress --> ready: the opening Run ended and opened nothing (bound: max_attempts)
-  ready --> held: max_attempts is reached (the Controller adds factory:hold)
+  ready --> held: max_attempts is spent (the Controller adds factory:hold)
   in_progress --> in_review: the pull request is marked ready
   in_review --> in_progress: the pull request is converted to draft (human)
   in_progress --> done: a linked pull request merged with a non-empty diff
@@ -841,8 +841,8 @@ stateDiagram-v2
   in_review --> ready: the pull request closed unmerged (bound: max_unmerged_closes)
   in_progress --> triage: the same, and the content changed meanwhile (bound: max_unmerged_closes)
   in_review --> triage: the same, and the content changed meanwhile (bound: max_unmerged_closes)
-  in_progress --> held: max_unmerged_closes is reached (the Controller adds factory:hold)
-  in_review --> held: max_unmerged_closes is reached (the Controller adds factory:hold)
+  in_progress --> held: a close exceeds max_unmerged_closes (the Controller adds factory:hold)
+  in_review --> held: a close exceeds max_unmerged_closes (the Controller adds factory:hold)
   new --> held: a Hold (human)
   triage --> held: a Hold (human)
   ready --> held: a Hold (human)
@@ -874,7 +874,7 @@ write access.
 | 1 | A linked pull request merged with a non-empty diff in its present life, whether or not GitHub has yet closed the issue | `done` | None |
 | 2 | Closed in any other way, an empty merge and a commit's closing keyword among them. It stays so if anyone but a person with write access reopens it | `declined` | None |
 | 3 | The Consumer entry does not serve it; or it, or its linked draft, carries `factory:hands-off` | `not_served` | A person |
-| 4 | It carries `factory:hold`, whoever added it; or its linked draft pull request does; or more than one linked pull request is open | `held` | As the Hold states |
+| 4 | It carries `factory:hold`, whoever added it; or its linked draft pull request does; or more than one linked pull request is open; or its Run ceiling is reached | `held` | As the Hold states |
 | 5 | It is not accepted | `new` | The Maintainer, to whom it is assigned, if acceptance lapsed after work began: it carries a Factory label or has a linked pull request. Otherwise nobody: it is listed, and not counted (I-32) |
 | 6 | One linked pull request is open and not a draft | `in_review` | The pull request's Lifecycle. The issue admits nothing |
 | 7 | One linked pull request is open as a draft, or an opening Run holds the issue | `in_progress` | The author Roles, and the Maintainer approving the contract (§4.8) |
@@ -885,8 +885,9 @@ write access.
 An issue is **accepted** when the Consumer entry serves it and either a person with write access
 opened it, or `factory:admit` counts on it. Rows 6 to 9 are reached only by an accepted issue, so
 no Run is ever admitted on one that is not (I-42). When an outsider edits an admitted issue the
-admission stops counting, and the issue is `new` again at the next pass, whatever labels it
-carries.
+admission stops counting, and the issue is `new` again at the next pass, whatever Factory labels
+it carries. A Hold or hands-off ranks above that (rows 3 and 4) and still gives `held` or
+`not_served`.
 
 A **linked** pull request is one that closes the issue and was opened by a Factory App or by a
 person with write access, or is an outsider's that the Maintainer has once admitted. It stays
@@ -1002,10 +1003,10 @@ does nothing. Runs are admitted on the issue, and the issue's facts carry the dr
 and read from the configuration. The Lifecycle schema and the configuration gain
 `max_unmerged_closes`.
 
-| Cycle | Bound | At the bound |
+| Cycle | Bound | Beyond it |
 |---|---|---|
 | `ready` to `in_progress` and back, when an opening Run ends having opened nothing | `max_attempts`, counted from the run records. The bound is reached, and the Hold placed, long before a record expires | The Controller adds `factory:hold` |
-| `in_progress` or `in_review` back to `ready` or `triage`, when a linked pull request closes unmerged | `max_unmerged_closes`, starting at one: one retry | The Controller adds `factory:hold` and assigns the Maintainer |
+| `in_progress` or `in_review` back to `ready` or `triage`, when a linked pull request closes unmerged | `max_unmerged_closes`, starting at one. The first unmerged close is the retry it allows: the issue goes back to `ready` or `triage` | On the close after that, the Controller adds `factory:hold` and assigns the Maintainer |
 | `triage` to `ready` and back, when the content keeps changing | `max_runs_per_item`: every investigating and readiness Run counts toward the issue's Run ceiling | The Kernel holds the issue, as for a pull request |
 | Investigation and verdict within `triage` | One of each for each `content_id` and each action by a person with write access | Nothing more is admitted; the issue waits for a person |
 
