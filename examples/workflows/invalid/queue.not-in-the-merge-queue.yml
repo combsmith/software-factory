@@ -1,0 +1,18 @@
+# Must be rejected. A required check that does not run in the merge queue blocks everything queued.
+name: factory
+on:
+  pull_request:
+permissions: {}
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make verify
+      - run: python3 -m tools.mutants

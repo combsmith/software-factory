@@ -25,6 +25,6 @@ disagreed with GitHub. If a pass is lost, the next one reaches the same answer.
 | No text written by a third party reaches the Kernel: facts carry no prose | `examples/invalid/facts.carries-prose.json`, `tools/check_examples.py` |
 | Facts say whether they are complete; incomplete facts never converge and never admit | `examples/invalid/facts.no-completeness.json`, `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit` |
 | No decision reads the control room: the Kernel is given facts, run records, context, configuration and the time, and nothing else | `tests/test_decide.py::test_admission_is_given_facts_and_never_an_event` |
-| Every decision can be replayed from what was recorded | `tools/make_corpus.py` |
+| Every pass records the facts it read and the Decisions it made, so that any of them can be replayed | waiting on `controller/` |
 | A view rebuilt from GitHub equals the view updated pass by pass | waiting on `controller/` |
 | The status on a Work item is rewritten only when the decision changes | waiting on `harness/` |

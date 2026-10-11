@@ -25,9 +25,18 @@ If you are about to change something, read `AGENTS.md`. It is one page.
 Anything that touches GitHub, any model, any workflow that runs, the issue Lifecycle, acceptance
 evidence in Convergence, and the control room.
 
-## Run it
+## Local Development Commands
 
-`make verify`, then `python3 -m tools.mutants`. Python 3.9 or later; nothing to install.
+- Install: nothing. Python 3.9 or later, standard library only
+- Dev run: there is nothing to run yet; the simulator runs inside the tests
+- Test: `make verify`, then `python3 -m tools.mutants`
+- Lint: `make verify` runs every check there is
+- Typecheck: none; a type checker is an install (`docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md`)
+
+## Required Environment Variables
+
+None. `SIM_SEEDS` is optional: the number of simulator seeds to run, 300 if unset;
+`SIM_SEEDS=40 make verify` is a quicker local run.
 
 The design this implements is `docs/architecture/software-factory-design.md`; its first section is
 the whole of it on one page.

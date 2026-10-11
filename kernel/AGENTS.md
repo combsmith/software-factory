@@ -1,21 +1,18 @@
 # kernel/
 
 Every decision the Factory makes, as pure functions. `derive.py` works out the State of a pull
-request; `decide.py` works out what happens next; `terms.py` holds the codes.
+request and answers "where does this item stand": its tests run in order and the first that
+applies wins. `decide.py` answers "what now", and holds every brake. `terms.py` holds the codes.
 
-## Rules of this place
-
-- **No I/O.** No file, socket, process, environment variable or clock. The time is the argument
-  `now`. Only `__future__`, `typing` and `kernel` may be imported.
-- **Nothing is kept.** A module's top level holds constants only: text, a tuple, a `frozenset`.
-- **Facts in, Decision out.** Plain dictionaries and lists, already validated against `schemas/`.
-  Never change an argument.
-- **No text from outside.** No function here takes a comment body or a title.
-- **Codes, not sentences.** A reason matches `^[a-z_]+$`.
-- **Fail to a deferral or a Hold.** Never give a default to a fact that was read from outside.
-- **No numbers but 0 and 1.** A limit is read from `config`, which is `config/defaults.json`.
-
-All held by `tools/check_purity.py`, `tools/check_examples.py` and the tests.
+| Rule | Held by |
+|---|---|
+| No I/O: no file, socket, process, environment variable or clock. The time is the argument `now`. Only `__future__`, `typing` and `kernel` are imported | `tools/check_purity.py` |
+| Nothing is kept: a module holds imports, constants and functions, and no function has a default that can change | `tests/test_tools.py::test_state_kept_between_calls_is_caught` |
+| Facts in, Decision out, as plain dictionaries and lists. An argument is never changed | `tests/test_decide.py::test_the_same_inputs_give_the_same_decision` |
+| No text from outside: no function takes a comment body or a title | `examples/invalid/facts.carries-prose.json` |
+| A reason is a code that matches `^[a-z_]+$`, never a sentence | `examples/invalid/decision.sentence-as-reason.json` |
+| Fail to a deferral or a Hold. A fact read from outside is never given a default | `tests/test_decide.py::test_unreadable_capacity_defers` |
+| No number but 0 and 1. A limit is read from `config`, which is `config/defaults.json` | `tests/test_tools.py::test_a_limit_written_into_the_kernel_is_caught` |
 
 ## Adding a rule: copy this one
 
@@ -35,6 +32,4 @@ Then, only if your rule needs it:
 - It reads a new limit: add it to `config/defaults.json` and `schemas/config.schema.json`.
 - It makes a new transition between States: declare it in `lifecycle/pull_request.json`.
 - It is a boundary of a record in `docs/decisions/`: add a row there naming your test.
-
-`derive()` answers "where does this item stand"; its checks run in order and the first that
-applies wins. `decide()` answers "what now", and holds every brake.
+- A test in `tests/test_decide.py` marked `@pending` already states it: take the mark off.

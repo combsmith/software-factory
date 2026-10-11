@@ -36,31 +36,43 @@ def _open(schema, path: str = "$") -> list:
     return out
 
 
-def run() -> list:
+def run(root: pathlib.Path = ROOT) -> list:
     problems = []
-    schemas = {p.name[: -len(".schema.json")]: _load(p) for p in sorted((ROOT / "schemas").glob("*.schema.json"))}
+    schemas = {p.name[: -len(".schema.json")]: _load(p) for p in sorted((root / "schemas").glob("*.schema.json"))}
+    if not schemas:
+        return ["there are no schemas to check"]
     for kind, schema in sorted(schemas.items()):
         for where in _open(schema):
             problems.append("schema %s accepts unknown fields at %s" % (kind, where))
-    for path in sorted((ROOT / "examples").glob("*.json")):
+    for path in sorted((root / "examples").glob("*.json")):
         kind = path.name.split(".")[0]
         if kind not in schemas:
             problems.append("%s: no schema named %s" % (path.name, kind))
             continue
         for err in validate(_load(path), schemas[kind]):
             problems.append("%s: %s" % (path.name, err))
-    for path in sorted((ROOT / "examples" / "invalid").glob("*.json")):
+    for path in sorted((root / "examples" / "invalid").glob("*.json")):
         kind = path.name.split(".")[0]
-        if not validate(_load(path), schemas[kind]):
+        if kind not in schemas:
+            problems.append("invalid/%s: no schema named %s" % (path.name, kind))
+            continue
+        errors = validate(_load(path), schemas[kind])
+        if not errors:
             problems.append("invalid/%s: was accepted, and must be rejected" % path.name)
+        elif len(errors) > 1:
+            problems.append("invalid/%s: is wrong in %d ways; a counter-example is wrong in one, named in its file name"
+                            % (path.name, len(errors)))
     for rel, kind in sorted(LIVE.items()):
-        for err in validate(_load(ROOT / rel), schemas[kind]):
+        if not (root / rel).exists():
+            problems.append("%s is missing" % rel)
+            continue
+        for err in validate(_load(root / rel), schemas[kind]):
             problems.append("%s: %s" % (rel, err))
     for folder in ("config", "lifecycle"):
-        for path in sorted((ROOT / folder).glob("*.json")):
+        for path in sorted((root / folder).glob("*.json")):
             if "%s/%s" % (folder, path.name) not in LIVE:
                 problems.append("%s/%s is validated against no schema; add it to LIVE" % (folder, path.name))
-    covered = {p.name.split(".")[0] for p in (ROOT / "examples").glob("*.json")} | set(LIVE.values())
+    covered = {p.name.split(".")[0] for p in (root / "examples").glob("*.json")} | set(LIVE.values())
     for kind in sorted(set(schemas) - covered):
         problems.append("schema %s has no example" % kind)
     return problems

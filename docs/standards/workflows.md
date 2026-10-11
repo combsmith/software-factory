@@ -1,8 +1,10 @@
 # Workflows
 
-How a workflow is written here. No workflow runs yet; the first will be this one. Each rule shows
-its example first, then says what holds it. Every rule has a workflow that breaks it, and only it,
-under `examples/workflows/invalid/`.
+How a workflow is written here. Each rule shows its example first, then says what holds it. Every
+rule has workflows that break it, and only it, under `examples/workflows/invalid/`. A workflow is
+written in a narrow form the check can read: block style, bare keys, one key to a line. Any other
+spelling is refused, so that no rule is dodged by one.
+An org standard is cited from petry-projects/.github at commit 9e2daad, by file and heading.
 
 ## The whole of a good workflow
 
@@ -31,7 +33,8 @@ jobs:
 This is `examples/workflows/verify.yml`, word for word. The check name people see is the workflow's
 name and the job's name: `factory / verify`. Renaming either silently stops it being required.
 
-Held by: `tools/check_workflows.py`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`
+Org standard: ci-standards.md, "Permissions Policy", "Action Pinning Policy" and "CI Job Naming Convention". Its name, triggers and stages depart from "1. CI Pipeline (ci.yml)": `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md`.
+Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`
 
 ## Pinned to what was looked up
 
@@ -45,6 +48,7 @@ runs-on: ubuntu-latest     # no
 A tag can be moved; a commit hash cannot. Look the hash up from the release, and never guess one:
 a made-up hash passes until the job first runs.
 
+Org standard: ci-standards.md, "Action Pinning Policy", "Looking Up the Correct SHA" and "Exception: Internal Reusable Workflow References". Stricter here: a tag never stands in for a hash, and the runner is named by version.
 Held by: `examples/workflows/invalid/pin.a-tag-can-move.yml`, `examples/workflows/invalid/runner.an-image-that-changes.yml`
 
 ## Nothing is granted that is not named
@@ -60,6 +64,7 @@ jobs:
 No personal access token, and no `secrets: inherit`. Every checkout sets
 `persist-credentials: false`.
 
+Org standard: ci-standards.md, "Permissions Policy". Refusing a personal token and inherited secrets departs from github-settings.md, "Required secrets (all repos)": decision 0014.
 Held by: `examples/workflows/invalid/permissions.none-declared.yml`, `examples/workflows/invalid/token.a-persons-token.yml`, `examples/workflows/invalid/credentials.a-token-left-on-disk.yml`
 
 ## Text from outside is never a command
@@ -69,8 +74,10 @@ Held by: `examples/workflows/invalid/permissions.none-declared.yml`, `examples/w
 - run: python3 -m tools.verify            # yes: nothing from the event is in the command
 ```
 
-No expression is written into a `run:` block, and no workflow runs on `pull_request_target`.
+An expression stands only as the whole of a value under env, with or secrets, or in an if. A
+workflow runs on pull requests, the merge queue, a schedule or a dispatch, and on nothing else.
 
+Org standard: none for expressions; the org's workflows pass event fields through env by hand. Refusing pull_request_target departs from dependabot-policy.md, "Auto-Merge Workflow": decision 0014.
 Held by: `examples/workflows/invalid/expression.text-run-as-a-command.yml`, `examples/workflows/invalid/target.secrets-beside-a-strangers-code.yml`
 
 ## A workflow holds no logic and fetches nothing
@@ -83,9 +90,11 @@ Held by: `examples/workflows/invalid/expression.text-run-as-a-command.yml`, `exa
 - run: pip install pytest                 # no: not in the commit being judged
 ```
 
-A `run:` block is at most ten lines and calls a module. Nothing is installed or downloaded.
+A `run:` line is `make` and a target, or `python3 -m` and a module of this repo, and nothing
+else. That one rule keeps out installs, downloads, conditions and a failure swallowed with a pipe.
 
-Held by: `examples/workflows/invalid/length.logic-in-a-workflow.yml`, `examples/workflows/invalid/install.fetched-at-run-time.yml`
+Org standard: the org's AGENTS.md, "Decision Logic Lives in a Pure, Tested Script". Stricter here: a limit of ten lines. Fetching nothing departs from push-protection.md, "Required CI job": decision 0014.
+Held by: `examples/workflows/invalid/length.logic-in-a-workflow.yml`, `examples/workflows/invalid/install.fetched-at-run-time.yml`, `examples/workflows/invalid/install.a-decision-in-shell.yml`
 
 ## A required check always reports
 
@@ -97,6 +106,7 @@ on:
 
 A schedule never fires at minute 0, which is when the platform drops them.
 
+Org standard: ci-standards.md, "Centralization tiers", which says a required check's workflow must run on merge_group, and "Scheduled Workflow Timing". Stricter here: every workflow on pull requests, and no path filter.
 Held by: `examples/workflows/invalid/queue.a-required-check-that-never-reports.yml`, `examples/workflows/invalid/cron.the-top-of-the-hour.yml`, `examples/workflows/invalid/form.no-trigger.yml`
 
 ## A failure is seen, and a hang ends
@@ -106,4 +116,5 @@ timeout-minutes: 15        # on every job with steps
 continue-on-error: true    # never
 ```
 
+Org standard: none for the time limit. Refusing continue-on-error departs from ci-standards.md, "3. SonarCloud Analysis (sonarcloud.yml)": decision 0014.
 Held by: `examples/workflows/invalid/timeout.a-hung-step-runs-six-hours.yml`, `examples/workflows/invalid/soft.a-failure-nobody-sees.yml`

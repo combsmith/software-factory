@@ -18,6 +18,12 @@ def run(authority: dict = None, config: dict = None) -> list:
     if a["max_rounds"] != c["limits"]["max_rounds"]:
         problems.append("max_rounds differs between the authority table and the configuration")
     cats = a["categories"]
+    finding = json.loads((ROOT / "schemas" / "finding.schema.json").read_text())
+    known = set(finding["properties"]["category"]["enum"])
+    for name in sorted(known - set(cats)):
+        problems.append("a Finding may carry the category %s, and nobody owns it" % name)
+    for name in sorted(set(cats) - known):
+        problems.append("%s has an owner, and no Finding can carry it" % name)
     for name in sorted(MODEL_JUDGED - set(cats)):
         problems.append("category has no owner: %s" % name)
     for name, c in sorted(cats.items()):

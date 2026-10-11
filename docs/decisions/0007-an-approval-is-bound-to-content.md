@@ -28,10 +28,7 @@ resolved state, so a gate built on comments can never be closed.
 | A person's thread is closed only by that person | `tests/test_decide.py::test_an_answered_human_thread_waits_for_that_person` |
 | A security Finding is never accepted as declined or deferred | `tests/test_tools.py::test_security_may_never_be_declined` |
 | Nothing merges without an approval of the merged content | `tests/test_simulator.py::test_invariants_hold_under_faults` |
+| A request for changes from a person with write access gates, as that person's thread does | not held yet: `tests/test_decide.py::test_a_writers_request_for_changes_does_not_converge` |
+| A pull request that loses its approval leaves the merge queue | not held yet: `tests/test_decide.py::test_a_queued_pull_request_with_no_approval_leaves_the_queue` |
 | A merge without a standing independent approval has an Override record | waiting on `controller/` |
 | The Factory updates a branch only when it conflicts with its base | waiting on `harness/` |
-
-## Not yet held
-
-Decided, and no rule in the Kernel yet: a review that requests changes, from a person with write
-access, gates as that person's thread does. The facts do not yet say who wrote a review.

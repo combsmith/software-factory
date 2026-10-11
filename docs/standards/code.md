@@ -1,6 +1,7 @@
 # Code
 
 How code is written here. Each rule shows its example first, then says what holds it.
+An org standard is cited from petry-projects/.github at commit 9e2daad, by file and heading.
 
 ## A decision is a pure function
 
@@ -17,6 +18,7 @@ def admitted(facts: dict) -> bool:
 Facts in, answer out. No file, socket, process, environment variable or clock: the time is the
 argument `now`. Nothing is kept between calls, so a module's top level holds constants only.
 
+Org standard: the org's AGENTS.md, "Decision Logic Lives in a Pure, Tested Script". Stricter here: no clock, no environment and nothing kept either, and a tool asserts it.
 Held by: `tools/check_purity.py`, `tests/test_decide.py::test_the_same_inputs_give_the_same_decision`
 
 ## Unreadable is its own answer
@@ -34,6 +36,7 @@ if active is None:
 Never give a default to something that was read from outside. An unreadable fact yields `defer`
 or `hold`; it never yields `admit` or `act`.
 
+Org standard: the org's AGENTS.md, "Fail Loud, Never Fake". Stricter here: the org allows a fallback that is disclosed; the Kernel has none.
 Held by: `tests/test_decide.py::test_unreadable_capacity_defers`, `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`
 
 ## A reason is a code
@@ -46,6 +49,7 @@ return {"state": t.HELD, "reason": "The diff has no files.", "evidence": []}   #
 A reason matches `^[a-z_]+$`. People read a rendering of it, made elsewhere. If the reason means
 a person must act, add it to `NEEDS_YOU_REASONS` in `kernel/decide.py`.
 
+Org standard: none. This rule is this repo's own.
 Held by: `examples/invalid/decision.sentence-as-reason.json`
 
 ## A limit is data
@@ -58,6 +62,7 @@ if len(attempts) >= 3:                          # no
 The only numbers written in the Kernel are 0 and 1. Every other number is a limit, lives in
 `config/defaults.json`, and is described by `schemas/config.schema.json`.
 
+Org standard: the org's AGENTS.md, "Pull Request Limits (automation open-PR cap)", which says never to hardcode or restate a cap. Stricter here: every number but 0 and 1.
 Held by: `tests/test_tools.py::test_a_limit_written_into_the_kernel_is_caught`
 
 ## Nothing is installed
@@ -75,6 +80,7 @@ The standard library and this repo, and nothing else. A standard-library module 
 added to `STDLIB` in `tools/check_repo.py` in the same change. The syntax is Python 3.9's. This is
 why the org's linters, type checker and test runner are not used here: each is an install.
 
+Org standard: none for the rule. It departs from the org's AGENTS.md, "Pre-Commit Quality Checks", and the Python instructions, "Testing (pytest)": `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md`.
 Held by: `tools/check_repo.py`, `tests/test_tools.py::test_syntax_newer_than_the_oldest_python_is_caught`
 
 ## A check returns its problems
@@ -93,6 +99,7 @@ all is well. It takes the repo root as an argument so that a test can run it aga
 fault. It is registered in `CHECKS` in `tools/verify.py`. It collects every problem and never
 stops at the first.
 
+Org standard: none. This rule is this repo's own.
 Held by: `tests/test_tools.py::test_every_check_is_run_by_verify`, `tests/test_tools.py::test_every_check_has_a_test_in_which_it_fails`
 
 ## A name is defined once
@@ -106,4 +113,5 @@ class Ceilings(unittest.TestCase):
 Python keeps the last definition and drops the others, so a duplicated test silently stops
 running. Replace a function; never append a second copy.
 
+Org standard: the org's duplicate-declaration gate, scripts/check-duplicate-decls.sh, which holds shell functions, headings and JSON keys in two repos. The same idea, for Python definitions and JSON keys.
 Held by: `tests/test_tools.py::test_a_second_definition_is_caught`

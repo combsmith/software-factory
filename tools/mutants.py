@@ -58,7 +58,12 @@ MUTANTS = [
 
 def main() -> int:
     survived = []
-    env = dict(os.environ, SIM_SEEDS="40")
+    env = dict(os.environ, SIM_SEEDS="40", MUTATING="1")
+    whole = subprocess.run([sys.executable, "-m", "unittest", "discover", "-q", "tests"],
+                           cwd=ROOT, env=env, capture_output=True)
+    if whole.returncode != 0:
+        print("the tests fail before anything is broken; a mutant cannot be told from that")
+        return 1
     for name, rel, old, new in MUTANTS:
         with tempfile.TemporaryDirectory() as tmp:
             work = pathlib.Path(tmp) / "repo"

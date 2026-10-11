@@ -7,9 +7,9 @@ another implementation to this one; the required check does not depend on it.
 | Rule | Held by |
 |---|---|
 | A check is `check_<name>.py` with `run(root)` returning a list of sentences, and is listed in `CHECKS` in `verify.py` | `tests/test_tools.py::test_every_check_is_run_by_verify` |
-| A check has a test in which it fails, against a planted fault | `tests/test_tools.py::test_every_check_has_a_test_in_which_it_fails` |
-| A check reaches no network. A standard-library module not yet used is added to `STDLIB` in the same change | `check_repo.py` |
-| A check fails closed: what it does not understand is a problem | `tests/test_tools.py::test_rejects_a_schema_it_cannot_enforce` |
+| A check has a test in which it fails, run whole against a planted fault, and finds nothing wrong with this repo | `tests/test_tools.py::test_every_check_has_a_test_in_which_it_fails` |
+| A check imports only what `STDLIB` in `check_repo.py` lists; a module not yet used is added there in the same change | `tests/test_tools.py::test_third_party_code_is_caught` |
+| A check fails closed: what it does not understand is a problem, and it allows what is named instead of refusing what is known | `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way` |
 | A workflow rule has a counter-example that breaks it and nothing else | `tests/test_tools.py::test_a_rule_with_no_counter_example_is_caught` |
 | An entry in `mutants.py` names text that appears once in its file. Change that text, or write the same text on a second line, and the entry goes `STALE`; update it | `mutants.py` |
 

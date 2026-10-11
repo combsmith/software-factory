@@ -26,6 +26,7 @@ comments, and waited for reviewers that never answered.
 | A reason is a code, never a sentence | `examples/invalid/decision.sentence-as-reason.json` |
 | A required Lens's blocking or major Finding gates; a minor one, or one from a Lens that is not required, does not | `tests/test_decide.py::test_required_lens_major_finding_gates`, `tests/test_decide.py::test_minor_finding_and_unrequired_lens_do_not_gate` |
 | No model Lens runs on content the deterministic Lenses have not passed | `tests/test_decide.py::test_no_model_review_before_deterministic_checks_pass` |
+| A dependency update is judged by the deterministic Lenses alone | not held yet: `tests/test_decide.py::test_a_dependency_update_needs_no_model_review` |
 | An empty diff never converges | `tests/test_decide.py::test_empty_diff_never_converges` |
 | Rounds between author and owner are bounded, and the bound ends in a Hold | `tests/test_decide.py::test_rounds_are_bounded` |
 | Every category of Finding has exactly one owner | `tools/check_authority.py` |

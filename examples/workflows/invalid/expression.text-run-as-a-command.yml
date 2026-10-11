@@ -1,4 +1,4 @@
-# Must be rejected. A branch name is text an outsider chooses, and here it is run as a command.
+# Must be rejected. A branch name is text an outsider chooses, and here it becomes the directory a command runs in.
 name: factory
 on:
   pull_request:
@@ -15,6 +15,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: echo ${{ github.head_ref }}
       - run: make verify
+        working-directory: ${{ github.head_ref }}
       - run: python3 -m tools.mutants

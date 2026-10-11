@@ -5,7 +5,7 @@ import json
 import unittest
 
 from kernel.decide import decide
-from tests.support import CONFIG, GREEN, NOW, ROOT, config, context, facts, run, thread
+from tests.support import CONFIG, GREEN, NOW, ROOT, config, context, facts, pending, run, thread
 from tools.jsonschema_lite import validate
 
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
@@ -53,14 +53,15 @@ class Derived(unittest.TestCase):
 class HumanControl(unittest.TestCase):
     def test_hold_label_binds(self):  # I-6
         d = go(facts(labels=["factory:hold"]))
-        self.assertEqual((d["outcome"], d["attention"]), ("hold", "needs_you"))
+        self.assertEqual((d["outcome"], d["reason"], d["attention"]), ("hold", "human_hold", "needs_you"))
 
     def test_hands_off_is_left_alone(self):
         d = go(facts(labels=["factory:hands-off"]))
-        self.assertEqual((d["outcome"], d["attention"]), ("hold", "none"))
+        self.assertEqual((d["outcome"], d["reason"], d["attention"]), ("hold", "hands_off", "none"))
 
     def test_human_pause_admits_nothing(self):  # I-7
-        self.assertEqual(go(facts(), ctx=context(paused=True))["outcome"], "defer")
+        d = go(facts(), ctx=context(paused=True))
+        self.assertEqual((d["outcome"], d["reason"]), ("defer", "paused"))
 
     def test_draft_is_watched_only(self):
         self.assertEqual(go(facts(is_draft=True))["outcome"], "nothing")
@@ -173,8 +174,9 @@ class Convergence(unittest.TestCase):
 
 class Ceilings(unittest.TestCase):
     def test_one_writer_per_item(self):  # I-2
-        d = go(facts(), [run(status="in_progress")])
-        self.assertEqual((d["outcome"], d["attention"]), ("nothing", "working"))
+        for status in ("in_progress", "queued"):     # a Run waiting for a runner holds the item too
+            d = go(facts(), [run(status=status, conclusion=None)])
+            self.assertEqual((d["outcome"], d["attention"]), ("nothing", "working"), status)
 
     def test_item_faults_exhaust_attempts(self):
         failures = [run(conclusion="failure", outcome="item", at="2026-10-11T12:1%d:00Z" % i, name="f%d" % i) for i in range(3)]
@@ -210,6 +212,35 @@ class Ceilings(unittest.TestCase):
     def test_no_author_role_means_nobody_is_admitted_to_fix(self):
         d = go(facts(threads=[thread()]), REVIEWED, cfg=config(author_role=None))
         self.assertEqual((d["outcome"], d["attention"]), ("nothing", "failed"))
+
+
+class NotYetHeld(unittest.TestCase):
+    """Rules that are decided and that the Kernel does not hold yet. See `pending` in tests/support.py."""
+
+    @pending
+    def test_a_pause_stops_approvals_and_merges_too(self):  # I-7
+        approved = [{"actor": "donpetry-bot", "state": "approved", "commit": "c1", "content_id": "sha256:aaaa"}]
+        for reviews in ([], approved):
+            d = go(facts(reviews=reviews), REVIEWED, ctx=context(paused=True))
+            self.assertEqual((d["outcome"], d["reason"]), ("defer", "paused"))
+
+    @pending
+    def test_a_queued_pull_request_with_no_approval_leaves_the_queue(self):
+        self.assertEqual(go(facts(queue=True), REVIEWED)["outcome"], "act")
+
+    @pending
+    def test_an_unknown_mergeable_never_converges(self):  # I-13
+        self.assertEqual(go(facts(mergeable=None), REVIEWED)["outcome"], "defer")
+
+    @pending
+    def test_a_writers_request_for_changes_does_not_converge(self):
+        # The facts do not yet say whether a review's author can write; this one is the Maintainer's.
+        asked = [{"actor": "don-petry", "state": "changes_requested", "commit": "c1", "content_id": "sha256:aaaa"}]
+        self.assertNotEqual(go(facts(reviews=asked), REVIEWED)["state"], "converged")
+
+    @pending
+    def test_a_dependency_update_needs_no_model_review(self):
+        self.assertEqual(go(facts(**{"class": "dependency"}))["state"], "converged")
 
 
 if __name__ == "__main__":
