@@ -4,13 +4,17 @@ from __future__ import annotations
 import sys
 import unittest
 
-from tools import check_authority, check_examples, check_lifecycle, check_purity
+from tools import (check_authority, check_context, check_examples, check_lifecycle, check_purity,
+                   check_repo, check_workflows)
 
 CHECKS = [
     ("schemas and examples", check_examples.run),
     ("lifecycle", check_lifecycle.run),
     ("authority", check_authority.run),
     ("kernel purity", check_purity.run),
+    ("repo", check_repo.run),
+    ("workflows", check_workflows.run),
+    ("context", check_context.run),
 ]
 
 

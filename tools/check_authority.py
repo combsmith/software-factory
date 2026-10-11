@@ -9,9 +9,14 @@ MODEL_JUDGED = {"functional", "security", "architecture", "delivery", "reliabili
                 "requirements", "uncategorised"}
 
 
-def run(authority: dict = None) -> list:
+def run(authority: dict = None, config: dict = None) -> list:
     a = json.loads((ROOT / "config" / "authority.json").read_text()) if authority is None else authority
+    c = json.loads((ROOT / "config" / "defaults.json").read_text()) if config is None else config
     problems = []
+    if a["author_role"] != c["author_role"]:
+        problems.append("the author Role differs between the authority table and the configuration")
+    if a["max_rounds"] != c["limits"]["max_rounds"]:
+        problems.append("max_rounds differs between the authority table and the configuration")
     cats = a["categories"]
     for name in sorted(MODEL_JUDGED - set(cats)):
         problems.append("category has no owner: %s" % name)

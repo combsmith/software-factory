@@ -1,0 +1,17 @@
+# tests/
+
+`test_decide.py` holds one test for each boundary case of the Kernel. `test_tools.py` makes every
+check fail. `test_simulator.py` runs the seeded simulation. `support.py` builds ordinary inputs.
+The page `docs/standards/tests.md` shows each of these by example.
+
+| Rule | Held by |
+|---|---|
+| A boundary case is written before the code, and has a mutant | `tools/mutants.py` |
+| Assert the outcome and the reason code. Never weaken or delete a test to make a change pass: its mutant survives | `tools/mutants.py` |
+| Call the Kernel through `go()`, which validates every Decision against its schema | `test_decide.py` |
+| A test's name is used once. A second definition replaces the first without a word | `tools/check_repo.py` |
+| The simulation runs fixed seeds, and a seed replays exactly | `test_simulator.py::test_a_seed_replays_exactly` |
+
+State only what differs: `facts(labels=["factory:hold"])`. A fact that lives inside a list gets
+a builder of its own in `support.py`, as `thread()` is, and a new fact gets a counter-example. A comment such as "I-24" on a test
+names an invariant in the design; the test's name is its sentence.

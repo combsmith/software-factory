@@ -5,7 +5,7 @@ import json
 import unittest
 
 from kernel.decide import decide
-from tests.support import CONFIG, NOW, ROOT, config, context, facts, run, thread
+from tests.support import CONFIG, GREEN, NOW, ROOT, config, context, facts, run, thread
 from tools.jsonschema_lite import validate
 
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
@@ -34,6 +34,20 @@ class Readability(unittest.TestCase):
     def test_unreadable_capacity_defers(self):
         d = go(facts(), ctx={"paused": False, "model_deferred_until": None})
         self.assertEqual((d["outcome"], d["reason"]), ("defer", "capacity_unreadable"))
+
+
+class Derived(unittest.TestCase):
+    def test_the_same_inputs_give_the_same_decision(self):  # I-19: nothing is kept between calls
+        f, runs = facts(threads=[thread()]), REVIEWED + [run(role="dev-lead", intent="fix-findings", name="r2")]
+        before = json.dumps([f, runs], sort_keys=True)
+        first = go(f, runs)
+        go(facts(labels=["factory:hold"]))
+        self.assertEqual(go(f, runs), first)
+        self.assertEqual(json.dumps([f, runs], sort_keys=True), before)
+
+    def test_admission_is_given_facts_and_never_an_event(self):
+        code = decide.__code__
+        self.assertEqual(code.co_varnames[:code.co_argcount], ("facts", "runs", "context", "config", "now"))
 
 
 class HumanControl(unittest.TestCase):
@@ -92,6 +106,10 @@ class Content(unittest.TestCase):
         self.assertEqual((d["outcome"], d["reason"]), ("nothing", "awaiting_checks"))
         d = go(facts())
         self.assertEqual(d["admit"], {"role": "pr-review", "intent": "review-change", "content_id": "sha256:aaaa"})
+
+    def test_a_failed_check_that_is_not_required_does_not_gate(self):
+        f = facts(checks=GREEN + [{"lens": "template-drift", "conclusion": "failure"}])
+        self.assertEqual(go(f, REVIEWED)["state"], "converged")
 
     def test_a_review_of_other_content_does_not_count(self):  # I-11, the other way round
         d = go(facts(content_id="sha256:bbbb"), REVIEWED)
