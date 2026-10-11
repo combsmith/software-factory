@@ -805,10 +805,10 @@ close it, and from the run records.
 ```mermaid
 stateDiagram-v2
   [*] --> new
-  new --> triaged: a triage Run reported
+  new --> triage: accepted for investigation, a triage Run is admitted
   new --> ready: factory:ready added (human)
-  triaged --> ready: Readiness holds on this content, or factory:ready added (human)
-  ready --> triaged: the content changed before work began
+  triage --> ready: Readiness holds on this content, or factory:ready added (human)
+  ready --> triage: the content changed before work began
   ready --> in_progress: the opening Run is admitted, or a draft pull request closes the issue
   in_progress --> ready: the opening Run ended and opened no pull request
   in_progress --> in_review: the pull request is marked ready
@@ -818,17 +818,17 @@ stateDiagram-v2
   in_review --> ready: the pull request closed unmerged, the first time
   in_progress --> held: the pull request closed unmerged, the second time
   in_review --> held: the pull request closed unmerged, the second time
-  triaged --> held
+  triage --> held
   ready --> held
-  held --> triaged: Hold released (human)
+  held --> triage: Hold released (human)
   done --> [*]
   declined --> [*]
 ```
 
 | State | Derived from | Next actor | Stale after |
 |---|---|---|---|
-| `new` | Open, and no triage Run has reported on it | `business-analyst`, which investigates it, if the issue is inside or admitted. Otherwise the Maintainer, who admits it or does not | 30 min, once a Run may be admitted |
-| `triaged` | A triage Run has reported, and Readiness does not hold on the current content | The readiness Lens, if it has not reported on this content. Otherwise the person its open Findings are assigned to | 24 h |
+| `new` | Open, and not yet accepted for investigation: no triage Run has been admitted on it | The Controller, which admits the triage Run if the issue is inside or admitted. Otherwise the Maintainer, who admits it or does not | 30 min, once a Run may be admitted |
+| `triage` | Accepted for investigation: a triage Run has been admitted on it, and Readiness does not hold on the current content | `business-analyst`, while its Run holds the issue. Then the readiness Lens, if it has not reported on this content. Otherwise the person its open Findings are assigned to | 24 h |
 | `ready` | Readiness holds on the current content, or a person with write access added `factory:ready`; no open pull request closes the issue; no Run holds it | The Controller, which admits the opening Run. Until the Factory has an author, the Maintainer's session opens the pull request | 30 min |
 | `in_progress` | A Run holds the issue, or its one linked pull request is a draft | The author Roles, and the Maintainer approving the contract (§4.8) | 24 h |
 | `in_review` | Its linked pull request is open and not a draft | The pull request's Lifecycle. The issue admits nothing of its own | As the pull request |
@@ -839,12 +839,13 @@ stateDiagram-v2
 Any state may move to `declined` when a person closes the issue, and to `held` on a Hold. A Hold
 released returns the issue to whichever State the facts then give.
 
-**Triage.** A `new` issue admits a triage Run. `business-analyst` investigates it and writes what
-it found, and what the issue should say, as a comment through its own App. Other Roles are
-consulted as Lenses on the issue, each through the same contract (§3.7). The issue is then
-`triaged`, and it stays there while it is researched and defined. Unchanged content admits no
-second triage Run. New content does: an edit to the issue, or a comment from a person with write
-access.
+**Triage.** `triage` means the issue has been accepted for investigation. A `new` issue that is
+inside or admitted is accepted at the next pass: a triage Run is admitted on it, and from that
+moment it is in `triage`. `business-analyst` investigates it and writes what it found, and what
+the issue should say, as a comment through its own App. Other Roles are consulted as Lenses on the
+issue, each through the same contract (§3.7). The issue stays in `triage` while it is researched
+and defined. Unchanged content admits no second triage Run. New content does: an edit to the
+issue, or a comment from a person with write access.
 
 **Readiness** is to an issue what Convergence is to a pull request, and is one Kernel function of
 facts and run records:
@@ -859,7 +860,7 @@ researched and defined" means is therefore the rubric, and a rubric is among the
 Maintainer approves (§5.1). The Role that judges Readiness is not the Role that wrote the
 definition: the authority table names the owner of the `readiness` category, and no Role judges
 its own work (§5.4). That owner is `scrum-master`, from the triage Intents onward. An issue whose content changes
-after Readiness held, and before work began, is `triaged` again until Readiness holds on the new
+after Readiness held, and before work began, is in `triage` again until Readiness holds on the new
 content. Once a pull request closes the issue, the acceptance contract governs and an edit to the
 issue unwinds nothing.
 
@@ -1112,7 +1113,7 @@ Every human control is one ordinary GitHub action, the same for every Role and e
 A pass reads every open issue, most of them only as a listing (§4.1, the issue Lifecycle). It
 admits a triage Run on a `new` issue that is inside or admitted, and an opening Run on a `ready`
 one. This replaces the earlier answer, recorded in §9.8, that a pass reads labelled issues alone:
-the Maintainer decided on 2026-10-11 that `new` and `triaged` are States the Factory derives, and
+the Maintainer decided on 2026-10-11 that `new` and `triage` are States the Factory derives, and
 that the Factory moves an issue to `ready` when Readiness holds.
 
 The Factory reaches the Maintainer the same way, through GitHub. When an item becomes "needs you",
