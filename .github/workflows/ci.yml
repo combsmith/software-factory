@@ -1,6 +1,7 @@
 # The org's secret scan: petry-projects/.github, push-protection.md, "Required CI job". It is the one
 # workflow here that downloads a program. tools/check_workflows.py exempts it from that rule alone,
 # by name, and holds it to this text by its hash: to change it, change the entry there too.
+# One line differs from the org's: the download is by curl held to HTTPS, redirects included.
 name: ci
 on:
   pull_request:
@@ -29,7 +30,7 @@ jobs:
         run: |
           tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
-          wget -q "${url}" -O /tmp/gitleaks.tar.gz
+          curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/gitleaks.tar.gz "${url}"
           echo "${GITLEAKS_CHECKSUM}  /tmp/gitleaks.tar.gz" | sha256sum -c
           tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
           sudo mv /tmp/gitleaks /usr/local/bin

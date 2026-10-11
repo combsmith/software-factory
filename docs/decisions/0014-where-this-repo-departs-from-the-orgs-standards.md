@@ -24,6 +24,7 @@ needs no exception. Org headings are quoted as written, without their code marks
 The org's secret scan is not departed from. It is a security policy, so the rule here gives way:
 the scan runs as the org wrote it, in a workflow of its own, the one workflow allowed to download a
 program. It is exempt from that rule alone and held to its text by a hash (ruled by the Maintainer).
+One line differs: the download is held to HTTPS on redirects too, which the org's own scanner asks for.
 
 Taken up later, each with the part that needs it, and not a departure: a Dependabot entry for
 workflow actions, the agent-shield and dependency-audit callers, CodeQL's default setup, the

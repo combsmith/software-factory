@@ -39,7 +39,7 @@ EVENTS = {"pull_request", "merge_group", "push", "schedule", "workflow_dispatch"
 # A workflow the org requires as it wrote it. It is exempt from the rules named and from no other,
 # and it is held to its text by a hash taken with the pins left out: to change it, change this.
 EXEMPT = {
-    "ci.yml": (("install",), "b44cacc1fd6c04cf7b907fc81ecbf3748d0e49a717f9ba8c1e7aa781d1a9ad16"),    # the org's secret scan downloads gitleaks
+    "ci.yml": (("install",), "d6054623d66f612cdeeed721f8774247197172ecd29a1d10a14d05d3acceb63e"),    # the org's secret scan downloads gitleaks
 }
 MAX_RUN_LINES = 10
 ENTRY = re.compile(r"^( *)(- )?([A-Za-z_][\w-]*):(?: (.*))?$")
