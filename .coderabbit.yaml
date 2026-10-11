@@ -1,0 +1,5 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# A third-party reviewer informs and never gates (docs/architecture/software-factory-design.md, §4.2).
+# With this on, the reviewer requests changes and approves by itself, which blocks the merge queue.
+reviews:
+  request_changes_workflow: false
