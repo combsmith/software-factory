@@ -25,7 +25,8 @@ RECORD = (("docs", "prd"), ("docs", "architecture"), ("docs", "research"))
 PLANNED = ("adapters", "harness", "controller", "roles", "release", "evals", ".github")
 # Where a check can live. A document or a file of settings is not a check.
 CHECKS = ("tools", "tests", "examples", "schemas", "sim")
-# Files other tools load as rules. There is one set of rules, so there are none of these.
+# Files other tools load as rules. There is one set of rules, so there are none of these but the
+# root CLAUDE.md, which holds one line that imports AGENTS.md.
 OTHER_RULES = {"CLAUDE.md", "GEMINI.md", "copilot-instructions.md", ".cursorrules", ".windsurfrules"}
 
 TOKEN = re.compile(r"`([^`\n]+)`")

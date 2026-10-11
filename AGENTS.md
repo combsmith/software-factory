@@ -10,7 +10,7 @@ except where `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standard
 ## Verify
 
 ```
-make verify                  # every check and every test; SIM_SEEDS=40 make verify is quicker
+make verify                  # every check and every test, half a minute; SIM_SEEDS=40 is quicker
 python3 -m tools.mutants     # breaks each Kernel rule in turn; a test must notice. A minute or two
 ```
 
@@ -38,7 +38,7 @@ Each rule names the check that holds it. A rule no check holds does not belong i
 ## Changing the Kernel
 
 1. Read `kernel/AGENTS.md`. It names one existing rule to copy, part by part.
-2. Write the boundary case in `tests/test_decide.py`. Run it and watch it fail.
+2. Write the boundary case in `tests/test_decide.py`, or take `@pending` off the one that states it. Watch it fail.
 3. Change the code in `kernel/`.
 4. Add a mutant for the new rule to `tools/mutants.py`.
 5. Run both commands under Verify.

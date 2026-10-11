@@ -108,6 +108,12 @@ class Content(unittest.TestCase):
         d = go(facts())
         self.assertEqual(d["admit"], {"role": "pr-review", "intent": "review-change", "content_id": "sha256:aaaa"})
 
+    def test_a_failed_required_check_goes_back_to_the_author(self):
+        f = facts(checks=[{"lens": "lint", "conclusion": "failure"}] + GREEN[1:])
+        d = go(f, REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "check_failed", ["lint"]))
+        self.assertEqual(d["admit"]["intent"], "fix-findings")
+
     def test_a_failed_check_that_is_not_required_does_not_gate(self):
         f = facts(checks=GREEN + [{"lens": "template-drift", "conclusion": "failure"}])
         self.assertEqual(go(f, REVIEWED)["state"], "converged")

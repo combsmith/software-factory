@@ -16,13 +16,19 @@ applies wins. `decide.py` answers "what now", and holds every brake. `terms.py` 
 
 ## Adding a rule: copy this one
 
+First look in `tests/test_decide.py` for a test marked `@pending` that states your rule. If there is
+one, take the mark off, move it out of `NotYetHeld`, and take "not held yet" out of the documents
+`make verify` names. `python3 -m unittest tests.test_decide` runs the boundary cases in a moment.
+
 "An empty diff never converges" is a whole rule in three parts. Find each and write its twin.
 
-1. The boundary case: `tests/test_decide.py::test_empty_diff_never_converges`. Written first.
+1. The boundary case: `tests/test_decide.py::test_empty_diff_never_converges`. Written first. Assert
+   both sides of the boundary.
 2. The rule: the line in `derive.py` that returns the reason `empty_diff`.
 3. The mutant: the entry "an empty diff converges" in `tools/mutants.py`. It names the file, the
    exact text of the rule, and what to put in its place. The text must appear once in the file.
-   A rule that acts in two places gets a test and a mutant for each.
+   A rule that acts in two places gets a mutant for each; one that changes an existing line gets a
+   mutant that puts the old line back.
 
 Then, only if your rule needs it:
 
@@ -32,4 +38,3 @@ Then, only if your rule needs it:
 - It reads a new limit: add it to `config/defaults.json` and `schemas/config.schema.json`.
 - It makes a new transition between States: declare it in `lifecycle/pull_request.json`.
 - It is a boundary of a record in `docs/decisions/`: add a row there naming your test.
-- A test in `tests/test_decide.py` marked `@pending` already states it: take the mark off.
