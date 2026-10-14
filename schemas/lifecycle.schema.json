@@ -82,6 +82,7 @@
               "max_rounds",
               "max_attempts",
               "max_runs_per_item",
+              "max_unmerged_closes",
               null
             ]
           }

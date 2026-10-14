@@ -1,4 +1,4 @@
-"""Exhaustive checks on a declared Lifecycle. It is small, so nothing is sampled."""
+"""Exhaustive checks on every declared Lifecycle. Each is small, so nothing is sampled."""
 from __future__ import annotations
 
 import json
@@ -37,8 +37,8 @@ def _has_cycle(nodes, edges) -> bool:
     return any(colour[n] == 0 and visit(n) for n in nodes)
 
 
-def run(lifecycle: dict = None) -> list:
-    lc = load() if lifecycle is None else lifecycle
+def check(lc: dict, limits: dict = None) -> list:
+    """The problems of one Lifecycle. A bound must be one of `limits`, when they are given."""
     states, terminal = set(lc["states"]), set(lc["terminal"])
     problems = []
     edges = []
@@ -50,6 +50,9 @@ def run(lifecycle: dict = None) -> list:
             problems.append("a terminal state has a way out: %s" % tr["from"])
         if tr["from"] == "held" and tr["by"] not in ("human", "platform"):
             problems.append("a Hold is ended by %s; only a person ends a Hold" % tr["by"])
+        if limits is not None and tr["bound"] is not None and tr["bound"] not in limits:
+            problems.append("the bound %s is not a limit in config/defaults.json; add its number there"
+                            % tr["bound"])
         edges.append((tr["from"], tr["to"]))
     for entry in lc["initial"]:
         if entry not in states:
@@ -69,6 +72,36 @@ def run(lifecycle: dict = None) -> list:
                  if tr["by"] == "factory" and tr["bound"] is None]
     if _has_cycle(states, unbounded):
         problems.append("the Factory can cycle with no bound and no person involved")
+    return list(dict.fromkeys(problems))     # a bound named on many transitions is one problem
+
+
+def run(root: pathlib.Path = ROOT) -> list:
+    """Every Lifecycle under `lifecycle/`, and one for each type of Work item the schema names."""
+    problems = []
+
+    def read(path: pathlib.Path):
+        try:
+            return json.loads(path.read_text())
+        except (OSError, ValueError) as err:
+            problems.append("%s cannot be read: %s" % (path.relative_to(root), err))
+            return None
+
+    schema = read(root / "schemas" / "lifecycle.schema.json")
+    config = read(root / "config" / "defaults.json")
+    if schema is None or config is None:
+        return problems
+    for path in sorted((root / "lifecycle").glob("*.json")):
+        lc = read(path)
+        if lc is None:
+            continue
+        rel = "lifecycle/" + path.name
+        if lc.get("work_item") != path.stem:
+            problems.append("%s declares the Work item %s; name the file %s.json"
+                            % (rel, lc.get("work_item"), lc.get("work_item")))
+        problems += ["%s: %s" % (rel, p) for p in check(lc, config.get("limits") or {})]
+    for item in schema["properties"]["work_item"]["enum"]:
+        if not (root / "lifecycle" / (item + ".json")).exists():
+            problems.append("no Lifecycle for the Work item %s: declare it in lifecycle/%s.json" % (item, item))
     return problems
 
 

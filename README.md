@@ -12,6 +12,7 @@ If you are about to change something, read `AGENTS.md`. It is one page.
 - **Schemas** for the facts, a run record, a Decision, a Finding, an acceptance contract, a rubric,
   the authority table, the Lifecycle and the configuration, each with an example and with
   counter-examples that must be rejected. A validator for them with no dependencies.
+- **The Lifecycles** of a pull request and of an issue, as data, with the bounds on each cycle.
 - **Checks**: Kernel purity, Lifecycle termination, authority, examples, what must never be in the
   repo, the rules every workflow obeys, and the rules the documents themselves obey.
 - **A simulator** that plays the poller, the jobs of a Run and the people, and injects stale reads,
@@ -22,8 +23,8 @@ If you are about to change something, read `AGENTS.md`. It is one page.
 
 ## What is not here
 
-Anything that touches GitHub, any model, any workflow that runs, the issue Lifecycle, acceptance
-evidence in Convergence, and the control room.
+Anything that touches GitHub, any model, any workflow that runs, the Kernel for an issue,
+acceptance evidence in Convergence, and the control room.
 
 ## Local Development Commands
 

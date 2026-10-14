@@ -114,32 +114,73 @@ class Examples(unittest.TestCase):
         self.assertTrue(caught(problems, "no schema named nothing"))
 
 
+def unbound(lc: dict, bound: str) -> dict:
+    """`lc` with `bound` taken off every transition that names it."""
+    return dict(lc, transitions=[dict(tr, bound=None) if tr["bound"] == bound else tr for tr in lc["transitions"]])
+
+
 class Lifecycle(unittest.TestCase):
     def test_an_unbounded_factory_cycle_is_caught(self):
         lc = copy.deepcopy(check_lifecycle.load())
         for tr in lc["transitions"]:
             if (tr["from"], tr["to"]) in (("adjudicating", "addressing"), ("addressing", "adjudicating")):
                 tr["bound"] = None
-        self.assertIn("the Factory can cycle with no bound and no person involved", check_lifecycle.run(lc))
+        self.assertIn("the Factory can cycle with no bound and no person involved", check_lifecycle.check(lc))
 
     def test_a_dead_end_is_caught(self):
         lc = copy.deepcopy(check_lifecycle.load())
         lc["transitions"] = [tr for tr in lc["transitions"] if tr["from"] != "queued"]
-        self.assertIn("no terminal state can be reached from: queued", check_lifecycle.run(lc))
+        self.assertIn("no terminal state can be reached from: queued", check_lifecycle.check(lc))
 
     def test_a_hold_the_factory_could_end_is_caught(self):
         lc = copy.deepcopy(check_lifecycle.load())
         lc["transitions"].append({"from": "held", "to": "verifying", "by": "factory", "bound": "max_attempts"})
-        self.assertTrue(caught(check_lifecycle.run(lc), "only a person ends a Hold"))
+        self.assertTrue(caught(check_lifecycle.check(lc), "only a person ends a Hold"))
 
     def test_a_state_nothing_declares_or_reaches_or_times_is_caught(self):
         lc = copy.deepcopy(check_lifecycle.load())
         lc["states"].append("limbo")
         lc["transitions"].append({"from": "merged", "to": "nowhere", "by": "human", "bound": None})
-        problems = check_lifecycle.run(lc)
+        problems = check_lifecycle.check(lc)
         for words in ("state can never be reached: limbo", "no staleness limit for: limbo",
                       "a terminal state has a way out: merged", "an undeclared state: nowhere"):
             self.assertTrue(caught(problems, words), words)
+
+    def test_an_issue_retried_with_no_bound_is_caught(self):
+        # I-14. The cycle that failed the issue Lifecycle's first drawing: `ready` to `in_progress`
+        # and back, when an opening Run ends having opened nothing.
+        lc = check_lifecycle.load("issue")
+        self.assertEqual(check_lifecycle.check(lc), [])
+        self.assertIn(("in_progress", "ready", "factory", "max_attempts"),
+                      {(tr["from"], tr["to"], tr["by"], tr["bound"]) for tr in lc["transitions"]})
+        self.assertIn("the Factory can cycle with no bound and no person involved",
+                      check_lifecycle.check(unbound(lc, "max_attempts")))
+
+    def test_an_issue_retried_after_every_unmerged_close_is_caught(self):
+        # I-43. `in_progress` or `in_review` back to `ready`, when a linked pull request closes unmerged.
+        lc = check_lifecycle.load("issue")
+        self.assertIn("the Factory can cycle with no bound and no person involved",
+                      check_lifecycle.check(unbound(lc, "max_unmerged_closes")))
+
+    def test_verify_checks_the_issue_lifecycle_too(self):
+        lc = unbound(check_lifecycle.load("issue"), "max_attempts")
+        problems = check_lifecycle.run(clone({"lifecycle/issue.json": json.dumps(lc)}))
+        self.assertTrue(caught(problems, "lifecycle/issue.json: the Factory can cycle"), problems)
+        self.assertFalse(caught(problems, "lifecycle/pull_request.json"), problems)
+
+    def test_a_work_item_with_no_lifecycle_is_caught(self):
+        root = clone({"lifecycle/issues.json": (ROOT / "lifecycle" / "issue.json").read_text()})
+        (root / "lifecycle" / "issue.json").unlink()
+        problems = check_lifecycle.run(root)
+        self.assertTrue(caught(problems, "no Lifecycle for the Work item issue"), problems)
+        self.assertTrue(caught(problems, "lifecycle/issues.json declares the Work item issue"), problems)
+
+    def test_a_bound_that_is_not_a_limit_is_caught(self):
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        del config["limits"]["max_unmerged_closes"]
+        problems = check_lifecycle.run(clone({"config/defaults.json": json.dumps(config)}))
+        self.assertTrue(caught(problems, "lifecycle/issue.json: the bound max_unmerged_closes is not a limit"),
+                        problems)
 
 
 class Authority(unittest.TestCase):
@@ -518,7 +559,8 @@ class Context(unittest.TestCase):
 # One planted fault for each check, run from its front door. A check gutted to return nothing fails here.
 FAILS = {
     "check_examples": lambda: check_examples.run(clone({"examples/decision.json": "{}"})),
-    "check_lifecycle": lambda: check_lifecycle.run(dict(check_lifecycle.load(), terminal=[])),
+    "check_lifecycle": lambda: check_lifecycle.run(clone({"lifecycle/issue.json": json.dumps(
+        dict(check_lifecycle.load("issue"), terminal=[]))})),
     "check_authority": lambda: check_authority.run(dict(json.loads((ROOT / "config" / "authority.json").read_text()),
                                                          author_role="pr-review")),
     "check_purity": lambda: check_purity.run(clone({"kernel/clock.py": "import time\n"})),
