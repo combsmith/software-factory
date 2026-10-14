@@ -23,10 +23,10 @@ VENDORED = {"vendor", "vendored", "third_party", "site-packages", "node_modules"
 # and put its hash here; never edit between the markers.
 BASELINE = re.compile(r"\A# >>> BEGIN combsmith secrets baseline.*?^# <<< END combsmith secrets baseline <<<$",
                       re.M | re.S)
-BASELINE_SHA256 = "1d4a83d95f8ee135aee79215b022dce1ac1cf8e049642ef9e82f1a80b691bc37"
+BASELINE_SHA256 = "5923c09c4183e1c104f3c04f57eba4d86ae5547913321c6d8bc053bf81d95a57"
 # The code owners file is the org's own, word for word (combsmith/.github, .github/CODEOWNERS;
 # codeowners-standard.md, "Rule"). When the org changes it, copy it again and put its hash here.
-CODEOWNERS_SHA256 = "3b957b2faa986898c05d1db8978f23d0be92a33cf338882a3f8b9bafa31918cb"
+CODEOWNERS_SHA256 = "64da42e5c2edba9d9c92680f5b106be149ed4c5336b2b2e5c0beeec9340864e2"
 PYTHON = (3, 9)    # the oldest Python this must run on; newer syntax is refused, as far as this interpreter can tell
 # Named in documents only. No code or data reaches into the proof-of-concept repo.
 FOREIGN = ".github-" + "private"
