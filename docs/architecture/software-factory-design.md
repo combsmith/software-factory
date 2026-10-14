@@ -1397,7 +1397,8 @@ it is long-lived, it can approve, and it can merge.
 | The Factory's model subscription | Spend the Factory's model capacity | The `run` job | Environment secret, default branch only | On any suspicion; it is the Factory's alone |
 | The machine user's token | Approve and merge, across the org | `apply`, for the review Intent only | Environment secret, default branch only | On a fixed period, and on any reconciliation alert |
 | Each Role's App key | Mint that Role's tokens | `apply` | Environment secret, default branch only | On a fixed period |
-| The Controller's App key | Start Runs; write the control room, statuses and labels | The poller | Environment secret, default branch only | On a fixed period |
+| The Controller's App key | Read the facts and the run records, and post check runs: the status on the item. It does not start Runs | The poller | Environment secret, default branch only | On a fixed period |
+| The poller job's own token | Start Runs: `actions: write`, declared on that job only | The poller job | Not stored: GitHub mints it for the job | Expires when the job ends |
 | The reader App's key | Read public repos | The `run` job | Environment secret, default branch only | On a fixed period |
 | The held-out sets' credential | Read the held-out repo | The eval job only | Environment secret, default branch only | On a fixed period |
 | The relay's webhook secret | Prove that a webhook came from GitHub | The relay | The relay's host | On a fixed period |
@@ -1406,7 +1407,7 @@ it is long-lived, it can approve, and it can merge.
 If the subscription cannot be used, the fallback is a metered API credential under the monthly cap
 of PRD FR-73, held and stored the same way.
 
-Only the Controller can start or delete runs. The readiness check (§3.12) asserts the settings
+Only the poller job can start or delete runs, with its own token. The readiness check (§3.12) asserts the settings
 these rules rest on: fork workflows need approval, the default workflow token is read-only, secret
 scanning with push protection is on, and environments are restricted to the default branch. It
 also records what each third-party reviewer has been granted, since several can write to branches,
@@ -1436,8 +1437,9 @@ A token is still narrowed at mint time to the Effects one Result requests.
 This table is generated from the manifests and the authority table, so it always shows the present
 state. The fourth column is the plan.
 
-- **Apps are installed across the org, and tokens are minted for one repo.** A new Consumer repo
-  then needs no installation step, and a token cannot reach a repo its Run is not about.
+- **Until a Consumer repo is served (slice 3), each App is installed on named repos only; from
+  then, as decided at that cutover, against UJ-6.** Tokens are minted for one repo, so a token
+  cannot reach a repo its Run is not about.
 - **Reading is shared; writing is not.** Every `run` job reads GitHub through one App,
   `combsmith-sf-reader`, which can write nothing. A Role is given an App of its own when it first
   needs to write, and `apply` mints that App's token. A Role in shadow writes nothing, so it runs

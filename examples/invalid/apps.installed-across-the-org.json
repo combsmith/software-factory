@@ -1,14 +1,147 @@
 {
   "schema": "apps/1",
+  "needs": {
+    "effect:submit_review": {
+      "permission": "pull_requests",
+      "level": "write"
+    },
+    "effect:resolve_thread": {
+      "permission": "pull_requests",
+      "level": "write"
+    },
+    "effect:comment": {
+      "permission": "pull_requests",
+      "level": "write"
+    },
+    "effect:enqueue_merge": {
+      "waits_on": "trial P-2"
+    },
+    "effect:dequeue_merge": {
+      "waits_on": "trial P-2"
+    },
+    "effect:assign": {
+      "waits_on": "the Controller's notification story"
+    },
+    "effect:add_label": {
+      "waits_on": "the issue Lifecycle's Admission"
+    },
+    "effect:remove_label": {
+      "waits_on": "the issue Lifecycle's Admission"
+    },
+    "write:status_on_item": {
+      "permission": "checks",
+      "level": "write"
+    },
+    "write:tracking_issue": {
+      "waits_on": "the Controller's notification story"
+    },
+    "write:write_view": {
+      "waits_on": "the view App, combsmith-sf-view, registered with the feed story (Maintainer, 2026-10-14)"
+    },
+    "read:facts.item": {
+      "permission": "metadata",
+      "level": "read"
+    },
+    "read:facts.targets_protected": {
+      "permission": "metadata",
+      "level": "read"
+    },
+    "read:facts.class": {
+      "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:facts.state": {
+      "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:facts.is_draft": {
+      "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:facts.author": {
+      "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:facts.last_pusher": {
+      "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:facts.mergeable": {
+      "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:facts.labels": {
+      "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:facts.admitted_at": {
+      "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:facts.last_push_at": {
+      "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:facts.last_writer_action_at": {
+      "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:facts.reviews": {
+      "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:facts.threads": {
+      "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:facts.queue": {
+      "waits_on": "issue 26, whose canary trial records what reading membership of the queue takes"
+    },
+    "read:facts.content_id": {
+      "permission": "contents",
+      "level": "read"
+    },
+    "read:facts.diff": {
+      "permission": "contents",
+      "level": "read"
+    },
+    "read:facts.checks": {
+      "permission": "checks",
+      "level": "read"
+    },
+    "read:records.runs": {
+      "permission": "actions",
+      "level": "read"
+    },
+    "read:records.artifacts": {
+      "permission": "actions",
+      "level": "read"
+    },
+    "read:records.pass_record": {
+      "permission": "actions",
+      "level": "read"
+    },
+    "read:task.change": {
+      "permission": "contents",
+      "level": "read"
+    },
+    "read:task.thread_texts": {
+      "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:task.issue_texts": {
+      "permission": "issues",
+      "level": "read"
+    }
+  },
   "apps": {
     "controller": {
       "name": "combsmith-sf-controller",
       "installed_on": "all",
       "permissions": {
         "actions": {
-          "level": "write",
+          "level": "read",
           "needs": [
-            "write:start_run",
             "read:records.runs",
             "read:records.artifacts"
           ]
@@ -21,9 +154,8 @@
           ]
         },
         "contents": {
-          "level": "write",
+          "level": "read",
           "needs": [
-            "write:write_view",
             "read:facts.content_id",
             "read:facts.diff"
           ]
@@ -32,17 +164,16 @@
           "level": "read",
           "needs": [
             "read:facts.item",
-            "read:facts.class",
             "read:facts.targets_protected"
           ]
         },
         "pull_requests": {
           "level": "read",
           "needs": [
+            "read:facts.class",
             "read:facts.state",
             "read:facts.is_draft",
             "read:facts.author",
-            "read:facts.class",
             "read:facts.last_pusher",
             "read:facts.mergeable",
             "read:facts.labels",
@@ -50,8 +181,7 @@
             "read:facts.last_push_at",
             "read:facts.last_writer_action_at",
             "read:facts.reviews",
-            "read:facts.threads",
-            "read:facts.queue"
+            "read:facts.threads"
           ]
         }
       }
@@ -118,25 +248,24 @@
         "issues": {
           "level": "read",
           "needs": [
-            "read:task.texts"
+            "read:task.issue_texts"
           ]
         },
         "metadata": {
           "level": "read",
           "needs": [
             "read:facts.item",
-            "read:facts.class",
             "read:facts.targets_protected"
           ]
         },
         "pull_requests": {
           "level": "read",
           "needs": [
-            "read:task.texts",
+            "read:task.thread_texts",
+            "read:facts.class",
             "read:facts.state",
             "read:facts.is_draft",
             "read:facts.author",
-            "read:facts.class",
             "read:facts.last_pusher",
             "read:facts.mergeable",
             "read:facts.labels",
@@ -144,8 +273,7 @@
             "read:facts.last_push_at",
             "read:facts.last_writer_action_at",
             "read:facts.reviews",
-            "read:facts.threads",
-            "read:facts.queue"
+            "read:facts.threads"
           ]
         }
       }

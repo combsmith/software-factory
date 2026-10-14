@@ -1,15 +1,165 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "The least permissions each of the Factory's GitHub Apps holds, each with what needs it, and where it is installed.",
+  "title": "The least permissions each of the Factory's GitHub Apps holds, each with what needs it. Until a Consumer repo is served (slice 3), each App is installed on named repos only; from then, as decided at that cutover, against UJ-6.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema",
+    "needs",
     "apps"
   ],
   "properties": {
     "schema": {
       "const": "apps/1"
+    },
+    "needs": {
+      "title": "Each need, and the one GitHub permission and level that serves it, or what it waits on. An Effect of section 3.6 of the design; a write the Controller makes that is not an Effect; or a read: a field of facts/1, the Factory's run records, or what a Task is built from.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effect:submit_review",
+        "effect:resolve_thread",
+        "effect:comment",
+        "effect:enqueue_merge",
+        "effect:dequeue_merge",
+        "effect:assign",
+        "effect:add_label",
+        "effect:remove_label",
+        "write:status_on_item",
+        "write:tracking_issue",
+        "write:write_view",
+        "read:facts.item",
+        "read:facts.targets_protected",
+        "read:facts.class",
+        "read:facts.state",
+        "read:facts.is_draft",
+        "read:facts.author",
+        "read:facts.last_pusher",
+        "read:facts.mergeable",
+        "read:facts.labels",
+        "read:facts.admitted_at",
+        "read:facts.last_push_at",
+        "read:facts.last_writer_action_at",
+        "read:facts.reviews",
+        "read:facts.threads",
+        "read:facts.queue",
+        "read:facts.content_id",
+        "read:facts.diff",
+        "read:facts.checks",
+        "read:records.runs",
+        "read:records.artifacts",
+        "read:records.pass_record",
+        "read:task.change",
+        "read:task.thread_texts",
+        "read:task.issue_texts"
+      ],
+      "properties": {
+        "effect:submit_review": {
+          "$ref": "#/$defs/mapping"
+        },
+        "effect:resolve_thread": {
+          "$ref": "#/$defs/mapping"
+        },
+        "effect:comment": {
+          "$ref": "#/$defs/mapping"
+        },
+        "effect:enqueue_merge": {
+          "$ref": "#/$defs/mapping"
+        },
+        "effect:dequeue_merge": {
+          "$ref": "#/$defs/mapping"
+        },
+        "effect:assign": {
+          "$ref": "#/$defs/mapping"
+        },
+        "effect:add_label": {
+          "$ref": "#/$defs/mapping"
+        },
+        "effect:remove_label": {
+          "$ref": "#/$defs/mapping"
+        },
+        "write:status_on_item": {
+          "$ref": "#/$defs/mapping"
+        },
+        "write:tracking_issue": {
+          "$ref": "#/$defs/mapping"
+        },
+        "write:write_view": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.item": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.targets_protected": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.class": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.state": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.is_draft": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.author": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.last_pusher": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.mergeable": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.labels": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.admitted_at": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.last_push_at": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.last_writer_action_at": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.reviews": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.threads": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.queue": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.content_id": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.diff": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.checks": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:records.runs": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:records.artifacts": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:records.pass_record": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:task.change": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:task.thread_texts": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:task.issue_texts": {
+          "$ref": "#/$defs/mapping"
+        }
+      }
     },
     "apps": {
       "title": "One App for the Controller, one for each Role that writes, and the one reader.",
@@ -34,6 +184,40 @@
     }
   },
   "$defs": {
+    "mapping": {
+      "title": "A permission and a level, or waits_on; never both, never neither.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "permission": {
+          "$ref": "#/$defs/permission"
+        },
+        "level": {
+          "$ref": "#/$defs/level"
+        },
+        "waits_on": {
+          "type": "string",
+          "minLength": 3
+        }
+      }
+    },
+    "permission": {
+      "title": "GitHub's own names for an App's repository permissions. A name not here is refused; add it when an App needs it.",
+      "enum": [
+        "actions",
+        "checks",
+        "contents",
+        "issues",
+        "metadata",
+        "pull_requests"
+      ]
+    },
+    "level": {
+      "enum": [
+        "read",
+        "write"
+      ]
+    },
     "app": {
       "type": "object",
       "additionalProperties": false,
@@ -48,16 +232,17 @@
           "pattern": "^combsmith-sf-[a-z][a-z-]*$"
         },
         "installed_on": {
-          "title": "Each repo the App is installed on, by name. Never the whole org.",
+          "title": "Each repo the App is installed on, by name, and never the whole org, until a Consumer repo is served (slice 3).",
           "type": "array",
           "minItems": 1,
           "items": {
-            "type": "string",
-            "pattern": "^combsmith/[a-z0-9][a-z0-9._-]*$"
+            "enum": [
+              "combsmith/software-factory",
+              "combsmith/software-factory-canary"
+            ]
           }
         },
         "permissions": {
-          "title": "GitHub's own names for an App's repository permissions. A name not here is refused; add it when an App needs it.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -92,64 +277,52 @@
       ],
       "properties": {
         "level": {
-          "enum": [
-            "read",
-            "write"
-          ]
+          "$ref": "#/$defs/level"
         },
         "needs": {
           "type": "array",
           "minItems": 1,
           "items": {
-            "$ref": "#/$defs/need"
+            "enum": [
+              "effect:submit_review",
+              "effect:resolve_thread",
+              "effect:comment",
+              "effect:enqueue_merge",
+              "effect:dequeue_merge",
+              "effect:assign",
+              "effect:add_label",
+              "effect:remove_label",
+              "write:status_on_item",
+              "write:tracking_issue",
+              "write:write_view",
+              "read:facts.item",
+              "read:facts.targets_protected",
+              "read:facts.class",
+              "read:facts.state",
+              "read:facts.is_draft",
+              "read:facts.author",
+              "read:facts.last_pusher",
+              "read:facts.mergeable",
+              "read:facts.labels",
+              "read:facts.admitted_at",
+              "read:facts.last_push_at",
+              "read:facts.last_writer_action_at",
+              "read:facts.reviews",
+              "read:facts.threads",
+              "read:facts.queue",
+              "read:facts.content_id",
+              "read:facts.diff",
+              "read:facts.checks",
+              "read:records.runs",
+              "read:records.artifacts",
+              "read:records.pass_record",
+              "read:task.change",
+              "read:task.thread_texts",
+              "read:task.issue_texts"
+            ]
           }
         }
       }
-    },
-    "need": {
-      "title": "An Effect of section 3.6 of the design; a write the Controller makes that is not an Effect; or a read: a field of facts/1, the Factory's run records, or what a Task is built from.",
-      "enum": [
-        "effect:push_commits",
-        "effect:open_pull_request",
-        "effect:submit_review",
-        "effect:resolve_thread",
-        "effect:mark_ready",
-        "effect:add_label",
-        "effect:remove_label",
-        "effect:create_check_run",
-        "effect:enqueue_merge",
-        "effect:dequeue_merge",
-        "effect:assign",
-        "effect:request_review",
-        "effect:add_reaction",
-        "effect:comment",
-        "write:start_run",
-        "write:status_on_item",
-        "write:write_view",
-        "read:facts.item",
-        "read:facts.class",
-        "read:facts.targets_protected",
-        "read:facts.state",
-        "read:facts.is_draft",
-        "read:facts.author",
-        "read:facts.last_pusher",
-        "read:facts.mergeable",
-        "read:facts.content_id",
-        "read:facts.diff",
-        "read:facts.labels",
-        "read:facts.admitted_at",
-        "read:facts.last_push_at",
-        "read:facts.last_writer_action_at",
-        "read:facts.reviews",
-        "read:facts.threads",
-        "read:facts.checks",
-        "read:facts.queue",
-        "read:records.runs",
-        "read:records.artifacts",
-        "read:records.pass_record",
-        "read:task.change",
-        "read:task.texts"
-      ]
     }
   }
 }
