@@ -86,6 +86,7 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
     if state == t.CONVERGED:
         if config["approver"] in (facts["author"], facts["last_pusher"]):
             return _decision(facts, t.HELD, "approver_is_author_or_last_pusher", [], t.HOLD)
+        # The Hold the facts establish first, then the Pause; neither approves. The order is open.
         pause = _pause(context)
         if pause:
             return _decision(facts, state, pause, evidence, t.DEFER)
@@ -98,7 +99,7 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
         return _decision(facts, state, reason, evidence, t.NOTHING)
     role, intent = wanted
 
-    # Brakes and ceilings, in one place.
+    # Brakes and ceilings on a Run, in one place. The Pause stops an approval above, too.
     pause = _pause(context)
     if pause:
         return _decision(facts, state, pause, evidence, t.DEFER)
