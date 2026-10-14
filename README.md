@@ -4,7 +4,7 @@ A small proof of concept of the Factory's decision core, built to test one claim
 decision can be a pure function of facts read from GitHub and the Factory's own run records, and
 that such a function can be checked before it is trusted.
 
-The design it implements is in `petry-projects/.github-private`, at
+The design it implements is in `combsmith/.github-private`, at
 `docs/architecture/software-factory-design.md`.
 
 ## What is here

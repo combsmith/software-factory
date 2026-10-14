@@ -1,4 +1,4 @@
-> First written in `petry-projects/.github-private`, on the draft pull request "docs: factory MVP — PRD, architecture review, market research and ADR-0013 (proposed)" (number 2225, commit `7d7d04f`). It now lives in this repo. Citations of files and lines in `.github-private` are evidence about the current system and are left as written.
+> First written in `combsmith/.github-private`, on the draft pull request "docs: factory MVP — PRD, architecture review, market research and ADR-0013 (proposed)" (number 2225, commit `7d7d04f`). It now lives in this repo. Citations of files and lines in `.github-private` are evidence about the current system and are left as written.
 
 # Software Factory: interaction and contract design
 
@@ -63,7 +63,7 @@ Made by the Maintainer on 2026-10-10, in addition to ADR-0013's twelve decisions
 
 | Decision | Effect on this design |
 |---|---|
-| The repo is `petry-projects/software-factory` | Named throughout |
+| The repo is `combsmith/software-factory` | Named throughout |
 | A Finding is decided by the Role that owns its domain | The authority table (§5.2) and the Finding lifecycle (§4.3) |
 | One GitHub App per Role | Each Role's permissions are a ceiling GitHub enforces (§5.1) |
 | The LLM credential is a subscription of the Factory's own, stored as an environment secret in the Factory repo | The engine port (§2.2); the capacity signal is observed, not read (§3.10) |
@@ -358,7 +358,7 @@ receives them.
   "schema": "decision/1",
   "id": "d_01JA7P",
   "release": "factory/v0.3.1",
-  "item": { "repo": "petry-projects/software-factory", "type": "pull_request", "number": 42 },
+  "item": { "repo": "combsmith/software-factory", "type": "pull_request", "number": 42 },
   "outcome": "admit",
   "reason": "blocking_findings_proposed",
   "evidence": ["thread:PRRT_kw7", "run:r_01JA6Z"],
@@ -383,7 +383,7 @@ started from a Decision in it, and from nothing else (§3.5). And the control ro
   "release": "factory/v0.3.1",
   "role": "pr-review",
   "intent": "adjudicate-findings",
-  "item": { "repo": "petry-projects/software-factory", "type": "pull_request", "number": 42 },
+  "item": { "repo": "combsmith/software-factory", "type": "pull_request", "number": 42 },
   "content_id": "sha256:5d0c",
   "findings": ["f_9c1e", "f_22ab"],
   "texts": [
@@ -557,7 +557,7 @@ A Run is one workflow run. Its record has two parts, both kept by GitHub.
 the hub's own head commit cannot:
 
 ```text
-sf petry-projects/markets#521 fix-review-findings dev-lead c:5d0c r:01JA7Q
+sf combsmith/markets#521 fix-review-findings dev-lead c:5d0c r:01JA7Q
 ```
 
 That is the repo and item, the Intent, the Role, the short `content_id` and the Run id. Status,
@@ -654,7 +654,7 @@ category, in one pull request (§5.2).
 
 ```yaml
 schema: consumer/1
-repo: petry-projects/markets
+repo: combsmith/markets
 ring: next
 owner_role: devops-lead
 ci_workflows: ["CI"]
@@ -678,7 +678,7 @@ human transition is recorded, so an author cannot weaken the tests it is judged 
 
 ```yaml
 schema: acceptance/1
-item: { repo: petry-projects/markets, type: issue, number: 512 }
+item: { repo: combsmith/markets, type: issue, number: 512 }
 criteria:
   - id: AC-1
     statement: A stall with no bookings is listed as available.
@@ -1798,12 +1798,12 @@ a public repo on the free plan is not stated in the documentation; it is in use 
 
 ### 8.1 Purpose
 
-`petry-projects/software-factory-control-room` houses the Factory's view and presents it to the
+`combsmith/software-factory-control-room` houses the Factory's view and presents it to the
 people who operate it, for understanding and for action. It is a public repo holding files the
 Controller writes and a static page that reads them.
 
 It was shaped by a separate analysis of what a situation room for the fleet should be:
-`petry-projects/.github-private#2242 — Situation-room view for the agent fleet: build it from
+`combsmith/.github-private#2242 — Situation-room view for the agent fleet: build it from
 native Claude Code parts, not a command-center product`. That analysis surveyed fourteen products
 and found that each shows only the agents it launches, so none can show a fleet that runs as
 workflows. Its verdict was to build a view over GitHub. §8.3 says what is taken from it and what
@@ -1861,7 +1861,7 @@ board. It is also not where a chat session's output is made terser; that is a se
 ```json
 {
   "schema": "view-item/1",
-  "item": { "repo": "petry-projects/software-factory", "type": "pull_request", "number": 42 },
+  "item": { "repo": "combsmith/software-factory", "type": "pull_request", "number": 42 },
   "state": "held",
   "reason": "max_rounds_reached",
   "attention": "needs_you",
@@ -1877,7 +1877,7 @@ board. It is also not where a chat session's output is made terser; that is a se
   "runs": 9,
   "cost_usd": 4.8,
   "sources": ["run:r_01JA6Z", "run:r_01JA7Q"],
-  "url": "https://github.com/petry-projects/software-factory/pull/42"
+  "url": "https://github.com/combsmith/software-factory/pull/42"
 }
 ```
 
@@ -2219,7 +2219,7 @@ seven root causes sit there, and no policy change moves them.
 The case does land one point, which is put to the Maintainer: the configuration fixes and the
 narrower gate were recommended as worth having whatever else is decided, and as the cheapest test
 of how much of the rest is needed. They are now tracked outside this document, in
-`petry-projects/.github-private#2276 — Epic: fixes to the current factory that are worth making whatever is rebuilt (lessons from the factory MVP review)`.
+`combsmith/.github-private#2276 — Epic: fixes to the current factory that are worth making whatever is rebuilt (lessons from the factory MVP review)`.
 
 ### 9.12 How it is built before it builds itself
 

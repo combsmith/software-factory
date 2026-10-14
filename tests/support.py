@@ -7,7 +7,7 @@ import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG = json.loads((ROOT / "config" / "defaults.json").read_text())
-ITEM = {"repo": "petry-projects/software-factory", "type": "pull_request", "number": 42}
+ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 42}
 NOW = "2026-10-11T13:00:00Z"
 GREEN = [{"lens": name, "conclusion": "success"} for name in CONFIG["required_lenses"]["deterministic"]]
 
