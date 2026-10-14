@@ -3,13 +3,27 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import pathlib
+import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG = json.loads((ROOT / "config" / "defaults.json").read_text())
-ITEM = {"repo": "petry-projects/software-factory", "type": "pull_request", "number": 42}
+ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 42}
 NOW = "2026-10-11T13:00:00Z"
 GREEN = [{"lens": name, "conclusion": "success"} for name in CONFIG["required_lenses"]["deterministic"]]
+
+
+def pending(test):
+    """Mark a rule that is decided and that the Kernel does not hold yet.
+
+    Its test is written and expected to fail. When the rule is built the test passes, and that
+    fails the run until this mark comes off and the rule gets its mutant. Under the mutation
+    check these tests are skipped, so that none of them can be what notices a mutant.
+    """
+    if os.environ.get("MUTATING"):
+        return unittest.skip("a pending rule is not part of the mutation check")(test)
+    return unittest.expectedFailure(test)
 
 
 def facts(**over) -> dict:

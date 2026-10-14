@@ -41,6 +41,20 @@
           "kernel/**"
         ]
       }
+    },
+    {
+      "id": "PR-5",
+      "statement": "A rule that is new, or that has stopped waiting, names a test that would fail if the rule were broken. A file that merely exists is not a check.",
+      "category": "requirements",
+      "evidence": "The diff, and the test the rule names.",
+      "severity_if_violated": "major",
+      "applies_when": {
+        "paths": [
+          "AGENTS.md",
+          "**/AGENTS.md",
+          "docs/**"
+        ]
+      }
     }
   ]
 }

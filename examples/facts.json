@@ -1,7 +1,7 @@
 {
   "schema": "facts/1",
   "item": {
-    "repo": "petry-projects/software-factory",
+    "repo": "combsmith/software-factory",
     "type": "pull_request",
     "number": 42
   },
@@ -51,15 +51,15 @@
   ],
   "checks": [
     {
-      "lens": "lint",
+      "lens": "verify",
       "conclusion": "success"
     },
     {
-      "lens": "workflow-security",
+      "lens": "secret-scan",
       "conclusion": "success"
     },
     {
-      "lens": "tests",
+      "lens": "code-scanning",
       "conclusion": "success"
     }
   ],

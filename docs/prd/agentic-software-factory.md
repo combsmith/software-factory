@@ -1,4 +1,4 @@
-> First written in `petry-projects/.github-private`, on the draft pull request "docs: factory MVP — PRD, architecture review, market research and ADR-0013 (proposed)" (number 2225, commit `7d7d04f`). It now lives in this repo. Citations of files and lines in `.github-private` are evidence about the current system and are left as written.
+> First written in `combsmith/.github-private`, on the draft pull request "docs: factory MVP — PRD, architecture review, market research and ADR-0013 (proposed)" (number 2225, commit `7d7d04f`). It now lives in this repo. Citations of files and lines in `.github-private` are evidence about the current system and are left as written.
 
 # PRD: Agentic Software Factory — Production MVP
 
@@ -8,7 +8,7 @@
 
 ## 0. Document purpose
 
-This document states what the `petry-projects` agentic software factory must do to be called
+This document states what the `combsmith` agentic software factory must do to be called
 production-grade. It is written for the maintainer, who decides scope and targets, and for whoever
 designs and builds against it, human or agent.
 
@@ -98,8 +98,8 @@ discover the problem space. The telemetry now shows the approach has stopped con
 | Flow | Merges per week flat at 14–36 since late August. Median open-to-merge rose from about 1 h to 12–22 h. Commits per merged pull request rose from 2–4 to 7–10. | Pull-request history, 400 PRs |
 | Review gate | 0 of 52 open pull requests org-wide hold an approval. 34% of the last 150 merged pull requests had no standing approval at merge; 20 of 29 agent-authored merges in the latest week. | GraphQL search and timeline |
 | Defect inflow | Bug-labelled issues rose from 2–9 a week (July, August) to 21–36 a week (since 2026-09-07). | Issue history, 600 issues |
-| Lost work | pr-review runs 37% cancelled (1,000 runs in a day for 14 open pull requests); dev-lead 42% cancelled before doing any work. GitHub drops about 60% of scheduled ticks. | `petry-projects/.github-private#2193 — PR Review Agent — failures detected 2026-10-10`; `#1741 — [bug] 42% of dev-lead runs are cancelled before doing any work`; `#2160 — GitHub drops about 60% of scheduled ticks here` |
-| Capacity | The GitHub API quota shared by the fleet and the maintainer ran out on 2026-10-10. The LLM budget breaker has never fired. | `petry-projects/.github-private#2197 — The fleet and every session share one GitHub API quota`; `#1565 — Auto-pause companion` |
+| Lost work | pr-review runs 37% cancelled (1,000 runs in a day for 14 open pull requests); dev-lead 42% cancelled before doing any work. GitHub drops about 60% of scheduled ticks. | `combsmith/.github-private#2193 — PR Review Agent — failures detected 2026-10-10`; `#1741 — [bug] 42% of dev-lead runs are cancelled before doing any work`; `#2160 — GitHub drops about 60% of scheduled ticks here` |
+| Capacity | The GitHub API quota shared by the fleet and the maintainer ran out on 2026-10-10. The LLM budget breaker has never fired. | `combsmith/.github-private#2197 — The fleet and every session share one GitHub API quota`; `#1565 — Auto-pause companion` |
 | Compensation | 15 workflows exist to retry, sweep, repair or audit, against 28 that do primary work. In the dev-lead and pr-review loop the ratio is 12 to 7. | Review §3.2 |
 | Assurance | No eval result blocks a merge, a release or a promotion. The ~4,900-case test suite is not a required check. | Review §3.5; live ruleset |
 
@@ -247,7 +247,7 @@ ceiling near eight, and the limit they name is their own attention (§3.1 to §3
 - **Ring** — a set of Consumer repos that receive a Release at the same stage.
 - **Consumer repo** — a repo the Factory serves.
 - **Hosting repo** — the repo that contains the Factory. It is also a Consumer repo. The POC is
-  hosted in `petry-projects/.github-private`, and every measurement in this document that says
+  hosted in `combsmith/.github-private`, and every measurement in this document that says
   "hosting repo" was taken there. The MVP is built in a new repo, which becomes the Hosting repo;
   `.github-private` then becomes a Consumer repo.
 - **Advisory reviewer** — a third-party review bot whose output the Factory consumes but does not
@@ -721,7 +721,7 @@ the org's job-minutes `[ASSUMPTION]`.
 
 ## 8. Non-goals
 
-- The Factory is not a product for other organisations. It serves `petry-projects`.
+- The Factory is not a product for other organisations. It serves `combsmith`.
 - The Factory does not replace GitHub as the system of record for code, reviews and merges.
 - The Factory does not remove the Maintainer from the decisions in §6.4: approving ideas, arming
   epics, resolving escalations, overriding Gates.
@@ -841,7 +841,7 @@ From the competitive analysis ([market research](../research/market-agentic-soft
    by the Maintainer: a small stateless relay that turns webhooks and a timer into requests for a
    pass, keeps no state and decides nothing.
 2. **OQ-2. Will the Maintainer move the code-writing Role off the owner account?** FR-26 and FR-17
-   need it. It reverses the choice made in `petry-projects/.github-private#1316 — dev-lead regressed
+   need it. It reverses the choice made in `combsmith/.github-private#1316 — dev-lead regressed
    to committing as donpetry-bot (review-only machine user) instead of don-petry` and recorded in
    the interaction model, §12.2. Decided by the Maintainer on 2026-10-10: yes. No agent runs as the
    owner account. The Maintainer may still author changes to the Factory's repo under that account,
@@ -851,7 +851,7 @@ From the competitive analysis ([market research](../research/market-agentic-soft
 3. **OQ-3. What supplies the LLM capacity signal, and does the Factory get its own LLM credential?**
    FR-35 has no feed today. An estimate from the Factory's own usage is sound only if interactive
    sessions do not spend from the same window unobserved. The analyst's comment on the idea
-   (`petry-projects/.github-private#2226 — Factory MVP: rebuild the agentic factory around a
+   (`combsmith/.github-private#2226 — Factory MVP: rebuild the agentic factory around a
    declared control plane, one run contract and a council of Lenses`) sets out four credential
    options and suggests moving the eval lane to metered access first. Decided by the Maintainer on
    2026-10-10: the Factory runs on a subscription credential of its own, not the Maintainer's, stored
@@ -864,7 +864,7 @@ From the competitive analysis ([market research](../research/market-agentic-soft
 5. **OQ-5. Should the Factory have its own repo?** Decided by the Maintainer on 2026-10-10: yes. It
    is built greenfield in a new repo and cut over through the channel tags `.github-private`
    already has, one Intent and one Ring at a time (review document, §18). The repo is
-   `petry-projects/software-factory`. Open: what `.github-private` keeps once every caller is
+   `combsmith/software-factory`. Open: what `.github-private` keeps once every caller is
    re-pinned.
 6. **OQ-6. Which Advisory reviewers are worth waiting for?** Four of seven gated reviewers never
    participate. The rule was decided on 2026-10-10 (OQ-13): only a Lens in the required Council is waited
@@ -872,7 +872,7 @@ From the competitive analysis ([market research](../research/market-agentic-soft
 7. **OQ-7. Are the `[ASSUMPTION]` targets in §7 the right ones?**
 8. **OQ-8. Where does the Ledger live and who may read it?** Everything in a public repo is public.
    Decided by the Maintainer on 2026-10-10: the Ledger is the Factory's own run records and
-   artifacts, and `petry-projects/software-factory-control-room` is a public, rebuildable view of
+   artifacts, and `combsmith/software-factory-control-room` is a public, rebuildable view of
    them with a dashboard. Every panel is public. Held-out eval sets live in a private repo under a
    different owner, where no Factory App is installed, because a public repo cannot hide them from
    the Role they test.

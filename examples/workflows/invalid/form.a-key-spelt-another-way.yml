@@ -1,0 +1,17 @@
+# Must be rejected. A quoted key is still the key; here it would hide an unpinned action.
+name: factory
+on:
+  pull_request:
+  merge_group:
+permissions: {}
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - "uses": evil/action@main
+      - run: make verify
+      - run: python3 -m tools.mutants
