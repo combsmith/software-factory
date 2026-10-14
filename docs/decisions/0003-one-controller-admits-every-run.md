@@ -25,9 +25,9 @@ single decider has no race to lose and one place for every brake.
 | An outside item gets no Run until the Maintainer admits it, and admission lapses on the next push | `tests/test_decide.py::test_outside_item_gets_no_run_until_admitted`, `tests/test_decide.py::test_admission_lapses_on_the_next_push` |
 | Attempts are counted since the last action by a person with write access | `tests/test_decide.py::test_a_writers_action_grants_a_fresh_allowance` |
 | A fault of capacity or of the environment is not an attempt | `tests/test_decide.py::test_capacity_and_environment_faults_are_not_attempts` |
-| A missing or unreadable Pause or capacity reading admits nothing | `tests/test_decide.py::test_unreadable_pause_defers`, `tests/test_decide.py::test_unreadable_capacity_defers` |
+| A missing or unreadable Pause or capacity reading admits nothing | `tests/test_decide.py::test_unreadable_pause_defers`, `tests/test_decide.py::test_an_unreadable_pause_stops_approvals_and_merges`, `tests/test_decide.py::test_unreadable_capacity_defers` |
 | Each brake is a rule a test would miss if it were removed | `tools/mutants.py` |
-| A Pause stops approvals and merges as well as Runs | not held yet: `tests/test_decide.py::test_a_pause_stops_approvals_and_merges_too` |
+| A Pause stops approvals and merges as well as Runs | `tests/test_decide.py::test_a_pause_stops_approvals_and_merges_too` |
 | A Run's lane is one concurrency group for each Work item, declared on the job, and never cancels what is running | waiting on `harness/` |
 | Work is never lost once faults stop | `tests/test_simulator.py::test_work_is_never_lost_once_faults_stop` |
 | A run record counts only if it is the Factory's own workflow, on the default branch, started by a schedule or a dispatch | waiting on `adapters/` |
