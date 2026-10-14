@@ -1,10 +1,11 @@
-"""PreToolUse on Bash: a commit or a push here is made as the Maintainer, or it is refused.
+"""PreToolUse on Bash: a commit, a push or a write to GitHub here is made as the Maintainer, or it is refused.
 
 Three identities must be the Maintainer's (§9.12): the commit's author and committer, which come
-from git's configuration in each clone, and the account that pushes or opens a pull request, which
-comes from gh. The Maintainer is in `config/hooks.json`; the machine user is the approver in
+from git's configuration in each clone, and the account that pushes or writes to GitHub, which comes
+from gh. The Maintainer is in `config/hooks.json`; the machine user is the approver in
 `config/defaults.json`, which approves and does nothing else (decision 0005). The hook reads what is
 configured, so an identity set inside the command is refused, and what it cannot read it refuses.
+Run as `python3 -I` on this file; see after_edit.py.
 """
 from __future__ import annotations
 
@@ -15,23 +16,47 @@ import re
 import shutil
 import subprocess
 import sys
-
-from tools.hooks import shell
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-WRITES = {"am", "cherry-pick", "commit", "commit-tree", "merge", "pull", "push", "rebase", "revert"}
-# What the text of a command that could not be split into words is searched for.
-WRITE_TEXT = re.compile(r"\bgit\b[\s\S]*\b(%s)\b|\bgh\b[\s\S]*\bpr\b[\s\S]*\bcreate\b" % "|".join(sorted(WRITES)))
-# Set in the command, each of these changes who git or gh says you are.
-ENVIRONMENT = re.compile(r"^(GIT_AUTHOR_\w*|GIT_COMMITTER_\w*|GIT_CONFIG\w*|GIT_DIR|GIT_WORK_TREE|GIT_ASKPASS|"
-                         r"GIT_SSH\w*|GH_\w+|GITHUB_\w*TOKEN|EMAIL|HOME|XDG_CONFIG_HOME)=")
-KEYS = re.compile(r"^(user|author|committer|credential|url|remote|include|includeif|core\.sshcommand)\b", re.I)
-TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
+sys.path.append(str(ROOT))
+from tools.hooks import shell  # noqa: E402
+
+DEADLINE = 45   # seconds for the whole check; the settings give the hook 60, and running out refuses
+WRITES = {"am", "cherry-pick", "commit", "commit-tree", "filter-branch", "merge", "pull", "push", "rebase", "revert"}
+# Known, and not a commit. These run commands of their own, so their text is read for a commit or push.
+RUNNERS = {"bisect", "difftool", "mergetool", "submodule"}
+OTHERS = {"add", "annotate", "apply", "archive", "blame", "branch", "bundle", "cat-file", "check-attr",
+          "check-ignore", "checkout", "cherry", "clean", "clone", "config", "count-objects", "describe", "diff",
+          "diff-files", "diff-index", "diff-tree", "fetch", "for-each-ref", "format-patch", "fsck", "gc", "grep",
+          "hash-object", "help", "init", "log", "ls-files", "ls-remote", "ls-tree", "maintenance", "merge-base",
+          "mv", "name-rev", "notes", "prune", "range-diff", "reflog", "remote", "repack", "reset", "restore",
+          "rev-list", "rev-parse", "rm", "shortlog", "show", "show-branch", "show-ref", "sparse-checkout", "stash",
+          "status", "switch", "symbolic-ref", "tag", "update-index", "update-ref", "var", "verify-commit",
+          "verify-tag", "version", "whatchanged", "worktree", "write-tree"}
+GIT_FLAGS = {"-p", "--paginate", "-P", "--no-pager", "--bare", "--no-replace-objects", "--literal-pathspecs",
+             "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs", "--no-optional-locks", "--no-lazy-fetch",
+             "--no-advice", "--version", "-v", "--help", "-h", "--html-path", "--man-path", "--info-path",
+             "--exec-path"}
 GIT_VALUED = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}
 GH_VALUED = {"-R", "--repo", "--hostname"}
 PUSH_VALUED = {"-o", "--push-option", "--receive-pack", "--exec", "--repo"}
+# Programs that print their words and run none of them, so a commit or push in their text is only text.
+TEXT_ONLY = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "cat", "head", "tail", "wc", "ls", "less", "sort",
+             "uniq", "cut", "tr", "diff", "test", "[", "true", "false"}
+SHELLS_AND_SOURCE = shell.SHELLS | {"source", "."}     # without -c, these run a script the hook cannot see
+WRITE_TEXT = re.compile(r"\bgit\b[\s\S]*\b(%s)\b|\bgh\b[\s\S]*\b(pr|release|api)\b" % "|".join(sorted(WRITES)))
+# Set in the command, each of these changes who git or gh says you are.
+ENVIRONMENT = re.compile(r"^(GIT_AUTHOR_\w*|GIT_COMMITTER_\w*|GIT_CONFIG\w*|GIT_DIR|GIT_WORK_TREE|GIT_ASKPASS|"
+                         r"GIT_SSH\w*|GH_\w+|GITHUB_\w*TOKEN|EMAIL|HOME|XDG_CONFIG_HOME)=")
+GIT_CONFIG_FILE = re.compile(r"(^|/)\.git/config$|\.gitconfig$|(^|/)git/config$")
+KEYS = re.compile(r"^(user|author|committer|credential|url|remote|include|includeif|core\.sshcommand|alias|http)\b",
+                  re.I)
+TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 IDENT = re.compile(r"^(.*) <(.*)> \d+ [+-]\d{4}$")
 GITHUB = re.compile(r"^https://(?:([^@/]+)@)?github\.com/")
+CREDENTIAL = re.compile(r"(?<=://)[^/@\s]+@")
+URLISH = re.compile(r"://|^[^/]+@[^/]+:")
 HELPER = "gh auth git-credential"
 SHOWN = 3   # commits of another identity named in a refusal
 
@@ -40,15 +65,28 @@ class Unreadable(Exception):
     """Something the decision rests on could not be read."""
 
 
-def _run(program: str, args: list, where, env: dict) -> str:
-    exe = shutil.which(program, path=env.get("PATH", os.defpath))
-    if exe is None:
-        raise Unreadable("%s is not on PATH, so who would commit or push cannot be read" % program)
-    done = subprocess.run([exe] + args, cwd=str(where), env=env, capture_output=True, text=True, timeout=20)
-    if done.returncode != 0:
-        first = (done.stderr.strip().splitlines() or ["exit %d" % done.returncode])[0]
-        raise Unreadable("`%s %s` failed in %s: %s" % (program, " ".join(args), where, first))
-    return done.stdout
+class Reader:
+    """Runs git and gh for one check, all of it within one deadline."""
+
+    def __init__(self, env: dict, seconds: float):
+        self.env, self.until = env, time.monotonic() + seconds
+
+    def run(self, program: str, args: list, where) -> str:
+        left = self.until - time.monotonic()
+        if left <= 0:
+            raise Unreadable("the identity check ran out of time before `%s %s`" % (program, args[0]))
+        exe = shutil.which(program, path=self.env.get("PATH", os.defpath))
+        if exe is None:
+            raise Unreadable("%s is not on PATH, so who would commit or push cannot be read" % program)
+        try:
+            done = subprocess.run([exe] + args, cwd=str(where), env=self.env, capture_output=True, text=True,
+                                  timeout=left)
+        except subprocess.TimeoutExpired:
+            raise Unreadable("`%s %s` did not finish before the identity check's deadline" % (program, args[0]))
+        if done.returncode != 0:
+            first = (done.stderr.strip().splitlines() or ["exit %d" % done.returncode])[0]
+            raise Unreadable("`%s %s` failed in %s: %s" % (program, args[0], where, first))
+        return done.stdout
 
 
 def _join(here, path: str):
@@ -58,18 +96,57 @@ def _join(here, path: str):
     return here / os.path.expanduser(path)
 
 
-def _calls(commands: list, cwd) -> tuple:
-    """(calls, problems): each git or gh call as (tool, directory, words after the tool's own options)."""
+def _gh_kind(words: list) -> str:
+    """What a gh command does to GitHub: push (a pull request may push its branch), write, or nothing."""
+    if words[:2] == ["pr", "create"]:
+        return "push"
+    if words[:2] in (["pr", "merge"], ["release", "create"]):
+        return "account"
+    if words[:1] != ["api"]:
+        return ""
+    method, fields, i = None, False, 1
+    while i < len(words):
+        option, given, value = words[i].partition("=")
+        if option in ("-X", "--method") or (option.startswith("-X") and len(option) > 2):
+            if option.startswith("-X") and len(option) > 2:
+                value = option[2:]
+            elif not given:
+                i += 1
+                value = words[i] if i < len(words) else ""
+            method = value.upper()
+        elif option in ("-f", "-F", "--field", "--raw-field", "--input"):
+            fields = True
+        i += 1
+    method = method or ("POST" if fields else "GET")
+    return "account" if method in ("POST", "PUT", "PATCH", "DELETE") else ""
+
+
+def _calls(commands: list, cwd, text: str) -> tuple:
+    """(calls, always, inline). A call is (tool, directory, words after the tool's options, kind).
+
+    `always` refuses whatever the command does: what cannot be read. `inline` refuses only a command
+    that commits, pushes or writes: an identity set in the command itself.
+    """
     here = pathlib.Path(cwd) if cwd else None
-    calls, problems = [], []
-    for words in commands:
-        problems += [("identity_set_in_command", "%s is set in the command; the hook reads only what is configured"
-                      % w.split("=")[0]) for w in words if ENVIRONMENT.match(w)]
+    calls, always, inline, blind = [], [], [], False
+    for words, targets in commands:
+        inline += [("identity_set_in_command", "%s is set in the command; the hook reads only what is configured"
+                    % w.split("=")[0]) for w in words if ENVIRONMENT.match(w)]
+        inline += [("identity_set_in_command", "the command touches git's configuration (%s); change it in a command "
+                                               "of its own" % w) for w in words + targets if GIT_CONFIG_FILE.search(w)]
+        if not words:
+            continue
         if words[0] in ("cd", "pushd"):
             here = _join(here, words[1]) if len(words) > 1 and words[1] != "-" else None
             continue
+        program = os.path.basename(words[0])
+        blind = blind or (program in SHELLS_AND_SOURCE and not any(w.startswith("-") and not w.startswith("--")
+                                                                   and "c" in w for w in words[1:]))
         at = next((i for i, w in enumerate(words) if os.path.basename(w) in ("git", "gh")), None)
         if at is None:
+            if program not in TEXT_ONLY and WRITE_TEXT.search(" ".join(words)):
+                always.append(("command_unreadable", "`%s` looks like a commit or push the hook cannot read as one"
+                               % program))
             continue
         tool, rest = os.path.basename(words[at]), words[at + 1:]
         where, i = here, 0
@@ -83,17 +160,31 @@ def _calls(commands: list, cwd) -> tuple:
                 continue
             if option == "-C":
                 where = _join(where, value)
-            elif option in ("-c", "--config-env") and KEYS.match(value):
-                problems.append(("identity_set_in_command", "git %s %s sets an identity in the command" % (option, value)))
+            elif option in ("-c", "--config-env"):
+                if KEYS.match(value):
+                    always.append(("identity_set_in_command", "git %s %s sets in the command what the hook reads "
+                                                              "from configuration" % (option, value.split("=")[0])))
             elif option in ("--git-dir", "--work-tree"):
-                problems.append(("identity_set_in_command", "%s points git at a repo the hook does not read" % option))
-        calls.append((tool, where, rest[i:]))
-    return calls, problems
+                always.append(("identity_set_in_command", "%s points git at a repo the hook does not read" % option))
+            elif option not in GIT_FLAGS:
+                always.append(("git_option_unknown", "git %s is an option the hook does not know" % option))
+        words = rest[i:]
+        if tool == "git":
+            sub = words[0] if words else ""
+            kind = ("push" if sub == "push" else "commit") if sub in WRITES else ""
+            if sub and sub not in WRITES | RUNNERS | OTHERS:
+                always.append(("git_command_unknown", "git %s is not a command the hook knows; it may be an alias, "
+                                                      "which the hook cannot read" % sub))
+            elif sub in RUNNERS and WRITE_TEXT.search(" ".join(words)):
+                always.append(("command_unreadable", "git %s runs a command the hook cannot read" % sub))
+        else:
+            kind = _gh_kind(words)
+        calls.append((tool, where, words, kind))
+    if blind and WRITE_TEXT.search(text):
+        always.append(("command_unreadable", "a shell reads a script the hook cannot see, in a command that names a "
+                                             "commit or push"))
+    return calls, always, inline
 
-
-def _writes(call) -> bool:
-    tool, _, words = call
-    return words[:1] and words[0] in WRITES if tool == "git" else words[:2] == ["pr", "create"]
 
 
 def _people() -> tuple:
@@ -102,10 +193,10 @@ def _people() -> tuple:
     return who, machine
 
 
-def _committer(where, env: dict, who: dict, machine: str) -> list:
+def _committer(reader: Reader, where, who: dict, machine: str) -> list:
     problems = []
     for kind in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"):
-        found = IDENT.match(_run("git", ["var", kind], where, env).strip())
+        found = IDENT.match(reader.run("git", ["var", kind], where).strip())
         name, email = found.groups() if found else ("?", "?")
         if (name, email) != (who["name"], who["email"]):
             code = "commit_as_machine_user" if machine.lower() in (name + email).lower() else "commit_identity_not_maintainer"
@@ -115,22 +206,22 @@ def _committer(where, env: dict, who: dict, machine: str) -> list:
     return problems
 
 
-def _account(env: dict, who: dict, machine: str) -> list:
-    """The account that pushes: gh's, for github.com, and no token in the environment in its place."""
+def _account(reader: Reader, who: dict, machine: str) -> list:
+    """The account that pushes or writes: gh's, for github.com, and no token in the environment in its place."""
     for name in TOKENS:
-        if env.get(name):
-            return [("push_account_unreadable", "%s is set, so git and gh act as whoever owns that token, which the "
-                                                "hook cannot read; unset it" % name)]
-    login = _run("gh", ["config", "get", "user", "-h", "github.com"], ROOT, env).strip()
+        if reader.env.get(name):
+            return [("account_unreadable", "%s is set, so git and gh act as whoever owns that token, which the hook "
+                                           "cannot read; unset it" % name)]
+    login = reader.run("gh", ["config", "get", "user", "-h", "github.com"], ROOT).strip()
     if not login:
-        return [("push_account_unreadable", "gh names no active account for github.com")]
+        return [("account_unreadable", "gh names no active account for github.com")]
     if login.lower() == machine.lower():
-        return [("push_as_machine_user", "gh's active account is %s, the machine user, which never pushes or opens a "
-                                         "pull request here. Run gh auth switch --user %s, in a command of its own"
-                 % (login, who["login"]))]
+        return [("account_is_machine_user", "gh's active account is %s, the machine user, which never pushes, merges or "
+                                            "opens a pull request here. Run gh auth switch --user %s, in a command of "
+                                            "its own" % (login, who["login"]))]
     if login.lower() != who["login"].lower():
-        return [("push_account_not_maintainer", "gh's active account is %s, and a push here is the Maintainer's, %s"
-                 % (login, who["login"]))]
+        return [("account_not_maintainer", "gh's active account is %s, and a push or a write here is the Maintainer's, "
+                                           "%s" % (login, who["login"]))]
     return []
 
 
@@ -153,50 +244,81 @@ def _targets(args: list) -> tuple:
     return repo + out, "--delete" in args or "-d" in args
 
 
-def _push(where, args: list, env: dict, who: dict, machine: str) -> list:
-    """Where the push goes, through gh's account, carrying only the Maintainer's commits."""
+def _expands(word: str) -> bool:
+    return "$" in word or "`" in word
+
+
+def _remotes(reader: Reader, where, remote, who: dict, machine: str) -> list:
+    """Every URL the push may go to is GitHub over HTTPS, naming no account but the Maintainer's."""
     problems = []
-    helper = _run("git", ["config", "--get-urlmatch", "credential.helper", "https://github.com"], where, env).strip()
+    helper = reader.run("git", ["config", "--get-urlmatch", "credential.helper", "https://github.com"], where).strip()
     if not helper.endswith(HELPER):
-        problems.append(("push_account_unreadable", "git in %s does not push to github.com through gh's account (its "
-                                                    "credential helper is %s); run gh auth setup-git" % (where, helper)))
-    targets, deleting = _targets(args)
-    if any(t.startswith("-") for t in targets):    # never hand the hook's own git an option from the command
-        raise Unreadable("the push names a remote or refspec that starts with '-'")
-    if targets and re.search(r"://|^[^/]+@[^/]+:", targets[0]):
-        urls = [targets[0]]
-    elif targets:
-        urls = [_run("git", ["remote", "get-url", "--push", targets[0]], where, env).strip()]
+        problems.append(("account_unreadable", "git in %s does not push to github.com through gh's account; run gh "
+                                               "auth setup-git" % where))
+    if remote and URLISH.search(remote):
+        urls = [remote]
+    elif remote:
+        urls = reader.run("git", ["remote", "get-url", "--all", "--push", remote], where).split()
     else:
-        urls = [_run("git", ["remote", "get-url", "--push", r], where, env).strip()
-                for r in _run("git", ["remote"], where, env).split()]
+        urls = [url for name in reader.run("git", ["remote"], where).split()
+                for url in reader.run("git", ["remote", "get-url", "--all", "--push", name], where).split()]
     for url in urls:
-        found = GITHUB.match(url)
+        found, shown = GITHUB.match(url), CREDENTIAL.sub("", url)
         user = (found.group(1) or "").split(":")[0] if found else ""
         if not found:
-            problems.append(("push_account_unreadable", "%s is not GitHub over HTTPS, so the account that would push "
-                                                        "cannot be read" % url))
+            problems.append(("account_unreadable", "%s is not GitHub over HTTPS, so the account that would push cannot "
+                                                   "be read" % shown))
         elif user and user.lower() == machine.lower():
-            problems.append(("push_as_machine_user", "%s pushes as %s, the machine user" % (url, user)))
+            problems.append(("account_is_machine_user", "%s pushes as %s, the machine user" % (shown, machine)))
         elif user and user.lower() != who["login"].lower():
-            problems.append(("push_account_not_maintainer", "%s pushes as %s, not as %s" % (url, user, who["login"])))
-    if deleting:
-        return problems
-    revs = ["--branches"] if {"--all", "--mirror", "--branches"} & set(args) else []
-    revs += ["--tags"] if "--tags" in args else []
-    revs += [spec.lstrip("+").split(":")[0] for spec in targets[1:] if spec.lstrip("+").split(":")[0]]
-    log = _run("git", ["log", "--format=%an%x00%ae%x00%cn%x00%ce"] + (revs or ["HEAD"]) + ["--not", "--remotes"],
-               where, env)
-    others = sorted({line for line in log.splitlines()
-                     if line.split("\0") != [who["name"], who["email"], who["name"], who["email"]]})
-    for line in others[:SHOWN]:
-        an, ae, cn, ce = (line.split("\0") + ["?"] * 4)[:4]
-        problems.append(("push_carries_another_identity", "the push from %s carries a commit by %s <%s>, committed by "
-                                                          "%s <%s>; a commit here is the Maintainer's" % (where, an, ae, cn, ce)))
+            problems.append(("account_not_maintainer", "%s names an account in its URL, and not the Maintainer's"
+                             % shown))
     return problems
 
 
-def check(payload: dict, env: dict) -> list:
+def _commits(reader: Reader, where, args: list, refspecs: list, who: dict) -> list:
+    """Every commit the push would send that no remote has yet is the Maintainer's, as author and as committer."""
+    sources = []
+    for spec in refspecs:
+        source = (spec[1:] if spec.startswith("+") else spec).split(":")[0]
+        if source.startswith("-"):      # never hand the hook's own git an option from the command
+            raise Unreadable("the push names a refspec that starts with '-': %s" % spec)
+        if source:
+            sources.append("HEAD" if _expands(source) else source)
+    shas = [reader.run("git", ["rev-parse", "--verify", "--end-of-options", source + "^{commit}"], where).strip()
+            for source in sources or ["HEAD"]]
+    pseudo = ["--branches"] if {"--all", "--mirror", "--branches"} & set(args) else []
+    pseudo += ["--tags"] if "--tags" in args else []
+    log = reader.run("git", ["log", "--format=%an%x00%ae%x00%cn%x00%ce"] + pseudo +
+                     ["--not", "--remotes", "--not", "--end-of-options"] + shas, where)
+    mine = [who["name"], who["email"], who["name"], who["email"]]
+    others = sorted({line for line in log.splitlines() if line.split("\0") != mine})
+    return [("push_carries_another_identity", "the push from %s carries a commit by %s <%s>, committed by %s <%s>; a "
+                                              "commit here is the Maintainer's" % ((where,) + tuple((line.split("\0") + ["?"] * 4)[:4])))
+            for line in others[:SHOWN]]
+
+
+def _push(reader: Reader, where, args: list, who: dict, machine: str) -> list:
+    """Where the push goes, through gh's account, carrying only the Maintainer's commits."""
+    targets, deleting = _targets(args)
+    remote, refspecs = (targets[0], targets[1:]) if targets else (None, [])
+    if remote and remote.startswith("-"):
+        return [("push_commits_unreadable", "the push names a remote that starts with '-'")]
+    problems = []
+    try:
+        problems += _remotes(reader, where, None if remote and _expands(remote) else remote, who, machine)
+    except Unreadable as err:
+        problems.append(("account_unreadable", str(err)))
+    if deleting:
+        return problems
+    try:
+        problems += _commits(reader, where, args, refspecs, who)
+    except Unreadable as err:
+        problems.append(("push_commits_unreadable", str(err)))
+    return problems
+
+
+def check(payload: dict, env: dict, seconds: float = DEADLINE) -> list:
     """The reasons to refuse this command, as (code, sentence); none when it may run."""
     if payload.get("tool_name") != "Bash":
         return []
@@ -208,39 +330,44 @@ def check(payload: dict, env: dict) -> list:
             return [("command_unreadable", "the command cannot be split into words (%s), so who would commit or push "
                                            "cannot be read. Write the message to a file and use git commit -F" % err)]
         return []
-    calls, problems = _calls(commands, payload.get("cwd"))
-    writes = [c for c in calls if _writes(c)]
-    if not writes:
-        return []
-    for tool, _, words in calls:
-        if (tool, words[:1]) in (("git", ["config"]), ("gh", ["auth"])):
-            problems.append(("identity_set_in_command", "%s %s changes configuration in the command that commits or "
-                                                        "pushes; change it in a command of its own" % (tool, words[0])))
-    for tool, _, words in writes:
-        if tool == "git" and any(w == "--author" or w.startswith("--author=") for w in words):
-            problems.append(("identity_set_in_command", "--author names someone other than the configured identity"))
+    calls, problems, inline = _calls(commands, payload.get("cwd"), command)
+    writes = [c for c in calls if c[3]]
+    if writes:
+        problems += inline
+        for tool, _, words, _ in calls:
+            if (tool, words[:1]) in (("git", ["config"]), ("gh", ["auth"])):
+                problems.append(("identity_set_in_command", "%s %s changes configuration in the command that writes; "
+                                                            "change it in a command of its own" % (tool, words[0])))
+        for tool, _, words, _ in writes:
+            if tool == "git" and any(w == "--author" or w.startswith("--author=") for w in words):
+                problems.append(("identity_set_in_command", "--author names someone other than the configured identity"))
+        problems += _verify(writes, env, seconds)
+    return list(dict.fromkeys((code, CREDENTIAL.sub("", sentence)) for code, sentence in problems))
+
+
+def _verify(writes: list, env: dict, seconds: float) -> list:
+    """Read who each write would be made as."""
     who, machine = _people()
-    pushes = [c for c in writes if c[0] == "gh" or c[2][0] == "push"]
-    try:
-        problems += _account(env, who, machine) if pushes else []
-    except Unreadable as err:
-        problems.append(("push_account_unreadable", str(err)))
-    for tool, where, words in writes:
+    reader, problems = Reader(env, seconds), []
+    if any(kind in ("push", "account") for _, _, _, kind in writes):
+        try:
+            problems += _account(reader, who, machine)
+        except Unreadable as err:
+            problems.append(("account_unreadable", str(err)))
+    for tool, where, words, kind in writes:
+        if kind == "account":
+            continue
         if where is None or not where.is_dir():
             problems.append(("directory_unreadable", "the command commits or pushes in a directory the hook cannot "
                                                      "tell from its words (%s); give it as a plain path" % (where or "?")))
             continue
         try:
-            problems += _committer(where, env, who, machine)
+            problems += _committer(reader, where, who, machine)
         except Unreadable as err:
             problems.append(("identity_unreadable", str(err)))
-        if (tool, where, words) not in pushes:
-            continue
-        try:
-            problems += _push(where, words[1:] if tool == "git" else [], env, who, machine)
-        except Unreadable as err:
-            problems.append(("push_account_unreadable", str(err)))
-    return list(dict.fromkeys(problems))
+        if kind == "push":
+            problems += _push(reader, where, words[1:] if tool == "git" else [], who, machine)
+    return problems
 
 
 def main() -> int:
@@ -248,11 +375,11 @@ def main() -> int:
         problems = check(json.loads(sys.stdin.read()), dict(os.environ))
     except Exception as err:    # what the hook cannot read, it refuses
         problems = [("hook_failed", "the identity hook could not finish (%s: %s), so it refuses"
-                     % (type(err).__name__, err))]
+                     % (type(err).__name__, CREDENTIAL.sub("", str(err))))]
     if not problems:
         return 0
-    print("Refused by tools/hooks/identity.py. A commit or a push in this repo is the Maintainer's, who is named "
-          "in config/hooks.json:", file=sys.stderr)
+    print("Refused by tools/hooks/identity.py. A commit, a push or a write to GitHub here is the Maintainer's, who "
+          "is named in config/hooks.json:", file=sys.stderr)
     for code, sentence in problems:
         print("- %s: %s." % (code, sentence), file=sys.stderr)
     return 2

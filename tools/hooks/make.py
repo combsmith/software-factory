@@ -1,4 +1,4 @@
-"""Run a make target for a hook, in the copy of the repo the session is working in."""
+"""Run a make target for a hook, in the project or in one of its worktrees, and nowhere else."""
 from __future__ import annotations
 
 import os
@@ -10,25 +10,34 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 TAIL = 40   # lines of output shown; the end of a run is where it says what failed
 
 
-def tree(*places) -> pathlib.Path:
-    """The copy of this repo that holds the first of `places` that is in one; else this one."""
-    for place in places:
-        if not place:
-            continue
-        path = pathlib.Path(place).resolve()
-        for folder in (path,) + tuple(path.parents):
-            if (folder / "tools" / "verify.py").is_file():
-                return folder
-    return ROOT
+def project(env: dict) -> pathlib.Path:
+    """The project the session started in: its settings are what run these hooks."""
+    return pathlib.Path(env.get("CLAUDE_PROJECT_DIR") or ROOT).resolve()
+
+
+def tree(base: pathlib.Path, place):
+    """Where make runs for `place`: the worktree under base/.claude/worktrees/ that holds it, or base. None outside both."""
+    if not place:
+        return None
+    path, worktrees = pathlib.Path(place).resolve(), base / ".claude" / "worktrees"
+    if worktrees in path.parents:
+        return worktrees / path.relative_to(worktrees).parts[0]
+    if path == base or base in path.parents:
+        return None if path == worktrees else base
+    return None
 
 
 def tail(text: str, lines: int = TAIL) -> str:
     return "\n".join(text.rstrip("\n").split("\n")[-lines:])
 
 
+def _make(env: dict):
+    return shutil.which("make", path=env.get("PATH", os.defpath))
+
+
 def make(target: str, where: pathlib.Path, env: dict, timeout: int) -> tuple:
     """(passed, what to show). Without make, it did not pass, and says why in one sentence."""
-    exe = shutil.which("make", path=env.get("PATH", os.defpath))
+    exe = _make(env)
     if exe is None:
         return False, ("make is not on PATH, so `make %s` did not run in %s. Put make on PATH; the same checks "
                        "run without it as python3 -m tools.verify%s." % (target, where, " --fast" if target == "fast" else ""))
@@ -40,3 +49,15 @@ def make(target: str, where: pathlib.Path, env: dict, timeout: int) -> tuple:
     except OSError as err:
         return False, "`make %s` could not start in %s: %s." % (target, where, err)
     return done.returncode == 0, tail(done.stdout)
+
+
+def lacks(target: str, where: pathlib.Path, env: dict) -> bool:
+    """Whether make is there and the Makefile in `where` has no such target, as on a branch older than it."""
+    exe = _make(env)
+    if exe is None:
+        return False
+    try:
+        done = subprocess.run([exe, "-n", target], cwd=str(where), env=env, capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.returncode != 0

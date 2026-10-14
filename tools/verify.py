@@ -47,19 +47,26 @@ def unverified(rules: list) -> None:
         print("    unverified: " + rule)
 
 
-def modules(fast: bool) -> list:
-    """The test modules to run: every one, or, when fast, every one but the slow."""
-    found = sorted(p.stem for p in (ROOT / "tests").glob("test_*.py"))
-    return [m for m in found if not (fast and m in SLOW)]
+def _modules(tests) -> set:
+    found = set()
+    for item in tests:
+        found |= _modules(item) if isinstance(item, unittest.TestSuite) else {type(item).__module__}
+    return found
+
+
+def suite(fast: bool) -> unittest.TestSuite:
+    """Every test module under tests/, at any depth; when fast, all but those in SLOW."""
+    whole = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT))
+    if not fast:
+        return whole
+    slow = {"tests." + name for name in SLOW}
+    return unittest.TestSuite(item for item in whole if not _modules(item) & slow)
 
 
 def main(argv: list) -> int:
-    fast = "--fast" in argv
     checks_failed = failed(CHECKS)
     unverified(check_trials.unverified())
-    names = ["tests." + m for m in modules(fast)]
-    suite = unittest.defaultTestLoader.loadTestsFromNames(names)
-    result = unittest.TextTestRunner(verbosity=1).run(suite)
+    result = unittest.TextTestRunner(verbosity=1).run(suite("--fast" in argv))
     return 1 if checks_failed or not result.wasSuccessful() else 0
 
 
