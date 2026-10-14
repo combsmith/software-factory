@@ -1,7 +1,7 @@
 {
   "schema": "acceptance/1",
   "item": {
-    "repo": "combsmith/markets",
+    "repo": "petry-projects/markets",
     "type": "issue",
     "number": 512
   },

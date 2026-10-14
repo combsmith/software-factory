@@ -1,7 +1,7 @@
 {
   "schema": "acceptance/1",
   "item": {
-    "repo": "combsmith/software-factory",
+    "repo": "petry-projects/software-factory",
     "type": "pull_request",
     "number": 42
   },

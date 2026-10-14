@@ -23,7 +23,7 @@ CONFIG = json.loads((ROOT / "config" / "defaults.json").read_text())
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
 FACTS_SCHEMA = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
 DECLARED = check_lifecycle.declared(check_lifecycle.load())
-ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 1}
+ITEM = {"repo": "petry-projects/software-factory", "type": "pull_request", "number": 1}
 START = datetime.datetime(2026, 10, 11, 12, 0, 0)
 
 

@@ -1,4 +1,4 @@
-> First written in `combsmith/.github-private`, on the draft pull request "docs: factory MVP — PRD, architecture review, market research and ADR-0013 (proposed)" (number 2225, commit `7d7d04f`). It now lives in this repo. Citations of files and lines in `.github-private` are evidence about the current system and are left as written.
+> First written in `petry-projects/.github-private`, on the draft pull request "docs: factory MVP — PRD, architecture review, market research and ADR-0013 (proposed)" (number 2225, commit `7d7d04f`). It now lives in this repo. Citations of files and lines in `.github-private` are evidence about the current system and are left as written.
 
 # 0013. Factory MVP reference architecture: a declared control plane, one run contract, one release
 
@@ -79,8 +79,8 @@ The maintainer chose the hybrid: build in a new repository, cut over through the
 repo already has. That lifts the "no new repos" half of the constraint set in June 2026. The "no
 always-on infrastructure" half stands.
 
-In this record "the factory repo" is the new repository, `combsmith/software-factory` (named
-by the maintainer on 2026-10-10), and "this repo" is `combsmith/.github-private`, which hosts
+In this record "the factory repo" is the new repository, `petry-projects/software-factory` (named
+by the maintainer on 2026-10-10), and "this repo" is `petry-projects/.github-private`, which hosts
 the POC.
 
 **A note on the number.** This record was drafted and discussed as ADR-0012. While it was in review,
@@ -154,7 +154,7 @@ means the factory's run records and artifacts in GitHub Actions, as indexed in t
   unreadable. Unreadable facts never converge and never admit.
 - **Every pass records the facts it read and the decisions it made,** as an artifact, so that any
   decision can be replayed.
-- **The control room is a materialized view.** `combsmith/software-factory-control-room` holds
+- **The control room is a materialized view.** `petry-projects/software-factory-control-room` holds
   an index of the run records and artifacts and every item's computed State. Only the Controller
   writes it. It is public. For the 90 days GitHub keeps run records it can be deleted and rebuilt;
   it may keep what it has collected for longer, for reporting only. A view
@@ -498,7 +498,7 @@ Numbers are assigned when each is written. Each lands with the migration step th
 | **Release unit and promotion** | The eval gate and its cost budget; ring membership; rollback; retirement of per-agent names. | Supersedes ADR-0002 and ADR-0006, restating what survives of each. |
 | **Kernel language and verification** | Type checking; size and complexity budgets; recorded-interface tests; when the legacy suite becomes required. | Supersedes ADR-0004, restating its principle. |
 | **Merge integrity** | The content identity; the gate function's inputs; which Lenses are required; the Override record; merge-queue settings. | New. No ADR governs this today. |
-| **Factory repository** | The ruleset of `combsmith/software-factory`; how the do-nothing commits in this repo are tested; the final re-pin of consumers; what this repo keeps afterwards; where these three documents and the ADR log live once the factory repo exists. | New. Decision 1 fixes that there is one. |
+| **Factory repository** | The ruleset of `petry-projects/software-factory`; how the do-nothing commits in this repo are tested; the final re-pin of consumers; what this repo keeps afterwards; where these three documents and the ADR log live once the factory repo exists. | New. Decision 1 fixes that there is one. |
 | **Council composition** | Which Lenses are required for each class of work item and stage (PRD OQ-12); how their Findings are aggregated; what counts as independent; the cost each stage may spend on its council. Decided from the Ledger's measure of each Lens, not in advance; review §16.6 proposes the set to start measuring from. | New. Extends ADR-0003, whose registry binds a review target to a rubric and is the nearest existing form of a Lens declaration. |
 
 ADR-0001 and ADR-0003 are kept without change. ADR-0012 governs the POC's comment gate until the
@@ -688,11 +688,11 @@ extension remains a separate decision.
 - `scripts/lib/carry-forward.sh`, `.github/workflows/issue-triage-runner.yml`,
   `.github/workflows/persona-runner-reusable.yml`, `scripts/initiative-planner/apply-plan.sh` — the
   existing seams decisions 4 and 7 generalize.
-- `combsmith/.github-private#2197 — The fleet and every session share one GitHub API quota
+- `petry-projects/.github-private#2197 — The fleet and every session share one GitHub API quota
   (don-petry, 5,000/hour) and the fleet alone uses about that much: it ran out on 2026-10-10 and
   failed a workflow`.
-- `combsmith/.github-private#1864 — Merge protections are unsatisfiable at N>1 open PRs: one
+- `petry-projects/.github-private#1864 — Merge protections are unsatisfiable at N>1 open PRs: one
   merge to main forces a full re-review of every other PR — ~154 forced re-reviews in 48h, zero
   merges`.
-- `combsmith/.github-private#1741 — [bug] 42% of dev-lead runs are cancelled before doing any
+- `petry-projects/.github-private#1741 — [bug] 42% of dev-lead runs are cancelled before doing any
   work — review findings sit unaddressed while the PR looks active`.
