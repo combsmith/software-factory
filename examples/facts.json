@@ -51,15 +51,15 @@
   ],
   "checks": [
     {
-      "lens": "lint",
+      "lens": "verify",
       "conclusion": "success"
     },
     {
-      "lens": "workflow-security",
+      "lens": "secret-scan",
       "conclusion": "success"
     },
     {
-      "lens": "tests",
+      "lens": "code-scanning",
       "conclusion": "success"
     }
   ],

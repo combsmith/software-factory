@@ -25,6 +25,7 @@ comments, and waited for reviewers that never answered.
 | A Finding is a structured record | `schemas/finding.schema.json`, `tools/check_examples.py` |
 | A reason is a code, never a sentence | `examples/invalid/decision.sentence-as-reason.json` |
 | A required Lens's blocking or major Finding gates; a minor one, or one from a Lens that is not required, does not | `tests/test_decide.py::test_required_lens_major_finding_gates`, `tests/test_decide.py::test_minor_finding_and_unrequired_lens_do_not_gate` |
+| A required deterministic Lens is named for the check GitHub reports, and that check reports on every head and in the merge queue | waiting on `adapters/` |
 | No model Lens runs on content the deterministic Lenses have not passed | `tests/test_decide.py::test_no_model_review_before_deterministic_checks_pass` |
 | A dependency update is judged by the deterministic Lenses alone | not held yet: `tests/test_decide.py::test_a_dependency_update_needs_no_model_review` |
 | An empty diff never converges | `tests/test_decide.py::test_empty_diff_never_converges` |

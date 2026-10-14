@@ -21,7 +21,7 @@ Channel back is the whole of a rollback.
 
 | Boundary | Check |
 |---|---|
-| Every action and reusable workflow is pinned to a full commit hash | `tools/check_workflows.py` |
+| Every action is pinned to a full commit hash, and one of the org's own reusable workflows to its channel tag | `tools/check_workflows.py` |
 | Every Run records the Release it ran | waiting on `harness/` |
 | Inside a Release, Factory files are read at the commit of the running workflow, never at a branch | waiting on `release/` |
 | The only files that run from the default branch are thin callers: each job `uses:` a pinned reusable and declares no steps | waiting on `release/` |

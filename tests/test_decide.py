@@ -102,16 +102,16 @@ class Content(unittest.TestCase):
         self.assertEqual(go(facts(diff={"files": 9, "lines": 99999, "truncated": False}))["reason"], "too_large")
 
     def test_no_model_review_before_deterministic_checks_pass(self):  # I-27
-        pending = facts(checks=[{"lens": "lint", "conclusion": "pending"}])
+        pending = facts(checks=[{"lens": "verify", "conclusion": "pending"}])
         d = go(pending)
         self.assertEqual((d["outcome"], d["reason"]), ("nothing", "awaiting_checks"))
         d = go(facts())
         self.assertEqual(d["admit"], {"role": "pr-review", "intent": "review-change", "content_id": "sha256:aaaa"})
 
     def test_a_failed_required_check_goes_back_to_the_author(self):
-        f = facts(checks=[{"lens": "lint", "conclusion": "failure"}] + GREEN[1:])
+        f = facts(checks=[{"lens": "verify", "conclusion": "failure"}] + GREEN[1:])
         d = go(f, REVIEWED)
-        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "check_failed", ["lint"]))
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "check_failed", ["verify"]))
         self.assertEqual(d["admit"]["intent"], "fix-findings")
 
     def test_a_failed_check_that_is_not_required_does_not_gate(self):

@@ -6,8 +6,9 @@ as it stood on 2026-10-11. That file records how this was reached; this one is t
 ## Decision
 
 Every Run is admitted by one Controller. It is a poller: one pass evaluates every open Work item
-in every repo. An event carries no work; it may only ask for a pass. Hold, Pause, budget,
-duplication and concurrency are evaluated in the admission function and nowhere else. A Run is
+in every repo. An event carries no work; it may only ask for a pass. Hold, budget, duplication
+and concurrency are evaluated in the admission function and nowhere else. A Pause is evaluated
+there and, before any Factory code runs, by the platform. A Run is
 started only from a Decision that a pass recorded.
 
 ## Why
