@@ -104,9 +104,11 @@ class World:
         elif fault < 0.20 and runs:
             runs = runs[:-1]                    # the newest Run is not listed yet
         self.stale = (copy.deepcopy(facts), copy.deepcopy(runs))
-        self.check(not validate(facts, FACTS_SCHEMA), "facts are valid")
+        wrong = validate(facts, FACTS_SCHEMA)
+        self.check(not wrong, "facts are valid: %s" % "; ".join(wrong))
         d = decide(facts, runs, self.context(), CONFIG, self.now())
-        self.check(not validate(d, DECISION_SCHEMA), "every Decision is valid")
+        wrong = validate(d, DECISION_SCHEMA)
+        self.check(not wrong, "every Decision is valid: %s" % "; ".join(wrong))
         self.note("pass: %s %s -> %s" % (d["state"], d["reason"], d["outcome"]))
         whole = all(facts["complete"].values())
         self.check(whole or d["outcome"] == "defer", "I-20 incomplete facts never admit or converge")

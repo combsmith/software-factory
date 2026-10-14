@@ -4,9 +4,9 @@
   "owner_role": "pr-review",
   "required_lenses": {
     "deterministic": [
-      "lint",
-      "workflow-security",
-      "tests"
+      "verify",
+      "secret-scan",
+      "code-scanning"
     ],
     "model": [
       "pr-review"

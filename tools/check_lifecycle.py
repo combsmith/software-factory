@@ -48,6 +48,8 @@ def run(lifecycle: dict = None) -> list:
                 problems.append("transition names an undeclared state: %s" % end)
         if tr["from"] in terminal:
             problems.append("a terminal state has a way out: %s" % tr["from"])
+        if tr["from"] == "held" and tr["by"] not in ("human", "platform"):
+            problems.append("a Hold is ended by %s; only a person ends a Hold" % tr["by"])
         edges.append((tr["from"], tr["to"]))
     for entry in lc["initial"]:
         if entry not in states:

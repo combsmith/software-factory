@@ -1,4 +1,4 @@
-# The required check, `factory / verify`. It runs what `make verify` runs, on the commit and nothing else.
+# The required check, `factory / verify`: `make verify` and the mutation check, on the commit and nothing else.
 name: factory
 on:
   pull_request:

@@ -1,0 +1,19 @@
+# Must be rejected. An action named by a tag runs whatever the tag points at today.
+name: factory
+on:
+  pull_request:
+  merge_group:
+permissions: {}
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: make verify
+      - run: python3 -m tools.mutants

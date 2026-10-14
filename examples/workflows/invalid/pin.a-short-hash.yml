@@ -1,0 +1,19 @@
+# Must be rejected. Seven characters of a hash can be matched by another commit.
+name: factory
+on:
+  pull_request:
+  merge_group:
+permissions: {}
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make verify
+      - run: python3 -m tools.mutants

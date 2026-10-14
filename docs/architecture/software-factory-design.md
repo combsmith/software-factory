@@ -72,6 +72,7 @@ Made by the Maintainer on 2026-10-10, in addition to ADR-0013's twelve decisions
 | Stopping is the Maintainer's decision, on adoption and use | §9.2 |
 | The Factory's Apps share the prefix `combsmith-sf-` | §5.1 |
 | Every panel of the control room is public | §8.6 |
+| Code owners follow the org's standard: the team org-leads owns every path (2026-10-14) | §5.1 |
 | Only required Lenses gate, and domain owners start in shadow (from the pre-mortem, §9.3) | §4.2, §5.2 |
 | The Maintainer records continue or stop at two decision points | §9.2 |
 | Decisions read GitHub only; the control room is written and never read back (from the simplification pass, §9.4) | §3.9 |
@@ -1148,7 +1149,7 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 | I-4 | No Effect is applied twice | ADR-0013, decision 4 |
 | I-5 | No Effect is applied from a Result that failed validation, or outside the Role's permitted Effects | FR-9, FR-10 |
 | I-6 | No Run is admitted on a held item, and removing the Hold resumes work with no other event | FR-23 |
-| I-7 | No Run is admitted under a human Pause, and automation never clears one | FR-24 |
+| I-7 | Under a human Pause no Run is admitted, no approval is issued and nothing is enqueued, and automation never clears one | FR-24 |
 | I-8 | Automated actions since the last human decision never exceed the ceiling | FR-17 |
 | I-9 | An approval exists only for a `content_id` on which Convergence held | FR-31, FR-67 |
 | I-10 | No Role decides a Disposition on a Finding about its own work | FR-30 |
@@ -1235,7 +1236,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | Case | Rule |
 |---|---|
 | A pull request from a fork, or from someone who is not a collaborator | Its class is `outside`. It gets no Run, because a Run holds the model credential. It is held as "needs you" until the Maintainer admits it or closes it (I-25). Its status is written for a stranger: what is happening, and that a maintainer has to admit it. Admission lapses when the author pushes again, so a harmless commit cannot be admitted and then replaced (I-36) |
-| A dependency update | Its class is `dependency`. Its required Lenses are deterministic ones. The POC's automerge serves it until that Intent is cut over |
+| A dependency update | Its class is `dependency`. Its required Lenses are deterministic ones. On a Consumer the POC's automerge serves it until that Intent is cut over. In the Factory's own repo no line serves it: nothing is installed there, so every update changes `.github/`, and the Maintainer reads and merges it (§5.1) |
 | The approver is the author or the last pusher | GitHub rejects or discards the approval. The Kernel reads `author` and `last_pusher`, attempts no approval, and holds the item with that reason (I-26). The machine user therefore never pushes (§5.1) |
 | A branch pushed every few minutes | Deterministic Lenses first; a model review starts only on content they have passed (I-27) |
 | A Hold released, or a pull request reopened, after attempts ran out | Attempts count since the last action by a person with write access, which grants a fresh allowance. No agent's action does, and nor does a stranger's comment: on a public repo that would let anyone keep an agent running (I-28) |
@@ -1267,7 +1268,7 @@ Every human control is one ordinary GitHub action, the same for every Role and e
 | Block | Open a review thread, or request changes | A `human` Finding, which gates until that person resolves it |
 | Approve | Approve the pull request | A human approval stands as an independent approval |
 | Override | Merge through GitHub's own bypass | The merge is recorded as an Override and a reason is asked for on the item |
-| Pause | Set the variable `FACTORY_PAUSED` for the org or a repo | No Run is admitted in that scope; only a person clears it |
+| Pause | Set the variable `FACTORY_PAUSED` for the org or a repo | In that scope the Factory admits no Run, issues no approval and enqueues nothing; only a person clears it |
 | Re-evaluate | Nothing | Every pass evaluates every open item |
 
 A pass reads every open issue, most of them only as a listing (§4.1, the issue Lifecycle). It
@@ -1441,11 +1442,11 @@ state. The fourth column is the plan.
 - The approving review stays with the existing machine user, because a code owner must be a user.
   It approves and does nothing else. It never pushes and never opens a pull request, because GitHub
   will not count an approval from an author or a last pusher.
-- **The Maintainer is the only code owner for the Factory's own rules** in the Factory repo:
-  `lifecycle/`, the authority table, the rubrics, the gate function, the brakes, the invariants and
-  the simulator's fixed seeds, and `.github/`. GitHub then
-  enforces that the Factory cannot approve a change to what governs it, whichever Release is
-  serving.
+- **Code owners follow the org's standard** (Maintainer, 2026-10-14): the team org-leads, which
+  holds the Maintainer and the machine user, owns every path. So code ownership does not keep the
+  Factory from approving a change to its own rules (`lifecycle/`, the authority table, the rubrics,
+  the gate function, the brakes, the invariants, the simulator's fixed seeds and `.github/`). What
+  does is `apply`, which refuses a Role's change to them unless a person approved it (§3.6).
 - The Apps share the name prefix `combsmith-sf-`, so `qa-lead` acts as `combsmith-sf-qa-lead[bot]`. The frozen Consumer file drops
   Factory-authored events by that prefix, so adding a Role never changes a Consumer file.
 - Registering an App is a manual step. "A new Role in one pull request" (NFR-11, UJ-7) becomes one
@@ -1556,7 +1557,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-30 | Which identity can cut a Release and move a channel tag under a tag ruleset, from a workflow in the Factory repo? | One identity, through one path |
 | P-21 | How often may the control room's page be rebuilt, and can a page read the feed files directly from a browser? | The page reads the feed directly and rebuilds only when its own code changes |
 | P-23 | How many threads may one App resolve in an hour before GitHub's secondary limits apply? | Enough for about 22 threads a pull request at the Factory's merge rate |
-| P-24 | With the Maintainer as the only code owner of a path, does the machine user's approval fail to satisfy code-owner review there? | It fails to satisfy it |
+| P-24 | With the Maintainer as the only code owner of a path, does the machine user's approval fail to satisfy code-owner review there? Not needed for the Factory's repo while its code owners follow the org's standard | It fails to satisfy it |
 | P-25 | Does resolving a reviewer's thread cause that reviewer to re-post it, reply, or approve? | No, with the configuration of §4.2 |
 | P-22 | How soon after it is started does a Run appear in the list of run records? | Soon enough that a pass never admits the same Run twice; the item's lane and I-21 cover the gap |
 | P-32 | Can an issue's author's permission be read in the listing of open issues, and who added and who removed each label, with the time, in the full read? | Yes to both, within the budget P-8 measures |
@@ -1979,8 +1980,11 @@ block said why at each step.
    the POC's own history: merged pull requests later reverted or fixed are known answers.
 6. The poller started the Run: the Controller's App exists, and a pass recorded the Decision.
 7. The Kernel reached that Decision: the pull-request Lifecycle, Convergence and the gate, with the
-   deterministic Lenses already reported. Those Lenses are workflows in the Factory repo: lint,
-   workflow security, code scanning.
+   deterministic Lenses already reported. Those Lenses are the required checks GitHub reports on the
+   pull request: `factory / verify`, the org's secret scan, and code scanning. There is no separate
+   lint: what `lint` meant here is the repo's own checks, which `make verify` runs with its workflow
+   rules, its tests and the mutation check, all inside `factory / verify`. SonarCloud reports and
+   informs (Maintainer, 2026-10-13).
 8. The pass read the facts and the run records: the two ports, with completeness flags.
 9. All of it ran from a Release on `next`: something cut that Release and moved the channel
    (P-30), and the entry shim called it.
@@ -2237,8 +2241,8 @@ The machine user never authors, pushes or opens a pull request there.
 request, GitHub will not accept the Maintainer as its approver. So through slices 0 and 1 the
 ruleset requires the verification check and the merge queue and no approving review: the Maintainer
 reads and merges. Required review, with the machine user as code owner, is switched on when the
-Factory's reviewer serves the repo. The rule that the Maintainer alone owns the Factory's rule
-files (§5.1) takes effect when an App, and not the Maintainer, authors the changes. Wherever this
+Factory's reviewer serves the repo. From then on, a change to the Factory's own rules authored by a
+Role is refused by `apply` unless a person approved it (§5.1). Wherever this
 document says the Maintainer approves during the bootstrap, read "reads and merges".
 
 What makes that way of working produce good code:
@@ -2252,7 +2256,7 @@ What makes that way of working produce good code:
 | Hooks hold the line | After each edit, the fast checks run. A session cannot end with the verification failing. A push as the machine user is refused. An edit to a protected path is refused unless the Maintainer asked for it |
 | A reader that did not write it | Before a pull request, a fresh context reviews the diff, and a separate pass looks only for security faults. For a change to the Kernel, a second model family reads the diff once and reports. Reviewers report; they do not converse |
 | Tests that can fail | Mutation testing on the Kernel, which is pure functions and so cheap to mutate |
-| Types as the code is written | A type checker and a linter are required checks, and a language-server plugin shows their errors to the agent as it edits |
+| Types as the code is written | The required check installs nothing, so neither a type checker nor a linter is a required check: the repo's own checks and the mutation check stand in their place. What an editor shows an agent as it works is the session's own affair (Maintainer, 2026-10-11) |
 | Trials leave fixtures | Every platform trial records the real response, which the simulator's fake GitHub is then held to |
 | The Maintainer's attention | Replies lead with the verdict, decisions arrive as choices, and status lives on a page, as set out in the situation-room analysis |
 
