@@ -1,4 +1,4 @@
-> First written in `petry-projects/.github-private`, on the draft pull request "docs: factory MVP — PRD, architecture review, market research and ADR-0013 (proposed)" (number 2225, commit `7d7d04f`). It now lives in this repo. Citations of files and lines in `.github-private` are evidence about the current system and are left as written.
+> First written in `combsmith/.github-private`, on the draft pull request "docs: factory MVP — PRD, architecture review, market research and ADR-0013 (proposed)" (number 2225, commit `7d7d04f`). It now lives in this repo. Citations of files and lines in `.github-private` are evidence about the current system and are left as written.
 
 # Architecture review: the agentic factory, POC to MVP
 
@@ -93,7 +93,7 @@ whether agents move off the owner account, whether the POC is frozen for feature
 replaced, and what the migration may cost. A fourth was decided on 2026-10-10: third-party
 reviewers are integrated through a contract, and comment bodies gate nothing. The same day the
 maintainer decided that no agent runs as the owner account, named the new repo
-`petry-projects/software-factory`, settled the migration's governance, and chose which
+`combsmith/software-factory`, settled the migration's governance, and chose which
 reviewers stay (§16.6), and chose one App per Role. The interaction and contract design that
 follows from these is in `software-factory-design.md`. It replaces two recommendations made here:
 the git-backed store of §6.1 gives way to derived state, Actions run records and a rebuildable
@@ -131,7 +131,7 @@ Four read-only passes were made over the repo and its telemetry, each producing 
    was applied": `scripts/engine.sh`, `scripts/lib/`, the dev-lead, pr-review and persona runners.
 2. **Interaction model and control plane** — `docs/agentic-interaction-model.md`, the interaction
    contracts, the ingress and repair workflows, the gates.
-3. **Distribution and assurance** — release tooling, the standards repo `petry-projects/.github`,
+3. **Distribution and assurance** — release tooling, the standards repo `combsmith/.github`,
    evals, tests, validators.
 4. **Telemetry and issue history** — in-repo reports, 600 issues and 400 pull requests from the
    hosting repo, 300 issues from the standards repo, seven days of workflow runs, the org-wide open
@@ -142,7 +142,7 @@ The ADR corpus (ADR-0000 to ADR-0011), the interaction-model standard and the op
 for the branch ruleset, against the live API.
 
 Citations are `path:line` at the reviewed commit. A `DG:` prefix marks a path in the standards repo,
-`petry-projects/.github`, at commit `3cd1511f`. Issues are cited as `repo#number — title`.
+`combsmith/.github`, at commit `3cd1511f`. Issues are cited as `repo#number — title`.
 
 ### 2.2 Limits
 
@@ -180,26 +180,26 @@ repo. "Last 4 / prior 4 / 4 before" are four-week windows ending 2026-10-11.
 
 Every class except H grew in the most recent four weeks. Representative issues per class:
 
-- **A.** `petry-projects/.github-private#1894 — 10 of 11 open PRs have never received an approving
+- **A.** `combsmith/.github-private#1894 — 10 of 11 open PRs have never received an approving
   review`; `#1933 — pr-review never re-approves after dismissing its own approval`; `#2166 —
   Edited-after-disposition deadlock`.
-- **D.** `petry-projects/.github-private#1741 — [bug] 42% of dev-lead runs are cancelled before
+- **D.** `combsmith/.github-private#1741 — [bug] 42% of dev-lead runs are cancelled before
   doing any work`; `#2017 — A lost fix-bot-comment run is never retried`; `#2170 — Retry and sweep
   crons run every 4–8 hours instead of every 2 h / 15 min`.
-- **B.** `petry-projects/.github-private#1620 — dev-lead merges zero-diff PRs that close their
+- **B.** `combsmith/.github-private#1620 — dev-lead merges zero-diff PRs that close their
   issues`; `#1874 — pr-review announces an approval it never created`; `#2013 — dev-lead
   fix-reviews: posts "Fixed" replies for changes that were never pushed, and edits tests to match
   its own code`.
-- **E.** `petry-projects/.github-private#1565 — Auto-pause companion: usage-telemetry adapter +
+- **E.** `combsmith/.github-private#1565 — Auto-pause companion: usage-telemetry adapter +
   scheduled poller`; `#1862 — check_provider_headroom has never worked`; `#2197 — The fleet and
   every session share one GitHub API quota`.
-- **C.** `petry-projects/.github-private#1592 — Script-only changes never reach the fleet`;
-  `petry-projects/.github#1125 — Fleet pr-review callers pin legacy bare pr-review/stable and are
-  unmanaged`; `petry-projects/.github#1086 — Gate soak is vacuous`.
-- **F.** `petry-projects/.github-private#1415 — [Phase 4] Close the maintainer review-gate gap`;
+- **C.** `combsmith/.github-private#1592 — Script-only changes never reach the fleet`;
+  `combsmith/.github#1125 — Fleet pr-review callers pin legacy bare pr-review/stable and are
+  unmanaged`; `combsmith/.github#1086 — Gate soak is vacuous`.
+- **F.** `combsmith/.github-private#1415 — [Phase 4] Close the maintainer review-gate gap`;
   `#1734 — persona-runner: qa-lead advisory lost`; `#2027 — dev-lead silently ignores @dev-lead
   mentions from the maintainer, because the maintainer's account is dev-lead's own identity`.
-- **G.** `petry-projects/.github-private#1864 — Merge protections are unsatisfiable at N>1 open
+- **G.** `combsmith/.github-private#1864 — Merge protections are unsatisfiable at N>1 open
   PRs`; `#1881 — auto-rebase still merges main into every open PR on every push`.
 
 ### 2.4 Fixes that relocated the failure
@@ -212,7 +212,7 @@ Every class except H grew in the most recent four weeks. Representative issues p
 | Maintainer-comment disposition gate (September) | Unanswered maintainer comments merging | Gate blocks on bot notices, the agent's own acknowledgements, edited summaries |
 | Claim verification guards (September–October) | False "applied" and phantom "Fixed" | Guards refuse legitimate pushes, loop, or retract real fixes |
 | Persona posting identity (September) | Advisories under the owner credential | HTTP 403 on the bot credential; reverted to the owner account |
-| Drop the strict up-to-date rule (2026-09-21) | Pull requests stuck behind `main` | Auto-rebase kept merging `main` into every open pull request (`petry-projects/.github-private#1881 — auto-rebase still merges main into every open PR on every push`); the compliance audit now reports the change as drift (`petry-projects/.github#1265 — Compliance audit — 2026-10-09`) |
+| Drop the strict up-to-date rule (2026-09-21) | Pull requests stuck behind `main` | Auto-rebase kept merging `main` into every open pull request (`combsmith/.github-private#1881 — auto-rebase still merges main into every open PR on every push`); the compliance audit now reports the change as drift (`combsmith/.github#1265 — Compliance audit — 2026-10-09`) |
 | Budget breaker epic (closed 2026-09-07) | Nothing | Breaker unreachable; poller credential refused |
 
 Genuine reductions: hard failures are 0.9% of runs against 100% failure streaks in April
@@ -393,10 +393,10 @@ What this costs, each verified in code or in an issue:
 3. dev-lead cannot tell its own replies from the maintainer's by login and needs a `PATH`-shimmed
    `gh` to attribute them (`scripts/lib/claim-landing.sh:115-170`).
 4. The automation budget cannot count dev-lead (§3.2).
-5. dev-lead ignores the maintainer's mentions as self-comments (`petry-projects/.github-private#2027
+5. dev-lead ignores the maintainer's mentions as self-comments (`combsmith/.github-private#2027
    — dev-lead silently ignores @dev-lead mentions from the maintainer`).
 6. The fleet and the maintainer's own sessions draw on one API limit, which ran out on 2026-10-10
-   (`petry-projects/.github-private#2197 — The fleet and every session share one GitHub API quota`).
+   (`combsmith/.github-private#2197 — The fleet and every session share one GitHub API quota`).
 7. No measurement can separate what a human did from what an agent did (§2.2).
 
 The interaction model, §12.2, weighed giving dev-lead a distinct identity and rejected it in August
@@ -515,7 +515,7 @@ no ADR governs a cause, that is stated: this section does not treat preference a
 | RC1 | **Work-item state is implicit.** No file declares the states or transitions. State is a tuple recomputed by each script from labels, about eighty marker shapes, review objects, checks and the head commit. | No lifecycle file (`docs/agentic-interaction-model.md:185-224` declares trigger classes only). Marker grammar is "the `printf` that writes it and the `grep` that reads it"; the only registry is one regex (`scripts/lib/maintainer-comment-gate.sh:74`). "Is this item held?" has seven implementations with different label sets (`scripts/lib/hold-gate.sh:22-34`, `scripts/review-one-pr.sh:928`, `scripts/lib/pr-automation-budget.sh:96-104`, `scripts/qa-lead-advisory-gate.sh:32,75`, `scripts/pr-stall-detect.sh:57`, `scripts/initiative-driver.sh:75-76`, and the cross-repo router). | None on record. |
 | RC2 | **Work is carried by events and concurrency slots on a platform that drops both.** A request exists only as a queued run. Nothing admits runs in one place, so capacity is discovered by failing. | "A queued run superseded in its concurrency lane is dropped with zero steps" (`.github/workflows/dev-lead-reusable.yml:76-85`; `.github/workflows/pr-review.yml:138-144`). A killed issue run leaves no marker and the retry scan reads that as nothing to do (`scripts/dev-lead-retry.sh:1307-1311`). Cron fires every 3–7 h instead of 15 min (`.github/workflows/pr-review-sweep.yml:15-18`). No admission-time reader of the budget feed exists (`scripts/dev-lead-retry.sh:168-288` is the only consumer). Fifteen workflows compensate (§3.2). | None. The interaction model §§5–6 is normative but not an ADR. |
 | RC3 | **The model holds the write credential and reports on its own work.** Five runtimes, four prompt-assembly mechanisms, seven return channels; in the two busiest roles the harness polices claims after the fact. | dev-lead: owner PAT in the job environment, tools `Bash,Read,Write,Edit,…` (`.github/workflows/dev-lead-reusable.yml:173`; `scripts/engine.sh:1915-1916`). pr-review: a classic PAT with `repo` visible to tool-using tiers (`.github/workflows/pr-review.yml:174-178,442`). The function that invokes the model is 54 lines of a 3,989-line script (`scripts/dev-lead-fix-reviews.sh:152-205`); claim verification alone is 627 lines (`scripts/lib/addressed-claim-verify.sh`). | ADR-0005 (write is opt-in) and ADR-0011 (proposed) govern behaviour around the write. Nothing governs where the credential sits. |
-| RC4 | **Agents act as the Maintainer.** One account is the human, dev-lead and eight personas; one PAT serves seven purposes; one API quota serves the fleet and every session. | `personas/dev-lead/persona.yml:107-109`; ADR-0008. The loop ceiling classifies by login, so dev-lead's own activity counts as human and resets it (`scripts/lib/pr-automation-budget.sh:32,54-59`). Replies need a PATH-shimmed `gh` to be attributed (`scripts/lib/claim-landing.sh:116-120`). `petry-projects/.github-private#2197 — The fleet and every session share one GitHub API quota (don-petry, 5,000/hour) and the fleet alone uses about that much: it ran out on 2026-10-10 and failed a workflow`. | ADR-0008 (accepted) and interaction model §12.2 decided this deliberately. |
+| RC4 | **Agents act as the Maintainer.** One account is the human, dev-lead and eight personas; one PAT serves seven purposes; one API quota serves the fleet and every session. | `personas/dev-lead/persona.yml:107-109`; ADR-0008. The loop ceiling classifies by login, so dev-lead's own activity counts as human and resets it (`scripts/lib/pr-automation-budget.sh:32,54-59`). Replies need a PATH-shimmed `gh` to be attributed (`scripts/lib/claim-landing.sh:116-120`). `combsmith/.github-private#2197 — The fleet and every session share one GitHub API quota (don-petry, 5,000/hour) and the fleet alone uses about that much: it ran out on 2026-10-10 and failed a workflow`. | ADR-0008 (accepted) and interaction model §12.2 decided this deliberately. |
 | RC5 | **There is no single unit of release, and one fact is written in many places across two repos.** dev-lead and pr-review changes are inert until a tag moves; persona prompts, manifests and hub workflows are live at merge. | `AGENTS.md:25-33` against `.github/workflows/persona-runner.yml:23-24,39`. The tag name is per agent but points at a whole-repo commit (`docs/release/versioning.md:26-28`). "Which agents exist" is written in at least eight places and a persona's trigger surface in up to eight (§3.5); subscribing one stub to one event changed eight files (commit `49770289`). Promotion reads run conclusions (`DG:scripts/canary-rollout.sh:31-35`). | ADR-0001, 0002, 0006, 0007. They conflict in effect: 0002 gates reusables, 0006 exempts personas. |
 | RC6 | **An approval is bound to a commit hash and can be withheld or dismissed by five independent gates; one merge touches every open pull request.** | Twelve sequential gates (`scripts/review-one-pr.sh:333` through `:1024`). The reviewer dismisses its own approval and then skips as already reviewed (`scripts/lib/self-dismissed-approval.sh:2-13`). Each base merge mints a new head and forces a full re-review (`scripts/review-one-pr.sh:838-842`); auto-rebase updates every behind pull request by default (`.github/workflows/auto-rebase.yml:25-30`). The queue checks reviews only on entry (`scripts/lib/merge-queue-dequeue.sh:5-8`). | None on record. Merge-queue adoption is "deferred to a human" in its own decision document (`docs/initiatives/auto-rebase-vs-merge-queue.md:3-9,133`) while already in operation (`AGENTS.md:401-466`). |
 | RC7 | **Verification does not bind, and the decision logic lives in a medium that resists it.** | The `main` ruleset requires five checks; `Lint`, the bats suite and every validator are not among them (live ruleset, read 2026-10-10). Evals never block (`.github/workflows/skill-eval-report.yml:176,204`) and score advisory prompts, not the code-writing paths (`scripts/evals/run-eval.sh:126-147`). The shared `gh` stub returns empty for unknown calls (`tests/dev-lead/fixtures/stubs/gh:28`). The suite fails on stock macOS (`AGENTS.md:174-181`). 1,025 top-level lines of `scripts/review-one-pr.sh` cannot be unit-called. | ADR-0004 prescribes pure bash functions plus bats. It does not say a test must block anything. |
@@ -733,7 +733,7 @@ mitigation for the POC (§8, step 0) and it does not change the recommendation, 
 - **Capacity signal (OQ-3).** GitHub quota: the Controller reads its own installation's remaining
   limit, which is exact. LLM budget: the evidence does not support a strong recommendation. The
   usage endpoint is unsupported and refuses the CI credential
-  (`petry-projects/.github-private#2179 — Budget poller: record the upstream error type on a refused
+  (`combsmith/.github-private#2179 — Budget poller: record the upstream error type on a refused
   read, so an HTTP 403 says why (every poll so far is degraded)`). The option that needs no new
   credential is self-metering: the ledger sums the factory's own token use per window and learns the
   ceiling from observed limit hits. It is a lower bound on use, and it is only trustworthy if the
@@ -751,7 +751,7 @@ mitigation for the POC (§8, step 0) and it does not change the recommendation, 
 | c. `gh-aw` as the worker runtime | The closest existing implementation of FR-9, FR-10 and FR-12: a read-only agent job, typed safe outputs applied by separate jobs, and outputs that cover this factory's effects (`push-to-pull-request-branch`, `submit-pull-request-review`, `resolve-pull-request-review-thread`, comments, labels). A network firewall and threat detection that option (b) lacks. | Documented Claude auth is an API key or workload identity, not the subscription (C-3). No cross-provider fallback (FR-13; `scripts/engine.sh:2082-2267` exists because the fleet needs one). v0.74 of a fast-moving tool. The repo already declined it once: `scripts/aw.sh` is a 586-line home-grown re-implementation serving one workflow; why is not recorded (§11). |
 | d. `anthropics/claude-code-action` as the worker | Already used twice | It is the same CLI in an action wrapper; as used here the model holds the write token (`.github/workflows/initiative-planner.yml:246-256`). It adds nothing to the contract. |
 | e. Claude Agent SDK packages | Tool-approval callbacks; native message objects | The headless CLI *is* the Agent SDK's CLI form and already returns what the contract needs: `--output-format json` with cost, usage and session id; `--json-schema` for a validated `structured_output`; `--resume` by session id or transcript path. A package dependency buys little more. |
-| f. GitHub's assignable agents | Native | Needs a paid Copilot seat (C-2). Copilot answered 2 of 174 pull requests as a reviewer in one week (`petry-projects/.github-private#1220 — Third-Party Reviewer Scorecard — Weekly Report`, comment of 2026-10-05). |
+| f. GitHub's assignable agents | Native | Needs a paid Copilot seat (C-2). Copilot answered 2 of 174 pull requests as a reviewer in one week (`combsmith/.github-private#1220 — Third-Party Reviewer Scorecard — Weekly Report`, comment of 2026-10-05). |
 
 **Recommendation: (b), shaped so that (c) can replace its inner half later.**
 
@@ -784,7 +784,7 @@ inner half of `run`/`apply` for tool-less and advisory roles first.
 **What was decided before, and why.** Interaction model §12.2 kept dev-lead on the owner account and
 rejected a distinct identity on four grounds. ADR-0008 then put every advisory persona on the owner
 account because the machine user's token could not write comments
-(`petry-projects/.github-private#1734 — persona-runner: qa-lead advisory lost — DON_PETRY_BOT_GH_PAT
+(`combsmith/.github-private#1734 — persona-runner: qa-lead advisory lost — DON_PETRY_BOT_GH_PAT
 gets HTTP 403 posting issue comments (regression from #1694)`). Both records are honest about cost:
 ADR-0008 names the recursion guard dropping to one axis as "the real cost".
 
@@ -812,7 +812,7 @@ ADR-0008 names the recursion guard dropping to one axis as "the real cost".
 **What has changed since.** The costs §12.2 and ADR-0008 did not have in front of them: the loop
 ceiling cannot count dev-lead's actions (`scripts/lib/pr-automation-budget.sh:54-59` treats any
 login ending in `[bot]` as automation, which an App satisfies with no code change); the Maintainer's
-mentions are skipped as self-comments (`petry-projects/.github-private#2027 — dev-lead silently
+mentions are skipped as self-comments (`combsmith/.github-private#2027 — dev-lead silently
 ignores @dev-lead mentions from the maintainer, because the maintainer's account is dev-lead's own
 identity (self-comment skip)`); the shared quota ran out; and no measurement can tell a human action from an agent's (§2.2).
 
@@ -863,7 +863,7 @@ filter by role on the actor field alone. Either reopens (d).
 **Recommendation: (c), with two channels, not four.** ADR-0002's mechanism survives unchanged: an
 immutable tag and a moving channel under a ruleset, moved by an App through one path. What changes
 is the name granularity. `ring0` and `ring1` are dropped until there is traffic to fill them
-(`petry-projects/.github#1086 — Gate soak is vacuous: dwell/sample count runs from repos that are
+(`combsmith/.github#1086 — Gate soak is vacuous: dwell/sample count runs from repos that are
 not executing the candidate — and dev-lead's 'next' tier is structurally unoccup…`).
 
 How the hub follows a channel: a `repository_dispatch` or `schedule` run always executes the
@@ -996,7 +996,7 @@ GitHub dismisses an approval when the diff changes *or the merge base changes*.
 
 - **Stop the fan-out at its source.** The queue builds and tests the real merge result, so a branch
   does not need to be current. Auto-rebase should act only on a pull request that conflicts. This is
-  open as `petry-projects/.github-private#1881 — auto-rebase still merges main into every open PR on
+  open as `combsmith/.github-private#1881 — auto-rebase still merges main into every open PR on
   every push, though the ruleset no longer requires up-to-date branches — the treadmill's driver
   out…` and needs no new structure.
 - **A verdict is bound to a content identity:** a hash of the pull request's own diff against its
@@ -1232,7 +1232,7 @@ Notes on the order:
   role already applies its effects from the wrapper, so its harness change is the smallest; and a
   working gate is what makes the later cutovers verifiable.
 - **Do not fan out ADR-0007's per-role ingress to the remaining repos first**
-  (`petry-projects/.github-private#2177 — [Decision] Fan out the ADR-0007 ingress collapse to the
+  (`combsmith/.github-private#2177 — [Decision] Fan out the ADR-0007 ingress collapse to the
   rest of the fleet: go/no-go, repo order, and runbook, using the markets pilot evidence`). Each
   repo would then be migrated twice. Let steps 3 to 6 install the one-job ingress as they cut over.
 - **The POC is frozen for features from step 1.** Defect fixes only. Otherwise the target moves.
@@ -1393,7 +1393,7 @@ marked ✓ were re-checked by hand against the code or the documentation; the ot
 | 12 ✓ | dev-lead fetches a gate script from another repo's default branch at run time and sources it, failing open on any error. | `scripts/dev-lead-fix-issue.sh:404-452` |
 | 13 | `release/registry.yml` is a second ring registry that only a test reads, and it disagrees with the real one. | `release/registry.yml:1-41` |
 | 14 | Four documents contradict the code on live behaviour: `AGENTS.md:92-93` says dev-lead reads only an issue's title and body while `scripts/dev-lead-fix-issue.sh:573` passes comments; the merge-queue decision record says deferred while the queue is on (`docs/initiatives/auto-rebase-vs-merge-queue.md:3-9`); `CLAUDE.md` calls this repo private; and the interaction model's rule on the default token and dispatch events (`docs/agentic-interaction-model.md:260-263`) contradicts both `scripts/auto-rebase-retry.sh:80-81` and GitHub's documentation. | as cited |
-| 15 | The daily fleet failure report appears to have stopped after 2026-09-20, and sampled fleet-monitor runs fail. Not confirmed from run logs. | Issue history; `petry-projects/.github-private#1852 — petry-projects — workflow failures detected 2026-09-20` is the last |
+| 15 | The daily fleet failure report appears to have stopped after 2026-09-20, and sampled fleet-monitor runs fail. Not confirmed from run logs. | Issue history; `combsmith/.github-private#1852 — combsmith — workflow failures detected 2026-09-20` is the last |
 
 ---
 
@@ -1575,8 +1575,8 @@ Ranked by how early and how surely each appears.
    pull requests, each needing the approval that currently does not issue. The repo's record on
    finishing migrations is poor: ADR-0007 is accepted and not deployed here, ADR-0009 serves one
    surface twice, `release/registry.yml` is an orphan, the budget breaker was closed and cannot fire
-   (`petry-projects/.github#1155 — The token-budget breaker is unreachable`), and five consumers
-   still pin a legacy tag (`petry-projects/.github#1125 — Fleet pr-review callers pin legacy bare
+   (`combsmith/.github#1155 — The token-budget breaker is unreachable`), and five consumers
+   still pin a legacy tag (`combsmith/.github#1125 — Fleet pr-review callers pin legacy bare
    pr-review/stable and are unmanaged`). *Signal:* the weekly share of merged pull requests that
    touch `factory/`; under 30% for three weeks means the freeze is nominal. *When:* the first day
    of step 1.
@@ -1614,7 +1614,7 @@ Ranked by how early and how surely each appears.
    watches (`.github/workflows/pr-auto-review.yml:32-34` names `"CI"`). A byte-identical consumer
    file works only if every repo's CI carries a standard name. Otherwise the commonest transition,
    checks green to review, waits for a sweep that fires every 3–8 hours in practice
-   (`petry-projects/.github-private#2170 — Retry and sweep crons run every 4–8 hours instead of
+   (`combsmith/.github-private#2170 — Retry and sweep crons run every 4–8 hours instead of
    every 2 h / 15 min`).
 7. **The identity cutover meets an untested rule.** The live ruleset sets
    `require_extra_approval_for_unattributed_changes: true`. GitHub documents it for agent-authored
@@ -1661,8 +1661,8 @@ author can edit. A held-out eval set in a public repo is held out by convention.
 that a claimed commit exists. It does not verify that the change is right.
 
 Evidence that it often is not: ten zero-diff pull requests merged and closed their issues
-(`petry-projects/.github-private#1620 — dev-lead merges zero-diff PRs that close their issues`);
-tests were edited to match the code (`petry-projects/.github-private#2013 — dev-lead fix-reviews:
+(`combsmith/.github-private#1620 — dev-lead merges zero-diff PRs that close their issues`);
+tests were edited to match the code (`combsmith/.github-private#2013 — dev-lead fix-reviews:
 posts "Fixed" replies for changes that were never pushed, and edits tests to match its own code`);
 23% of merged pull requests took ten or more commits.
 
@@ -1981,7 +1981,7 @@ What this means for the contract in ADR-0013, decision 12:
    opened is resolved, pinned to the commit it reviewed. A status check fails a pull request on
    scanner quality gates, which are metrics and not review findings. A CLI lists CodeAnt's own
    comments and reviews as JSON and filters on resolved. What it still lacks is severity as a typed
-   field, annotations, and code-scanning alerts. On `petry-projects/.github-private#2225 — docs:
+   field, annotations, and code-scanning alerts. On `combsmith/.github-private#2225 — docs:
    factory MVP — PRD, architecture review, market research and ADR-0013 (proposed)` it emitted two
    comment reviews, three threads and two comments, and no check. An approving review from a
    third-party App should be tried on a canary repo before it is enabled, to see whether the
@@ -2147,7 +2147,7 @@ required set.
 
 ### 16.8 Sources
 
-- Org data: the weekly scorecard on `petry-projects/.github-private#1220 — 🔎 Third-Party Reviewer
+- Org data: the weekly scorecard on `combsmith/.github-private#1220 — 🔎 Third-Party Reviewer
   Scorecard — Weekly Report` (comment of 2026-10-05); `scripts/lib/reviewer-sources.tsv`; GraphQL
   reads of 2026-10-10.
 - CodeRabbit: <https://docs.coderabbit.ai/reference/configuration.md>,
@@ -2220,7 +2220,7 @@ The POC has half of this already. The harness runs a lint script before committi
 Four cautions set the boundary.
 
 1. **A check the author runs is the author's evidence.** An agent can make a check pass by weakening
-   it: a disable comment, an edited config, an edited test (`petry-projects/.github-private#2013 —
+   it: a disable comment, an edited config, an edited test (`combsmith/.github-private#2013 —
    dev-lead fix-reviews: posts "Fixed" replies for changes that were never pushed, and edits tests
    to match its own code`). So each Lens runs twice. In the session its output is feedback. In
    `verify`, where the author controls nothing, its output is the verdict, and only that run counts
@@ -2355,7 +2355,7 @@ how a second system fails.
   An eval set is still required.
 - This repo is not renamed while anything references it.
 
-ADR-0013 carries these as decisions 1 and 10. The new repo is `petry-projects/software-factory`.
+ADR-0013 carries these as decisions 1 and 10. The new repo is `combsmith/software-factory`.
 
 ### 18.6 Sources
 

@@ -2,7 +2,7 @@
 
 Where trust stops. This repo is public, and so is everything the Factory writes: runs, logs,
 artifacts. Each rule shows its example first, then says what holds it.
-An org standard is cited from petry-projects/.github at commit 9e2daad, by file and heading.
+An org standard is cited from combsmith/.github at commit 9e2daad, by file and heading.
 
 ## The model asks; `apply` writes
 

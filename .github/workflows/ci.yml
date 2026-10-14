@@ -1,4 +1,4 @@
-# The org's secret scan: petry-projects/.github, push-protection.md, "Required CI job". It is the one
+# The org's secret scan: combsmith/.github, push-protection.md, "Required CI job". It is the one
 # workflow here that downloads a program. tools/check_workflows.py exempts it from that rule alone,
 # by name, and holds it to this text by its hash: to change it, change the entry there too.
 # One line differs from the org's: the download is by curl held to HTTPS, redirects included.

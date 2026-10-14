@@ -4,7 +4,7 @@ Status: proposed. The Maintainer accepts it by merging it, or strikes a row.
 
 ## Decision
 
-This repo follows the org's standards, kept in petry-projects/.github and read here at commit
+This repo follows the org's standards, kept in combsmith/.github and read here at commit
 9e2daad, except in the rows below. Every page under `docs/standards/` names the org standard each
 of its rules rests on. Where a rule here is stricter than the org's, the stricter one holds and
 needs no exception. Org headings are quoted as written, without their code marks.

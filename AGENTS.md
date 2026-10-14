@@ -4,7 +4,7 @@ The decision core of the Factory: a set of agent Roles that turn an issue into a
 change, and a Kernel that decides what each Role may do next. So far this repo holds the Kernel,
 its schemas, its checks and a simulator. Nothing here talks to GitHub or to a model yet.
 
-It follows the org's standards, [petry-projects/.github/AGENTS.md](https://github.com/petry-projects/.github/blob/main/AGENTS.md),
+It follows the org's standards, [combsmith/.github/AGENTS.md](https://github.com/combsmith/.github/blob/main/AGENTS.md),
 except where `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md` says why not.
 
 ## Verify

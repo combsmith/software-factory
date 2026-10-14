@@ -1,7 +1,7 @@
 # Code
 
 How code is written here. Each rule shows its example first, then says what holds it.
-An org standard is cited from petry-projects/.github at commit 9e2daad, by file and heading.
+An org standard is cited from combsmith/.github at commit 9e2daad, by file and heading.
 
 ## A decision is a pure function
 

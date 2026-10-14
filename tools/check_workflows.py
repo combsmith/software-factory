@@ -39,7 +39,7 @@ EVENTS = {"pull_request", "merge_group", "push", "schedule", "workflow_dispatch"
 # A workflow the org requires as it wrote it. It is exempt from the rules named and from no other,
 # and it is held to its text by a hash taken with the pins left out: to change it, change this.
 EXEMPT = {
-    "ci.yml": (("install",), "d6054623d66f612cdeeed721f8774247197172ecd29a1d10a14d05d3acceb63e"),    # the org's secret scan downloads gitleaks
+    "ci.yml": (("install",), "d28a26f9ef5f8349ccaf555c47fcc3e855fed9b92e5188c5a86e47ee7a5980e8"),    # the org's secret scan downloads gitleaks
 }
 MAX_RUN_LINES = 10
 ENTRY = re.compile(r"^( *)(- )?([A-Za-z_][\w-]*):(?: (.*))?$")
@@ -47,7 +47,7 @@ ITEM = re.compile(r"^( *)- (\S.*)$")
 COMMAND = re.compile(r"^(make [\w.-]+|python3 -m [\w.]+)$")
 PINNED = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 # The org's rule for its own reusable workflows: a channel tag, never a branch and never a hash.
-CHANNEL = re.compile(r"^petry-projects/[\w.-]+/\.github/workflows/[\w.-]+\.ya?ml@[\w.-]+/(v\d+-)?(stable|next)$")
+CHANNEL = re.compile(r"^combsmith/[\w.-]+/\.github/workflows/[\w.-]+\.ya?ml@[\w.-]+/(v\d+-)?(stable|next)$")
 LOCAL = re.compile(r"^\./\.github/workflows/[\w.-]+\.ya?ml$")
 VERSION = re.compile(r"^#\s*v\d")
 RUNNER = re.compile(r"^[a-z]+-\d+(\.\d+)?(-[a-z0-9]+)*$")
