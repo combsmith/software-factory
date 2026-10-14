@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "The least permissions each of the Factory's GitHub Apps holds, each with what needs it, and where it is installed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "apps"
+  ],
+  "properties": {
+    "schema": {
+      "const": "apps/1"
+    },
+    "apps": {
+      "title": "One App for the Controller, one for each Role that writes, and the one reader.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "controller",
+        "pr-review",
+        "reader"
+      ],
+      "properties": {
+        "controller": {
+          "$ref": "#/$defs/app"
+        },
+        "pr-review": {
+          "$ref": "#/$defs/app"
+        },
+        "reader": {
+          "$ref": "#/$defs/app"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "installed_on",
+        "permissions"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^combsmith-sf-[a-z][a-z-]*$"
+        },
+        "installed_on": {
+          "title": "Each repo the App is installed on, by name. Never the whole org.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^combsmith/[a-z0-9][a-z0-9._-]*$"
+          }
+        },
+        "permissions": {
+          "title": "GitHub's own names for an App's repository permissions. A name not here is refused; add it when an App needs it.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "actions": {
+              "$ref": "#/$defs/grant"
+            },
+            "checks": {
+              "$ref": "#/$defs/grant"
+            },
+            "contents": {
+              "$ref": "#/$defs/grant"
+            },
+            "issues": {
+              "$ref": "#/$defs/grant"
+            },
+            "metadata": {
+              "$ref": "#/$defs/grant"
+            },
+            "pull_requests": {
+              "$ref": "#/$defs/grant"
+            }
+          }
+        }
+      }
+    },
+    "grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level",
+        "needs"
+      ],
+      "properties": {
+        "level": {
+          "enum": [
+            "read",
+            "write"
+          ]
+        },
+        "needs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/need"
+          }
+        }
+      }
+    },
+    "need": {
+      "title": "An Effect of section 3.6 of the design; a write the Controller makes that is not an Effect; or a read: a field of facts/1, the Factory's run records, or what a Task is built from.",
+      "enum": [
+        "effect:push_commits",
+        "effect:open_pull_request",
+        "effect:submit_review",
+        "effect:resolve_thread",
+        "effect:mark_ready",
+        "effect:add_label",
+        "effect:remove_label",
+        "effect:create_check_run",
+        "effect:enqueue_merge",
+        "effect:dequeue_merge",
+        "effect:assign",
+        "effect:request_review",
+        "effect:add_reaction",
+        "effect:comment",
+        "write:start_run",
+        "write:status_on_item",
+        "write:write_view",
+        "read:facts.item",
+        "read:facts.class",
+        "read:facts.targets_protected",
+        "read:facts.state",
+        "read:facts.is_draft",
+        "read:facts.author",
+        "read:facts.last_pusher",
+        "read:facts.mergeable",
+        "read:facts.content_id",
+        "read:facts.diff",
+        "read:facts.labels",
+        "read:facts.admitted_at",
+        "read:facts.last_push_at",
+        "read:facts.last_writer_action_at",
+        "read:facts.reviews",
+        "read:facts.threads",
+        "read:facts.checks",
+        "read:facts.queue",
+        "read:records.runs",
+        "read:records.artifacts",
+        "read:records.pass_record",
+        "read:task.change",
+        "read:task.texts"
+      ]
+    }
+  }
+}

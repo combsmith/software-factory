@@ -27,6 +27,7 @@ GitHub does not count an approval from an author or a last pusher, so the approv
 | No Role owns or shadows a category of Finding about its own work | `tools/check_authority.py` |
 | No workflow names the owner account's token | `tools/check_workflows.py` |
 | No commit in this repo is authored or pushed by the machine user | waiting on `controller/` |
+| Every permission of an App names the Effect or the read that needs it, and the reader App holds no write | `tools/check_apps.py` |
 | Every permitted Effect of every Intent is within the ceiling of that Role's App | waiting on `roles/` |
 | Every write by a Factory identity matches a recorded Effect; one that does not raises an alert | waiting on `controller/` |
 | No Factory secret is readable by a workflow that runs on a Work item's branch | waiting on `harness/` |

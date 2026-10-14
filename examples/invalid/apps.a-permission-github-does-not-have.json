@@ -1,0 +1,163 @@
+{
+  "schema": "apps/1",
+  "apps": {
+    "controller": {
+      "name": "combsmith-sf-controller",
+      "installed_on": [
+        "combsmith/software-factory",
+        "combsmith/software-factory-canary"
+      ],
+      "permissions": {
+        "actions": {
+          "level": "write",
+          "needs": [
+            "write:start_run",
+            "read:records.runs",
+            "read:records.artifacts"
+          ]
+        },
+        "checks": {
+          "level": "write",
+          "needs": [
+            "write:status_on_item",
+            "read:facts.checks"
+          ]
+        },
+        "contents": {
+          "level": "write",
+          "needs": [
+            "write:write_view",
+            "read:facts.content_id",
+            "read:facts.diff"
+          ]
+        },
+        "metadata": {
+          "level": "read",
+          "needs": [
+            "read:facts.item",
+            "read:facts.class",
+            "read:facts.targets_protected"
+          ]
+        },
+        "pull_requests": {
+          "level": "read",
+          "needs": [
+            "read:facts.state",
+            "read:facts.is_draft",
+            "read:facts.author",
+            "read:facts.class",
+            "read:facts.last_pusher",
+            "read:facts.mergeable",
+            "read:facts.labels",
+            "read:facts.admitted_at",
+            "read:facts.last_push_at",
+            "read:facts.last_writer_action_at",
+            "read:facts.reviews",
+            "read:facts.threads",
+            "read:facts.queue"
+          ]
+        }
+      }
+    },
+    "pr-review": {
+      "name": "combsmith-sf-pr-review",
+      "installed_on": [
+        "combsmith/software-factory",
+        "combsmith/software-factory-canary"
+      ],
+      "permissions": {
+        "contents": {
+          "level": "read",
+          "needs": [
+            "read:facts.content_id"
+          ]
+        },
+        "metadata": {
+          "level": "read",
+          "needs": [
+            "read:facts.item"
+          ]
+        },
+        "pull_requests": {
+          "level": "write",
+          "needs": [
+            "effect:submit_review",
+            "effect:resolve_thread",
+            "effect:comment",
+            "read:facts.state",
+            "read:facts.labels"
+          ]
+        },
+        "everything": {
+          "level": "write",
+          "needs": [
+            "effect:comment"
+          ]
+        }
+      }
+    },
+    "reader": {
+      "name": "combsmith-sf-reader",
+      "installed_on": [
+        "combsmith/software-factory",
+        "combsmith/software-factory-canary"
+      ],
+      "permissions": {
+        "actions": {
+          "level": "read",
+          "needs": [
+            "read:records.pass_record",
+            "read:records.runs"
+          ]
+        },
+        "checks": {
+          "level": "read",
+          "needs": [
+            "read:facts.checks"
+          ]
+        },
+        "contents": {
+          "level": "read",
+          "needs": [
+            "read:task.change",
+            "read:facts.content_id",
+            "read:facts.diff"
+          ]
+        },
+        "issues": {
+          "level": "read",
+          "needs": [
+            "read:task.texts"
+          ]
+        },
+        "metadata": {
+          "level": "read",
+          "needs": [
+            "read:facts.item",
+            "read:facts.class",
+            "read:facts.targets_protected"
+          ]
+        },
+        "pull_requests": {
+          "level": "read",
+          "needs": [
+            "read:task.texts",
+            "read:facts.state",
+            "read:facts.is_draft",
+            "read:facts.author",
+            "read:facts.class",
+            "read:facts.last_pusher",
+            "read:facts.mergeable",
+            "read:facts.labels",
+            "read:facts.admitted_at",
+            "read:facts.last_push_at",
+            "read:facts.last_writer_action_at",
+            "read:facts.reviews",
+            "read:facts.threads",
+            "read:facts.queue"
+          ]
+        }
+      }
+    }
+  }
+}
