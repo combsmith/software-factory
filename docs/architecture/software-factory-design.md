@@ -1980,7 +1980,8 @@ block said why at each step.
 6. The poller started the Run: the Controller's App exists, and a pass recorded the Decision.
 7. The Kernel reached that Decision: the pull-request Lifecycle, Convergence and the gate, with the
    deterministic Lenses already reported. Those Lenses are workflows in the Factory repo: lint,
-   workflow security, code scanning.
+   workflow security, code scanning. In this repo `lint` means the repo's own checks, run by
+   `make verify`; no tool is installed for it.
 8. The pass read the facts and the run records: the two ports, with completeness flags.
 9. All of it ran from a Release on `next`: something cut that Release and moved the channel
    (P-30), and the entry shim called it.
@@ -2252,7 +2253,7 @@ What makes that way of working produce good code:
 | Hooks hold the line | After each edit, the fast checks run. A session cannot end with the verification failing. A push as the machine user is refused. An edit to a protected path is refused unless the Maintainer asked for it |
 | A reader that did not write it | Before a pull request, a fresh context reviews the diff, and a separate pass looks only for security faults. For a change to the Kernel, a second model family reads the diff once and reports. Reviewers report; they do not converse |
 | Tests that can fail | Mutation testing on the Kernel, which is pure functions and so cheap to mutate |
-| Types as the code is written | A type checker and a linter are required checks, and a language-server plugin shows their errors to the agent as it edits |
+| Types as the code is written | The required check installs nothing, so no formatter, linter or type checker is a required check (the Maintainer, 2026-10-11). The repo's own checks and the mutation check stand in their place. What an editor shows an agent as it works is the session's own affair |
 | Trials leave fixtures | Every platform trial records the real response, which the simulator's fake GitHub is then held to |
 | The Maintainer's attention | Replies lead with the verdict, decisions arrive as choices, and status lives on a page, as set out in the situation-room analysis |
 
