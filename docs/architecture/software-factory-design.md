@@ -713,8 +713,9 @@ Every criterion names how it will be checked. The kinds, strongest first:
 
 Two protections are in play and they are different. Against **change**, a protected path is
 enough, and so would be an issue, since the implementing Role's App cannot edit issues. Against
-**reading**, neither is: every repo here is public, and the reader App that each Run holds is
-installed across the org. Only a `scenario` needs to be unseen, which is why held-out sets are kept
+**reading**, neither is: every repo here is public, and the reader App that each Run holds reads
+every repo it is installed on: until a Consumer repo is served (slice 3), named repos only; from
+then, as decided at that cutover, against UJ-6. Only a `scenario` needs to be unseen, which is why held-out sets are kept
 in a private repo under a different owner. Private matters as much as the owner: a public repo can
 be fetched by any Run that has a network tool, whoever owns it. The eval job alone holds the
 credential that reads it (§4.9).
@@ -1431,7 +1432,7 @@ A token is still narrowed at mint time to the Effects one Result requests.
 | `sre-lead` | Shadow | None | `reliability` | Nothing until promoted; then its own App |
 | `business-analyst` | Advisor on issues; from the triage Intents, investigates accepted issues | None | None | Its own App when it first comments |
 | `scrum-master` | Advisor on planning; from the triage Intents, the readiness Intent in shadow, and once promoted the Role whose `apply` adds `factory:ready` | None | None | Its own App when it first comments |
-| Controller | Not a Role | None | None | Its own App: the control room, the status on the item, labels and the queue |
+| Controller | Not a Role | None | None | Its own App: check runs, the status on the item. Its labels, the queue and assignments wait as listed in `config/apps.json`. The view is written by `combsmith-sf-view`, with the feed story |
 | Reader | Not a Role | None | None | Nothing. Every `run` job reads through it |
 
 This table is generated from the manifests and the authority table, so it always shows the present
