@@ -6,7 +6,7 @@ on:
 permissions: {}
 jobs:
   shield:
-    uses: petry-projects/.github/.github/workflows/agent-shield-reusable.yml@main
+    uses: combsmith/.github/.github/workflows/agent-shield-reusable.yml@main
   verify:
     name: verify
     runs-on: ubuntu-24.04

@@ -7,9 +7,9 @@ lesson names a real check. A lesson that can have no check is not in this file.
 
 Sources: the root causes and defects in sections 2.4, 4 and 12 of
 `docs/architecture/factory-mvp-architecture-review.md`; and, in other repos, the proof of concept's
-agent instructions, documents and postmortem of June 2026 (petry-projects/.github-private, at
-commit 684e4b9) and the org's standards (petry-projects/.github, at commit 9e2daad). Take the failures from the review; build nothing from its
-remedies. Issue and pull-request numbers are in petry-projects/.github-private.
+agent instructions, documents and postmortem of June 2026 (combsmith/.github-private, at
+commit 684e4b9) and the org's standards (combsmith/.github, at commit 9e2daad). Take the failures from the review; build nothing from its
+remedies. Issue and pull-request numbers are in combsmith/.github-private.
 
 ## Loops and bounds
 
@@ -39,7 +39,7 @@ remedies. Issue and pull-request numbers are in petry-projects/.github-private.
 **Check.** `tests/test_decide.py::test_hold_label_binds`, `tests/test_decide.py::test_item_faults_exhaust_attempts`
 
 ### L-06 Eleven caps, each in a different script
-**Failure.** Eleven numeric caps and nine tests of "is this actor automation?" were scattered through scripts and workflows. A control was built, closed as done, and could not fire: "The token-budget breaker is unreachable" (petry-projects/.github issue 1155).
+**Failure.** Eleven numeric caps and nine tests of "is this actor automation?" were scattered through scripts and workflows. A control was built, closed as done, and could not fire: "The token-budget breaker is unreachable" (combsmith/.github issue 1155).
 **Rule.** Every brake is in the Kernel, and each has a deliberate break that a test must notice.
 **Check.** `tools/mutants.py`
 

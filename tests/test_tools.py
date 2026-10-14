@@ -273,7 +273,7 @@ class Repo(unittest.TestCase):
         self.assertTrue(caught(problems, "calls choice") and caught(problems, "takes a draw from random by name"))
 
     def test_reaching_into_the_proof_of_concept_is_caught(self):
-        root = tree({"a.json": json.dumps({"repo": "petry-projects/" + check_repo.FOREIGN})})
+        root = tree({"a.json": json.dumps({"repo": "combsmith/" + check_repo.FOREIGN})})
         self.assertTrue(caught(check_repo.run(root), "proof-of-concept repo"))
 
     def test_a_test_where_nothing_will_run_it_is_caught(self):
@@ -369,7 +369,7 @@ class Workflows(unittest.TestCase):
             "continue-on-error: false": GOOD.replace(STEP, STEP + "        continue-on-error: false\n"),
             "a comment naming a banned event": GOOD.replace("  pull_request:\n", "  pull_request:    # never pull_request_target\n"),
             "a secret whose name holds the letters": GOOD.replace(STEP, STEP + "        env:\n          K: ${{ secrets.RELAY_DISPATCH_KEY }}\n"),
-            "the org's reusable at its channel": GOOD.replace("  verify:\n", "  shield:\n    uses: petry-projects/.github/.github/workflows/agent-shield-reusable.yml@agent-shield/v2-stable\n  verify:\n"),
+            "the org's reusable at its channel": GOOD.replace("  verify:\n", "  shield:\n    uses: combsmith/.github/.github/workflows/agent-shield-reusable.yml@agent-shield/v2-stable\n  verify:\n"),
             "an off-zero schedule": GOOD.replace("  merge_group:\n", "  merge_group:\n  schedule:\n    - cron: '17,47 * * * *'\n"),
             "indented by four": "\n".join((len(l) - len(l.lstrip(" "))) * " " + l for l in GOOD.split("\n")),
         }
@@ -420,7 +420,7 @@ class Context(unittest.TestCase):
         def found(text):
             root = tree({"docs/a.md": text})
             return check_context._references(root / "docs" / "a.md", text, root)
-        for text in ("Fixed in #2225.", "See petry-projects/x#2225.", "See pull request 2225.", "See PR 2225.",
+        for text in ("Fixed in #2225.", "See combsmith/x#2225.", "See pull request 2225.", "See PR 2225.",
                      'It "works". See pull request 2225.'):
             self.assertTrue(found(text), text)
         for text in ('See "docs: factory MVP" (pull request 2225).', "See \u201cdocs: factory MVP\u201d (issue 12)."):

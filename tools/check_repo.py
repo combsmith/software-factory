@@ -18,13 +18,13 @@ MANIFESTS = {"pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "Pipfile.lock
              "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "environment.yml", "go.mod",
              "Cargo.toml", "Gemfile"}
 VENDORED = {"vendor", "vendored", "third_party", "site-packages", "node_modules"}
-# The org's secrets baseline opens .gitignore, word for word (petry-projects/.github, the
+# The org's secrets baseline opens .gitignore, word for word (combsmith/.github, the
 # gitignore standard, "L1 — Secrets baseline"). When the org changes it, copy the new block in
 # and put its hash here; never edit between the markers.
-BASELINE = re.compile(r"\A# >>> BEGIN petry-projects secrets baseline.*?^# <<< END petry-projects secrets baseline <<<$",
+BASELINE = re.compile(r"\A# >>> BEGIN combsmith secrets baseline.*?^# <<< END combsmith secrets baseline <<<$",
                       re.M | re.S)
 BASELINE_SHA256 = "1d4a83d95f8ee135aee79215b022dce1ac1cf8e049642ef9e82f1a80b691bc37"
-# The code owners file is the org's own, word for word (petry-projects/.github, .github/CODEOWNERS;
+# The code owners file is the org's own, word for word (combsmith/.github, .github/CODEOWNERS;
 # codeowners-standard.md, "Rule"). When the org changes it, copy it again and put its hash here.
 CODEOWNERS_SHA256 = "3b957b2faa986898c05d1db8978f23d0be92a33cf338882a3f8b9bafa31918cb"
 PYTHON = (3, 9)    # the oldest Python this must run on; newer syntax is refused, as far as this interpreter can tell

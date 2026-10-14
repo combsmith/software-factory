@@ -5,7 +5,7 @@ inputDocuments:
   - docs/architecture/adr/0013-factory-mvp-reference-architecture.md
   - docs/architecture/factory-mvp-architecture-review.md
   - docs/research/market-agentic-software-factories-research-2026-10-10.md
-  - "petry-projects/.github-private#2226 (discussion), analyst comment of 2026-10-10"
+  - "combsmith/.github-private#2226 (discussion), analyst comment of 2026-10-10"
 companionDocuments:
   - docs/architecture/software-factory-design.md
 workflowType: 'architecture'
@@ -14,7 +14,7 @@ user_name: 'Don'
 date: '2026-10-10'
 ---
 
-> First written in `petry-projects/.github-private`, on the draft pull request "docs: factory MVP — PRD, architecture review, market research and ADR-0013 (proposed)" (number 2225, commit `7d7d04f`). It now lives in this repo. Citations of files and lines in `.github-private` are evidence about the current system and are left as written.
+> First written in `combsmith/.github-private`, on the draft pull request "docs: factory MVP — PRD, architecture review, market research and ADR-0013 (proposed)" (number 2225, commit `7d7d04f`). It now lives in this repo. Citations of files and lines in `.github-private` are evidence about the current system and are left as written.
 
 # Architecture Decision Document
 
@@ -79,7 +79,7 @@ The ones that shape structure:
   (C-3, C-11).
   The credential is an environment secret in the Factory repo. The Harness calls the vendor's CLI.
 - Python 3, standard library only, in the Kernel.
-- Built in `petry-projects/software-factory`, which reads nothing from `.github-private` at run
+- Built in `combsmith/software-factory`, which reads nothing from `.github-private` at run
   time.
 
 Decided on 2026-10-10 and carried into the design:
@@ -103,8 +103,8 @@ Decided on 2026-10-10 and carried into the design:
 - Decisions read GitHub only. The control room is written and never read back.
 - Every `run` job reads through one shared reader App. A Role gets its own App when it first
   writes.
-- `petry-projects/software-factory-control-room` is a public, rebuildable view with a dashboard,
-  shaped by the situation-room analysis in `petry-projects/.github-private#2242 — Situation-room
+- `combsmith/software-factory-control-room` is a public, rebuildable view with a dashboard,
+  shaped by the situation-room analysis in `combsmith/.github-private#2242 — Situation-room
   view for the agent fleet: build it from native Claude Code parts, not a command-center product`
   (design document, §8).
 

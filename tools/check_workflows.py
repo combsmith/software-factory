@@ -47,7 +47,7 @@ ITEM = re.compile(r"^( *)- (\S.*)$")
 COMMAND = re.compile(r"^(make [\w.-]+|python3 -m [\w.]+)$")
 PINNED = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 # The org's rule for its own reusable workflows: a channel tag, never a branch and never a hash.
-CHANNEL = re.compile(r"^petry-projects/[\w.-]+/\.github/workflows/[\w.-]+\.ya?ml@[\w.-]+/(v\d+-)?(stable|next)$")
+CHANNEL = re.compile(r"^combsmith/[\w.-]+/\.github/workflows/[\w.-]+\.ya?ml@[\w.-]+/(v\d+-)?(stable|next)$")
 LOCAL = re.compile(r"^\./\.github/workflows/[\w.-]+\.ya?ml$")
 VERSION = re.compile(r"^#\s*v\d")
 RUNNER = re.compile(r"^[a-z]+-\d+(\.\d+)?(-[a-z0-9]+)*$")
