@@ -14,7 +14,6 @@ needs no exception. Org headings are quoted as written, without their code marks
 | The stages of ci.yml: lint, format, type check and coverage; pytest, never unittest. ci-standards.md, "1. CI Pipeline (ci.yml)"; the org's AGENTS.md, "Pre-Commit Quality Checks" and "Code Quality"; the Python instructions, "Testing (pytest)" | One required check, `factory / verify`: `make verify` and the mutation check, on unittest. No formatter, linter or type checker | Each of those tools is an install, and the required check runs only what is in the commit (0001, 0008). The mutation check stands where a coverage threshold would |
 | SonarCloud by the org's workflow. ci-standards.md, "3. SonarCloud Analysis (sonarcloud.yml)" | No workflow here. SonarCloud analyses the repo by its own automatic analysis and reports. It informs; it is not a required check or a required Lens | The org's workflow needs a step that may fail, a runner named -latest and a download. A Finding from a Lens outside the required set gates only when a required Lens adopts it (0012) |
 | The agent workflows every repo carries: dev-lead, pr-review-mention, pr-auto-review, persona-mention, initiative-driver, feature-ideation, dependabot-automerge, dependabot-rebase, auto-rebase, add-to-project. ci-standards.md, "Required Workflows" | None of them. No workflow of the proof of concept serves this repo, for any Intent family | The design keeps the proof of concept's author out of this repo, to start it clean; this record extends that to the rest of its fleet. Each of these is woken by an event that carries work (0003), or needs a personal token or every secret or runs on pull_request_target (0004, 0005), or updates or merges a branch past the gate (0007) |
-| The team org-leads first on every line of the code owners file, and no individual. codeowners-standard.md, "Rule" | The org's line for every path, then one line for each of the Factory's rule paths naming the Maintainer alone. It binds when code-owner review is switched on | That team holds the machine user that submits the Factory's approvals, so on a rule path the Factory could approve a change to what governs it (0005). Everywhere else the org's line is what lets the machine user's approval count |
 | The code-quality ruleset and its four required checks. github-settings.md, "code-quality — Required Checks Ruleset (All Repositories)" | Not applied until each of the four checks exists here | Applied first, it blocks every pull request |
 | A concurrency group on CI. ci-standards.md, "1. CI Pipeline (ci.yml)" | None on the required check | A group evicts a waiting run, which is how work was lost (`docs/lessons.md`, "A request existed only as a queued run") |
 | A copilot-instructions file and a setup-steps workflow. copilot-instructions-standard.md, "Creating a Repo-Level copilot-instructions.md" | Neither | A second file that is always loaded is a second copy of the rules (0009, 0013), and there is nothing to set up |
@@ -26,7 +25,9 @@ the scan runs as the org wrote it, in a workflow of its own, the one workflow al
 program. It is exempt from that rule alone and held to its text by a hash (ruled by the Maintainer).
 One line differs: the download is held to HTTPS on redirects too, which the org's own scanner asks for.
 
-CodeQL's default setup runs here as the org asks, and its result is a required Lens.
+CodeQL's default setup runs here as the org asks, and its result is a required Lens. The code
+owners file is the org's, copied word for word: the team org-leads owns every path (Maintainer,
+2026-10-14). What keeps the Factory from approving a change to its own rules is recorded in 0005.
 
 Taken up later, each with the part that needs it, and not a departure: a Dependabot entry for
 workflow actions; the agent-shield and dependency-audit callers, which hold no secret and would
@@ -49,4 +50,4 @@ That issue has not been filed.
 | A first-party reusable workflow is pinned to its channel tag, as the org requires; anything else to a commit, with its version beside it | `examples/workflows/invalid/pin.a-first-party-branch.yml`, `examples/workflows/invalid/pin.no-version-beside-the-hash.yml` |
 | The org's secret scan runs as written, exempt from one rule by name and held word for word | `tests/test_tools.py::test_an_exempt_workflow_is_held_word_for_word` |
 | Nothing is installed, which is what rules out the org's linters and test runner | `tests/test_tools.py::test_third_party_code_is_caught` |
-| The Maintainer alone owns the Factory's rules | waiting on `.github/CODEOWNERS` |
+| The code owners file is the org's, word for word | `tests/test_tools.py::test_code_owners_are_the_orgs_word_for_word` |

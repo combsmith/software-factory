@@ -24,6 +24,9 @@ VENDORED = {"vendor", "vendored", "third_party", "site-packages", "node_modules"
 BASELINE = re.compile(r"\A# >>> BEGIN petry-projects secrets baseline.*?^# <<< END petry-projects secrets baseline <<<$",
                       re.M | re.S)
 BASELINE_SHA256 = "1d4a83d95f8ee135aee79215b022dce1ac1cf8e049642ef9e82f1a80b691bc37"
+# The code owners file is the org's own, word for word (petry-projects/.github, .github/CODEOWNERS;
+# codeowners-standard.md, "Rule"). When the org changes it, copy it again and put its hash here.
+CODEOWNERS_SHA256 = "3b957b2faa986898c05d1db8978f23d0be92a33cf338882a3f8b9bafa31918cb"
 PYTHON = (3, 9)    # the oldest Python this must run on; newer syntax is refused, as far as this interpreter can tell
 # Named in documents only. No code or data reaches into the proof-of-concept repo.
 FOREIGN = ".github-" + "private"
@@ -99,6 +102,14 @@ def run(root: pathlib.Path = ROOT) -> list:
         problems.append(".gitignore does not open with the org's secrets baseline, between its markers")
     elif hashlib.sha256(block.group(0).encode()).hexdigest() != BASELINE_SHA256:
         problems.append(".gitignore: the org's secrets baseline has been edited; copy it again, word for word")
+    owners = root / ".github" / "CODEOWNERS"
+    if not owners.exists():
+        problems.append(".github/CODEOWNERS is missing; copy the org's, word for word")
+    elif hashlib.sha256(owners.read_bytes()).hexdigest() != CODEOWNERS_SHA256:
+        problems.append(".github/CODEOWNERS is not the org's file, word for word; copy it again")
+    for stray in ("CODEOWNERS", "docs/CODEOWNERS"):
+        if (root / stray).exists():
+            problems.append("%s: GitHub reads the first code owners file it finds; keep only .github/CODEOWNERS" % stray)
     for path in _files(root):
         rel = path.relative_to(root)
         listed = path.name in MANIFESTS or (path.suffix in (".txt", ".in") and

@@ -244,6 +244,15 @@ class Repo(unittest.TestCase):
         self.assertTrue(caught(check_repo.run(tree({".gitignore": whole.replace(".env\n", "", 1)})), "has been edited"))
         self.assertTrue(caught(check_repo.run(tree({".gitignore": "__pycache__/\n"})), "does not open with"))
 
+    def test_code_owners_are_the_orgs_word_for_word(self):
+        whole = (ROOT / ".github" / "CODEOWNERS").read_text()
+        self.assertFalse(caught(check_repo.run(tree({".github/CODEOWNERS": whole})), "CODEOWNERS"))
+        mine = whole + "/kernel/ @don-petry\n"
+        self.assertTrue(caught(check_repo.run(tree({".github/CODEOWNERS": mine})), "not the org's file"))
+        self.assertTrue(caught(check_repo.run(tree({"x": ""})), "CODEOWNERS is missing"))
+        self.assertTrue(caught(check_repo.run(tree({".github/CODEOWNERS": whole, "CODEOWNERS": whole})),
+                               "keep only .github/CODEOWNERS"))
+
     def test_a_second_definition_is_caught(self):
         root = tree({"a.py": "class T:\n    def test_x(self):\n        pass\n\n    def test_x(self):\n        pass\n",
                      "b.py": "async def f():\n    pass\n\nasync def f():\n    pass\n"})

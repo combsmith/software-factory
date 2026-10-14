@@ -98,8 +98,9 @@ Held by: `tools/check_repo.py`
 lifecycle/   config/authority.json   kernel/   tools/   .github/
 ```
 
-A change to these is approved by the Maintainer, whichever Release is serving. `apply` refuses a
-change to them by any Role whose manifest does not permit it.
+`apply` refuses a change to these by any Role whose manifest does not permit it, unless a person
+approved it. Code ownership does not do this here: the code owners are the org's team, which holds
+the machine user.
 
-Org standard: github-settings.md, "CODEOWNERS Standard", and codeowners-standard.md, "Rule". Who the owner is departs from both: decision 0014.
-Held by: waiting on `.github/CODEOWNERS`
+Org standard: codeowners-standard.md, "Rule": the code owners file is the org's, word for word.
+Held by: `tests/test_tools.py::test_code_owners_are_the_orgs_word_for_word`; the refusal is waiting on `harness/`

@@ -72,6 +72,7 @@ Made by the Maintainer on 2026-10-10, in addition to ADR-0013's twelve decisions
 | Stopping is the Maintainer's decision, on adoption and use | §9.2 |
 | The Factory's Apps share the prefix `combsmith-sf-` | §5.1 |
 | Every panel of the control room is public | §8.6 |
+| Code owners follow the org's standard: the team org-leads owns every path (2026-10-14) | §5.1 |
 | Only required Lenses gate, and domain owners start in shadow (from the pre-mortem, §9.3) | §4.2, §5.2 |
 | The Maintainer records continue or stop at two decision points | §9.2 |
 | Decisions read GitHub only; the control room is written and never read back (from the simplification pass, §9.4) | §3.9 |
@@ -1441,11 +1442,11 @@ state. The fourth column is the plan.
 - The approving review stays with the existing machine user, because a code owner must be a user.
   It approves and does nothing else. It never pushes and never opens a pull request, because GitHub
   will not count an approval from an author or a last pusher.
-- **The Maintainer is the only code owner for the Factory's own rules** in the Factory repo:
-  `lifecycle/`, the authority table, the rubrics, the gate function, the brakes, the invariants and
-  the simulator's fixed seeds, and `.github/`. GitHub then
-  enforces that the Factory cannot approve a change to what governs it, whichever Release is
-  serving.
+- **Code owners follow the org's standard** (Maintainer, 2026-10-14): the team org-leads, which
+  holds the Maintainer and the machine user, owns every path. So code ownership does not keep the
+  Factory from approving a change to its own rules (`lifecycle/`, the authority table, the rubrics,
+  the gate function, the brakes, the invariants, the simulator's fixed seeds and `.github/`). What
+  does is `apply`, which refuses a Role's change to them unless a person approved it (§3.6).
 - The Apps share the name prefix `combsmith-sf-`, so `qa-lead` acts as `combsmith-sf-qa-lead[bot]`. The frozen Consumer file drops
   Factory-authored events by that prefix, so adding a Role never changes a Consumer file.
 - Registering an App is a manual step. "A new Role in one pull request" (NFR-11, UJ-7) becomes one
@@ -1556,7 +1557,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-30 | Which identity can cut a Release and move a channel tag under a tag ruleset, from a workflow in the Factory repo? | One identity, through one path |
 | P-21 | How often may the control room's page be rebuilt, and can a page read the feed files directly from a browser? | The page reads the feed directly and rebuilds only when its own code changes |
 | P-23 | How many threads may one App resolve in an hour before GitHub's secondary limits apply? | Enough for about 22 threads a pull request at the Factory's merge rate |
-| P-24 | With the Maintainer as the only code owner of a path, does the machine user's approval fail to satisfy code-owner review there? | It fails to satisfy it |
+| P-24 | With the Maintainer as the only code owner of a path, does the machine user's approval fail to satisfy code-owner review there? Not needed for the Factory's repo while its code owners follow the org's standard | It fails to satisfy it |
 | P-25 | Does resolving a reviewer's thread cause that reviewer to re-post it, reply, or approve? | No, with the configuration of §4.2 |
 | P-22 | How soon after it is started does a Run appear in the list of run records? | Soon enough that a pass never admits the same Run twice; the item's lane and I-21 cover the gap |
 | P-32 | Can an issue's author's permission be read in the listing of open issues, and who added and who removed each label, with the time, in the full read? | Yes to both, within the budget P-8 measures |
@@ -2240,8 +2241,8 @@ The machine user never authors, pushes or opens a pull request there.
 request, GitHub will not accept the Maintainer as its approver. So through slices 0 and 1 the
 ruleset requires the verification check and the merge queue and no approving review: the Maintainer
 reads and merges. Required review, with the machine user as code owner, is switched on when the
-Factory's reviewer serves the repo. The rule that the Maintainer alone owns the Factory's rule
-files (§5.1) takes effect when an App, and not the Maintainer, authors the changes. Wherever this
+Factory's reviewer serves the repo. From then on, a change to the Factory's own rules authored by a
+Role is refused by `apply` unless a person approved it (§5.1). Wherever this
 document says the Maintainer approves during the bootstrap, read "reads and merges".
 
 What makes that way of working produce good code:
