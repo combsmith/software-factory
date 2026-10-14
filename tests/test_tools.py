@@ -871,7 +871,7 @@ class Trials(unittest.TestCase):
         verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
         try:
             with contextlib.redirect_stdout(io.StringIO()) as said:
-                self.assertEqual(verify.main(), 0)
+                self.assertEqual(verify.main([]), 0)
         finally:
             verify.failed, verify.unittest.TextTestRunner = real
         for code in codes:
@@ -1050,6 +1050,13 @@ class Verify(unittest.TestCase):
             self.assertTrue(verify.failed([("always", lambda: ["a problem"])]))
             self.assertFalse(verify.failed([("never", lambda: [])]))
         self.assertIn("a problem", said.getvalue())
+
+    def test_make_fast_is_verify_without_the_seeded_simulation(self):
+        modules = {p.stem for p in (ROOT / "tests").glob("test_*.py")}
+        self.assertTrue(set(verify.SLOW) <= modules, "a slow test named in verify.SLOW does not exist")
+        self.assertEqual(set(verify.modules(fast=True)), modules - set(verify.SLOW))
+        self.assertEqual(set(verify.modules(fast=False)), modules)
+        self.assertIn("fast:\n\t$(PY) -m tools.verify --fast\n", (ROOT / "Makefile").read_text())
 
     def test_every_test_file_is_discovered(self):
         found = set()

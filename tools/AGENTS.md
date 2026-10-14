@@ -3,7 +3,8 @@
 The checks, `verify.py` which runs them all, and `mutants.py` which breaks the Kernel on purpose.
 `walk.py` lists this working tree's files, and nothing in another nested inside it, for all of them.
 `make_corpus.py` records every decision the Kernel makes, under a directory git ignores, to hold
-another implementation to this one; the required check does not depend on it.
+another implementation to this one; the required check does not depend on it. `hooks/` holds the
+session hooks `.claude/settings.json` runs; `hooks/shell.py` reads a shell command as words for any of them.
 
 | Rule | Held by |
 |---|---|
@@ -13,6 +14,10 @@ another implementation to this one; the required check does not depend on it.
 | The tree is walked or copied only by `walk.py`, which skips another working tree nested in this one | `tests/test_tools.py::test_only_the_walk_walks_the_tree`, `tests/test_tools.py::test_another_working_tree_inside_this_one_is_not_read` |
 | A check fails closed: what it does not understand is a problem, and it allows what is named instead of refusing what is known | `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way` |
 | A workflow rule has a counter-example that breaks it and nothing else | `tests/test_tools.py::test_a_rule_with_no_counter_example_is_caught` |
+| `make fast` is `make verify` without the test modules in `SLOW`, and is what runs after each edit | `tests/test_tools.py::test_make_fast_is_verify_without_the_seeded_simulation` |
+| A session hook is a module in `hooks/` with a `main()`, wired to its event in `.claude/settings.json` | `tests/test_hooks.py::test_every_hook_is_wired_to_its_event` |
+| A hook is fed a violation and a clean case. Most cases call the function its `main()` calls; one goes through the front door | `tests/test_hooks.py` |
+| A hook that guards an identity refuses what it cannot read: no git or gh, a command it cannot split, a directory it cannot tell | `tests/test_hooks.py::test_what_the_hook_cannot_read_is_refused` |
 | An entry in `mutants.py` names text that appears once in its file. Change that text, or write the same text on a second line, and the entry goes `STALE`; update it | `mutants.py` |
 
 A check collects every problem and does not stop at the first. Its message says what is wrong and

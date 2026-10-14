@@ -10,7 +10,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Data files that are the real thing, not illustrations, and their schema.
 LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lifecycle",
         "config/authority.json": "authority",
-        "config/defaults.json": "config", "config/rubric-pr-review.json": "rubric", "config/apps.json": "apps"}
+        "config/defaults.json": "config", "config/rubric-pr-review.json": "rubric", "config/apps.json": "apps",
+        "config/hooks.json": "hooks"}
 
 
 def _once(pairs: list) -> dict:
