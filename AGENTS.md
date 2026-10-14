@@ -55,6 +55,6 @@ Before editing in a directory, read its `AGENTS.md`: it carries the rules of tha
 | About to repeat a mistake | `docs/lessons.md`: each failure, its rule and its check |
 | Unsure what a capitalised word means | `docs/glossary.md`. One term, one meaning |
 | Needing the design itself | `docs/architecture/software-factory-design.md`: section 0 is one page, and 1.2 says which sections are rules |
+| Running a platform trial, or adding its fixture to `trials/` | The skill `.claude/skills/run-a-platform-trial/SKILL.md` |
 
-Not built yet, under names that are reserved: adapters, harness, controller, roles, release, evals
-and the workflows. A rule that is waiting on one of them says so.
+Not built yet, under names that are reserved: adapters, harness, controller, roles, release, evals and the workflows. A rule that is waiting on one of them says so.

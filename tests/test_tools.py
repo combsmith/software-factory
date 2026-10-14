@@ -15,7 +15,7 @@ import tempfile
 import unittest
 
 from tools import (check_apps, check_authority, check_context, check_examples, check_lifecycle, check_purity,
-                   check_repo, check_workflows, verify, walk)
+                   check_repo, check_trials, check_workflows, verify, walk)
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
@@ -655,6 +655,20 @@ class Context(unittest.TestCase):
                                                "tools/x.py": ""}))
         self.assertTrue(caught(bare, "no 'Org standard:' line") and not caught(cited, "no 'Org standard:' line"))
 
+    def test_a_skill_the_root_file_does_not_point_to_is_caught(self):
+        good = "---\nname: run-it\ndescription: Run it, when a story asks for it.\n---\n\n# Run it\n"
+        root = tree({"AGENTS.md": "Read `.claude/skills/run-it/SKILL.md`.\n", ".claude/skills/run-it/SKILL.md": good})
+        self.assertEqual(check_context._skills(root), [])
+        root = tree({"AGENTS.md": "x\n", ".claude/skills/run-it/SKILL.md": good, ".claude/skills/other/SKILL.md": "# Other\n",
+                     ".claude/skills/third/SKILL.md": good.replace("description: Run it, when a story asks for it.", "description:")})
+        problems = check_context._skills(root)
+        for words in ("run-it/SKILL.md: the root AGENTS.md does not point to it", "other/SKILL.md: opens with no frontmatter",
+                      "third/SKILL.md: is named run-it; a skill is named for its directory", "third/SKILL.md: no description"):
+            self.assertTrue(caught(problems, words), words)
+        planted = clone({".claude/skills/run-a-platform-trial/SKILL.md": good.replace("run-it", "run-a-platform-trial")
+                         + "See `tools/gone.py`.\n"})
+        self.assertTrue(caught(check_context.run(planted), "SKILL.md: names tools/gone.py"))
+
     def test_a_second_copy_of_the_review_standard_is_caught(self):
         root = tree({"docs/standards/review.md": "# Review\n", "docs/standards/release.md": "# Release\n"})
         problems = check_context._standards(root)
@@ -682,6 +696,121 @@ class Context(unittest.TestCase):
             self.assertTrue(caught(problems, words), words)
 
 
+def fixture(**fields) -> str:
+    """The example fixture, as text, with `fields` written over it."""
+    data = json.loads((ROOT / "examples" / "trial.json").read_text())
+    data.update(fields)
+    return json.dumps(data, indent=2)
+
+
+GROUNDING = (ROOT / "sim" / "grounding.py").read_text()
+
+
+def grounded(fixture_path: str) -> str:
+    """sim/grounding.py with the rule P-28 asks grounded by `fixture_path`."""
+    rule = '"P-28", None)'
+    assert GROUNDING.count(rule) == 1
+    return GROUNDING.replace(rule, '"P-28", "%s")' % fixture_path)
+
+
+class Trials(unittest.TestCase):
+    def test_a_fixture_that_is_misnamed_or_invalid_is_caught(self):
+        root = clone({"trials/P-12.json": fixture(trial="P-13"), "trials/P-12.retry.json": "{}",
+                      "trials/notes.md": "x\n", "trials/P12.json": fixture(), "trials/P-9.json/P-9.json": fixture(trial="P-9")})
+        problems = check_trials.run(root)
+        for words in ("trials/P-12.json: records trial P-13", "trials/P-12.retry.json: $: missing",
+                      "trials/notes.md: trials/ holds fixtures only", "trials/P12.json: trials/ holds fixtures only",
+                      "trials/P-9.json: trials/ holds fixtures only"):
+            self.assertTrue(caught(problems, words), words)
+        self.assertEqual(check_trials.run(clone({"trials/P-12.json": fixture(), "trials/P-12.retry.json": fixture()})), [])
+
+    def test_a_credential_in_a_fixture_is_caught(self):
+        data = json.loads(fixture())
+        exchange = data["exchanges"][0]
+        exchange["request"]["headers"]["Authorization"] = "[removed]"
+        exchange["request"]["body"]["sent"] = ["github" + "_pat_" + "x", "gh" + "p_y", "eyJ" + "hbGciOiJSUzI1NiJ9.e30"]
+        exchange["response"]["headers"]["x-note"] = "gh" + "s_short"
+        exchange["response"]["body"]["app"] = {"Token": None, "note": "Bear" + "er abc", "input_tokens": 12,
+                                               "token_type": "bearer", "highs_low": "x"}
+        problems = check_trials.run(clone({"trials/P-12.json": json.dumps(data)}))
+        fields = [p for p in problems if "is a field for a credential" in p]
+        shapes = [p for p in problems if "shaped like a credential" in p]
+        self.assertEqual(len(fields), 2, problems)
+        self.assertEqual(len(shapes), 5, problems)
+        self.assertTrue(caught(fields, "trials/P-12.json: exchanges[0].request.headers.Authorization"))
+        self.assertTrue(caught(shapes, "trials/P-12.json: exchanges[0].response.body.app.note"))
+        self.assertTrue(caught(check_trials.run(clone({"examples/trial.json": json.dumps(data)})),
+                               "examples/trial.json: exchanges[0].request.headers.Authorization"))
+
+    def test_code_that_reads_the_canary_is_caught(self):
+        name = "combsmith/" + check_trials.CANARY
+        root = clone({"tools/fetch.py": "REPO = %r\n" % name, ".github/workflows/trial.yml": "repository: %s\n" % name,
+                      "docs/notes.md": name + "\n", "trials/P-12.json": fixture()})
+        problems = check_trials.run(root)
+        self.assertTrue(caught(problems, "tools/fetch.py: names the canary repo"))
+        self.assertTrue(caught(problems, ".github/workflows/trial.yml: names the canary repo"))
+        self.assertFalse(caught(problems, "docs/notes.md") or caught(problems, "trials/P-12.json"))
+
+    def test_a_fixture_named_for_a_rule_must_exist_and_validate(self):
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json")}))
+        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-28.json does not exist"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json"), "trials/P-28.json": "{}"}))
+        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-28.json is not a valid fixture"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-12.json"), "trials/P-12.json": fixture()}))
+        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-12.json records P-12, and P-28 asks this"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("examples/trial.json")}))
+        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: examples/trial.json is not a fixture in trials/"))
+        root = clone({"sim/grounding.py": grounded("trials/P-28.json"), "trials/P-28.json": fixture(trial="P-28")})
+        self.assertEqual(check_trials.run(root), [])
+        self.assertFalse(caught(check_trials.unverified(root), "the_pusher_is_the_last_pusher"))
+        self.assertTrue(caught(check_trials.unverified(), "the_pusher_is_the_last_pusher"))
+
+    def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
+        world = (ROOT / "sim" / "world.py").read_text()
+        problems = check_trials.run(clone({"sim/world.py": world + "\n# GitHub: a_rule_nobody_listed\n"}))
+        self.assertTrue(caught(problems, "sim/world.py applies a_rule_nobody_listed, which sim/grounding.py does not list"))
+        listed = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_never_applied", "It is so", None, None),', 1)
+        problems = check_trials.run(clone({"sim/grounding.py": listed}))
+        self.assertTrue(caught(problems, "a_rule_never_applied is listed in sim/grounding.py and applied nowhere in sim/world.py"))
+        twice = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_tick_can_be_lost", "It is so", "P-8", None),', 1)
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": twice})), "a_tick_can_be_lost is listed twice"))
+        for broken in ("RULES = rules()\n", "RULES = (('Not a code', 'x', 'P-1', None),)\n", "RULES = (('x', 'x'),)\n", "x = 1\n"):
+            self.assertTrue(check_trials.run(clone({"sim/grounding.py": broken})), broken)
+
+    def test_verify_prints_every_rule_no_fixture_grounds(self):
+        codes = [rule[0] for rule in check_trials.rules()]
+        self.assertTrue(codes)
+        self.assertEqual(len(check_trials.unverified()), len(codes))
+        ran = {}
+
+        class Runner:
+            def __init__(self, **_):
+                pass
+
+            def run(self, suite):
+                ran["suite"] = suite
+                return unittest.TestResult()
+
+        real = (verify.failed, verify.unittest.TextTestRunner)
+        verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as said:
+                self.assertEqual(verify.main(), 0)
+        finally:
+            verify.failed, verify.unittest.TextTestRunner = real
+        for code in codes:
+            self.assertIn("unverified: " + code, said.getvalue())
+
+    def test_only_a_fixture_may_name_a_model_or_the_proof_of_concept(self):
+        said = json.dumps({"model": "claude-" + "opus-5-5", "repo": "combsmith/" + check_repo.FOREIGN})
+        problems = check_repo.run(tree({"trials/P-13.json": said, "trials/old/P-13.json": said, "trials/P-13.txt": said,
+                                        "config/x.json": said}))
+        for where in ("trials/old/P-13.json", "trials/P-13.txt", "config/x.json"):
+            self.assertTrue(caught(problems, where + ": names a model"), where)
+            self.assertTrue(caught(problems, where + ": names the proof-of-concept repo"), where)
+        self.assertFalse(caught(problems, "trials/P-13.json"))
+
+
 # One planted fault for each check, run from its front door. A check gutted to return nothing fails here.
 FAILS = {
     "check_examples": lambda: check_examples.run(clone({"examples/decision.json": "{}"})),
@@ -695,6 +824,7 @@ FAILS = {
     "check_repo": lambda: check_repo.run(clone({"requirements.txt": "requests\n"})),
     "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("15", "45")})),
     "check_context": lambda: check_context.run(clone({"docs/lessons.md": "# Lessons\n"})),
+    "check_trials": lambda: check_trials.run(clone({"trials/notes.txt": "x\n"})),
 }
 
 

@@ -19,6 +19,7 @@ or a practitioner's advice.
 | The exact commands that verify are at the top, and each module they name exists | Agents run the commands a file lists and fix what fails [8] [13] | `tools/check_context.py` |
 | One set of rules for every tool: `CLAUDE.md` holds one line that imports `AGENTS.md` | Two sets of instructions that disagree are resolved arbitrarily [1] | `tests/test_tools.py::test_a_date_in_what_is_always_read_is_caught` |
 | What is read on every task holds no date and nothing that changes with the day | A stable prefix keeps the model's cache; one changed token invalidates what follows it [14] | `tests/test_tools.py::test_a_date_in_what_is_always_read_is_caught` |
+| A procedure done rarely and exactly is a skill, `.claude/skills/<name>/SKILL.md`, opening with the name and description it is found by; the root file points to each | A skill costs nothing until a task calls for it, but on-demand loading alone was measured as unreliable [7], so a pointer is always loaded | `tests/test_tools.py::test_a_skill_the_root_file_does_not_point_to_is_caught` |
 | Decisions are one small file each, numbered with no gap; a change is a new record, not a rewrite | Measured: rewriting a memory in full erodes its detail, and small additions do better [15] | `tests/test_tools.py::test_a_decision_with_no_boundary_is_caught` |
 | A change to these files is judged by a task, not by reading: a fresh agent, given the repo and one sentence, adds a rule to the Kernel and passes both commands | Context meant to improve results should be evaluated before it is relied on [5]; start from tasks with a known answer and run them more than once [16] | waiting on `evals/` |
 
@@ -32,8 +33,6 @@ depends on them.
 - **Give exploration and review to a fresh context that returns a short summary** [12] [17], and
   do not split one change across parallel agents [18].
 - **Start a new session for a new task,** and hand over through a file in the repo [19].
-- **Procedures done rarely go in skills.** There are none yet. When there are, the root file will
-  point to each, because on-demand loading alone was measured as unreliable [7].
 
 ## Sources
 

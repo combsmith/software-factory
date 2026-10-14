@@ -77,6 +77,7 @@ class World:
 
     def records(self) -> list:
         """What the records port lists: every Run, including one still waiting for a runner."""
+        # GitHub: a_queued_run_is_listed
         return [copy.deepcopy(r) for r in self.runs]
 
     def context(self) -> dict:
@@ -98,11 +99,14 @@ class World:
         facts, runs = self.facts(), self.records()
         fault = self.rng.random() if self.faults else 1.0
         if fault < 0.08 and self.stale is not None:
-            facts, runs = self.stale            # a stale read
+            # GitHub: a_read_can_be_stale
+            facts, runs = self.stale
         elif fault < 0.14:
+            # GitHub: a_short_read_says_so
             facts["complete"][self.pick(sorted(facts["complete"]))] = False
         elif fault < 0.20 and runs:
-            runs = runs[:-1]                    # the newest Run is not listed yet
+            # GitHub: a_new_run_is_listed_late
+            runs = runs[:-1]
         self.stale = (copy.deepcopy(facts), copy.deepcopy(runs))
         wrong = validate(facts, FACTS_SCHEMA)
         self.check(not wrong, "facts are valid: %s" % "; ".join(wrong))
@@ -132,10 +136,12 @@ class World:
             return
         if d["action"] == "issue_approval":
             self.check(CONFIG["approver"] not in (self.author, self.last_pusher), "I-26 approver is author or last pusher")
+            # GitHub: the_machine_users_approval_counts
             self.reviews = [{"actor": CONFIG["approver"], "state": "approved", "commit": "c%d" % self.content,
                              "content_id": self.cid()}]
             self.note("apply: approved %s" % self.cid())
         elif d["action"] == "enqueue" and fresh["reason"] == "approved":
+            # GitHub: an_app_enters_the_queue
             self.queue = True
             self.note("apply: enqueued")
 
@@ -189,6 +195,7 @@ class World:
         elif run["intent"] == "fix-findings":
             self.push("combsmith-sf-dev-lead[bot]", writer=False)
         elif run["intent"] == "adjudicate-findings":
+            # GitHub: an_app_resolves_a_lens_thread
             for th in self.threads:
                 if not th["resolved"] and th["opened_by"]["kind"] == "lens" and self.rng.random() < 0.7:
                     th.update(resolved=True, resolved_by="combsmith-sf-pr-review[bot]")
@@ -196,15 +203,20 @@ class World:
 
     # ---- the platform and the people
     def push(self, who: str, writer: bool):
+        # GitHub: a_push_is_new_content
         self.content += 1
+        # GitHub: the_pusher_is_the_last_pusher
         self.last_pusher, self.last_push = who, self.now()
         if writer:
             self.last_writer = self.now()
+        # GitHub: a_push_restarts_the_checks
         self.checks = dict.fromkeys(self.checks, "pending")
+        # GitHub: a_push_leaves_the_queue
         self.queue = False
         self.note("push by %s -> %s" % (who, self.cid()))
 
     def platform(self):
+        # GitHub: the_queue_merges
         if self.queue and self.rng.random() < 0.6:
             self.pr_state = "merged"
             self.note("merged")
@@ -240,7 +252,8 @@ class World:
             return
         roll = self.rng.random()
         if roll < 0.40:
-            if not (self.faults and self.rng.random() < 0.3):   # a dropped tick
+            # GitHub: a_tick_can_be_lost
+            if not (self.faults and self.rng.random() < 0.3):
                 self.poll()
         elif roll < 0.60:
             self.start_next()
