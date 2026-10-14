@@ -19,6 +19,10 @@
     "done",
     "declined"
   ],
+  "person_only_exits": [
+    "held",
+    "not_served"
+  ],
   "stale_after_minutes": {
     "new": 30,
     "triage": 1440,

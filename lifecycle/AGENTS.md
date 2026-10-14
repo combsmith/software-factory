@@ -11,4 +11,5 @@ join them when the Kernel derives an issue's State, which it does not yet.
 | A bound is a limit in `config/defaults.json`, which holds its number | `tests/test_tools.py::test_a_bound_that_is_not_a_limit_is_caught` |
 | Each type of Work item the Lifecycle schema names has its file here, named for it | `tests/test_tools.py::test_a_work_item_with_no_lifecycle_is_caught` |
 | Only a person, or the platform acting for one, ends a Hold | `tests/test_tools.py::test_a_hold_the_factory_could_end_is_caught` |
+| So with every State in `person_only_exits`: `held`, and for an issue `not_served` too | `tests/test_tools.py::test_an_issue_the_factory_could_serve_again_is_caught` |
 | A transition the Kernel makes is declared here | `tests/test_simulator.py::test_invariants_hold_under_faults` |

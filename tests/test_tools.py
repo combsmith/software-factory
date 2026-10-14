@@ -135,7 +135,29 @@ class Lifecycle(unittest.TestCase):
     def test_a_hold_the_factory_could_end_is_caught(self):
         lc = copy.deepcopy(check_lifecycle.load())
         lc["transitions"].append({"from": "held", "to": "verifying", "by": "factory", "bound": "max_attempts"})
-        self.assertTrue(caught(check_lifecycle.check(lc), "only a person ends a Hold"))
+        self.assertTrue(caught(check_lifecycle.check(lc), "only a person takes a Work item out of held"))
+
+    def test_an_issue_the_factory_could_serve_again_is_caught(self):
+        lc = copy.deepcopy(check_lifecycle.load("issue"))
+        lc["transitions"].append({"from": "not_served", "to": "ready", "by": "factory", "bound": None})
+        self.assertTrue(caught(check_lifecycle.check(lc), "only a person takes a Work item out of not_served"))
+
+    def test_a_hold_left_off_the_person_only_states_is_caught(self):
+        lc = dict(check_lifecycle.load(), person_only_exits=["limbo"])
+        problems = check_lifecycle.check(lc)
+        self.assertTrue(caught(problems, "list held in person_only_exits"), problems)
+        self.assertTrue(caught(problems, "person_only_exits names an undeclared state: limbo"), problems)
+
+    def test_malformed_lifecycle_data_is_reported_not_raised(self):
+        pr = check_lifecycle.load()
+        pr["transitions"][0].pop("by")
+        problems = check_lifecycle.run(clone({"lifecycle/issue.json": "[]", "lifecycle/pull_request.json": json.dumps(pr)}))
+        self.assertTrue(caught(problems, "lifecycle/issue.json does not match the Lifecycle schema"), problems)
+        self.assertTrue(caught(problems, "lifecycle/pull_request.json does not match the Lifecycle schema"), problems)
+        self.assertTrue(check_lifecycle.check({"states": "x"}))
+        self.assertTrue(caught(check_lifecycle.run(clone({"config/defaults.json": "[]"})), "config/defaults.json"))
+        self.assertTrue(caught(check_lifecycle.run(clone({"schemas/lifecycle.schema.json": "[]"})),
+                               "schemas/lifecycle.schema.json"))
 
     def test_a_state_nothing_declares_or_reaches_or_times_is_caught(self):
         lc = copy.deepcopy(check_lifecycle.load())

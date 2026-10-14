@@ -4,7 +4,10 @@ from __future__ import annotations
 import json
 import pathlib
 
+from tools.jsonschema_lite import SchemaError, validate
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+SCHEMA = ROOT / "schemas" / "lifecycle.schema.json"
 
 
 def load(name: str = "pull_request") -> dict:
@@ -37,10 +40,26 @@ def _has_cycle(nodes, edges) -> bool:
     return any(colour[n] == 0 and visit(n) for n in nodes)
 
 
-def check(lc: dict, limits: dict = None) -> list:
+def _shape(lc, schema: dict) -> list:
+    """Why `lc` cannot be checked at all: it does not match the Lifecycle schema."""
+    try:
+        return validate(lc, schema)
+    except SchemaError as err:
+        return ["the Lifecycle schema cannot be used: %s" % err]
+
+
+def check(lc: dict, limits: dict = None, schema: dict = None) -> list:
     """The problems of one Lifecycle. A bound must be one of `limits`, when they are given."""
+    wrong = _shape(lc, json.loads(SCHEMA.read_text()) if schema is None else schema)
+    if wrong:
+        return ["does not match the Lifecycle schema: %s" % w for w in wrong]
     states, terminal = set(lc["states"]), set(lc["terminal"])
+    gated = set(lc["person_only_exits"])
     problems = []
+    if "held" in states and "held" not in gated:
+        problems.append("only a person ends a Hold: list held in person_only_exits")
+    for s in sorted(gated - states):
+        problems.append("person_only_exits names an undeclared state: %s" % s)
     edges = []
     for tr in lc["transitions"]:
         for end in (tr["from"], tr["to"]):
@@ -48,8 +67,9 @@ def check(lc: dict, limits: dict = None) -> list:
                 problems.append("transition names an undeclared state: %s" % end)
         if tr["from"] in terminal:
             problems.append("a terminal state has a way out: %s" % tr["from"])
-        if tr["from"] == "held" and tr["by"] not in ("human", "platform"):
-            problems.append("a Hold is ended by %s; only a person ends a Hold" % tr["by"])
+        if tr["from"] in gated and tr["by"] not in ("human", "platform"):
+            problems.append("%s is left by %s; only a person takes a Work item out of %s"
+                            % (tr["from"], tr["by"], tr["from"]))
         if limits is not None and tr["bound"] is not None and tr["bound"] not in limits:
             problems.append("the bound %s is not a limit in config/defaults.json; add its number there"
                             % tr["bound"])
@@ -88,18 +108,30 @@ def run(root: pathlib.Path = ROOT) -> list:
 
     schema = read(root / "schemas" / "lifecycle.schema.json")
     config = read(root / "config" / "defaults.json")
-    if schema is None or config is None:
+    try:
+        items = schema["properties"]["work_item"]["enum"]
+    except (KeyError, TypeError):
+        problems.append("schemas/lifecycle.schema.json names no Work items under properties.work_item.enum")
+        items = None
+    limits = config.get("limits") if isinstance(config, dict) else None
+    if config is not None and not isinstance(limits, dict):
+        problems.append("config/defaults.json has no object of limits")
+    if items is None or not isinstance(limits, dict):
         return problems
     for path in sorted((root / "lifecycle").glob("*.json")):
         lc = read(path)
         if lc is None:
             continue
         rel = "lifecycle/" + path.name
-        if lc.get("work_item") != path.stem:
+        wrong = _shape(lc, schema)
+        if wrong:
+            problems += ["%s does not match the Lifecycle schema: %s" % (rel, w) for w in wrong]
+            continue
+        if lc["work_item"] != path.stem:
             problems.append("%s declares the Work item %s; name the file %s.json"
-                            % (rel, lc.get("work_item"), lc.get("work_item")))
-        problems += ["%s: %s" % (rel, p) for p in check(lc, config.get("limits") or {})]
-    for item in schema["properties"]["work_item"]["enum"]:
+                            % (rel, lc["work_item"], lc["work_item"]))
+        problems += ["%s: %s" % (rel, p) for p in check(lc, limits, schema)]
+    for item in items:
         if not (root / "lifecycle" / (item + ".json")).exists():
             problems.append("no Lifecycle for the Work item %s: declare it in lifecycle/%s.json" % (item, item))
     return problems
