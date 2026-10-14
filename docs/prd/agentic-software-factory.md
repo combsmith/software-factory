@@ -187,8 +187,10 @@ ceiling near eight, and the limit they name is their own attention (§3.1 to §3
   a regression; promotion stops, the previous release keeps serving, and one action restores it
   everywhere.
 - **UJ-6. A Repo owner adopts the factory.**
-  The Repo owner adds one registry entry, and nothing to the repo itself. Within an hour every role serves the repo. No
-  later change to the factory requires an edit in that repo.
+  The Repo owner adds one registry entry. The factory puts no file and no credential in the repo. What the repo
+  must already have is its own: a setup and a test command, a ruleset that matches, and the machine user as a code
+  owner; a readiness check says which of these is missing. Within an hour of the last one every role serves the
+  repo. No later change to the factory requires an edit in that repo.
 - **UJ-7. A Factory developer adds a role or gives a role a new trigger.**
   One pull request in one repo adds a manifest, a prompt and eval cases. It reaches consumers by the
   normal release path. No workflow file changes.
@@ -578,8 +580,10 @@ accepts any flags. The suite cannot run on the Maintainer's machine. Realizes UJ
   required checks on the Hosting repo.
 - **FR-55. Evals cover production Intents.** Every Intent that writes code or decides a Gate has a
   held-out, scored eval set that exercises the production prompt and Harness path.
-  - "Held-out" names its mechanism. In a public repo it is either stored where the Role under test
-    cannot read it, or declared a convention guarded by code ownership.
+  - "Held-out" names its mechanism: the set is stored where the Role under test cannot read it, a
+    private repo under a different owner. Code ownership guards against change, not against
+    reading, and a public repo can be fetched by any Run with a network tool, so neither makes a
+    set held-out.
 - **FR-56. Real-interface tests.** Every interaction with GitHub and with an Engine is tested
   against recorded real responses or a sandbox, so that a call the real interface rejects fails a
   test.
@@ -692,7 +696,7 @@ and the review document.
 
 | ID | Quality | Target | POC baseline |
 |---|---|---|---|
-| NFR-1 | Flow efficiency | At most 10 Runs per merged pull request; at most 2% of admitted Runs lost or started later than the liveness limit. Passes that admit nothing are reported separately and are not capped `[ASSUMPTION]` | About 1,500 workflow runs per merge including CI; 24% cancelled |
+| NFR-1 | Flow efficiency | At most 10 Runs per merged pull request; at most 2% of admitted Runs lost or started later than the liveness limit. Passes that admit nothing are reported separately and are not capped `[ASSUMPTION]` | About 1,500 workflow runs per merge including CI; 24% cancelled. A workflow run is a wider unit than a Run and is given as context; no baseline in Runs is recorded here |
 | NFR-2 | Lead time | Issue to merge p50 ≤ 8 h and p90 ≤ 48 h for items needing no human decision `[ASSUMPTION]` | p50 24.5 h, p90 296.5 h |
 | NFR-3 | Autonomy | At least 85% of agent-authored pull requests merge with a standing independent approval and no human action outside declared decision points `[ASSUMPTION]` | At most 40% |
 | NFR-4 | Gate integrity | 100% of merges carry either a standing independent approval or an Override record | 66% approved; no Override record exists |
@@ -868,8 +872,9 @@ From the competitive analysis ([market research](../research/market-agentic-soft
 8. **OQ-8. Where does the Ledger live and who may read it?** Everything in a public repo is public.
    Decided by the Maintainer on 2026-10-10: the Ledger is the Factory's own run records and
    artifacts, and `petry-projects/software-factory-control-room` is a public, rebuildable view of
-   them with a dashboard. Every panel is public. Held-out eval sets live under a different owner,
-   where no Factory App is installed, because a public repo cannot hide them from the Role they test.
+   them with a dashboard. Every panel is public. Held-out eval sets live in a private repo under a
+   different owner, where no Factory App is installed, because a public repo cannot hide them from
+   the Role they test.
 9. **OQ-9. What is the budget for the migration itself**, in weeks and in LLM spend, given that the
    POC must keep delivering while it is replaced? The three conditions ADR-0013 required were set
    by the Maintainer on 2026-10-10 (ADR-0013, decision 10). POC defects are fixed as needed, with no
