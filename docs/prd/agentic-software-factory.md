@@ -188,9 +188,10 @@ ceiling near eight, and the limit they name is their own attention (§3.1 to §3
   everywhere.
 - **UJ-6. A Repo owner adopts the factory.**
   The Repo owner adds one registry entry. The factory puts no file and no credential in the repo. What the repo
-  must already have is its own: a setup and a test command, a ruleset that matches, and the machine user as a code
-  owner; a readiness check says which of these is missing. Within an hour of the last one every role serves the
-  repo. No later change to the factory requires an edit in that repo.
+  must already have is its own, and the design's readiness check lists it: a setup and a test command, a ruleset
+  that matches, the machine user as a code owner, its Advisory reviewers configured, and the repository settings the
+  check asserts. The check says what is missing. Within an hour of the last of these being in place every role
+  serves the repo. No later change to the factory requires an edit in that repo.
 - **UJ-7. A Factory developer adds a role or gives a role a new trigger.**
   One pull request in one repo adds a manifest, a prompt and eval cases. It reaches consumers by the
   normal release path. No workflow file changes.
@@ -562,7 +563,7 @@ trigger surface in up to eight. Realizes UJ-5, UJ-6, UJ-7.
   cut before that change existed, so no change reviews itself. The Factory's own repo is served by
   `next`. A Release reaches `stable`, and so any Consumer repo, only on evidence from `next`.
 - **FR-51. Onboarding.** A Consumer repo adopts the Factory with one registry entry and no file of the Factory's, and
-  is served by every Role within an hour. A later Release, new Role or new trigger requires no edit
+  is served by every Role within an hour of the last thing the readiness check needs being in place (UJ-6). A later Release, new Role or new trigger requires no edit
   in the Consumer repo. Installing Advisory reviewers in vendor consoles is outside this bound.
 - **FR-52. Version-skew safety.** Messages between components running different Releases carry a
   schema version. A sender does not emit a message its receiver cannot read.
