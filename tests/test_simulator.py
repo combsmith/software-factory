@@ -17,6 +17,16 @@ class Simulation(unittest.TestCase):
             for _ in range(250):
                 world.step()
 
+    def test_a_seed_replays_exactly(self):
+        traces = []
+        for _ in range(2):
+            world = World(7)
+            for _ in range(200):
+                world.step()
+            traces.append(world.trace)
+        self.assertEqual(traces[0], traces[1])
+        self.assertTrue(traces[0])
+
     def test_work_is_never_lost_once_faults_stop(self):  # I-1
         for seed in SEEDS:
             world = World(seed)

@@ -51,6 +51,8 @@ MUTANTS = [
      '    if len(recent) >= limits["max_runs_per_item"]:\n', "    if False:\n"),
     ("a capacity fault does not defer", "kernel/decide.py",
      "    if until is not None and until > now:\n", "    if False:\n"),
+    ("an unreadable count of active Runs is trusted", "kernel/decide.py",
+     "    if active is None:\n", "    if active is None and False:\n"),
     ("the org limit is ignored", "kernel/decide.py",
      '    if active >= limits["org_max_active_runs"]:\n', "    if False:\n"),
 ]
@@ -58,7 +60,12 @@ MUTANTS = [
 
 def main() -> int:
     survived = []
-    env = dict(os.environ, SIM_SEEDS="40")
+    env = dict(os.environ, SIM_SEEDS="40", MUTATING="1")
+    whole = subprocess.run([sys.executable, "-m", "unittest", "discover", "-q", "tests"],
+                           cwd=ROOT, env=env, capture_output=True)
+    if whole.returncode != 0:
+        print("the tests fail before anything is broken; a mutant cannot be told from that")
+        return 1
     for name, rel, old, new in MUTANTS:
         with tempfile.TemporaryDirectory() as tmp:
             work = pathlib.Path(tmp) / "repo"

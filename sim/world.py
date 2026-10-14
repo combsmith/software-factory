@@ -23,7 +23,7 @@ CONFIG = json.loads((ROOT / "config" / "defaults.json").read_text())
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
 FACTS_SCHEMA = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
 DECLARED = check_lifecycle.declared(check_lifecycle.load())
-ITEM = {"repo": "petry-projects/software-factory", "type": "pull_request", "number": 1}
+ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 1}
 START = datetime.datetime(2026, 10, 11, 12, 0, 0)
 
 
@@ -104,9 +104,11 @@ class World:
         elif fault < 0.20 and runs:
             runs = runs[:-1]                    # the newest Run is not listed yet
         self.stale = (copy.deepcopy(facts), copy.deepcopy(runs))
-        self.check(not validate(facts, FACTS_SCHEMA), "facts are valid")
+        wrong = validate(facts, FACTS_SCHEMA)
+        self.check(not wrong, "facts are valid: %s" % "; ".join(wrong))
         d = decide(facts, runs, self.context(), CONFIG, self.now())
-        self.check(not validate(d, DECISION_SCHEMA), "every Decision is valid")
+        wrong = validate(d, DECISION_SCHEMA)
+        self.check(not wrong, "every Decision is valid: %s" % "; ".join(wrong))
         self.note("pass: %s %s -> %s" % (d["state"], d["reason"], d["outcome"]))
         whole = all(facts["complete"].values())
         self.check(whole or d["outcome"] == "defer", "I-20 incomplete facts never admit or converge")

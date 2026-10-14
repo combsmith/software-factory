@@ -1,0 +1,20 @@
+# Must be rejected. A branch name is text an outsider chooses, and here it becomes the directory a command runs in.
+name: factory
+on:
+  pull_request:
+  merge_group:
+permissions: {}
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make verify
+        working-directory: ${{ github.head_ref }}
+      - run: python3 -m tools.mutants
