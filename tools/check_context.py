@@ -11,13 +11,14 @@ from __future__ import annotations
 import pathlib
 import re
 
+from tools import walk
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ROOT_LINES = 60     # the root AGENTS.md is read in full on every task
 LOCAL_LINES = 40    # a directory's AGENTS.md carries that directory's rules only
 WIDTH = 260         # and a line is not a way round the limit
 PAGE_LINES = 120    # a standard is one page
 STANDARDS = ("code", "tests", "workflows", "security-boundaries")
-SKIP = {".git", "__pycache__", "corpus"}
 # The design, brought in as it was written. It cites the proof of concept as evidence, by that
 # repo's paths and numbers, so it is read and not held to the rules below. Nothing else is exempt.
 RECORD = (("docs", "prd"), ("docs", "architecture"), ("docs", "research"))
@@ -48,7 +49,7 @@ def _text(path: pathlib.Path) -> str:
 
 
 def _kept(root: pathlib.Path, pattern: str) -> list:
-    return sorted(p for p in root.rglob(pattern) if not SKIP & set(p.relative_to(root).parts))
+    return [p for p in walk.files(root) if p.match(pattern)]
 
 
 def _markdown(root: pathlib.Path) -> list:
@@ -246,8 +247,8 @@ def _agents_files(root: pathlib.Path) -> list:
         for path in _kept(root, name):
             if path != entry:
                 problems.append("%s is a second set of rules; there is one, in AGENTS.md" % path.relative_to(root))
-    for folder in sorted(p for p in root.iterdir() if p.is_dir() and p.name not in SKIP
-                         and not p.name.startswith(".")):
+    for folder in sorted(p for p in root.iterdir() if p.is_dir() and p.name not in walk.SKIP
+                         and not p.name.startswith(".") and not walk.elsewhere(p)):
         if not (folder / "AGENTS.md").exists():
             problems.append("%s/ has no AGENTS.md" % folder.name)
     return problems

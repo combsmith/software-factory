@@ -10,12 +10,12 @@ import copy
 import io
 import json
 import pathlib
-import shutil
+import re
 import tempfile
 import unittest
 
 from tools import (check_apps, check_authority, check_context, check_examples, check_lifecycle, check_purity,
-                   check_repo, check_workflows, verify)
+                   check_repo, check_workflows, verify, walk)
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
@@ -39,7 +39,7 @@ def tree(files: dict) -> pathlib.Path:
 def clone(files: dict) -> pathlib.Path:
     """A copy of this repo with `files` written over it."""
     root = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "repo"
-    shutil.copytree(ROOT, root, ignore=shutil.ignore_patterns(".git", "__pycache__", "corpus"))
+    walk.copy(ROOT, root)
     for rel, text in files.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -685,6 +685,42 @@ class Verify(unittest.TestCase):
             self.assertTrue(planted(), "%s finds nothing wrong with a planted fault" % name)
         for name, check in verify.CHECKS:
             self.assertEqual(check(), [], "%s finds fault with this repo" % name)
+
+    def test_another_working_tree_inside_this_one_is_not_read(self):
+        # A session's git worktree sits in the main checkout, a whole copy of the repo with a .git
+        # file. A full clone has a .git directory. Neither is this repo, and nothing in it is checked.
+        stray = {"AGENTS.md": "# other\n\n| Rule | Held by |\n|---|---|\n| x | `tools/gone.py` |\n",
+                 "CLAUDE.md": "Be careful.\n", "requirements.txt": "requests\n",
+                 "tests/test_x.py": "def test_x():\n    pass\n", "tests/deep/test_y.py": "",
+                 "kernel/clock.py": "import time\n", "notes.txt": "github_pat_" + "x" * 40 + "\n"}
+        planted = {"wt/.git": "gitdir: /elsewhere\n", "wt/notes.txt": "A folder with no AGENTS.md.\n"}
+        for where, git in ((".claude/worktrees/other", ".git"), (".claude/worktrees/clone", ".git/HEAD"),
+                           ("kernel/wt", ".git"), ("docs/wt", ".git")):
+            planted["%s/%s" % (where, git)] = "gitdir: /elsewhere\n"
+            planted.update({"%s/%s" % (where, rel): text for rel, text in stray.items()})
+        root = clone(planted)
+        walking = [(name, check) for name, check in verify.CHECKS
+                   if "root" in check.__code__.co_varnames[:check.__code__.co_argcount]]
+        self.assertGreaterEqual(len(walking), 5)
+        for name, check in walking:
+            with self.subTest(check=name):
+                self.assertEqual(check(root), [], "%s reads another working tree as this one" % name)
+
+    def test_a_copy_of_the_repo_leaves_out_another_working_tree(self):
+        root = tree({"a/x.py": "", "a/__pycache__/x.pyc": "", "corpus/d.jsonl": "", ".git/HEAD": "",
+                     "wt/.git": "gitdir: /elsewhere\n", "wt/y.py": "", "a/clone/.git/HEAD": "", "a/clone/z.py": ""})
+        self.assertEqual([p.relative_to(root).as_posix() for p in walk.files(root)], ["a/x.py"])
+        to = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "copy"
+        walk.copy(root, to)
+        self.assertEqual([p.name for p in to.iterdir()], ["a"])
+        self.assertEqual([p.name for p in (to / "a").iterdir()], ["x.py"])
+
+    def test_only_the_walk_walks_the_tree(self):
+        # One walk, so that every check and every copy skips the same things.
+        walkers = re.compile(r"\b(rglob|os\.walk|os\.scandir|listdir|copytree)\(|glob\(.\*\*")
+        found = sorted("%s/%s" % (folder, p.name) for folder in ("tools", "tests", "sim")
+                       for p in (ROOT / folder).glob("*.py") if walkers.search(p.read_text()))
+        self.assertEqual(found, ["tools/walk.py"])
 
     def test_a_check_that_finds_a_problem_fails_verify(self):
         with contextlib.redirect_stdout(io.StringIO()) as said:

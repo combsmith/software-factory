@@ -6,8 +6,9 @@ import hashlib
 import pathlib
 import re
 
+from tools import walk
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SKIP = {".git", "__pycache__", "corpus"}
 LOCAL = {"kernel", "tools", "sim", "tests"}
 # The standard-library modules in use. A new one is added here on purpose, in the same change.
 STDLIB = {"__future__", "ast", "contextlib", "copy", "datetime", "hashlib", "io", "json", "os", "pathlib", "random", "re", "shutil",
@@ -40,10 +41,6 @@ SECRETS = [re.compile(p) for p in (
     r"sk-(ant|proj)-[A-Za-z0-9_-]{20,}", r"AIza[0-9A-Za-z_-]{30,}", r"(AKIA|ASIA)[0-9A-Z]{16}",
     r"xox[abprs]-[A-Za-z0-9-]{10,}", r"-----BEGIN [A-Z ]*PRIVATE KEY",
 )]
-
-
-def _files(root: pathlib.Path) -> list:
-    return sorted(p for p in root.rglob("*") if p.is_file() and not SKIP & set(p.relative_to(root).parts))
 
 
 def _twice(body: list) -> list:
@@ -110,7 +107,7 @@ def run(root: pathlib.Path = ROOT) -> list:
     for stray in ("CODEOWNERS", "docs/CODEOWNERS"):
         if (root / stray).exists():
             problems.append("%s: GitHub reads the first code owners file it finds; keep only .github/CODEOWNERS" % stray)
-    for path in _files(root):
+    for path in walk.files(root):
         rel = path.relative_to(root)
         listed = path.name in MANIFESTS or (path.suffix in (".txt", ".in") and
                                             re.search(r"requirements|constraints", path.name))
