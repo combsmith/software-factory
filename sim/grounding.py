@@ -14,6 +14,9 @@ RULES = (
     ("the_pusher_is_the_last_pusher", "The account that pushed the head is read as its last pusher", ("P-28",), None),
     ("an_app_pushes_to_the_head", "An App can push to the head of a pull request", ("P-7",), None),
     ("an_approval_survives_a_push", "A push leaves an earlier approval in place", ("P-7", "P-29"), None),
+    ("a_request_for_changes_survives_a_push", "A push leaves a request for changes standing", (), None),
+    ("an_app_can_dismiss_a_review", "An App with pull_requests: write can dismiss a person's request for changes, "
+     "and the timeline says which App", (), None),
     ("a_push_restarts_the_checks", "A push sets every required check pending again", (), None),
     ("a_check_reports_on_its_own", "A pending required check reports success or failure with no one asking", (), None),
     ("a_check_can_time_out_or_give_no_verdict", "A required check can conclude timed_out, neutral, skipped, cancelled "

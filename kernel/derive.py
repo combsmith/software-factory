@@ -98,21 +98,79 @@ def gating_threads(facts: dict, config: dict) -> list:
     return out
 
 
-def whose_turn(thread: dict, runs: list, config: dict) -> str:
-    """Who must act on an open gating thread: 'author', 'owner' or 'human'.
+def readable_actor(actor) -> bool:
+    """Who acted, read whole: a kind the Kernel knows, a name, and write access exactly true or false."""
+    return (isinstance(actor, dict) and actor.get("kind") in t.ACTOR_KINDS
+            and isinstance(actor.get("name"), str) and actor["name"] != ""
+            and type(actor.get("can_write")) is bool)
 
-    The author answers a thread with a Run after it was opened. The answer may
+
+def unreadable_reviews(facts: dict) -> bool:
+    """Whether a review cannot be read whole: its author, its state, its time, or who dismissed it.
+
+    Any of them could be a request for changes from a person with write access, so nothing
+    may converge on it; a missing fact is never given a default (I-13).
+    """
+    for rv in facts["reviews"]:
+        if not isinstance(rv, dict) or rv.get("state") not in t.REVIEW_STATES:
+            return True
+        if not readable_actor(rv.get("by")) or not isinstance(rv.get("submitted_at"), str):
+            return True
+        if rv["state"] == "dismissed" and not readable_actor(rv.get("dismissed_by")):
+            return True
+    return False
+
+
+def standing_requests(facts: dict) -> list:
+    """Requests for changes that hold the pull request, one for each person with write access.
+
+    A person's latest verdict counts; a review that only comments is none. A request stands
+    across new content, as GitHub keeps it, until that person approves or a person with write
+    access dismisses it. An App's dismissal does not clear it: the reviewer's App holds
+    pull_requests: write, and no Role closes a person's objection (L-17). A request from a
+    stranger or a Lens gates nothing.
+    """
+    latest = {}
+    for rv in sorted(facts["reviews"], key=lambda rv: rv["submitted_at"]):
+        if rv["by"]["kind"] == "human" and rv["by"]["can_write"] and rv["state"] != "commented":
+            latest[rv["by"]["name"]] = rv
+    out = []
+    for name, rv in sorted(latest.items()):
+        if rv["state"] == "dismissed":
+            dismissed_by = rv["dismissed_by"]
+            if dismissed_by["kind"] == "human" and dismissed_by["can_write"]:
+                continue
+        elif rv["state"] != "changes_requested":
+            continue
+        out.append({"id": name, "by": rv["by"], "at": rv["submitted_at"]})
+    return out
+
+
+def gates(facts: dict, config: dict) -> list:
+    """Every open Finding that holds the pull request, as {'id', 'by', 'at'}.
+
+    A gating thread, and a request for changes from a person with write access, which gates as
+    that person's thread does (decision 0007).
+    """
+    threads = [{"id": th["id"], "by": th["opened_by"], "at": th["opened_at"]} for th in gating_threads(facts, config)]
+    return threads + standing_requests(facts)
+
+
+def whose_turn(gate: dict, runs: list, config: dict) -> str:
+    """Who must act on an open gate, a thread or a request for changes: 'author', 'owner' or 'human'.
+
+    The author answers a gate with a Run after it was opened. The answer may
     be new content, so this cannot be read from "the last Run on this content".
     A thread still open after the owner has judged that answer was rejected,
-    and is the author's again. A person's thread, once answered, waits for
-    that person: no Role may close it.
+    and is the author's again. A person's thread or request, once answered,
+    waits for that person: no Role may close it.
     """
     answers = [r["started_at"] for r in runs
                if r["role"] == config["author_role"] and r["status"] == "completed"
-               and r["conclusion"] == "success" and r["started_at"] > thread["opened_at"]]
+               and r["conclusion"] == "success" and r["started_at"] > gate["at"]]
     if not answers:
         return "author"
-    if thread["opened_by"]["kind"] == "human":
+    if gate["by"]["kind"] == "human":
         return "human"
     rulings = [r["started_at"] for r in runs
                if r["intent"] == "adjudicate-findings" and r["status"] == "completed"
@@ -133,7 +191,7 @@ def standing_approval(facts: dict, config: dict):
     """The approver's undismissed approval of this content, if any."""
     for rv in facts["reviews"]:
         if (
-            rv["actor"] == config["approver"]
+            rv["by"]["name"] == config["approver"]
             and rv["state"] == "approved"
             and rv["content_id"] == facts["content_id"]
         ):
@@ -208,13 +266,17 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         if not reviewed_clean_or_not(mine, facts, lens):
             return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens]}
 
-    open_gates = gating_threads(facts, config)
+    # A review that cannot be read could be a writer's request for changes: defer, and converge on nothing.
+    if unreadable_reviews(facts):
+        return {"state": None, "reason": "review_unreadable", "evidence": []}
+    # Every gate before the approval: a standing approval never passes over a person's objection.
+    open_gates = gates(facts, config)
     if open_gates:
-        turns = {th["id"]: whose_turn(th, mine, config) for th in open_gates}
-        for_author = [tid for tid, who in turns.items() if who == "author"]
-        for_owner = [tid for tid, who in turns.items() if who == "owner"]
+        turns = {g["id"]: whose_turn(g, mine, config) for g in open_gates}
+        for_author = [gid for gid, who in turns.items() if who == "author"]
+        for_owner = [gid for gid, who in turns.items() if who == "owner"]
         if for_author:
-            human = any(th["opened_by"]["kind"] == "human" for th in open_gates if th["id"] in for_author)
+            human = any(g["by"]["kind"] == "human" for g in open_gates if g["id"] in for_author)
             return {"state": t.ADDRESSING, "reason": "human_finding" if human else "findings_open",
                     "evidence": for_author}
         if for_owner:

@@ -22,7 +22,36 @@
   "admitted_at": null,
   "last_push_at": "2026-10-11T12:00:00Z",
   "last_writer_action_at": "2026-10-11T12:00:00Z",
-  "reviews": [],
+  "reviews": [
+    {
+      "by": {
+        "kind": "lens",
+        "name": "donpetry-bot",
+        "can_write": true
+      },
+      "state": "dismissed",
+      "commit": "4b1a9c0",
+      "content_id": "sha256:4b1a",
+      "submitted_at": "2026-10-11T11:50:00Z",
+      "dismissed_by": {
+        "kind": "human",
+        "name": "don-petry",
+        "can_write": true
+      }
+    },
+    {
+      "by": {
+        "kind": "human",
+        "name": "a-colleague",
+        "can_write": true
+      },
+      "state": "changes_requested",
+      "commit": "5d0c7e2",
+      "content_id": "sha256:5d0c",
+      "submitted_at": "2026-10-11T12:18:00Z",
+      "dismissed_by": null
+    }
+  ],
   "threads": [
     {
       "id": "PRRT_kw7",
