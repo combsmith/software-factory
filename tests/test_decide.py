@@ -39,6 +39,35 @@ class Readability(unittest.TestCase):
                 d = go(facts(reviews=reviews), REVIEWED, ctx=ctx)
                 self.assertEqual((d["outcome"], d["reason"]), ("defer", "pause_unreadable"), ctx)
 
+    def test_an_unknown_mergeable_never_converges(self):  # I-13, I-20
+        approved = [{"actor": "donpetry-bot", "state": "approved", "commit": "c1", "content_id": "sha256:aaaa"}]
+        for reviews in ([], approved):
+            d = go(facts(mergeable=None, reviews=reviews), REVIEWED)
+            self.assertEqual((d["outcome"], d["reason"], d["state"]), ("defer", "mergeable_unreadable", None))
+            d = go(facts(reviews=reviews), REVIEWED)
+            self.assertEqual((d["outcome"], d["action"]), ("act", "enqueue" if reviews else "issue_approval"))
+
+    def test_an_unknown_mergeable_is_read_after_what_needs_no_merge(self):  # I-13
+        # GitHub reports a null merge state on merged and closed pull requests; read first, they would defer for ever.
+        cases = [({"state": "merged"}, "merged", "merged"), ({"state": "closed"}, "closed", "closed"),
+                 ({"labels": ["factory:hold"]}, "held", "human_hold"), ({"is_draft": True}, "draft", "draft"),
+                 ({"queue": True}, "queued", "in_merge_queue")]
+        for over, state, reason in cases:
+            d = go(facts(mergeable=None, **over), REVIEWED)
+            self.assertEqual((d["state"], d["reason"]), (state, reason), over)
+
+    def test_an_unknown_mergeable_admits_nothing(self):  # I-13
+        d = go(facts(mergeable=None))
+        self.assertEqual((d["outcome"], d["reason"]), ("defer", "mergeable_unreadable"))
+        self.assertEqual(go(facts())["outcome"], "admit")
+
+    def test_only_true_or_false_is_a_known_merge_state(self):  # I-13
+        absent = facts()
+        del absent["mergeable"]
+        for f in (absent, facts(mergeable="UNKNOWN"), facts(mergeable="true"), facts(mergeable=1)):
+            d = go(f, REVIEWED)
+            self.assertEqual((d["outcome"], d["reason"]), ("defer", "mergeable_unreadable"), f.get("mergeable"))
+
     def test_unreadable_capacity_defers(self):
         d = go(facts(), ctx={"paused": False, "model_deferred_until": None})
         self.assertEqual((d["outcome"], d["reason"]), ("defer", "capacity_unreadable"))
@@ -127,6 +156,11 @@ class Content(unittest.TestCase):
         f = facts(checks=[{"lens": "verify", "conclusion": "failure"}] + GREEN[1:])
         d = go(f, REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "check_failed", ["verify"]))
+        self.assertEqual(d["admit"]["intent"], "fix-findings")
+
+    def test_a_conflict_goes_back_to_the_author(self):
+        d = go(facts(mergeable=False), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("addressing", "conflict", "admit"))
         self.assertEqual(d["admit"]["intent"], "fix-findings")
 
     def test_a_failed_check_that_is_not_required_does_not_gate(self):
@@ -241,10 +275,6 @@ class NotYetHeld(unittest.TestCase):
     @pending
     def test_a_queued_pull_request_with_no_approval_leaves_the_queue(self):
         self.assertEqual(go(facts(queue=True), REVIEWED)["outcome"], "act")
-
-    @pending
-    def test_an_unknown_mergeable_never_converges(self):  # I-13
-        self.assertEqual(go(facts(mergeable=None), REVIEWED)["outcome"], "defer")
 
     @pending
     def test_a_writers_request_for_changes_does_not_converge(self):

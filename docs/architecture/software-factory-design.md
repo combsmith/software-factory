@@ -314,7 +314,7 @@ for contract tests, so one schema has three uses.
 | `class` | `agent`, `maintainer`, `dependency` or `outside`, worked out by the port from the author and from whether the head is in another repo |
 | `last_pusher` | The actor who pushed the head commit |
 | `targets_protected` | Whether the base branch is a protected one |
-| `mergeable` | Whether the head merges cleanly into the base |
+| `mergeable` | Whether the head merges cleanly into the base: true, false, or null while GitHub has not worked it out |
 | `diff_size` | Files and lines changed |
 | `head`, `base`, `merge_base` | Commit hashes |
 | `content_id` | Hash of the pull request's own diff against its merge base, computed by the port |
@@ -1246,6 +1246,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | An empty diff | Never converges (I-24). The POC merged ten |
 | A diff too large to hash or to review | Each class has a size limit. Over it, one Hold, with the choices: split it, or review it by hand. No Run is spent finding out |
 | A conflict with the base | `mergeable` is false. It is the author's turn; in the first slice it is the Maintainer's |
+| A merge state GitHub has not worked out yet | `mergeable` is null. It is unreadable, like anything but true or false: the Kernel defers, and approves, enqueues and admits nothing until it is known (I-13) |
 | A pull request that targets another feature branch, as stacked pull requests do | The Factory serves pull requests that target a protected branch. Others are shown as not served |
 | The poller was down for hours | An item is stale only if it went unevaluated while passes were running. A missing pass is one health alert, not one alert per item |
 | A third-party thread the reviewer does not adopt | The reviewer resolves it (§4.2), so the ruleset does not block the merge on it |

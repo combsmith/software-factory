@@ -35,6 +35,17 @@ MUTANTS = [
      '        and r["status"] == "completed"'),
     ("the hold label is ignored", "kernel/derive.py",
      "    if t.LABEL_HOLD in labels:\n", "    if False:\n"),
+    ("an unknown merge state is read as mergeable", "kernel/derive.py",
+     "    if mergeable is not True:\n", "    if False:\n"),
+    ("only a null merge state is unknown", "kernel/derive.py",
+     "    if mergeable is not True:\n", "    if mergeable is None:\n"),
+    ("a conflict is not sent back to the author", "kernel/derive.py",
+     "    if mergeable is False:\n", "    if False:\n"),
+    ("the merge state is read before a merged, closed, held, draft or queued item", "kernel/derive.py",
+     '    if facts["state"] == "merged":\n',
+     '    if facts.get("mergeable") is not True and facts.get("mergeable") is not False:\n'
+     '        return {"state": None, "reason": "mergeable_unreadable", "evidence": []}\n'
+     '    if facts["state"] == "merged":\n'),
     ("two Runs on one item", "kernel/decide.py",
      "    if in_progress(mine):\n", "    if False:\n"),
     ("the approver may be the author", "kernel/decide.py",
