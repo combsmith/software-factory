@@ -177,6 +177,25 @@ class Identity(unittest.TestCase):
                         "gh api -X GET search/issues -f q=x"):
             self.assertEqual(self.codes(command, folder(), programs()), "", command)
 
+    def test_a_read_only_command_passes_whatever_its_name_or_its_words_say(self):
+        named = {"merge-base", "merge-tree", "rev-parse", "rev-list", "ls-tree", "ls-files", "cat-file", "show", "log",
+                 "diff", "for-each-ref", "name-rev", "describe", "archive", "fetch", "commit-graph"}
+        self.assertLessEqual(named, identity.READS)
+        self.assertFalse(identity.READS & (identity.WRITES | identity.RUNNERS))
+        for sub in sorted(identity.READS):
+            self.assertEqual(self.codes("git %s HEAD" % sub, folder(), programs()), "", sub)
+        for command in ("git merge-tree --write-tree --name-only A B", "git merge-tree A B", "git merge-base A B",
+                        "git -C . merge-base --is-ancestor HEAD origin/main", "git rev-parse --verify HEAD",
+                        "git rev-list --count A..B", "git ls-tree -r HEAD", "git ls-files -z", "git cat-file -p HEAD",
+                        "git show --stat HEAD", "git log --oneline -3", "git diff A B", "git name-rev HEAD",
+                        "git for-each-ref --format='%(refname)' refs/heads", "git describe --tags", "git fetch origin",
+                        "git archive --format=tar HEAD", "git commit-graph verify", "git commit-graph write --reachable"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+        for command in ("git log --grep=commit", "git log --grep commit --grep push -3", "git rev-list --grep=merge A",
+                        "git show :/rebase", "git diff commit push", "git ls-files push.py cherry-pick.md",
+                        "git for-each-ref refs/heads/rebase", "git log --author=revert"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+
     def test_a_commit_identity_that_is_not_the_maintainers_is_refused(self):
         cases = [(self.bad, {}), (repo(email="someone@example.com"), {}), (repo(name="Someone Else"), {}),
                  (self.here, {"GIT_COMMITTER_EMAIL": "someone@example.com"})]
@@ -200,7 +219,8 @@ class Identity(unittest.TestCase):
             self.assertIn("identity_set_in_command", self.refused(command), command)
 
     def test_what_looks_like_a_commit_or_push_and_was_not_read_as_one_is_refused(self):
-        self.assertIn("git_command_unknown", self.refused("git ci -m x"))
+        for command in ("git ci -m x", "git mt --write-tree A B", "git merge-trees A B", "git commit-graphs write"):
+            self.assertIn("git_command_unknown", self.refused(command), command)
         self.assertIn("git_command_unknown", self.refused("xargs -I{} git {} < verbs"))
         self.assertIn("git_option_unknown", self.refused("git --frobnicate commit -m x"))
         for command in ("git submodule foreach git push", "echo 'git push' | sh", "python3 -c 'git push'"):
