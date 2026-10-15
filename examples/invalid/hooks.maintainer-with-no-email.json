@@ -2,5 +2,34 @@
   "maintainer": {
     "login": "don-petry",
     "name": "Don Petry"
+  },
+  "protected": [
+    {
+      "path": "lifecycle/",
+      "is": "the Lifecycle"
+    }
+  ],
+  "merging": {
+    "branch": "main",
+    "commands": [
+      "pr merge"
+    ],
+    "mutations": [
+      "mergePullRequest"
+    ],
+    "endpoints": [
+      "repos/*/*/pulls/*/merge"
+    ]
+  },
+  "settings": {
+    "commands": [
+      "repo edit"
+    ],
+    "mutations": [
+      "*RepositoryRuleset"
+    ],
+    "endpoints": [
+      "repos/*/*/rulesets/**"
+    ]
   }
 }

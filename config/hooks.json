@@ -3,5 +3,45 @@
     "login": "don-petry",
     "name": "Don Petry",
     "email": "36422719+don-petry@users.noreply.github.com"
+  },
+  "protected": [
+    {"path": "lifecycle/", "is": "the Lifecycle"},
+    {"path": "config/authority.json", "is": "the authority table"},
+    {"path": "config/rubric-*.json", "is": "a rubric"},
+    {"path": "kernel/derive.py", "is": "the gate function, gating_threads"},
+    {"path": "kernel/terms.py", "is": "the severities that gate, GATING_SEVERITIES"},
+    {"path": "kernel/decide.py", "is": "the brakes: the Pause and the ceilings on a Run"},
+    {"path": "config/defaults.json", "is": "the brakes' limits, the required Lenses and the approver"},
+    {"path": "sim/world.py", "is": "the invariants"},
+    {"path": "tests/test_simulator.py", "is": "the simulator's fixed seeds"},
+    {"path": ".github/", "is": "the workflows and the code owners"},
+    {"path": ".claude/settings*.json", "is": "the hooks' wiring, or settings that could switch them off"},
+    {"path": "tools/hooks/", "is": "a session hook"},
+    {"path": "config/hooks.json", "is": "what the session hooks are told"},
+    {"path": "schemas/hooks.schema.json", "is": "the schema of what the session hooks are told"}
+  ],
+  "merging": {
+    "branch": "main",
+    "commands": ["pr merge"],
+    "mutations": ["mergePullRequest", "enqueuePullRequest", "enablePullRequestAutoMerge", "mergeBranch"],
+    "endpoints": ["repos/*/*/pulls/*/merge", "repos/*/*/merges"]
+  },
+  "settings": {
+    "commands": ["repo edit", "repo rename", "repo archive", "repo unarchive", "repo delete", "repo deploy-key",
+                 "repo autolink", "ruleset", "secret set", "secret delete", "secret remove", "variable set",
+                 "variable delete", "variable remove", "workflow enable", "workflow disable"],
+    "mutations": ["updateRepository*", "archiveRepository", "unarchiveRepository", "*RepositoryRuleset",
+                  "*BranchProtectionRule", "*Environment", "updateTeamsRepository"],
+    "endpoints": ["repos/*/*", "repos/*/*/rulesets/**", "repos/*/*/branches/*/protection/**",
+                  "repos/*/*/branches/*/rename", "repos/*/*/tags/protection/**", "repos/*/*/actions/permissions/**",
+                  "repos/*/*/actions/secrets/**", "repos/*/*/actions/variables/**", "repos/*/*/actions/oidc/**",
+                  "repos/*/*/actions/runners/**", "repos/*/*/actions/workflows/*/enable",
+                  "repos/*/*/actions/workflows/*/disable", "repos/*/*/environments/**", "repos/*/*/hooks/**",
+                  "repos/*/*/collaborators/**", "repos/*/*/invitations/**", "repos/*/*/keys/**",
+                  "repos/*/*/dependabot/secrets/**", "repos/*/*/codespaces/secrets/**", "repos/*/*/pages/**",
+                  "repos/*/*/autolinks/**", "repos/*/*/properties/**", "repos/*/*/topics", "repos/*/*/transfer",
+                  "repos/*/*/vulnerability-alerts", "repos/*/*/automated-security-fixes",
+                  "repos/*/*/private-vulnerability-reporting", "repos/*/*/code-scanning/default-setup",
+                  "repos/*/*/interaction-limits", "orgs/*/**"]
   }
 }

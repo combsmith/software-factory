@@ -28,7 +28,12 @@ session hooks `.claude/settings.json` runs; `hooks/shell.py` reads a shell comma
 | A hook never hands its own git an option taken from the command, and shows no credential | `tests/test_hooks.py::test_a_push_names_no_option_to_the_hooks_own_git`, `tests/test_hooks.py::test_a_credential_is_never_shown` |
 | A hook is fed a violation and a clean case. Most cases call the function its `main()` calls; one goes through the front door | `tests/test_hooks.py` |
 | A hook that guards an identity refuses what it cannot read: no git or gh, a command it cannot split, a directory it cannot tell | `tests/test_hooks.py::test_what_the_hook_cannot_read_is_refused` |
+<<<<<<< HEAD
 | Only a failing test kills a mutant; a run that hangs, crashes or cannot import is an `ERROR` | `tests/test_tools.py::test_only_a_failing_test_kills_a_mutant`, `tests/test_tools.py::test_a_run_that_hangs_is_ended_reported_and_fails_the_check` |
+=======
+| A hook that guards what is the Maintainer's answers "ask", and asks about what it cannot read | `tests/test_hooks.py::test_a_write_the_hook_cannot_read_asks`, `tests/test_hooks.py::test_a_list_that_cannot_be_read_asks_about_everything` |
+| A protected path is protected in every working tree, however it is written: with `..`, through a link, in any case | `tests/test_hooks.py::test_a_path_written_another_way_still_asks` |
+>>>>>>> 8b6b430 (Session hooks that ask: protected paths, merging, and the repo's own rules)
 | An entry in `mutants.py` names text that appears once in its file. Change that text, or write the same text on a second line, and the entry goes `STALE`; update it | `mutants.py` |
 
 A check collects every problem and does not stop at the first. Its message says what is wrong and

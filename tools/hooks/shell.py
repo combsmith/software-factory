@@ -72,22 +72,30 @@ def simple_commands(text: str) -> list:
     are read as well, and their commands follow. Raises ValueError when the text cannot be split
     into words, such as an unclosed quote.
     """
+    return [(words, [target for _, target in redirections]) for words, redirections in commands(text)]
+
+
+def commands(text: str) -> list:
+    """Each simple command in `text`, as (words, [(operator, target)]), read as simple_commands reads it.
+
+    An operator holding '>' writes its target; one holding only '<' reads it.
+    """
     lex = shlex.shlex(without_heredocs(text).replace("\\\n", " "), posix=True, punctuation_chars=PUNCTUATION)
     lex.whitespace, lex.whitespace_split, lex.commenters = " \t\r", True, ""
-    found, words, targets, target = [], [], [], False
+    found, words, targets, operator = [], [], [], None
     for token in lex:
         if token and all(c in PUNCTUATION for c in token):
             if "<" in token or ">" in token:
                 if words and words[-1].isdigit():
                     words.pop()     # the 2 of 2>&1
-                target = True       # the next word is where it goes, not an argument
+                operator = (operator or "") + token     # the next word is where it goes, not an argument
             elif words or targets:
                 found.append((words, targets))
                 words, targets = [], []
             continue
-        if target:
-            targets.append(token)
-            target = False
+        if operator is not None:
+            targets.append((operator, token))
+            operator = None
             continue
         words.append(token)
     if words or targets:
@@ -98,7 +106,7 @@ def simple_commands(text: str) -> list:
         out += _inner(words)
         for word in words:
             for script in _substituted(word):
-                out += simple_commands(script)
+                out += commands(script)
     return [(words, targets) for words, targets in out if words or targets]
 
 
@@ -107,11 +115,11 @@ def _inner(words: list) -> list:
     for at, word in enumerate(words):
         name = os.path.basename(word)
         if name == "eval":
-            return simple_commands(" ".join(words[at + 1:]))
+            return commands(" ".join(words[at + 1:]))
         if name in SHELLS:
             for i in range(at + 1, len(words) - 1):
                 if words[i].startswith("-") and not words[i].startswith("--") and "c" in words[i]:
-                    return simple_commands(words[i + 1])
+                    return commands(words[i + 1])
             return []
     return []
 
