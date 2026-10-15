@@ -25,8 +25,8 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 
 ### L-03 The caps counted failures, and counted them per worker
 **Failure.** The attempt limit counted only failed runs, and the cap on review cycles re-armed itself. Fixes that succeeded took one pull request to 378 commits in four days, for a diff of 18 files.
-**Rule.** Every Run on a Work item counts toward one ceiling, whether it succeeded or not.
-**Check.** `tools/mutants.py`, `tests/test_simulator.py::test_invariants_hold_under_faults`
+**Rule.** Every automated action on a Work item counts toward a ceiling, whether it succeeded or not: a Run toward the Run ceiling, and an act, made with no model, toward the act ceiling. An approval that lands is an act. One that does not land counts toward the Run ceiling, and toward its attempts too when the fault is the item's.
+**Check.** `tools/mutants.py`, `tests/test_simulator.py::test_invariants_hold_under_faults`, `tests/test_decide.py::test_acts_are_bounded`, `tests/test_decide.py::test_an_approval_that_does_not_land_is_bounded`, `tests/test_decide.py::test_an_approval_that_keeps_failing_for_the_environment_is_bounded`, `tests/test_simulator.py::test_a_queue_that_ejects_every_time_is_bounded`
 
 ### L-04 Two agents each answered the other
 **Failure.** Every fix was a new commit, every new commit was reviewed, and every review produced a fix. Merged pull requests took seven to ten commits at the median, and each push cost about 56 jobs.
@@ -286,7 +286,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-53 The list itself was cut off, and nothing said so
 **Failure.** The list of workflow runs stops at 1,000 for a query, however it is paged. A query over the resource limit came back as a success with no data, and a whole repo was read as having no pull requests.
 **Rule.** A list read short is unreadable. The list of Runs and the list of items each say whether they are whole, as the facts of one item do.
-**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `examples/invalid/facts.no-completeness-for-runs.json` for the list of Runs; the list of items is waiting on `adapters/`
+**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `examples/invalid/facts.no-completeness-for-runs.json` for the list of Runs; `examples/invalid/facts.no-completeness-for-timeline.json` for the timeline the acts are counted from; the list of items is waiting on `adapters/`
 
 ### L-54 A wrong fix cleared a gate
 **Failure.** A fix added a new test and broke an existing one without editing it. Nobody ran the suite against the state before the fix, and an outside reviewer marked the thread addressed on the strength of the reply.

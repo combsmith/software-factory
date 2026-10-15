@@ -64,5 +64,6 @@
     }
   ],
   "queue": false,
+  "acts_since_writer": 0,
   "read_at": "2026-10-11T12:20:00Z"
 }

@@ -14,7 +14,6 @@ import random
 
 from kernel import terms as t
 from kernel.decide import decide
-from kernel.derive import derive
 from tools import check_lifecycle
 from tools.jsonschema_lite import validate
 
@@ -32,9 +31,13 @@ class Broken(AssertionError):
 
 
 class World:
-    def __init__(self, seed: int, faults: bool = True, people: bool = True):
+    def __init__(self, seed: int, faults: bool = True, people: bool = True,
+                 approval_fails: str = None, queue_merges: bool = True):
         self.rng = random.Random(seed)
         self.seed, self.faults, self.people = seed, faults, people
+        # Worlds that never end on their own: an approval that never lands, failing every time with the
+        # fault `approval_fails` names ("item" or "environment"), and a queue that ejects every time.
+        self.approval_fails, self.queue_merges = approval_fails, queue_merges
         self.minute = 0
         self.content = 1
         self.pr_state = "open"
@@ -44,6 +47,7 @@ class World:
         self.checks = dict.fromkeys(CONFIG["required_lenses"]["deterministic"], "pending")
         self.queue = False
         self.last_push = self.last_writer = self.now()
+        self.acts = 0              # acts that landed since a person with write access acted
         self.stale = None          # an older snapshot, served when facts go stale
         self.prev_state = None
         self.trace = []
@@ -71,7 +75,10 @@ class World:
             "reviews": copy.deepcopy(self.reviews), "threads": copy.deepcopy(self.threads),
             "checks": [{"lens": k, "conclusion": v} for k, v in sorted(self.checks.items())],
             "queue": self.queue,
-            "complete": {"reviews": True, "threads": True, "checks": True, "diff": True, "runs": True},
+            # GitHub: the_timeline_shows_each_act
+            "acts_since_writer": self.acts,
+            "complete": {"reviews": True, "threads": True, "checks": True, "diff": True, "runs": True,
+                         "timeline": True},
             "read_at": self.now(),
         }
 
@@ -83,6 +90,11 @@ class World:
     def context(self) -> dict:
         active = len([r for r in self.runs if r["status"] != "completed"])
         return {"paused": False, "active_runs": active, "model_deferred_until": None}
+
+    def writer_acted(self):
+        """A person with write access acted: a fresh allowance of attempts, and of acts (I-28)."""
+        self.last_writer = self.now()
+        self.acts = 0
 
     def held(self) -> bool:
         return bool(self.labels & {t.LABEL_HOLD, t.LABEL_HANDS_OFF})
@@ -133,22 +145,42 @@ class World:
         elif d["outcome"] == "act":
             self.apply_action(d)
 
-    # ---- `apply` for a change that needs no model
+    # ---- an act: a change that needs no model
     def apply_action(self, d: dict):
-        fresh = derive(self.facts(), self.records(), CONFIG)     # apply reads the item again
-        if self.held() or d["content_id"] != self.cid() or fresh["state"] != t.CONVERGED:
+        # The act is made only if the Kernel, asked again on what GitHub holds now, still wants it.
+        fresh = decide(self.facts(), self.records(), self.context(), CONFIG, self.now())
+        same = fresh["outcome"] == t.ACT and fresh["action"] == d["action"] and fresh["content_id"] == d["content_id"]
+        if self.held() or d["content_id"] != self.cid() or not same:
             self.note("apply: refused, the item changed")
             return
         if d["action"] == "issue_approval":
-            self.check(CONFIG["approver"] not in (self.author, self.last_pusher), "I-26 approver is author or last pusher")
-            # GitHub: the_machine_users_approval_counts
-            self.reviews = [{"actor": CONFIG["approver"], "state": "approved", "commit": "c%d" % self.content,
-                             "content_id": self.cid()}]
-            self.note("apply: approved %s" % self.cid())
-        elif d["action"] == "enqueue" and fresh["reason"] == "approved":
+            self.approve()
+        elif d["action"] == "enqueue":
             # GitHub: an_app_enters_the_queue
             self.queue = True
+            self.acts += 1
             self.note("apply: enqueued")
+
+    def approve(self):
+        """A Run with no Engine: its `apply` alone holds the machine user's token, and its record counts attempts."""
+        self.check(CONFIG["approver"] not in (self.author, self.last_pusher), "I-26 approver is author or last pusher")
+        run = {"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": CONFIG["owner_role"],
+               "intent": t.ISSUE_APPROVAL, "content_id": self.cid(), "status": "completed",
+               "conclusion": "success", "outcome": None, "started_at": self.now()}
+        self.runs.append(run)
+        fault = self.approval_fails
+        if fault is None and self.faults and self.rng.random() < 0.15:
+            fault = self.pick(["item", "environment", "capacity"])
+        if fault is not None:
+            # GitHub: an_approval_can_fail_to_land
+            run.update(conclusion="failure", outcome=fault)
+            self.note("run %s: the approval did not land" % run["run"])
+            return
+        # GitHub: the_machine_users_approval_counts
+        self.reviews = [{"actor": CONFIG["approver"], "state": "approved", "commit": "c%d" % self.content,
+                         "content_id": self.cid()}]
+        self.acts += 1
+        self.note("run %s: approved %s" % (run["run"], self.cid()))
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
     def start_next(self):
@@ -219,7 +251,7 @@ class World:
         # GitHub: the_pusher_is_the_last_pusher
         self.last_pusher, self.last_push = who, self.now()
         if writer:
-            self.last_writer = self.now()
+            self.writer_acted()
         # GitHub: a_push_restarts_the_checks
         self.checks = dict.fromkeys(self.checks, "pending")
         # GitHub: a_push_leaves_the_queue
@@ -228,6 +260,11 @@ class World:
         self.note("push by %s -> %s" % (who, self.cid()))
 
     def platform(self):
+        if self.queue and (not self.queue_merges or (self.faults and self.rng.random() < 0.2)):
+            # GitHub: the_queue_can_eject
+            self.queue = False
+            self.note("ejected from the queue")
+            return
         # GitHub: the_queue_merges
         # GitHub: the_merge_group_is_not_checked
         if self.queue and self.rng.random() < 0.6:
@@ -243,7 +280,7 @@ class World:
         roll = self.rng.random()
         if roll < 0.25:
             self.labels ^= {t.LABEL_HOLD}
-            self.last_writer = self.now()
+            self.writer_acted()
             self.note("maintainer toggled hold -> %s" % sorted(self.labels))
         elif roll < 0.45:
             self.push("don-petry", writer=True)
@@ -251,13 +288,15 @@ class World:
             self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
                                  "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
                                  "severity": None, "resolved_by": None, "opened_at": self.now()})
-            self.last_writer = self.now()
+            self.writer_acted()
             self.note("maintainer opened a thread")
         else:
-            for th in self.threads:
-                if not th["resolved"] and th["opened_by"]["kind"] == "human":
-                    th.update(resolved=True, resolved_by="don-petry")
-            self.last_writer = self.now()
+            mine = [th for th in self.threads if not th["resolved"] and th["opened_by"]["kind"] == "human"]
+            for th in mine:
+                th.update(resolved=True, resolved_by="don-petry")
+            if mine:     # resolving nothing is no action, and renews nothing (I-28)
+                self.writer_acted()
+                self.note("maintainer resolved %d threads" % len(mine))
 
     # ---- one step, and the invariants that hold at every step
     def step(self):
@@ -287,7 +326,17 @@ class World:
             ok = any(rv["state"] == "approved" and rv["content_id"] == self.cid() for rv in self.reviews)
             self.check(ok, "NFR-4 merged without an approval of the merged content")
         since = [r for r in self.runs if r["started_at"] > self.last_writer and r["outcome"] != "superseded"]
-        self.check(len(since) <= CONFIG["limits"]["max_runs_per_item"] + 1, "run ceiling per item")
+        # A landed approval is an act, counted below; every other Run, a failed approval among them, is spent.
+        landed = [r for r in since if r["intent"] == t.ISSUE_APPROVAL and r["conclusion"] == "success"]
+        spent = [r for r in since if r not in landed]
+        self.check(len(spent) <= CONFIG["limits"]["max_runs_per_item"] + 1, "run ceiling per item")
+        # I-8: every automated action is inside a Run, bounded above, or is an act, bounded here.
+        self.check(self.acts <= CONFIG["limits"]["max_acts_per_item"], "I-8 acts since a writer exceed the ceiling")
+        unlanded = [r for r in spent if r["intent"] == t.ISSUE_APPROVAL]
+        self.check(len([r for r in unlanded if r["outcome"] == "item"]) <= CONFIG["limits"]["max_attempts"],
+                   "I-8 an approval that does not land is issued again")
+        self.check(len(unlanded) <= CONFIG["limits"]["max_runs_per_item"],
+                   "I-8 an approval that fails for a cause outside the item is issued for ever")
 
     def settle(self, steps: int = 400):
         """Stop the faults and the people, and let the Factory finish."""
@@ -297,7 +346,7 @@ class World:
             if th["opened_by"]["kind"] == "human":
                 th.update(resolved=True, resolved_by="don-petry")
         self.checks = {k: ("pending" if v == "failure" else v) for k, v in self.checks.items()}
-        self.last_writer = self.now()
+        self.writer_acted()
         for _ in range(steps):
             self.step()
         return decide(self.facts(), self.records(), self.context(), CONFIG, self.now())

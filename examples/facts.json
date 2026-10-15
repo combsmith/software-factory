@@ -64,12 +64,14 @@
     }
   ],
   "queue": false,
+  "acts_since_writer": 2,
   "complete": {
     "reviews": true,
     "threads": true,
     "checks": true,
     "diff": true,
-    "runs": true
+    "runs": true,
+    "timeline": true
   },
   "read_at": "2026-10-11T12:20:00Z"
 }

@@ -34,8 +34,9 @@ def facts(**over) -> dict:
         "diff": {"files": 2, "lines": 40, "truncated": False}, "labels": [],
         "admitted_at": None, "last_push_at": "2026-10-11T12:00:00Z",
         "last_writer_action_at": "2026-10-11T12:00:00Z", "reviews": [], "threads": [],
-        "checks": copy.deepcopy(GREEN), "queue": False,
-        "complete": {"reviews": True, "threads": True, "checks": True, "diff": True, "runs": True},
+        "checks": copy.deepcopy(GREEN), "queue": False, "acts_since_writer": 0,
+        "complete": {"reviews": True, "threads": True, "checks": True, "diff": True, "runs": True,
+                     "timeline": True},
         "read_at": "2026-10-11T12:59:00Z",
     }
     f.update(over)

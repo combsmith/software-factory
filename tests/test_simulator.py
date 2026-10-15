@@ -37,6 +37,47 @@ class Simulation(unittest.TestCase):
             self.assertTrue(resting, "seed %d rests in %s (%s)\n%s" % (
                 seed, last["state"], last["reason"], "\n".join(world.trace[-15:])))
 
+    def test_an_approval_that_never_lands_is_bounded(self):  # I-8
+        self.rests_on_its_bound(dict(approval_fails="item"), "attempts_exhausted")
+
+    def test_an_approval_that_keeps_failing_for_the_environment_is_bounded(self):  # I-8
+        # Not an attempt and never an act: the Run ceiling bounds it.
+        self.rests_on_its_bound(dict(approval_fails="environment"), "run_ceiling")
+
+    def test_a_queue_that_ejects_every_time_is_bounded(self):  # I-8
+        self.rests_on_its_bound(dict(queue_merges=False), "act_ceiling")
+
+    def rests_on_its_bound(self, world: dict, reason: str):
+        """A world that never ends on its own stops on its bound, or earlier on the Run ceiling."""
+        reasons = []
+        for seed in SEEDS:
+            w = World(seed, **world)
+            for _ in range(250):
+                w.step()
+            last = w.settle()
+            self.assertEqual((w.pr_state, last["state"]), ("open", "held"), "seed %d: %s\n%s" % (
+                seed, last["reason"], "\n".join(w.trace[-15:])))
+            self.assertIn(last["reason"], (reason, "run_ceiling"), "seed %d" % seed)
+            reasons.append(last["reason"])
+        self.assertIn(reason, reasons)
+
+    def test_only_a_writers_action_renews_the_allowance(self):  # I-28
+        # The person's last choice resolves the writer's own threads. With none open, nobody acted.
+        class Roll:
+            def random(self):
+                return 0.99
+
+        for human_thread, renewed in ((False, False), (True, True)):
+            w = World(1)
+            w.minute, w.acts, w.rng = 30, 3, Roll()
+            if human_thread:
+                w.threads.append({"id": "T0", "resolved": False,
+                                  "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
+                                  "severity": None, "resolved_by": None, "opened_at": w.now()})
+            before = w.last_writer
+            w.person()
+            self.assertEqual((w.acts == 0, w.last_writer != before), (renewed, renewed), human_thread)
+
     def test_a_quiet_world_merges_or_stops_on_a_ceiling(self):
         for seed in SEEDS:
             world = World(seed, faults=False, people=False)
