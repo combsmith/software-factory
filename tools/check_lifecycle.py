@@ -25,19 +25,30 @@ def _reach(start, edges) -> set:
     return seen
 
 
-def _has_cycle(nodes, edges) -> bool:
+def _a_cycle(nodes: list, edges) -> list:
+    """One cycle among `edges`, as the States it passes through and back to the first; [] if none."""
     out = {n: [b for a, b in edges if a == n] for n in nodes}
     colour = dict.fromkeys(nodes, 0)
+    path = []
 
-    def visit(n) -> bool:
+    def visit(n) -> list:
         colour[n] = 1
+        path.append(n)
         for m in out[n]:
-            if colour[m] == 1 or (colour[m] == 0 and visit(m)):
-                return True
+            if colour[m] == 1:
+                return path[path.index(m):] + [m]
+            found = visit(m) if colour[m] == 0 else []
+            if found:
+                return found
         colour[n] = 2
-        return False
+        path.pop()
+        return []
 
-    return any(colour[n] == 0 and visit(n) for n in nodes)
+    for n in nodes:
+        found = visit(n) if colour[n] == 0 else []
+        if found:
+            return found
+    return []
 
 
 def _shape(lc, schema: dict) -> list:
@@ -67,7 +78,7 @@ def check(lc: dict, limits: dict = None, schema: dict = None) -> list:
                 problems.append("transition names an undeclared state: %s" % end)
         if tr["from"] in terminal:
             problems.append("a terminal state has a way out: %s" % tr["from"])
-        if tr["from"] in gated and tr["by"] not in ("human", "platform"):
+        if tr["from"] in gated and tr["by"] != "human":
             problems.append("%s is left by %s; only a person takes a Work item out of %s"
                             % (tr["from"], tr["by"], tr["from"]))
         if limits is not None and tr["bound"] is not None and tr["bound"] not in limits:
@@ -87,11 +98,13 @@ def check(lc: dict, limits: dict = None, schema: dict = None) -> list:
             problems.append("no terminal state can be reached from: %s" % s)
         if s not in lc["stale_after_minutes"]:
             problems.append("no staleness limit for: %s" % s)
-    # Termination: the Factory alone, with no bound, must not be able to go round for ever.
+    # Termination (I-14, L-04): take away what a person does, and no cycle is left without a bound,
+    # whoever makes its transitions: the Factory, a Lens or the platform.
     unbounded = [(tr["from"], tr["to"]) for tr in lc["transitions"]
-                 if tr["by"] == "factory" and tr["bound"] is None]
-    if _has_cycle(states, unbounded):
-        problems.append("the Factory can cycle with no bound and no person involved")
+                 if tr["by"] != "human" and tr["bound"] is None and {tr["from"], tr["to"]} <= states]
+    cycle = _a_cycle([s for s in lc["states"] if s in states], unbounded)
+    if cycle:
+        problems.append("a cycle with no person in it has no bound: %s" % " -> ".join(cycle))
     return list(dict.fromkeys(problems))     # a bound named on many transitions is one problem
 
 

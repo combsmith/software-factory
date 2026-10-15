@@ -25,5 +25,5 @@ check and a human approval are the way out.
 | The check is deterministic: the simulator runs fixed seeds, and a seed replays exactly | `tests/test_simulator.py::test_a_seed_replays_exactly` |
 | The tests can fail: each Kernel rule, broken on purpose, is noticed | `tools/mutants.py` |
 | The checks catch what they claim to catch | `tests/test_tools.py` |
-| The Lifecycle is checked for termination, dead ends and unbounded cycles | `tools/check_lifecycle.py` |
+| The Lifecycle is checked for termination, dead ends and unbounded cycles, a Lens's and the platform's among them | `tools/check_lifecycle.py`, `tests/test_tools.py::test_a_cycle_through_the_platform_with_no_bound_is_caught` |
 | `factory / verify` runs on every pull request and on `merge_group`, with no path filter, and is the example word for word | `examples/workflows/invalid/queue.a-required-check-that-never-reports.yml`, `tests/test_tools.py::test_the_required_check_that_has_drifted_from_its_example_is_caught` |

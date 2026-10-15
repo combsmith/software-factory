@@ -111,7 +111,7 @@
       "from": "addressing",
       "to": "verifying",
       "by": "platform",
-      "bound": null
+      "bound": "max_runs_per_item"
     },
     {
       "from": "adjudicating",
@@ -141,7 +141,7 @@
       "from": "adjudicating",
       "to": "verifying",
       "by": "platform",
-      "bound": null
+      "bound": "max_rounds"
     },
     {
       "from": "converged",
@@ -171,7 +171,7 @@
       "from": "converged",
       "to": "verifying",
       "by": "platform",
-      "bound": null
+      "bound": "max_runs_per_item"
     },
     {
       "from": "queued",
@@ -224,7 +224,7 @@
     {
       "from": "held",
       "to": "verifying",
-      "by": "platform",
+      "by": "human",
       "bound": null
     },
     {
@@ -302,7 +302,7 @@
     {
       "from": "addressing",
       "to": "converged",
-      "by": "lens",
+      "by": "human",
       "bound": null
     },
     {
@@ -315,7 +315,7 @@
       "from": "adjudicating",
       "to": "converged",
       "by": "factory",
-      "bound": null
+      "bound": "max_rounds"
     },
     {
       "from": "converged",
@@ -327,7 +327,7 @@
       "from": "converged",
       "to": "queued",
       "by": "factory",
-      "bound": null
+      "bound": "max_acts_per_item"
     },
     {
       "from": "converged",
