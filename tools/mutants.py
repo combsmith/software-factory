@@ -18,8 +18,10 @@ MUTANTS = [
     ("incomplete facts are trusted", "kernel/derive.py",
      "    gaps = incomplete(facts)\n", "    gaps = []\n"),
     ("a list of Runs read short is trusted", "kernel/derive.py",
-     '    return sorted(k for k, whole in facts["complete"].items() if not whole)\n',
-     '    return sorted(k for k, whole in facts["complete"].items() if not whole and k != "runs")\n'),
+     "[name for name in t.READ_IN_FULL if flags.get(name) is not True]",
+     '[name for name in t.READ_IN_FULL if name != "runs" and flags.get(name) is not True]'),
+    ("a flag that is not exactly true counts as whole", "kernel/derive.py",
+     "if flags.get(name) is not True]", "if not flags.get(name, True)]"),
     ("incomplete facts are read before a merged or closed item", "kernel/derive.py",
      '    if facts["state"] == "merged":\n',
      "    if incomplete(facts):\n"

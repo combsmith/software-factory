@@ -331,7 +331,8 @@ for contract tests, so one schema has three uses.
 
 An incomplete read is an unreadable one. A list cut off at a page limit must never be taken to mean
 "nothing more": the Kernel defers on any fact marked incomplete, and a truncated diff means a
-review, never "unchanged". The list of Runs is read once a pass, and the port sets `runs` on each
+review, never "unchanged". A flag is whole only if it is exactly true; one that is missing or
+malformed is incomplete. The list of Runs is read once a pass, and the port sets `runs` on each
 item from that one read. Read short, it can hide a Run in progress or one that counts toward a
 ceiling, so the item defers (I-13, I-20). A merged or closed item is read from no list, and keeps
 its State whatever the flags say.

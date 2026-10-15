@@ -8,8 +8,14 @@ from kernel import terms as t
 
 
 def incomplete(facts: dict) -> list:
-    """Names of the fact lists that were not read in full."""
-    return sorted(k for k, whole in facts["complete"].items() if not whole)
+    """Names of the fact lists that were not read in full.
+
+    A list is whole only if its flag is exactly true. A flag that is missing,
+    or is anything else, is not given a default: the list is unreadable.
+    """
+    flags = facts.get("complete")
+    flags = flags if isinstance(flags, dict) else {}
+    return [name for name in t.READ_IN_FULL if flags.get(name) is not True]
 
 
 def runs_on(runs: list, facts: dict) -> list:
