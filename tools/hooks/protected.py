@@ -93,22 +93,33 @@ GIT_VALUED = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-e
 GIT_KNOWN = identity.WRITES | identity.RUNNERS | identity.OTHERS | GIT_READS | {"symbolic-ref", "update-ref"}
 PUSH_VALUED = {"-o", "--push-option", "--receive-pack", "--exec", "--repo"}
 # A helper given in the command: a program git runs, which the hook does not read. git configuration whose value is
-# the program; configuration that loads code from a place; options and environment that name the program.
+# the program; configuration that always asks, since it loads code from a place or names a program git finds
+# (credential.helper=cat runs git-credential-cat); options and environment that name the program.
 GIT_HELPER_KEYS = re.compile(
     r"^(core\.(pager|editor|fsmonitor|sshcommand|askpass|gitproxy|alternaterefscommand)|pager\..+|sequence\.editor|"
     r"interactive\.difffilter|diff\.external|diff\..+\.(command|textconv)|filter\..+\.(clean|smudge|process)|"
-    r"merge\..+\.driver|(difftool|mergetool|man|browser)\..+\.cmd|submodule\..+\.update|"
-    r"remote\..+\.(uploadpack|receivepack)|credential\.(.+\.)?helper|gpg\.(.+\.)?program|uploadpack\.packobjectshook)$",
+    r"merge\..+\.driver|(difftool|mergetool|man|browser)\..+\.cmd|submodule\..+\.update|tar\..+\.command|"
+    r"remote\..+\.(uploadpack|receivepack)|gpg\.(.+\.)?program|gpg\.ssh\.defaultkeycommand|"
+    r"uploadpack\.packobjectshook|sendemail\.sendmailcmd|trailer\..+\.(cmd|command))$", re.I | re.S)
+GIT_HELPER_LOADS = re.compile(
+    r"^(core\.hookspath|core\.attributesfile|include\.path|includeif\..+\.path|init\.templatedir|"
+    r"protocol\.(.+\.)?allow|(difftool|mergetool|man|browser)\..+\.path|remote\..+\.vcs|credential\.(.+\.)?helper)$",
     re.I | re.S)
-GIT_HELPER_LOADS = re.compile(r"^(core\.hookspath|core\.attributesfile|include\.path|includeif\..+\.path|"
-                              r"protocol\.(.+\.)?allow)$", re.I | re.S)
-# Each option, and whether its program is given: True as its value, False only after `=`, None never.
-GIT_HELPER_OPTIONS = {"--ext-diff": None, "--upload-pack": True, "--receive-pack": True, "--exec": True,
-                      "--extcmd": True, "--open-files-in-pager": False}
-GIT_HELPER_SHORT = {"grep": ("-O", False), "ls-remote": ("-u", True), "difftool": ("-x", True)}
+# Options whose value is the program, and whether it may be the next word (False: only after `=`); options that
+# always ask, since the program or the place it is loaded from is not in the command; and short options, by command.
+GIT_HELPER_OPTIONS = {"--upload-pack": True, "--receive-pack": True, "--exec": True, "--extcmd": True,
+                      "--open-files-in-pager": False}
+GIT_HELPER_ALWAYS = {"--ext-diff": None, "--template": {"clone", "init"}}     # None: for every command
+GIT_HELPER_SHORT = {"grep": {"O": False}, "ls-remote": {"u": True}, "clone": {"u": True}, "difftool": {"x": True},
+                    "rebase": {"x": True}}
 GIT_HELPER_ENV = re.compile(r"^(GIT_EXTERNAL_DIFF|GIT_PAGER|PAGER|GIT_EDITOR|GIT_SEQUENCE_EDITOR|EDITOR|VISUAL|GIT_SSH|"
-                            r"GIT_SSH_COMMAND|GIT_ASKPASS|SSH_ASKPASS|GIT_PROXY_COMMAND|GIT_CONFIG_PARAMETERS|"
-                            r"GIT_CONFIG_COUNT)=")
+                            r"GIT_SSH_COMMAND|GIT_ASKPASS|SSH_ASKPASS|GIT_PROXY_COMMAND)$")
+GIT_HELPER_ENV_LOADS = re.compile(r"^(GIT_CONFIG_PARAMETERS|GIT_CONFIG_COUNT|GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|"
+                                  r"GIT_CONFIG|GIT_EXEC_PATH|GIT_TEMPLATE_DIR)$")
+# A helper that only reads lets the hook pass it: these programs, by their bare name. less is one only without an
+# option that writes a file or runs or loads commands, and without its environment set in the command.
+HELPER_READERS = {"cat", "less"}
+LESS_WRITES = re.compile(r"^(\+|-[^-]*[oOk]|--(log-file|lesskey))", re.I)
 # Where a push with no refspec goes is read exactly only under these; any other push.default may reach main.
 PUSH_DEFAULTS = {None, "simple", "current"}
 # git configuration that says where a push goes.
@@ -319,6 +330,7 @@ class Command:
         self.text, self.rules, self.data, self.spend, self.env = text, rules, data, rules.spend, env
         self.here = os.path.normpath(cwd) if cwd and os.path.isabs(cwd) else None
         self.known = {k: env[k] for k in ("HOME", "TMPDIR", "CLAUDE_PROJECT_DIR") if env.get(k)}
+        self.assigned = set()       # the names the command itself sets
         self.found = []
 
     def ask(self, code: str, sentence: str):
@@ -523,6 +535,7 @@ class Command:
 
     def assign(self, word: str):
         name, value = word.split("=", 1)
+        self.assigned.add(name)
         inner = re.match(r"^(?:\$\((.*)\)|`(.*)`)$", value, re.S)
         if inner and re.match(r"^mktemp(\s+(-d|-q|-u|-t\s+\S+))*\s*$", (inner.group(1) or inner.group(2)).strip()):
             self.known[name] = os.path.join(self.known.get("TMPDIR") or tempfile.gettempdir(), "mktemp")
@@ -703,15 +716,21 @@ class Command:
             return
         if program not in ("git", "gh"):
             tool = next((i for i in range(at, len(words)) if os.path.basename(words[i]) in ("git", "gh")), None)
+            unread = "a program names a merge, a setting or GitHub's API in a way the hook cannot read"
             if tool is None or program not in WRAPPERS:
-                if program in shell.SHELLS and any(w.startswith("-") and "c" in w and not w.startswith("--")
-                                                   for w in words[at + 1:]):
+                if (program in shell.SHELLS or program in shell.STRINGS) and any(
+                        (w.startswith("-") and "c" in w and not w.startswith("--")) or w.startswith("--command")
+                        for w in words[at + 1:]):
                     return      # the script is read as commands of its own
                 heredoc = INTERPRETERS.match(program) and any("<<" in op for op, _ in redirections)
                 if _names_github(" ".join(words[at:]), self.data) or (heredoc and _names_github(self.text, self.data)):
-                    self.ask("command_unreadable", "a program names a merge, a setting or GitHub's API in a way the "
-                                                   "hook cannot read")
+                    self.ask("command_unreadable", unread)
                 return
+            # A wrapper runs the git or gh it names; but that word may be the value of one of its options, with what
+            # it runs in text: `flock git -c '...'`. Its own words are read as text, and git's too.
+            if _names_github(" ".join(words[at:tool] if os.path.basename(words[tool]) == "gh" else words[at:]),
+                             self.data):
+                self.ask("command_unreadable", unread)
             at = tool
         program, args = os.path.basename(words[at]), words[at + 1:]
         if program == "git":
@@ -818,7 +837,12 @@ class Command:
         """Ask about git that writes a ref under refs/remotes/, or the configuration that says where a push goes, and
         about git given a helper in the command, a program it runs that the hook does not read."""
         i, branch = 0, self.data["branch"]
-        helper = any(GIT_HELPER_ENV.match(w) and not self._reads_only(w.split("=", 1)[1]) for w in assigned)
+        # The environment the command sets: on git itself, or earlier in the command (`export GIT_PAGER=...; git log`).
+        environ = dict(w.split("=", 1) for w in assigned)
+        environ.update({name: self.known.get(name) for name in self.assigned if name not in environ})
+        less_set = any(name.startswith("LESS") for name in environ)
+        helper = any(GIT_HELPER_ENV_LOADS.match(name) or (GIT_HELPER_ENV.match(name) and (
+            value is None or not self._reads_only(value, less_set))) for name, value in environ.items())
         while i < len(args) and args[i].startswith("-"):
             option, given, value = args[i].partition("=")
             if option in GIT_VALUED and not given:
@@ -828,27 +852,37 @@ class Command:
                 self.ask("merge", "git -c sets where a push goes, which may be %s" % branch)
             if option in ("-c", "--config-env") and value.casefold().startswith("alias."):
                 self.ask("command_unreadable", "git -c defines an alias, a command the hook cannot read")
-            if option in ("-c", "--config-env"):
-                key, _, setting = value.partition("=")      # --config-env's setting is in the environment, unread
-                helper = helper or bool(GIT_HELPER_LOADS.match(key)) or bool(GIT_HELPER_KEYS.match(key) and (
-                    option == "--config-env" or not self._reads_only(setting)))
+            if option in ("-c", "--config-env"):     # --config-env's setting is in the environment, unread
+                helper = helper or self._configures_helper(value, option == "--config-env", less_set)
+            helper = helper or (option == "--exec-path" and bool(given))
             i += 1
         sub, rest = (args[i], args[i + 1:]) if i < len(args) else ("", [])
         names = [w for w in rest if not w.startswith("-")]
         if sub and sub not in GIT_KNOWN:
             self.ask("command_unreadable", "git is given a command the hook does not know; it may be an alias")
             return
-        short, j = GIT_HELPER_SHORT.get(sub), 0
+        shorts, j = GIT_HELPER_SHORT.get(sub, {}), 0
         while j < len(rest) and rest[j] != "--":
-            option, given, value = rest[j].partition("=")
-            if short and rest[j].startswith(short[0]):
-                option, given, value = short[0], rest[j][2:], rest[j][2:]      # -Oless, its value attached
-            takes = short[1] if short and option == short[0] else GIT_HELPER_OPTIONS.get(option, "")
-            if takes != "":
-                if takes and not given and j + 1 < len(rest):
+            word, after = rest[j], rest[j + 1] if j + 1 < len(rest) else None
+            option, given, value = word.partition("=")
+            letter = next((c for c in word[1:] if c in shorts), None) if word[:1] == "-" != word[1:2] else None
+            long = next((o for o in GIT_HELPER_OPTIONS if _spelt(option, o)), None) if word[:2] == "--" else None
+            if letter:          # -Oless, -nO./p: the value is what follows the letter in the bundle
+                value, takes = word[word.index(letter) + 1:], shorts[letter]
+                given = value
+            elif long:
+                takes = GIT_HELPER_OPTIONS[long]
+            if letter or long:
+                if takes and not given and after is not None:
                     j += 1
-                    given = value = rest[j]
-                helper = helper or takes is None or not given or not self._reads_only(value)
+                    given = value = after
+                helper = helper or not given or not self._reads_only(value, less_set)
+            helper = helper or any(_spelt(option, o) and (subs is None or sub in subs)
+                                   for o, subs in GIT_HELPER_ALWAYS.items() if word[:2] == "--")
+            if sub == "clone" and (word == "-c" or (word[:2] == "--" and _spelt(option, "--config"))):
+                setting = value if given else (after or "")
+                helper = helper or self._configures_helper(setting, False, less_set)
+                j += not given
             j += 1
         if helper:
             self.ask("command_unreadable", "git is given a helper in the command, a program it runs that the hook "
@@ -879,22 +913,54 @@ class Command:
                        for n in names if n not in ("set", "unset")):
                     self.ask("merge", "git config writes where a push goes, which may be %s" % branch)
 
-    def _reads_only(self, program: str) -> bool:
-        """Whether a helper git is given runs only programs that read, with no redirection: `cat`, `less -R`, none."""
+    def _configures_helper(self, setting: str, unread: bool, less_set: bool) -> bool:
+        """Whether `key=value` given to git -c names a helper: one that loads code from a place, or a program that is
+        not a reader. With `unread`, the value is not in the command, and any program is a helper."""
+        key, _, value = setting.partition("=")
+        key = key.strip()
+        return bool(GIT_HELPER_LOADS.match(key)) or bool(GIT_HELPER_KEYS.match(key) and (
+            unread or not self._reads_only(value, less_set)))
+
+    def _reads_only(self, program: str, less_set: bool = False) -> bool:
+        """Whether a helper git is given only reads: none, or `cat` or `less`, by their bare names, with no redirection,
+        less with no option that writes or loads and none of its environment set in the command (`less_set`)."""
         try:
             found = shell.commands(program, self.spend)
         except (ValueError, RecursionError):
             return False
-        return all(words and not targets and os.path.basename(words[0]) in READS for words, targets in found)
+        for words, targets in found:
+            if targets or not words or words[0] not in HELPER_READERS:
+                return False
+            if words[0] == "less" and (less_set or any(LESS_WRITES.match(w) for w in words[1:])):
+                return False
+        return True
+
+
+# git branch's options that take the next word as their value.
+BRANCH_VALUED = {"-u", "--set-upstream-to", "--sort", "--format", "--contains", "--no-contains", "--merged",
+                 "--no-merged", "--points-at"}
+
+
+def _spelt(option: str, name: str) -> bool:
+    """Whether an option, before any `=`, is the long option `name`, whole or by a prefix, as git takes it."""
+    return option == name or (len(option) > 2 and option.startswith("--") and name.startswith(option))
 
 
 def _deletes_remote(rest: list) -> bool:
     """Whether git branch's words delete remote branches: -r and -d or -D, alone, together (-rd) or spelt long, as
-    git takes a long option by any prefix that is its own."""
-    shorts = "".join(w[1:] for w in rest if w.startswith("-") and not w.startswith("--"))
-    longs = [w.split("=", 1)[0] for w in rest if w.startswith("--") and len(w) > 2]
-    return (("r" in shorts or any("--remotes".startswith(w) for w in longs))
-            and ("d" in shorts or "D" in shorts or any("--delete".startswith(w) for w in longs)))
+    git takes a long option by any prefix that is its own. The value of an option that takes one is not read."""
+    flags, i = [], 0
+    while i < len(rest) and rest[i] != "--":
+        word = rest[i]
+        if word.startswith("-") and "=" not in word and any(_spelt(word, v) for v in BRANCH_VALUED):
+            i += 1      # its value, which may start with -: --sort -committerdate
+        elif word.startswith("-"):
+            flags.append(word.split("=", 1)[0])
+        i += 1
+    shorts = "".join(w[1:] for w in flags if not w.startswith("--"))
+    longs = [w for w in flags if w.startswith("--") and len(w) > 2]
+    return (("r" in shorts or any(_spelt(w, "--remotes") for w in longs))
+            and ("d" in shorts or "D" in shorts or any(_spelt(w, "--delete") for w in longs)))
 
 
 def _own_branch(repository: str, spec: str) -> bool:

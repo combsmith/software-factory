@@ -872,7 +872,8 @@ class MergesAndSettings(Asks):
                         "git tag origin/main", "git branch origin/main", "git branch -f origin/main HEAD",
                         "git tag -f refs/remotes/origin/main", "git symbolic-ref refs/remotes/origin/main refs/heads/x"):
             self.asked(self.run_(command), "remote_ref", command)
-        for command in ("echo x > .git/refs/remotes/origin/main", "printf x >> .git/packed-refs"):
+        for command in ("echo x > .git/refs/remotes/origin/main", "printf x >> .git/packed-refs",
+                        "echo 'a b' >> .git/info/grafts"):
             self.asked(self.run_(command), "protected_path", command)
         for command in ("git fetch origin", "git fetch origin main", "git fetch origin main:refs/remotes/origin/main",
                         "git tag v1", "git tag -l", "git branch feature-x", "git branch --list 'origin/*'",
@@ -911,7 +912,9 @@ class MergesAndSettings(Asks):
                         "git -C . branch -r -d origin/main", "setsid git branch -r -D origin/main"):
             self.asked(self.run_(command), "remote_ref", command)
         for command in ("git branch -d feature", "git branch -D origin/main", "git branch -r", "git branch -rv",
-                        "git branch -r -d upstream/main", "git branch -r --list 'origin/*'", "git branch --delete x"):
+                        "git branch -r -d upstream/main", "git branch -r --list 'origin/*'", "git branch --delete x",
+                        "git branch -r --sort -committerdate --list 'origin/*'",      # a value, not -d
+                        "git branch -r --sor -committerdate origin/main", "git branch -r --format '-%(refname)' origin/x"):
             self.assertEqual(self.run_(command), "", command)
 
     def test_a_wrapper_that_runs_its_words_is_read_as_one(self):
@@ -924,6 +927,23 @@ class MergesAndSettings(Asks):
                 self.asked(self.run_(command % wrapper), code, command % wrapper)
             self.assertEqual(self.run_("%s git push origin feature" % wrapper), "", wrapper)
         self.assertTrue({"setsid", "nice", "timeout", "env", "sudo"} <= protected.WRAPPERS)    # data, not code
+
+    def test_a_word_git_or_gh_that_is_a_wrappers_value_does_not_hide_what_it_runs(self):
+        # Each asked before WRAPPERS knew flock, script and runuser: the word git is a lock file, a log or a user.
+        mutation = "gh api graphql -f query=\"mutation { mergePullRequest(input:{}) { clientMutationId } }\""
+        for command in ("flock git -c 'gh pr merge 1 --admin'", "flock -c 'gh pr merge 1 --admin' git",
+                        "script -qc 'gh pr merge 1 --admin' /tmp/git", "runuser -l git -c 'gh pr merge 1 --admin'",
+                        "flock ~/.cache/git -c '%s'" % mutation, "script -qc 'gh pr merge 1 --admin' gh",
+                        "flock gh -c 'gh pr merge 1 --admin'", "runuser -l gh -c 'gh pr merge 1 --admin'",
+                        # The command string of flock, script, runuser, su and env -S is read as commands.
+                        "script -c 'git push origin HEAD:main' /dev/null", "flock /tmp/l -c 'git push origin HEAD:main'",
+                        "flock -n /tmp/l --command='git push origin HEAD:main'", "su - x -c 'git push origin HEAD:main'",
+                        "runuser -u x --command 'gh pr merge 1 --admin'", "env -S 'git push origin HEAD:main'",
+                        "env -i -S'git push' origin HEAD:main", "env -u X --split-string='gh pr merge' 1 --admin"):
+            self.asked(self.run_(command), "merge", command)
+        for command in ("flock /tmp/l -c 'git push origin feature'", "script -qc 'git log' /dev/null",
+                        "env -S 'git status'", "env git log -S x", "timeout 60 gh repo view", "nice gh pr view 5"):
+            self.assertEqual(self.run_(command), "", command)
 
     def test_git_given_a_helper_in_the_command_asks(self):
         # A read-only git command runs the program it is given: a pager, an external diff, a monitor.
@@ -939,13 +959,41 @@ class MergesAndSettings(Asks):
                         "GIT_CONFIG_PARAMETERS=\"'core.pager'='./p'\" git log", "git grep -O./p x", "git grep -O x",
                         "git grep --open-files-in-pager=./p x", "git fetch --upload-pack=./u .", "git ls-remote -u ./u .",
                         "git ls-remote --upload-pack ./u .", "git push --receive-pack ./r . HEAD:feature",
-                        "git difftool -x ./d", "setsid --wait git -c core.pager=./p log", "nice git diff --ext-diff"):
+                        "git difftool -x ./d", "setsid --wait git -c core.pager=./p log", "nice git diff --ext-diff",
+                        # Spelt short, bundled, abbreviated, or on clone, rebase and difftool.
+                        "git rebase -x ./c HEAD~1", "git rebase --exec ./c HEAD~1", "git clone -u ./u x y",
+                        "git clone --upload-pack=./u x y", "git fetch --upload-pa=./u .", "git ls-remote --upload-p=./u .",
+                        "git push --receive-p=./r . HEAD:feature", "git grep -nO./p x", "git difftool -yx ./d",
+                        "git difftool --extc=./d", "git diff --ext-dif", "git clone -c core.hooksPath=/tmp/h x y",
+                        "git clone --config=core.pager=./p x y", "git clone --template=/tmp/t x y",
+                        "git init --templ=/tmp/t", "git --exec-path=/tmp/x pull",
+                        # Configuration that names a program or a place to load one from.
+                        "git -c tar.x.command=./t archive HEAD", "git -c difftool.x.path=./d difftool",
+                        "git -c sendemail.sendmailcmd=./s log", "git -c trailer.x.cmd=./t commit --trailer x=1",
+                        "git -c gpg.ssh.defaultKeyCommand=./k log", "git -c remote.origin.vcs=x fetch",
+                        "git -c init.templateDir=/tmp/t clone x y", "git -c credential.helper=cat fetch",
+                        # The environment, set on git or earlier in the command.
+                        "GIT_CONFIG_GLOBAL=/tmp/g git log", "GIT_CONFIG_SYSTEM=/tmp/g git log", "GIT_EXEC_PATH=/tmp/x git pull",
+                        "export GIT_PAGER=./p; git log", "export GIT_EXTERNAL_DIFF=./p && git diff",
+                        "GIT_PAGER=\"$P\"; git log",
+                        # Only cat and less, by their bare names, read; less with nothing that writes or loads.
+                        "git -c core.fsmonitor=./d/cat status", "GIT_EXTERNAL_DIFF=./d/cat git diff",
+                        "git -c core.editor=/tmp/evil/cat commit", "git -c diff.external='rg --pre=./x x' diff",
+                        "git -c core.pager='less \"+!./x\"' log", "git -c core.pager='less --lesskey-src=/tmp/k' log",
+                        "git -c core.pager='less -Ro /tmp/x' log", "LESSOPEN='|./x %s' GIT_PAGER=less git log",
+                        "export LESSKEY=/tmp/k; git -c core.pager=less log", "git -c core.pager='cat | sh' log",
+                        "git -c core.pager='cat; ./x' log", "git -c core.pager='cat $(./x)' log",
+                        "git -c core.pager='less -R' -c core.pager=./x log"):
+            self.asked(self.run_(command), "command_unreadable", command)
+        # A reader that redirects writes; --config-env's value is in the environment, so even a reader's name asks.
+        for command in ("git -c core.pager='cat > lifecycle/a.json' log", "git --config-env=core.pager=cat log"):
             self.asked(self.run_(command), "command_unreadable", command)
         for command in ("git -c core.pager=cat log", "git -c core.pager='less -R' log", "git -c core.pager= log",
                         "GIT_PAGER=cat git log", "PAGER= git log", "env GIT_PAGER=cat git log", "git --no-pager log",
                         "git diff --no-ext-diff", "git -c color.ui=always log", "git log -- --ext-diff",
-                        "git -c core.editor=true status", "git -c diff.external=cat diff", "git grep -n x",
-                        "git ls-remote origin", "git fetch origin"):
+                        "git -c diff.external=cat diff", "git grep -n x", "export GIT_PAGER=cat; git log",
+                        "git -c core.pager='less -FRX' log", "git ls-remote origin", "git fetch origin",
+                        "git commit -m x --template=t", "git --exec-path", "git diff --exit-code"):
             self.assertEqual(self.run_(command), "", command)
 
     def test_a_write_to_a_ruleset_or_the_repos_settings_asks(self):
@@ -1099,6 +1147,23 @@ class RulesChanged(unittest.TestCase):
         # The base replaced with a commit whose tree already holds the change: read through it, nothing differs.
         git(where, "replace", "HEAD~1", out("commit-tree", "-m", "base", out("rev-parse", "HEAD^{tree}")))
         self.assertEqual(out("diff", "--name-only", out("merge-base", "HEAD", rules_changed.BASE)), "")
+        self.assertIn("lifecycle/issue.json", self.told(where))
+
+    def test_a_graft_does_not_hide_a_changed_rule(self):
+        where = self.branch()
+        self.write(where, "lifecycle/issue.json")
+        git(where, "add", "-A")
+        git(where, "commit", "-q", "-m", "a rule")
+
+        def out(*args):
+            return subprocess.run(["git"] + list(args), cwd=where, env=environment(programs("git")), check=True,
+                                  capture_output=True, text=True).stdout.strip()
+        # origin/main moves on, and its new commit is grafted onto HEAD: read through the graft, HEAD is the base.
+        moved = out("commit-tree", "-p", "HEAD~1", "-m", "moved on", out("rev-parse", "HEAD~1^{tree}"))
+        git(where, "update-ref", rules_changed.BASE, moved)
+        (where / ".git" / "info").mkdir(exist_ok=True)
+        (where / ".git" / "info" / "grafts").write_text("%s %s\n" % (moved, out("rev-parse", "HEAD")))
+        self.assertEqual(out("merge-base", "HEAD", rules_changed.BASE), out("rev-parse", "HEAD"))
         self.assertIn("lifecycle/issue.json", self.told(where))
 
     def test_a_name_with_a_newline_or_bytes_that_are_not_utf8_is_listed_escaped(self):

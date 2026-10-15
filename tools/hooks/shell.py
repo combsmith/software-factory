@@ -13,6 +13,9 @@ import shlex
 # Characters that end a word on their own. All but the redirections also end a simple command.
 PUNCTUATION = ";&|()`\n<>"
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
+# Programs that run the command string given to -c or --command, as a shell does.
+STRINGS = {"flock", "script", "runuser", "su"}
+ENV_VALUED = {"-u", "--unset", "-C", "--chdir", "-P"}
 HEREDOC = re.compile(r"<<(-?)[ \t]*\\?(['\"]?)([A-Za-z_][\w.-]*)\2")
 
 
@@ -114,17 +117,41 @@ def commands(text: str, spend=None) -> list:
 
 
 def _inner(words: list, spend=None) -> list:
-    """The commands of a script run by this one: `bash -c '...'` or `eval ...`, also after env, xargs or sudo."""
+    """The commands of a script run by this one: `bash -c '...'` or `eval ...`, also after env, xargs or sudo; and
+    the command string of `flock -c`, `script -c`, `runuser -c`, `su -c` and `env -S`."""
     for at, word in enumerate(words):
         name = os.path.basename(word)
         if name == "eval":
             return commands(" ".join(words[at + 1:]), spend)
-        if name in SHELLS:
-            for i in range(at + 1, len(words) - 1):
-                if words[i].startswith("-") and not words[i].startswith("--") and "c" in words[i]:
-                    return commands(words[i + 1], spend)
-            return []
+        if name == "env":       # -S's string is split into the words of the command env runs, before the rest
+            for i in range(at + 1, len(words)):
+                if not words[i].startswith("-") and "=" not in words[i] and words[i - 1] not in ENV_VALUED:
+                    break       # the program env runs: what follows is its own
+                script, taken = _value(words, i, "S", "--split-string")
+                if script is not None:
+                    rest = words[i + 1 + taken:]
+                    return commands(" ".join([script] + [shlex.quote(w) for w in rest]), spend)
+        if name in SHELLS or name in STRINGS:
+            for i in range(at + 1, len(words)):
+                script, _ = _value(words, i, "c", "--command" if name in STRINGS else None)
+                if script is not None:
+                    return commands(script, spend)
+            if name in SHELLS:
+                return []
     return []
+
+
+def _value(words: list, i: int, letter: str, long) -> tuple:
+    """(the value words[i] gives the option -<letter> or `long`, whether it is the next word): -c's is the next word,
+    alone or in a bundle (-lc), -S's may be attached. (None, False) when it gives none."""
+    word = words[i]
+    after = (words[i + 1], True) if i + 1 < len(words) else (None, False)
+    if long and word.partition("=")[0] == long:
+        return (word.partition("=")[2], False) if "=" in word else after
+    if word.startswith("-") and not word.startswith("--") and letter in word:
+        attached = word[word.index(letter) + 1:] if letter == "S" else ""
+        return (attached, False) if attached else after
+    return None, False
 
 
 def _substituted(word: str) -> list:
