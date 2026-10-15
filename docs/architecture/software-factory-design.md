@@ -328,7 +328,7 @@ for contract tests, so one schema has three uses.
 | `queue` | Merge-queue membership |
 | `acts_since_writer` | Count of acts that landed since the last action by a person with write access, from GitHub's timeline: each approval, enqueue, dequeue and label a Factory identity made with no model Run |
 | `read_at`, `quota_remaining` | When it was read, and what the installation has left |
-| `complete` | For each list above, whether every page was read; whether the diff behind `content_id` was whole; `runs`, whether the list of run records the pass read was whole; and `timeline`, whether the timeline behind `acts_since_writer` was read in full |
+| `complete` | For each list above, whether every page was read; whether the diff behind `content_id` was whole; `runs`, whether the list of run records the pass read was whole; and `timeline`, whether the timeline behind `acts_since_writer` and `label_events` was read in full |
 
 An incomplete read is an unreadable one. A list cut off at a page limit must never be taken to mean
 "nothing more": the Kernel defers on any fact marked incomplete, and a truncated diff means a
@@ -416,9 +416,9 @@ because the objection was answered, but approves no content: when an App's push 
 person's stale approval, nothing revives, and the item waits only for the approver, as usual. One
 dismissed from a comment changes nothing. One dismissed from a request for changes stands, unless
 a person with write access dismissed it. Neither the machine user nor the bot that opened an agent's
-or a dependency update's pull request is a person, whatever kind the facts give them: their
-dismissal or approval ends no request: read as the kinds they are, neither is a person, and read as
-a person, either is unreadable (below). A request and an approval by one person in the same second
+or a dependency update's pull request is a person, so their dismissal or approval ends no request:
+read as the kinds they are, neither is a person, and read as a person, either is unreadable
+(below). A request and an approval by one person in the same second
 leave the request standing. A
 request from a stranger or a Lens gates nothing (§4.6). It is read after the checks and before the
 approval, so a standing approval never passes over it. A review whose author, write access, state,
@@ -452,17 +452,26 @@ placed, only a person ends:
   by anyone but that Lens's own App or a person also stays open, so the author agent resolving the
   threads that hold it closes none. A thread that gates nothing is closed by whoever resolves it.
 - Only the approver's approval stands, and only a person ends a request for changes.
-- `label_events` carry who added and who removed each label, from the timeline, read in the order
-  they happened. A control label binds from when anyone adds it until a person removes it: removed
-  by anyone else, it binds as it was placed. A Hold an App took off still binds. `factory:hands-off`
-  binds only when a person placed it; placed by anyone else it is read as `factory:hold`, reason
-  `human_hold`, so it stops and takes a queued item out, and an App can no longer freeze an item in
-  the merge queue. `factory:admit` admits only when a person placed it, after the author's latest
-  push; placed by anyone else, the item is `outside_not_admitted`.
+- `label_events` carry who added and who removed each label, from the timeline. The port gives them
+  as the timeline lists them, and the Kernel reads them by time; in the same second it reads a
+  removal before a placement, so the label stands (fail closed, as for a review). They are read
+  with the timeline, so `complete.timeline` covers them: a read cut short, which GitHub pages
+  oldest first, could drop a person's later removal, and the item defers. A control label binds
+  from when anyone adds it until a person removes it: removed by anyone else, it binds as it was
+  placed, and anyone else placing it again does not replace a person's placement. A Hold an App
+  took off still binds. `factory:hands-off` binds only when a person placed it; placed by anyone
+  else it is read as `factory:hold`, reason `human_hold`, so it stops and takes a queued item out,
+  and an App can no longer freeze an item in the merge queue. Hands-off is never read from a
+  timeline read short, so a queued item it would leave alone is taken out instead.
+  `factory:admit` admits only when a person placed it, after the author's latest push; placed by
+  anyone else, the item is `outside_not_admitted`.
 
 An actor whose kind cannot be read, or whose kind contradicts the configuration or the class (the
 approver read as anything but `machine_user`, any other name read as it, or the author of an agent's
-or a dependency update's pull request read as anything but `app`), is unreadable, as are a thread
+or a dependency update's pull request read as anything but `app`), is unreadable. So is a `human`
+whose login ends in `[bot]`: GitHub gives no User a bracket, so the read was wrong. That is the one
+place a name's spelling is read, and it only ever refuses an actor, never makes one a person or
+anything else (L-57). So too are a thread
 that says it is resolved and not by whom, or names a resolver while open, and a control label's
 event whose action, actor or time cannot be read. The Kernel defers for the Maintainer, reason
 `review_unreadable`, `thread_unreadable` or `label_unreadable`, and a queued item leaves the queue
@@ -1544,8 +1553,8 @@ Every human control is one ordinary GitHub action, the same for every Role and e
 | Start work on an issue | Add the label `factory:ready` to an accepted issue | The issue is `ready` whatever investigation has said, and the next pass may admit its opening Run. Removing it overrules Readiness for that content |
 | Hold | Add the label `factory:hold` | No Run is admitted on the item; an in-flight Run writes nothing. A queued pull request is taken out of the merge queue, the one change the Factory makes to a held item (I-6, I-21). A Hold anyone adds binds, an App's too |
 | Release | Remove the label | The next pass resumes, with a fresh allowance of attempts (I-28). Only a person releases: a Hold an App or anyone else took off still binds, and the Maintainer adds it and removes it again |
-| Hands-off | Add the label `factory:hands-off` | The Factory watches the item and never acts on it, until a person removes the label. Added by anyone but a person, it is read as a Hold: it stops, and takes a queued pull request out of the merge queue |
-| Admit an outside item | Add the label `factory:admit` | The item is served like any other, until its author pushes again or, for an issue, edits it (I-25, I-36). For an issue, admission is acceptance for investigation. An admitted pull request that closes an issue is linked to it. Added by anyone but a person, it admits nothing |
+| Hands-off | Add the label `factory:hands-off` | The Factory watches the item and never acts on it, until a person removes the label. Added by anyone but a person, it is read as a Hold: it stops, and takes a queued pull request out of the merge queue; the Maintainer removes it, and adds it again if they want hands-off. A person's hands-off that an App took off still binds, with no label to see and attention `none`, until a person adds it and removes it again |
+| Admit an outside item | Add the label `factory:admit` | The item is served like any other, until its author pushes again or, for an issue, edits it (I-25, I-36). For an issue, admission is acceptance for investigation. An admitted pull request that closes an issue is linked to it. Added by anyone but a person, it admits nothing: the Maintainer removes it and adds it again to admit the item |
 | Steer | Write a plain comment | It reaches the next Run's Task and is acknowledged with a reaction |
 | Block | Open a review thread, or request changes | A `human` Finding, which gates until that person resolves it |
 | Approve | Approve the pull request | A human approval stands as an independent approval |

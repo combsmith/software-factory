@@ -94,7 +94,7 @@
       }
     },
     "label_events": {
-      "description": "Every labeled and unlabeled event on the pull request's timeline, with who added or removed the label and when. Read in the order they happened. A control label binds from when anyone adds it until a person removes it; hands-off and an admission bind as a person's only when a person placed them",
+      "description": "Every labeled and unlabeled event on the pull request's timeline, with who added or removed the label and when, read with the timeline, so complete.timeline says whether they were read in full. The port's contract: it gives them as the timeline lists them. The Kernel reads them by time, and in the same second a removal before a placement, so the label stands. A control label binds from when anyone adds it until a person removes it, and anyone else placing it again does not replace a person's placement; hands-off and an admission bind as a person's only when a person placed them",
       "type": "array",
       "items": {
         "type": "object",
@@ -359,6 +359,7 @@
           "type": "boolean"
         },
         "timeline": {
+          "description": "Whether the timeline was read in full: the one read behind both acts_since_writer and label_events",
           "type": "boolean"
         }
       }

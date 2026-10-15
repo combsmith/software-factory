@@ -59,6 +59,8 @@ QUEUE_WAITS = ("mergeable_unreadable", "awaiting_checks", "awaiting_review")
 ACTOR_KINDS = ("human", "lens", "app", "machine_user")
 MACHINE_USER = "machine_user"
 APP = "app"
+# How GitHub ends the login of an App's bot account. No User's login can: it only ever refuses a person.
+BOT_SUFFIX = "[bot]"
 REVIEW_STATES = ("approved", "changes_requested", "commented", "dismissed")
 # What a dismissed review was before, as the timeline records it.
 DISMISSED_FROM = ("approved", "changes_requested", "commented")

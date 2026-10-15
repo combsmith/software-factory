@@ -48,7 +48,7 @@ RULES = (
     ("an_app_resolves_any_thread", "An App with pull_requests: write can resolve any review thread, a person's too, "
      "and the thread says who resolved it", ("P-5",), None),
     ("an_app_can_label", "An App can add or remove a control label on a pull request, a Hold or hands-off among them",
-     ("P-32",), None),
+     (), None),
     ("a_label_event_names_its_actor", "The timeline's labeled and unlabeled events say who added or removed each "
      "label, and when", ("P-32",), None),
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an account "

@@ -170,12 +170,17 @@ class World:
                 self.hands_off = None
 
     def release(self):
-        """The Maintainer ends a Hold and hands-off. A label an App took off is put back to be taken off again."""
-        for name, binds in ((t.LABEL_HOLD, self.hold), (t.LABEL_HANDS_OFF, self.hands_off is not None)):
-            if binds:
+        """The Maintainer ends a Hold and hands-off. A label an App took off is put back, and taken off a minute later:
+        in the same second a removal is read before a placement, and the label would stand."""
+        binding = [name for name, binds in ((t.LABEL_HOLD, self.hold), (t.LABEL_HANDS_OFF, self.hands_off is not None))
+                   if binds]
+        if any(name not in self.labels for name in binding):
+            for name in binding:
                 if name not in self.labels:
                     self.label(name, MAINTAINER)
-                self.unlabel(name, MAINTAINER)
+            self.minute += 1
+        for name in binding:
+            self.unlabel(name, MAINTAINER)
 
     @staticmethod
     def open_for(th: dict) -> bool:
@@ -487,7 +492,7 @@ class World:
     def platform(self):
         if self.faults and self.meddler.random() < 0.03:
             self.an_app_meddles()
-        live =[rv for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"] and rv["state"] != "dismissed"]
+        live = [rv for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"] and rv["state"] != "dismissed"]
         if self.faults and live and self.rng.random() < 0.1:
             # GitHub: an_app_can_dismiss_a_review
             dismissed = live[-1]
@@ -654,13 +659,14 @@ class World:
     def settle(self, steps: int = 400):
         """Stop the faults and the people, and let the Factory finish."""
         self.faults = self.people = False
+        # The Maintainer acts after the last step: a request and an approval in the same second leave the request
+        # standing, and so does a label placed and removed in the same second.
+        self.minute += 1
         self.release()
         for th in self.threads:
             if self.open_for(th):
                 th.update(resolved=True, resolved_by=dict(MAINTAINER))
-        # The Maintainer approves what they asked to be changed, after the last step: a request and an approval in
-        # the same second leave the request standing.
-        self.minute += 1
+        # The Maintainer approves what they asked to be changed.
         if self.asked:
             self.review("approved")
         # The person runs again every check that did not pass, and the re-run replaces the run it repeats.

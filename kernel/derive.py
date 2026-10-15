@@ -265,9 +265,10 @@ def moved_at(facts: dict, runs: list, config: dict, now: str):
     """When the item last moved, or None if no time can be read.
 
     State is never stored (decision 0002), so the time an item entered its State is read as the newest time a writer,
-    a Lens or the Factory moved it: a push, a required check's completion, a review or a thread by a writer or a Lens's
-    App (a gating thread is always one), a writer's action and a Run on this item. A stranger's comment, or a check
-    that is not required, moves nothing, or anyone could keep a stalled item from showing; nor does a check under a
+    a Lens or the Factory moved it: a push, a required check's completion, a review or a thread by a writer, a Lens's
+    App or the machine user (a gating thread is always one; moves), a writer's action and a Run on this item. A
+    stranger's comment, another App's, or a check that is not required, moves nothing, or anyone could keep a stalled
+    item from showing; nor does a check under a
     required Lens's check name from any App but that Lens's own (reports_for). A time that is not a real
     moment no later than `now` is passed over, so the wait counts from earlier: that shows more, never less.
     """
@@ -309,6 +310,10 @@ def readable_actor(actor, facts: dict, config: dict) -> bool:
             and type(actor.get("can_write")) is bool):
         return False
     if (actor["kind"] == t.MACHINE_USER) != (actor["name"] == config["approver"]):
+        return False
+    # GitHub gives no User a login with a bracket: a person named like an App's bot was misread. A name's spelling only
+    # ever refuses an actor here; it never makes one a person (L-57).
+    if actor["kind"] == "human" and actor["name"].endswith(t.BOT_SUFFIX):
         return False
     return not (facts["class"] in t.BOT_CLASSES and actor["name"] == facts["author"] and actor["kind"] != t.APP)
 
@@ -423,17 +428,25 @@ def unreadable_labels(facts: dict, config: dict) -> bool:
     return False
 
 
+def label_order(ev: dict) -> tuple:
+    """When a label event happened. In the same second a removal is read before a placement, so the label stands: fail
+    closed, as verdict_order does."""
+    return ev["at"], ev["action"] == "labeled"
+
+
 def standing_labels(facts: dict) -> dict:
-    """Each control label that binds, with the event that placed it last. The events must be readable (unreadable_labels).
+    """Each control label that binds, with the event that placed it. The events must be readable (unreadable_labels).
 
     The timeline's events are read in the order they happened. A label binds from when anyone adds it until a person
     removes it: removed by anyone else, it binds as it was placed. What a person placed, only a person ends (L-17), and
-    an App cannot release a Hold (L-02).
+    an App cannot release a Hold (L-02). Nor does anyone else placing it again replace a person's placement, so an App
+    that takes a person's label off and puts it back changes nothing: who placed it, and when, is the person's.
     """
     out = {}
-    for ev in sorted([ev for ev in facts["label_events"] if ev["label"] in t.CONTROL_LABELS], key=lambda ev: ev["at"]):
+    for ev in sorted([ev for ev in facts["label_events"] if ev["label"] in t.CONTROL_LABELS], key=label_order):
         if ev["action"] == "labeled":
-            out[ev["label"]] = ev
+            if not (ev["label"] in out and is_person(out[ev["label"]]["by"]) and not is_person(ev["by"])):
+                out[ev["label"]] = ev
         elif is_person(ev["by"]):
             out.pop(ev["label"], None)
     return out
@@ -441,9 +454,10 @@ def standing_labels(facts: dict) -> dict:
 
 def hands_off(facts: dict, config: dict) -> bool:
     """Whether hands-off binds: a person placed it, and the Factory never acts on the item. Placed by anyone else, it
-    is read as a Hold, so an App cannot freeze an item in the merge queue. An event that cannot be read is no hands-off.
+    is read as a Hold, so an App cannot freeze an item in the merge queue. It is read only from label events read in
+    full and whole: the timeline is paged oldest first, so a read cut short could drop a person's later removal.
     """
-    if unreadable_labels(facts, config):
+    if "timeline" in incomplete(facts) or unreadable_labels(facts, config):
         return False
     placed = standing_labels(facts).get(t.LABEL_HANDS_OFF)
     return placed is not None and is_person(placed["by"])
@@ -465,12 +479,14 @@ def admitted(facts: dict, labels: dict) -> bool:
 def standing_approval(facts: dict, config: dict):
     """The approver's undismissed approval of this content, if any.
 
-    Only the approver's approval stands: the machine user's, which readable_actor holds to the approver's name. A
-    person's approval answers that person's request for changes, and approves no content.
+    Only the approver's approval stands: the machine user's, which readable_actor holds to the approver's name, while
+    it has write access, without which GitHub does not count it. A person's approval answers that person's request for
+    changes, and approves no content.
     """
     for rv in facts["reviews"]:
         if (
             rv["by"]["kind"] == t.MACHINE_USER
+            and rv["by"]["can_write"] is True
             and rv["state"] == "approved"
             and rv["content_id"] == facts["content_id"]
         ):

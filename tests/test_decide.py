@@ -611,13 +611,79 @@ class OnlyAPersonEnds(unittest.TestCase):
             self.assertEqual(d["reason"], "outside_not_admitted", who)
 
     def test_label_events_are_read_in_the_order_they_happened(self):
-        # The timeline gives each event its time, and they are read by it, however they are listed.
+        # The port lists them as the timeline does, and the Kernel reads them by their time, in either order.
         added, removed = labelled("factory:hold", at=at(3)), unlabelled("factory:hold", at=at(4))
         for events in ([added, removed], [removed, added]):
             self.assertEqual(go(facts(label_events=events), REVIEWED)["action"], "issue_approval")
         added, removed = labelled("factory:hold", at=at(4)), unlabelled("factory:hold", at=at(3))
         for events in ([added, removed], [removed, added]):
             self.assertEqual(go(facts(label_events=events), REVIEWED)["reason"], "human_hold")
+
+    def test_in_the_same_second_a_label_stands(self):  # I-6, I-13
+        # Which came first cannot be told, so a removal is read before a placement: the label stands, as a request for
+        # changes stands beside an approval in the same second.
+        for label, reason in (("factory:hold", "human_hold"), ("factory:hands-off", "hands_off")):
+            added, removed = labelled(label, at=at(3)), unlabelled(label, at=at(3))
+            for events in ([added, removed], [removed, added]):
+                d = go(facts(label_events=events), REVIEWED)
+                self.assertEqual((d["state"], d["reason"]), ("held", reason), (label, [e["action"] for e in events]))
+        # The other side: a second apart, the removal that comes later ends it.
+        events = [labelled("factory:hold", at=at(3)), unlabelled("factory:hold", at="2026-10-11T12:03:01Z")]
+        self.assertEqual(go(facts(label_events=events), REVIEWED)["action"], "issue_approval")
+
+    def test_what_a_person_placed_is_not_replaced_by_anyone_else_placing_it(self):  # L-17, I-36
+        # An App that takes a person's label off and puts it back has not placed it: it stands as the person placed it.
+        outside = {"class": "outside", "author": "stranger", "last_pusher": "stranger"}
+        for who in NOT_PEOPLE:
+            again = [unlabelled("factory:hands-off", who), labelled("factory:hands-off", who, at=at(3))]
+            d = go(facts(queue=True, reviews=APPROVED, label_events=[labelled("factory:hands-off")] + again), REVIEWED)
+            self.assertEqual((d["reason"], d["outcome"]), ("hands_off", "hold"), who)
+            self.assertNotIn("action", d)
+            again = [unlabelled("factory:admit", who), labelled("factory:admit", who, at=at(3))]
+            d = go(facts(**outside, label_events=[labelled("factory:admit")] + again))
+            self.assertEqual(d["admit"]["intent"], "review-change", who)
+            # Nor does it renew an admission the author's push has lapsed.
+            d = go(facts(**outside, last_push_at=at(2), label_events=[labelled("factory:admit")] + again))
+            self.assertEqual(d["reason"], "outside_not_admitted", who)
+        # The other side: a person who places it again places it anew, and after a person's removal anyone's counts.
+        d = go(facts(**outside, last_push_at=at(2), label_events=[labelled("factory:admit"),
+                                                                  labelled("factory:admit", COLLEAGUE, at=at(3))]))
+        self.assertEqual(d["admit"]["intent"], "review-change")
+        events = [labelled("factory:hands-off"), unlabelled("factory:hands-off"),
+                  labelled("factory:hands-off", AUTHOR_APP, at=at(3))]
+        self.assertEqual(go(facts(label_events=events), REVIEWED)["reason"], "human_hold")
+
+    def test_hands_off_is_not_read_from_a_timeline_read_short(self):  # I-13, I-20
+        # GitHub pages the timeline oldest first, so a read cut short can drop a person's later removal. Hands-off read
+        # from it would leave a queued item in the queue, to merge over whatever else the read missed.
+        for who in (MAINTAINER, COLLEAGUE):
+            f = facts(queue=True, reviews=APPROVED, label_events=[labelled("factory:hands-off", who)])
+            f["complete"]["timeline"] = False
+            d = go(f, REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
+                             (None, "facts_incomplete", "act", "dequeue"), who)
+        # The other side: read in full, a person's hands-off leaves it where it is, whatever else was read short.
+        f = facts(queue=True, reviews=APPROVED, label_events=[labelled("factory:hands-off")])
+        f["complete"]["threads"] = False
+        d = go(f, REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"]), ("facts_incomplete", "defer"))
+        self.assertNotIn("action", d)
+
+    def test_a_person_whose_login_is_a_bots_is_unreadable(self):  # I-13, L-57
+        # GitHub gives no person a login with a bracket, so a human that ends in [bot] was misread. A name's spelling
+        # only ever refuses an actor: it never makes one a person, nor anything else.
+        posing = {"kind": "human", "name": "some-app[bot]", "can_write": True}
+        cases = [({"reviews": [review(state="commented", **posing)]}, "review_unreadable"),
+                 ({"threads": [thread(kind="human", name="don-petry", severity=None, resolved=True,
+                                      resolved_by=posing)]}, "thread_unreadable"),
+                 ({"label_events": [labelled("factory:hold"), unlabelled("factory:hold", posing)]}, "label_unreadable")]
+        for over, reason in cases:
+            d = go(facts(**over), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             (None, reason, "defer", "needs_you"), reason)
+        # The other side: an App of that name, read as one, is read.
+        app = dict(posing, kind="app")
+        self.assertEqual(go(facts(reviews=[review(state="commented", **app)]), REVIEWED)["action"], "issue_approval")
 
     def test_a_label_event_that_cannot_be_read_defers(self):  # I-13
         # Who added or removed a control label, what was done and when decide whether it binds. A fact read from outside
@@ -712,6 +778,9 @@ class OnlyAPersonEnds(unittest.TestCase):
             self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"), who)
             d = go(facts(queue=True, reviews=[review(**who)]), REVIEWED)
             self.assertEqual((d["reason"], d.get("action")), ("approval_lost", "dequeue"), who)
+        # Nor does the machine user's without write access: GitHub would not count it.
+        d = go(facts(reviews=[review(**dict(MACHINE, can_write=False))]), REVIEWED)
+        self.assertEqual((d["reason"], d["action"]), ("approval_due", "issue_approval"))
         # The other side: the machine user's approval of this content stands.
         self.assertEqual(go(facts(reviews=[review(**MACHINE)]), REVIEWED)["action"], "enqueue")
 
