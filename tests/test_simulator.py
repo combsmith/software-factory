@@ -61,6 +61,23 @@ class Simulation(unittest.TestCase):
             reasons.append(last["reason"])
         self.assertIn(reason, reasons)
 
+    def test_only_a_writers_action_renews_the_allowance(self):  # I-28
+        # The person's last choice resolves the writer's own threads. With none open, nobody acted.
+        class Roll:
+            def random(self):
+                return 0.99
+
+        for human_thread, renewed in ((False, False), (True, True)):
+            w = World(1)
+            w.minute, w.acts, w.rng = 30, 3, Roll()
+            if human_thread:
+                w.threads.append({"id": "T0", "resolved": False,
+                                  "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
+                                  "severity": None, "resolved_by": None, "opened_at": w.now()})
+            before = w.last_writer
+            w.person()
+            self.assertEqual((w.acts == 0, w.last_writer != before), (renewed, renewed), human_thread)
+
     def test_a_quiet_world_merges_or_stops_on_a_ceiling(self):
         for seed in SEEDS:
             world = World(seed, faults=False, people=False)

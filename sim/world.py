@@ -291,10 +291,12 @@ class World:
             self.writer_acted()
             self.note("maintainer opened a thread")
         else:
-            for th in self.threads:
-                if not th["resolved"] and th["opened_by"]["kind"] == "human":
-                    th.update(resolved=True, resolved_by="don-petry")
-            self.writer_acted()
+            mine = [th for th in self.threads if not th["resolved"] and th["opened_by"]["kind"] == "human"]
+            for th in mine:
+                th.update(resolved=True, resolved_by="don-petry")
+            if mine:     # resolving nothing is no action, and renews nothing (I-28)
+                self.writer_acted()
+                self.note("maintainer resolved %d threads" % len(mine))
 
     # ---- one step, and the invariants that hold at every step
     def step(self):
