@@ -4,7 +4,8 @@ A session's git worktree sits inside the main checkout, a whole copy of the repo
 file; a full clone has a `.git` directory. Either is another working tree, and nothing in it is
 this repo's. Every check that walks the tree walks it here, and every copy of the repo is made
 here, so that all of them skip the same things. It reads only the tree, so it needs no git and
-works in an export that has no `.git` at all. A link is listed, never followed.
+works in an export that has no `.git` at all. A link is listed, never followed, and is never
+taken for another working tree, whatever it points at.
 """
 from __future__ import annotations
 
@@ -33,20 +34,21 @@ def _skip(root: pathlib.Path):
             path = os.path.join(folder, name)
             if top and name == ".git":
                 out.add(name)       # this tree's own, file or directory
-            elif os.path.isdir(path) and (name in SKIP or (top and name in ROOT_ONLY)
-                                          or elsewhere(pathlib.Path(path))):
+            elif os.path.isdir(path) and not os.path.islink(path) and (
+                    name in SKIP or (top and name in ROOT_ONLY) or elsewhere(pathlib.Path(path))):
                 out.add(name)
         return out
     return skipped
 
 
 def _entries(root: pathlib.Path, under: str) -> list:
-    """Every path below `root / under` that is not a directory, links included, but none skipped."""
+    """Every path below `root / under` that is not a directory, and every link, but none skipped."""
     skipped, out = _skip(root), []
     for folder, dirs, names in os.walk(str(root / under)):
         gone = skipped(folder, dirs + names)
-        dirs[:] = sorted(d for d in dirs if d not in gone and not os.path.islink(os.path.join(folder, d)))
-        out += [pathlib.Path(folder, n) for n in names if n not in gone]
+        linked = {d for d in dirs if os.path.islink(os.path.join(folder, d))}
+        dirs[:] = sorted(d for d in dirs if d not in gone and d not in linked)
+        out += [pathlib.Path(folder, n) for n in sorted(linked) + names if n not in gone]
     return sorted(out)
 
 
@@ -62,9 +64,9 @@ def files(root: pathlib.Path, under: str = "") -> list:
     return [p for p in _entries(root, under) if p.is_file()]
 
 
-def broken(root: pathlib.Path) -> list:
-    """Every link below `root` that points at nothing."""
-    return [p for p in _entries(root, "") if p.is_symlink() and not p.exists()]
+def links(root: pathlib.Path) -> list:
+    """Every link below `root`, sorted, whether it points at a file, a directory or nothing."""
+    return [p for p in _entries(root, "") if p.is_symlink()]
 
 
 def copy(root: pathlib.Path, to: pathlib.Path) -> None:
