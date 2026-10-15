@@ -83,7 +83,7 @@ CONFIG = """[core]
 \turl = %s
 \tfetch = +refs/heads/*:refs/remotes/origin/*
 """
-MADE = []   # the one repo every case copies
+MADE = []   # the one repo every case clones
 
 
 def git(where: pathlib.Path, *args: str, **extra: str) -> None:
@@ -91,18 +91,26 @@ def git(where: pathlib.Path, *args: str, **extra: str) -> None:
                    capture_output=True)
 
 
+REPOS = {}  # one of each configuration, for the cases that only read it
+
+
 def repo(name: str = WHO["name"], email: str = WHO["email"], remote: str = GOOD_REMOTE,
-         helper: str = GH_HELPER, pushurls: tuple = ()) -> pathlib.Path:
-    """A clone-like repo holding one commit by the Maintainer, configured as the case says."""
+         helper: str = GH_HELPER, pushurls: tuple = (), fresh: bool = False) -> pathlib.Path:
+    """A clone holding one commit by the Maintainer, configured as the case says. A case that changes it asks for a fresh one."""
+    key = (name, email, remote, helper, pushurls)
+    if not fresh and key in REPOS:
+        return REPOS[key]
     if not MADE:
         MADE.append(folder() / "repo")
         git(SCRATCH.name, "init", "-q", str(MADE[0]))
         (MADE[0] / ".git" / "config").write_text(CONFIG % (WHO["name"], WHO["email"], GH_HELPER, GOOD_REMOTE))
         git(MADE[0], "commit", "-q", "--allow-empty", "-m", "first")
     where = folder() / "repo"
-    shutil.copytree(MADE[0], where)
-    config = CONFIG % (name, email, helper, remote) + "".join("\tpushurl = %s\n" % url for url in pushurls)
+    git(SCRATCH.name, "clone", "-q", str(MADE[0]), str(where))    # its commit is then on a remote already
+    config =CONFIG % (name, email, helper, remote) + "".join("\tpushurl = %s\n" % url for url in pushurls)
     (where / ".git" / "config").write_text(config)
+    if not fresh:
+        REPOS[key] = where
     return where
 
 
@@ -233,7 +241,7 @@ class Identity(unittest.TestCase):
         self.assertNotIn("hunter2secret", said)
 
     def test_a_push_that_carries_another_identity_is_refused(self):
-        theirs, committed = repo(), repo()
+        theirs, committed = repo(fresh=True), repo(fresh=True)
         git(theirs, "commit", "-q", "--allow-empty", "-m", "theirs", "--author", "Someone <s@example.com>")
         git(committed, "commit", "-q", "--allow-empty", "-m", "ours", GIT_COMMITTER_NAME="Someone Else")
         for where in (theirs, committed):
@@ -345,13 +353,13 @@ class BeforeStop(unittest.TestCase):
         self.assertIn("make is not on PATH", err)
 
     def test_with_nothing_unpushed_verify_is_not_run(self):
-        pushed = repo()
+        pushed = repo(fresh=True)
         git(pushed, "update-ref", "refs/remotes/origin/main", "HEAD")
         path = programs("make", "git")
         self.assertEqual(before_stop.respond(*self.stop(False, path, pushed, FAKE_MAKE_EXIT="2")), (0, "", ""))
         (pushed / "new.py").write_text("")
         self.assertEqual(before_stop.respond(*self.stop(False, path, pushed, FAKE_MAKE_EXIT="2"))[0], 2)
-        ahead = repo()
+        ahead = repo(fresh=True)
         git(ahead, "update-ref", "refs/remotes/origin/main", "HEAD")
         git(ahead, "commit", "-q", "--allow-empty", "-m", "unpushed")
         self.assertEqual(before_stop.respond(*self.stop(False, path, ahead, FAKE_MAKE_EXIT="2"))[0], 2)

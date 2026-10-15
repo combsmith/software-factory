@@ -1064,7 +1064,8 @@ class Verify(unittest.TestCase):
 
     def test_make_fast_is_verify_without_the_seeded_simulation(self):
         """The required check runs every test file at any depth; only `make fast` leaves the slow ones out."""
-        everything = {".".join(p.relative_to(ROOT).with_suffix("").parts) for p in (ROOT / "tests").rglob("test_*.py")}
+        everything = {".".join(p.relative_to(ROOT).with_suffix("").parts) for p in walk.files(ROOT, "tests")
+                      if p.name.startswith("test_") and p.suffix == ".py"}
         slow = {"tests." + name for name in verify.SLOW}
         self.assertTrue(slow <= everything, "a slow test named in verify.SLOW does not exist")
         ran = {}
