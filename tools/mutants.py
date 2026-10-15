@@ -154,6 +154,10 @@ MUTANTS = [
      'if rv["state"] == "dismissed" and rv["dismissed_from"] != "changes_requested":'),
     ("a dismissed comment ends an earlier request", "kernel/derive.py",
      '        if rv["state"] == "dismissed" and rv["dismissed_from"] == "commented":\n            continue\n', ""),
+    ("a review not dismissed that carries dismissal fields is trusted", "kernel/derive.py",
+     '        if rv["state"] != "dismissed" and (rv.get("dismissed_by") is not None'
+     ' or rv.get("dismissed_from") is not None):\n',
+     "        if False:\n"),
     ("an unreadable dismissed_from is trusted", "kernel/derive.py",
      '        if rv["state"] == "dismissed" and rv.get("dismissed_from") not in t.DISMISSED_FROM:\n',
      "        if False:\n"),

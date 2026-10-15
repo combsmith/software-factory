@@ -380,6 +380,25 @@ class HumanControl(unittest.TestCase):
         d = go(facts(**AGENT, reviews=[review(**MAINTAINER, at="2026-10-11T12:15:01Z"), asked]), REVIEWED)
         self.assertEqual((d["state"], d["action"]), ("converged", "issue_approval"))
 
+    def test_a_review_not_dismissed_that_carries_dismissal_fields_is_unreadable(self):  # I-13
+        # The schema cannot say "null unless dismissed", so the Kernel holds it. Read as given, an approval tagged
+        # as dismissed from a request would sort as a request in the same second, replace it, and drop the gate.
+        asked = review(state="changes_requested", **MAINTAINER)
+        approval = review(**MAINTAINER)
+        tagged = [dict(approval, dismissed_from="changes_requested"), dict(approval, dismissed_by=dict(COLLEAGUE)),
+                  dict(approval, dismissed_from="approved", dismissed_by=dict(AUTHOR_APP)),
+                  dict(asked, dismissed_from="approved"), dict(asked, dismissed_by=dict(MAINTAINER)),
+                  dict(review(state="commented", **MAINTAINER), dismissed_from="commented")]
+        for rv in tagged:
+            for reviews in ([asked, rv], [rv, asked], [rv]):
+                d = go(facts(**AGENT, reviews=reviews), ANSWERED)
+                self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                                 (None, "review_unreadable", "defer", "needs_you"), rv)
+                self.assertNotIn("action", d)
+        # The other side: with both fields null, the request in the same second stands, and waits for that person.
+        d = go(facts(**AGENT, reviews=[asked, approval]), ANSWERED)
+        self.assertEqual((d["state"], d["reason"], d["attention"]), ("addressing", "awaiting_human", "needs_you"))
+
     def test_a_request_for_changes_an_app_dismissed_still_stands(self):  # L-17
         asked = review(state="changes_requested", **MAINTAINER)
         for who in (AUTHOR_APP, REVIEWER_APP):

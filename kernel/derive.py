@@ -124,6 +124,9 @@ def unreadable_reviews(facts: dict) -> bool:
             return True
         if not is_time(rv.get("submitted_at")):
             return True
+        # Who dismissed a review, and what it was, belong to a dismissed review alone: the schema cannot say so.
+        if rv["state"] != "dismissed" and (rv.get("dismissed_by") is not None or rv.get("dismissed_from") is not None):
+            return True
         if rv["state"] == "dismissed" and not readable_actor(rv.get("dismissed_by")):
             return True
         if rv["state"] == "dismissed" and rv.get("dismissed_from") not in t.DISMISSED_FROM:
