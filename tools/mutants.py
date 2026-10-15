@@ -166,6 +166,14 @@ def attempt(mutant: tuple, root: pathlib.Path, run) -> tuple:
         return verdict(*run(work))
 
 
+def guarded(mutant: tuple, root: pathlib.Path, run) -> tuple:
+    """`attempt`, with anything it raises made an ERROR for this mutant, so that the others still report."""
+    try:
+        return attempt(mutant, root, run)
+    except Exception as err:    # a failed copy, read or run; never a kill
+        return "ERROR", "the run failed: %s: %s" % (type(err).__name__, err)
+
+
 def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: int = None) -> int:
     mutants = MUTANTS if mutants is None else mutants
     outcome, why = verdict(*run(root))
@@ -176,7 +184,7 @@ def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: in
     killed = 0
     # One run to a CPU. map() hands the results back in the order of `mutants`, however the runs finish.
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers or os.cpu_count() or 1) as pool:
-        results = pool.map(lambda mutant: attempt(mutant, root, run), mutants)
+        results = pool.map(lambda mutant: guarded(mutant, root, run), mutants)
         for mutant, (outcome, why) in zip(mutants, results):
             print("%-9s %s%s" % (outcome, mutant[0], " (%s)" % why if why else ""), flush=True)
             killed += outcome == "killed"

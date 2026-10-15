@@ -1371,6 +1371,8 @@ def told(behaviour: dict, calls: list):
         calls.append(said)
         wait, status, output = behaviour[said]
         time.sleep(wait)
+        if isinstance(output, Exception):
+            raise output
         calls.append("done " + said)
         return status, output
     return run
@@ -1441,6 +1443,13 @@ class Mutants(unittest.TestCase):
                                     ["fails", "passes"], stale)
         self.assertEqual(lines, ["killed    fails", "SURVIVED  passes", "STALE     gone (the code it mutates has changed)",
                                  "1 of 3 mutants killed"])
+        self.assertEqual(code, 1)
+
+    def test_a_run_that_raises_is_an_error_and_the_rest_still_report(self):
+        code, lines, _ = self.check({"before": (0, 1, FAILS_A_TEST), "raises": (0, 1, OSError("disk full")),
+                                     "after": (0.2, 1, FAILS_A_TEST)}, ["before", "raises", "after"])
+        self.assertEqual(lines, ["killed    before", "ERROR     raises (the run failed: OSError: disk full)",
+                                 "killed    after", "2 of 3 mutants killed"])
         self.assertEqual(code, 1)
 
     def test_tests_that_fail_unbroken_stop_the_check_before_any_mutant(self):
