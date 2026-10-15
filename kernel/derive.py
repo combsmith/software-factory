@@ -125,18 +125,18 @@ def standing_approval(facts: dict, config: dict):
 def derive(facts: dict, runs: list, config: dict) -> dict:
     """Return {'state', 'reason', 'evidence'} for one pull request.
 
-    `state` is None when the facts are incomplete, or the merge state is not
-    known: an incomplete read is an unreadable one, and nothing may be
-    concluded from it.
+    `state` is None when the facts of an open item are incomplete, or the
+    merge state is not known: an incomplete read is an unreadable one, and
+    nothing may be concluded from it.
     """
-    gaps = incomplete(facts)
-    if gaps:
-        return {"state": None, "reason": "facts_incomplete", "evidence": gaps}
-
     if facts["state"] == "merged":
         return {"state": t.MERGED, "reason": "merged", "evidence": []}
     if facts["state"] == "closed":
         return {"state": t.CLOSED, "reason": "closed", "evidence": []}
+    # A merged or closed item is read from no list. The list of Runs is read once a pass for every item.
+    gaps = incomplete(facts)
+    if gaps:
+        return {"state": None, "reason": "facts_incomplete", "evidence": gaps}
     if not facts["targets_protected"]:
         return {"state": t.NOT_SERVED, "reason": "base_not_protected", "evidence": []}
     if facts["is_draft"]:

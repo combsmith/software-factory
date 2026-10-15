@@ -23,11 +23,24 @@ def go(f, runs=(), ctx=None, cfg=None):
 
 class Readability(unittest.TestCase):
     def test_incomplete_facts_never_converge_or_admit(self):  # I-20
-        for part in ("reviews", "threads", "checks", "diff"):
-            f = facts()
-            f["complete"][part] = False
-            d = go(f, REVIEWED)
-            self.assertEqual((d["outcome"], d["reason"], d["state"]), ("defer", "facts_incomplete", None))
+        # A list of Runs read short can hide a Run in progress or one that counts toward a ceiling (I-13).
+        for runs, whole in ((REVIEWED, "act"), ((), "admit")):
+            self.assertEqual(go(facts(), runs)["outcome"], whole)
+            for part in ("reviews", "threads", "checks", "diff", "runs"):
+                f = facts()
+                f["complete"][part] = False
+                d = go(f, runs)
+                self.assertEqual((d["outcome"], d["reason"], d["state"], d["evidence"]),
+                                 ("defer", "facts_incomplete", None, [part]), part)
+
+    def test_incomplete_facts_are_read_after_a_merged_or_closed_item(self):  # I-20
+        # The list of Runs is read once a pass for every item; cut short, it must not hide a merge or a close.
+        for state in ("merged", "closed"):
+            for part in ("reviews", "threads", "checks", "diff", "runs"):
+                f = facts(state=state)
+                f["complete"][part] = False
+                d = go(f, REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["outcome"]), (state, state, "nothing"), part)
 
     def test_unreadable_pause_defers(self):  # I-13
         d = go(facts(), ctx={"active_runs": 0, "model_deferred_until": None})

@@ -27,6 +27,7 @@ RULES = (
     ("a_queued_run_is_listed", "A Run is in the list of run records from when it is queued, before its job starts",
      ("P-17",), None),
     ("a_new_run_is_listed_late", "The newest Run can be missing from the list of run records for one pass", ("P-22",), None),
+    ("a_run_list_stops_short", "The list of run records can stop short, with the oldest Runs missing", (), None),
     ("a_killed_job_times_out", "A job killed part way concludes timed_out", ("P-18",), None),
     ("a_superseded_run_fails", "A Run whose apply refuses, or that never starts, concludes failure", ("P-17",), None),
     ("a_short_diff_says_so", "A diff read short says so, and is not mistaken for the whole", ("P-29",), None),

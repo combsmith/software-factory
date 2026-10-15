@@ -17,6 +17,14 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 MUTANTS = [
     ("incomplete facts are trusted", "kernel/derive.py",
      "    gaps = incomplete(facts)\n", "    gaps = []\n"),
+    ("a list of Runs read short is trusted", "kernel/derive.py",
+     '    return sorted(k for k, whole in facts["complete"].items() if not whole)\n',
+     '    return sorted(k for k, whole in facts["complete"].items() if not whole and k != "runs")\n'),
+    ("incomplete facts are read before a merged or closed item", "kernel/derive.py",
+     '    if facts["state"] == "merged":\n',
+     "    if incomplete(facts):\n"
+     '        return {"state": None, "reason": "facts_incomplete", "evidence": incomplete(facts)}\n'
+     '    if facts["state"] == "merged":\n'),
     ("model review before the checks pass", "kernel/derive.py",
      "    if waiting:\n", "    if False:\n"),
     ("a failed check is ignored", "kernel/derive.py",

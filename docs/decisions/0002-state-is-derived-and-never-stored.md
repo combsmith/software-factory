@@ -23,7 +23,8 @@ disagreed with GitHub. If a pass is lost, the next one reaches the same answer.
 | Every transition the Factory makes is declared in the Lifecycle | `tests/test_simulator.py::test_invariants_hold_under_faults` |
 | The Lifecycle terminates, and every cycle is bounded or passes through a person | `tools/check_lifecycle.py` |
 | No text written by a third party reaches the Kernel: facts carry no prose | `examples/invalid/facts.carries-prose.json`, `tools/check_examples.py` |
-| Facts say whether they are complete; incomplete facts never converge and never admit | `examples/invalid/facts.no-completeness.json`, `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit` |
+| Facts say whether they are complete, the list of Runs among them; incomplete facts never converge and never admit | `examples/invalid/facts.no-completeness.json`, `examples/invalid/facts.no-completeness-for-runs.json`, `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit` |
+| A merged or closed item keeps its State when a list was read short | `tests/test_decide.py::test_incomplete_facts_are_read_after_a_merged_or_closed_item` |
 | No decision reads the control room: the Kernel is given facts, run records, context, configuration and the time, and nothing else | `tests/test_decide.py::test_admission_is_given_facts_and_never_an_event` |
 | Every pass records the facts it read and the Decisions it made, so that any of them can be replayed | waiting on `controller/` |
 | A view rebuilt from GitHub equals the view updated pass by pass | waiting on `controller/` |

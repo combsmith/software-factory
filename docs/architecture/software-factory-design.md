@@ -327,11 +327,14 @@ for contract tests, so one schema has three uses.
 | `queue` | Merge-queue membership |
 | `actors_since_human` | Count of automated actions since the last human one, from GitHub's timeline |
 | `read_at`, `quota_remaining` | When it was read, and what the installation has left |
-| `complete` | For each list above, whether every page was read; and whether the diff behind `content_id` was whole |
+| `complete` | For each list above, whether every page was read; whether the diff behind `content_id` was whole; and `runs`, whether the list of run records the pass read was whole |
 
 An incomplete read is an unreadable one. A list cut off at a page limit must never be taken to mean
 "nothing more": the Kernel defers on any fact marked incomplete, and a truncated diff means a
-review, never "unchanged".
+review, never "unchanged". The list of Runs is read once a pass, and the port sets `runs` on each
+item from that one read. Read short, it can hide a Run in progress or one that counts toward a
+ceiling, so the item defers (I-13, I-20). A merged or closed item is read from no list, and keeps
+its State whatever the flags say.
 
 An issue has facts of its own (§4.1, the issue Lifecycle):
 

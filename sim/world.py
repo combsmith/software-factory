@@ -71,7 +71,7 @@ class World:
             "reviews": copy.deepcopy(self.reviews), "threads": copy.deepcopy(self.threads),
             "checks": [{"lens": k, "conclusion": v} for k, v in sorted(self.checks.items())],
             "queue": self.queue,
-            "complete": {"reviews": True, "threads": True, "checks": True, "diff": True},
+            "complete": {"reviews": True, "threads": True, "checks": True, "diff": True, "runs": True},
             "read_at": self.now(),
         }
 
@@ -104,10 +104,14 @@ class World:
         elif fault < 0.14:
             # GitHub: a_short_diff_says_so
             # GitHub: a_short_list_says_so
-            facts["complete"][self.pick(sorted(facts["complete"]))] = False
+            facts["complete"][self.pick(sorted(k for k in facts["complete"] if k != "runs"))] = False
         elif fault < 0.20 and runs:
             # GitHub: a_new_run_is_listed_late
             runs = runs[:-1]
+        elif fault < 0.25 and runs:
+            # GitHub: a_run_list_stops_short
+            runs = runs[self.pick(range(1, len(runs) + 1)):]
+            facts["complete"]["runs"] = False
         self.stale = (copy.deepcopy(facts), copy.deepcopy(runs))
         wrong = validate(facts, FACTS_SCHEMA)
         self.check(not wrong, "facts are valid: %s" % "; ".join(wrong))
