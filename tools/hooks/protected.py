@@ -26,6 +26,8 @@ import json
 import os
 import pathlib
 import re
+import shutil
+import subprocess
 import sys
 import time
 
@@ -37,12 +39,10 @@ DEADLINE = 5.0          # seconds to read one tool call; the settings give the h
 LONGEST = 256 * 1024    # characters of a command the hook reads
 LONGEST_PATH = 4096     # characters of a path
 NAME = 255              # characters of one name in a path
-STARS = 8               # wildcards in one name the hook expands
 MATCHES = 2000          # paths one wildcard may match
 FILE_TOOLS = {"Edit": "file_path", "Write": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path"}
 SHOWN = 6               # reasons put in front of the person
 GLOB = re.compile(r"[*?\[]")
-BRACE = re.compile(r"\{[^{}]*(,|\.\.)[^{}]*\}")     # what the shell expands: {a,b} and {1..9}, not {} or @{0}
 VARIABLE = re.compile(r"\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))")
 ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
 # Words that come before the program and change nothing about what it does.
@@ -84,6 +84,15 @@ GIT_READS = {"add", "annotate", "blame", "branch", "cat-file", "check-attr", "ch
              "version", "whatchanged", "worktree"}
 GIT_VALUED = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}
 PUSH_VALUED = {"-o", "--push-option", "--receive-pack", "--exec", "--repo"}
+# Where a push with no refspec goes is read exactly only under these; any other push.default may reach main.
+PUSH_DEFAULTS = {None, "simple", "current"}
+# git configuration that says where a push goes.
+PUSH_KEYS = re.compile(r"^(push\.|remote\..*\.push$|branch\..*\.(merge|remote)$)", re.I | re.S)
+# What branch and tag do when given these: list, show or delete, and write no new name.
+REF_READS = {"-l", "--list", "-a", "--all", "-r", "--remotes", "-d", "-D", "--delete", "-v", "-vv", "--verbose",
+             "--show-current", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "-n",
+             "--sort", "--format", "--column", "--verify"}
+REMOTE_REF = "refs/remotes/"
 GH_VALUED = {"-R", "--repo", "--hostname"}
 GH_COMMANDS = {"accessibility", "agent-task", "alias", "api", "attestation", "auth", "browse", "cache", "co",
                "codespace", "completion", "config", "copilot", "extension", "ext", "gist", "gpg-key", "help", "issue",
@@ -117,6 +126,9 @@ class Budget:
         if time.monotonic() > self.until:
             raise Spent()
 
+    def left(self) -> float:
+        return max(0.0, self.until - time.monotonic())
+
 
 def _glob(pattern: str, segment: str, most: str = "*") -> str:
     """A regular expression for a pattern of names: `*` is any part of one name (`segment` is what a name is made of)."""
@@ -148,7 +160,7 @@ def entries(listing: list) -> list:
     for path, what in listing:
         parts = path.casefold().rstrip("/").split("/")
         whole = re.compile("/".join(_glob(p, "[^/]") for p in parts) + ("(/.*)?" if path.endswith("/") else "")
-                           + r"\Z")
+                           + r"\Z", re.S)
         out.append((path, what, parts, whole))
     return out
 
@@ -167,10 +179,12 @@ class Rules:
         self.spend = spend
         self.entries, self.named = entries(data["protected"]), []
         for path, what, parts, _ in self.entries:
-            # As text, a path is named whole, or a file by its own name: in a script, `open("authority.json")`.
-            forms = ["/".join(parts)] + ([parts[-1]] if not path.endswith("/") and len(parts) > 1 else [])
+            # As text, a path is named whole, or a file by its own name, `open("authority.json")`, when that name has
+            # an extension: `config`, the name of .git/config, is too common a word to read as a path.
+            forms = ["/".join(parts)] + ([parts[-1]] if not path.endswith("/") and len(parts) > 1 and "." in parts[-1]
+                                         else [])
             self.named.append((re.compile(r"(?<![\w.-])(%s)(?![\w.-])" % "|".join(
-                _glob(f, r"[^/\s'\"]", "{0,%d}" % NAME) for f in forms)), path, what))
+                _glob(f, r"[^/\s'\"]", "{0,%d}" % NAME) for f in forms), re.S), path, what))
         project = pathlib.Path(env.get("CLAUDE_PROJECT_DIR") or ROOT)
         tops = {str(project), str(ROOT)} | ({env["HOME"]} if env.get("HOME") else set())
         self.tops = {os.path.normpath(t) for t in tops} | {os.path.realpath(t) for t in tops}
@@ -213,7 +227,7 @@ class Rules:
                     if whole.match(rel):
                         return path_, what
                     if holds and len(parts) < len(entry) and all(
-                            re.match(_glob(e, "[^/]") + r"\Z", p) for e, p in zip(entry, parts)):
+                            re.match(_glob(e, "[^/]") + r"\Z", p, re.S) for e, p in zip(entry, parts)):
                         return path_, "a directory that holds %s" % what
         return None
 
@@ -254,7 +268,7 @@ class Command:
     """One Bash command read, simple command by simple command, for the paths it writes, a merge and a setting."""
 
     def __init__(self, text: str, cwd, rules: Rules, data: dict, env: dict):
-        self.text, self.rules, self.data, self.spend = text, rules, data, rules.spend
+        self.text, self.rules, self.data, self.spend, self.env = text, rules, data, rules.spend, env
         self.here = os.path.normpath(cwd) if cwd and os.path.isabs(cwd) else None
         self.known = {k: env[k] for k in ("HOME", "TMPDIR", "CLAUDE_PROJECT_DIR") if env.get(k)}
         self.found = []
@@ -286,14 +300,15 @@ class Command:
         word = self.expand(word)
         if word is None:
             raise Unreadable("a path is held in a variable or a command the hook cannot read")
+        if len(word) > LONGEST_PATH:
+            raise Unreadable("a path is longer than the hook reads")
         if not os.path.isabs(word):
             if here is None:
                 raise Unreadable("the directory the command runs in cannot be told from its words")
             word = os.path.join(here, word)
-        if BRACE.search(word):
-            while BRACE.search(word):
-                word = BRACE.sub("*", word)
-            if any(self.rules.where(p) for p in _wildcards(word, self.spend)):
+        starred = _starred(word, self.spend)
+        if starred != word:
+            if any(self.rules.where(p) for p in _wildcards(starred, self.spend)):
                 raise Unreadable("a brace may spell a protected path, and the hook does not expand braces")
             return []
         return _wildcards(word, self.spend) if GLOB.search(word) else [word]
@@ -535,7 +550,7 @@ class Command:
                 name = os.path.basename(source.rstrip("/"))
                 if source.endswith("/") or name in (".", ""):
                     into = place            # what is in the source, not the source itself
-                elif self.expand(name) is None or BRACE.search(name):
+                elif self.expand(name) is None or _starred(name, self.spend) != name:
                     into = os.path.join(place, "*")     # a name the hook cannot read may be any name there
                 else:
                     into = os.path.join(place, name)
@@ -636,6 +651,7 @@ class Command:
             at = tool
         program, args = os.path.basename(words[at]), words[at + 1:]
         if program == "git":
+            self._refs(args)
             self._push(args)
             return
         positional = _positional(args, GH_VALUED)
@@ -670,6 +686,8 @@ class Command:
             i += 1
         if args[i:i + 1] != ["push"]:
             return
+        if not os.path.isabs(here or ""):
+            here = None
         rest, positional, j = args[i + 1:], [], 0
         while j < len(rest):
             option, given, _ = rest[j].partition("=")
@@ -685,17 +703,75 @@ class Command:
         if {"--all", "--mirror", "--branches"} & set(rest):
             self.ask("merge", "git push of every branch writes %s, which only a merge from the queue writes" % branch)
             return
+        if not positional[1:] and not self._destination_read(here):
+            return
         targets = []
         for spec in positional[1:] or ["HEAD"]:
             target = spec.lstrip("+").rsplit(":", 1)[-1]
+            if target.startswith(REMOTE_REF):
+                self.ask("remote_ref", "git push writes a ref under refs/remotes/, which a stop compares the "
+                                       "branch with")
+                return
             if target in ("HEAD", "@") or "$" in target or "`" in target:   # the branch it is on
                 target = _branch(here)
                 if target is None:
-                    self.ask("command_unreadable", "the branch a push goes to cannot be read")
+                    self.ask("merge", "the branch a push goes to cannot be read, and it may be %s" % branch)
                     return
             targets.append(target)
         if any(re.sub(r"^refs/heads/", "", t.casefold()) == branch.casefold() for t in targets):
             self.ask("merge", "git push writes %s, which only a merge from the queue writes" % branch)
+
+    def _destination_read(self, here) -> bool:
+        """Whether a push that names no refspec goes, exactly, to the branch it is on. If not, it asks."""
+        branch = self.data["branch"]
+        try:
+            default = _git_config(here, self.env, ["--get", "push.default"], self.spend)
+            refspecs = _git_config(here, self.env, ["--get-regexp", r"^remote\..*\.push$"], self.spend)
+        except Unreadable:
+            self.ask("merge", "a push that names no branch goes where git's configuration says, which the hook cannot "
+                              "read, and it may be %s" % branch)
+            return False
+        if (default.strip().casefold() or None) not in PUSH_DEFAULTS or refspecs.strip():
+            self.ask("merge", "a push that names no branch goes where push.default or remote.*.push says, which may "
+                              "be %s" % branch)
+            return False
+        return True
+
+    def _refs(self, args: list):
+        """Ask about git that writes a ref under refs/remotes/, or the configuration that says where a push goes."""
+        i, branch = 0, self.data["branch"]
+        while i < len(args) and args[i].startswith("-"):
+            option, given, value = args[i].partition("=")
+            if option in GIT_VALUED and not given:
+                i += 1
+                value = args[i] if i < len(args) else ""
+            if option in ("-c", "--config-env") and PUSH_KEYS.match(value.split("=", 1)[0]):
+                self.ask("merge", "git -c sets where a push goes, which may be %s" % branch)
+            i += 1
+        sub, rest = (args[i], args[i + 1:]) if i < len(args) else ("", [])
+        names = [w for w in rest if not w.startswith("-")]
+        if sub == "update-ref" and any(REMOTE_REF in w or w == "--stdin" for w in rest):
+            self.ask("remote_ref", "git update-ref writes a ref under refs/remotes/, which a stop compares the branch with")
+        elif sub == "fetch" and len(names) > 1 and (names[0] == "." or "/" in names[0] or ":" in names[0]) and any(
+                spec.lstrip("+").rsplit(":", 1)[-1].startswith(REMOTE_REF) for spec in names[1:] if ":" in spec):
+            self.ask("remote_ref", "git fetch from a repository that is not a remote writes a ref under refs/remotes/, "
+                                   "which a stop compares the branch with")
+        elif sub in ("branch", "tag") and not REF_READS & {w.split("=", 1)[0] for w in rest}:
+            if sub == "branch" and any(w in ("-u", "--set-upstream-to") or w.startswith("--set-upstream-to=")
+                                       for w in rest):
+                self.ask("merge", "git branch sets where a push goes, which may be %s" % branch)
+            elif any(n.startswith("origin/") or n.startswith("refs/") for n in names):
+                self.ask("remote_ref", "git %s makes a name like a remote branch, which a stop compares the branch "
+                                       "with" % sub)
+        elif sub == "symbolic-ref" and (len(names) > 1 or "-d" in rest or "--delete" in rest):
+            self.ask("remote_ref", "git symbolic-ref writes a ref, which a stop may compare the branch with")
+        elif sub == "config":
+            reads = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "-l", "--list", "get", "list"}
+            if not reads & set(rest) and (len(names) > 1 or any(w.startswith("--unset") or w in ("--add", "unset",
+                                          "--remove-section", "--rename-section", "--replace-all") for w in rest)):
+                if any(PUSH_KEYS.match(n) or n.split(".")[0].casefold() in ("remote", "branch", "push")
+                       for n in names if n not in ("set", "unset")):
+                    self.ask("merge", "git config writes where a push goes, which may be %s" % branch)
 
 
 HANDLED = {"sed", "find", "cp", "mv", "install", "git", "gh"}
@@ -749,43 +825,135 @@ def _wildcards(path: str, spend, limit: int = MATCHES) -> list:
         if not GLOB.search(part):
             found = [os.path.join(f, part) for f in found]
             continue
-        pattern = re.compile(_shell_glob(part) + r"\Z", re.I)
-        nxt = []
+        if len(part) > 4 * NAME:
+            raise Unreadable("a wildcard is longer than the hook reads")
+        tokens, nxt = _tokens(part), []
         for f in found:
-            spend()
             try:
-                nxt += [os.path.join(f, n) for n in sorted(os.listdir(f)) if pattern.match(n)]
+                names = sorted(os.listdir(f))
             except OSError:
                 continue
+            for n in names:
+                spend()     # each name costs at most len(part) times len(n) steps
+                if _match(tokens, n):
+                    nxt.append(os.path.join(f, n))
             if len(nxt) > limit:
                 raise Unreadable("a wildcard matches more paths than the hook reads")
         found = nxt
     return found or [path]
 
 
-def _shell_glob(part: str) -> str:
-    part = re.sub(r"\*+", "*", part)
-    if len(GLOB.findall(part)) > STARS:
-        raise Unreadable("a name holds more wildcards than the hook reads")
+def _tokens(pattern: str) -> list:
+    """A shell pattern for one name as tokens: "*", "?", a class (negated, set of ranges), or one character."""
     out, i = [], 0
-    while i < len(part):
-        c = part[i]
-        if c == "*":
-            out.append(".*")
-        elif c == "?":
-            out.append(".")
-        elif c == "[":
-            end = part.find("]", i + 2)
-            if end < 0:
-                out.append(re.escape(c))
-            else:
-                body = part[i + 1:end]
-                out.append("[" + ("^" + body[1:] if body[:1] in "!^" and body else body).replace("\\", "\\\\") + "]")
-                i = end
+    while i < len(pattern):
+        c = pattern[i]
+        end = pattern.find("]", i + 2) if c == "[" else -1
+        if c in "*?":
+            if not (c == "*" and out and out[-1] == "*"):
+                out.append(c)
+        elif end > 0:
+            body = pattern[i + 1:end]
+            negated = body[:1] in ("!", "^")
+            body = body[1:] if negated else body
+            ranges, j = [], 0
+            while j < len(body):
+                if j + 2 < len(body) and body[j + 1] == "-":
+                    ranges.append((body[j].casefold(), body[j + 2].casefold()))
+                    j += 3
+                else:
+                    ranges.append((body[j].casefold(), body[j].casefold()))
+                    j += 1
+            out.append((negated, ranges))
+            i = end
         else:
-            out.append(re.escape(c))
+            out.append(c.casefold())
+        i += 1
+    return out
+
+
+def _one(token, c: str) -> bool:
+    if token == "?":
+        return True
+    if isinstance(token, tuple):
+        negated, ranges = token
+        return any(low <= c <= high for low, high in ranges) != negated
+    return token == c
+
+
+def _glob_match(pattern: str, name: str) -> bool:
+    """Whether a shell pattern matches one name, without regard to case."""
+    return _match(_tokens(pattern), name)
+
+
+def _match(tokens: list, name: str) -> bool:
+    """Whether tokens of a pattern match one name. Two pointers, going back only to the last star: at most
+    len(tokens) times len(name) steps, never more."""
+    name = name.casefold()
+    p = n = 0
+    star, mark = -1, 0
+    while n < len(name):
+        if p < len(tokens) and tokens[p] != "*" and _one(tokens[p], name[n]):
+            p, n = p + 1, n + 1
+        elif p < len(tokens) and tokens[p] == "*":
+            star, mark, p = p, n, p + 1
+        elif star >= 0:
+            mark += 1
+            p, n = star + 1, mark
+        else:
+            return False
+    while p < len(tokens) and tokens[p] == "*":
+        p += 1
+    return p == len(tokens)
+
+
+def _starred(word: str, spend) -> str:
+    """The word with each brace expansion ({a,b} or {1..9}) made a wildcard, in one pass; braces left open stay."""
+    out, open_at = [], []       # open_at: [where the brace starts in out, whether it expands]
+    i = 0
+    while i < len(word):
+        if i % 4096 == 0:
+            spend()
+        c = word[i]
+        if c == "{":
+            open_at.append([len(out), False])
+            out.append(c)
+        elif c == "}" and open_at:
+            start, expands = open_at.pop()
+            if expands:
+                del out[start:]     # each character is taken away at most once
+                out.append("*")
+                if open_at:
+                    open_at[-1][1] = True
+            else:
+                out.append(c)
+        elif c == "," and open_at:
+            open_at[-1][1] = True
+            out.append(c)
+        elif c == "." and open_at and word.startswith("..", i):
+            open_at[-1][1] = True
+            out.append("..")
+            i += 1
+        else:
+            out.append(c)
         i += 1
     return "".join(out)
+
+
+def _git_config(here, env: dict, args: list, spend) -> str:
+    """What `git config` says in `here`: "" when the key is not set. Raises Unreadable when git cannot say."""
+    spend()
+    exe = shutil.which("git", path=env.get("PATH", os.defpath))
+    if exe is None or not here:
+        raise Unreadable("git's configuration cannot be read")
+    try:
+        done = subprocess.run([exe, "config"] + args, cwd=here, env=env, capture_output=True, text=True,
+                              timeout=max(0.1, spend.left()))
+    except (OSError, subprocess.TimeoutExpired):
+        raise Unreadable("git's configuration cannot be read")
+    if done.returncode not in (0, 1):
+        raise Unreadable("git's configuration cannot be read")
+    return done.stdout if done.returncode == 0 else ""
 
 
 def _without_script(program: str, args: list) -> list:
@@ -841,11 +1009,11 @@ def _mutations(patterns: list, text: str) -> list:
     if "mutation" not in text.casefold():
         return []
     names = set(re.findall(r"[_a-z][_a-z0-9]*", text.casefold()))
-    return [p for p in patterns if any(re.match(_glob(p.casefold(), "[_a-z0-9]") + r"\Z", n) for n in names)]
+    return [p for p in patterns if any(re.match(_glob(p.casefold(), "[_a-z0-9]") + r"\Z", n, re.S) for n in names)]
 
 
 def _api(args: list, data: dict, rules: Rules) -> list:
-    method, endpoint, values, unread, unknown, i = None, None, [], False, False, 0
+    method, endpoint, values, fields, unread, unknown, i = None, None, [], {}, False, False, 0
     while i < len(args):
         word = args[i]
         option, given, value = word.partition("=")
@@ -859,7 +1027,8 @@ def _api(args: list, data: dict, rules: Rules) -> list:
                 if option in ("-X", "--method"):
                     method = value.upper()
                 elif option in ("-f", "--raw-field", "-F", "--field"):
-                    field = value.partition("=")[2]
+                    name, _, field = value.partition("=")
+                    fields[name] = field
                     values.append(field)
                     unread = unread or field[:1] in ("@", "$", "`")
                 elif option == "--input":
@@ -880,8 +1049,6 @@ def _api(args: list, data: dict, rules: Rules) -> list:
         for group, code in (("merging", "merge"), ("settings", "repo_settings")):
             for name in _mutations(data[group]["mutations"], text):
                 found.append((code, "the GraphQL mutation %s is the Maintainer's" % name))
-        if "createcommitonbranch" in text.casefold() and rules.names(text):
-            found.append(("protected_path", "a commit made on GitHub names %s, which is %s" % rules.names(text)))
         if unread and not found:
             found.append(("command_unreadable", "gh api graphql reads its query from a file, stdin or a variable, so "
                                                 "what it changes cannot be read"))
@@ -896,7 +1063,13 @@ def _api(args: list, data: dict, rules: Rules) -> list:
     for pattern in data["settings"]["endpoints"]:
         if _route(pattern, path):
             found.append(("repo_settings", "gh api writes %s, the repo's rules or settings" % pattern))
-    named = rules.names(path.split("/", 4)[4]) if re.match(r"repos/[^/]+/[^/]+/contents/", path) else None
+    contents = re.match(r"repos/[^/]+/[^/]+/contents/", path)
+    target = fields.get("branch")
+    if contents and method in ("PUT", "DELETE") and (unread or target is None or "$" in target or "`" in target
+                                                     or re.sub(r"^refs/heads/", "", target) == data["branch"]):
+        found.append(("merge", "gh api writes through the contents API to %s, or to a branch it cannot read"
+                      % data["branch"]))
+    named = rules.names(path.split("/", 4)[4]) if contents else None
     if named:
         found.append(("protected_path", "gh api writes %s on GitHub, which is %s" % named))
     if not found and unknown:

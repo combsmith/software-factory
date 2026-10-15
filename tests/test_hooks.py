@@ -382,8 +382,8 @@ def a_tree(branch: str = "feature") -> pathlib.Path:
     """A project laid out like this one, a working tree on `branch`, with one worktree under .claude/worktrees/."""
     where = folder()
     for top in (where, where / ".claude" / "worktrees" / "w"):
-        for rel in [example(e["path"]) for e in RULES["protected"]] + ["docs/notes.md", "lifecycle/issue.json",
-                                                                       "kernel/decide.py", "tests/test_hooks.py"]:
+        for rel in [example(e["path"]) for e in RULES["protected"] if not e["path"].startswith(".git/")] + [
+                "docs/notes.md", "lifecycle/issue.json", "kernel/decide.py", "tests/test_hooks.py"]:
             (top / rel).parent.mkdir(parents=True, exist_ok=True)
             (top / rel).write_text("{}\n")
     (where / ".git" / "worktrees" / "w").mkdir(parents=True)
@@ -399,7 +399,7 @@ class Asks(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.project = a_tree()
-        cls.env = environment(programs(), CLAUDE_PROJECT_DIR=str(cls.project), TMPDIR=str(folder()))
+        cls.env = environment(programs("git"), CLAUDE_PROJECT_DIR=str(cls.project), TMPDIR=str(folder()))
 
     def edit(self, path, tool="Edit", cwd=None, **check) -> str:
         payload = {"hook_event_name": "PreToolUse", "tool_name": tool, "cwd": str(cwd or self.project),
@@ -590,6 +590,35 @@ class ProtectedPaths(Asks):
         self.assertEqual(json.loads(done.stdout)["hookSpecificOutput"]["permissionDecision"], "ask")
         self.asked(self.run_("touch %s" % ("{a,b}" * 25)), "path_unreadable", "a bomb with no redirection")
 
+    def test_a_brace_left_open_is_read_within_the_budget(self):
+        started = time.monotonic()
+        self.asked(self.run_("rm {" + "a," * 100000), "path_unreadable", "a brace left open, 200 KB long")
+        self.assertLess(time.monotonic() - started, protected.DEADLINE)
+        started = time.monotonic()
+        self.assertEqual(protected._starred("{" + "a," * 100000, lambda: None), "{" + "a," * 100000)
+        self.assertLess(time.monotonic() - started, 1)
+        for word, starred in (("x{a,b}y{1..9}", "x*y*"), ("{}", "{}"), ("stash@{0}", "stash@{0}"),
+                              ("{a,{b,c}}", "*"), ("{a,b", "{a,b"), ("a}b{c,d}", "a}b*")):
+            self.assertEqual(protected._starred(word, lambda: None), starred, word)
+
+    def test_a_wildcard_that_would_backtrack_is_read_within_the_budget(self):
+        p = a_tree()
+        (p / "lifecycle" / ("a" * 250)).write_text("")
+        (p / "docs" / "l").symlink_to(p / "lifecycle")     # a way into a protected path that names none
+        started = time.monotonic()
+        self.asked(self.run_("rm docs/l/*a*a*a*a*c", p), "protected_path", "a wildcard over a long name")
+        self.assertLess(time.monotonic() - started, protected.DEADLINE)
+        for pattern, name, matches in (("*a*a*c", "a" * 250, False), ("*a*a*a", "a" * 250, True),
+                                       ("*.json", "x.json", True), ("*.json", "x.jsonx", False),
+                                       ("[!x]?", "ab", True), ("[!x]?", "xb", False), ("[a-c]x", "Bx", True),
+                                       ("?", "", False), ("*", "", True), ("a[", "a[", True)):
+            self.assertEqual(protected._glob_match(pattern, name), matches, (pattern, name))
+
+    def test_a_path_with_a_newline_is_still_protected(self):
+        for rel in ("lifecycle/x\ny.json", ".github/a\nb.yml"):
+            self.asked(self.edit(self.project / rel), "protected_path", rel)
+            self.asked(self.run_('touch "%s"' % rel), "protected_path", rel)
+
     def test_a_parse_over_its_budget_asks(self):
         self.asked(self.run_("ls", seconds=0), "budget_spent", "no time")
         self.asked(self.run_("echo %s" % ("x" * protected.LONGEST)), "budget_spent", "too long")
@@ -623,11 +652,18 @@ class MergesAndSettings(Asks):
                 "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=y", "git push origin HEAD:main", "git push origin main",
                 "git push origin +x:refs/heads/main", "git push --mirror", "git push origin --delete main"):
             self.asked(self.run_(command), "merge", command)
-        on_main = a_tree("main")        # with no refspec, or HEAD, a push goes to the branch it is on
-        for command in ("git push", "git push origin", "git push -u origin HEAD", "git push origin @",
-                        'git push origin "$(git branch --show-current)"', "cd docs && git push"):
+        on_main = a_tree("main")        # with HEAD, a push goes to the branch it is on
+        for command in ("git push -u origin HEAD", "git push origin @",
+                        'git push origin "$(git branch --show-current)"', "cd docs && git push origin HEAD"):
             self.asked(self.run_(command, on_main), "merge", command)
-        self.asked(self.run_("git push", folder()), "command_unreadable", "a push from a directory with no branch")
+        self.asked(self.run_("git push origin HEAD", folder()), "merge", "a push from a directory with no branch")
+        mutation = "gh api graphql -f query='mutation { %s(input: {}) { clientMutationId } }'"
+        contents = "gh api -X %s repos/o/r/contents/docs/x.md -f message=m -f content=x"
+        for command in (mutation % "updateRefs", mutation % "updateRef", mutation % "createCommitOnBranch",
+                        contents % "PUT", contents % "PUT" + " -f branch=main", contents % "PUT" + " -f branch=refs/heads/main",
+                        contents % "DELETE" + " -f sha=s", contents % "PUT" + ' -f branch="$B"',
+                        "gh api -X PUT repos/o/r/contents/docs/x.md --input body.json"):
+            self.asked(self.run_(command), "merge", command)
         for command in ("gh api graphql -F query=@merge.graphql", "gh api graphql --input q.json",
                         "python3 -c \"import subprocess; subprocess.run(['gh', 'pr', 'merge', '5'])\"",
                         "curl -X PUT https://api.github.com/repos/o/r/pulls/5/merge", "gh alias set m 'pr merge'",
@@ -643,7 +679,52 @@ class MergesAndSettings(Asks):
                         "gh pr list --search is:merged", "gh --version", "gh pr merge 5 --squash",
                         "gh pr merge --auto 5", "gh -R o/r pr merge 5",
                         "gh api graphql -f query='mutation { enqueuePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'",
-                        "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {}) { clientMutationId } }'", "git push", "git push origin", "git push -u origin HEAD"):
+                        "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {}) { clientMutationId } }'",
+                        "gh api graphql -f query='mutation { enqueuePullRequest(input: {pullRequestId: \"x\", jump: true}) { clientMutationId } }'", "git push -u origin HEAD",
+                        "gh api -X PUT repos/o/r/contents/docs/x.md -f message=m -f content=x -f branch=feature"):
+            self.assertEqual(self.run_(command), "", command)
+
+    def test_a_push_naming_no_branch_asks_unless_where_it_goes_is_read_exactly(self):
+        feature, on_main, upstream, refspec = (repo(fresh=True) for _ in range(4))
+        for where in (feature, upstream, refspec):
+            git(where, "checkout", "-q", "-b", "feature")
+        git(on_main, "checkout", "-q", "-B", "main")
+        git(upstream, "config", "push.default", "upstream")
+        git(refspec, "config", "remote.origin.push", "HEAD:refs/heads/main")
+        for command in ("git push", "git push origin", "git push -u origin HEAD", "git config --get push.default",
+                        "git config --list", "git config core.editor vim", "git config push.default",
+                        "git config --get-all remote.origin.push main", "git config --get push.default simple",
+                        "git branch -a", "git branch --show-current"):
+            self.assertEqual(self.run_(command, feature), "", command)
+        for where in (on_main, upstream, refspec):
+            for command in ("git push", "git push origin", "git push --force-with-lease"):
+                self.asked(self.run_(command, where), "merge", (command, where))
+        payload, no_git = bash("git push", feature), environment(programs(), CLAUDE_PROJECT_DIR=str(self.project))
+        self.assertIn("merge", " ".join(c for c, _ in protected.check(payload, no_git)))
+        for command in ("git -c push.default=upstream push", "git -c push.default=upstream push origin feature",
+                        "git branch -u origin/main", "git branch --set-upstream-to=origin/main",
+                        "git branch --set-upstream-to origin/main feature", "git config push.default upstream",
+                        "git config --global push.default upstream", "git config set push.default upstream",
+                        "git config remote.origin.push HEAD:refs/heads/main",
+                        "git config --add remote.origin.push HEAD:refs/heads/main",
+                        "git config branch.feature.merge refs/heads/main", "git config branch.feature.remote origin",
+                        "git config --unset-all remote.origin.push"):
+            self.asked(self.run_(command, feature), "merge", command)
+        self.asked(self.run_("echo '[push] default = upstream' >> .git/config", feature), "protected_path",
+                   "a write to git's configuration")
+
+    def test_a_write_to_the_base_the_stop_compares_with_asks(self):
+        for command in ("git update-ref refs/remotes/origin/main HEAD", "git update-ref --stdin < /tmp/x",
+                        "git fetch . +HEAD:refs/remotes/origin/main", "git fetch . HEAD:refs/remotes/origin/main",
+                        "git fetch ../other main:refs/remotes/origin/main", "git push . HEAD:refs/remotes/origin/main",
+                        "git tag origin/main", "git branch origin/main", "git branch -f origin/main HEAD",
+                        "git tag -f refs/remotes/origin/main", "git symbolic-ref refs/remotes/origin/main refs/heads/x"):
+            self.asked(self.run_(command), "remote_ref", command)
+        for command in ("echo x > .git/refs/remotes/origin/main", "printf x >> .git/packed-refs"):
+            self.asked(self.run_(command), "protected_path", command)
+        for command in ("git fetch origin", "git fetch origin main", "git fetch origin main:refs/remotes/origin/main",
+                        "git tag v1", "git tag -l", "git branch feature-x", "git branch --list 'origin/*'",
+                        "git branch -r", "git symbolic-ref HEAD", "git symbolic-ref --short HEAD"):
             self.assertEqual(self.run_(command), "", command)
 
     def test_a_write_to_a_ruleset_or_the_repos_settings_asks(self):
@@ -700,9 +781,10 @@ class RulesChanged(unittest.TestCase):
         git(where, "update-ref", "refs/remotes/origin/main", "HEAD")
         return where
 
-    def told(self, where) -> str:
+    def told(self, where, **given) -> str:
         payload = {"hook_event_name": "Stop", "stop_hook_active": False, "cwd": str(where)}
-        code, out, err = rules_changed.respond(payload, environment(programs("git"), CLAUDE_PROJECT_DIR=str(where)))
+        code, out, err = rules_changed.respond(payload, environment(programs("git"), CLAUDE_PROJECT_DIR=str(where)),
+                                               **given)
         self.assertEqual((code, err), (0, ""))
         return json.loads(out)["systemMessage"] if out else ""
 
@@ -752,11 +834,39 @@ class RulesChanged(unittest.TestCase):
         git(where, "commit", "-q", "-m", "docs")
         self.assertEqual(self.told(where), "")
 
+    def test_a_base_faked_with_a_tag_or_a_branch_still_lists(self):
+        where = self.branch()
+        self.write(where, "lifecycle/issue.json")
+        git(where, "add", "-A")
+        git(where, "commit", "-q", "-m", "a rule")
+        git(where, "tag", "origin/main")
+        git(where, "branch", "origin/main")
+        self.assertIn("lifecycle/issue.json", self.told(where))
+
+    def test_a_name_with_a_newline_or_bytes_that_are_not_utf8_is_listed_escaped(self):
+        where = self.branch()
+        self.write(where, "lifecycle/x\ny.json")
+        blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=where, input=b"{}", check=True,
+                              capture_output=True, env=environment(programs("git"))).stdout.strip()
+        subprocess.run([b"git", b"update-index", b"--add", b"--cacheinfo", b"100644," + blob + b",lifecycle/\xff.json"],
+                       cwd=where, check=True, capture_output=True, env=environment(programs("git")))
+        said = self.told(where)
+        self.assertIn(repr("lifecycle/x\ny.json"), said)
+        self.assertNotIn("x\ny.json", said)
+        self.assertIn("lifecycle/\\udcff.json", said)
+        self.assertTrue(all(c.isprintable() or c == "\n" for c in said))
+
+    def test_a_check_that_runs_out_of_time_says_so(self):
+        self.assertIn("could not be listed", self.told(self.branch(), seconds=0))
+
     def test_a_branch_whose_base_cannot_be_read_says_so(self):
         where = repo(fresh=True)
         git(where, "remote", "remove", "origin")
         self.assertIn("could not be listed", self.told(where))
         self.assertIn("could not be listed", self.told(folder()))
+        code, out, _ = rules_changed.respond({"cwd": 7}, environment(programs("git")))     # whatever goes wrong
+        self.assertEqual(code, 0)
+        self.assertIn("could not be listed", json.loads(out)["systemMessage"])
 
 
 class Settings(unittest.TestCase):

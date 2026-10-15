@@ -15,7 +15,10 @@
     {"path": ".claude/settings*.json", "is": "the hooks' wiring, or settings that could switch them off"},
     {"path": "tools/hooks/", "is": "a session hook"},
     {"path": "config/hooks.json", "is": "what the session hooks are told"},
-    {"path": "schemas/hooks.schema.json", "is": "the schema of what the session hooks are told"}
+    {"path": "schemas/hooks.schema.json", "is": "the schema of what the session hooks are told"},
+    {"path": ".git/config", "is": "git's configuration, which says where a push goes"},
+    {"path": ".git/refs/remotes/", "is": "a remote branch, which a stop compares the branch with"},
+    {"path": ".git/packed-refs", "is": "git's packed branches, which a stop compares the branch with"}
   ],
   "reported": [
     {"path": "kernel/", "is": "the Kernel: the gate function, the severities that gate, and the brakes"}
@@ -23,7 +26,7 @@
   "merging": {
     "branch": "main",
     "commands": ["pr merge --admin"],
-    "mutations": ["mergePullRequest", "mergeBranch"],
+    "mutations": ["mergePullRequest", "mergeBranch", "updateRefs", "updateRef", "createCommitOnBranch"],
     "endpoints": ["repos/*/*/pulls/*/merge", "repos/*/*/merges", "repos/*/*/git/refs/**"]
   },
   "settings": {
