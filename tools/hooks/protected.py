@@ -29,7 +29,9 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
+from urllib.parse import urlsplit
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
@@ -106,6 +108,9 @@ WRAPPERS = {"env", "sudo", "xargs", "parallel", "timeout", "nice", "stdbuf", "ca
 # Text that names a merge or GitHub's API in a program the hook cannot read as gh: gh, then one of these words.
 GH_WORD = re.compile(r"\bgh\b")
 GH_DOES = re.compile(r"\b(merge|api|ruleset|repo|secret|variable|workflow|alias)\b", re.I)
+# A URL is read by its host; outside a URL, GitHub's API is named by its host as a whole word.
+URL = re.compile(r"[a-z][a-z0-9+.-]*://[^\s'\"]+", re.I)
+API_HOST = re.compile(r"(?<![\w.-])api\.github\.com(?![\w-])", re.I)
 
 
 class Unreadable(Exception):
@@ -471,7 +476,7 @@ class Command:
         name, value = word.split("=", 1)
         inner = re.match(r"^(?:\$\((.*)\)|`(.*)`)$", value, re.S)
         if inner and re.match(r"^mktemp(\s+(-d|-q|-u|-t\s+\S+))*\s*$", (inner.group(1) or inner.group(2)).strip()):
-            self.known[name] = os.path.join(self.known.get("TMPDIR", "/tmp"), "mktemp")
+            self.known[name] = os.path.join(self.known.get("TMPDIR") or tempfile.gettempdir(), "mktemp")
             return
         expanded = self.expand(value)
         if expanded is None:
@@ -786,7 +791,7 @@ def _branch(here):
                 gitdir = dot
             elif os.path.isfile(dot):
                 found = re.match(r"gitdir: (.+)", pathlib.Path(dot).read_text()[:4096].strip())
-                gitdir = os.path.join(here, found.group(1)) if found else None
+                gitdir = _git_dir(os.path.join(here, found.group(1))) if found else None
             else:
                 parent = os.path.dirname(here)
                 here = None if parent == here else parent
@@ -811,9 +816,31 @@ def _is_command(entry: str, positional: list, args: list) -> bool:
 
 def _names_github(text: str, data: dict) -> bool:
     """Whether text names gh and then a merge or an API call, GitHub's API, or a GraphQL mutation that is the Maintainer's."""
-    gh, low = GH_WORD.search(text), text.casefold()
-    return bool((gh and GH_DOES.search(text, gh.end())) or "api.github.com" in low or "github.com/graphql" in low
+    gh = GH_WORD.search(text)
+    return bool((gh and GH_DOES.search(text, gh.end())) or _names_api(text)
                 or _mutations(data["merging"]["mutations"] + data["settings"]["mutations"], text))
+
+
+def _names_api(text: str) -> bool:
+    """Whether text names GitHub's API, whose GraphQL endpoint is on the same host: a URL whose host is it, or the
+    host named as a word outside any URL."""
+    for url in URL.findall(text):
+        try:
+            host = (urlsplit(url).hostname or "").casefold()
+        except ValueError:      # a URL that cannot be read may name it
+            return True
+        if host == "api.github.com" or host.endswith(".api.github.com"):
+            return True
+    return bool(API_HOST.search(URL.sub(" ", text)))
+
+
+def _git_dir(path: str):
+    """`path` resolved, when it is a git directory: one named *.git, or a worktree's under .git/worktrees/. Otherwise
+    None, so a branch is not read from a directory a `.git` file merely points at."""
+    real = os.path.realpath(path)
+    parent = os.path.dirname(real)
+    named = real.endswith(".git") or (os.path.basename(parent) == "worktrees" and os.path.dirname(parent).endswith(".git"))
+    return real if named and os.path.isdir(real) else None
 
 
 def _wildcards(path: str, spend, limit: int = MATCHES) -> list:

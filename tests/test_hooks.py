@@ -682,6 +682,38 @@ class MergesAndSettings(Asks):
                         "gh api -X PUT repos/o/r/contents/docs/x.md -f message=m -f content=x -f branch=feature"):
             self.assertEqual(self.run_(command), "", command)
 
+    def test_github_s_api_is_read_by_its_host(self):
+        for command in ("curl -X PUT https://api.github.com/repos/o/r/pulls/5/merge",
+                        "curl -X PUT HTTPS://API.GITHUB.COM/repos/o/r/rulesets/1", "curl https://uploads.api.github.com/x",
+                        "python3 -c \"requests.put('api.github.com/repos/o/r')\"",
+                        "wget --method=PUT https://user@api.github.com:443/repos/o/r"):
+            self.asked(self.run_(command), "command_unreadable", command)
+        for command in ("curl -X PUT https://api.github.com.evil.example/x", "curl https://notapi.github.com/x",
+                        "curl https://example.com/api.github.com.html"):
+            self.assertEqual(self.run_(command), "", command)
+
+    def test_a_gitdir_that_is_not_a_git_directory_leaves_the_branch_unreadable(self):
+        unread = "the branch a push goes to cannot be read"
+        for name in ("main", "feature"):
+            where, elsewhere = folder(), folder()
+            (elsewhere / "HEAD").write_text("ref: refs/heads/%s\n" % name)
+            (where / ".git").write_text("gitdir: %s\n" % elsewhere)
+            self.assertIn(unread, self.run_("git push origin HEAD", where), name)
+        for gitdir in ("real.git", "repo/.git/worktrees/w"):      # what a git directory is named
+            where = folder()
+            (where / gitdir).mkdir(parents=True)
+            (where / gitdir / "HEAD").write_text("ref: refs/heads/feature\n")
+            (where / "tree").mkdir()
+            (where / "tree" / ".git").write_text("gitdir: ../%s\n" % gitdir)
+            self.assertEqual(self.run_("git push origin HEAD", where / "tree"), "", gitdir)
+        self.assertEqual(self.run_("git push origin HEAD", self.project / ".claude" / "worktrees" / "w"), "")
+
+    def test_a_temporary_directory_is_known_without_tmpdir(self):
+        env = environment(programs("git"), CLAUDE_PROJECT_DIR=str(self.project))
+        self.assertNotIn("TMPDIR", env)
+        found = protected.check(bash('D=$(mktemp -d) && rm -rf "$D/x"', self.project), env)
+        self.assertEqual(found, [])
+
     def test_a_push_naming_no_branch_asks_unless_where_it_goes_is_read_exactly(self):
         feature, on_main, upstream, refspec = (repo(fresh=True) for _ in range(4))
         for where in (feature, upstream, refspec):
