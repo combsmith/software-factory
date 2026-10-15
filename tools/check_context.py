@@ -261,20 +261,34 @@ def _agents_files(root: pathlib.Path) -> list:
     return problems
 
 
+def _frontmatter(text: str) -> dict:
+    """The top-level fields of the YAML frontmatter, quotes taken off; a folded or literal value is joined."""
+    fields, key = {}, None
+    for line in text.splitlines():
+        if line[:1] in (" ", "\t") and key:
+            fields[key] = (fields[key] + " " + line.strip()).strip()
+            continue
+        key, _, value = line.partition(":")
+        key, value = key.strip(), value.strip()
+        fields[key] = "" if value in (">", "|", ">-", "|-", ">+", "|+") else value.strip("\"'")
+    return fields
+
+
 def _skills(root: pathlib.Path) -> list:
     """Each skill opens with the name and description its loader reads, and the root AGENTS.md points to it."""
     problems = []
-    pointers = _text(root / "AGENTS.md") if (root / "AGENTS.md").exists() else ""
+    agents = root / "AGENTS.md"
+    pointed = {rel.as_posix() for _, ok, rel in _named(_text(agents), root, root) if ok} if agents.exists() else set()
     for path in _skill_files(root):
         rel = path.relative_to(root).as_posix()
-        if rel not in pointers:
+        if rel not in pointed:
             problems.append("%s: the root AGENTS.md does not point to it, and a skill loaded on demand alone is often "
                             "not loaded" % rel)
         front = FRONTMATTER.match(_text(path))
         if not front:
             problems.append("%s: opens with no frontmatter holding its name and description" % rel)
             continue
-        fields = dict((k.strip(), v.strip()) for k, _, v in (ln.partition(":") for ln in front.group(1).splitlines()))
+        fields = _frontmatter(front.group(1))
         if fields.get("name") != path.parent.name:
             problems.append("%s: is named %s; a skill is named for its directory" % (rel, fields.get("name") or "nothing"))
         if not fields.get("description"):
