@@ -18,7 +18,8 @@ from tools import check_lifecycle
 from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CONFIG = json.loads((ROOT / "config" / "defaults.json").read_text())
+# The Kernel is given the defaults, and the Lifecycle whose staleness limits it reads.
+CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), lifecycle=check_lifecycle.load())
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
 FACTS_SCHEMA = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
 DECLARED = check_lifecycle.declared(check_lifecycle.load())
@@ -57,8 +58,13 @@ class World:
         self.labels = set()
         self.threads, self.reviews, self.runs = [], [], []
         self.checks = dict.fromkeys(CONFIG["required_lenses"]["deterministic"], "pending")
+        self.completed = dict.fromkeys(self.checks)   # when each check completed, or None
         self.queue = False
         self.last_push = self.last_writer = self.now()
+        # The world's own clock for staleness, in minutes, kept apart from the facts the Kernel reads: when a writer,
+        # a Lens or the Factory last moved the item, and when the current unbroken chain of passes began.
+        self.moved = self.chain = self.minute
+        self.gap = False                 # a tick was lost since the last pass, which breaks the chain
         self.acts = 0              # acts that landed since a person with write access acted
         self.last_act = None       # the action of the last act that landed: an act that stops work is never refused
         self.stale = None          # an older snapshot, served when facts go stale
@@ -74,7 +80,15 @@ class World:
 
     # ---- time and facts
     def now(self) -> str:
-        return (START + datetime.timedelta(minutes=self.minute)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return self.at(self.minute)
+
+    @staticmethod
+    def at(minute: int) -> str:
+        return (START + datetime.timedelta(minutes=minute)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def moves(self):
+        """A writer, a Lens or the Factory moved the item, as the ruling on #36 counts it. A stranger never does."""
+        self.moved = self.minute
 
     def cid(self) -> str:
         return "sha256:%04x" % self.content
@@ -87,7 +101,8 @@ class World:
             "diff": {"files": 2, "lines": 40, "truncated": False}, "labels": sorted(self.labels),
             "admitted_at": None, "last_push_at": self.last_push, "last_writer_action_at": self.last_writer,
             "reviews": copy.deepcopy(self.reviews), "threads": copy.deepcopy(self.threads),
-            "checks": [{"lens": k, "conclusion": v} for k, v in sorted(self.checks.items())],
+            "checks": [{"lens": k, "conclusion": v, "completed_at": self.completed.get(k)}
+                       for k, v in sorted(self.checks.items())],
             "queue": self.queue,
             # GitHub: the_timeline_shows_each_act
             "acts_since_writer": self.acts,
@@ -103,12 +118,14 @@ class World:
 
     def context(self) -> dict:
         active = len([r for r in self.runs if r["status"] != "completed"])
-        return {"paused": False, "active_runs": active, "model_deferred_until": None}
+        return {"paused": False, "active_runs": active, "model_deferred_until": None,
+                "passes_since": self.at(self.chain)}
 
     def writer_acted(self):
         """A person with write access acted: a fresh allowance of attempts, and of acts (I-28)."""
         self.last_writer = self.now()
         self.acts = 0
+        self.moves()
 
     def held(self) -> bool:
         return bool(self.labels & {t.LABEL_HOLD, t.LABEL_HANDS_OFF})
@@ -153,13 +170,16 @@ class World:
 
     # ---- the poller
     def poll(self):
+        if self.gap:
+            # The poller's own records: a pass after a lost tick starts a new chain.
+            self.chain, self.gap = self.minute, False
         facts, runs = self.facts(), self.records()
         fault = self.rng.random() if self.faults else 1.0
-        current = True
+        current = exact = True
         if fault < 0.08 and self.stale is not None:
             # GitHub: a_read_can_be_stale
             facts, runs = self.stale
-            current = False
+            current = exact = False
         elif fault < 0.14:
             # GitHub: a_short_diff_says_so
             # GitHub: a_short_list_says_so
@@ -167,6 +187,7 @@ class World:
         elif fault < 0.20 and runs:
             # GitHub: a_new_run_is_listed_late
             runs = runs[:-1]
+            exact = False
         elif fault < 0.25 and runs:
             # GitHub: a_run_list_stops_short
             runs = runs[self.pick(range(1, len(runs) + 1)):]
@@ -178,6 +199,19 @@ class World:
         wrong = validate(d, DECISION_SCHEMA)
         self.check(not wrong, "every Decision is valid: %s" % "; ".join(wrong))
         self.note("pass: %s %s -> %s" % (d["state"], d["reason"], d["outcome"]))
+        if d["attention"] == t.STALE:
+            # A wait past its limit changes what the Maintainer sees, never what happens, and only on a wait (I-1).
+            calm = decide(facts, runs, dict(self.context(), passes_since=self.now()), CONFIG, self.now())
+            self.check(dict(d, attention=calm["attention"]) == calm, "I-1 staleness changes what happens")
+            self.check(calm["attention"] in t.MAY_GO_STALE, "I-1 a %s item shown as stale" % calm["attention"])
+        if exact and d["state"] is not None and d["reason"] not in t.SCOPE_DEFERRALS and \
+                d["attention"] in t.MAY_GO_STALE | {t.STALE}:
+            # The world's own count: a wait is stale exactly when it ran past its State's limit while passes ran.
+            waited = self.minute - max(self.moved, self.chain)
+            limit = CONFIG["lifecycle"]["stale_after_minutes"][d["state"]]
+            self.check((d["attention"] == t.STALE) == (waited > limit),
+                       "I-1 a %s item that waited %d minutes of %d shown as %s" % (d["state"], waited, limit,
+                                                                                   d["attention"]))
         whole = all(facts["complete"].values())
         # A read that fails stops work: it defers, or takes a queued item out of the merge queue (I-13).
         dequeue = d["outcome"] == t.ACT and d["action"] == "dequeue"
@@ -204,6 +238,7 @@ class World:
                            "I-12 undeclared transition %s -> %s" % (self.prev_state, d["state"]))
             self.prev_state = d["state"]
         if d["outcome"] == "admit":
+            self.moves()
             self.runs.append({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"],
                               "intent": d["admit"]["intent"], "content_id": d["admit"]["content_id"],
                               "status": "queued", "conclusion": None, "outcome": None, "started_at": self.now()})
@@ -240,6 +275,7 @@ class World:
     def approve(self):
         """A Run with no Engine: its `apply` alone holds the machine user's token, and its record counts attempts."""
         self.check(CONFIG["approver"] not in (self.author, self.last_pusher), "I-26 approver is author or last pusher")
+        self.moves()
         run = {"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": CONFIG["owner_role"],
                "intent": t.ISSUE_APPROVAL, "content_id": self.cid(), "status": "completed",
                "conclusion": "success", "outcome": None, "started_at": self.now()}
@@ -308,6 +344,7 @@ class World:
         if run["intent"] == "review-change":
             if self.rng.random() < 0.5:
                 # GitHub: a_lens_review_opens_a_thread
+                self.moves()
                 self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
                                      "opened_by": {"kind": "lens", "name": "pr-review", "can_write": True},
                                      "severity": self.pick(["blocking", "major", "minor"]), "resolved_by": None,
@@ -328,15 +365,26 @@ class World:
         self.content += 1
         # GitHub: the_pusher_is_the_last_pusher
         self.last_pusher, self.last_push = who, self.now()
+        self.moves()
         if writer:
             self.writer_acted()
         # GitHub: a_push_restarts_the_checks
         self.checks = dict.fromkeys(self.checks, "pending")
+        self.completed = dict.fromkeys(self.checks)
         # GitHub: a_push_leaves_the_queue
         self.queue = False
         # GitHub: an_approval_survives_a_push
         # GitHub: a_request_for_changes_survives_a_push
         self.note("push by %s -> %s" % (who, self.cid()))
+
+    def stranger_comments(self):
+        """A review that only comments, by someone with no write access. It moves nothing: else a comment every half
+        hour would keep a stall from showing."""
+        # GitHub: anyone_can_comment
+        self.reviews.append({"by": {"kind": "human", "name": "stranger", "can_write": False}, "state": "commented",
+                             "commit": "c%d" % self.content, "content_id": self.cid(), "submitted_at": self.now(),
+                             "dismissed_by": None, "dismissed_from": None})
+        self.note("a stranger commented")
 
     def platform(self):
         live = [rv for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"] and rv["state"] != "dismissed"]
@@ -369,6 +417,8 @@ class World:
             # GitHub: a_check_reports_on_its_own
             lens, roll = self.pick(pending), self.rng.random()
             self.checks[lens] = "success" if roll < 0.85 else "failure"
+            self.completed[lens] = self.now()
+            self.moves()
             if self.faults and roll >= 0.92:
                 # GitHub: a_check_can_time_out_or_give_no_verdict
                 self.checks[lens] = self.pick(["timed_out", "neutral", "skipped", "cancelled", "stale"])
@@ -398,6 +448,8 @@ class World:
             if mine:     # resolving nothing is no action, and renews nothing (I-28)
                 self.writer_acted()
                 self.note("maintainer resolved %d threads" % len(mine))
+            else:        # and in that time a stranger, who renews nothing either, comments
+                self.stranger_comments()
 
     def open_thread(self):
         self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
@@ -451,6 +503,8 @@ class World:
             # GitHub: a_tick_can_be_lost
             if not (self.faults and self.rng.random() < 0.3):
                 self.poll()
+            else:
+                self.gap = True
         elif roll < 0.60:
             self.start_next()
         elif roll < 0.78:
@@ -500,6 +554,7 @@ class World:
             self.review("approved")
         # The person runs again every check that did not pass.
         self.checks = {k: ("pending" if v != "success" else v) for k, v in self.checks.items()}
+        self.completed = {k: (self.completed[k] if v == "success" else None) for k, v in self.checks.items()}
         self.writer_acted()
         for _ in range(steps):
             self.step()

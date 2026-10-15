@@ -98,10 +98,84 @@ def gating_threads(facts: dict, config: dict) -> list:
     return out
 
 
+def is_leap(year: int) -> bool:
+    every, unless, still = t.LEAP_YEARS
+    return year % every == 0 and (year % unless != 0 or year % still == 0)
+
+
+def fields(time: str) -> tuple:
+    """(year, month, day, hour, minute, second) of a time in the one text format."""
+    date, clock = time[:-1].split("T")
+    return tuple(int(part) for part in date.split("-")) + tuple(int(part) for part in clock.split(":"))
+
+
+def days_in(year: int, month: int) -> int:
+    """The days of a month, from the pinned calendar."""
+    ends = t.DAYS_BEFORE_MONTH[1:] + (t.DAYS_PER_YEAR,)
+    return ends[month - 1] - t.DAYS_BEFORE_MONTH[month - 1] + int(is_leap(year) and month == t.FEBRUARY)
+
+
 def is_time(value) -> bool:
-    """A time in the one text format. Times compare as text, so the format is the contract."""
-    return (isinstance(value, str) and len(value) == len(t.TIME_SHAPE)
-            and all(c in t.DIGITS if shape == "9" else c == shape for c, shape in zip(value, t.TIME_SHAPE)))
+    """A real moment in the one text format: the month 1 to 12, a day its month has, the hour under 24, and the minute
+    and second under 60. Times compare as text, so the format is the contract; a time that is no moment is unreadable.
+    """
+    if not (isinstance(value, str) and len(value) == len(t.TIME_SHAPE)
+            and all(c in t.DIGITS if shape == "9" else c == shape for c, shape in zip(value, t.TIME_SHAPE))):
+        return False
+    year, month, day, hour, minute, second = fields(value)
+    return (1 <= month <= len(t.DAYS_BEFORE_MONTH) and 1 <= day <= days_in(year, month)
+            and hour < t.HOURS_PER_DAY and minute < t.MINUTES_PER_HOUR and second < t.SECONDS_PER_MINUTE)
+
+
+def seconds(time: str) -> int:
+    """Seconds from the calendar's first day to `time`, a real moment (is_time): the Kernel reads no clock."""
+    year, month, day, hour, minute, second = fields(time)
+    every, unless, still = t.LEAP_YEARS
+    past = year - 1
+    days = past * t.DAYS_PER_YEAR + past // every - past // unless + past // still
+    days += t.DAYS_BEFORE_MONTH[month - 1] + int(is_leap(year) and month > t.FEBRUARY) + day - 1
+    return ((days * t.HOURS_PER_DAY + hour) * t.MINUTES_PER_HOUR + minute) * t.SECONDS_PER_MINUTE + second
+
+
+def moves(actor) -> bool:
+    """Whether what `actor` does moves an item: a person with write access, or a Lens's App. Never a stranger (I-28)."""
+    return isinstance(actor, dict) and (actor.get("kind") == "lens"
+                                        or (actor.get("kind") == "human" and actor.get("can_write") is True))
+
+
+def moved_at(facts: dict, runs: list, config: dict, now: str):
+    """When the item last moved, or None if no time can be read.
+
+    State is never stored (decision 0002), so the time an item entered its State is read as the newest time a writer,
+    a Lens or the Factory moved it: a push, a required check's completion, a review or a thread by a writer or a Lens's
+    App (a gating thread is always one), a writer's action and a Run on this item. A stranger's comment, or a check
+    that is not required, moves nothing, or anyone could keep a stalled item from showing. A time that is not a real
+    moment no later than `now` is passed over, so the wait counts from earlier: that shows more, never less.
+    """
+    required = config["required_lenses"]["deterministic"]
+    times = [facts["last_push_at"], facts.get("last_writer_action_at")]
+    times += [c.get("completed_at") for c in facts["checks"] if c.get("lens") in required]
+    times += [rv.get("submitted_at") for rv in facts["reviews"] if moves(rv.get("by"))]
+    times += [th.get("opened_at") for th in facts["threads"] if moves(th.get("opened_by"))]
+    times += [r["started_at"] for r in runs_on(runs, facts)]
+    readable = [x for x in times if is_time(x) and x <= now]
+    return max(readable) if readable else None
+
+
+def stale(lifecycle: dict, state: str, moved, passes_since, now: str) -> bool:
+    """Whether a wait in `state` has run past its Lifecycle's limit. Any Lifecycle: an issue's as well (I-1).
+
+    The wait counts from `moved`, and no earlier than `passes_since`, the start of the current unbroken chain of
+    passes: an outage of the poller is one health alert, not one for each item (§4.6). Either, if it is not a real
+    moment no later than `now`, is passed over, which shows more, never less. So is a `now` that is no moment.
+    """
+    if not is_time(now):
+        return True
+    starts = [x for x in (moved, passes_since) if is_time(x) and x <= now]
+    if not starts:
+        return True
+    waited = seconds(now) - seconds(max(starts))
+    return waited > lifecycle["stale_after_minutes"][state] * t.SECONDS_PER_MINUTE
 
 
 def readable_actor(actor) -> bool:

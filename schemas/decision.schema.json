@@ -51,6 +51,7 @@
         "review",
         "ready",
         "working",
+        "stale",
         "none"
       ]
     },

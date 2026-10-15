@@ -105,7 +105,7 @@
         "string",
         "null"
       ],
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
     },
     "last_push_at": {
       "$ref": "#/$defs/time"
@@ -115,7 +115,7 @@
         "string",
         "null"
       ],
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
     },
     "reviews": {
       "type": "array",
@@ -261,7 +261,8 @@
         "additionalProperties": false,
         "required": [
           "lens",
-          "conclusion"
+          "conclusion",
+          "completed_at"
         ],
         "properties": {
           "lens": {
@@ -271,6 +272,14 @@
             "description": "GitHub's own conclusion, or the check's status while it has not concluded. The port maps nothing; config check_conclusions says what each means.",
             "type": "string",
             "pattern": "^[a-z_]+$"
+          },
+          "completed_at": {
+            "description": "When the check completed, as GitHub says; null while it has not. An item's wait counts from the newest time it moved",
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
           }
         }
       }
@@ -373,8 +382,9 @@
       ]
     },
     "time": {
+      "description": "UTC, to the second, each field in its range. That the day is one its month has, the Kernel checks",
       "type": "string",
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
     },
     "content_id": {
       "type": "string",

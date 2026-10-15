@@ -11,7 +11,7 @@ and for what the session hooks ask the person about (the protected paths, mergin
 | Rule | Held by |
 |---|---|
 | A new file here is added to `LIVE` in `tools/check_examples.py`, with its schema | `tools/check_examples.py` |
-| Every limit the Kernel reads is in `defaults.json`; the Kernel writes no number of its own | `tests/test_tools.py::test_a_limit_written_into_the_kernel_is_caught` |
+| Every limit the Kernel reads is in `defaults.json`, but a Lifecycle's staleness limits, never copied here | `tests/test_tools.py::test_a_limit_written_into_the_kernel_is_caught`, `examples/invalid/config.a-staleness-limit-copied-from-the-lifecycle.json` |
 | The author Role owns no category, and security is never accepted as declined or deferred | `tools/check_authority.py` |
 | Every need in `apps.json` maps to one permission and level, or says what it waits on. An App holds a permission only for a need mapped to it, never for a waiting one; a write need has one App; the reader writes nothing | `tools/check_apps.py` |
 | A value held in two files agrees | `tests/test_tools.py::test_a_value_held_twice_must_agree` |

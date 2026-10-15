@@ -52,15 +52,18 @@
   "checks": [
     {
       "lens": "verify",
-      "conclusion": "success"
+      "conclusion": "success",
+      "completed_at": "2026-10-11T12:06:00Z"
     },
     {
       "lens": "secret-scan",
-      "conclusion": "success"
+      "conclusion": "success",
+      "completed_at": "2026-10-11T12:06:00Z"
     },
     {
       "lens": "code-scanning",
-      "conclusion": "success"
+      "conclusion": "success",
+      "completed_at": "2026-10-11T12:06:00Z"
     }
   ],
   "queue": false,

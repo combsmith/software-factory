@@ -50,4 +50,5 @@ RULES = (
     ("a_short_list_says_so", "A list of reviews, threads, checks or timeline events read short says so", (), None),
     ("a_read_can_be_stale", "A read can return what an earlier read did", (), None),
     ("a_tick_can_be_lost", "A scheduled tick can fail to arrive", ("P-8",), None),
+    ("anyone_can_comment", "On a public repo anyone can submit a review that only comments", (), None),
 )

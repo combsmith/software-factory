@@ -7,6 +7,7 @@ import re
 import unittest
 from unittest import mock
 
+from kernel.decide import decide
 from sim import world
 from sim.world import World
 
@@ -56,6 +57,28 @@ class Simulation(unittest.TestCase):
             traces.append(world.trace)
         self.assertEqual(traces[0], traces[1])
         self.assertTrue(traces[0])
+
+    def test_a_stall_shows_whoever_comments_and_only_while_passes_run(self):  # I-1, I-28
+        # A required check never reports, and a stranger comments every ten minutes. The world counts the wait itself,
+        # and each pass checks the Kernel against that count: a comment does not hide the stall, and a lost tick
+        # starts the count again.
+        w = World(2, faults=False, people=False)
+        silent = sorted(w.checks)[0]
+        for lens in w.checks:
+            if lens != silent:
+                w.checks[lens], w.completed[lens] = "success", w.now()
+        seen = {}
+        for minute in range(1, 101):
+            w.minute = minute
+            if minute % 10 == 0:
+                w.stranger_comments()
+            if minute == 60:
+                w.gap = True       # the poller missed a pass: the next one starts a new chain
+            w.poll()
+            seen[minute] = decide(w.facts(), w.records(), w.context(), world.CONFIG, w.now())["attention"]
+        limit = world.CONFIG["lifecycle"]["stale_after_minutes"]["verifying"]
+        for start in (0, 60):
+            self.assertEqual((seen[start + limit], seen[start + limit + 1]), ("review", "stale"), start)
 
     def test_work_is_never_lost_once_faults_stop(self):  # I-1
         for seed in SEEDS:

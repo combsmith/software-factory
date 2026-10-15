@@ -1,9 +1,12 @@
 """The boundary cases of the design, one test each. Add the case here before the code."""
 from __future__ import annotations
 
+import datetime
 import json
+import random
 import unittest
 
+from kernel import derive
 from kernel.decide import decide
 from tests.support import CONFIG, GREEN, NOW, ROOT, config, context, facts, review, run, thread
 from tools.jsonschema_lite import validate
@@ -52,8 +55,14 @@ def with_check(i: int, conclusion: str) -> list:
     return GREEN[:i] + [dict(GREEN[i], conclusion=conclusion)] + GREEN[i + 1:]
 
 
-def go(f, runs=(), ctx=None, cfg=None):
-    d = decide(f, list(runs), context() if ctx is None else ctx, CONFIG if cfg is None else cfg, NOW)
+def later(time: str, minutes: int) -> str:
+    """`time`, `minutes` later, as the calendar counts."""
+    shape = "%Y-%m-%dT%H:%M:%SZ"
+    return (datetime.datetime.strptime(time, shape) + datetime.timedelta(minutes=minutes)).strftime(shape)
+
+
+def go(f, runs=(), ctx=None, cfg=None, now=NOW):
+    d = decide(f, list(runs), context() if ctx is None else ctx, CONFIG if cfg is None else cfg, now)
     errors = validate(d, DECISION_SCHEMA)
     assert not errors, errors  # every Decision the Kernel emits is a valid one
     return d
@@ -1044,6 +1053,216 @@ class Queue(unittest.TestCase):
         # The other side: a Run in progress still holds an item that is not queued.
         d = go(facts(reviews=[]), busy)
         self.assertEqual((d["outcome"], d["attention"]), ("nothing", "working"))
+
+
+class Staleness(unittest.TestCase):
+    """A wait past its State's limit is the Maintainer's to see, and what happens next does not change (I-1, FR-3)."""
+
+    # The poller has run without a break since long before any of these items last moved.
+    PASSING = context(passes_since="2026-10-11T09:00:00Z")
+    # Every required check passed at minute 5, but one that has not reported.
+    SILENT = [dict(GREEN[0], conclusion="pending", completed_at=None)] + GREEN[1:]
+
+    def waits(self) -> list:
+        """(facts, runs, State, its attention, when it last moved): one wait for each State that can go stale."""
+        return [(facts(checks=self.SILENT), (), "verifying", "review", at(5)),
+                (facts(), REVIEWED, "converged", "ready", at(10)),
+                (facts(queue=True, reviews=APPROVED), REVIEWED, "queued", "ready", at(15))]
+
+    def test_a_lens_that_never_reports_is_stale(self):  # I-1
+        for f, runs, state, waiting, moved in self.waits():
+            limit = CONFIG["lifecycle"]["stale_after_minutes"][state]
+            before = go(f, runs, self.PASSING, now=later(moved, limit - 1))
+            self.assertEqual((before["state"], before["attention"]), (state, waiting), state)
+            # At the limit it is not yet past it.
+            self.assertEqual(go(f, runs, self.PASSING, now=later(moved, limit))["attention"], waiting, state)
+            past = go(f, runs, self.PASSING, now=later(moved, limit + 1))
+            self.assertEqual(past["attention"], "stale", state)
+            # Only the attention changes: the State, the reason, the outcome and any act are as they were.
+            self.assertEqual(dict(past, attention=waiting), before, state)
+
+    def test_staleness_counts_only_while_passes_run(self):  # I-1, §4.6
+        # The check went silent at minute 5, so by 13:00 the wait is 55 minutes against a limit of 30. But a wait
+        # counts only while passes ran: an outage of the poller is one health alert, not one for each item.
+        f = facts(checks=self.SILENT)
+        for since, attention in (("2026-10-11T12:40:00Z", "review"), ("2026-10-11T12:30:00Z", "review"),
+                                 ("2026-10-11T12:29:00Z", "stale"), ("2026-10-11T11:00:00Z", "stale")):
+            d = go(f, ctx=context(passes_since=since))
+            self.assertEqual((d["state"], d["attention"]), ("verifying", attention), since)
+        # A start that cannot be read is passed over: that shows more, never less.
+        missing = context()
+        del missing["passes_since"]
+        for ctx in (missing, context(passes_since=None), context(passes_since="2026-10-11 12:40"),
+                    context(passes_since="yesterday"), context(passes_since=1760187600)):
+            self.assertEqual(go(f, ctx=ctx)["attention"], "stale", ctx.get("passes_since", "missing"))
+
+    def test_only_what_a_writer_a_lens_or_the_factory_does_moves_an_item(self):  # I-1, I-28, decision 0002
+        # State is never stored, so the time an item entered it is read from what moved it last.
+        f, past = facts(checks=self.SILENT), "2026-10-11T12:36:00Z"
+        self.assertEqual(go(f, ctx=self.PASSING, now=past)["attention"], "stale")
+        lens = {"kind": "lens", "name": "coderabbit", "can_write": False}
+        moves = {"a push": {"last_push_at": at(20)},
+                 "a required check that reports": {"checks": self.SILENT[:1] + [dict(GREEN[1], completed_at=at(20))]
+                                                   + GREEN[2:]},
+                 "a writer's review": {"reviews": [review(state="commented", kind="human", name="a-colleague", at=at(20))]},
+                 "a Lens's review": {"reviews": [review(state="commented", at=at(20))]},
+                 "a Lens's thread": {"threads": [dict(thread(severity=None, at=at(20)), opened_by=lens)]},
+                 "a writer's thread, resolved": {"threads": [thread(kind="human", name="don-petry", resolved=True,
+                                                                    severity=None, at=at(20))]},
+                 "a writer's action": {"last_writer_action_at": at(20)}}
+        for what, over in moves.items():
+            d = go(facts(**dict({"checks": self.SILENT}, **over)), ctx=self.PASSING, now=past)
+            self.assertEqual((d["state"], d["attention"]), ("verifying", "review"), what)
+        d = go(f, [run(at=at(20))], ctx=self.PASSING, now=past)
+        self.assertEqual((d["state"], d["attention"]), ("verifying", "review"), "a Run")
+        # The other side: anyone can comment, so a stranger's review or thread moves nothing, and nor does a check
+        # that is not required, or a Run on another item. Otherwise a comment every half hour would hide a stall.
+        stranger = {"a stranger's review": {"reviews": [review(state="commented", kind="human", name="stranger",
+                                                               can_write=False, at=at(20))]},
+                    "a stranger's thread": {"threads": [thread(kind="human", name="stranger", can_write=False,
+                                                               severity=None, at=at(20))]},
+                    "a check that is not required": {"checks": self.SILENT + [
+                        {"lens": "template-drift", "conclusion": "success", "completed_at": at(20)}]}}
+        for what, over in stranger.items():
+            d = go(facts(**dict({"checks": self.SILENT}, **over)), ctx=self.PASSING, now=past)
+            self.assertEqual((d["state"], d["attention"]), ("verifying", "stale"), what)
+        elsewhere = dict(run(at=at(20)), item=dict(f["item"], number=43))
+        self.assertEqual(go(f, [elsewhere], ctx=self.PASSING, now=past)["attention"], "stale")
+
+    def test_a_time_that_is_no_moment_or_still_to_come_moves_nothing(self):  # I-1, I-13
+        # A time is read only when it is a real moment no later than now. Any other is passed over, so a time in the
+        # future, or one with a field no calendar has, never hides a stalled item: that shows more, never less. Each
+        # time that is no moment sorts, as text, between the item's last movement and now, where it would hide it.
+        lens = {"kind": "lens", "name": "coderabbit", "can_write": False}
+        frames = [("2026-10-11T12:05:00Z", "2026-10-11T12:36:00Z",
+                   ["2026-10-11T12:37:00Z", "9999-12-31T23:59:59Z", "2026-10-11T12:20:60Z"]),
+                  ("2026-10-11T12:05:00Z", "2026-10-11T13:00:00Z", ["2026-10-11T12:60:00Z"]),
+                  ("2026-10-11T23:50:00Z", "2026-10-12T00:30:00Z", ["2026-10-11T24:10:00Z"]),
+                  ("2026-02-28T23:50:00Z", "2026-03-01T00:30:00Z",
+                   ["2026-02-29T00:10:00Z", "2026-02-30T00:10:00Z", "2026-02-31T00:10:00Z"]),
+                  ("2026-04-30T23:50:00Z", "2026-05-01T00:30:00Z", ["2026-04-31T00:10:00Z"]),
+                  ("2026-10-31T23:50:00Z", "2026-11-01T00:30:00Z", ["2026-10-32T00:10:00Z"]),
+                  ("2026-09-30T23:50:00Z", "2026-10-01T00:30:00Z", ["2026-10-00T00:10:00Z"]),
+                  ("2026-12-31T23:50:00Z", "2027-01-01T00:30:00Z", ["2026-13-01T00:10:00Z", "2026-99-99T99:99:99Z"]),
+                  ("2025-12-31T23:50:00Z", "2026-01-01T00:30:00Z", ["2026-00-01T00:10:00Z"])]
+        for moved, now, whens in frames:
+            silent = [dict(self.SILENT[0])] + [dict(c, completed_at=moved) for c in GREEN[1:]]
+            base = {"checks": silent, "last_push_at": moved, "last_writer_action_at": moved}
+            self.assertEqual(go(facts(**base), ctx=self.PASSING, now=now)["attention"], "stale", (moved, now))
+            # The other side: a real moment between the two moves the item.
+            between = later(now, -10)
+            for when in whens + [between]:
+                expected = "review" if when == between else "stale"
+                over = {"last_push_at": {"last_push_at": when},
+                        "completed_at": {"checks": silent[:1] + [dict(silent[1], completed_at=when)] + silent[2:]},
+                        "opened_at": {"threads": [dict(thread(severity=None, at=when), opened_by=lens)]},
+                        "last_writer_action_at": {"last_writer_action_at": when}}
+                if when > now or when == between:
+                    # A review whose time is no moment cannot be read at all, and needs a person: a writer's could gate.
+                    over["submitted_at"] = {"reviews": [review(state="commented", kind="human", name="a-colleague",
+                                                               at=when)]}
+                for field, more in over.items():
+                    d = go(facts(**dict(base, **more)), ctx=self.PASSING, now=now)
+                    self.assertEqual((d["state"], d["attention"]), ("verifying", expected), (field, when))
+                d = go(facts(**base), [run(at=when)], ctx=self.PASSING, now=now)
+                self.assertEqual(d["attention"], expected, ("started_at", when))
+                if when != between:
+                    d = go(facts(**base), ctx=context(passes_since=when), now=now)
+                    self.assertEqual(d["attention"], "stale", ("passes_since", when))
+                    # Nor does it hide a real movement behind it: the newest real moment is the one counted.
+                    d = go(facts(**dict(base, last_push_at=when, last_writer_action_at=between)), ctx=self.PASSING,
+                           now=now)
+                    self.assertEqual(d["attention"], "review", ("behind", when))
+
+    def test_the_kernel_never_raises_on_a_time_the_schema_accepts(self):  # I-13
+        # The schema's pattern bounds each field, but not the day to its month. Whatever it lets through, every time
+        # the Kernel reads, `now` among them, gives a Decision and never an exception.
+        schema = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
+        edges = ["0000-01-01T00:00:00Z", "0001-01-01T00:00:00Z", "1900-02-29T00:00:00Z", "2000-02-29T23:59:59Z",
+                 "2026-02-29T12:00:00Z", "2026-02-31T12:00:00Z", "2026-04-31T12:00:00Z", "2026-12-31T23:59:59Z",
+                 "2026-10-11T12:59:59Z", "9999-12-31T23:59:59Z", "9999-02-31T23:59:59Z"]
+        # And the schema refuses a field no calendar has.
+        refused = ["2026-13-01T00:00:00Z", "2026-00-01T00:00:00Z", "9999-99-01T00:00:00Z", "2026-10-32T00:00:00Z",
+                   "2026-10-00T00:00:00Z", "2026-10-11T24:00:00Z", "2026-10-11T12:60:00Z", "2026-10-11T12:00:60Z"]
+        for when in refused:
+            self.assertNotEqual(validate(facts(last_push_at=when), schema), [], when)
+        lost = {"queue": True, "reviews": [review(commit="c0", content="sha256:0000")]}
+        for when in edges + [w for w in refused if not validate(facts(last_push_at=w), schema)]:
+            checks = [dict(c, completed_at=when) for c in GREEN]
+            items = [facts(checks=checks, last_push_at=when, last_writer_action_at=when, threads=[thread(at=when)]),
+                     facts(checks=checks, last_push_at=when, last_writer_action_at=when, **lost),
+                     facts(checks=self.SILENT, last_push_at=when, reviews=[review(state="commented", at=when)])]
+            for f in items:
+                self.assertEqual(validate(f, schema), [], when)
+                for now in (NOW, when):
+                    d = go(f, [run(at=when)], ctx=context(passes_since=when), now=now)
+                    self.assertIn(d["outcome"], ("nothing", "defer", "hold", "act", "admit"), (when, now))
+        # An approval lost while queued is still taken out, whatever time a passing check gives.
+        d = go(facts(checks=[dict(GREEN[0], completed_at="2026-02-31T00:00:00Z")] + GREEN[1:], **lost), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"], d["action"]), ("approval_lost", "act", "dequeue"))
+
+    def test_a_deferral_of_the_whole_scope_is_never_stale(self):  # I-1, §4.6
+        # A Pause, read or not, the model provider's deferral, capacity that cannot be read and the org's limit on Runs
+        # each hold every item at once. Each is one cause, reported once, and the item keeps the attention it had.
+        day_on = "2026-10-12T13:00:00Z"
+        waiting = dict(self.PASSING)
+        deferrals = [({"paused": True}, (), "paused", "ready"),
+                     ({"paused": None}, (), "pause_unreadable", "ready"),
+                     ({"model_deferred_until": "2026-10-13T00:00:00Z"}, (), "capacity", "review"),
+                     ({"model_deferred_until": "unreadable"}, (), "capacity_unreadable", "review"),
+                     ({"active_runs": None}, (), "capacity_unreadable", "review"),
+                     ({"active_runs": LIMITS["org_max_active_runs"]}, (), "concurrency", "review")]
+        for over, _, reason, attention in deferrals:
+            runs = REVIEWED if attention == "ready" else ()
+            ctx = dict(waiting, **over)
+            if over.get("model_deferred_until") == "unreadable":
+                del ctx["model_deferred_until"]
+            d = go(facts(), runs, ctx, now=day_on)
+            self.assertEqual((d["reason"], d["outcome"], d["attention"]), (reason, "defer", attention), reason)
+            # The other side: once the deferral ends, a wait that is still silent goes stale as usual.
+            d = go(facts(), runs, waiting, now=day_on)
+            self.assertEqual((d["outcome"], d["attention"]), ("act" if runs else "admit", "stale"), reason)
+
+    def test_needs_you_is_never_stale(self):  # I-1
+        # A person is already called to an item that needs them, and a Run holds one that is working: neither is stale.
+        # Nor is one that failed, which is the author's, or one the Factory leaves alone.
+        incomplete = facts()["complete"]
+        incomplete["checks"] = False
+        busy = [run(role="dev-lead", intent="fix-findings", status="in_progress", at=at(20), name="r2")]
+        cases = [(facts(labels=["factory:hold"]), (), "needs_you"),
+                 (facts(checks=with_check(0, "neutral")), (), "needs_you"),
+                 (facts(threads=[thread(kind="human", name="don-petry", severity=None)]), REVIEWED, "needs_you"),
+                 (facts(threads=[thread()]), REVIEWED + busy, "working"),
+                 (facts(checks=with_check(0, "failure")), (), "failed"),
+                 (facts(is_draft=True), (), "none"),
+                 (facts(labels=["factory:hands-off"]), (), "none"),
+                 (facts(complete=incomplete), (), "none")]
+        for f, runs, attention in cases:
+            self.assertEqual(go(f, runs, self.PASSING, now="2026-10-12T13:00:00Z")["attention"], attention, attention)
+        # The other side: a day on, a wait for a Lens is stale.
+        self.assertEqual(go(facts(checks=self.SILENT), (), self.PASSING, now="2026-10-12T13:00:00Z")["attention"],
+                         "stale")
+
+    def test_the_kernel_counts_time_as_the_calendar_does(self):
+        # The Kernel reads no clock and imports nothing, so it counts the seconds between two times itself.
+        rng = random.Random(36)
+        shape = "%Y-%m-%dT%H:%M:%SZ"
+        edges = ["1900-02-28T23:59:59Z", "2000-02-29T00:00:00Z", "2024-12-31T23:59:59Z", "2100-03-01T00:00:00Z",
+                 "2026-10-11T12:00:00Z", "2400-02-29T12:00:00Z"]
+        start = datetime.datetime(1890, 1, 1)
+        span = int((datetime.datetime(2410, 1, 1) - start).total_seconds())
+        # random() only, whose sequence is the same on every Python version.
+        times = edges + [(start + datetime.timedelta(seconds=int(rng.random() * span))).strftime(shape)
+                         for _ in range(400)]
+        for a in times:
+            for b in (times[0], times[1], times[-1], a):
+                want = (datetime.datetime.strptime(b, shape) - datetime.datetime.strptime(a, shape)).total_seconds()
+                self.assertEqual(derive.seconds(b) - derive.seconds(a), want, (a, b))
+        # The limit accepts any Lifecycle, the issue's among them.
+        issue = json.loads((ROOT / "lifecycle" / "issue.json").read_text())
+        limit = issue["stale_after_minutes"]["in_review"]
+        self.assertFalse(derive.stale(issue, "in_review", at(0), None, later(at(0), limit)))
+        self.assertTrue(derive.stale(issue, "in_review", at(0), None, later(at(0), limit + 1)))
 
 
 class NotYetHeld(unittest.TestCase):
