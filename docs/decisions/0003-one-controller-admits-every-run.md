@@ -28,6 +28,7 @@ single decider has no race to lose and one place for every brake.
 | A missing or unreadable Pause or capacity reading admits nothing | `tests/test_decide.py::test_unreadable_pause_defers`, `tests/test_decide.py::test_an_unreadable_pause_stops_approvals_and_merges`, `tests/test_decide.py::test_unreadable_capacity_defers` |
 | Each brake is a rule a test would miss if it were removed | `tools/mutants.py` |
 | A Pause stops approvals and merges as well as Runs | `tests/test_decide.py::test_a_pause_stops_approvals_and_merges_too` |
+| Under a Pause, a Hold the facts establish is shown first: the approver may not be the author or last pusher | `tests/test_decide.py::test_under_a_pause_a_hold_the_facts_establish_shows_first` |
 | A Run's lane is one concurrency group for each Work item, declared on the job, and never cancels what is running | waiting on `harness/` |
 | Work is never lost once faults stop | `tests/test_simulator.py::test_work_is_never_lost_once_faults_stop` |
 | A run record counts only if it is the Factory's own workflow, on the default branch, started by a schedule or a dispatch | waiting on `adapters/` |

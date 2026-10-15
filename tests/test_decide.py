@@ -109,6 +109,11 @@ class HumanControl(unittest.TestCase):
             self.assertEqual((d["outcome"], d["reason"]), ("defer", "paused"))
             self.assertEqual(go(facts(reviews=reviews), REVIEWED)["outcome"], "act")
 
+    def test_under_a_pause_a_hold_the_facts_establish_shows_first(self):  # I-7, I-26
+        for paused in (True, None):
+            d = go(facts(author="donpetry-bot"), REVIEWED, ctx=context(paused=paused))
+            self.assertEqual((d["outcome"], d["reason"]), ("hold", "approver_is_author_or_last_pusher"))
+
     def test_draft_is_watched_only(self):
         self.assertEqual(go(facts(is_draft=True))["outcome"], "nothing")
 

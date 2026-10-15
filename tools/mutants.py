@@ -75,6 +75,16 @@ MUTANTS = [
      "    pause = _pause(context)\n    if pause:\n", "    pause = _pause(context)\n    if False:\n"),
     ("a pause lets an approval or a merge through", "kernel/decide.py",
      "        pause = _pause(context)\n        if pause:\n", "        pause = _pause(context)\n        if False:\n"),
+    ("a pause hides the approver Hold", "kernel/decide.py",
+     '        if config["approver"] in (facts["author"], facts["last_pusher"]):\n'
+     '            return _decision(facts, t.HELD, "approver_is_author_or_last_pusher", [], t.HOLD)\n'
+     "        # The Hold the facts establish first, then the Pause; neither approves.\n"
+     "        pause = _pause(context)\n        if pause:\n"
+     "            return _decision(facts, state, pause, evidence, t.DEFER)\n",
+     "        pause = _pause(context)\n        if pause:\n"
+     "            return _decision(facts, state, pause, evidence, t.DEFER)\n"
+     '        if config["approver"] in (facts["author"], facts["last_pusher"]):\n'
+     '            return _decision(facts, t.HELD, "approver_is_author_or_last_pusher", [], t.HOLD)\n'),
     ("an unreadable pause is read as no pause", "kernel/decide.py",
      'if context.get("paused") is False:', 'if not context.get("paused"):'),
     ("attempts are unlimited", "kernel/decide.py",
