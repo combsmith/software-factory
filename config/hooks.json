@@ -3,5 +3,51 @@
     "login": "don-petry",
     "name": "Don Petry",
     "email": "36422719+don-petry@users.noreply.github.com"
+  },
+  "protected": [
+    {"path": "lifecycle/", "is": "the Lifecycle"},
+    {"path": "config/authority.json", "is": "the authority table"},
+    {"path": "config/rubric-*.json", "is": "a rubric"},
+    {"path": "config/defaults.json", "is": "the brakes' limits, the required Lenses and the approver"},
+    {"path": "sim/world.py", "is": "the invariants"},
+    {"path": "tests/test_simulator.py", "is": "the simulator's fixed seeds"},
+    {"path": ".github/", "is": "the workflows and the code owners"},
+    {"path": ".claude/settings*.json", "is": "the hooks' wiring, or settings that could switch them off"},
+    {"path": "tools/hooks/", "is": "a session hook"},
+    {"path": "config/hooks.json", "is": "what the session hooks are told"},
+    {"path": "schemas/hooks.schema.json", "is": "the schema of what the session hooks are told"},
+    {"path": ".git/config", "is": "git's configuration, which says where a push goes"},
+    {"path": ".git/refs/remotes/", "is": "a remote branch, which a stop compares the branch with"},
+    {"path": ".git/packed-refs", "is": "git's packed branches, which a stop compares the branch with"}
+  ],
+  "reported": [
+    {"path": "kernel/", "is": "the Kernel: the gate function, the severities that gate, and the brakes"}
+  ],
+  "merging": {
+    "branch": "main",
+    "commands": ["pr merge --admin", "repo sync"],
+    "mutations": ["mergePullRequest", "mergeBranch", "updateRefs", "updateRef", "deleteRef", "createCommitOnBranch"],
+    "endpoints": ["repos/*/*/pulls/*/merge", "repos/*/*/merges", "repos/*/*/git/refs/**"]
+  },
+  "settings": {
+    "commands": ["repo edit", "repo rename", "repo archive", "repo unarchive", "repo delete", "repo deploy-key",
+                 "repo autolink", "ruleset", "secret set", "secret delete", "secret remove", "variable set",
+                 "variable delete", "variable remove", "workflow enable", "workflow disable"],
+    "reads": ["ruleset list", "ruleset ls", "ruleset view", "ruleset check", "repo deploy-key list",
+              "repo autolink list", "repo autolink view"],
+    "mutations": ["updateRepository*", "archiveRepository", "unarchiveRepository", "deleteRepository",
+                  "transferRepository", "*RepositoryRuleset", "*BranchProtectionRule", "*Environment",
+                  "updateTeamsRepository"],
+    "endpoints": ["repos/*/*", "repos/*/*/rulesets/**", "repos/*/*/branches/*/protection/**",
+                  "repos/*/*/branches/*/rename", "repos/*/*/tags/protection/**", "repos/*/*/actions/permissions/**",
+                  "repos/*/*/actions/secrets/**", "repos/*/*/actions/variables/**", "repos/*/*/actions/oidc/**",
+                  "repos/*/*/actions/runners/**", "repos/*/*/actions/workflows/*/enable",
+                  "repos/*/*/actions/workflows/*/disable", "repos/*/*/environments/**", "repos/*/*/hooks/**",
+                  "repos/*/*/collaborators/**", "repos/*/*/invitations/**", "repos/*/*/keys/**",
+                  "repos/*/*/dependabot/secrets/**", "repos/*/*/codespaces/secrets/**", "repos/*/*/pages/**",
+                  "repos/*/*/autolinks/**", "repos/*/*/properties/**", "repos/*/*/topics", "repos/*/*/transfer",
+                  "repos/*/*/vulnerability-alerts", "repos/*/*/automated-security-fixes",
+                  "repos/*/*/private-vulnerability-reporting", "repos/*/*/code-scanning/default-setup",
+                  "repos/*/*/interaction-limits", "orgs/*/**"]
   }
 }

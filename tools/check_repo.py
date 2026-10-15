@@ -18,6 +18,8 @@ STDLIB = {"__future__", "ast", "contextlib", "copy", "datetime", "hashlib", "io"
 LOADERS = {"__import__", "exec", "eval", "compile"}
 # base64: tools/check_trials.py looks inside base64 for a credential.
 STDLIB = STDLIB | {"base64"}
+# urllib: tools/hooks/protected.py reads a URL's host with urllib.parse, not as a substring.
+STDLIB = STDLIB | {"urllib"}
 # concurrent and signal: tools/mutants.py runs one mutant to a CPU, and ends a run that hangs.
 STDLIB = STDLIB | {"concurrent", "signal"}
 MANIFESTS = {"pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "Pipfile.lock", "poetry.lock", "uv.lock",

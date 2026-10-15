@@ -2,5 +2,43 @@
   "maintainer": {
     "login": "don-petry",
     "name": "Don Petry"
+  },
+  "protected": [
+    {
+      "path": "lifecycle/",
+      "is": "the Lifecycle"
+    }
+  ],
+  "reported": [
+    {
+      "path": "kernel/",
+      "is": "the Kernel"
+    }
+  ],
+  "merging": {
+    "branch": "main",
+    "commands": [
+      "pr merge --admin"
+    ],
+    "mutations": [
+      "mergePullRequest"
+    ],
+    "endpoints": [
+      "repos/*/*/pulls/*/merge"
+    ]
+  },
+  "settings": {
+    "commands": [
+      "ruleset"
+    ],
+    "reads": [
+      "ruleset list"
+    ],
+    "mutations": [
+      "*RepositoryRuleset"
+    ],
+    "endpoints": [
+      "repos/*/*/rulesets/**"
+    ]
   }
 }

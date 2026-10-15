@@ -10,6 +10,17 @@
             "timeout": 60
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"$CLAUDE_PROJECT_DIR/tools/hooks/protected.py\" || exit 2",
+            "timeout": 30,
+            "onFailure": "block"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -31,6 +42,11 @@
             "type": "command",
             "command": "python3 -I \"$CLAUDE_PROJECT_DIR/tools/hooks/before_stop.py\"",
             "timeout": 600
+          },
+          {
+            "type": "command",
+            "command": "python3 -I \"$CLAUDE_PROJECT_DIR/tools/hooks/rules_changed.py\"",
+            "timeout": 60
           }
         ]
       }
