@@ -1,0 +1,427 @@
+{
+  "schema": "lifecycle/1",
+  "work_item": "issue",
+  "states": [
+    "new",
+    "triage",
+    "ready",
+    "in_progress",
+    "in_review",
+    "held",
+    "not_served",
+    "done",
+    "declined"
+  ],
+  "initial": [
+    "new"
+  ],
+  "terminal": [
+    "done",
+    "declined"
+  ],
+  "person_only_exits": [
+    "held",
+    "not_served"
+  ],
+  "stale_after_minutes": {
+    "new": 30,
+    "triage": 1440,
+    "ready": 30,
+    "in_progress": 1440,
+    "in_review": 30,
+    "held": 1440,
+    "not_served": 1440
+  },
+  "transitions": [
+    {
+      "from": "new",
+      "to": "triage",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "triage",
+      "to": "ready",
+      "by": "factory",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "triage",
+      "to": "ready",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "new",
+      "to": "ready",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "ready",
+      "to": "triage",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "triage",
+      "to": "new",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "ready",
+      "to": "new",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "ready",
+      "to": "in_progress",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "ready",
+      "to": "in_progress",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_progress",
+      "to": "ready",
+      "by": "factory",
+      "bound": "max_attempts"
+    },
+    {
+      "from": "ready",
+      "to": "held",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "in_progress",
+      "to": "in_review",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "in_progress",
+      "to": "in_review",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_review",
+      "to": "in_progress",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_progress",
+      "to": "done",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_review",
+      "to": "done",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_progress",
+      "to": "ready",
+      "by": "factory",
+      "bound": "max_unmerged_closes"
+    },
+    {
+      "from": "in_review",
+      "to": "ready",
+      "by": "factory",
+      "bound": "max_unmerged_closes"
+    },
+    {
+      "from": "in_progress",
+      "to": "triage",
+      "by": "factory",
+      "bound": "max_unmerged_closes"
+    },
+    {
+      "from": "in_review",
+      "to": "triage",
+      "by": "factory",
+      "bound": "max_unmerged_closes"
+    },
+    {
+      "from": "in_progress",
+      "to": "held",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "in_review",
+      "to": "held",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "new",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "triage",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "ready",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_progress",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_review",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "new",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "triage",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "ready",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "in_progress",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "in_review",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "new",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "new",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "new",
+      "to": "declined",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "triage",
+      "to": "declined",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "ready",
+      "to": "declined",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_progress",
+      "to": "declined",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_review",
+      "to": "declined",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "declined",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "declined",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "triage",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "ready",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_progress",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_review",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_progress",
+      "to": "new",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_review",
+      "to": "new",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "new",
+      "to": "in_progress",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "new",
+      "to": "in_review",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "triage",
+      "to": "in_progress",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "triage",
+      "to": "in_review",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "triage",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "ready",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "in_progress",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "in_review",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "ready",
+      "to": "in_review",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "new",
+      "to": "done",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "triage",
+      "to": "done",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "ready",
+      "to": "done",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "done",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "done",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "triage",
+      "to": "held",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "new",
+      "to": "triage",
+      "by": "human",
+      "bound": null
+    }
+  ]
+}

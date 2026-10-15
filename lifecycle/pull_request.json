@@ -22,6 +22,9 @@
     "closed",
     "not_served"
   ],
+  "person_only_exits": [
+    "held"
+  ],
   "stale_after_minutes": {
     "draft": 1440,
     "verifying": 30,

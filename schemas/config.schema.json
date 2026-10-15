@@ -53,6 +53,7 @@
         "max_attempts",
         "max_rounds",
         "max_runs_per_item",
+        "max_unmerged_closes",
         "org_max_active_runs",
         "max_diff_lines"
       ],
@@ -66,6 +67,10 @@
           "minimum": 1
         },
         "max_runs_per_item": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_unmerged_closes": {
           "type": "integer",
           "minimum": 1
         },
