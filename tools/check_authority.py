@@ -9,7 +9,7 @@ MODEL_JUDGED = {"functional", "security", "architecture", "delivery", "reliabili
                 "requirements", "uncategorised"}
 
 
-def run(authority: dict = None, config: dict = None) -> list:
+def run(authority: dict = None, config: dict = None, facts: dict = None) -> list:
     a = json.loads((ROOT / "config" / "authority.json").read_text()) if authority is None else authority
     c = json.loads((ROOT / "config" / "defaults.json").read_text()) if config is None else config
     problems = []
@@ -24,6 +24,13 @@ def run(authority: dict = None, config: dict = None) -> list:
         problems.append("a Finding may carry the category %s, and nobody owns it" % name)
     for name in sorted(set(cats) - known):
         problems.append("%s has an owner, and no Finding can carry it" % name)
+    # A thread in the facts carries its Finding's category, in the same terms, or null where a Lens writes it as prose.
+    f = json.loads((ROOT / "schemas" / "facts.schema.json").read_text()) if facts is None else facts
+    on_threads = set(f["properties"]["threads"]["items"]["properties"]["category"]["enum"]) - {None}
+    for name in sorted(on_threads - known):
+        problems.append("a thread may carry the category %s, and no Finding can" % name)
+    for name in sorted(known - on_threads):
+        problems.append("a Finding may carry the category %s, and no thread can" % name)
     for name in sorted(MODEL_JUDGED - set(cats)):
         problems.append("category has no owner: %s" % name)
     for name, c in sorted(cats.items()):

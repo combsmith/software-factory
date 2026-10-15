@@ -81,9 +81,11 @@ def gating_threads(facts: dict, config: dict) -> list:
     """Open threads that hold the pull request.
 
     A person with write access always gates. A Lens gates only if it is
-    required and its Finding is blocking or major. Everyone else informs.
-    A Finding a model Lens has raised gates whatever the class: a dependency
-    update needs no review, and still answers one it was given.
+    required and its Finding is blocking or major, or is a security Finding
+    of any severity. Everyone else informs. A Finding that does not gate is
+    an annotation on its Lens's check run, and closes when the Lens stops
+    reporting it. A Finding a model Lens has raised gates whatever the class:
+    a dependency update needs no review, and still answers one it was given.
     """
     required = set(config["required_lenses"]["model"])
     out = []
@@ -93,7 +95,8 @@ def gating_threads(facts: dict, config: dict) -> list:
         by = th["opened_by"]
         if by["kind"] == "human" and by["can_write"]:
             out.append(th)
-        elif by["kind"] == "lens" and by["name"] in required and th["severity"] in t.GATING_SEVERITIES:
+        elif by["kind"] == "lens" and by["name"] in required and (
+                th["category"] == t.SECURITY or th["severity"] in t.GATING_SEVERITIES):
             out.append(th)
     return out
 

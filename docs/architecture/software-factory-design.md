@@ -73,6 +73,7 @@ Made by the Maintainer on 2026-10-10, in addition to ADR-0013's twelve decisions
 | The Factory's Apps share the prefix `combsmith-sf-` | §5.1 |
 | Every panel of the control room is public | §8.6 |
 | Code owners follow the org's standard: the team org-leads owns every path (2026-10-14) | §5.1 |
+| A Finding that does not gate is an annotation on its Lens's check run and has no Disposition; a `security` Finding gates at any severity (2026-10-14) | §3.7, §4.2, §4.3 |
 | Only required Lenses gate, and domain owners start in shadow (from the pre-mortem, §9.3) | §4.2, §5.2 |
 | The Maintainer records continue or stop at two decision points | §9.2 |
 | Decisions read GitHub only; the control room is written and never read back (from the simplification pass, §9.4) | §3.9 |
@@ -559,6 +560,11 @@ There is no Effect that starts a Run. Only Admission does that.
 - `category` is one of `functional`, `security`, `architecture`, `delivery`, `reliability`,
   `requirements`, `mechanical`, `uncategorised`, or `human`.
 - `severity` is `blocking`, `major`, `minor` or `info`.
+- Whether a required Lens's Finding gates is read from its category and severity (§4.2). A
+  `security` Finding gates at any severity. One that does not gate, a `minor` or `info` Finding of
+  any other category, is reported as an annotation on its Lens's check run (`surface.type`
+  `annotation`), never as a thread, and has no Disposition (§4.3). The Harness refuses a Result
+  that posts one on a thread.
 - Category and severity are always fields. A deterministic tool supplies them. A Role supplies them
   for its own Findings. A third-party reviewer that writes them only as prose gets them by
   **adoption**: `pr-review` is given that reviewer's Finding as input and, if it agrees, raises a
@@ -1239,14 +1245,17 @@ Convergence is one Kernel function of facts and run records:
    on the current `content_id`. For a deterministic Lens, only `success` passes; a check that gave
    no verdict, `neutral`, `skipped` or `cancelled` among them, is unreadable and the Kernel defers
    (§3.3);
-2. no Finding of severity `blocking` or `major` raised by a required Lens is open or proposed;
+2. no Finding raised by a required Lens is open or proposed that is of severity `blocking` or
+   `major`, or of category `security` at any severity;
 3. no `human` Finding is open. A `human` Finding is a review thread, or a review that requests
    changes, from a person with write access;
 4. where the item has an acceptance contract, every criterion has passing evidence on this
    content (§4.8).
 
 A *blocking Finding*, here and in the diagram above, is one that gates: severity `blocking` or
-`major`, from a required Lens or a human.
+`major`, or category `security` at any severity, from a required Lens; or a `human` Finding.
+Severity is never how a security defect is merged. A required Lens's Finding that does not gate is
+an annotation on its check run, and needs no Disposition before its item merges (§4.3, FR-33).
 
 Which Lenses are required is data. The starting set is the deterministic checks, `pr-review` and
 humans. A Lens joins it only with a measured contribution (ADR-0013, decision 12). A dependency
@@ -1315,9 +1324,14 @@ sequenceDiagram
   Run's artifact and compared with the owner's. They move nothing.
 - A rejected proposal returns the item to `addressing`. After `max_rounds` the item is placed on
   Hold with the open Findings listed.
-- A `security` Finding cannot be accepted as `declined` or `deferred` by any Role. Only an Override
-  by the Maintainer does that.
+- A `security` Finding gates at any severity. It cannot be accepted as `declined` or `deferred` by
+  any Role. Only an Override by the Maintainer does that.
 - A `mechanical` Finding is never judged by a model. It closes when its tool stops reporting it.
+- A required Lens's Finding that does not gate, a `minor` or `info` one of any category but
+  `security`, is never judged either. It is an annotation on its Lens's check run, never a thread, so no ruleset's
+  requirement that threads be resolved can hold its item. It has no Disposition, and closes when
+  its Lens stops reporting it, as a `mechanical` Finding does. Its Lens's report is its one
+  outcome, and FR-69 counts it. The Harness refuses a Result that posts one on a thread.
 - A `human` Finding closes only when that person resolves it.
 
 ### 4.4 Invariants
@@ -1340,7 +1354,7 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 | I-12 | Every recorded Transition is declared in the Lifecycle | FR-1 |
 | I-13 | An unreadable fact or a missing capacity reading never yields an admission, nor any act except to take a pull request out of the merge queue | FR-35, C-1 |
 | I-14 | Every cycle in the Lifecycle passes through a bounded counter or a human transition | FR-18, FR-57 |
-| I-15 | Each Finding has exactly one owner and one Disposition per content version | FR-33 |
+| I-15 | Each Finding has exactly one owner, and each Finding that gates one Disposition per content version | FR-33 |
 | I-16 | A `security` Finding is never closed as declined without an Override record | Maintainer, 2026-10-10 |
 | I-17 | The status on an item changes only when the decision changes | ADR-0013, decision 2 |
 | I-18 | A Run that ends with no Result counts as an attempt unless its fault is classed as capacity or environment, and its item is re-evaluated | ADR-0013, decision 4 |
@@ -2367,7 +2381,7 @@ Found by explaining the design on one page and by comparing it with the PRD grou
 |---|---|
 | FR-1, for issues | Designed in §4.1 on 2026-10-11. Not yet declared as data, nor checked for termination. The Kernel has no facts or derivation for an issue yet. Left open there: which Role's App opens the draft pull request; the Consumer entry's fields for issues; the promotion record of an Intent that owns no category; and the PRD's own text on triage and arming (§10) |
 | FR-6, resumable Runs | Not designed. A Run that times out pushes nothing and starts again |
-| FR-33 and I-15, for a Finding that does not gate | Not designed. Convergence reads only `blocking` and `major` Findings (§4.2), so a `minor` or `info` Finding can be open, with no Disposition, when its item merges. Whether such a Finding is given a Disposition before the merge, or closed as deferred by it, is the Maintainer's to rule on |
+| FR-33 and I-15, for a Finding that does not gate | Designed in §4.2 and §4.3 on 2026-10-14, by the Maintainer's ruling. A required Lens's `minor` or `info` Finding of any category but `security` is an annotation on its Lens's check run, has no Disposition, and closes when its Lens stops reporting it; a `security` Finding gates at any severity. The Kernel holds the gate. Refusing such a Finding when it is posted on a thread is waiting on `harness/` |
 | FR-12, the injection test suite | Required before promotion; not designed |
 | FR-14, shared-branch safety | The rule is stated; the push guard is to be carried over from the POC |
 | FR-21, FR-36, priority and graceful degradation | Backpressure and the capacity outcome exist. The stages between full service and Pause are not designed |

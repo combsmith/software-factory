@@ -345,8 +345,10 @@ class World:
             if self.rng.random() < 0.5:
                 # GitHub: a_lens_review_opens_a_thread
                 self.moves()
+                # A minor security Finding gates as a major one does: severity is never how one gets merged.
                 self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
                                      "opened_by": {"kind": "lens", "name": "pr-review", "can_write": True},
+                                     "category": self.pick(["functional", "security", "architecture"]),
                                      "severity": self.pick(["blocking", "major", "minor"]), "resolved_by": None,
                                      "opened_at": self.now()})
         elif run["intent"] == "fix-findings":
@@ -454,7 +456,7 @@ class World:
     def open_thread(self):
         self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
                              "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
-                             "severity": None, "resolved_by": None, "opened_at": self.now()})
+                             "category": "human", "severity": None, "resolved_by": None, "opened_at": self.now()})
         self.writer_acted()
         self.note("maintainer opened a thread")
 

@@ -401,6 +401,15 @@ class Authority(unittest.TestCase):
         self.assertTrue(caught(problems, "category human, and nobody owns it"))
         self.assertTrue(caught(problems, "performance has an owner, and no Finding can carry it"))
 
+    def test_a_thread_carries_the_categories_a_finding_does(self):
+        facts = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
+        enum = facts["properties"]["threads"]["items"]["properties"]["category"]["enum"]
+        enum.remove("security")
+        enum.append("style")
+        problems = check_authority.run(self.table, facts=facts)
+        self.assertTrue(caught(problems, "a thread may carry the category style, and no Finding can"))
+        self.assertTrue(caught(problems, "a Finding may carry the category security, and no thread can"))
+
     def test_a_category_a_model_judges_needs_a_role_and_no_role_shadows_itself(self):
         self.table["categories"]["functional"]["owner"] = "human"
         self.table["categories"]["security"]["shadow"] = "pr-review"

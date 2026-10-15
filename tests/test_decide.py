@@ -661,6 +661,31 @@ class Convergence(unittest.TestCase):
         f = facts(threads=[thread(severity="minor"), thread(tid="T2", name="coderabbit", can_write=False)])
         self.assertEqual(go(f, REVIEWED)["state"], "converged")
 
+    def test_a_minor_security_finding_gates(self):  # FR-33, I-16: severity is never how a security defect is merged
+        # A required Lens's `security` Finding gates at any severity, a dependency update's too.
+        for severity in ("minor", "info", None):
+            for over in ({}, DEPENDENCY):
+                f = facts(**over, threads=[thread(severity=severity, category="security")])
+                d = go(f, REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "findings_open", ["T1"]),
+                                 (severity, over))
+                self.assertEqual(d["admit"]["intent"], "fix-findings")
+        # The other side: a Finding of any other category gates by its severity alone.
+        for category in ("functional", "architecture", "mechanical", "uncategorised"):
+            f = facts(threads=[thread(severity="minor", category=category)])
+            self.assertEqual(go(f, REVIEWED)["state"], "converged", category)
+
+    def test_a_security_finding_from_a_lens_that_is_not_required_does_not_gate(self):  # FR-32
+        # A Lens outside the required set gates only when a required Lens adopts its Finding, whatever the category.
+        for severity in ("blocking", "minor"):
+            f = facts(threads=[thread(name="coderabbit", can_write=False, severity=severity, category="security")])
+            self.assertEqual(go(f, REVIEWED)["state"], "converged", severity)
+        # Adopted, it is the required Lens's own, and gates.
+        adopted = [thread(name="coderabbit", can_write=False, severity="minor", category="security"),
+                   thread(tid="T2", severity="minor", category="security")]
+        d = go(facts(threads=adopted), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "findings_open", ["T2"]))
+
     def test_after_the_author_it_is_the_owners_turn(self):
         runs = REVIEWED + [run(role="dev-lead", intent="fix-findings", at="2026-10-11T12:20:00Z", name="r2")]
         d = go(facts(threads=[thread()]), runs)
@@ -861,6 +886,19 @@ class Queue(unittest.TestCase):
             d = go(facts(queue=True, reviews=APPROVED, threads=threads), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"), threads)
             self.assertNotIn("action", d)
+
+    def test_a_minor_security_finding_opened_while_queued_takes_it_out_of_the_queue(self):  # FR-33, I-16
+        # A required Lens's security Finding is a gate at any severity, so it is one in the merge queue too.
+        for severity in ("minor", "info"):
+            d = go(facts(queue=True, reviews=APPROVED, threads=[thread(severity=severity, category="security")]),
+                   REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
+                             ("addressing", "gate_open", ["T1"], "act", "dequeue"), severity)
+        # The other side: a minor Finding of another category, or from a Lens that is not required, leaves it there.
+        for th in (thread(severity="minor"), thread(name="coderabbit", can_write=False, severity="minor",
+                                                    category="security")):
+            d = go(facts(queue=True, reviews=APPROVED, threads=[th]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"), th)
 
     def test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue(self):  # L-14
         # A writer's request gates as that person's thread does, made before the item entered the queue or after.

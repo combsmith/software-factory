@@ -41,6 +41,8 @@ MAY_GO_STALE = frozenset({REVIEW, READY})
 SCOPE_DEFERRALS = frozenset({"paused", "pause_unreadable", "capacity", "capacity_unreadable", "concurrency"})
 
 GATING_SEVERITIES = frozenset({"blocking", "major"})
+# A Finding of this category gates at any severity: severity is never how a security defect gets merged (FR-33).
+SECURITY = "security"
 # The reasons an open gate gives, whoever's turn it is. On a queued item each is the one reason `gate_open`.
 GATE_REASONS = ("human_finding", "findings_open", "awaiting_human", "proposals_await_owner")
 # The waits that end on their own, and that a queued item is read past: they never take it out of the merge queue.

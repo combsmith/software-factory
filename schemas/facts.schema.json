@@ -199,6 +199,7 @@
           "id",
           "resolved",
           "opened_by",
+          "category",
           "severity",
           "resolved_by",
           "opened_at"
@@ -232,6 +233,21 @@
                 "type": "boolean"
               }
             }
+          },
+          "category": {
+            "description": "The Finding's category, as the authority table names it: a person's thread is human. Null for a Lens that writes it only as prose. A security Finding gates at any severity",
+            "enum": [
+              "functional",
+              "security",
+              "architecture",
+              "delivery",
+              "reliability",
+              "requirements",
+              "mechanical",
+              "uncategorised",
+              "human",
+              null
+            ]
           },
           "severity": {
             "enum": [
