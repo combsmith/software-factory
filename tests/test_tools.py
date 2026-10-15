@@ -581,6 +581,20 @@ class Repo(unittest.TestCase):
         root = commit(tree({"kernel/__pycache__/x.pyc": ""}), {"kernel/__PYCACHE__/x.pyc": FILE})
         self.assertTrue(caught(check_repo.run(root), "kernel/__pycache__/x.pyc: in __pycache__/"))
 
+    def test_what_git_holds_is_refused_though_gone_from_disk(self):
+        # Staged, then deleted from the working tree with the deletion not staged: the walk cannot see
+        # it, yet the index still holds it, and the next commit takes it in.
+        gone = ["kernel/ghost.pyc", "kernel/__pycache__/y.cpython-39.pyc", "corpus/d.jsonl", "docs/.gitmodules"]
+        root = staged(dict({"kernel/x.py": "", "sim/z.PYC": ""}, **{rel: "" for rel in gone}))
+        for rel in gone:
+            (root / rel).unlink()
+        problems = check_repo.run(root)
+        for words in ("kernel/ghost.pyc: compiled code", "kernel/__pycache__/y.cpython-39.pyc: compiled code",
+                      "kernel/__pycache__/y.cpython-39.pyc: in __pycache__/", "corpus/d.jsonl: in corpus/",
+                      "docs/.gitmodules: declares a submodule"):
+            self.assertTrue(caught(problems, words), words)
+        self.assertEqual(len([p for p in problems if p.startswith("sim/z.PYC: compiled code")]), 1)   # on disk, once
+
     def test_a_submodule_is_refused(self):
         # A submodule's files come from another repo, at a commit this one's review never sees. Checked
         # out, it holds a .git file, and the walk skips it as another working tree.
