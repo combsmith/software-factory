@@ -37,6 +37,25 @@ class Simulation(unittest.TestCase):
             self.assertTrue(resting, "seed %d rests in %s (%s)\n%s" % (
                 seed, last["state"], last["reason"], "\n".join(world.trace[-15:])))
 
+    def test_an_approval_that_never_lands_is_bounded(self):  # I-8
+        self.rests_on_its_bound(dict(approvals_land=False), "attempts_exhausted")
+
+    def test_a_queue_that_ejects_every_time_is_bounded(self):  # I-8
+        self.rests_on_its_bound(dict(queue_merges=False), "act_ceiling")
+
+    def rests_on_its_bound(self, world: dict, reason: str):
+        """A world that never ends on its own stops on a ceiling, with faults and people and after them."""
+        reasons = []
+        for seed in SEEDS:
+            w = World(seed, **world)
+            for _ in range(250):
+                w.step()
+            last = w.settle()
+            self.assertEqual((w.pr_state, last["state"]), ("open", "held"), "seed %d: %s\n%s" % (
+                seed, last["reason"], "\n".join(w.trace[-15:])))
+            reasons.append(last["reason"])
+        self.assertGreater(reasons.count(reason), len(reasons) // 2, reasons)
+
     def test_a_quiet_world_merges_or_stops_on_a_ceiling(self):
         for seed in SEEDS:
             world = World(seed, faults=False, people=False)

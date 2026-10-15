@@ -90,6 +90,7 @@
               "max_attempts",
               "max_runs_per_item",
               "max_unmerged_closes",
+              "max_acts_per_item",
               null
             ]
           }

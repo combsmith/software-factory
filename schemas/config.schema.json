@@ -65,7 +65,8 @@
         "max_runs_per_item",
         "max_unmerged_closes",
         "org_max_active_runs",
-        "max_diff_lines"
+        "max_diff_lines",
+        "max_acts_per_item"
       ],
       "properties": {
         "max_attempts": {
@@ -89,6 +90,10 @@
           "minimum": 1
         },
         "max_diff_lines": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_acts_per_item": {
           "type": "integer",
           "minimum": 1
         }

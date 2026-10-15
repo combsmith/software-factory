@@ -64,6 +64,7 @@
     }
   ],
   "queue": false,
+  "acts_since_writer": 2,
   "complete": {
     "reviews": true,
     "threads": true,

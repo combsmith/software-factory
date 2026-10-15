@@ -13,7 +13,7 @@ SCHEMA = "decision/1"
 NEEDS_YOU_REASONS = frozenset({
     "human_hold", "outside_not_admitted", "empty_diff", "too_large", "human_finding",
     "attempts_exhausted", "run_ceiling", "max_rounds", "approver_is_author_or_last_pusher",
-    "awaiting_human",
+    "awaiting_human", "act_ceiling",
 })
 
 
@@ -67,6 +67,33 @@ def _wanted_run(state: str, reason: str, config: dict):
     return None
 
 
+def _attempts(recent: list, intent: str) -> list:
+    """Runs of this Intent that failed by a fault of the item. Only those are attempts (I-23)."""
+    return [r for r in recent if r["intent"] == intent and r["status"] == "completed"
+            and r["conclusion"] != "success" and r.get("outcome") == "item"]
+
+
+def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, config: dict) -> dict:
+    """An act that moves work on, bounded.
+
+    An approval is a Run with no Engine, so its run records bound the attempts at one that does
+    not land. Every act that lands is on GitHub's timeline, counted since a writer acted, and the
+    count is held to the act ceiling. An act that stops work is not decided here: it is never refused.
+    """
+    limits = config["limits"]
+    action = "enqueue" if reason == "approved" else "issue_approval"
+    if action == "issue_approval":
+        failed = _attempts(since_writer(mine, facts), t.ISSUE_APPROVAL)
+        if len(failed) >= limits["max_attempts"]:
+            return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in failed], t.HOLD)
+    acts = facts.get("acts_since_writer")
+    if type(acts) is not int or acts < 0:
+        return _decision(facts, state, "acts_unreadable", evidence, t.DEFER)
+    if acts >= limits["max_acts_per_item"]:
+        return _decision(facts, t.HELD, "act_ceiling", [], t.HOLD)
+    return _decision(facts, state, reason, evidence, t.ACT, action=action, content_id=facts["content_id"])
+
+
 def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> dict:
     d = derive(facts, runs, config)
     state, reason, evidence = d["state"], d["reason"], d["evidence"]
@@ -90,9 +117,7 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
         pause = _pause(context)
         if pause:
             return _decision(facts, state, pause, evidence, t.DEFER)
-        action = "enqueue" if reason == "approved" else "issue_approval"
-        return _decision(facts, state, reason, evidence, t.ACT, action=action,
-                         content_id=facts["content_id"])
+        return _act(facts, state, reason, evidence, mine, config)
 
     wanted = _wanted_run(state, reason, config)
     if wanted is None:
@@ -105,15 +130,15 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
         return _decision(facts, state, pause, evidence, t.DEFER)
     limits = config["limits"]
     recent = since_writer(mine, facts)
-    attempts = [r for r in recent if r["intent"] == intent and r["status"] == "completed"
-                and r["conclusion"] != "success" and r.get("outcome") == "item"]
+    attempts = _attempts(recent, intent)
     if len(attempts) >= limits["max_attempts"]:
         return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in attempts], t.HOLD)
     if intent == "adjudicate-findings":
         rounds = [r for r in recent if r["intent"] == intent and r["status"] == "completed"]
         if len(rounds) >= limits["max_rounds"]:
             return _decision(facts, t.HELD, "max_rounds", evidence, t.HOLD)
-    if len(recent) >= limits["max_runs_per_item"]:
+    # The Run ceiling is the cost ceiling (FR-39). An approval Run spends no model, and is bounded by its attempts.
+    if len([r for r in recent if r["intent"] != t.ISSUE_APPROVAL]) >= limits["max_runs_per_item"]:
         return _decision(facts, t.HELD, "run_ceiling", [], t.HOLD)
 
     until = context.get("model_deferred_until", "unreadable")

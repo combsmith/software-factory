@@ -301,6 +301,17 @@ class Lifecycle(unittest.TestCase):
         self.assertTrue(caught(problems, "lifecycle/issue.json: the bound max_unmerged_closes is not a limit"),
                         problems)
 
+    def test_the_act_ceiling_can_bound_a_transition(self):
+        # An enqueue is an act, not a Run; a cycle through the merge queue is bounded by the act ceiling.
+        lc = copy.deepcopy(check_lifecycle.load())
+        for tr in lc["transitions"]:
+            if (tr["from"], tr["to"]) == ("converged", "queued"):
+                tr["bound"] = "max_acts_per_item"
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.assertEqual(check_lifecycle.check(lc, config["limits"]), [])
+        del config["limits"]["max_acts_per_item"]
+        self.assertTrue(caught(check_lifecycle.check(lc, config["limits"]), "the bound max_acts_per_item is not a limit"))
+
 
 class Authority(unittest.TestCase):
     def setUp(self):

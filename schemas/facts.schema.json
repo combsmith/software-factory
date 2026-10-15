@@ -23,6 +23,7 @@
     "threads",
     "checks",
     "queue",
+    "acts_since_writer",
     "complete",
     "read_at"
   ],
@@ -237,6 +238,10 @@
     },
     "queue": {
       "type": "boolean"
+    },
+    "acts_since_writer": {
+      "type": "integer",
+      "minimum": 0
     },
     "complete": {
       "type": "object",

@@ -12,6 +12,18 @@ DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_te
 REVIEWED = [run()]
 # A dependency bot's pull request, whose head that bot pushed itself.
 DEPENDENCY = {"class": "dependency", "author": "dependabot[bot]", "last_pusher": "dependabot[bot]"}
+APPROVED = [{"actor": "donpetry-bot", "state": "approved", "commit": "c1", "content_id": "sha256:aaaa"}]
+LIMITS = CONFIG["limits"]
+
+
+def at(minute: int) -> str:
+    return "2026-10-11T12:%02d:00Z" % minute
+
+
+def approvals(count, conclusion="failure", outcome="item", start=20):
+    """Approval Runs. An approval is a Run with no Engine: only its `apply` holds the machine user's token."""
+    return [run(intent="issue-approval", conclusion=conclusion, outcome=outcome, at=at(start + i), name="a%d" % i)
+            for i in range(count)]
 
 
 def go(f, runs=(), ctx=None, cfg=None):
@@ -363,6 +375,74 @@ class Ceilings(unittest.TestCase):
         d = go(facts(last_writer_action_at="2026-10-11T12:30:00Z"), failures)
         self.assertEqual(d["outcome"], "admit")
 
+    def test_an_approval_that_does_not_land_is_bounded(self):  # I-8, I-28
+        failed = approvals(LIMITS["max_attempts"])
+        d = go(facts(), REVIEWED + failed)
+        self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"], d["evidence"]),
+                         ("held", "hold", "attempts_exhausted", "needs_you", [r["run"] for r in failed]))
+        d = go(facts(), REVIEWED + failed[1:])
+        self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
+        # A writer's action grants a fresh allowance.
+        d = go(facts(last_writer_action_at=at(40)), REVIEWED + failed)
+        self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
+        # An approval Run in progress holds the item, as any Run does (I-2).
+        d = go(facts(), REVIEWED + [run(intent="issue-approval", status="in_progress", at=at(20), name="a0")])
+        self.assertEqual((d["outcome"], d["attention"]), ("nothing", "working"))
+
+    def test_an_approval_that_fails_for_capacity_or_environment_is_not_an_attempt(self):  # I-23
+        for kind in ("capacity", "environment", "superseded"):
+            d = go(facts(), REVIEWED + approvals(LIMITS["max_attempts"], outcome=kind))
+            self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"), kind)
+
+    def test_an_approval_that_landed_is_enqueued_whatever_failed_before(self):
+        d = go(facts(reviews=APPROVED), REVIEWED + approvals(LIMITS["max_attempts"]))
+        self.assertEqual((d["outcome"], d["action"]), ("act", "enqueue"))
+
+    def test_an_approval_run_does_not_count_toward_the_run_ceiling(self):  # FR-39: the Run ceiling is the cost ceiling
+        ceiling = LIMITS["max_runs_per_item"]
+        model = REVIEWED + [run(content="sha256:%04x" % i, at=at(20 + i), name="v%d" % i) for i in range(ceiling - 2)]
+        landed = approvals(LIMITS["max_attempts"], conclusion="success", outcome=None, start=40)
+        d = go(facts(threads=[thread()]), model + landed)
+        self.assertEqual((d["outcome"], d["admit"]["intent"]), ("admit", "fix-findings"))
+        d = go(facts(threads=[thread()]), model + [run(content="sha256:ffff", at=at(35), name="v")] + landed)
+        self.assertEqual((d["outcome"], d["reason"]), ("hold", "run_ceiling"))
+
+    def test_acts_are_bounded(self):  # I-8, FR-17
+        limit = LIMITS["max_acts_per_item"]
+        for reviews, action in (([], "issue_approval"), (APPROVED, "enqueue")):
+            d = go(facts(reviews=reviews, acts_since_writer=limit - 1), REVIEWED)
+            self.assertEqual((d["outcome"], d["action"]), ("act", action))
+            for acts in (limit, limit + 1):
+                d = go(facts(reviews=reviews, acts_since_writer=acts), REVIEWED)
+                self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"]),
+                                 ("held", "hold", "act_ceiling", "needs_you"), (action, acts))
+
+    def test_an_unreadable_count_of_acts_makes_no_act(self):  # I-13
+        # A fact read from outside is never given a default: a count that is not a whole number is unreadable.
+        for reviews in ([], APPROVED):
+            for value in ("missing", None, "0", 0.0, True, False, -1):
+                f = facts(reviews=reviews)
+                if value == "missing":
+                    del f["acts_since_writer"]
+                else:
+                    f["acts_since_writer"] = value
+                d = go(f, REVIEWED)
+                self.assertEqual((d["state"], d["outcome"], d["reason"]), ("converged", "defer", "acts_unreadable"),
+                                 (reviews, value))
+
+    def test_the_act_ceiling_stops_acts_and_nothing_else(self):
+        # A Run is bounded by the Run ceiling. A Hold is an act that stops work: counted, and never refused.
+        over = LIMITS["max_acts_per_item"] + 1
+        for value in (over, None):
+            d = go(facts(acts_since_writer=value))
+            self.assertEqual((d["outcome"], d["admit"]["intent"]), ("admit", "review-change"), value)
+        cases = [({"labels": ["factory:hold"]}, REVIEWED, "human_hold"),
+                 ({"last_pusher": "donpetry-bot"}, REVIEWED, "approver_is_author_or_last_pusher"),
+                 ({}, REVIEWED + approvals(LIMITS["max_attempts"]), "attempts_exhausted")]
+        for over_, runs, reason in cases:
+            d = go(facts(acts_since_writer=over, **over_), runs)
+            self.assertEqual((d["outcome"], d["reason"]), ("hold", reason), reason)
+
     def test_rounds_are_bounded(self):  # I-14
         runs = list(REVIEWED)
         for i in range(3):
@@ -390,6 +470,12 @@ class NotYetHeld(unittest.TestCase):
     @pending
     def test_a_queued_pull_request_with_no_approval_leaves_the_queue(self):
         self.assertEqual(go(facts(queue=True), REVIEWED)["outcome"], "act")
+
+    @pending
+    def test_a_dequeue_is_never_refused_at_the_act_ceiling(self):
+        # An act that stops work is counted and never refused. The Kernel does not dequeue yet.
+        f = facts(queue=True, acts_since_writer=LIMITS["max_acts_per_item"] + 1)
+        self.assertEqual(go(f, REVIEWED).get("action"), "dequeue")
 
     @pending
     def test_a_writers_request_for_changes_does_not_converge(self):

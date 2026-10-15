@@ -325,7 +325,7 @@ for contract tests, so one schema has three uses.
 | `checks` | Name, App, conclusion, completion time, annotation count |
 | `alerts` | Tool, rule, alert number, state, severity, path |
 | `queue` | Merge-queue membership |
-| `actors_since_human` | Count of automated actions since the last human one, from GitHub's timeline |
+| `acts_since_writer` | Count of acts that landed since the last action by a person with write access, from GitHub's timeline: each approval, enqueue, dequeue and label a Factory identity made with no model Run |
 | `read_at`, `quota_remaining` | When it was read, and what the installation has left |
 | `complete` | For each list above, whether every page was read; whether the diff behind `content_id` was whole; and `runs`, whether the list of run records the pass read was whole |
 
@@ -336,6 +336,13 @@ malformed is incomplete. The list of Runs is read once a pass, and the port sets
 item from that one read. Read short, it can hide a Run in progress or one that counts toward a
 ceiling, so the item defers (I-13, I-20). A merged or closed item is read from no list, and keeps
 its State whatever the flags say.
+
+`acts_since_writer` bounds the acts as the run records bound the Runs (I-8, FR-17). An act that
+moves work on, an approval or an enqueue, is made only while the count is below
+`max_acts_per_item`; at the ceiling the item is held, reason `act_ceiling`, for the Maintainer to
+see. An act that stops work, a Hold label or a dequeue, is counted and never refused. A count that
+is missing, negative or not a whole number is unreadable: the Kernel defers and makes no act
+(I-13). The count bounds acts only; a Run is bounded by the Run ceiling.
 
 An issue has facts of its own (§4.1, the issue Lifecycle):
 
@@ -598,6 +605,17 @@ A pass reads `outcome.json` only for Runs that did not succeed, which are few. A
 outcome file; it is treated as `item` unless other Runs are failing as `environment` at the same
 time. The `capacity` outcome is the capacity signal the PRD has lacked (OQ-3): observed, not
 estimated. One cause must never become fifty Holds.
+
+**The act Run.** An approval is a Run with no Engine, Intent `issue-approval`, because only `apply`
+holds the machine user's token (§4.9). It has no `run` job and no model, and it asks the Kernel
+again as it starts (I-38). Its run record is what bounds an approval that does not land: a failed
+one whose outcome is `item` is an attempt, and `max_attempts` of them since a person with write
+access acted hold the item, reason `attempts_exhausted` (I-28). It counts toward its own attempts
+and not toward the Run ceiling, which stays the cost ceiling (FR-39). Every other act, an enqueue,
+a dequeue or a label the Controller adds, is the Controller's and has no run record. Every act that
+lands, the approval among them, is counted from GitHub's timeline as `acts_since_writer` (§3.3).
+So every automated action on an item is either inside a Run, bounded by `max_runs_per_item`, or is
+an act, bounded by `max_acts_per_item` (I-8).
 
 Run records and artifacts are kept for 90 days, which is the Factory's own history (PRD FR-40). The
 control room may keep what it has collected for longer (§7.2).
@@ -930,7 +948,8 @@ who removes `factory:ready` has overruled Readiness, and one who removes `factor
 declined the investigation.
 
 **Acceptance.** `triage` means the issue has been accepted for investigation. Acceptance is an act
-of the Controller, not a Run: for an accepted issue at row 10 it adds `factory:triage`. The
+of the Controller, not a Run: for an accepted issue at row 10 it adds `factory:triage`, and that
+label is counted toward the issue's `max_acts_per_item`, as every act is (§3.10). The
 Maintainer's admission of an outsider's issue is acceptance of it, decided on 2026-10-11: no
 further act of the Maintainer is needed for it to reach `ready`. Admission does not change whose
 text it is. The issue's body keeps the trust class `outside`, so a Run whose Task holds it has no
@@ -1060,9 +1079,9 @@ act is due, `triage` and `in_progress` 24 hours, `in_review` as its pull request
 
 **Left open by this design,** and listed in §9.9: which Role's App opens the draft pull request,
 when `qa-lead` writes its first commit and `dev-lead` is the declared author; the Consumer
-entry's fields for issues, which §3.12 does not yet have; how a promotion is recorded for an
-Intent that owns no category of Finding; and how the Controller's own acts are counted. The
-simulator asserts none of I-39 to I-44 yet.
+entry's fields for issues, which §3.12 does not yet have; and how a promotion is recorded for an
+Intent that owns no category of Finding. The Controller's own acts are counted as every act is,
+from the timeline (§3.10). The simulator asserts none of I-39 to I-44 yet.
 
 ### 4.2 Convergence and the gate
 
@@ -1111,7 +1130,8 @@ A change that fails lint is not worth a model's time, and a branch that is pushe
 settles before a review starts.
 
 The approval is issued only in `converged`, by the reviewer identity, for that `content_id`. If a
-push changes the head and not the `content_id`, the approval is re-issued with no Run.
+push changes the head and not the `content_id`, the approval is re-issued with no model Run: an
+act, made by a Run with no Engine (§3.10) and counted toward `max_acts_per_item` (§3.3).
 
 ### 4.3 The life of a Finding
 
@@ -1217,7 +1237,9 @@ decision logic against a fake world, quickly, thousands of times.
 - **Faults.** A tick dropped or delayed by hours. A nudge dropped or duplicated. A job killed at
   every step boundary, including between two Effects and before any artifact is uploaded. The
   control room unwritable, or holding nonsense. A facts read that fails or is stale. A missing capacity reading.
-  A Result that fails validation. An Engine that times out. A human acting mid-Run.
+  A Result that fails validation. An Engine that times out. A human acting mid-Run. An approval
+  that does not land, and a merge queue that ejects; each also as a world where it happens every
+  time, which must come to rest on its bound (I-8).
 - **Properties.** I-2 to I-17 are checked after every step, as are I-19 to I-38. I-1 and I-18 are checked once faults
   stop and the world is left to settle.
 - **Reproduction.** Each run has a seed from the standard library's generator. A failure prints the
@@ -1253,6 +1275,8 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | The approver is the author or the last pusher | GitHub rejects or discards the approval. The Kernel reads `author` and `last_pusher`, attempts no approval, and holds the item with that reason (I-26). The machine user therefore never pushes (§5.1) |
 | A branch pushed every few minutes | Deterministic Lenses first; a model review starts only on content they have passed (I-27) |
 | A Hold released, or a pull request reopened, after attempts ran out | Attempts count since the last action by a person with write access, which grants a fresh allowance. No agent's action does, and nor does a stranger's comment: on a public repo that would let anyone keep an agent running (I-28) |
+| An approval that does not land | The approval is a Run with no Engine. A failed one whose fault is the item's is an attempt, and at `max_attempts` the item is held (§3.10) |
+| A merge queue that ejects the pull request every time | Each enqueue is an act. At `max_acts_per_item` acts since a person with write access acted, the item is held, reason `act_ceiling` (§3.3) |
 | An empty diff | Never converges (I-24). The POC merged ten |
 | A diff too large to hash or to review | Each class has a size limit. Over it, one Hold, with the choices: split it, or review it by hand. No Run is spent finding out |
 | A conflict with the base | `mergeable` is false. It is the author's turn; in the first slice it is the Maintainer's |
@@ -1264,8 +1288,9 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | A plain comment from the Maintainer | It steers and gates nothing. It goes into the next Run's Task, and the Role's App reacts to it to show it was read. A plain comment has no resolved state, so it could never be closed. To block, use a review |
 
 Already handled with no special rule, because State is derived: a draft, a conversion back to
-draft, a reopened pull request, a force-push during a Run (`apply` re-reads the item), ejection
-from the merge queue, and an early approval by a person.
+draft, a reopened pull request, a force-push during a Run (`apply` re-reads the item), and an
+early approval by a person. One ejection from the merge queue needs no rule either; ejection every
+time is bounded by the act ceiling, above.
 
 ### 4.7 The control vocabulary
 
@@ -2185,7 +2210,7 @@ Found by explaining the design on one page and by comparing it with the PRD grou
 
 | Requirement | State |
 |---|---|
-| FR-1, for issues | Designed in §4.1 on 2026-10-11. Not yet declared as data, nor checked for termination. The Kernel has no facts or derivation for an issue yet. Left open there: which Role's App opens the draft pull request; the Consumer entry's fields for issues; the promotion record of an Intent that owns no category; how the Controller's acts are counted; and the PRD's own text on triage and arming (§10) |
+| FR-1, for issues | Designed in §4.1 on 2026-10-11. Not yet declared as data, nor checked for termination. The Kernel has no facts or derivation for an issue yet. Left open there: which Role's App opens the draft pull request; the Consumer entry's fields for issues; the promotion record of an Intent that owns no category; and the PRD's own text on triage and arming (§10) |
 | FR-6, resumable Runs | Not designed. A Run that times out pushes nothing and starts again |
 | FR-33 and I-15, for a Finding that does not gate | Not designed. Convergence reads only `blocking` and `major` Findings (§4.2), so a `minor` or `info` Finding can be open, with no Disposition, when its item merges. Whether such a Finding is given a Disposition before the merge, or closed as deferred by it, is the Maintainer's to rule on |
 | FR-12, the injection test suite | Required before promotion; not designed |
