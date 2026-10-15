@@ -54,17 +54,20 @@
   ],
   "checks": [
     {
-      "lens": "verify",
+      "name": "verify",
+      "app_id": 15368,
       "conclusion": "success",
       "completed_at": "2026-10-11T12:06:00Z"
     },
     {
-      "lens": "secret-scan",
+      "name": "Secret scan (gitleaks)",
+      "app_id": 15368,
       "conclusion": "success",
       "completed_at": "2026-10-11T12:06:00Z"
     },
     {
-      "lens": "code-scanning",
+      "name": "CodeQL",
+      "app_id": 57789,
       "conclusion": "success",
       "completed_at": "2026-10-11T12:06:00Z"
     }

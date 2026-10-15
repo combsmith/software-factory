@@ -276,13 +276,20 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "lens",
+          "name",
+          "app_id",
           "conclusion",
           "completed_at"
         ],
         "properties": {
-          "lens": {
+          "name": {
+            "description": "The check run's name exactly as GitHub gives it. The port's contract: it gives every check run on the head with its exact name and the id of the App that really reported it, from every App, and never drops, merges or renames one. The Kernel matches a check to a required deterministic Lens by the Lens's `check` in the configuration, exactly. Only a re-run of the same job in the same check suite replaces an earlier run (GitHub's filter=latest is per check suite), so two workflow runs on one commit both stay, and both are read",
             "type": "string"
+          },
+          "app_id": {
+            "description": "The id of the App that reported the check, as GitHub gives it: the check run's app.id. A required Lens is read only from the App the configuration names for it",
+            "type": "integer",
+            "minimum": 1
           },
           "conclusion": {
             "description": "GitHub's own conclusion, or the check's status while it has not concluded. The port maps nothing; config check_conclusions says what each means.",

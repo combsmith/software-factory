@@ -24,6 +24,12 @@ DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_te
 FACTS_SCHEMA = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
 DECLARED = check_lifecycle.declared(check_lifecycle.load())
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 1}
+# Each required check, by its Lens's name, and the App that reports it: here, always that Lens's own.
+APPS = {lens["lens"]: lens["app_id"] for lens in CONFIG["required_lenses"]["deterministic"]}
+# The name GitHub gives each required check run, by its Lens's name.
+CHECKS = {lens["lens"]: lens["check"] for lens in CONFIG["required_lenses"]["deterministic"]}
+# An App no Lens is read from, which can write checks: the Controller's own can post a check under any name.
+IMPOSTOR_APP = 1000001
 START = datetime.datetime(2026, 10, 11, 12, 0, 0)
 # On an even seed the pull request is an agent's, and the Maintainer reviews it as a colleague's (UJ-4). On an odd
 # seed it is the Maintainer's own, as the simulator has always served, and GitHub refuses a review by its author.
@@ -57,8 +63,9 @@ class World:
         self.unheld = []           # breaches of invariants the Kernel does not hold yet (NOT_YET_HELD)
         self.labels = set()
         self.threads, self.reviews, self.runs = [], [], []
-        self.checks = dict.fromkeys(CONFIG["required_lenses"]["deterministic"], "pending")
+        self.checks = dict.fromkeys(APPS, "pending")
         self.completed = dict.fromkeys(self.checks)   # when each check completed, or None
+        self.impostors = []        # checks another App posted under a required Lens's name, on this head
         self.queue = False
         self.last_push = self.last_writer = self.now()
         # The world's own clock for staleness, in minutes, kept apart from the facts the Kernel reads: when a writer,
@@ -101,8 +108,9 @@ class World:
             "diff": {"files": 2, "lines": 40, "truncated": False}, "labels": sorted(self.labels),
             "admitted_at": None, "last_push_at": self.last_push, "last_writer_action_at": self.last_writer,
             "reviews": copy.deepcopy(self.reviews), "threads": copy.deepcopy(self.threads),
-            "checks": [{"lens": k, "conclusion": v, "completed_at": self.completed.get(k)}
-                       for k, v in sorted(self.checks.items())],
+            # GitHub: a_check_is_read_by_name_from_every_app
+            "checks": [{"name": CHECKS[k], "app_id": APPS[k], "conclusion": v, "completed_at": self.completed.get(k)}
+                       for k, v in sorted(self.checks.items())] + copy.deepcopy(self.impostors),
             "queue": self.queue,
             # GitHub: the_timeline_shows_each_act
             "acts_since_writer": self.acts,
@@ -151,6 +159,8 @@ class World:
             out.append("a Hold")
         if any(v not in ("success", "pending") for v in self.checks.values()):
             out.append("a required check that failed or gave no verdict")
+        if self.impostors:
+            out.append("another App's check under a required Lens's name")
         return out
 
     def note(self, what: str):
@@ -223,6 +233,12 @@ class World:
         reviews = d["outcome"] == "admit" and d["admit"]["intent"] == "review-change"
         self.check(not no_verdict or not (reviews or (d["outcome"] == "act" and not dequeue)),
                    "I-13 a review or an act while a check has no verdict")
+        # Another App's check under a required Lens's name lets no Run start and no act be made but a dequeue, not
+        # even a fix for a check that failed.
+        apps = {CHECKS[lens]: app for lens, app in APPS.items()}
+        foreign = [c for c in facts["checks"] if c["app_id"] != apps[c["name"]]]
+        self.check(not foreign or not (d["outcome"] == t.ADMIT or (d["outcome"] == t.ACT and not dequeue)),
+                   "I-13 something done while another App's check stands under a Lens's name")
         waits = d["reason"] == "check_unreadable" and d["outcome"] == t.DEFER
         self.check(not waits or d["attention"] == t.NEEDS_YOU,
                    "a check with no verdict is not shown as needing a person")
@@ -376,6 +392,8 @@ class World:
         # GitHub: a_push_restarts_the_checks
         self.checks = dict.fromkeys(self.checks, "pending")
         self.completed = dict.fromkeys(self.checks)
+        # A check run cannot be deleted: another App's stays on the head it was posted on, and the new head has none.
+        self.impostors = []
         # GitHub: a_push_leaves_the_queue
         self.queue = False
         # GitHub: an_approval_survives_a_push
@@ -428,6 +446,11 @@ class World:
                 # GitHub: a_check_can_time_out_or_give_no_verdict
                 self.checks[lens] = self.pick(["timed_out", "neutral", "skipped", "cancelled", "stale"])
                 self.note("check %s: %s" % (lens, self.checks[lens]))
+            elif self.faults and roll < 0.87 and self.checks[lens] == "failure":
+                # GitHub: any_app_posts_a_check_under_any_name
+                self.impostors.append({"name": CHECKS[lens], "app_id": IMPOSTOR_APP, "conclusion": "success",
+                                       "completed_at": self.now()})
+                self.note("check %s: failure, and another App posted a passing one under its name" % lens)
 
     def person(self):
         # GitHub refuses a review by the pull request's author: on the Maintainer's own, they do as they always did.
@@ -557,10 +580,14 @@ class World:
         self.minute += 1
         if self.asked:
             self.review("approved")
-        # The person runs again every check that did not pass.
+        # The person runs again every check that did not pass, and the re-run replaces the run it repeats.
+        # GitHub: a_rerun_replaces_only_its_own_run
         self.checks = {k: ("pending" if v != "success" else v) for k, v in self.checks.items()}
         self.completed = {k: (self.completed[k] if v == "success" else None) for k, v in self.checks.items()}
         self.writer_acted()
+        if self.impostors:
+            # Another App's check cannot be run again or deleted: only a push leaves it behind.
+            self.push(MAINTAINER["name"], writer=True)
         for _ in range(steps):
             self.step()
         return decide(self.facts(), self.records(), self.context(), CONFIG, self.now())

@@ -190,13 +190,16 @@ class Simulation(unittest.TestCase):
 
     def test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause(self):
         # The faults while queued are reached: a dismissed approval, an open gate and a Hold each take one out.
-        causes = set()
+        # So is another App's passing check under the name of a Lens that failed, which no Run or act may follow.
+        causes, impostors = set(), 0
         for seed in SEEDS:
             w = World(seed)
             for _ in range(250):
                 w.step()
             causes |= {line.split("(")[-1].rstrip(")") for line in w.trace if "apply: dequeued" in line}
+            impostors += sum("another App posted" in line for line in w.trace)
         self.assertLessEqual({"approval_lost", "gate_open", "human_hold"}, causes)
+        self.assertTrue(impostors)
 
     def test_every_invariant_not_yet_held_names_a_pending_test(self):
         # When a rule is built and its test loses @pending, its invariant here must start to raise too.

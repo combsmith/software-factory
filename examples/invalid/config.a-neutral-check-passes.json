@@ -4,9 +4,21 @@
   "owner_role": "pr-review",
   "required_lenses": {
     "deterministic": [
-      "verify",
-      "secret-scan",
-      "code-scanning"
+      {
+        "lens": "verify",
+        "check": "verify",
+        "app_id": 15368
+      },
+      {
+        "lens": "secret-scan",
+        "check": "Secret scan (gitleaks)",
+        "app_id": 15368
+      },
+      {
+        "lens": "code-scanning",
+        "check": "CodeQL",
+        "app_id": 57789
+      }
     ],
     "model": [
       "pr-review"
@@ -15,6 +27,7 @@
       "dependency"
     ]
   },
+  "status_on_item": "factory",
   "check_conclusions": {
     "success": "passing",
     "failure": "failing",

@@ -1,7 +1,9 @@
 # 0012. Every Lens reports Findings in one schema; the Kernel decides Convergence
 
-Status: accepted. Source: decision 12 of `docs/architecture/adr/0013-factory-mvp-reference-architecture.md`,
-as it stood on 2026-10-11. That file records how this was reached; this one is the rule.
+Status: replaced by `docs/decisions/0015-a-lens-is-read-from-its-own-app-and-only-what-gates-holds-a-merge.md`, which holds
+the rule in force and its boundaries. Source: decision 12 of
+`docs/architecture/adr/0013-factory-mvp-reference-architecture.md`, as it stood on 2026-10-11. That file records
+how this was reached; this one was the rule.
 
 ## Decision
 
@@ -9,12 +11,8 @@ Every source of judgement on a Work item, whether a Role, a third-party reviewer
 person, is a Lens that reports Findings in one schema. Convergence is a Kernel function: every
 required Lens has passed on the current content, and no gating Finding is open. Lenses do not
 address each other. A Finding from a Lens outside the required set gates only when a required Lens
-adopts it. A required model Lens's Finding gates when it is `blocking` or `major`, and a `security`
-one at any severity; a required deterministic Lens gates through its check's conclusion. One that
-does not gate, a `minor` or `info` Finding of any category but `security`, is an annotation on its
-Lens's check run and has no Disposition: it closes when its Lens stops reporting it, as a
-`mechanical` Finding does (Maintainer, 2026-10-14). A reviewing Role declares a rubric, which is a floor. A change that has
-not converged within its bound is placed on Hold.
+adopts it. A reviewing Role declares a rubric, which is a floor. A change that has not converged
+within its bound is placed on Hold.
 
 ## Why
 
@@ -22,23 +20,13 @@ A council of independent Lenses finds more than one reviewer, but only if they s
 and something other than their conversation decides. The proof of concept decided by parsing
 comments, and waited for reviewers that never answered.
 
-A Disposition for every small Finding would cost Runs and bring back the gate built on every
-comment, and closing one as deferred at the merge cannot work: the ruleset requires resolved
-threads, so an open one would hold a merge the Kernel approved. An annotation's report still gives
-each Finding one outcome, which is counted. Severity is never how a security defect gets merged.
-
 ## Boundaries
 
 | Boundary | Check |
 |---|---|
 | A Finding is a structured record | `schemas/finding.schema.json`, `tools/check_examples.py` |
 | A reason is a code, never a sentence | `examples/invalid/decision.sentence-as-reason.json` |
-| A required Lens's blocking or major Finding gates; a minor one of any category but `security`, or one from a Lens that is not required, does not | `tests/test_decide.py::test_required_lens_major_finding_gates`, `tests/test_decide.py::test_minor_finding_and_unrequired_lens_do_not_gate` |
-| A required Lens's `security` Finding gates at any severity, in the merge queue too; one from a Lens that is not required gates only once a required Lens adopts it | `tests/test_decide.py::test_a_minor_security_finding_gates`, `tests/test_decide.py::test_a_minor_security_finding_opened_while_queued_takes_it_out_of_the_queue`, `tests/test_decide.py::test_a_security_finding_from_a_lens_that_is_not_required_does_not_gate` |
-| A required Lens's open thread whose category or severity is missing, null or not in the schema defers for the Maintainer, and takes a queued item out; a thread from a Lens that is not required may carry neither | `tests/test_decide.py::test_a_required_lens_thread_that_cannot_be_read_defers`, `tests/test_decide.py::test_a_read_that_fails_takes_a_pull_request_out_of_the_queue` |
-| A thread's category and severity are read from the required Lens's own Finding record, joined by its surface key, never from the comment text | waiting on `adapters/` |
-| A thread carries its Finding's category, in the authority table's terms, and the Kernel reads the Finding's categories and severities | `tests/test_tools.py::test_the_kernel_reads_the_categories_and_severities_a_finding_carries`, `examples/invalid/facts.a-thread-without-its-category.json`, `examples/invalid/facts.a-category-nobody-owns.json`, `tests/test_tools.py::test_a_thread_carries_the_categories_a_finding_does` |
-| A Finding that does not gate is an annotation on its Lens's check run; a Result that posts one on a thread is refused | waiting on `harness/` |
+| A required Lens's blocking or major Finding gates; a minor one, or one from a Lens that is not required, does not | `tests/test_decide.py::test_required_lens_major_finding_gates`, `tests/test_decide.py::test_minor_finding_and_unrequired_lens_do_not_gate` |
 | A required deterministic Lens is named for the check GitHub reports, and that check reports on every head and in the merge queue | waiting on `adapters/` |
 | No model Lens runs on content the deterministic Lenses have not passed | `tests/test_decide.py::test_no_model_review_before_deterministic_checks_pass` |
 | Only `success` passes a required check. `failure` and `timed_out` go back to the author, and are read first; queued, running, waiting and absent checks are waited for; a check that gave no verdict, or whose conclusion the map does not name, defers and needs the Maintainer | `tests/test_decide.py::test_a_neutral_required_check_defers`, `tests/test_decide.py::test_a_timed_out_required_check_goes_back_to_the_author`, `tests/test_decide.py::test_a_queued_running_or_absent_required_check_is_waited_for`, `tests/test_decide.py::test_a_failed_check_is_read_before_an_unreadable_or_waiting_one`, `tests/test_decide.py::test_a_failure_with_cancelled_or_skipped_siblings_goes_back_to_the_author` |

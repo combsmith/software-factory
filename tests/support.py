@@ -13,8 +13,13 @@ CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()),
               lifecycle=json.loads((ROOT / "lifecycle" / "pull_request.json").read_text()))
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 42}
 NOW = "2026-10-11T13:00:00Z"
-GREEN = [{"lens": name, "conclusion": "success", "completed_at": "2026-10-11T12:05:00Z"}
-         for name in CONFIG["required_lenses"]["deterministic"]]
+# Every required check passing, each under its check run's name as GitHub gives it, from its Lens's own App.
+GREEN = [{"name": lens["check"], "app_id": lens["app_id"], "conclusion": "success",
+          "completed_at": "2026-10-11T12:05:00Z"} for lens in CONFIG["required_lenses"]["deterministic"]]
+# The Lens each required check reports for, by the check run's name: the name a Decision gives as evidence.
+LENS_OF = {lens["check"]: lens["lens"] for lens in CONFIG["required_lenses"]["deterministic"]}
+# An App no required Lens is read from: any App with checks: write, the Controller's among them, can post a check.
+OTHER_APP = 1000001
 
 
 def pending(test):
