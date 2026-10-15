@@ -204,10 +204,7 @@ class Rules:
 
     def inside(self, path):
         """`path` resolved, when it lies in the project; None otherwise. Nothing outside the project is read."""
-        if not isinstance(path, str) or not os.path.isabs(path):
-            return None
-        real = os.path.realpath(path)
-        return real if os.path.commonpath([self.root, real]) == self.root else None
+        return _confined(path, self.root)
 
     def where(self, path: str, holds: bool = True):
         """(path in config, what it is) for an absolute path that is protected, or that holds one; None otherwise.
@@ -745,7 +742,7 @@ class Command:
                                        "branch with")
                 return
             if target in ("HEAD", "@") or "$" in target or "`" in target:   # the branch it is on
-                target = _branch(here, self.rules.root)
+                target = _branch(here, self.rules.root, self.env, self.spend)
                 if target is None:
                     self.ask("merge", "the branch a push goes to cannot be read, and it may be %s" % branch)
                     return
@@ -810,37 +807,19 @@ class Command:
 HANDLED = {"sed", "find", "cp", "mv", "install", "git", "gh"}
 
 
-def _branch(here, root: str):
-    """The branch checked out where a command runs, read from git's HEAD; "" when none is, None when it cannot be read.
+def _branch(here, root: str, env: dict = None, spend=None):
+    """The branch the tree at `here` is on, as git says: "" when HEAD is detached, None when it cannot be read.
 
-    Only the project is read: `here` is resolved, and must lie in `root`, the project resolved. The walk up stops at
-    the project's top.
+    `here` is resolved and must lie in `root`, the project resolved, and so must the git directory git names for it.
     """
-    if not isinstance(here, str) or not os.path.isabs(here):
+    here = _confined(here, root)
+    if here is None or _git_dir(here, root, env, spend) is None:
         return None
-    here = os.path.realpath(here)
-    if os.path.commonpath([root, here]) != root:
+    try:
+        code, out = _run_git(here, env, ["symbolic-ref", "--quiet", "--short", "HEAD"], spend, system=False)
+    except Unreadable:
         return None
-    while True:
-        dot = os.path.join(here, ".git")
-        try:
-            if os.path.isdir(dot):
-                gitdir = dot
-            elif os.path.isfile(dot):
-                found = re.match(r"gitdir: (.+)", pathlib.Path(dot).read_text()[:4096].strip())
-                gitdir = _git_dir(os.path.join(here, found.group(1)), root) if found else None
-            elif here == root or os.path.dirname(here) == here:     # the project's top, or the file system's
-                return None
-            else:
-                here = os.path.dirname(here)
-                continue
-            head = pathlib.Path(gitdir, "HEAD").read_text()[:4096].strip() if gitdir else None
-        except OSError:
-            return None
-        if head is None:
-            return None
-        found = re.match(r"ref: refs/heads/(.+)$", head)
-        return found.group(1) if found else ""
+    return out.strip() if code == 0 else "" if code == 1 else None
 
 
 def _is_command(entry: str, positional: list, args: list) -> bool:
@@ -871,15 +850,25 @@ def _names_api(text: str) -> bool:
     return bool(API_HOST.search(URL.sub(" ", text)))
 
 
-def _git_dir(path: str, root: str):
-    """`path` resolved, when it is a git directory in the project: one named *.git, or a worktree's under
-    .git/worktrees/. Otherwise None, so a branch is not read from a directory a `.git` file merely points at."""
-    real = os.path.realpath(path)
-    if os.path.commonpath([root, real]) != root:
+def _git_dir(here, root: str, env: dict = None, spend=None):
+    """The git directory of the tree at `here`, as git says, resolved; None when git cannot say, or it lies outside the
+    project. Worktrees, and `.git` files, are git's to read."""
+    here = _confined(here, root)
+    if here is None:
         return None
-    parent = os.path.dirname(real)
-    named = real.endswith(".git") or (os.path.basename(parent) == "worktrees" and os.path.dirname(parent).endswith(".git"))
-    return real if named and os.path.isdir(real) else None
+    try:
+        code, out = _run_git(here, env, ["rev-parse", "--absolute-git-dir"], spend, system=False)
+    except Unreadable:
+        return None
+    return _confined(out.strip(), root) if code == 0 else None
+
+
+def _confined(path, root: str):
+    """`path` resolved, when it lies in `root`; None otherwise. What is outside the project is not read."""
+    if not isinstance(path, str) or not os.path.isabs(path):
+        return None
+    real = os.path.realpath(path)
+    return real if os.path.commonpath([root, real]) == root else None
 
 
 def _wildcards(path: str, rules, limit: int = MATCHES) -> list:
@@ -1011,20 +1000,34 @@ def _starred(word: str, spend) -> str:
     return "".join(out)
 
 
-def _git_config(here, env: dict, args: list, spend) -> str:
-    """What `git config` says in `here`: "" when the key is not set. Raises Unreadable when git cannot say."""
+def _run_git(here, env: dict, args: list, spend, system: bool = True) -> tuple:
+    """(exit code, output) of git run in `here` with these arguments, never through a shell, within the hook's budget.
+    Without `system`, git reads no system-wide configuration. Raises Unreadable when git cannot be run."""
+    spend = spend or Budget(DEADLINE)
+    env = dict(os.environ if env is None else env)
     spend()
     exe = shutil.which("git", path=env.get("PATH", os.defpath))
     if exe is None or not here:
-        raise Unreadable("git's configuration cannot be read")
+        raise Unreadable("git cannot be run")
+    if not system:
+        env["GIT_CONFIG_NOSYSTEM"] = "1"
     try:
-        done = subprocess.run([exe, "config"] + args, cwd=here, env=env, capture_output=True, text=True,
+        done = subprocess.run([exe, "-C", here] + args, cwd=here, env=env, capture_output=True, text=True,
                               timeout=max(0.1, spend.left()))
     except (OSError, subprocess.TimeoutExpired):
+        raise Unreadable("git cannot be run")
+    return done.returncode, done.stdout
+
+
+def _git_config(here, env: dict, args: list, spend) -> str:
+    """What `git config` says in `here`: "" when the key is not set. Raises Unreadable when git cannot say."""
+    try:
+        code, out = _run_git(here, env, ["config"] + args, spend)
+    except Unreadable:
         raise Unreadable("git's configuration cannot be read")
-    if done.returncode not in (0, 1):
+    if code not in (0, 1):
         raise Unreadable("git's configuration cannot be read")
-    return done.stdout if done.returncode == 0 else ""
+    return out if code == 0 else ""
 
 
 def _without_script(program: str, args: list) -> list:

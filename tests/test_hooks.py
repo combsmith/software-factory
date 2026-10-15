@@ -377,15 +377,14 @@ def example(entry: str) -> str:
 def a_tree(branch: str = "feature") -> pathlib.Path:
     """A project laid out like this one, a working tree on `branch`, with one worktree under .claude/worktrees/."""
     where = folder()
+    git(where, "init", "-q", "-b", branch)       # a real repository: the hook asks git where it stands
+    git(where, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first")
+    git(where, "worktree", "add", "-q", "-b", "w", str(where / ".claude" / "worktrees" / "w"))
     for top in (where, where / ".claude" / "worktrees" / "w"):
         for rel in [example(e["path"]) for e in RULES["protected"] if not e["path"].startswith(".git/")] + [
                 "docs/notes.md", "lifecycle/issue.json", "kernel/decide.py", "tests/test_hooks.py"]:
             (top / rel).parent.mkdir(parents=True, exist_ok=True)
             (top / rel).write_text("{}\n")
-    (where / ".git" / "worktrees" / "w").mkdir(parents=True)
-    (where / ".git" / "HEAD").write_text("ref: refs/heads/%s\n" % branch)
-    (where / ".git" / "worktrees" / "w" / "HEAD").write_text("ref: refs/heads/w\n")
-    (where / ".claude" / "worktrees" / "w" / ".git").write_text("gitdir: %s/.git/worktrees/w\n" % where)
     return where
 
 
@@ -702,12 +701,18 @@ class MergesAndSettings(Asks):
             (elsewhere / "HEAD").write_text("ref: refs/heads/%s\n" % name)
             (where / ".git").write_text("gitdir: %s\n" % elsewhere)
             self.assertIn(unread, self.run_("git push origin HEAD", where), name)
-        for gitdir in ("real.git", "repo/.git/worktrees/w"):      # what a git directory is named
+        for gitdir in ("real.git", "repo/.git/worktrees/w"):      # git directories git itself made
             where = folder()
-            (where / gitdir).mkdir(parents=True)
-            (where / gitdir / "HEAD").write_text("ref: refs/heads/feature\n")
+            if gitdir == "real.git":
+                git(where, "init", "-q", "--bare", "-b", "feature", gitdir)
+            else:
+                git(where, "init", "-q", "-b", "main", "repo")
+                git(where / "repo", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty",
+                    "-m", "first")
+                git(where / "repo", "worktree", "add", "-q", "-b", "feature", str(where / "elsewhere"))
+                gitdir = os.path.relpath(where / "repo" / ".git" / "worktrees" / "elsewhere", where / "tree")
             (where / "tree").mkdir()
-            (where / "tree" / ".git").write_text("gitdir: ../%s\n" % gitdir)
+            (where / "tree" / ".git").write_text("gitdir: %s\n" % (gitdir if "/" in gitdir else "../" + gitdir))
             self.assertEqual(self.run_("git push origin HEAD", where / "tree", project=where), "", gitdir)
         self.assertEqual(self.run_("git push origin HEAD", self.project / ".claude" / "worktrees" / "w"), "")
 
@@ -726,6 +731,34 @@ class MergesAndSettings(Asks):
         self.assertIsNone(protected._branch("/tmp", root))
         self.assertIsNone(protected._git_dir(str(outside / ".git"), root))
         self.assertEqual(protected._git_dir(str(self.project / ".git"), root), os.path.join(root, ".git"))
+
+    def test_git_says_which_branch_a_tree_is_on(self):
+        where = repo(fresh=True)
+        root = os.path.realpath(str(where))
+        git(where, "checkout", "-q", "--detach")
+        self.assertEqual(protected._branch(str(where), root), "")       # a detached HEAD is on no branch
+        self.assertEqual(self.run_("git push origin HEAD", where, project=where), "")    # git refuses it: no branch
+        git(where, "worktree", "add", "-q", "-b", "wt", str(where / ".claude" / "worktrees" / "wt"))
+        self.assertEqual(protected._branch(str(where / ".claude" / "worktrees" / "wt"), root), "wt")
+        self.assertEqual(self.run_("git push origin HEAD", where / ".claude" / "worktrees" / "wt", project=where), "")
+        (where / "fake").mkdir()
+        (where / "fake" / "HEAD").write_text("ref: refs/heads/feature\n")
+        (where / "sub").mkdir()
+        (where / "sub" / ".git").write_text("gitdir: ../fake\n")
+        self.assertIsNone(protected._branch(str(where / "sub"), root))
+        self.assertIsNone(protected._git_dir(str(where / "sub"), root))
+        elsewhere = repo(fresh=True)        # a real git directory, outside the project
+        (where / "linked").mkdir()
+        (where / "linked" / ".git").write_text("gitdir: %s\n" % (elsewhere / ".git"))
+        self.assertIsNone(protected._git_dir(str(where / "linked"), root))
+        self.assertIsNone(protected._branch(str(where / "linked"), root))
+        self.assertIn("the branch a push goes to cannot be read", self.run_("git push origin HEAD", where / "linked",
+                                                                            project=where))
+        self.assertIn("the branch a push goes to cannot be read", self.run_("git push origin HEAD", where / "sub",
+                                                                            project=where))
+        self.assertIsNone(protected._branch("/tmp", root))
+        self.assertIn("the branch a push goes to cannot be read", self.run_("git push origin HEAD", "/tmp",
+                                                                            project=where))
 
     def test_nothing_outside_the_project_is_read(self):
         outside = repo(fresh=True)
