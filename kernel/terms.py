@@ -38,6 +38,8 @@ GATING_SEVERITIES = frozenset({"blocking", "major"})
 # Who opened a thread or submitted a review, and the states of a review: schemas/facts.schema.json names them too.
 ACTOR_KINDS = ("human", "lens")
 REVIEW_STATES = ("approved", "changes_requested", "commented", "dismissed")
+# What a dismissed review was before, as the timeline records it.
+DISMISSED_FROM = ("approved", "changes_requested", "commented")
 
 # What the facts say was read in full: the flags `complete` requires in schemas/facts.schema.json.
 READ_IN_FULL = ("checks", "diff", "reviews", "runs", "threads", "timeline")

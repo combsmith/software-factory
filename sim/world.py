@@ -197,7 +197,7 @@ class World:
         # GitHub: the_machine_users_approval_counts
         self.reviews.append({"by": {"kind": "lens", "name": CONFIG["approver"], "can_write": True}, "state": "approved",
                              "commit": "c%d" % self.content, "content_id": self.cid(), "submitted_at": self.now(),
-                             "dismissed_by": None})
+                             "dismissed_by": None, "dismissed_from": None})
         self.acts += 1
         self.note("run %s: approved %s" % (run["run"], self.cid()))
 
@@ -280,11 +280,15 @@ class World:
         self.note("push by %s -> %s" % (who, self.cid()))
 
     def platform(self):
-        latest = self.verdict()
-        if self.faults and latest is not None and latest["state"] == "changes_requested" and self.rng.random() < 0.1:
+        live = [rv for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"] and rv["state"] != "dismissed"]
+        if self.faults and live and self.rng.random() < 0.1:
             # GitHub: an_app_can_dismiss_a_review
-            latest.update(state="dismissed", dismissed_by=dict(REVIEWER_APP))
-            self.note("the reviewer's App dismissed the Maintainer's request for changes")
+            dismissed = live[-1]
+            dismissed.update(state="dismissed", dismissed_from=dismissed["state"], dismissed_by=dict(REVIEWER_APP))
+            # A dismissed request still stands. A dismissed approval or comment is gone, so what came before is the verdict.
+            latest = self.verdict()
+            self.asked = latest is not None and "changes_requested" in (latest["state"], latest["dismissed_from"])
+            self.note("the reviewer's App dismissed the Maintainer's review (%s)" % dismissed["dismissed_from"])
             return
         if self.queue and (not self.queue_merges or (self.faults and self.rng.random() < 0.2)):
             # GitHub: the_queue_can_eject
@@ -334,15 +338,20 @@ class World:
     def review(self, state: str):
         """The Maintainer reviews. A request for changes stands until they approve; a comment changes nothing."""
         self.reviews.append({"by": dict(MAINTAINER), "state": state, "commit": "c%d" % self.content,
-                             "content_id": self.cid(), "submitted_at": self.now(), "dismissed_by": None})
+                             "content_id": self.cid(), "submitted_at": self.now(), "dismissed_by": None,
+                             "dismissed_from": None})
         if state != "commented":
             self.asked = state == "changes_requested"
         self.writer_acted()
         self.note("maintainer reviewed: %s" % state)
 
     def verdict(self):
-        """The Maintainer's latest review that is more than a comment, or None."""
-        mine = [rv for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"] and rv["state"] != "commented"]
+        """The Maintainer's latest review that is more than a comment and not gone, or None.
+
+        A review dismissed from an approval or a comment is gone; one dismissed from a request for changes is not.
+        """
+        mine = [rv for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"] and rv["state"] != "commented"
+                and rv["dismissed_from"] in (None, "changes_requested")]
         return mine[-1] if mine else None
 
     # ---- one step, and the invariants that hold at every step

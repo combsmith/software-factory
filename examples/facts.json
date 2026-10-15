@@ -37,7 +37,8 @@
         "kind": "human",
         "name": "don-petry",
         "can_write": true
-      }
+      },
+      "dismissed_from": "approved"
     },
     {
       "by": {
@@ -49,7 +50,8 @@
       "commit": "5d0c7e2",
       "content_id": "sha256:5d0c",
       "submitted_at": "2026-10-11T12:18:00Z",
-      "dismissed_by": null
+      "dismissed_by": null,
+      "dismissed_from": null
     }
   ],
   "threads": [

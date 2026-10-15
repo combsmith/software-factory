@@ -106,7 +106,7 @@ def readable_actor(actor) -> bool:
 
 
 def unreadable_reviews(facts: dict) -> bool:
-    """Whether a review cannot be read whole: its author, its state, its time, or who dismissed it.
+    """Whether a review cannot be read whole: its author, state or time, or who dismissed it and what it was.
 
     Any of them could be a request for changes from a person with write access, so nothing
     may converge on it; a missing fact is never given a default (I-13).
@@ -118,20 +118,25 @@ def unreadable_reviews(facts: dict) -> bool:
             return True
         if rv["state"] == "dismissed" and not readable_actor(rv.get("dismissed_by")):
             return True
+        if rv["state"] == "dismissed" and rv.get("dismissed_from") not in t.DISMISSED_FROM:
+            return True
     return False
 
 
 def standing_requests(facts: dict) -> list:
     """Requests for changes that hold the pull request, one for each person with write access.
 
-    A person's latest verdict counts; a review that only comments is none. A request stands
-    across new content, as GitHub keeps it, until that person approves or a person with write
-    access dismisses it. An App's dismissal does not clear it: the reviewer's App holds
-    pull_requests: write, and no Role closes a person's objection (L-17). A request from a
-    stranger or a Lens gates nothing.
+    A person's latest verdict counts; a review that only comments is none. A dismissed approval
+    or comment is gone: it neither gates nor approves, as when an App's push dismisses a stale
+    approval. A request stands across new content, as GitHub keeps it, until that person approves
+    or a person with write access dismisses it. An App's dismissal does not clear it: the
+    reviewer's App holds pull_requests: write, and no Role closes a person's objection (L-17).
+    A request from a stranger or a Lens gates nothing.
     """
     latest = {}
     for rv in sorted(facts["reviews"], key=lambda rv: rv["submitted_at"]):
+        if rv["state"] == "dismissed" and rv["dismissed_from"] != "changes_requested":
+            continue
         if rv["by"]["kind"] == "human" and rv["by"]["can_write"] and rv["state"] != "commented":
             latest[rv["by"]["name"]] = rv
     out = []

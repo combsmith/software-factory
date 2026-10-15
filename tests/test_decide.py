@@ -22,6 +22,8 @@ STRANGER = {"kind": "human", "name": "stranger", "can_write": False}
 # The reviewer's App: GitHub cannot grant it less than pull_requests: write, so it can dismiss a review.
 REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
 ADVISORY = {"kind": "lens", "name": "coderabbit", "can_write": False}
+# The author's App, whose push dismisses a stale approval. The facts have no kind for an App that is not a Lens yet.
+AUTHOR_APP = {"kind": "lens", "name": "dev-lead", "can_write": True}
 # The author's Run after the Maintainer asked for changes at minute 15.
 ANSWERED = REVIEWED + [run(role="dev-lead", intent="fix-findings", at="2026-10-11T12:20:00Z", name="r2")]
 # Every list the facts are read from, each with its flag in `complete`.
@@ -36,6 +38,11 @@ def approvals(count, conclusion="failure", outcome="item", start=20):
     """Approval Runs. An approval is a Run with no Engine: only its `apply` holds the machine user's token."""
     return [run(intent="issue-approval", conclusion=conclusion, outcome=outcome, at=at(start + i), name="a%d" % i)
             for i in range(count)]
+
+
+def dismissed(rv: dict, by, was: str = "changes_requested") -> dict:
+    """`rv` once `by` has dismissed it. GitHub holds its state as dismissed; the timeline says what it was."""
+    return dict(rv, state="dismissed", dismissed_by=dict(by) if isinstance(by, dict) else by, dismissed_from=was)
 
 
 def with_check(i: int, conclusion: str) -> list:
@@ -234,15 +241,15 @@ class HumanControl(unittest.TestCase):
         self.assertEqual(after(asked, review(content="sha256:bbbb", at=at(30))), waits)
         self.assertEqual(after(asked, review(**COLLEAGUE, content="sha256:bbbb", at=at(30))), waits)
         # A dismissal clears it only if a person with write access made it. An App's does not (L-17).
-        for who in (REVIEWER_APP, STRANGER, ADVISORY):
-            self.assertEqual(after(dict(asked, state="dismissed", dismissed_by=dict(who))), waits, who)
+        for who in (REVIEWER_APP, AUTHOR_APP, STRANGER, ADVISORY):
+            self.assertEqual(after(dismissed(asked, who)), waits, who)
         # That person's approval clears it, whatever content it was given on, and wherever it is listed.
         approved = review(**MAINTAINER, content="sha256:bbbb", at=at(30))
         self.assertEqual(after(asked, approved), ("converged", "approval_due"))
         self.assertEqual(after(approved, asked), ("converged", "approval_due"))
         # So does a dismissal by a person with write access: that person, or another writer.
         for who in (MAINTAINER, COLLEAGUE):
-            self.assertEqual(after(dict(asked, state="dismissed", dismissed_by=dict(who))), ("converged", "approval_due"))
+            self.assertEqual(after(dismissed(asked, who)), ("converged", "approval_due"), who)
         # A request after the approval stands again, and is the author's to answer first.
         again = dict(asked, submitted_at=at(35))
         self.assertEqual(after(asked, approved, again), ("addressing", "human_finding"))
@@ -278,8 +285,7 @@ class HumanControl(unittest.TestCase):
         unreadable = [{k: v for k, v in asked.items() if k != "by"}, dict(asked, by=None), dict(asked, by="don-petry"),
                       {k: v for k, v in asked.items() if k != "submitted_at"}, dict(asked, submitted_at=None),
                       dict(asked, state=None), dict(asked, state="CHANGES_REQUESTED"), dict(asked, state="pending"),
-                      dict(asked, state="dismissed", dismissed_by=None),
-                      dict(asked, state="dismissed", dismissed_by=dict(COLLEAGUE, can_write=None)), "a review"]
+                      dismissed(asked, None), dismissed(asked, dict(COLLEAGUE, can_write=None)), "a review"]
         for value in ("missing", None, "true", 1, 0):
             by = dict(MAINTAINER)
             if value == "missing":
@@ -299,6 +305,54 @@ class HumanControl(unittest.TestCase):
         # The other side: read whole, the same item is enqueued, or waits on the request.
         self.assertEqual(go(facts(**AGENT, reviews=[review()]), REVIEWED)["action"], "enqueue")
         self.assertEqual(go(facts(**AGENT, reviews=[asked]), ANSWERED)["reason"], "awaiting_human")
+
+    def test_a_dismissed_approval_neither_gates_nor_approves(self):
+        # An App's push dismisses the Maintainer's stale approval. That person has not objected, so the item
+        # waits for the approver as usual; and an approval that is dismissed approves nothing.
+        approval = review(state="approved", **MAINTAINER)
+        for was, rv in (("approved", approval), ("commented", review(state="commented", **MAINTAINER))):
+            for who in (AUTHOR_APP, REVIEWER_APP, MAINTAINER):
+                d = go(facts(**AGENT, reviews=[dismissed(rv, who, was)]), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]),
+                                 ("converged", "approval_due", "act", "issue_approval"), (was, who))
+        # The approver's own approval, once dismissed, is not standing: it is issued again, not enqueued.
+        d = go(facts(**AGENT, reviews=[dismissed(review(), AUTHOR_APP, "approved")]), REVIEWED)
+        self.assertEqual((d["reason"], d["action"]), ("approval_due", "issue_approval"))
+        self.assertEqual(go(facts(**AGENT, reviews=[review()]), REVIEWED)["action"], "enqueue")
+        # A dismissed review is gone: a request that person made before it is their latest verdict again.
+        asked = review(state="changes_requested", **MAINTAINER, at=at(12))
+        d = go(facts(**AGENT, reviews=[asked, dismissed(approval, AUTHOR_APP, "approved")]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"]), ("addressing", "human_finding"))
+        self.assertEqual(go(facts(**AGENT, reviews=[asked, approval]), REVIEWED)["state"], "converged")
+
+    def test_a_request_for_changes_an_app_dismissed_still_stands(self):  # L-17
+        asked = review(state="changes_requested", **MAINTAINER)
+        for who in (AUTHOR_APP, REVIEWER_APP):
+            d = go(facts(**AGENT, reviews=[dismissed(asked, who)]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "human_finding", ["don-petry"]), who)
+            d = go(facts(**AGENT, reviews=[dismissed(asked, who)]), ANSWERED)
+            self.assertEqual((d["state"], d["reason"], d["attention"]), ("addressing", "awaiting_human", "needs_you"), who)
+        # The other side: dismissed by a person with write access, it is gone.
+        d = go(facts(**AGENT, reviews=[dismissed(asked, MAINTAINER)]), ANSWERED)
+        self.assertEqual((d["state"], d["action"]), ("converged", "issue_approval"))
+
+    def test_an_unreadable_dismissed_from_defers(self):  # I-13
+        # What a dismissal took away decides whether anything stands. Unread, it is never read as cleared.
+        asked = review(state="changes_requested", **MAINTAINER)
+        for who in (AUTHOR_APP, MAINTAINER):
+            for was in ("missing", None, "dismissed", "APPROVED", "", 0, True):
+                rv = dismissed(asked, who, was)
+                if was == "missing":
+                    del rv["dismissed_from"]
+                for runs, others in ((REVIEWED, []), (ANSWERED, []), (REVIEWED, [review()])):
+                    d = go(facts(**AGENT, reviews=others + [rv]), runs)
+                    self.assertEqual((d["state"], d["reason"], d["outcome"]), (None, "review_unreadable", "defer"),
+                                     (who, was))
+                    self.assertNotIn("action", d)
+        # The other side: each readable earlier state is read.
+        self.assertEqual(go(facts(**AGENT, reviews=[dismissed(asked, MAINTAINER, "approved")]), REVIEWED)["action"],
+                         "issue_approval")
+        self.assertEqual(go(facts(**AGENT, reviews=[dismissed(asked, AUTHOR_APP)]), REVIEWED)["reason"], "human_finding")
 
 
 class Classes(unittest.TestCase):

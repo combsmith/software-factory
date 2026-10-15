@@ -128,7 +128,8 @@
           "commit",
           "content_id",
           "submitted_at",
-          "dismissed_by"
+          "dismissed_by",
+          "dismissed_from"
         ],
         "properties": {
           "by": {
@@ -176,6 +177,15 @@
                 "type": "boolean"
               }
             }
+          },
+          "dismissed_from": {
+            "description": "What a dismissed review was before, from the timeline (previousReviewState); null unless it was dismissed.",
+            "enum": [
+              "approved",
+              "changes_requested",
+              "commented",
+              null
+            ]
           }
         }
       }
