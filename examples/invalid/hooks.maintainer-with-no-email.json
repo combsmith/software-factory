@@ -9,10 +9,16 @@
       "is": "the Lifecycle"
     }
   ],
+  "reported": [
+    {
+      "path": "kernel/",
+      "is": "the Kernel"
+    }
+  ],
   "merging": {
     "branch": "main",
     "commands": [
-      "pr merge"
+      "pr merge --admin"
     ],
     "mutations": [
       "mergePullRequest"
@@ -23,7 +29,10 @@
   },
   "settings": {
     "commands": [
-      "repo edit"
+      "ruleset"
+    ],
+    "reads": [
+      "ruleset list"
     ],
     "mutations": [
       "*RepositoryRuleset"

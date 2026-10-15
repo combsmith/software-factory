@@ -6,6 +6,7 @@
   "required": [
     "maintainer",
     "protected",
+    "reported",
     "merging",
     "settings"
   ],
@@ -34,27 +35,12 @@
       }
     },
     "protected": {
-      "description": "Paths an edit to which is asked of the person, relative to the top of any working tree. A path ending in / is a directory and all below it; * stands for any part of one name.",
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "path",
-          "is"
-        ],
-        "properties": {
-          "path": {
-            "type": "string",
-            "pattern": "^(?!.*(^|/)\\.{1,2}(/|$))[A-Za-z0-9_.*-]+(/[A-Za-z0-9_.*-]+)*/?$"
-          },
-          "is": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
-      }
+      "description": "Paths an edit to which is asked of the person, and which a stop lists when the branch changes them. Relative to the top of any working tree; a path ending in / is a directory and all below it; * stands for any part of one name.",
+      "$ref": "#/$defs/paths"
+    },
+    "reported": {
+      "description": "Paths a stop lists when the branch changes them, and an edit to which is not asked about.",
+      "$ref": "#/$defs/paths"
     },
     "merging": {
       "description": "What merges a pull request or adds one to the queue: a push to the branch, a gh command, a GraphQL mutation or a REST endpoint written to.",
@@ -83,16 +69,20 @@
       }
     },
     "settings": {
-      "description": "What writes a ruleset or the repo's settings: a gh command, a GraphQL mutation or a REST endpoint written to.",
+      "description": "What writes a ruleset or the repo's settings: a gh command, a GraphQL mutation or a REST endpoint written to. A command in reads only reads, though it starts as one of the commands does.",
       "type": "object",
       "additionalProperties": false,
       "required": [
         "commands",
+        "reads",
         "mutations",
         "endpoints"
       ],
       "properties": {
         "commands": {
+          "$ref": "#/$defs/commands"
+        },
+        "reads": {
           "$ref": "#/$defs/commands"
         },
         "mutations": {
@@ -105,13 +95,35 @@
     }
   },
   "$defs": {
+    "paths": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "is"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^(?!.*(^|/)\\.{1,2}(/|$))[A-Za-z0-9_.*-]+(/[A-Za-z0-9_.*-]+)*/?$"
+          },
+          "is": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "commands": {
-      "description": "gh's words for a command, after gh and its options; a longer command starting with them is asked about too.",
+      "description": "gh's words for a command, after gh and its options; a longer command starting with them counts too. A word starting -- is an option the command must carry.",
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "string",
-        "pattern": "^[a-z][a-z-]*( [a-z][a-z-]*)*$"
+        "pattern": "^[a-z][a-z-]*( [a-z][a-z-]*)*( --[a-z][a-z-]*)*$"
       }
     },
     "mutations": {

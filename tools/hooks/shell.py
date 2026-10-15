@@ -75,11 +75,14 @@ def simple_commands(text: str) -> list:
     return [(words, [target for _, target in redirections]) for words, redirections in commands(text)]
 
 
-def commands(text: str) -> list:
+def commands(text: str, spend=None) -> list:
     """Each simple command in `text`, as (words, [(operator, target)]), read as simple_commands reads it.
 
-    An operator holding '>' writes its target; one holding only '<' reads it.
+    An operator holding '>' writes its target; one holding only '<' reads it. `spend`, if given, is called
+    before each script is read, and may raise to stop a reading that has run over its budget.
     """
+    if spend:
+        spend()
     lex = shlex.shlex(without_heredocs(text).replace("\\\n", " "), posix=True, punctuation_chars=PUNCTUATION)
     lex.whitespace, lex.whitespace_split, lex.commenters = " \t\r", True, ""
     found, words, targets, operator = [], [], [], None
@@ -103,23 +106,23 @@ def commands(text: str) -> list:
     out = []
     for words, targets in found:
         out.append((words, targets))
-        out += _inner(words)
+        out += _inner(words, spend)
         for word in words:
             for script in _substituted(word):
-                out += commands(script)
+                out += commands(script, spend)
     return [(words, targets) for words, targets in out if words or targets]
 
 
-def _inner(words: list) -> list:
+def _inner(words: list, spend=None) -> list:
     """The commands of a script run by this one: `bash -c '...'` or `eval ...`, also after env, xargs or sudo."""
     for at, word in enumerate(words):
         name = os.path.basename(word)
         if name == "eval":
-            return commands(" ".join(words[at + 1:]))
+            return commands(" ".join(words[at + 1:]), spend)
         if name in SHELLS:
             for i in range(at + 1, len(words) - 1):
                 if words[i].startswith("-") and not words[i].startswith("--") and "c" in words[i]:
-                    return commands(words[i + 1])
+                    return commands(words[i + 1], spend)
             return []
     return []
 

@@ -20,6 +20,10 @@ import time
 import unittest
 
 from tools.hooks import after_edit, before_stop, identity, protected
+try:
+    from tools.hooks import rules_changed
+except ImportError:     # not written yet: the tests that need it fail, and the rest run
+    rules_changed = None
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOOKS = ROOT / "tools" / "hooks"
@@ -374,14 +378,17 @@ def example(entry: str) -> str:
     return entry.replace("*", "x") + ("x.json" if entry.endswith("/") else "")
 
 
-def a_tree() -> pathlib.Path:
-    """A project laid out like this one, a working tree, with one worktree under .claude/worktrees/."""
+def a_tree(branch: str = "feature") -> pathlib.Path:
+    """A project laid out like this one, a working tree on `branch`, with one worktree under .claude/worktrees/."""
     where = folder()
     for top in (where, where / ".claude" / "worktrees" / "w"):
-        for rel in [example(e["path"]) for e in RULES["protected"]] + ["docs/notes.md", "lifecycle/issue.json"]:
+        for rel in [example(e["path"]) for e in RULES["protected"]] + ["docs/notes.md", "lifecycle/issue.json",
+                                                                       "kernel/decide.py", "tests/test_hooks.py"]:
             (top / rel).parent.mkdir(parents=True, exist_ok=True)
             (top / rel).write_text("{}\n")
-    (where / ".git").mkdir()
+    (where / ".git" / "worktrees" / "w").mkdir(parents=True)
+    (where / ".git" / "HEAD").write_text("ref: refs/heads/%s\n" % branch)
+    (where / ".git" / "worktrees" / "w" / "HEAD").write_text("ref: refs/heads/w\n")
     (where / ".claude" / "worktrees" / "w" / ".git").write_text("gitdir: %s/.git/worktrees/w\n" % where)
     return where
 
@@ -440,7 +447,8 @@ class ProtectedPaths(Asks):
             self.asked(self.edit(self.project / rel), "protected_path", rel)
 
     def test_an_edit_elsewhere_is_not_asked_about(self):
-        for rel in ("docs/notes.md", "kernel/AGENTS.md", "kernel/__init__.py", "config/apps.json", "config/AGENTS.md",
+        for rel in ("docs/notes.md", "kernel/AGENTS.md", "kernel/__init__.py", "kernel/decide.py", "kernel/derive.py",
+                    "kernel/terms.py", "config/apps.json", "config/AGENTS.md",
                     "schemas/facts.schema.json", "tests/test_decide.py", "tests/test_hooks.py", "tools/check_repo.py",
                     "lifecycle.md", "docs/lifecycle/x.md", "tools/hooks.md", ".githubx/y", "config/rubric.md"):
             self.assertEqual(self.edit(self.project / rel), "", rel)
@@ -499,7 +507,7 @@ class ProtectedPaths(Asks):
         (outside / "rules").symlink_to(p / "lifecycle")
         for command in (
                 "echo x > lifecycle/a.json", "echo x >> config/authority.json", "printf x 1> config/rubric-pr-review.json",
-                "cat /tmp/x | tee -a kernel/decide.py", "sed -i '' s/a/b/ config/defaults.json",
+                "cat /tmp/x | tee -a config/rubric-pr-review.json", "sed -i '' s/a/b/ config/defaults.json",
                 "sed -i.bak s/a/b/ sim/world.py", "sed --in-place s/a/b/ tests/test_simulator.py",
                 "sed -n 'w lifecycle/x' docs/notes.md", "mv /tmp/x lifecycle/issue.json",
                 "mv lifecycle/issue.json /tmp/x", "cp /tmp/ci.yml .github/workflows/", "cp -r /tmp/stage/. config/",
@@ -508,7 +516,7 @@ class ProtectedPaths(Asks):
                 "git checkout main -- '*.json'", "git -C .claude/worktrees/w checkout -- lifecycle",
                 "git rm -r config", "rm -rf tools/hooks", "rm -rf ..", "cp -r /tmp/stage/. %s" % p.parent, "rm -rf config",
                 "chmod +x tools/hooks/x.py", "touch .claude/settings.local.json", "ln -s /tmp/evil lifecycle/x.json",
-                "dd if=/tmp/x of=kernel/terms.py", "perl -pi -e s/a/b/ kernel/derive.py",
+                "dd if=/tmp/x of=sim/world.py", "perl -pi -e s/a/b/ tests/test_simulator.py",
                 "python3 -c \"open('.claude/settings.json', 'w').write('{}')\"",
                 "python3 - <<'EOF'\nopen('config/hooks.json', 'w')\nEOF",
                 "node -e \"require('fs').writeFileSync('schemas/hooks.schema.json', '')\"",
@@ -520,11 +528,13 @@ class ProtectedPaths(Asks):
                 "echo x > %s/rules/a.json" % outside, 'for f in lifecycle/*; do sed -i s/a/b/ "$f"; done',
                 "find . -name '*.json' -delete", "find config -exec sed -i s/a/b/ {} +", "git ls-files | xargs sed -i s/a/b/",
                 "awk '{print > FILENAME}' config/authority.json", "echo x > {lifecycle,docs}/a",
-                "cp /tmp/x lifecycle/{a,b}.json", "echo x > lifec?cle/a", "echo x > l[i]fecycle/a",
+                "echo x > lifec?cle/a", "echo x > l[i]fecycle/a",
                 "git apply /tmp/x.patch", "git stash pop", "tar -xf /tmp/x.tar", "unzip /tmp/x.zip",
                 "python3 /tmp/x.py lifecycle/issue.json", 'cp "$X" config/', "git diff --output=lifecycle/x",
                 "git log --output lifecycle/x", "perl -e 'open(F, \">lifecycle\\/x\")'",
-                "cd config && python3 -c \"open('authority.json', 'w')\"", "echo x > {life,x}cycle/a",
+                "cd config && python3 -c \"open('authority.json', 'w')\"",
+                "python3 -c \"open('LIFECYCLE/X.JSON', 'w')\"", "sort -o config/defaults.json /tmp/x",
+                "python3 -m json.tool /tmp/x config/authority.json", "pytest --junitxml=lifecycle/x tests/",
                 "cp -r /tmp/stage/ config/", "git -C config checkout -- authority.json",
                 "gh api -X PUT repos/o/r/contents/.github/workflows/x.yml -f content=x"):
             self.asked(self.run_(command), "protected_path", command)
@@ -536,7 +546,10 @@ class ProtectedPaths(Asks):
                               ('echo "never closed', "command_unreadable"), ("echo x > >(tee y)", "command_unreadable"),
                               ("ls | xargs -n1 rm", "protected_path"), ("cd - && touch x", "path_unreadable"),
                               ("git checkout stash@{0} -- :/", "path_unreadable"),
-                              ("git --work-tree=/x checkout -- .", "path_unreadable")):
+                              ("git --work-tree=/x checkout -- .", "path_unreadable"),
+                              ("echo x > {life,x}cycle/a", "path_unreadable"),
+                              ("touch {a,b}{c,d}", "path_unreadable"),
+                              ("cp /tmp/x lifecycle/{a,b}.json", "path_unreadable")):
             self.asked(self.run_(command), code, command)
 
     def test_a_command_that_reads_a_protected_path_or_writes_elsewhere_is_not_asked_about(self):
@@ -562,35 +575,59 @@ class ProtectedPaths(Asks):
                 "bash -c 'cat lifecycle/issue.json'",
                 "python3 -I tests/test_simulator.py", "git merge origin/main -m 'Merge lifecycle/ and config/defaults.json'",
                 "git worktree add .claude/worktrees/x -b y origin/main", 'cp "$X" %s/' % folder(),
-                "git diff --output=/tmp/x.diff"):
+                "git diff --output=/tmp/x.diff", "pytest tests/", "pytest -q tests/test_simulator.py",
+                "python3 -m pytest tests/", "python3 -m unittest discover tests", "sort config/defaults.json",
+                "python3 -m json.tool config/authority.json", "cp kernel/decide.py /tmp/x",
+                "echo x > kernel/decide.py", "sed -i s/a/b/ kernel/derive.py", "touch docs/{a,b}.md",
+                "echo x > docs/{a,b}.md"):
             self.assertEqual(self.run_(command), "", command)
+
+    def test_the_brace_bomb_is_answered_ask_within_the_deadline(self):
+        bomb = "echo x > lifecycle/a.json; : '%s'" % ("{a,b}" * 25)
+        started = time.monotonic()
+        done = hook("protected", bash(bomb, self.project), programs(), CLAUDE_PROJECT_DIR=str(self.project))
+        self.assertLess(time.monotonic() - started, protected.DEADLINE)
+        self.assertEqual(json.loads(done.stdout)["hookSpecificOutput"]["permissionDecision"], "ask")
+        self.asked(self.run_("touch %s" % ("{a,b}" * 25)), "path_unreadable", "a bomb with no redirection")
+
+    def test_a_parse_over_its_budget_asks(self):
+        self.asked(self.run_("ls", seconds=0), "budget_spent", "no time")
+        self.asked(self.run_("echo %s" % ("x" * protected.LONGEST)), "budget_spent", "too long")
+        self.asked(self.edit("/" + "x" * 5000), "budget_spent", "a path too long")
 
 
 class MergesAndSettings(Asks):
     """PreToolUse on Bash. A merge, or a write to a ruleset or the repo's settings, makes the hook ask the person."""
 
     def test_from_the_front_door_a_merge_asks(self):
-        done = hook("protected", bash("gh pr merge 5 --squash", self.project), programs(),
+        done = hook("protected", bash("gh pr merge 5 --admin --squash", self.project), programs(),
                     CLAUDE_PROJECT_DIR=str(self.project))
         self.assertEqual((done.returncode, done.stderr), (0, ""))
         said = json.loads(done.stdout)["hookSpecificOutput"]
         self.assertEqual(said["permissionDecision"], "ask")
-        self.assertIn("merge: gh pr merge merges a pull request", said["permissionDecisionReason"])
+        self.assertIn("merge: gh pr merge --admin merges", said["permissionDecisionReason"])
         clean = hook("protected", bash("gh pr view 5", self.project), programs(), CLAUDE_PROJECT_DIR=str(self.project))
         self.assertEqual((clean.returncode, clean.stdout, clean.stderr), (0, "", ""))
 
     def test_merging_or_adding_to_the_queue_asks(self):
         query = "gh api graphql -f query='mutation%s { %s(input: {pullRequestId: %s}) { clientMutationId } }'"
         for command in (
-                "gh pr merge 5 --squash", "gh pr merge --auto 5", "gh -R combsmith/software-factory pr merge 5",
-                "gh pr merge -R o/r 5", query % ("", "enqueuePullRequest", '"x"'),
+                "gh pr merge 5 --admin", "gh pr merge --admin --squash 5",
+                "gh -R combsmith/software-factory pr merge --admin 5", "gh pr merge -R o/r 5 --admin",
                 query % ("($id: ID!)", "mergePullRequest", "$id") + " -f id=x",
-                query % ("", "enablePullRequestAutoMerge", '"x"'), "gh api -X PUT repos/combsmith/software-factory/pulls/5/merge",
+                "gh api -X PUT repos/combsmith/software-factory/pulls/5/merge",
                 "gh api --method=put /repos/o/r/pulls/5/merge", "gh api -X POST repos/o/r/merges -f base=main -f head=x",
-                "bash -c 'gh pr merge 5'", 'echo "$(gh pr merge 5)"', "env GH_PAGER= gh pr merge 5",
-                "true && gh pr merge 5", "git push origin HEAD:main", "git push origin main",
+                "bash -c 'gh pr merge --admin 5'", 'echo "$(gh pr merge --admin 5)"',
+                "env GH_PAGER= gh pr merge --admin 5", "true && gh pr merge --admin 5",
+                "gh api -X POST repos/o/r/git/refs -f ref=refs/heads/x -f sha=y",
+                "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=y", "git push origin HEAD:main", "git push origin main",
                 "git push origin +x:refs/heads/main", "git push --mirror", "git push origin --delete main"):
             self.asked(self.run_(command), "merge", command)
+        on_main = a_tree("main")        # with no refspec, or HEAD, a push goes to the branch it is on
+        for command in ("git push", "git push origin", "git push -u origin HEAD", "git push origin @",
+                        'git push origin "$(git branch --show-current)"', "cd docs && git push"):
+            self.asked(self.run_(command, on_main), "merge", command)
+        self.asked(self.run_("git push", folder()), "command_unreadable", "a push from a directory with no branch")
         for command in ("gh api graphql -F query=@merge.graphql", "gh api graphql --input q.json",
                         "python3 -c \"import subprocess; subprocess.run(['gh', 'pr', 'merge', '5'])\"",
                         "curl -X PUT https://api.github.com/repos/o/r/pulls/5/merge", "gh alias set m 'pr merge'",
@@ -603,7 +640,10 @@ class MergesAndSettings(Asks):
                         "gh api graphql -f query='query { viewer { login } }'", "gh api repos/o/r/pulls/5/merge",
                         "git push -u origin HEAD", "git push origin feature-main", "git merge origin/main",
                         "git commit -m 'gh pr merge later'", "echo gh pr merge 5", "grep -rn 'pr merge' tools",
-                        "gh pr list --search is:merged", "gh --version"):
+                        "gh pr list --search is:merged", "gh --version", "gh pr merge 5 --squash",
+                        "gh pr merge --auto 5", "gh -R o/r pr merge 5",
+                        "gh api graphql -f query='mutation { enqueuePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'",
+                        "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {}) { clientMutationId } }'", "git push", "git push origin", "git push -u origin HEAD"):
             self.assertEqual(self.run_(command), "", command)
 
     def test_a_write_to_a_ruleset_or_the_repos_settings_asks(self):
@@ -617,8 +657,10 @@ class MergesAndSettings(Asks):
                 "gh api -X PUT repos/o/r/./rulesets/../rulesets/1", "gh api -X PATCH REPOS/O/R",
                 "gh api -X PUT repos/o/r/%72ulesets/1", "gh api -X PATCH 'repos/o/r?x=1'", "gh api -X PATCH orgs/combsmith -f x=y",
                 "gh repo edit --enable-auto-merge", "gh repo edit combsmith/software-factory --default-branch x",
-                "gh ruleset list", "gh secret set X", "gh variable delete X", "gh workflow disable verify",
+                "gh ruleset create", "gh secret set X", "gh variable delete X", "gh workflow disable verify",
                 mutation % "updateRepository", mutation % "createRepositoryRuleset", mutation % "updateBranchProtectionRule"):
+            self.asked(self.run_(command), "repo_settings", command)
+        for command in ("gh api -X PUT repositories/123/rulesets/1 --input r.json", "gh api -X PATCH repositories/123"):
             self.asked(self.run_(command), "repo_settings", command)
         self.asked(self.run_('gh api -X POST "repos/o/$R/rulesets"'), "command_unreadable", "an endpoint in a variable")
 
@@ -626,7 +668,8 @@ class MergesAndSettings(Asks):
         for command in ("gh api repos/o/r", "gh api repos/o/r/rulesets", "gh api -X GET repos/o/r/rulesets -f x=1",
                         "gh repo view", "gh api -X POST repos/o/r/issues/5/comments -f body='rulesets and settings'",
                         "gh api repos/o/r/branches/main/protection", "gh issue create --title 'edit the ruleset'",
-                        "gh api -X POST repos/o/r/issues -f title=x"):
+                        "gh api -X POST repos/o/r/issues -f title=x", "gh ruleset list", "gh ruleset view 1",
+                        "gh ruleset check main", "gh api -X POST repositories/123/issues -f title=x"):
             self.assertEqual(self.run_(command), "", command)
 
     def test_the_question_shows_no_credential_and_no_command(self):
@@ -636,6 +679,12 @@ class MergesAndSettings(Asks):
                         bash("curl -u someone:hunter2secret -X PUT https://api.github.com/repos/o/r/pulls/5/merge",
                              self.project),
                         bash("hunter2secret 'never closed", self.project),
+                        bash("gh ghp_hunter2secret 5", self.project),
+                        bash("gh api -X ghp_hunter2secret repos/o/r/rulesets", self.project),
+                        bash("gh api --ghp_hunter2secret=1 -X POST repos/o/r/rulesets", self.project),
+                        bash("ghp_hunter2secret lifecycle/x", self.project),
+                        bash("git ghp_hunter2secret -- lifecycle/x", self.project),
+                        bash("ls | xargs ghp_hunter2secret", self.project),
                         {"tool_name": "Edit", "tool_input": {"file_path": 7}, "cwd": "hunter2secret"}):
             said = protected.respond(payload, self.env)
             self.assertIn('"ask"', said)
@@ -643,7 +692,79 @@ class MergesAndSettings(Asks):
             self.assertNotIn("someone", said)
 
 
+class RulesChanged(unittest.TestCase):
+    """Stop. Every protected path and Kernel module the branch changes against its merge base is listed for the person."""
+
+    def branch(self) -> pathlib.Path:
+        where = repo(fresh=True)
+        git(where, "update-ref", "refs/remotes/origin/main", "HEAD")
+        return where
+
+    def told(self, where) -> str:
+        payload = {"hook_event_name": "Stop", "stop_hook_active": False, "cwd": str(where)}
+        code, out, err = rules_changed.respond(payload, environment(programs("git"), CLAUDE_PROJECT_DIR=str(where)))
+        self.assertEqual((code, err), (0, ""))
+        return json.loads(out)["systemMessage"] if out else ""
+
+    def write(self, where, rel, text="{}\n"):
+        (where / rel).parent.mkdir(parents=True, exist_ok=True)
+        (where / rel).write_text(text)
+
+    def test_from_the_front_door_a_committed_change_to_the_lifecycle_is_listed(self):
+        where = self.branch()
+        self.write(where, "lifecycle/issue.json")
+        git(where, "add", "-A")
+        git(where, "commit", "-q", "-m", "a rule")
+        payload = {"hook_event_name": "Stop", "stop_hook_active": False, "cwd": str(where)}
+        done = hook("rules_changed", payload, programs("git"), CLAUDE_PROJECT_DIR=str(where))
+        self.assertEqual((done.returncode, done.stderr), (0, ""))
+        said = json.loads(done.stdout)["systemMessage"]
+        for part in ("lifecycle/issue.json", "the Lifecycle", "the Factory's own rules"):
+            self.assertIn(part, said)
+
+    def test_an_edit_made_through_eval_is_listed(self):
+        where = self.branch()
+        subprocess.run(["/bin/sh", "-c", "mkdir -p lifecycle; eval \"printf x > life\"\"cycle/b.json\""], cwd=where,
+                       check=True)
+        self.assertIn("lifecycle/b.json", self.told(where))
+
+    def test_the_index_the_working_tree_the_commits_and_the_kernel_are_listed(self):
+        where = self.branch()
+        self.write(where, "config/authority.json")
+        git(where, "add", "-A")
+        git(where, "commit", "-q", "-m", "committed")
+        self.write(where, ".github/workflows/x.yml")
+        git(where, "add", ".github")
+        self.write(where, "kernel/decide.py")
+        self.write(where, "lifecycle/staged.json")
+        git(where, "add", "lifecycle/staged.json")
+        (where / "lifecycle" / "staged.json").unlink()      # in the index alone
+        said = self.told(where)
+        for part in ("config/authority.json", ".github/workflows/x.yml", "kernel/decide.py", "the Kernel",
+                     "lifecycle/staged.json"):
+            self.assertIn(part, said)
+
+    def test_a_branch_that_changes_no_rule_says_nothing(self):
+        where = self.branch()
+        self.assertEqual(self.told(where), "")
+        self.write(where, "docs/notes.md")
+        git(where, "add", "-A")
+        git(where, "commit", "-q", "-m", "docs")
+        self.assertEqual(self.told(where), "")
+
+    def test_a_branch_whose_base_cannot_be_read_says_so(self):
+        where = repo(fresh=True)
+        git(where, "remote", "remove", "origin")
+        self.assertIn("could not be listed", self.told(where))
+        self.assertIn("could not be listed", self.told(folder()))
+
+
 class Settings(unittest.TestCase):
+    def test_the_hook_that_asks_blocks_when_it_fails_to_answer(self):
+        settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
+        found = [h for g in settings["hooks"]["PreToolUse"] for h in g["hooks"] if "protected.py" in h["command"]]
+        self.assertEqual([h.get("onFailure") for h in found], ["block"])
+
     def test_every_hook_is_wired_to_its_event(self):
         settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
         wired = {}
@@ -658,6 +779,7 @@ class Settings(unittest.TestCase):
                     self.assertEqual(bool(found.group(2)), event != "Stop", handler["command"])
         self.assertEqual(wired, {"after_edit": ("PostToolUse", "Edit|Write|MultiEdit|NotebookEdit"),
                                  "before_stop": ("Stop", None), "identity": ("PreToolUse", "Bash"),
-                                 "protected": ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit|Bash")})
+                                 "protected": ("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit|Bash"),
+                                 "rules_changed": ("Stop", None)})
         entries = {p.stem for p in HOOKS.glob("*.py") if "\ndef main(" in p.read_text()}
         self.assertEqual(entries, set(wired))

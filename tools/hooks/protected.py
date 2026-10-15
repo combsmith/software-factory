@@ -1,17 +1,24 @@
 """PreToolUse on an edit or a Bash command: what is the Maintainer's to decide is asked of the person.
 
 Three things are (§5.1, §9.12): an edit to a protected path, one of the Factory's own rules or a
-hook that holds them; merging a pull request, or adding one to the queue; and a write to a ruleset
-or to the repo's settings. For each the hook answers "ask", and the person answers. That the
-Maintainer asked is never inferred from the conversation. The hook allows nothing and refuses
-nothing: what it does not ask about goes through the session's own permissions. What it cannot read
-it asks about. The paths, the commands, the mutations and the endpoints are data, in
-`config/hooks.json`.
+hook that holds them; a merge that bypasses the queue, or a push to the default branch; and a write
+to a ruleset or to the repo's settings. For each the hook answers "ask", and the person answers.
+That the Maintainer asked is never inferred from the conversation. An enqueue is not asked about:
+the Maintainer's standing approval covers it. The hook allows nothing and refuses nothing: what it
+does not ask about goes through the session's own permissions. The paths, the commands, the
+mutations and the endpoints are data, in `config/hooks.json`.
+
+This hook guards against mistakes; it is not the boundary, which is the rulesets and the
+Maintainer's reading of each pull request. It reads plain spellings of a command. A spelling it
+cannot read within its budget (a length, and a deadline well inside the settings' timeout) it asks
+about, and one it misreads is caught by state: `rules_changed.py` lists, at every stop, each
+protected path the branch has changed.
 
 A protected path is protected in every working tree: the project, a worktree under
 `.claude/worktrees/`, or any other directory that holds a `.git`, since its branch can merge here.
 A path is read as it is written, normalised, and as the file system resolves it, symbolic links
-followed, and compared without regard to case. Run as `python3 -I` on this file; see after_edit.py.
+followed, and compared without regard to case. What the hook says names no word of the command:
+only codes, and text from config/hooks.json. Run as `python3 -I` on this file; see after_edit.py.
 """
 from __future__ import annotations
 
@@ -20,14 +27,22 @@ import os
 import pathlib
 import re
 import sys
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 from tools.hooks import shell  # noqa: E402
 
+DEADLINE = 5.0          # seconds to read one tool call; the settings give the hook 30
+LONGEST = 256 * 1024    # characters of a command the hook reads
+LONGEST_PATH = 4096     # characters of a path
+NAME = 255              # characters of one name in a path
+STARS = 8               # wildcards in one name the hook expands
+MATCHES = 2000          # paths one wildcard may match
 FILE_TOOLS = {"Edit": "file_path", "Write": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path"}
-SHOWN = 6           # reasons put in front of the person
+SHOWN = 6               # reasons put in front of the person
 GLOB = re.compile(r"[*?\[]")
+BRACE = re.compile(r"\{[^{}]*(,|\.\.)[^{}]*\}")     # what the shell expands: {a,b} and {1..9}, not {} or @{0}
 VARIABLE = re.compile(r"\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))")
 ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
 # Words that come before the program and change nothing about what it does.
@@ -36,10 +51,18 @@ PREFIXES = {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "}",
 # Programs that read the paths they are named and write none of them. A redirection is read apart from them.
 READS = {"cat", "less", "more", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "ls", "stat", "file", "diff",
          "cmp", "readlink", "realpath", "basename", "dirname", "test", "[", "[[", "echo", "printf", "true", "false",
-         "jq", "nl", "od", "hexdump", "md5", "md5sum", "shasum", "sha1sum", "sha256sum", "cksum", "du", "cut", "tr",
-         "comm", "paste", "column", "fold", "strings", "which", "type", "pwd", "sleep", "export", "unset", "set",
+         ":", "jq", "nl", "od", "hexdump", "md5", "md5sum", "shasum", "sha1sum", "sha256sum", "cksum", "du", "cut",
+         "tr", "comm", "paste", "column", "fold", "strings", "which", "type", "pwd", "sleep", "export", "unset", "set",
          "local", "declare", "readonly", "read", "shift", "exit", "return", "wait", "case", "esac", "fi", "done",
          "cd", "pushd", "popd"}
+# Programs that read the paths they are named, and write the value of these options.
+OUTPUTS = {"sort": {"-o", "--output"},
+           "pytest": {"--junitxml", "--junit-xml", "--basetemp", "--result-log", "--report-log", "--html"},
+           "py.test": {"--junitxml", "--junit-xml", "--basetemp", "--result-log", "--report-log", "--html"}}
+# Modules `python -m` runs that read the paths they are named: the program whose outputs they share, and the
+# position from which their words are written (json.tool's second word is where it writes).
+PY_READERS = {"unittest": ("", None), "pytest": ("pytest", None), "json.tool": ("", 1), "doctest": ("", None),
+              "pydoc": ("", None), "tabnanny": ("", None), "pyclbr": ("", None)}
 # Programs that run code they are given; a here-document they read is code, not data.
 INTERPRETERS = re.compile(r"^(python[\d.]*|node|nodejs|deno|bun|perl|ruby|php|lua|osascript|Rscript|awk|gawk|"
                           r"mawk|nawk|bash|sh|zsh|dash|ksh|fish|source|\.)$")
@@ -70,18 +93,34 @@ GH_WRITES_FILES = (["run", "download"], ["release", "download"], ["repo", "clone
 API_VALUED = {"-X", "--method", "-H", "--header", "-f", "--raw-field", "-F", "--field", "--input", "-q", "--jq",
               "-t", "--template", "--cache", "-p", "--preview", "--hostname"}
 API_FLAGS = {"-i", "--include", "--paginate", "--slurp", "--silent", "--verbose"}
-# Text that names a merge or GitHub's API in a program the hook cannot read as gh.
-GITHUB_TEXT = re.compile(r"\bgh\b[\s\S]*\b(merge|api|ruleset|repo|secret|variable|workflow|alias)\b|"
-                         r"api\.github\.com|github\.com/graphql", re.I)
+WRAPPERS = {"env", "sudo", "xargs", "parallel", "timeout", "nice", "stdbuf", "caffeinate", "watch"}
+# Text that names a merge or GitHub's API in a program the hook cannot read as gh: gh, then one of these words.
+GH_WORD = re.compile(r"\bgh\b")
+GH_DOES = re.compile(r"\b(merge|api|ruleset|repo|secret|variable|workflow|alias)\b", re.I)
 
 
 class Unreadable(Exception):
     """What the decision rests on could not be read."""
 
 
-def _glob(pattern: str, segment: str) -> str:
+class Spent(Exception):
+    """The hook's budget for one tool call ran out."""
+
+
+class Budget:
+    """A deadline for one tool call. Calling it after the deadline raises Spent."""
+
+    def __init__(self, seconds: float):
+        self.until = time.monotonic() + seconds
+
+    def __call__(self):
+        if time.monotonic() > self.until:
+            raise Spent()
+
+
+def _glob(pattern: str, segment: str, most: str = "*") -> str:
     """A regular expression for a pattern of names: `*` is any part of one name (`segment` is what a name is made of)."""
-    return "".join(segment + "*" if c == "*" else re.escape(c) for c in pattern)
+    return "".join(segment + most if c == "*" else re.escape(c) for c in pattern)
 
 
 def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
@@ -89,31 +128,49 @@ def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
     try:
         data = json.loads(path.read_text())
         protected = [(e["path"], e["is"]) for e in data["protected"]]
+        reported = [(e["path"], e["is"]) for e in data["reported"]]
         lists = {group: {key: list(data[group][key]) for key in ("commands", "mutations", "endpoints")}
                  for group in ("merging", "settings")}
+        lists["settings"]["reads"] = list(data["settings"]["reads"])
         branch = data["merging"]["branch"]
     except (OSError, ValueError, KeyError, TypeError) as err:
         raise Unreadable("config/hooks.json cannot be read (%s)" % type(err).__name__)
-    words = [p for p, _ in protected] + [branch] + [w for group in lists.values() for v in group.values() for w in v]
-    if not protected or not all(isinstance(w, str) and w for w in words) or any(".." in p.split("/") for p, _ in protected):
+    paths = protected + reported
+    words = [p for p, _ in paths] + [branch] + [w for group in lists.values() for v in group.values() for w in v]
+    if not protected or not all(isinstance(w, str) and w for w in words) or any(".." in p.split("/") for p, _ in paths):
         raise Unreadable("config/hooks.json does not have the shape the hook reads")
-    return {"protected": protected, "branch": branch, **lists}
+    return {"protected": protected, "reported": reported, "branch": branch, **lists}
+
+
+def entries(listing: list) -> list:
+    """Each (path, what) of a list from config/hooks.json, with its parts and a pattern for a whole relative path."""
+    out = []
+    for path, what in listing:
+        parts = path.casefold().rstrip("/").split("/")
+        whole = re.compile("/".join(_glob(p, "[^/]") for p in parts) + ("(/.*)?" if path.endswith("/") else "")
+                           + r"\Z")
+        out.append((path, what, parts, whole))
+    return out
+
+
+def listed(data: dict, paths: list) -> list:
+    """(path, what it is) for each relative path that is protected or reported."""
+    every = entries(data["protected"] + data["reported"])
+    return [(p, next(what for _, what, _, whole in every if whole.match(p.casefold()))) for p in paths
+            if any(whole.match(p.casefold()) for _, _, _, whole in every)]
 
 
 class Rules:
     """The protected paths, and where to read them from: the top of every working tree that holds a path."""
 
-    def __init__(self, data: dict, env: dict):
-        self.entries, self.named = [], []
-        for path, what in data["protected"]:
-            parts = path.casefold().rstrip("/").split("/")
-            whole = re.compile("/".join(_glob(p, "[^/]") for p in parts) + ("(/.*)?" if path.endswith("/") else "")
-                               + r"\Z")
-            self.entries.append((path, what, parts, whole))
+    def __init__(self, data: dict, env: dict, spend: Budget):
+        self.spend = spend
+        self.entries, self.named = entries(data["protected"]), []
+        for path, what, parts, _ in self.entries:
             # As text, a path is named whole, or a file by its own name: in a script, `open("authority.json")`.
             forms = ["/".join(parts)] + ([parts[-1]] if not path.endswith("/") and len(parts) > 1 else [])
             self.named.append((re.compile(r"(?<![\w.-])(%s)(?![\w.-])" % "|".join(
-                _glob(f, r"[^/\s'\"]") for f in forms)), path, what))
+                _glob(f, r"[^/\s'\"]", "{0,%d}" % NAME) for f in forms)), path, what))
         project = pathlib.Path(env.get("CLAUDE_PROJECT_DIR") or ROOT)
         tops = {str(project), str(ROOT)} | ({env["HOME"]} if env.get("HOME") else set())
         self.tops = {os.path.normpath(t) for t in tops} | {os.path.realpath(t) for t in tops}
@@ -127,6 +184,7 @@ class Rules:
     def _tops(self, path: str) -> set:
         found, here = set(self.tops), path
         while True:
+            self.spend()
             parent = os.path.dirname(here)
             if os.path.lexists(os.path.join(here, ".git")) or parent.casefold() in self.worktrees:
                 found.add(here)
@@ -174,12 +232,13 @@ def edit(payload: dict, rules: Rules) -> list:
     key = FILE_TOOLS[payload["tool_name"]]
     path = (payload.get("tool_input") or {}).get(key)
     if not isinstance(path, str) or not path:
-        return [("path_unreadable", "the %s names no %s" % (payload["tool_name"], key))]
+        return [("path_unreadable", "the edit names no path")]
+    if len(path) > LONGEST_PATH:
+        return [("budget_spent", "the path is longer than the hook reads")]
     if not os.path.isabs(path):
         cwd = payload.get("cwd")
         if not cwd:
-            return [("path_unreadable", "the %s names a relative path, and the session's directory is not given"
-                     % payload["tool_name"])]
+            return [("path_unreadable", "the edit names a relative path, and the session's directory is not given")]
         path = os.path.join(cwd, path)
     found = rules.where(path, holds=False)
     if found:
@@ -189,13 +248,13 @@ def edit(payload: dict, rules: Rules) -> list:
     return []
 
 
-# ---- Bash: the paths a command writes
+# ---- Bash
 
 class Command:
-    """One Bash command read for the paths it writes, simple command by simple command."""
+    """One Bash command read, simple command by simple command, for the paths it writes, a merge and a setting."""
 
-    def __init__(self, text: str, cwd, rules: Rules, env: dict):
-        self.text, self.rules = text, rules
+    def __init__(self, text: str, cwd, rules: Rules, data: dict, env: dict):
+        self.text, self.rules, self.data, self.spend = text, rules, data, rules.spend
         self.here = os.path.normpath(cwd) if cwd and os.path.isabs(cwd) else None
         self.known = {k: env[k] for k in ("HOME", "TMPDIR", "CLAUDE_PROJECT_DIR") if env.get(k)}
         self.found = []
@@ -218,25 +277,33 @@ class Command:
         return out
 
     def paths(self, word: str, here=None) -> list:
-        """The absolute paths a word may name, braces and wildcards expanded as the shell would. Raises Unreadable."""
+        """The absolute paths a word may name, wildcards expanded as the shell would. Raises Unreadable.
+
+        Braces are not expanded: each brace is read as a wildcard, and a word whose wildcard may name a
+        protected path is unreadable.
+        """
         here = here or self.here
         word = self.expand(word)
         if word is None:
             raise Unreadable("a path is held in a variable or a command the hook cannot read")
-        out = []
-        for one in _braces(word):
-            if not os.path.isabs(one):
-                if here is None:
-                    raise Unreadable("the directory the command runs in cannot be told from its words")
-                one = os.path.join(here, one)
-            out += _wildcards(one) if GLOB.search(one) else [one]
-        return out
+        if not os.path.isabs(word):
+            if here is None:
+                raise Unreadable("the directory the command runs in cannot be told from its words")
+            word = os.path.join(here, word)
+        if BRACE.search(word):
+            while BRACE.search(word):
+                word = BRACE.sub("*", word)
+            if any(self.rules.where(p) for p in _wildcards(word, self.spend)):
+                raise Unreadable("a brace may spell a protected path, and the hook does not expand braces")
+            return []
+        return _wildcards(word, self.spend) if GLOB.search(word) else [word]
 
     def hit(self, word: str, holds: bool = True, here=None, text: bool = True):
         """What protected path a word names, by where it leads or, with `text`, as text; None if none.
 
         Raises Unreadable when where it leads cannot be read.
         """
+        self.spend()
         named = self.rules.names(word) if text else None
         if named:
             return named
@@ -251,57 +318,61 @@ class Command:
                     return "a file with more than one name", "one of them may be protected"
         return None
 
-    def check(self, program: str, words: list, holds: bool = True, here=None, text: bool = True) -> bool:
-        """Ask about the first word of a program that writes what its words name. Whether it asked."""
+    def check(self, words: list, holds: bool = True, here=None, text: bool = True) -> bool:
+        """Ask about the first of these words, written by a command, that names a protected path. Whether it asked."""
         for word in words:
             try:
                 found = self.hit(word, holds, here, text)
             except Unreadable as err:
-                self.ask("path_unreadable", "%s is given a path the hook cannot read: %s" % (_shown(program), err))
+                self.ask("path_unreadable", "the command is given a path the hook cannot read: %s" % err)
                 return True
             if found:
-                self.ask("protected_path", "%s may write %s, which is %s" % (_shown(program), found[0], found[1]))
+                self.ask("protected_path", "the command may write %s, which is %s" % found)
                 return True
         return False
 
-    def into(self, program: str, where, here=None) -> bool:
-        """Ask if a program writes files it does not name into `where`, or where it runs, and that holds a protected path."""
+    def into(self, where, here=None) -> bool:
+        """Ask if a command writes files it does not name into `where`, or where it runs, and that holds a protected path."""
         here = here or self.here
         try:
             places = self.paths(where, here) if where else ([here] if here else None)
         except Unreadable:
             places = None
         if not places:
-            self.ask("path_unreadable", "%s writes into a directory the hook cannot read" % _shown(program))
+            self.ask("path_unreadable", "the command writes into a directory the hook cannot read")
             return True
         for place in places:
             found = self.rules.where(place)
             if found:
-                self.ask("protected_path", "%s writes files it does not name into %s, which is %s"
-                         % ((_shown(program),) + found))
+                self.ask("protected_path", "the command writes files it does not name into %s, which is %s" % found)
                 return True
         return False
 
     # -- the command
 
     def read(self) -> list:
+        if len(self.text) > LONGEST:
+            self.ask("budget_spent", "the command is longer than the hook reads")
+            return self.found
         if ">(" in self.text:
             self.ask("command_unreadable", "a process substitution writes where the hook cannot follow")
         try:
-            commands = shell.commands(self.text)
-        except ValueError as err:
-            self.ask("command_unreadable", "the command cannot be split into words (%s)" % err)
+            commands = shell.commands(self.text, self.spend)
+        except (ValueError, RecursionError):
+            self.ask("command_unreadable", "the command cannot be split into words")
             return self.found
         for at, (words, redirections) in enumerate(commands):
+            self.spend()
             if words and words[-1].endswith("=$") and at + 1 < len(commands):
                 # Unquoted, D=$(mktemp -d) is read as D=$ and the command inside: put them together again.
                 words = words[:-1] + [words[-1] + "(%s)" % " ".join(commands[at + 1][0])]
-            self.redirections(words, redirections)
+            self.redirections(redirections)
             if words:
+                self.github(words, redirections)
                 self.simple(words, redirections)
         return self.found
 
-    def redirections(self, words: list, redirections: list):
+    def redirections(self, redirections: list):
         for operator, target in redirections:
             if ">" not in operator or (operator.endswith("&") and re.match(r"^(\d+|-)$", target)):
                 continue
@@ -332,6 +403,9 @@ class Command:
             return
         if program in READS:
             return
+        if program in OUTPUTS:
+            self.reader(args, OUTPUTS[program])
+            return
         if program in shell.SHELLS and any(w.startswith("-") and not w.startswith("--") and "c" in w for w in args):
             return      # the script it runs is read as commands of its own
         if program == "eval":
@@ -340,9 +414,14 @@ class Command:
             if any("<<" in op and "<<<" not in op for op, _ in redirections):
                 found = self.rules.names(self.text)
                 if found:
-                    self.ask("protected_path", "%s runs a script that names %s, which is %s, and the hook cannot "
-                                               "tell a read from a write" % ((_shown(program),) + found))
+                    self.ask("protected_path", "a script read from a here-document names %s, which is %s, and the "
+                                               "hook cannot tell a read from a write" % found)
                     return
+            module = args[args.index("-m") + 1] if "-m" in args[:-1] else None
+            if module in PY_READERS:
+                kind, writes_from = PY_READERS[module]
+                self.reader(args[args.index("-m") + 2:], OUTPUTS.get(kind, set()), writes_from)
+                return
             args = _without_script(program, args)
         handler = getattr(self, "_" + program.replace("-", "_"), None) if program in HANDLED else None
         if handler:
@@ -350,9 +429,28 @@ class Command:
         elif program in UNPACKERS:
             self._unpack(program, args)
         elif program in FEEDERS:
-            self._feed(program, args)
+            self._feed(args)
         else:
-            self.check(program, args)
+            self.check(args)
+
+    def reader(self, args: list, outputs: set, writes_from=None):
+        """A program that reads the paths it is named: only the values of `outputs`, and its words from `writes_from`, are written."""
+        written, positional, i = [], [], 0
+        while i < len(args):
+            option, given, value = args[i].partition("=")
+            if option in outputs or (not args[i].startswith("--") and args[i][:2] in outputs and len(args[i]) > 2):
+                if not given and option in outputs:
+                    i += 1
+                    value = args[i] if i < len(args) else ""
+                elif not given:
+                    value = args[i][2:]
+                written.append(value)
+            elif not args[i].startswith("-"):
+                positional.append(args[i])
+            i += 1
+        if writes_from is not None:
+            written += positional[writes_from:]
+        self.check(written, holds=False)
 
     def assign(self, word: str):
         name, value = word.split("=", 1)
@@ -378,7 +476,7 @@ class Command:
     def _sed(self, program: str, args: list):
         if any(w.startswith("--in-place") or (w.startswith("-") and not w.startswith("--") and "i" in w)
                for w in args):
-            self.check(program, args)
+            self.check(args)
             return
         for word in args:       # a script names what it writes as text; a file it reads leads somewhere
             named = self.rules.names(word)
@@ -388,13 +486,13 @@ class Command:
                 except Unreadable:
                     lead = False
                 if not lead:
-                    self.ask("protected_path", "%s's script names %s, which is %s" % ((_shown(program),) + named))
+                    self.ask("protected_path", "a sed script names %s, which is %s" % named)
                     return
 
     def _find(self, program: str, args: list):
         runs = [args[i + 1] for i, w in enumerate(args[:-1]) if w in FIND_RUNS]
         if FIND_WRITES & set(args) or any(os.path.basename(r) not in READS for r in runs):
-            self.check(program, args)
+            self.check(args)
 
     def _cp(self, program: str, args: list):
         """cp, mv and install write their target; mv also takes away what it moves."""
@@ -421,27 +519,27 @@ class Command:
             if not positional:
                 return
             target, positional = positional[-1], positional[:-1]
-        if program == "mv" and self.check(program, positional):
+        if program == "mv" and self.check(positional):
             return
         try:
             places = self.paths(target)
         except Unreadable as err:
-            self.ask("path_unreadable", "%s is given a target the hook cannot read: %s" % (program, err))
+            self.ask("path_unreadable", "the command is given a target the hook cannot read: %s" % err)
             return
         for place in places:
             if as_file or not (os.path.isdir(place) or target.endswith("/")):
-                if self.check(program, [place], holds=False):
+                if self.check([place], holds=False):
                     return
                 continue
             for source in positional:      # into a directory: each source by its own name
                 name = os.path.basename(source.rstrip("/"))
                 if source.endswith("/") or name in (".", ""):
                     into = place            # what is in the source, not the source itself
-                elif self.expand(name) is None:
+                elif self.expand(name) is None or BRACE.search(name):
                     into = os.path.join(place, "*")     # a name the hook cannot read may be any name there
                 else:
                     into = os.path.join(place, name)
-                if self.check(program, [into]):
+                if self.check([into]):
                     return
 
     _mv = _install = _cp
@@ -454,42 +552,43 @@ class Command:
                 i += 1
                 value = args[i] if i < len(args) else ""
             if option == "-C":
-                try:
-                    found = self.paths(value, here)
-                    here = os.path.normpath(found[0]) if len(found) == 1 else None
-                except Unreadable:
-                    here = None
+                here = self.cd_from(value, here)
             elif option in ("--git-dir", "--work-tree"):
                 tree_unknown = True
             i += 1
         sub, rest = (args[i], args[i + 1:]) if i < len(args) else ("", [])
-        sub, rest = (args[i], args[i + 1:]) if i < len(args) else ("", [])
-        shown = "git " + _shown(sub)
         if sub in GIT_READS:        # but --output writes a file
             outputs = [rest[j + 1] if w == "--output" and j + 1 < len(rest) else w[len("--output="):]
                        for j, w in enumerate(rest) if w == "--output" or w.startswith("--output=")]
-            self.check(shown, outputs, holds=False, here=here, text=False)
+            self.check(outputs, holds=False, here=here, text=False)
             return
         if tree_unknown:
-            self.ask("path_unreadable", "%s is pointed at a working tree the hook does not read" % shown)
+            self.ask("path_unreadable", "git is pointed at a working tree the hook does not read")
             return
         if sub in ("apply", "am") or (sub == "stash" and rest[:1] in (["pop"], ["apply"])):
-            self.into(shown, None, here)        # what it writes is in a patch or a stash, which the hook does not read
+            self.into(None, here)       # what it writes is in a patch or a stash, which the hook does not read
             return
         if any(w.startswith(":") for w in rest):
-            self.ask("path_unreadable", "%s is given a pathspec with magic the hook does not read" % shown)
+            self.ask("path_unreadable", "git is given a pathspec with magic the hook does not read")
             return
         # git matches a pathspec's wildcards across directories: read one as the directory it starts in.
         globbed = [w[:GLOB.search(w).start()].rpartition("/")[0] or "." for w in rest
                    if GLOB.search(w) and not w.startswith("-")]
-        if not self.check(shown, globbed, here=here, text=False):
-            self.check(shown, rest, here=here, text=False)
+        if not self.check(globbed, here=here, text=False):
+            self.check(rest, here=here, text=False)
+
+    def cd_from(self, word: str, here):
+        try:
+            found = self.paths(word, here)
+        except Unreadable:
+            return None
+        return os.path.normpath(found[0]) if len(found) == 1 else None
 
     def _gh(self, program: str, args: list):
         positional = _positional(args, GH_VALUED)
         if any(positional[:len(w)] == w for w in GH_WRITES_FILES):
             given = [args[i + 1] for i, w in enumerate(args[:-1]) if w in ("-D", "--dir")]
-            self.into("gh " + " ".join(positional[:2]), given[0] if given else None)
+            self.into(given[0] if given else None)
 
     def _unpack(self, program: str, args: list):
         if program in ("tar", "bsdtar"):
@@ -497,37 +596,151 @@ class Command:
             modes = first if not first.startswith("-") else "".join(w[1:] for w in args
                                                                   if w.startswith("-") and not w.startswith("--"))
             if not ("x" in modes or "--extract" in args or "--get" in args):
-                self.check(program, args)
+                self.check(args)
                 return
         given = [args[i + 1] for i, w in enumerate(args[:-1]) if w in ("-C", "-d", "--directory")]
         given += [w.split("=", 1)[1] for w in args if w.startswith("--directory=")]
-        if not self.check(program, args):
-            self.into(program, given[-1] if given else None)
+        if not self.check(args):
+            self.into(given[-1] if given else None)
 
-    def _feed(self, program: str, args: list):
+    def _feed(self, args: list):
         """xargs and parallel run a program on paths read from stdin, which the hook does not see."""
         inner = next(iter(_positional(args, FEED_VALUED)), "")
         if os.path.basename(inner) in READS:
             return
-        if not self.check(program, args):
-            self.into("%s %s" % (program, _shown(os.path.basename(inner))), None)
+        if not self.check(args):
+            self.into(None)
+
+    # -- merging, and the repo's own rules
+
+    def github(self, words: list, redirections: list):
+        at = 0
+        while at < len(words) and (words[at] in PREFIXES or ASSIGNMENT.match(words[at])):
+            at += 1
+        if at == len(words):
+            return
+        program = os.path.basename(words[at])
+        if program in READS:
+            return
+        if program not in ("git", "gh"):
+            tool = next((i for i in range(at, len(words)) if os.path.basename(words[i]) in ("git", "gh")), None)
+            if tool is None or program not in WRAPPERS:
+                if program in shell.SHELLS and any(w.startswith("-") and "c" in w and not w.startswith("--")
+                                                   for w in words[at + 1:]):
+                    return      # the script is read as commands of its own
+                heredoc = INTERPRETERS.match(program) and any("<<" in op for op, _ in redirections)
+                if _names_github(" ".join(words[at:]), self.data) or (heredoc and _names_github(self.text, self.data)):
+                    self.ask("command_unreadable", "a program names a merge, a setting or GitHub's API in a way the "
+                                                   "hook cannot read")
+                return
+            at = tool
+        program, args = os.path.basename(words[at]), words[at + 1:]
+        if program == "git":
+            self._push(args)
+            return
+        positional = _positional(args, GH_VALUED)
+        if not positional:
+            return
+        if positional[0] not in GH_COMMANDS:
+            self.ask("command_unreadable", "gh is given a command the hook does not know; it may be an alias or an "
+                                           "extension")
+            return
+        if positional[:2] in (["alias", "set"], ["alias", "import"]):
+            self.ask("command_unreadable", "gh alias makes a command the hook cannot read")
+            return
+        if positional[0] == "api":
+            self.found += _api(args[args.index("api") + 1:], self.data, self.rules)
+            return
+        for group, code, does in (("merging", "merge", "merges a pull request around the queue"),
+                                  ("settings", "repo_settings", "writes the repo's rules or settings")):
+            for entry in self.data[group]["commands"]:
+                if _is_command(entry, positional, args) and not any(
+                        _is_command(read, positional, args) for read in self.data[group].get("reads", [])):
+                    self.ask(code, "gh %s %s" % (entry, does))
+
+    def _push(self, args: list):
+        here, i = self.here, 0
+        while i < len(args) and args[i].startswith("-"):
+            option, given, value = args[i].partition("=")
+            if option in GIT_VALUED and not given:
+                i += 1
+                value = args[i] if i < len(args) else ""
+            if option == "-C":
+                here = self.cd_from(value, here)
+            i += 1
+        if args[i:i + 1] != ["push"]:
+            return
+        rest, positional, j = args[i + 1:], [], 0
+        while j < len(rest):
+            option, given, _ = rest[j].partition("=")
+            if rest[j] == "--":
+                positional += rest[j + 1:]
+                break
+            if option in PUSH_VALUED and not given:
+                j += 1
+            elif not rest[j].startswith("-"):
+                positional.append(rest[j])
+            j += 1
+        branch = self.data["branch"]
+        if {"--all", "--mirror", "--branches"} & set(rest):
+            self.ask("merge", "git push of every branch writes %s, which only a merge from the queue writes" % branch)
+            return
+        targets = []
+        for spec in positional[1:] or ["HEAD"]:
+            target = spec.lstrip("+").rsplit(":", 1)[-1]
+            if target in ("HEAD", "@") or "$" in target or "`" in target:   # the branch it is on
+                target = _branch(here)
+                if target is None:
+                    self.ask("command_unreadable", "the branch a push goes to cannot be read")
+                    return
+            targets.append(target)
+        if any(re.sub(r"^refs/heads/", "", t.casefold()) == branch.casefold() for t in targets):
+            self.ask("merge", "git push writes %s, which only a merge from the queue writes" % branch)
 
 
 HANDLED = {"sed", "find", "cp", "mv", "install", "git", "gh"}
 
 
-def _braces(word: str) -> list:
-    """The words a brace list `{a,b}` stands for, as the shell would expand it."""
-    found = re.search(r"\{([^{}]*,[^{}]*)\}", word)
-    if not found:
-        return [word]
-    out = []
-    for part in found.group(1).split(","):
-        out += _braces(word[:found.start()] + part + word[found.end():])
-    return out
+def _branch(here):
+    """The branch checked out where a command runs, read from git's HEAD; "" when none is, None when it cannot be read."""
+    while here:
+        dot = os.path.join(here, ".git")
+        try:
+            if os.path.isdir(dot):
+                gitdir = dot
+            elif os.path.isfile(dot):
+                found = re.match(r"gitdir: (.+)", pathlib.Path(dot).read_text()[:4096].strip())
+                gitdir = os.path.join(here, found.group(1)) if found else None
+            else:
+                parent = os.path.dirname(here)
+                here = None if parent == here else parent
+                continue
+            head = pathlib.Path(gitdir, "HEAD").read_text()[:4096].strip() if gitdir else None
+        except OSError:
+            return None
+        if head is None:
+            return None
+        found = re.match(r"ref: refs/heads/(.+)$", head)
+        return found.group(1) if found else ""
+    return None
 
 
-def _wildcards(path: str, limit: int = 2000) -> list:
+def _is_command(entry: str, positional: list, args: list) -> bool:
+    """Whether gh's words are the command `entry` names, with every option it names."""
+    words = entry.split()
+    names = [w for w in words if not w.startswith("--")]
+    options = [w for w in words if w.startswith("--")]
+    return positional[:len(names)] == names and all(any(a == o or a.startswith(o + "=") for a in args) for o in options)
+
+
+def _names_github(text: str, data: dict) -> bool:
+    """Whether text names gh and then a merge or an API call, GitHub's API, or a GraphQL mutation that is the Maintainer's."""
+    gh, low = GH_WORD.search(text), text.casefold()
+    return bool((gh and GH_DOES.search(text, gh.end())) or "api.github.com" in low or "github.com/graphql" in low
+                or _mutations(data["merging"]["mutations"] + data["settings"]["mutations"], text))
+
+
+def _wildcards(path: str, spend, limit: int = MATCHES) -> list:
     """The paths a pattern matches in the file system; the pattern itself when none does, as the shell leaves it."""
     parts, found = path.split("/"), ["/"]
     for part in parts[1:]:
@@ -539,17 +752,21 @@ def _wildcards(path: str, limit: int = 2000) -> list:
         pattern = re.compile(_shell_glob(part) + r"\Z", re.I)
         nxt = []
         for f in found:
+            spend()
             try:
                 nxt += [os.path.join(f, n) for n in sorted(os.listdir(f)) if pattern.match(n)]
             except OSError:
                 continue
-        if len(nxt) > limit:
-            raise Unreadable("a wildcard matches more paths than the hook reads")
+            if len(nxt) > limit:
+                raise Unreadable("a wildcard matches more paths than the hook reads")
         found = nxt
     return found or [path]
 
 
 def _shell_glob(part: str) -> str:
+    part = re.sub(r"\*+", "*", part)
+    if len(GLOB.findall(part)) > STARS:
+        raise Unreadable("a name holds more wildcards than the hook reads")
     out, i = [], 0
     while i < len(part):
         c = part[i]
@@ -584,11 +801,6 @@ def _without_script(program: str, args: list) -> list:
     return args
 
 
-def _shown(word: str) -> str:
-    """A program's name, cut short and with nothing in it that is not printable, to put in front of the person."""
-    return re.sub(r"[^\w.+-]", "?", word)[:40]
-
-
 def _positional(args: list, valued: set) -> list:
     out, i = [], 0
     while i < len(args):
@@ -600,8 +812,6 @@ def _positional(args: list, valued: set) -> list:
         i += 1
     return out
 
-
-# ---- Bash: merging, and the repo's own rules
 
 def _route(pattern: str, endpoint: str) -> bool:
     want, have = pattern.split("/"), endpoint.split("/")
@@ -615,14 +825,16 @@ def _route(pattern: str, endpoint: str) -> bool:
 
 
 def _endpoint(raw: str):
-    """A REST path as GitHub routes it: no host, no query, no . or .., decoded, lower case. None if it cannot be read."""
+    """A REST path as GitHub routes it: no host, no query, no . or .., decoded, lower case, a repository by its id read
+    as one by its name. None if it cannot be read."""
     if "$" in raw or "`" in raw:
         return None
     path = re.sub(r"^[a-z]+://[^/]+/", "", raw.strip(), flags=re.I).split("?")[0].split("#")[0]
     for _ in range(3):
         path = re.sub(r"%([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), path)
     path = os.path.normpath("/" + path.lstrip("/")).lstrip("/").casefold()
-    return re.sub(r"^api/v3/", "", path)
+    path = re.sub(r"^api/v3/", "", path)
+    return re.sub(r"^repositories/[^/]+", "repos/-/-", path)
 
 
 def _mutations(patterns: list, text: str) -> list:
@@ -633,13 +845,12 @@ def _mutations(patterns: list, text: str) -> list:
 
 
 def _api(args: list, data: dict, rules: Rules) -> list:
-    method, endpoint, values, unread, i = None, None, [], [], 0
+    method, endpoint, values, unread, unknown, i = None, None, [], False, False, 0
     while i < len(args):
         word = args[i]
         option, given, value = word.partition("=")
-        short = word[:2] if not word.startswith("--") and len(word) > 2 and word[:2] in API_VALUED else None
-        if short:
-            option, given, value = short, "=", word[2:]
+        if not word.startswith("--") and len(word) > 2 and word[:2] in API_VALUED:
+            option, given, value = word[:2], "=", word[2:]
         if word.startswith("-") and len(word) > 1:
             if option in API_VALUED:
                 if not given:
@@ -650,20 +861,18 @@ def _api(args: list, data: dict, rules: Rules) -> list:
                 elif option in ("-f", "--raw-field", "-F", "--field"):
                     field = value.partition("=")[2]
                     values.append(field)
-                    if field.startswith("@") or field.startswith("$") or field.startswith("`"):
-                        unread.append("a field is read from a file, stdin or a variable")
+                    unread = unread or field[:1] in ("@", "$", "`")
                 elif option == "--input":
                     values.append("")
-                    unread.append("the body is read from a file or stdin")
+                    unread = True
             elif option not in API_FLAGS:
-                unread.append("gh api %s is an option the hook does not know" % _shown(option))
+                unknown = True
         elif endpoint is None:
             endpoint = word
         i += 1
     if endpoint is None:
         return []
     method = method or ("POST" if values else "GET")
-    writes = method not in ("GET", "HEAD")
     path = _endpoint(endpoint)
     found = []
     if path == "graphql":
@@ -674,117 +883,31 @@ def _api(args: list, data: dict, rules: Rules) -> list:
         if "createcommitonbranch" in text.casefold() and rules.names(text):
             found.append(("protected_path", "a commit made on GitHub names %s, which is %s" % rules.names(text)))
         if unread and not found:
-            found.append(("command_unreadable", "gh api graphql: %s, so what it changes cannot be read" % unread[0]))
+            found.append(("command_unreadable", "gh api graphql reads its query from a file, stdin or a variable, so "
+                                                "what it changes cannot be read"))
         return found
-    if not writes:
+    if method in ("GET", "HEAD"):
         return []
     if path is None:
-        return [("command_unreadable", "gh api writes with %s to an endpoint the hook cannot read" % _shown(method))]
+        return [("command_unreadable", "gh api writes to an endpoint the hook cannot read")]
     for pattern in data["merging"]["endpoints"]:
         if _route(pattern, path):
-            found.append(("merge", "gh api %s %s merges a pull request" % (_shown(method), pattern)))
+            found.append(("merge", "gh api writes %s, which merges or moves a branch" % pattern))
     for pattern in data["settings"]["endpoints"]:
         if _route(pattern, path):
-            found.append(("repo_settings", "gh api %s %s writes the repo's rules or settings" % (_shown(method), pattern)))
+            found.append(("repo_settings", "gh api writes %s, the repo's rules or settings" % pattern))
     named = rules.names(path.split("/", 4)[4]) if re.match(r"repos/[^/]+/[^/]+/contents/", path) else None
     if named:
-        found.append(("protected_path", "gh api %s writes %s on GitHub, which is %s" % ((_shown(method),) + named)))
-    if not found and unread and "unknown" in unread[-1]:
-        found.append(("command_unreadable", unread[-1]))
+        found.append(("protected_path", "gh api writes %s on GitHub, which is %s" % named))
+    if not found and unknown:
+        found.append(("command_unreadable", "gh api is given an option the hook does not know"))
     return found
-
-
-def github(command: str, data: dict, rules: Rules) -> list:
-    """Reasons to ask about a merge, or a write to a ruleset or the repo's settings, in one Bash command."""
-    try:
-        commands = shell.commands(command)
-    except ValueError:
-        return [("command_unreadable", "the command cannot be split into words, so a merge or a write to the repo's "
-                                       "settings in it cannot be read")] if GITHUB_TEXT.search(command) else []
-    found = []
-    for words, redirections in commands:
-        at = 0
-        while at < len(words) and (words[at] in PREFIXES or ASSIGNMENT.match(words[at])):
-            at += 1
-        if at == len(words):
-            continue
-        program = os.path.basename(words[at])
-        if program in READS:
-            continue
-        if program not in ("git", "gh"):
-            tool = next((i for i in range(at, len(words)) if os.path.basename(words[i]) in ("git", "gh")), None)
-            heredoc = INTERPRETERS.match(program) and any("<<" in op for op, _ in redirections)
-            if tool is None or not re.match(r"^(env|sudo|xargs|parallel|timeout|nice|stdbuf|caffeinate|watch)$",
-                                            program):
-                if program in shell.SHELLS and any(w.startswith("-") and "c" in w and not w.startswith("--")
-                                                   for w in words[at + 1:]):
-                    continue    # the script is read as commands of its own
-                if GITHUB_TEXT.search(" ".join(words[at:])) or _mutations(
-                        data["merging"]["mutations"] + data["settings"]["mutations"], " ".join(words[at:])) or (
-                        heredoc and (GITHUB_TEXT.search(command) or _mutations(
-                            data["merging"]["mutations"] + data["settings"]["mutations"], command))):
-                    found.append(("command_unreadable", "%s runs something that names a merge, a setting or "
-                                                        "GitHub's API, which the hook cannot read" % _shown(program)))
-                continue
-            at = tool
-        program, args = os.path.basename(words[at]), words[at + 1:]
-        if program == "git":
-            found += _push(args, data)
-            continue
-        positional = _positional(args, GH_VALUED)
-        if not positional:
-            continue
-        if positional[0] not in GH_COMMANDS:
-            found.append(("command_unreadable", "gh %s is not a command the hook knows; it may be an alias or an "
-                                                "extension" % _shown(positional[0])))
-            continue
-        if positional[:2] in (["alias", "set"], ["alias", "import"]):
-            found.append(("command_unreadable", "gh alias %s makes a command the hook cannot read" % positional[1]))
-            continue
-        if positional[0] == "api":
-            found += _api(args[args.index("api") + 1:], data, rules)
-            continue
-        for group, code, does in (("merging", "merge", "merges a pull request or adds one to the queue"),
-                                  ("settings", "repo_settings", "writes the repo's rules or settings")):
-            for entry in data[group]["commands"]:
-                if positional[:len(entry.split())] == entry.split():
-                    found.append((code, "gh %s %s" % (entry, does)))
-    return found
-
-
-def _push(args: list, data: dict) -> list:
-    i = 0
-    while i < len(args) and args[i].startswith("-"):
-        if args[i] in GIT_VALUED:
-            i += 1
-        i += 1
-    if args[i:i + 1] != ["push"]:
-        return []
-    rest, positional, j = args[i + 1:], [], 0
-    while j < len(rest):
-        option, given, _ = rest[j].partition("=")
-        if rest[j] == "--":
-            positional += rest[j + 1:]
-            break
-        if option in PUSH_VALUED and not given:
-            j += 1
-        elif not rest[j].startswith("-"):
-            positional.append(rest[j])
-        j += 1
-    if {"--all", "--mirror", "--branches"} & set(rest):
-        return [("merge", "git push %s pushes every branch, %s among them" % (
-            next(w for w in rest if w in ("--all", "--mirror", "--branches")), data["branch"]))]
-    branch = data["branch"].casefold()
-    for spec in positional[1:]:
-        target = spec.lstrip("+").rsplit(":", 1)[-1].casefold()
-        if re.sub(r"^refs/heads/", "", target) == branch:
-            return [("merge", "git push writes %s, which only a merge from the queue writes" % data["branch"])]
-    return []
 
 
 # ---- the hook
 
-def check(payload: dict, env: dict, data: dict = None, source: pathlib.Path = ROOT / "config" / "hooks.json") -> list:
+def check(payload: dict, env: dict, data: dict = None, source: pathlib.Path = ROOT / "config" / "hooks.json",
+          seconds: float = DEADLINE) -> list:
     """The reasons to ask the person about this tool call, as (code, sentence); none when it is not the Maintainer's."""
     tool = payload.get("tool_name")
     if tool not in FILE_TOOLS and tool != "Bash":
@@ -793,14 +916,16 @@ def check(payload: dict, env: dict, data: dict = None, source: pathlib.Path = RO
         data = data or load(source)
     except Unreadable as err:
         return [("config_unreadable", "%s, so every edit and command is asked about" % err)]
-    rules = Rules(data, env)
-    if tool in FILE_TOOLS:
-        return edit(payload, rules)
-    command = (payload.get("tool_input") or {}).get("command")
-    if not isinstance(command, str):
-        return [("command_unreadable", "the Bash call carries no command")]
-    found = Command(command, payload.get("cwd"), rules, env).read() + github(command, data, rules)
-    return list(dict.fromkeys(found))
+    try:
+        rules = Rules(data, env, Budget(seconds))
+        if tool in FILE_TOOLS:
+            return edit(payload, rules)
+        command = (payload.get("tool_input") or {}).get("command")
+        if not isinstance(command, str):
+            return [("command_unreadable", "the Bash call carries no command")]
+        return list(dict.fromkeys(Command(command, payload.get("cwd"), rules, data, env).read()))
+    except Spent:
+        return [("budget_spent", "the hook ran out of its %d seconds reading this, so it asks" % seconds)]
 
 
 def respond(payload: dict, env: dict) -> str:
@@ -811,7 +936,7 @@ def respond(payload: dict, env: dict) -> str:
         found = [("hook_failed", "the hook could not finish (%s), so it asks" % type(err).__name__)]
     if not found:
         return ""
-    # A sentence is built from config/hooks.json and the hook's own words; of the command it names only a program.
+    # A sentence holds codes, text from config/hooks.json and the hook's own words: never a word of the command.
     reasons = ["%s: %s." % (code, sentence) for code, sentence in found[:SHOWN]]
     if len(found) > SHOWN:
         reasons.append("and %d more." % (len(found) - SHOWN))

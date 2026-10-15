@@ -8,9 +8,6 @@
     {"path": "lifecycle/", "is": "the Lifecycle"},
     {"path": "config/authority.json", "is": "the authority table"},
     {"path": "config/rubric-*.json", "is": "a rubric"},
-    {"path": "kernel/derive.py", "is": "the gate function, gating_threads"},
-    {"path": "kernel/terms.py", "is": "the severities that gate, GATING_SEVERITIES"},
-    {"path": "kernel/decide.py", "is": "the brakes: the Pause and the ceilings on a Run"},
     {"path": "config/defaults.json", "is": "the brakes' limits, the required Lenses and the approver"},
     {"path": "sim/world.py", "is": "the invariants"},
     {"path": "tests/test_simulator.py", "is": "the simulator's fixed seeds"},
@@ -20,16 +17,20 @@
     {"path": "config/hooks.json", "is": "what the session hooks are told"},
     {"path": "schemas/hooks.schema.json", "is": "the schema of what the session hooks are told"}
   ],
+  "reported": [
+    {"path": "kernel/", "is": "the Kernel: the gate function, the severities that gate, and the brakes"}
+  ],
   "merging": {
     "branch": "main",
-    "commands": ["pr merge"],
-    "mutations": ["mergePullRequest", "enqueuePullRequest", "enablePullRequestAutoMerge", "mergeBranch"],
-    "endpoints": ["repos/*/*/pulls/*/merge", "repos/*/*/merges"]
+    "commands": ["pr merge --admin"],
+    "mutations": ["mergePullRequest", "mergeBranch"],
+    "endpoints": ["repos/*/*/pulls/*/merge", "repos/*/*/merges", "repos/*/*/git/refs/**"]
   },
   "settings": {
     "commands": ["repo edit", "repo rename", "repo archive", "repo unarchive", "repo delete", "repo deploy-key",
                  "repo autolink", "ruleset", "secret set", "secret delete", "secret remove", "variable set",
                  "variable delete", "variable remove", "workflow enable", "workflow disable"],
+    "reads": ["ruleset list", "ruleset ls", "ruleset view", "ruleset check"],
     "mutations": ["updateRepository*", "archiveRepository", "unarchiveRepository", "*RepositoryRuleset",
                   "*BranchProtectionRule", "*Environment", "updateTeamsRepository"],
     "endpoints": ["repos/*/*", "repos/*/*/rulesets/**", "repos/*/*/branches/*/protection/**",
