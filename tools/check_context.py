@@ -247,8 +247,7 @@ def _agents_files(root: pathlib.Path) -> list:
         for path in _kept(root, name):
             if path != entry:
                 problems.append("%s is a second set of rules; there is one, in AGENTS.md" % path.relative_to(root))
-    for folder in sorted(p for p in root.iterdir() if p.is_dir() and p.name not in walk.SKIP
-                         and not p.name.startswith(".") and not walk.elsewhere(p)):
+    for folder in (p for p in walk.folders(root) if not p.name.startswith(".")):
         if not (folder / "AGENTS.md").exists():
             problems.append("%s/ has no AGENTS.md" % folder.name)
     return problems

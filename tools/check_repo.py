@@ -107,6 +107,8 @@ def run(root: pathlib.Path = ROOT) -> list:
     for stray in ("CODEOWNERS", "docs/CODEOWNERS"):
         if (root / stray).exists():
             problems.append("%s: GitHub reads the first code owners file it finds; keep only .github/CODEOWNERS" % stray)
+    for path in walk.broken(root):
+        problems.append("%s: a link to nothing; commit what it points at, or remove it" % path.relative_to(root))
     for path in walk.files(root):
         rel = path.relative_to(root)
         listed = path.name in MANIFESTS or (path.suffix in (".txt", ".in") and

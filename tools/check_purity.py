@@ -28,7 +28,7 @@ def _constant(node) -> bool:
 
 def run(root: pathlib.Path = ROOT) -> list:
     problems = []
-    files = [p for p in walk.files(root / "kernel") if p.suffix == ".py"]
+    files = [p for p in walk.files(root, "kernel") if p.suffix == ".py"]
     if not files:
         return ["there is no kernel/ to check"]
     for path in files:

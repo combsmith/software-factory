@@ -400,4 +400,4 @@ actionlint.tar.gz
 # Below the baseline: this repo only.
 __pycache__/
 *.pyc
-corpus/
+/corpus/
