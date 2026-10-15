@@ -9,8 +9,10 @@ import ast
 import base64
 import contextlib
 import copy
+import hashlib
 import io
 import json
+import os
 import pathlib
 import tempfile
 import unittest
@@ -57,6 +59,34 @@ def modules_in(suite) -> set:
         else:
             found.add(type(item).__module__)
     return found
+
+
+FILE, GITLINK = 0o100644, 0o160000
+
+
+def git_index(paths: dict, version: int = 2) -> bytes:
+    """git's index as git writes it, holding `paths` ({path: mode}). Version 3 marks every entry extended."""
+    out, previous = b"", b""
+    for path, mode in sorted(paths.items()):
+        name = path.encode()
+        flags = len(name) | (0x4000 if version == 3 else 0)
+        entry = bytes(24) + mode.to_bytes(4, "big") + bytes(32) + flags.to_bytes(2, "big")
+        entry += bytes(2) if version == 3 else b""
+        if version == 4:    # the path is cut to what differs from the one before, and not padded
+            same = len(os.path.commonprefix([previous, name]))
+            entry += bytes([len(previous) - same]) + name[same:] + b"\0"
+        else:
+            entry += name + b"\0" * (8 - (len(entry) + len(name)) % 8)
+        out, previous = out + entry, name
+    data = b"DIRC" + version.to_bytes(4, "big") + len(paths).to_bytes(4, "big") + out
+    return data + hashlib.sha1(data, usedforsecurity=False).digest()
+
+
+def commit(root: pathlib.Path, paths: dict, version: int = 2) -> pathlib.Path:
+    """Write git's index into `root`, as though `paths` had been committed. Returns `root`."""
+    (root / ".git").mkdir(exist_ok=True)
+    (root / ".git" / "index").write_bytes(git_index(paths, version))
+    return root
 
 
 def caught(problems: list, words: str) -> bool:
@@ -480,6 +510,63 @@ class Repo(unittest.TestCase):
         self.assertTrue(caught(said, "kernel/ext: a link to a directory; Python imports through it, but no check"))
         self.assertTrue(caught(said, "kernel/gone.py: a link to nothing; commit what it points at, or remove it"))
 
+
+    def test_compiled_code_is_refused_wherever_it_is(self):
+        # Python imports kernel/ghost.pyc with no source beside it, and kernel/decide.<tag>.so ahead of
+        # kernel/decide.py, yet check_purity reads only .py. No check can read compiled code.
+        root = tree({"kernel/decide.py": "", "kernel/ghost.pyc": "", "kernel/decide.cpython-39-darwin.so": "",
+                     "sim/x.pyo": "", "tools/x.pyd": "", "docs/x.pyc.md": "", "docs/so": ""})
+        problems = check_repo.run(root)
+        self.assertEqual(sorted(p.split(";")[0] for p in problems if "compiled" in p),
+                         ["kernel/decide.cpython-39-darwin.so: compiled code", "kernel/ghost.pyc: compiled code",
+                          "sim/x.pyo: compiled code", "tools/x.pyd: compiled code"])
+        self.assertTrue(caught(problems, "kernel/ghost.pyc: compiled code; Python loads it ahead of, or instead of, "
+                                         "the reviewed source, and no check reads it"))
+
+    def test_committed_local_output_is_refused(self):
+        # An unchecked-hash kernel/__pycache__/hidden.cpython-39.pyc replaces the reviewed kernel/hidden.py
+        # at import, and `git add -f` commits it past .gitignore. What git holds is not local output.
+        token = "github_pat_" + "x" * 40 + "\n"
+        root = tree({"kernel/hidden.py": "", "kernel/__pycache__/hidden.cpython-39.pyc": "", "corpus/d.jsonl": token,
+                     "sim/__pycache__/x.cpython-39.pyc": "", "corpus/local.jsonl": ""})
+        commit(root, {"kernel/hidden.py": FILE, "kernel/__pycache__/hidden.cpython-39.pyc": FILE, "corpus/d.jsonl": FILE})
+        problems = check_repo.run(root)
+        for words in ("kernel/__pycache__/hidden.cpython-39.pyc: compiled code",
+                      "kernel/__pycache__/hidden.cpython-39.pyc: in __pycache__/, Python's local output, committed",
+                      "corpus/d.jsonl: in corpus/, local output make_corpus.py writes, committed",
+                      "corpus/d.jsonl: holds something shaped like a credential"):
+            self.assertTrue(caught(problems, words), words)
+        self.assertFalse(caught(problems, "sim/__pycache__"))
+        self.assertTrue(caught(problems, "kernel/__pycache__/hidden.cpython-39.pyc: in __pycache__/, Python's local "
+                                         "output, committed; Python loads it ahead of the reviewed source"))
+
+    def test_a_submodule_is_refused(self):
+        # A submodule's files come from another repo, at a commit this one's review never sees. Checked
+        # out, it holds a .git file, and the walk skips it as another working tree.
+        root = tree({".gitmodules": "[submodule \"lib\"]\n\tpath = kernel/lib\n", "kernel/lib/.git": "gitdir: x\n",
+                     "kernel/lib/clock.py": "import time\n", "docs/.gitmodules": ""})
+        commit(root, {".gitmodules": FILE, "kernel/lib": GITLINK, "docs/.gitmodules": FILE})
+        problems = check_repo.run(root)
+        for words in ("kernel/lib: a submodule; its files come from another repo",
+                      ".gitmodules: declares a submodule", "docs/.gitmodules: declares a submodule"):
+            self.assertTrue(caught(problems, words), words)
+        self.assertFalse(caught(check_purity.run(root), "clock.py"))      # why: unread, yet importable
+
+    def test_an_index_that_cannot_be_read_is_a_problem_and_skips_nothing(self):
+        files = {"kernel/x.py": "", "sim/__pycache__/x.cpython-39.pyc": ""}
+        whole = git_index({"kernel/x.py": FILE})
+        split = whole[:-20] + b"link" + bytes(4)
+        for name, data in (("garbage", b"not an index"), ("version 5", whole[:4] + (5).to_bytes(4, "big") + whole[8:]),
+                           ("short", whole[:40]), ("checksum", whole[:-1] + b"x"),
+                           ("split", split + hashlib.sha1(split, usedforsecurity=False).digest())):
+            with self.subTest(index=name):
+                root = commit(tree(files), {})
+                (root / ".git" / "index").write_bytes(data)
+                problems = check_repo.run(root)
+                self.assertTrue(caught(problems, "git's index cannot be read"))
+                self.assertTrue(caught(problems, "sim/__pycache__/x.cpython-39.pyc: compiled code"))
+        root = tree(dict(files, **{".git": "no gitdir here\n"}))
+        self.assertTrue(caught(check_repo.run(root), "git's index cannot be read"))
 
 class Workflows(unittest.TestCase):
     def test_the_example_passes_and_every_rule_has_been_tripped(self):
@@ -1046,6 +1133,39 @@ class Verify(unittest.TestCase):
         for words in ("sim/corpus/test_hidden.py: a test outside tests/", "sim/corpus/notes.txt: holds something",
                       "corpus: holds something", "sim/__pycache__: holds something"):
             self.assertTrue(caught(problems, words), words)
+
+
+    def test_local_output_is_skipped_only_while_git_does_not_hold_it(self):
+        # CI checks out the commit afresh, with git's index beside it. Whatever is under __pycache__/
+        # or the root's corpus/ there is either in the index, and committed, or written by this run.
+        files = {"kernel/x.py": "", "kernel/__pycache__/x.cpython-39.pyc": "", "corpus/d.jsonl": "",
+                 "sim/__pycache__/y.cpython-39.pyc": "", "corpus/local.jsonl": "", "a/corpus/z.py": ""}
+        held = {"kernel/x.py": FILE, "kernel/__pycache__/x.cpython-39.pyc": FILE, "corpus/d.jsonl": FILE,
+                "a/corpus/z.py": FILE}
+        listed = ["a/corpus/z.py", "corpus/d.jsonl", "kernel/__pycache__/x.cpython-39.pyc", "kernel/x.py"]
+        for version in (2, 3, 4):
+            with self.subTest(version=version):
+                root = commit(tree(files), held, version)
+                self.assertEqual(walk.index(root), held)
+                self.assertEqual([p.relative_to(root).as_posix() for p in walk.files(root)], listed)
+                to = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "copy"
+                walk.copy(root, to)
+                self.assertEqual([(to / rel).exists() for rel in files], [True, True, True, False, False, True])
+        # A worktree's .git is a file that names its index's directory, which may be anywhere.
+        gitdir = commit(pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)), held) / ".git"
+        root = tree(dict(files, **{".git": "gitdir: %s\n" % gitdir}))
+        self.assertEqual([p.relative_to(root).as_posix() for p in walk.files(root)], listed)
+        # With nothing committed yet, or no .git at all, nothing can be committed; all of it is local.
+        for root in (commit(tree(files), {}), tree(files)):
+            self.assertEqual([p.relative_to(root).as_posix() for p in walk.files(root)], ["a/corpus/z.py", "kernel/x.py"])
+
+    def test_the_index_is_read_as_git_wrote_it(self):
+        held = walk.index(ROOT)
+        if held is None:        # an export, with no .git to read
+            self.assertFalse(os.path.lexists(str(ROOT / ".git")))
+            return
+        self.assertEqual((held["AGENTS.md"], held["tools/walk.py"]), (FILE, FILE))
+        self.assertFalse([p for p in held if "__pycache__" in p or p.startswith("corpus/")])
 
     def test_a_link_is_not_followed_and_a_link_to_nothing_is_reported(self):
         root = tree({"a/x.py": ""})

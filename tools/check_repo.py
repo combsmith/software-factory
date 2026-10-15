@@ -27,6 +27,8 @@ VENDORED = {"vendor", "vendored", "third_party", "site-packages", "node_modules"
 # file it reads what another path holds, under that path's review. A link that is truly needed is
 # named here, with its reason, in the same change.
 LINKS = set()
+# Compiled code. Python loads it ahead of the source beside it, or with none there, and no check reads it.
+COMPILED = {".pyc", ".pyo", ".so", ".pyd"}
 # The org's secrets baseline opens .gitignore, word for word (combsmith/.github, the
 # gitignore standard, "L1 — Secrets baseline"). When the org changes it, copy the new block in
 # and put its hash here; never edit between the markers.
@@ -115,6 +117,16 @@ def run(root: pathlib.Path = ROOT) -> list:
     for stray in ("CODEOWNERS", "docs/CODEOWNERS"):
         if (root / stray).exists():
             problems.append("%s: GitHub reads the first code owners file it finds; keep only .github/CODEOWNERS" % stray)
+    try:
+        held = walk.index(root) or {}
+    except ValueError as err:
+        held = {}
+        problems.append("git's index cannot be read (%s), so what is committed cannot be told from local output, "
+                        "and none is skipped" % err)
+    for rel, mode in sorted(held.items()):
+        if mode == walk.GITLINK:
+            problems.append("%s: a submodule; its files come from another repo, at a commit this repo's review never "
+                            "sees, and no check reads them; commit the files themselves" % rel)
     for path in walk.links(root):
         rel = path.relative_to(root)
         if not path.exists():
@@ -135,6 +147,19 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems.append("%s: a dependency manifest; this repo installs nothing" % rel)
         if VENDORED & set(rel.parts):
             problems.append("%s: third-party code copied in is still third-party code" % rel)
+        if path.name == ".gitmodules":
+            problems.append("%s: declares a submodule, whose files come from another repo, at a commit this repo's "
+                            "review never sees; commit the files themselves" % rel)
+        if path.suffix in COMPILED:
+            problems.append("%s: compiled code; Python loads it ahead of, or instead of, the reviewed source, and no "
+                            "check reads it; commit the source only" % rel)
+        # tools/walk.py lists what is in these folders only when git's index holds it.
+        if walk.SKIP & set(rel.parts[:-1]):
+            problems.append("%s: in __pycache__/, Python's local output, committed; Python loads it ahead of the "
+                            "reviewed source, and no check reads it; remove it from git" % rel)
+        if len(rel.parts) > 1 and rel.parts[0] in walk.ROOT_ONLY:
+            problems.append("%s: in corpus/, local output make_corpus.py writes, committed; nothing reads it from "
+                            "git, and the corpus is remade from the Kernel; remove it from git" % rel)
         text = path.read_text(errors="replace")     # every file, whatever it is called
         for shape in SECRETS:
             if shape.search(text):
