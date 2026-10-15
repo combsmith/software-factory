@@ -37,7 +37,9 @@ def moved_after(rel: str, block: str, anchor: str) -> tuple:
 REVIEW_GUARD = ("    if unreadable_reviews(facts):\n"
                 '        return {"state": None, "reason": "review_unreadable", "evidence": []}\n')
 REVIEW_WAIT = '            return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens]}\n'
-IN_QUEUE = '        return {"state": t.QUEUED, "reason": "in_merge_queue", "evidence": []}\n'
+STAYS = '    if d["reason"] == "approved":\n'
+LEFT_ALONE = '    if d["state"] in t.TERMINAL or not facts["queue"] or t.LABEL_HANDS_OFF in facts["labels"]:\n'
+DEQUEUE_IF = '    if d.get("dequeue"):\n'
 DEQUEUE = ('        return _decision(facts, state, reason, evidence, t.ACT, action="dequeue",'
            ' content_id=facts["content_id"])\n')
 
@@ -170,31 +172,44 @@ MUTANTS = [
      "    if unreadable_reviews(facts):\n", "    if False:\n"),
     ("an unreadable review is read after the model review's wait", "kernel/derive.py",
      *moved_after("kernel/derive.py", REVIEW_GUARD, REVIEW_WAIT)),
-    ("an unreadable review is read after the merge queue", "kernel/derive.py",
-     *moved_after("kernel/derive.py", REVIEW_GUARD, IN_QUEUE)),
     ("a queued pull request whose approval is lost stays in the queue", "kernel/derive.py",
-     "        if standing_approval(facts, config) is None:\n", "        if False:\n"),
+     STAYS, '    if d["reason"] in ("approved", "approval_due"):\n'),
     ("a queued pull request with a gate open stays in the queue", "kernel/derive.py",
-     "        if stopping:\n", "        if False:\n"),
-    ("a Hold leaves a queued pull request in the queue", "kernel/decide.py",
-     'return reason == "human_hold" and facts["queue"] is True', "return False"),
-    ("hands-off takes a pull request out of the queue", "kernel/decide.py",
-     'return reason == "human_hold" and', 'return reason in ("human_hold", "hands_off") and'),
-    ("a held pull request that is not queued is dequeued", "kernel/decide.py",
-     ' and facts["queue"] is True', ""),
+     STAYS, '    if d["reason"] == "approved" or d["reason"] in t.GATE_REASONS:\n'),
+    ("a Hold leaves a queued pull request in the queue", "kernel/derive.py",
+     STAYS, '    if d["reason"] == "approved" or d["state"] == t.HELD:\n'),
+    ("a read that fails leaves a pull request in the queue", "kernel/derive.py",
+     STAYS, '    if d["reason"] == "approved" or d["state"] is None:\n'),
+    ("a check or a review that no longer passes leaves a pull request in the queue", "kernel/derive.py",
+     STAYS, '    if d["reason"] in ("approved", "check_failed", "check_unreadable", "awaiting_checks", "awaiting_review"):\n'),
+    ("a draft stays in the merge queue", "kernel/derive.py",
+     STAYS, '    if d["reason"] == "approved" or d["state"] == t.DRAFT:\n'),
+    ("hands-off takes a pull request out of the queue", "kernel/derive.py",
+     LEFT_ALONE, LEFT_ALONE.replace(' or t.LABEL_HANDS_OFF in facts["labels"]', "")),
+    ("a pull request that is not queued is dequeued", "kernel/derive.py",
+     LEFT_ALONE, LEFT_ALONE.replace(' or not facts["queue"]', "")),
+    ("a pull request that is not served is dequeued", "kernel/derive.py",
+     LEFT_ALONE, LEFT_ALONE.replace("d[\"state\"] in t.TERMINAL", "d[\"state\"] in (t.MERGED, t.CLOSED)")),
     ("a pause lets a dequeue through", "kernel/decide.py",
      "        if paused:\n", "        if False:\n"),
+    ("a deferred dequeue is not the Maintainer's to see", "kernel/decide.py",
+     ", attention=t.NEEDS_YOU)", ")"),
     ("a dequeue is held to the act ceiling", "kernel/decide.py",
      DEQUEUE,
      '        if facts.get("acts_since_writer") is None or facts["acts_since_writer"] >= config["limits"]["max_acts_per_item"]:\n'
      '            return _decision(facts, t.HELD, "act_ceiling", [], t.HOLD)\n' + DEQUEUE),
     ("a Run in progress keeps a pull request in the queue", "kernel/decide.py",
-     "    if _leaves_queue(facts, state, reason):\n",
+     DEQUEUE_IF,
      "    if in_progress(runs_on(runs, facts)):\n"
-     "        return _decision(facts, state, reason, evidence, t.NOTHING, working=True)\n"
-     "    if _leaves_queue(facts, state, reason):\n"),
-    ("a held item under a pause is not the Maintainer's to see", "kernel/decide.py",
-     ", attention=_attention(state, reason, False))", ")"),
+     "        return _decision(facts, state, reason, evidence, t.NOTHING, working=True)\n" + DEQUEUE_IF),
+    ("a draft or a queued item is left alone before the dequeue is read", "kernel/decide.py",
+     DEQUEUE_IF,
+     "    if state in t.TERMINAL or state in (t.DRAFT, t.QUEUED):\n"
+     "        return _decision(facts, state, reason, evidence, t.NOTHING)\n" + DEQUEUE_IF),
+    ("a read that fails defers before the dequeue is read", "kernel/decide.py",
+     DEQUEUE_IF,
+     "    if state is None:\n"
+     "        return _decision(facts, None, reason, evidence, t.DEFER)\n" + DEQUEUE_IF),
     ("an unreadable review is read before what needs no review", "kernel/derive.py",
      '    if facts["state"] == "merged":\n', REVIEW_GUARD + '    if facts["state"] == "merged":\n'),
     ("an unreadable dismissal is trusted", "kernel/derive.py",

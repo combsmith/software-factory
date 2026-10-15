@@ -119,7 +119,8 @@ class World:
 
     def objections(self) -> list:
         """What a queued item may not merge over, in the world's own words: no approval of its content by the
-        approver that stands, a writer's request for changes or open thread, or a Hold (L-19, FR-23)."""
+        approver that stands, a writer's request for changes or open thread, a Hold, or a required check that has
+        not passed (L-19, FR-23, I-9)."""
         out = []
         if not any(rv["by"]["name"] == CONFIG["approver"] and rv["state"] == "approved" and rv["content_id"] == self.cid()
                    for rv in self.reviews):
@@ -130,6 +131,8 @@ class World:
             out.append("a writer's open thread")
         if t.LABEL_HOLD in self.labels:
             out.append("a Hold")
+        if any(v != "success" for v in self.checks.values()):
+            out.append("a required check that has not passed")
         return out
 
     def note(self, what: str):
@@ -175,13 +178,15 @@ class World:
         self.check(not wrong, "every Decision is valid: %s" % "; ".join(wrong))
         self.note("pass: %s %s -> %s" % (d["state"], d["reason"], d["outcome"]))
         whole = all(facts["complete"].values())
-        self.check(whole or d["outcome"] == "defer", "I-20 incomplete facts never admit or converge")
+        # A read that fails stops work: it defers, or takes a queued item out of the merge queue (I-13).
+        dequeue = d["outcome"] == t.ACT and d["action"] == "dequeue"
+        self.check(whole or d["outcome"] == "defer" or dequeue, "I-20 incomplete facts never admit or converge")
         # A check with no verdict lets no review start and no act be made. A fix Run may still be admitted
         # for what is readable: another check that failed, or a conflict.
         readings = CONFIG["check_conclusions"]
         no_verdict = [c for c in facts["checks"] if readings.get(c["conclusion"], "unreadable") == "unreadable"]
         reviews = d["outcome"] == "admit" and d["admit"]["intent"] == "review-change"
-        self.check(not no_verdict or not (reviews or d["outcome"] == "act"),
+        self.check(not no_verdict or not (reviews or (d["outcome"] == "act" and not dequeue)),
                    "I-13 a review or an act while a check has no verdict")
         waits = d["reason"] == "check_unreadable" and d["outcome"] == t.DEFER
         self.check(not waits or d["attention"] == t.NEEDS_YOU,

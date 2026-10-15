@@ -135,8 +135,7 @@ class Readability(unittest.TestCase):
     def test_an_unknown_mergeable_is_read_after_what_needs_no_merge(self):  # I-13
         # GitHub reports a null merge state on merged and closed pull requests; read first, they would defer for ever.
         cases = [({"state": "merged"}, "merged", "merged"), ({"state": "closed"}, "closed", "closed"),
-                 ({"labels": ["factory:hold"]}, "held", "human_hold"), ({"is_draft": True}, "draft", "draft"),
-                 ({"queue": True, "reviews": [review()]}, "queued", "in_merge_queue")]
+                 ({"labels": ["factory:hold"]}, "held", "human_hold"), ({"is_draft": True}, "draft", "draft")]
         for over, state, reason in cases:
             d = go(facts(mergeable=None, **over), REVIEWED)
             self.assertEqual((d["state"], d["reason"]), (state, reason), over)
@@ -827,7 +826,11 @@ class Ceilings(unittest.TestCase):
 
 
 class Queue(unittest.TestCase):
-    """What takes a pull request out of the merge queue: GitHub reads its reviews only on the way in (L-19)."""
+    """What takes a pull request out of the merge queue: GitHub reads its reviews only on the way in (L-19).
+
+    It stays only while, read as if it were not queued, it would be approved and ready to merge. Any other reading
+    takes it out, with that reading's State and reason. Hands-off never acts, and under a Pause the dequeue defers.
+    """
 
     def test_a_queued_pull_request_with_no_approval_leaves_the_queue(self):  # I-9, FR-31
         # Its approval no longer stands for its content: there is none, it is of other content, or it was dismissed.
@@ -835,13 +838,13 @@ class Queue(unittest.TestCase):
         for reviews in lost:
             d = go(facts(queue=True, reviews=reviews), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"], d["content_id"]),
-                             ("queued", "approval_lost", "act", "dequeue", "sha256:aaaa"), reviews)
+                             ("converged", "approval_lost", "act", "dequeue", "sha256:aaaa"), reviews)
         # An open gate takes it out too, whatever approval stands: a writer's thread, or a required Lens's Finding.
         for th in (thread(kind="human", name="don-petry", severity=None), thread()):
             for reviews in (APPROVED, []):
                 d = go(facts(queue=True, reviews=reviews, threads=[th]), REVIEWED)
                 self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
-                                 ("queued", "gate_open", ["T1"], "act", "dequeue"), (th["opened_by"], reviews))
+                                 ("addressing", "gate_open", ["T1"], "act", "dequeue"), (th["opened_by"], reviews))
         # The other side: a standing approval with no open gate stays in the queue, and so does one that a
         # stranger's thread or a minor Finding is open on.
         for threads in ([], [thread(kind="human", name="stranger", can_write=False, severity=None)],
@@ -855,7 +858,7 @@ class Queue(unittest.TestCase):
         asked = review(state="changes_requested", **MAINTAINER, at=at(30))
         d = go(facts(**AGENT, queue=True, reviews=[review(), asked]), ANSWERED)
         self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d.get("action")),
-                         ("queued", "gate_open", ["don-petry"], "act", "dequeue"))
+                         ("addressing", "gate_open", ["don-petry"], "act", "dequeue"))
         # The other side: that person's approval answers it, and the item stays in the queue.
         d = go(facts(**AGENT, queue=True, reviews=[review(), asked, review(**MAINTAINER, at=at(35))]), ANSWERED)
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"))
@@ -870,29 +873,111 @@ class Queue(unittest.TestCase):
             d = go(facts(queue=True, labels=["factory:hold"], reviews=reviews), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"], d["attention"]),
                              ("held", "human_hold", "act", "dequeue", "needs_you"), reviews)
-        # Hands-off means the Factory never acts: the item stays where the Maintainer left it.
-        for labels in (["factory:hands-off"], ["factory:hands-off", "factory:hold"]):
-            d = go(facts(queue=True, labels=labels, reviews=APPROVED), REVIEWED)
-            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "hands_off", "hold"), labels)
+        # Hands-off means the Factory never acts: the item stays where the Maintainer left it, whatever else holds.
+        incomplete = facts()["complete"]
+        incomplete["threads"] = False
+        for over in ({}, {"labels": ["factory:hold"]}, {"is_draft": True}, {"reviews": []}, {"complete": incomplete},
+                     {"checks": with_check(0, "failure")}):
+            f = facts(queue=True, **dict({"reviews": APPROVED}, **over))
+            f["labels"] = f["labels"] + ["factory:hands-off"]
+            d = go(f, REVIEWED)
+            self.assertNotEqual(d["outcome"], "act", over)
             self.assertNotIn("action", d)
+        d = go(facts(queue=True, labels=["factory:hands-off"], reviews=[]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "hands_off", "hold"))
         # A held item that is not queued is only held.
         d = go(facts(labels=["factory:hold"], reviews=APPROVED), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "human_hold", "hold"))
         self.assertNotIn("action", d)
 
-    def test_under_a_pause_a_dequeue_defers(self):  # I-7
-        # A dequeue defers like every other act. The Maintainer accepted that the item may merge meanwhile.
-        stops = [({"labels": ["factory:hold"], "reviews": APPROVED}, "held", "needs_you"),
-                 ({"reviews": []}, "queued", "ready"),
-                 ({"reviews": APPROVED, "threads": [thread(kind="human", name="don-petry", severity=None)]},
-                  "queued", "ready")]
-        for over, state, attention in stops:
+    def test_every_hold_takes_a_queued_pull_request_out(self):  # FR-23
+        # A Hold the facts establish stops every Effect as a person's does: an outside item whose admission was taken
+        # away, a diff too large or read short, an empty one.
+        outside = {"class": "outside", "author": "stranger", "last_pusher": "stranger"}
+        holds = [(outside, "outside_not_admitted"),
+                 (dict(outside, labels=["factory:admit"], admitted_at=at(5), last_push_at=at(10)), "outside_not_admitted"),
+                 ({"diff": {"files": 2, "lines": 40, "truncated": True}}, "too_large"),
+                 ({"diff": {"files": 2, "lines": LIMITS["max_diff_lines"] + 1, "truncated": False}}, "too_large"),
+                 ({"diff": {"files": 0, "lines": 0, "truncated": False}}, "empty_diff")]
+        for over, reason in holds:
+            d = go(facts(queue=True, reviews=APPROVED, **over), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
+                             ("held", reason, "act", "dequeue"), over)
+            # The other side: not queued, it is only held.
+            d = go(facts(reviews=APPROVED, **over), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", reason, "hold"), over)
+        # An outside item admitted after its author's latest push stays in the queue.
+        d = go(facts(queue=True, reviews=APPROVED, **dict(outside, labels=["factory:admit"], admitted_at=at(5)),
+                     last_push_at=at(1)), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"]), ("in_merge_queue", "nothing"))
+
+    def test_a_read_that_fails_takes_a_pull_request_out_of_the_queue(self):  # I-13
+        # A dequeue is a stop, not work: a fact that cannot be read takes the item out rather than leaving it to merge.
+        rv = dict(review(state="changes_requested", **MAINTAINER), by=None)
+        for part in PARTS:
+            f = facts(queue=True, reviews=APPROVED)
+            f["complete"][part] = False
+            d = go(f, REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
+                             (None, "facts_incomplete", [part], "act", "dequeue"), part)
+        for over, reason in (({"reviews": [review(), rv]}, "review_unreadable"), ({"mergeable": None}, "mergeable_unreadable"),
+                             ({"mergeable": "UNKNOWN"}, "mergeable_unreadable")):
+            d = go(facts(**AGENT, queue=True, **dict({"reviews": APPROVED}, **over)), ANSWERED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]), (None, reason, "act", "dequeue"), over)
+        # The other side: not queued, the same read defers and acts on nothing.
+        d = go(facts(**AGENT, reviews=[review(), rv]), ANSWERED)
+        self.assertEqual((d["reason"], d["outcome"]), ("review_unreadable", "defer"))
+        self.assertNotIn("action", d)
+
+    def test_a_check_or_review_that_no_longer_passes_takes_it_out_of_the_queue(self):  # I-9, I-27
+        # Convergence must still hold on the content: a required check that now fails, gives no verdict or has not
+        # reported, a required Lens's review that is missing, or a conflict with the base.
+        lens = GREEN[0]["lens"]
+        cases = [({"checks": with_check(0, "failure")}, REVIEWED, "addressing", "check_failed", [lens]),
+                 ({"checks": with_check(0, "timed_out")}, REVIEWED, "addressing", "check_failed", [lens]),
+                 ({"checks": with_check(0, "neutral")}, REVIEWED, "verifying", "check_unreadable", [lens]),
+                 ({"checks": with_check(0, "absent")}, REVIEWED, "verifying", "awaiting_checks", [lens]),
+                 ({}, (), "verifying", "awaiting_review", ["pr-review"]),
+                 ({"mergeable": False}, REVIEWED, "addressing", "conflict", [])]
+        for over, runs, state, reason, evidence in cases:
+            d = go(facts(queue=True, reviews=APPROVED, **over), runs)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
+                             (state, reason, evidence, "act", "dequeue"), reason)
+        # The other side: every check passing and the review there, it stays.
+        self.assertEqual(go(facts(queue=True, reviews=APPROVED), REVIEWED)["reason"], "in_merge_queue")
+
+    def test_a_draft_leaves_the_queue_and_an_unserved_item_is_left_alone(self):
+        # A draft is not ready, so it cannot be ready to merge. An item whose base is not protected is not served at
+        # all: the Factory makes no change to it, a dequeue among them.
+        d = go(facts(queue=True, is_draft=True, reviews=APPROVED), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]), ("draft", "draft", "act", "dequeue"))
+        d = go(facts(queue=True, targets_protected=False, reviews=[]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("not_served", "base_not_protected", "nothing"))
+        self.assertNotIn("action", d)
+        # Nor is a merged or closed item touched, whatever the queue says.
+        for state in ("merged", "closed"):
+            d = go(facts(state=state, queue=True, reviews=[]), REVIEWED)
+            self.assertEqual((d["state"], d["outcome"]), (state, "nothing"))
+
+    def test_under_a_pause_a_dequeue_defers_for_the_maintainer(self):  # I-7
+        # A dequeue defers like every other act. Only the Maintainer can stop the merge now, so each one needs them.
+        incomplete = facts()["complete"]
+        incomplete["reviews"] = False
+        stops = [({"labels": ["factory:hold"], "reviews": APPROVED}, "held"),
+                 ({"reviews": []}, "converged"),
+                 ({"reviews": APPROVED, "threads": [thread(kind="human", name="don-petry", severity=None)]}, "addressing"),
+                 ({"reviews": APPROVED, "checks": with_check(0, "failure")}, "addressing"),
+                 ({"reviews": APPROVED, "complete": incomplete}, None)]
+        for over, state in stops:
             for paused, reason in ((True, "paused"), (None, "pause_unreadable")):
                 d = go(facts(queue=True, **over), REVIEWED, ctx=context(paused=paused))
                 self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
-                                 (state, reason, "defer", attention), (over, paused))
+                                 (state, reason, "defer", "needs_you"), (over, paused))
                 self.assertNotIn("action", d)
             self.assertEqual(go(facts(queue=True, **over), REVIEWED)["action"], "dequeue", over)
+        # The other side: an item that may stay is not the Maintainer's to see because of the Pause.
+        d = go(facts(queue=True, reviews=APPROVED), REVIEWED, ctx=context(paused=True))
+        self.assertEqual((d["reason"], d["outcome"], d["attention"]), ("in_merge_queue", "nothing", "ready"))
 
     def test_a_dequeue_is_never_refused_at_the_act_ceiling(self):  # I-8
         # An act that stops work is counted and never refused, so neither the count nor its reading stops it.
@@ -916,19 +1001,6 @@ class Queue(unittest.TestCase):
         # The other side: a Run in progress still holds an item that is not queued.
         d = go(facts(reviews=[]), busy)
         self.assertEqual((d["outcome"], d["attention"]), ("nothing", "working"))
-
-    def test_an_unreadable_review_takes_nothing_out_of_the_queue(self):  # I-13
-        # Whether a queued item may stay turns on its reviews. One that cannot be read could be a writer's request, so
-        # the Kernel defers for the Maintainer to see: an unreadable fact never yields an act, a dequeue among them.
-        rv = dict(review(state="changes_requested", **MAINTAINER), by=None)
-        for reviews in ([rv], [review(), rv]):
-            d = go(facts(**AGENT, queue=True, reviews=reviews), ANSWERED)
-            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
-                             (None, "review_unreadable", "defer", "needs_you"))
-            self.assertNotIn("action", d)
-        # A Hold is read first, and needs no review to be read.
-        d = go(facts(**AGENT, queue=True, labels=["factory:hold"], reviews=[rv]), ANSWERED)
-        self.assertEqual((d["reason"], d["action"]), ("human_hold", "dequeue"))
 
 
 class NotYetHeld(unittest.TestCase):

@@ -24,8 +24,8 @@ RULES = (
     ("a_push_leaves_the_queue", "A push takes the pull request out of the merge queue", (), None),
     ("an_app_enters_the_queue", "An App can put an approved pull request in the merge queue", ("P-2",), None),
     ("the_queue_merges", "A pull request in the merge queue merges, unless a push takes it out first", (), None),
-    ("a_pass_comes_before_the_merge", "The merge queue takes longer to merge a pull request than the poller takes to "
-     "read it again, so a dequeue the Kernel decides lands before the merge", ("P-2",), None),
+    ("a_pass_comes_before_the_merge", "The merge queue merges a pull request only after a pass has read it whole "
+     "and current, and found the same facts GitHub holds at the merge", ("P-2",), None),
     ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue", ("P-2",), None),
     ("a_writer_can_dismiss_an_approval", "A person with write access can dismiss the machine user's approval, and the "
      "timeline says who and what the review was before", (), None),

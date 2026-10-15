@@ -107,6 +107,9 @@ class Simulation(unittest.TestCase):
         def queued():
             w = World(2, faults=False, people=False)
             w.checks = dict.fromkeys(w.checks, "success")
+            w.runs.append({"run": "r0", "item": dict(world.ITEM), "role": "pr-review", "intent": "review-change",
+                           "content_id": w.cid(), "status": "completed", "conclusion": "success", "outcome": None,
+                           "started_at": w.now()})
             w.reviews.append({"by": {"kind": "lens", "name": world.CONFIG["approver"], "can_write": True},
                               "state": "approved", "commit": "c1", "content_id": w.cid(), "submitted_at": w.now(),
                               "dismissed_by": None, "dismissed_from": None})
@@ -115,7 +118,8 @@ class Simulation(unittest.TestCase):
             return w
 
         acts = {"changes": lambda w: w.review("changes_requested"), "thread": lambda w: w.while_queued("thread"),
-                "dismiss": lambda w: w.while_queued("dismiss"), "hold": lambda w: w.while_queued("hold")}
+                "dismiss": lambda w: w.while_queued("dismiss"), "hold": lambda w: w.while_queued("hold"),
+                "check": lambda w: w.checks.update({sorted(w.checks)[0]: "failure"})}
         for name, act in acts.items():
             w = queued()
             act(w)
@@ -144,7 +148,7 @@ class Simulation(unittest.TestCase):
             for _ in range(250):
                 w.step()
             causes |= {line.split("(")[-1].rstrip(")") for line in w.trace if "apply: dequeued" in line}
-        self.assertEqual(causes, {"approval_lost", "gate_open", "human_hold"})
+        self.assertLessEqual({"approval_lost", "gate_open", "human_hold"}, causes)
 
     def test_every_invariant_not_yet_held_names_a_pending_test(self):
         # When a rule is built and its test loses @pending, its invariant here must start to raise too.

@@ -34,6 +34,8 @@ WORKING = "working"
 NONE = "none"
 
 GATING_SEVERITIES = frozenset({"blocking", "major"})
+# The reasons an open gate gives, whoever's turn it is. On a queued item each is the one reason `gate_open`.
+GATE_REASONS = ("human_finding", "findings_open", "awaiting_human", "proposals_await_owner")
 
 # Who opened a thread or submitted a review, and the states of a review: schemas/facts.schema.json names them too.
 ACTOR_KINDS = ("human", "lens")

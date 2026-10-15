@@ -241,7 +241,27 @@ def standing_approval(facts: dict, config: dict):
 
 
 def derive(facts: dict, runs: list, config: dict) -> dict:
-    """Return {'state', 'reason', 'evidence'} for one pull request.
+    """Return {'state', 'reason', 'evidence'} for one pull request, and 'dequeue' when it must leave the merge queue.
+
+    GitHub reads the reviews only as an item enters the queue (L-19). A queued item stays only while, read as if it
+    were not queued, it would be approved and ready to merge. Any other reading takes it out, with that reading's
+    State and reason: a lost approval and an open gate get codes of their own. An item that is ended or not served
+    is left alone, and so is one marked hands-off, which the Factory never acts on.
+    """
+    d = reading(facts, runs, config)
+    if d["state"] in t.TERMINAL or not facts["queue"] or t.LABEL_HANDS_OFF in facts["labels"]:
+        return d
+    if d["reason"] == "approved":
+        return {"state": t.QUEUED, "reason": "in_merge_queue", "evidence": []}
+    if d["reason"] == "approval_due":
+        d = dict(d, reason="approval_lost")
+    elif d["reason"] in t.GATE_REASONS:
+        d = dict(d, reason="gate_open", evidence=[g["id"] for g in gates(facts, config)])
+    return dict(d, dequeue=True)
+
+
+def reading(facts: dict, runs: list, config: dict) -> dict:
+    """Return {'state', 'reason', 'evidence'} for one pull request, read as if it were not in the merge queue.
 
     `state` is None when the facts of an open item are incomplete, or the
     merge state is not known: an incomplete read is an unreadable one, and
@@ -272,18 +292,9 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     if facts["diff"]["truncated"] or facts["diff"]["lines"] > config["limits"]["max_diff_lines"]:
         return {"state": t.HELD, "reason": "too_large", "evidence": []}
     # A review that cannot be read could be a writer's request for changes. It is read before anything
-    # admits a Run, converges or stays in the merge queue: an unreadable fact never yields an action (I-13).
+    # admits a Run or converges: an unreadable fact never yields an action (I-13), only a stop.
     if unreadable_reviews(facts):
         return {"state": None, "reason": "review_unreadable", "evidence": []}
-    # GitHub reads the reviews only as an item enters the queue (L-19). It stays only on a standing approval of
-    # its content with no gate open; otherwise it is taken out, and read again as any item is (I-9).
-    if facts["queue"]:
-        stopping = gates(facts, config)
-        if stopping:
-            return {"state": t.QUEUED, "reason": "gate_open", "evidence": [g["id"] for g in stopping]}
-        if standing_approval(facts, config) is None:
-            return {"state": t.QUEUED, "reason": "approval_lost", "evidence": []}
-        return {"state": t.QUEUED, "reason": "in_merge_queue", "evidence": []}
     # GitHub works the merge state out after a push. Until it has, it is unknown, and unreadable.
     mergeable = facts.get("mergeable")
     if mergeable is False:

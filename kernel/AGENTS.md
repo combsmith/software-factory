@@ -2,7 +2,7 @@
 
 Every decision the Factory makes, as pure functions. `derive.py` works out the State of a pull
 request and answers "where does this item stand": its tests run in order and the first that
-applies wins. `decide.py` answers "what now", and holds every brake. `terms.py` holds the codes.
+applies wins. A queued item is read as if it were not, and stays only if that reading is approved. `decide.py` answers "what now", and holds every brake. `terms.py` holds the codes.
 
 | Rule | Held by |
 |---|---|

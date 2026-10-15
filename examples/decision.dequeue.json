@@ -5,12 +5,12 @@
     "type": "pull_request",
     "number": 42
   },
-  "state": "queued",
+  "state": "addressing",
   "reason": "gate_open",
   "evidence": [
     "don-petry"
   ],
-  "attention": "ready",
+  "attention": "failed",
   "outcome": "act",
   "action": "dequeue",
   "content_id": "sha256:5d0c"
