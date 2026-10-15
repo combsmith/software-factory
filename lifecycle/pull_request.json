@@ -19,12 +19,9 @@
   ],
   "terminal": [
     "merged",
-    "closed",
-    "not_served"
+    "closed"
   ],
-  "person_only_exits": [
-    "held"
-  ],
+  "person_only_exits": [],
   "stale_after_minutes": {
     "draft": 1440,
     "verifying": 30,
@@ -32,7 +29,8 @@
     "adjudicating": 30,
     "converged": 15,
     "queued": 15,
-    "held": 1440
+    "held": 1440,
+    "not_served": 1440
   },
   "transitions": [
     {
@@ -111,7 +109,7 @@
       "from": "addressing",
       "to": "verifying",
       "by": "platform",
-      "bound": null
+      "bound": "max_runs_per_item"
     },
     {
       "from": "adjudicating",
@@ -141,7 +139,7 @@
       "from": "adjudicating",
       "to": "verifying",
       "by": "platform",
-      "bound": null
+      "bound": "max_rounds"
     },
     {
       "from": "converged",
@@ -171,7 +169,7 @@
       "from": "converged",
       "to": "verifying",
       "by": "platform",
-      "bound": null
+      "bound": "max_runs_per_item"
     },
     {
       "from": "queued",
@@ -218,6 +216,12 @@
     {
       "from": "held",
       "to": "draft",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "verifying",
       "by": "human",
       "bound": null
     },
@@ -302,7 +306,7 @@
     {
       "from": "addressing",
       "to": "converged",
-      "by": "lens",
+      "by": "human",
       "bound": null
     },
     {
@@ -315,7 +319,7 @@
       "from": "adjudicating",
       "to": "converged",
       "by": "factory",
-      "bound": null
+      "bound": "max_rounds"
     },
     {
       "from": "converged",
@@ -327,7 +331,7 @@
       "from": "converged",
       "to": "queued",
       "by": "factory",
-      "bound": null
+      "bound": "max_acts_per_item"
     },
     {
       "from": "converged",
@@ -386,6 +390,24 @@
     {
       "from": "held",
       "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "verifying",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "draft",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "closed",
       "by": "human",
       "bound": null
     }

@@ -8,6 +8,9 @@ from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCHEMA = ROOT / "schemas" / "lifecycle.schema.json"
+# The limits the Kernel counts for one Work item, and so the only ones that can bound its cycles.
+# A limit on size or on the whole org is not among them. A new counter in the Kernel is added here.
+PER_ITEM = ("max_runs_per_item", "max_attempts", "max_rounds", "max_acts_per_item", "max_unmerged_closes")
 
 
 def load(name: str = "pull_request") -> dict:
@@ -25,19 +28,30 @@ def _reach(start, edges) -> set:
     return seen
 
 
-def _has_cycle(nodes, edges) -> bool:
+def _a_cycle(nodes: list, edges) -> list:
+    """One cycle among `edges`, as the States it passes through and back to the first; [] if none."""
     out = {n: [b for a, b in edges if a == n] for n in nodes}
     colour = dict.fromkeys(nodes, 0)
+    path = []
 
-    def visit(n) -> bool:
+    def visit(n) -> list:
         colour[n] = 1
+        path.append(n)
         for m in out[n]:
-            if colour[m] == 1 or (colour[m] == 0 and visit(m)):
-                return True
+            if colour[m] == 1:
+                return path[path.index(m):] + [m]
+            found = visit(m) if colour[m] == 0 else []
+            if found:
+                return found
         colour[n] = 2
-        return False
+        path.pop()
+        return []
 
-    return any(colour[n] == 0 and visit(n) for n in nodes)
+    for n in nodes:
+        found = visit(n) if colour[n] == 0 else []
+        if found:
+            return found
+    return []
 
 
 def _shape(lc, schema: dict) -> list:
@@ -49,15 +63,13 @@ def _shape(lc, schema: dict) -> list:
 
 
 def check(lc: dict, limits: dict = None, schema: dict = None) -> list:
-    """The problems of one Lifecycle. A bound must be one of `limits`, when they are given."""
+    """The problems of one Lifecycle. A bound is counted for each item, and is one of `limits` when they are given."""
     wrong = _shape(lc, json.loads(SCHEMA.read_text()) if schema is None else schema)
     if wrong:
         return ["does not match the Lifecycle schema: %s" % w for w in wrong]
     states, terminal = set(lc["states"]), set(lc["terminal"])
     gated = set(lc["person_only_exits"])
     problems = []
-    if "held" in states and "held" not in gated:
-        problems.append("only a person ends a Hold: list held in person_only_exits")
     for s in sorted(gated - states):
         problems.append("person_only_exits names an undeclared state: %s" % s)
     edges = []
@@ -67,10 +79,15 @@ def check(lc: dict, limits: dict = None, schema: dict = None) -> list:
                 problems.append("transition names an undeclared state: %s" % end)
         if tr["from"] in terminal:
             problems.append("a terminal state has a way out: %s" % tr["from"])
-        if tr["from"] in gated and tr["by"] not in ("human", "platform"):
+        if tr["from"] == "held" and tr["by"] == "factory":     # L-02
+            problems.append("the Factory makes no transition out of a Hold: held -> %s is by factory" % tr["to"])
+        if tr["from"] in gated and tr["by"] != "human":
             problems.append("%s is left by %s; only a person takes a Work item out of %s"
                             % (tr["from"], tr["by"], tr["from"]))
-        if limits is not None and tr["bound"] is not None and tr["bound"] not in limits:
+        if tr["bound"] is not None and tr["bound"] not in PER_ITEM:
+            problems.append("the bound %s is not a limit the Kernel counts for each item; a bound is one of %s"
+                            % (tr["bound"], ", ".join(PER_ITEM)))
+        elif limits is not None and tr["bound"] is not None and tr["bound"] not in limits:
             problems.append("the bound %s is not a limit in config/defaults.json; add its number there"
                             % tr["bound"])
         edges.append((tr["from"], tr["to"]))
@@ -87,11 +104,13 @@ def check(lc: dict, limits: dict = None, schema: dict = None) -> list:
             problems.append("no terminal state can be reached from: %s" % s)
         if s not in lc["stale_after_minutes"]:
             problems.append("no staleness limit for: %s" % s)
-    # Termination: the Factory alone, with no bound, must not be able to go round for ever.
+    # Termination (I-14, L-04): take away what a person does, and no cycle is left without a bound,
+    # whoever makes its transitions: the Factory, a Lens or the platform.
     unbounded = [(tr["from"], tr["to"]) for tr in lc["transitions"]
-                 if tr["by"] == "factory" and tr["bound"] is None]
-    if _has_cycle(states, unbounded):
-        problems.append("the Factory can cycle with no bound and no person involved")
+                 if tr["by"] != "human" and tr["bound"] is None and {tr["from"], tr["to"]} <= states]
+    cycle = _a_cycle([s for s in lc["states"] if s in states], unbounded)
+    if cycle:
+        problems.append("a cycle with no person in it has no bound: %s" % " -> ".join(cycle))
     return list(dict.fromkeys(problems))     # a bound named on many transitions is one problem
 
 

@@ -30,8 +30,8 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 
 ### L-04 Two agents each answered the other
 **Failure.** Every fix was a new commit, every new commit was reviewed, and every review produced a fix. Merged pull requests took seven to ten commits at the median, and each push cost about 56 jobs.
-**Rule.** Every cycle the Factory can make with no person in it passes through a bounded counter, and reaching the bound is a Hold.
-**Check.** `tools/check_lifecycle.py`, `tests/test_decide.py::test_rounds_are_bounded`, `tests/test_simulator.py::test_a_quiet_world_merges_or_stops_on_a_ceiling`
+**Rule.** Every cycle with no person in it passes through a bounded counter, whoever makes its transitions: the Factory, a Lens or the platform. Reaching the bound is a Hold.
+**Check.** `tools/check_lifecycle.py`, `tests/test_tools.py::test_a_cycle_through_a_lens_with_no_bound_is_caught`, `tests/test_tools.py::test_a_cycle_through_the_platform_with_no_bound_is_caught`, `tests/test_decide.py::test_rounds_are_bounded`, `tests/test_simulator.py::test_a_quiet_world_merges_or_stops_on_a_ceiling`
 
 ### L-05 A retry timer restarted what had been stopped
 **Failure.** A two-hourly retry job re-dispatched stalled work without looking at why it had stalled, and re-lit loops that had run out.

@@ -222,7 +222,7 @@ class Lifecycle(unittest.TestCase):
         for tr in lc["transitions"]:
             if (tr["from"], tr["to"]) in (("adjudicating", "addressing"), ("addressing", "adjudicating")):
                 tr["bound"] = None
-        self.assertIn("the Factory can cycle with no bound and no person involved", check_lifecycle.check(lc))
+        self.assertTrue(caught(check_lifecycle.check(lc), "a cycle with no person in it has no bound"))
 
     def test_a_dead_end_is_caught(self):
         lc = copy.deepcopy(check_lifecycle.load())
@@ -231,18 +231,20 @@ class Lifecycle(unittest.TestCase):
 
     def test_a_hold_the_factory_could_end_is_caught(self):
         lc = copy.deepcopy(check_lifecycle.load())
+        # L-02. A Hold ends when a person acts, or when the content that caused it changes; never by the Factory.
+        self.assertIn(("held", "verifying", "platform"), {(tr["from"], tr["to"], tr["by"]) for tr in lc["transitions"]})
         lc["transitions"].append({"from": "held", "to": "verifying", "by": "factory", "bound": "max_attempts"})
-        self.assertTrue(caught(check_lifecycle.check(lc), "only a person takes a Work item out of held"))
+        self.assertIn("the Factory makes no transition out of a Hold: held -> verifying is by factory",
+                      check_lifecycle.check(lc))
 
     def test_an_issue_the_factory_could_serve_again_is_caught(self):
         lc = copy.deepcopy(check_lifecycle.load("issue"))
         lc["transitions"].append({"from": "not_served", "to": "ready", "by": "factory", "bound": None})
         self.assertTrue(caught(check_lifecycle.check(lc), "only a person takes a Work item out of not_served"))
 
-    def test_a_hold_left_off_the_person_only_states_is_caught(self):
+    def test_an_undeclared_person_only_state_is_caught(self):
         lc = dict(check_lifecycle.load(), person_only_exits=["limbo"])
         problems = check_lifecycle.check(lc)
-        self.assertTrue(caught(problems, "list held in person_only_exits"), problems)
         self.assertTrue(caught(problems, "person_only_exits names an undeclared state: limbo"), problems)
 
     def test_malformed_lifecycle_data_is_reported_not_raised(self):
@@ -272,19 +274,19 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(check_lifecycle.check(lc), [])
         self.assertIn(("in_progress", "ready", "factory", "max_attempts"),
                       {(tr["from"], tr["to"], tr["by"], tr["bound"]) for tr in lc["transitions"]})
-        self.assertIn("the Factory can cycle with no bound and no person involved",
+        self.assertIn("a cycle with no person in it has no bound: ready -> in_progress -> ready",
                       check_lifecycle.check(unbound(lc, "max_attempts")))
 
     def test_an_issue_retried_after_every_unmerged_close_is_caught(self):
         # I-43. `in_progress` or `in_review` back to `ready`, when a linked pull request closes unmerged.
         lc = check_lifecycle.load("issue")
-        self.assertIn("the Factory can cycle with no bound and no person involved",
-                      check_lifecycle.check(unbound(lc, "max_unmerged_closes")))
+        self.assertTrue(caught(check_lifecycle.check(unbound(lc, "max_unmerged_closes")),
+                               "a cycle with no person in it has no bound"))
 
     def test_verify_checks_the_issue_lifecycle_too(self):
         lc = unbound(check_lifecycle.load("issue"), "max_attempts")
         problems = check_lifecycle.run(clone({"lifecycle/issue.json": json.dumps(lc)}))
-        self.assertTrue(caught(problems, "lifecycle/issue.json: the Factory can cycle"), problems)
+        self.assertTrue(caught(problems, "lifecycle/issue.json: a cycle with no person in it"), problems)
         self.assertFalse(caught(problems, "lifecycle/pull_request.json"), problems)
 
     def test_a_work_item_with_no_lifecycle_is_caught(self):
@@ -311,6 +313,51 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(check_lifecycle.check(lc, config["limits"]), [])
         del config["limits"]["max_acts_per_item"]
         self.assertTrue(caught(check_lifecycle.check(lc, config["limits"]), "the bound max_acts_per_item is not a limit"))
+
+    def test_a_cycle_through_a_lens_with_no_bound_is_caught(self):
+        # L-04 and I-14 hold for any cycle with no person in it, not only one the Factory makes alone.
+        # A Lens that flipped `converged` and `addressing` on unchanged content would go round for ever.
+        limits = json.loads((ROOT / "config" / "defaults.json").read_text())["limits"]
+        self.assertEqual(check_lifecycle.check(check_lifecycle.load(), limits), [])
+        lc = copy.deepcopy(check_lifecycle.load())
+        for tr in lc["transitions"]:
+            if (tr["from"], tr["to"]) == ("addressing", "converged"):
+                tr["by"] = "lens"
+        self.assertIn("a cycle with no person in it has no bound: addressing -> converged -> addressing",
+                      check_lifecycle.check(lc, limits))
+
+    def test_a_cycle_through_the_platform_with_no_bound_is_caught(self):
+        # A merge queue that ejects every time, and an enqueue made again each time it does.
+        lc = unbound(check_lifecycle.load(), "max_acts_per_item")
+        problems = check_lifecycle.check(lc)
+        self.assertTrue(any(p.startswith("a cycle with no person in it has no bound: ") and "converged -> queued" in p
+                            for p in problems), problems)
+        problems = check_lifecycle.run(clone({"lifecycle/pull_request.json": json.dumps(lc)}))
+        self.assertTrue(caught(problems, "lifecycle/pull_request.json: a cycle with no person in it"), problems)
+
+    def test_a_bound_the_kernel_does_not_count_for_each_item_is_caught(self):
+        # A limit on size or on the whole org stops nothing going round on one item.
+        for limit in ("max_diff_lines", "org_max_active_runs"):
+            lc = check_lifecycle.load()
+            for tr in lc["transitions"]:
+                if (tr["from"], tr["to"]) == ("converged", "queued"):
+                    tr["bound"] = limit
+            words = "the bound %s is not a limit the Kernel counts for each item" % limit
+            self.assertTrue(caught(check_lifecycle.check(lc), words), limit)
+            problems = check_lifecycle.run(clone({"lifecycle/pull_request.json": json.dumps(lc)}))
+            self.assertTrue(caught(problems, "lifecycle/pull_request.json: " + words), problems)
+
+    def test_a_pull_request_not_served_can_be_served_again_but_not_by_a_loop(self):
+        # A stacked pull request is not served until GitHub retargets it, so `not_served` is not terminal.
+        lc = check_lifecycle.load()
+        self.assertNotIn("not_served", lc["terminal"])
+        self.assertEqual(lc["stale_after_minutes"]["not_served"], 1440)
+        exits = {(tr["to"], tr["by"]) for tr in lc["transitions"] if tr["from"] == "not_served"}
+        self.assertLessEqual({("verifying", "platform"), ("draft", "platform"), ("closed", "human")}, exits)
+        self.assertEqual(check_lifecycle.check(lc), [])
+        lc["transitions"].append({"from": "verifying", "to": "not_served", "by": "platform", "bound": None})
+        self.assertIn("a cycle with no person in it has no bound: verifying -> not_served -> verifying",
+                      check_lifecycle.check(lc))
 
 
 class Authority(unittest.TestCase):
