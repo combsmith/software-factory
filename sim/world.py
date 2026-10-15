@@ -29,6 +29,9 @@ AUTHOR = "combsmith-sf-dev-lead[bot]"
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 # The reviewer's App holds pull_requests: write, and GitHub cannot grant it less.
 REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
+# Invariants of rules the Kernel does not hold yet, each named by its test in tests/test_decide.py, which is marked
+# @pending there. A breach of one is noted in `unheld`, not raised, until the mark comes off in both places.
+NOT_YET_HELD = ("test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue",)
 
 
 class Broken(AssertionError):
@@ -48,6 +51,7 @@ class World:
         self.pr_state = "open"
         self.author = self.last_pusher = AUTHOR
         self.asked = False         # the Maintainer's request for changes stands, as the world keeps it
+        self.unheld = []           # breaches of invariants the Kernel does not hold yet (NOT_YET_HELD)
         self.labels = set()
         self.threads, self.reviews, self.runs = [], [], []
         self.checks = dict.fromkeys(CONFIG["required_lenses"]["deterministic"], "pending")
@@ -111,6 +115,14 @@ class World:
     def check(self, ok: bool, invariant: str):
         if not ok:
             raise Broken("seed %d broke %s\n%s" % (self.seed, invariant, "\n".join(self.trace[-25:])))
+
+    def check_unheld(self, ok: bool, test: str, invariant: str):
+        """`check`, for a rule whose test is still marked @pending: a breach is noted, and raised once it is held."""
+        if test not in NOT_YET_HELD:
+            self.check(ok, invariant)
+        elif not ok:
+            self.unheld.append(test)
+            self.note("not held yet: %s" % invariant)
 
     # ---- the poller
     def poll(self):
@@ -298,6 +310,9 @@ class World:
         # GitHub: the_queue_merges
         # GitHub: the_merge_group_is_not_checked
         if self.queue and self.rng.random() < 0.6:
+            # A request made after the item entered the queue takes it out: #33 dequeues.
+            self.check_unheld(not self.asked, "test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue",
+                              "a merge over a writer's request for changes")
             self.pr_state = "merged"
             self.note("merged")
             return
@@ -402,7 +417,9 @@ class World:
         for th in self.threads:
             if th["opened_by"]["kind"] == "human":
                 th.update(resolved=True, resolved_by="don-petry")
-        # The Maintainer approves what they asked to be changed.
+        # The Maintainer approves what they asked to be changed, after the last step: a request and an approval in
+        # the same second leave the request standing.
+        self.minute += 1
         if self.asked:
             self.review("approved")
         # The person runs again every check that did not pass.

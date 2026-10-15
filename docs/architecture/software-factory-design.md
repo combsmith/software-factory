@@ -382,11 +382,18 @@ holds `pull_requests: write`, GitHub cannot grant less, and no Role closes a per
 because the objection was answered, but approves no content: when an App's push dismisses a
 person's stale approval, nothing revives, and the item waits only for the approver, as usual. One
 dismissed from a comment changes nothing. One dismissed from a request for changes stands, unless
-a person with write access dismissed it. A
+a person with write access dismissed it. Neither the machine user nor the bot that opened an agent's
+or a dependency update's pull request is a person, whatever kind the facts give them: their
+dismissal or approval ends no request. A request and an approval by one person in the same second
+leave the request standing. A
 request from a stranger or a Lens gates nothing (§4.6). It is read after the checks and before the
 approval, so a standing approval never passes over it. A review whose author, write access, state,
 time, dismisser or earlier state cannot be read is unreadable: it could be a writer's request, so
-the Kernel defers, reason `review_unreadable`, and nothing converges on it (I-13).
+the Kernel defers, reason `review_unreadable`, and nothing converges on it (I-13). A time is
+readable only in the one format, because times compare as text. The item is the Maintainer's to
+see, as for a check with no verdict: a port that misreads does not mend itself. A request made
+after the item entered the merge queue is not read yet, because a queued item is read before its
+gates; taking it out of the queue is the dequeue's (#33).
 
 An issue has facts of its own (§4.1, the issue Lifecycle):
 

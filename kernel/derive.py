@@ -98,6 +98,12 @@ def gating_threads(facts: dict, config: dict) -> list:
     return out
 
 
+def is_time(value) -> bool:
+    """A time in the one text format. Times compare as text, so the format is the contract."""
+    return (isinstance(value, str) and len(value) == len(t.TIME_SHAPE)
+            and all(c in t.DIGITS if shape == "9" else c == shape for c, shape in zip(value, t.TIME_SHAPE)))
+
+
 def readable_actor(actor) -> bool:
     """Who acted, read whole: a kind the Kernel knows, a name, and write access exactly true or false."""
     return (isinstance(actor, dict) and actor.get("kind") in t.ACTOR_KINDS
@@ -114,7 +120,9 @@ def unreadable_reviews(facts: dict) -> bool:
     for rv in facts["reviews"]:
         if not isinstance(rv, dict) or rv.get("state") not in t.REVIEW_STATES:
             return True
-        if not readable_actor(rv.get("by")) or not isinstance(rv.get("submitted_at"), str):
+        if not readable_actor(rv.get("by")):
+            return True
+        if not is_time(rv.get("submitted_at")):
             return True
         if rv["state"] == "dismissed" and not readable_actor(rv.get("dismissed_by")):
             return True
@@ -123,7 +131,25 @@ def unreadable_reviews(facts: dict) -> bool:
     return False
 
 
-def standing_requests(facts: dict) -> list:
+def not_people(facts: dict, config: dict) -> list:
+    """Names that are never a person's, whatever kind the facts give them (I-28).
+
+    The machine user that approves, and the bot that opened an agent's or a dependency update's
+    pull request. Until the facts give an App and the machine user a kind of their own, this keeps
+    either from ending a person's request for changes.
+    """
+    names = [config["approver"]]
+    if facts["class"] in t.BOT_CLASSES:
+        names.append(facts["author"])
+    return names
+
+
+def verdict_order(rv: dict) -> tuple:
+    """When a review was made. A request for changes comes after anything else in the same second: fail closed."""
+    return rv["submitted_at"], "changes_requested" in (rv["state"], rv.get("dismissed_from"))
+
+
+def standing_requests(facts: dict, config: dict) -> list:
     """Requests for changes that hold the pull request, one for each person with write access.
 
     A person's latest verdict counts; a review that only comments is none, dismissed or not. A
@@ -131,11 +157,16 @@ def standing_requests(facts: dict) -> list:
     with write access dismisses it. An approval answers it even once dismissed, as when an App's
     push dismisses it as stale; it still approves no content. An App's dismissal of the request
     does not clear it: the reviewer's App holds pull_requests: write, and no Role closes a
-    person's objection (L-17). A request from a stranger or a Lens gates nothing.
+    person's objection (L-17). Nor does a dismissal or an approval by the machine user or an
+    author bot. A request from a stranger or a Lens gates nothing.
     """
+    bots = not_people(facts, config)
     latest = {}
-    for rv in sorted(facts["reviews"], key=lambda rv: rv["submitted_at"]):
+    for rv in sorted(facts["reviews"], key=verdict_order):
         if rv["state"] == "dismissed" and rv["dismissed_from"] == "commented":
+            continue
+        approves = rv["state"] == "approved" or (rv["state"] == "dismissed" and rv["dismissed_from"] == "approved")
+        if approves and rv["by"]["name"] in bots:
             continue
         if rv["by"]["kind"] == "human" and rv["by"]["can_write"] and rv["state"] != "commented":
             latest[rv["by"]["name"]] = rv
@@ -145,7 +176,7 @@ def standing_requests(facts: dict) -> list:
             if rv["dismissed_from"] != "changes_requested":
                 continue
             dismissed_by = rv["dismissed_by"]
-            if dismissed_by["kind"] == "human" and dismissed_by["can_write"]:
+            if dismissed_by["kind"] == "human" and dismissed_by["can_write"] and dismissed_by["name"] not in bots:
                 continue
         elif rv["state"] != "changes_requested":
             continue
@@ -160,7 +191,7 @@ def gates(facts: dict, config: dict) -> list:
     that person's thread does (decision 0007).
     """
     threads = [{"id": th["id"], "by": th["opened_by"], "at": th["opened_at"]} for th in gating_threads(facts, config)]
-    return threads + standing_requests(facts)
+    return threads + standing_requests(facts, config)
 
 
 def whose_turn(gate: dict, runs: list, config: dict) -> str:

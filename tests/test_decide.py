@@ -299,7 +299,9 @@ class HumanControl(unittest.TestCase):
         for rv in unreadable:
             for runs, others in ((REVIEWED, []), (ANSWERED, []), (REVIEWED, [review()])):
                 d = go(facts(**AGENT, reviews=others + [rv]), runs)
-                self.assertEqual((d["state"], d["reason"], d["outcome"]), (None, "review_unreadable", "defer"), rv)
+                # It needs the Maintainer, as a check with no verdict does: a port that misreads does not mend itself.
+                self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                                 (None, "review_unreadable", "defer", "needs_you"), rv)
                 self.assertNotIn("admit", d)
                 self.assertNotIn("action", d)
         # The other side: read whole, the same item is enqueued, or waits on the request.
@@ -330,6 +332,54 @@ class HumanControl(unittest.TestCase):
                REVIEWED)
         self.assertEqual((d["state"], d["reason"]), ("addressing", "human_finding"))
 
+    def test_neither_the_machine_user_nor_an_author_bot_ends_a_request(self):  # L-17, I-28
+        # Whatever kind the facts give them, the approver and the bot that opened an agent's or a dependency
+        # update's pull request are not people: their dismissal or approval ends no request.
+        asked = review(state="changes_requested", **MAINTAINER)
+        machine = dict(MAINTAINER, name="donpetry-bot")
+        bot = dict(MAINTAINER, name="combsmith-sf-dev-lead[bot]")
+        for cls, who in (("agent", machine), ("agent", bot), ("dependency", bot), ("maintainer", machine)):
+            f = dict(AGENT, **{"class": cls})
+            d = go(facts(**f, reviews=[dismissed(asked, who)]), ANSWERED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "awaiting_human", ["don-petry"]),
+                             (cls, who))
+            # Nor does their approval end a request made under their own name, standing or dismissed.
+            own = review(state="changes_requested", **who, at=at(12))
+            approval = review(**who, at=at(14))
+            for later in (approval, dismissed(approval, AUTHOR_APP, "approved")):
+                d = go(facts(**f, reviews=[own, later]), ANSWERED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"]),
+                                 ("addressing", "awaiting_human", [who["name"]]), (cls, who, later["state"]))
+        # The other side: on a maintainer's pull request its author is a person, and their dismissal ends it.
+        f = dict(AGENT, **{"class": "maintainer"}, author="a-colleague")
+        d = go(facts(**f, reviews=[dismissed(asked, COLLEAGUE)]), ANSWERED)
+        self.assertEqual((d["state"], d["action"]), ("converged", "issue_approval"))
+        d = go(facts(**f, reviews=[review(state="changes_requested", **COLLEAGUE, at=at(12)),
+                                   review(**COLLEAGUE, at=at(14))]), ANSWERED)
+        self.assertEqual((d["state"], d["action"]), ("converged", "issue_approval"))
+
+    def test_a_review_time_in_another_format_is_unreadable(self):  # I-13
+        # Times compare as text, so the one format is the contract: "9" would sort after every real time.
+        asked = review(state="changes_requested", **MAINTAINER)
+        approval = review(**MAINTAINER, at=at(30))
+        for when in ("9", "2026-10-11T12:15:00.123Z", "2026-10-11T12:15Z", "2026-10-11 12:15:00Z", "2026-10-11T12:15:0aZ"):
+            for reviews in ([dict(asked, submitted_at=when)], [asked, dict(approval, submitted_at=when)]):
+                d = go(facts(**AGENT, reviews=reviews), ANSWERED)
+                self.assertEqual((d["state"], d["reason"], d["outcome"]), (None, "review_unreadable", "defer"), when)
+        self.assertEqual(go(facts(**AGENT, reviews=[asked, approval]), ANSWERED)["action"], "issue_approval")
+
+    def test_a_request_and_an_approval_in_the_same_second_leave_the_request_standing(self):
+        # Which came first cannot be told, so the objection stands: fail closed.
+        asked = review(state="changes_requested", **MAINTAINER)
+        approval = review(**MAINTAINER)
+        for reviews in ([asked, approval], [approval, asked],
+                        [dismissed(asked, AUTHOR_APP), approval], [approval, dismissed(asked, AUTHOR_APP)]):
+            d = go(facts(**AGENT, reviews=reviews), REVIEWED)
+            self.assertEqual((d["state"], d["reason"]), ("addressing", "human_finding"), [r["state"] for r in reviews])
+        # The other side: an approval a second later answers it.
+        d = go(facts(**AGENT, reviews=[review(**MAINTAINER, at="2026-10-11T12:15:01Z"), asked]), REVIEWED)
+        self.assertEqual((d["state"], d["action"]), ("converged", "issue_approval"))
+
     def test_a_request_for_changes_an_app_dismissed_still_stands(self):  # L-17
         asked = review(state="changes_requested", **MAINTAINER)
         for who in (AUTHOR_APP, REVIEWER_APP):
@@ -351,8 +401,8 @@ class HumanControl(unittest.TestCase):
                     del rv["dismissed_from"]
                 for runs, others in ((REVIEWED, []), (ANSWERED, []), (REVIEWED, [review()])):
                     d = go(facts(**AGENT, reviews=others + [rv]), runs)
-                    self.assertEqual((d["state"], d["reason"], d["outcome"]), (None, "review_unreadable", "defer"),
-                                     (who, was))
+                    self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                                     (None, "review_unreadable", "defer", "needs_you"), (who, was))
                     self.assertNotIn("action", d)
         # The other side: each readable earlier state is read.
         self.assertEqual(go(facts(**AGENT, reviews=[dismissed(asked, MAINTAINER, "approved")]), REVIEWED)["action"],
@@ -744,6 +794,13 @@ class NotYetHeld(unittest.TestCase):
         # An act that stops work is counted and never refused. The Kernel does not dequeue yet.
         f = facts(queue=True, acts_since_writer=LIMITS["max_acts_per_item"] + 1)
         self.assertEqual(go(f, REVIEWED).get("action"), "dequeue")
+
+    @pending
+    def test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue(self):
+        # A queued item is read before its gates, so a request made after it entered the queue is never read. #33.
+        asked = review(state="changes_requested", **MAINTAINER, at=at(30))
+        d = go(facts(**AGENT, queue=True, reviews=[review(), asked]), ANSWERED)
+        self.assertEqual((d["outcome"], d.get("action")), ("act", "dequeue"))
 
 
 if __name__ == "__main__":

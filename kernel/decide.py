@@ -13,12 +13,13 @@ SCHEMA = "decision/1"
 NEEDS_YOU_REASONS = frozenset({
     "human_hold", "outside_not_admitted", "empty_diff", "too_large", "human_finding",
     "attempts_exhausted", "run_ceiling", "max_rounds", "approver_is_author_or_last_pusher",
-    "awaiting_human", "act_ceiling", "check_unreadable",
+    "awaiting_human", "act_ceiling", "check_unreadable", "review_unreadable",
 })
 
 
 def _attention(state, reason, working: bool) -> str:
-    if state is None:
+    # An unreadable fact that does not mend itself, such as a review, needs a person even with no State.
+    if state is None and reason not in NEEDS_YOU_REASONS:
         return t.NONE
     if working:
         return t.WORKING
