@@ -24,8 +24,8 @@
    Anthropic announced the same for its programmatic use and paused it on the day. A solo factory's
    economics depend on which side of that line its workload falls.
 4. **Model providers are absorbing the layer above them.** First-party agents overtook the
-   independent tool vendors within six months, providers are buying the toolchain, and more than a
-   dozen products in this space were shut, sold or renamed in a year.
+   independent tool vendors within six months, providers are buying the toolchain, and eleven
+   products in this space were shut, sold or renamed in about a year (§2.4).
 5. **The solo builder's pains are the ones this org measured in itself:** review burden, usage caps
    and unpredictable cost, work that passes tests and is wrong, and the attention it takes to
    supervise. One person runs two to five agents, with a ceiling near eight.
@@ -310,12 +310,13 @@ offered. A question mark: not established.
 Reading it:
 
 - **Build, CI repair and review are commodity.** Eight or more products do each.
-- **The merge decision is the step every vendor hands back.** Kiro "never merges changes
+- **The merge decision is the step the vendors quoted here hand back.** Kiro "never merges changes
   automatically"; Warp: "The factory never merges"; Cosmos: a human "always owns and performs the
   final merge"; Agentic Workflows refuses merges to the default branch (all P).
 - **The pieces of an agent-approved merge exist on GitHub, switched off.** Copilot code review can
   submit an approval that counts toward required reviews, in preview since 1 September 2026 and off
-  by default (P). Several review vendors document an opt-in auto-approve.
+  by default (P). Several review vendors document an opt-in auto-approve, and the table above lists
+  one, Gitar, with an opt-in automatic merge.
 - **Release and operate are empty at solo price.** What exists is preview or enterprise.
 
 ### 4.2 Positioning

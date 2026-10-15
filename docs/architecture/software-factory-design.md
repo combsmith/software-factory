@@ -705,7 +705,7 @@ Every criterion names how it will be checked. The kinds, strongest first:
 | Kind | What it is | Strength |
 |---|---|---|
 | `test` | An executable check that exists, and fails, before the work starts | The author cannot argue with it |
-| `scenario` | A held-out scenario the author cannot see. It lives under a different owner, where no Factory App is installed | Cannot be written to |
+| `scenario` | A held-out scenario the author cannot see. It lives in a private repo under a different owner, where no Factory App is installed | Cannot be written to |
 | `mutation` | Whether the change's own tests can fail at all | Guards against tests that assert nothing |
 | `static` | A deterministic tool's report | Exact, for what it covers |
 | `role` | A named Role judging the change against the statement | Only as good as that Role |
@@ -715,7 +715,9 @@ Two protections are in play and they are different. Against **change**, a protec
 enough, and so would be an issue, since the implementing Role's App cannot edit issues. Against
 **reading**, neither is: every repo here is public, and the reader App that each Run holds is
 installed across the org. Only a `scenario` needs to be unseen, which is why held-out sets are kept
-under a different owner.
+in a private repo under a different owner. Private matters as much as the owner: a public repo can
+be fetched by any Run that has a network tool, whoever owns it. The eval job alone holds the
+credential that reads it (§4.9).
 
 The file and the tests it names are protected paths, so `apply` refuses any change to them by the
 Role that implements the work. Who approved the contract is not stored: it is the
@@ -2160,7 +2162,7 @@ further, both on 2026-10-10.
 | `pr-review` becomes the single funnel for outside views | Unadopted Findings later proved right are counted (§4.2) |
 | The Maintainer's notifications flood | One notice per item per reason; backpressure from the queue (§4.7, I-32) |
 | A pass's cost grows with the backlog | Issues come under control by a label (§4.7) |
-| A held-out set readable by the Role it tests | Held-out sets under a different owner (§3.13) |
+| A held-out set readable by the Role it tests | Held-out sets in a private repo under a different owner (§3.13) |
 | A Role in shadow forever | A shadow budget (§5.2) |
 
 ### 9.9 What is not yet designed
@@ -2171,6 +2173,7 @@ Found by explaining the design on one page and by comparing it with the PRD grou
 |---|---|
 | FR-1, for issues | Designed in §4.1 on 2026-10-11. Not yet declared as data, nor checked for termination. The Kernel has no facts or derivation for an issue yet. Left open there: which Role's App opens the draft pull request; the Consumer entry's fields for issues; the promotion record of an Intent that owns no category; how the Controller's acts are counted; and the PRD's own text on triage and arming (§10) |
 | FR-6, resumable Runs | Not designed. A Run that times out pushes nothing and starts again |
+| FR-33 and I-15, for a Finding that does not gate | Not designed. Convergence reads only `blocking` and `major` Findings (§4.2), so a `minor` or `info` Finding can be open, with no Disposition, when its item merges. Whether such a Finding is given a Disposition before the merge, or closed as deferred by it, is the Maintainer's to rule on |
 | FR-12, the injection test suite | Required before promotion; not designed |
 | FR-14, shared-branch safety | The rule is stated; the push guard is to be carried over from the POC |
 | FR-21, FR-36, priority and graceful degradation | Backpressure and the capacity outcome exist. The stages between full service and Pause are not designed |
