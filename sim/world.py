@@ -24,6 +24,8 @@ DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_te
 FACTS_SCHEMA = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
 DECLARED = check_lifecycle.declared(check_lifecycle.load())
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 1}
+# Each required check, by its Lens's name, and the App that reports it: here, always that Lens's own.
+APPS = {lens["lens"]: lens["app_id"] for lens in CONFIG["required_lenses"]["deterministic"]}
 START = datetime.datetime(2026, 10, 11, 12, 0, 0)
 # On an even seed the pull request is an agent's, and the Maintainer reviews it as a colleague's (UJ-4). On an odd
 # seed it is the Maintainer's own, as the simulator has always served, and GitHub refuses a review by its author.
@@ -57,7 +59,7 @@ class World:
         self.unheld = []           # breaches of invariants the Kernel does not hold yet (NOT_YET_HELD)
         self.labels = set()
         self.threads, self.reviews, self.runs = [], [], []
-        self.checks = dict.fromkeys(CONFIG["required_lenses"]["deterministic"], "pending")
+        self.checks = dict.fromkeys(APPS, "pending")
         self.completed = dict.fromkeys(self.checks)   # when each check completed, or None
         self.queue = False
         self.last_push = self.last_writer = self.now()
@@ -101,7 +103,7 @@ class World:
             "diff": {"files": 2, "lines": 40, "truncated": False}, "labels": sorted(self.labels),
             "admitted_at": None, "last_push_at": self.last_push, "last_writer_action_at": self.last_writer,
             "reviews": copy.deepcopy(self.reviews), "threads": copy.deepcopy(self.threads),
-            "checks": [{"lens": k, "conclusion": v, "completed_at": self.completed.get(k)}
+            "checks": [{"lens": k, "app_id": APPS[k], "conclusion": v, "completed_at": self.completed.get(k)}
                        for k, v in sorted(self.checks.items())],
             "queue": self.queue,
             # GitHub: the_timeline_shows_each_act

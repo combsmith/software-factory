@@ -1,0 +1,115 @@
+{
+  "schema": "facts/1",
+  "item": {
+    "repo": "combsmith/software-factory",
+    "type": "pull_request",
+    "number": 42
+  },
+  "state": "open",
+  "is_draft": false,
+  "class": "maintainer",
+  "author": "don-petry",
+  "last_pusher": "don-petry",
+  "targets_protected": true,
+  "mergeable": true,
+  "content_id": "sha256:5d0c",
+  "diff": {
+    "files": 3,
+    "lines": 120,
+    "truncated": false
+  },
+  "labels": [],
+  "admitted_at": null,
+  "last_push_at": "2026-10-11T12:00:00Z",
+  "last_writer_action_at": "2026-10-11T12:00:00Z",
+  "reviews": [
+    {
+      "by": {
+        "kind": "lens",
+        "name": "donpetry-bot",
+        "can_write": true
+      },
+      "state": "dismissed",
+      "commit": "4b1a9c0",
+      "content_id": "sha256:4b1a",
+      "submitted_at": "2026-10-11T11:50:00Z",
+      "dismissed_by": {
+        "kind": "human",
+        "name": "don-petry",
+        "can_write": true
+      },
+      "dismissed_from": "approved"
+    },
+    {
+      "by": {
+        "kind": "human",
+        "name": "a-colleague",
+        "can_write": true
+      },
+      "state": "changes_requested",
+      "commit": "5d0c7e2",
+      "content_id": "sha256:5d0c",
+      "submitted_at": "2026-10-11T12:18:00Z",
+      "dismissed_by": null,
+      "dismissed_from": null
+    }
+  ],
+  "threads": [
+    {
+      "id": "PRRT_kw7",
+      "resolved": false,
+      "opened_by": {
+        "kind": "lens",
+        "name": "pr-review",
+        "can_write": true
+      },
+      "category": "functional",
+      "severity": "major",
+      "resolved_by": null,
+      "opened_at": "2026-10-11T12:15:00Z"
+    },
+    {
+      "id": "PRRT_kw1",
+      "resolved": false,
+      "opened_by": {
+        "kind": "lens",
+        "name": "coderabbit",
+        "can_write": false
+      },
+      "category": null,
+      "severity": null,
+      "resolved_by": null,
+      "opened_at": "2026-10-11T12:15:00Z"
+    }
+  ],
+  "checks": [
+    {
+      "lens": "verify",
+      "app_id": 15368,
+      "conclusion": "success",
+      "completed_at": "2026-10-11T12:06:00Z"
+    },
+    {
+      "lens": "secret-scan",
+      "app_id": 15368,
+      "conclusion": "success",
+      "completed_at": "2026-10-11T12:06:00Z"
+    },
+    {
+      "lens": "code-scanning",
+      "conclusion": "success",
+      "completed_at": "2026-10-11T12:06:00Z"
+    }
+  ],
+  "queue": false,
+  "acts_since_writer": 2,
+  "complete": {
+    "reviews": true,
+    "threads": true,
+    "checks": true,
+    "diff": true,
+    "runs": true,
+    "timeline": true
+  },
+  "read_at": "2026-10-11T12:20:00Z"
+}

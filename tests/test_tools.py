@@ -420,6 +420,16 @@ class Authority(unittest.TestCase):
             with mock.patch.object(terms, name, value):
                 self.assertTrue(caught(check_authority.run(self.table), "the Kernel reads the"), name)
 
+    def test_the_status_on_the_item_never_carries_a_required_lens_name(self):
+        # The Controller posts the status on the item as a check run under one fixed name. Under a required Lens's
+        # name it would speak for that Lens: a deterministic Lens's check, or a model Lens's.
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.assertEqual(check_authority.run(self.table, config), [])
+        required = config["required_lenses"]
+        for name in [lens["lens"] for lens in required["deterministic"]] + required["model"]:
+            problems = check_authority.run(self.table, dict(config, status_on_item=name))
+            self.assertTrue(caught(problems, "the status on the item is named %s, a required Lens's name" % name), name)
+
     def test_a_category_a_model_judges_needs_a_role_and_no_role_shadows_itself(self):
         self.table["categories"]["functional"]["owner"] = "human"
         self.table["categories"]["security"]["shadow"] = "pr-review"

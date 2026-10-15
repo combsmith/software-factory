@@ -49,17 +49,45 @@ def reviewed_clean_or_not(runs: list, facts: dict, role: str) -> bool:
     )
 
 
-def check_reading(check, config: dict) -> str:
-    """What a required check says: 'passing', 'failing', 'pending' or 'unreadable'.
+def check_reading(check: dict, config: dict) -> str:
+    """What one check says: 'passing', 'failing', 'pending' or 'unreadable'.
 
     The facts carry GitHub's own conclusion, and the configuration's map says
-    what each means. A check that has not reported is pending. A conclusion the
-    map does not name is unreadable: a Lens that gave no verdict has not passed
-    the content (I-27). The caller reads any other value as unreadable too.
+    what each means. A conclusion the map does not name is unreadable: a Lens
+    that gave no verdict has not passed the content (I-27). The caller reads
+    any other value as unreadable too.
     """
-    if check is None:
-        return "pending"
     return config["check_conclusions"].get(check["conclusion"], "unreadable")
+
+
+def reports_for(check: dict, lens: dict) -> bool:
+    """Whether `check` reports for the required Lens `lens`: its name, from the App the configuration names for it."""
+    return check.get("lens") == lens["lens"] and check.get("app_id") == lens["app_id"]
+
+
+def lens_reading(checks: list, lens: dict, config: dict) -> str:
+    """What a required deterministic Lens says, from every check with its name: as `check_reading` gives it.
+
+    A Lens is read only from the App that reports it. Any App with checks: write can post a check under any
+    name; the ruleset pins `verify` to its App, and the Kernel pins every required Lens. A check with its name from
+    another App, or with no App that can be read, makes the Lens unreadable, whatever it or the Lens's own
+    checks conclude (I-13). Every check from its own App is read, never the last alone: any failing one fails
+    the Lens; then any with no verdict leaves it unreadable; then any still running is a wait. It passes only
+    when every one of them passes. A Lens that has not reported is pending.
+    """
+    named = [c for c in checks if c.get("lens") == lens["lens"]]
+    if not named:
+        return "pending"
+    if not all(reports_for(c, lens) for c in named):
+        return "unreadable"
+    readings = {check_reading(c, config) for c in named}
+    if "failing" in readings:
+        return "failing"
+    if readings - {"passing", "pending"}:
+        return "unreadable"
+    if "pending" in readings:
+        return "pending"
+    return "passing"
 
 
 def required_model_lenses(facts: dict, config: dict) -> list:
@@ -166,12 +194,13 @@ def moved_at(facts: dict, runs: list, config: dict, now: str):
     State is never stored (decision 0002), so the time an item entered its State is read as the newest time a writer,
     a Lens or the Factory moved it: a push, a required check's completion, a review or a thread by a writer or a Lens's
     App (a gating thread is always one), a writer's action and a Run on this item. A stranger's comment, or a check
-    that is not required, moves nothing, or anyone could keep a stalled item from showing. A time that is not a real
+    that is not required, moves nothing, or anyone could keep a stalled item from showing; nor does a check with a
+    required Lens's name from any App but that Lens's own (lens_reading). A time that is not a real
     moment no later than `now` is passed over, so the wait counts from earlier: that shows more, never less.
     """
     required = config["required_lenses"]["deterministic"]
     times = [facts["last_push_at"], facts.get("last_writer_action_at")]
-    times += [c.get("completed_at") for c in facts["checks"] if c.get("lens") in required]
+    times += [c.get("completed_at") for c in facts["checks"] if any(reports_for(c, lens) for lens in required)]
     times += [rv.get("submitted_at") for rv in facts["reviews"] if moves(rv.get("by"))]
     times += [th.get("opened_at") for th in facts["threads"] if moves(th.get("opened_by"))]
     times += [r["started_at"] for r in runs_on(runs, facts)]
@@ -403,16 +432,15 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
         return {"state": None, "reason": "mergeable_unreadable", "evidence": []}
 
     # Deterministic Lenses first: a model's time is not spent on content they reject.
-    by_lens = {c["lens"]: c for c in facts["checks"]}
     failed, waiting, unreadable = [], [], []
     for lens in config["required_lenses"]["deterministic"]:
-        reading = check_reading(by_lens.get(lens), config)
+        reading = lens_reading(facts["checks"], lens, config)
         if reading == "failing":
-            failed.append(lens)
+            failed.append(lens["lens"])
         elif reading == "pending":
-            waiting.append(lens)
+            waiting.append(lens["lens"])
         elif reading != "passing":
-            unreadable.append(lens)
+            unreadable.append(lens["lens"])
     # A failure is readable and decisive: whatever a check with no verdict would say, the content goes
     # back to the author. Read otherwise, fail-fast's cancelled siblings would hold every failure (I-13).
     if failed:

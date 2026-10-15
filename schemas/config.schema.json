@@ -8,6 +8,7 @@
     "author_role",
     "owner_role",
     "required_lenses",
+    "status_on_item",
     "check_conclusions",
     "limits"
   ],
@@ -34,10 +35,26 @@
       ],
       "properties": {
         "deterministic": {
+          "description": "Each deterministic Lens, by the name of the check GitHub reports, and the id of the one App whose check it is read from",
           "type": "array",
           "minItems": 1,
           "items": {
-            "type": "string"
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "lens",
+              "app_id"
+            ],
+            "properties": {
+              "lens": {
+                "type": "string",
+                "minLength": 1
+              },
+              "app_id": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
           }
         },
         "model": {
@@ -56,6 +73,11 @@
           }
         }
       }
+    },
+    "status_on_item": {
+      "description": "The one name of the check run the Controller posts as the status on the item. tools/check_authority.py refuses a required Lens's name: the status would speak for that Lens",
+      "type": "string",
+      "minLength": 1
     },
     "check_conclusions": {
       "description": "What each conclusion GitHub gives a required check means, by its own name. A conclusion the map does not name is unreadable. Only success passes: any other name maps to failing, pending or unreadable.",

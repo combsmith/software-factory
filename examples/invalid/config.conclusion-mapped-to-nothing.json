@@ -4,9 +4,18 @@
   "owner_role": "pr-review",
   "required_lenses": {
     "deterministic": [
-      "verify",
-      "secret-scan",
-      "code-scanning"
+      {
+        "lens": "verify",
+        "app_id": 15368
+      },
+      {
+        "lens": "secret-scan",
+        "app_id": 15368
+      },
+      {
+        "lens": "code-scanning",
+        "app_id": 57789
+      }
     ],
     "model": [
       "pr-review"
@@ -15,6 +24,7 @@
       "dependency"
     ]
   },
+  "status_on_item": "factory",
   "check_conclusions": {
     "success": "passing",
     "failure": "failing",

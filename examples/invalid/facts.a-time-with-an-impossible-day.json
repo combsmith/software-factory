@@ -85,16 +85,19 @@
   "checks": [
     {
       "lens": "verify",
+      "app_id": 15368,
       "conclusion": "success",
       "completed_at": "2026-10-11T12:06:00Z"
     },
     {
       "lens": "secret-scan",
+      "app_id": 15368,
       "conclusion": "success",
       "completed_at": "2026-10-11T12:06:00Z"
     },
     {
       "lens": "code-scanning",
+      "app_id": 57789,
       "conclusion": "success",
       "completed_at": "2026-10-11T12:06:00Z"
     }

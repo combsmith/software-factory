@@ -1,4 +1,4 @@
-"""Mechanical checks on who decides what."""
+"""Mechanical checks on who decides what: who owns each category of Finding, and that nothing speaks for a Lens."""
 from __future__ import annotations
 
 import json
@@ -19,6 +19,12 @@ def run(authority: dict = None, config: dict = None, facts: dict = None) -> list
         problems.append("the author Role differs between the authority table and the configuration")
     if a["max_rounds"] != c["limits"]["max_rounds"]:
         problems.append("max_rounds differs between the authority table and the configuration")
+    # The Controller posts the status on the item as a check run. Under a required Lens's name it would speak for it.
+    lenses = c["required_lenses"]
+    names = [lens["lens"] for lens in lenses["deterministic"]] + list(lenses["model"])
+    if c["status_on_item"] in names:
+        problems.append("the status on the item is named %s, a required Lens's name; give it a name no Lens has"
+                        % c["status_on_item"])
     cats = a["categories"]
     finding = json.loads((ROOT / "schemas" / "finding.schema.json").read_text())
     known = set(finding["properties"]["category"]["enum"])

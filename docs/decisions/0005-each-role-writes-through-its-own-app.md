@@ -30,6 +30,7 @@ GitHub does not count an approval from an author or a last pusher, so the approv
 | Every permission of an App serves a need that the table of needs maps to it, no write need is held by two Apps, and the reader App holds no write | `tools/check_apps.py` |
 | Until a Consumer repo is served (slice 3), each App is installed on named repos only; from then, as decided at that cutover, against UJ-6 | `tools/check_apps.py` |
 | Every permitted Effect of every Intent is within the ceiling of that Role's App | waiting on `roles/` |
+| The Controller's `checks: write` cannot pass a Lens: a required Lens is read only from its own App, and the status on the item has one name that is no Lens's | `tests/test_decide.py::test_a_check_from_another_app_is_unreadable_for_its_lens`, `tests/test_tools.py::test_the_status_on_the_item_never_carries_a_required_lens_name` |
 | Every write by a Factory identity matches a recorded Effect; one that does not raises an alert | waiting on `controller/` |
 | No Factory secret is readable by a workflow that runs on a Work item's branch | waiting on `harness/` |
 | The code owners file is the org's, word for word | `tests/test_tools.py::test_code_owners_are_the_orgs_word_for_word` |
