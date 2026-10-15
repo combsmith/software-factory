@@ -1,7 +1,8 @@
 """Admission: what, if anything, happens next on one pull request.
 
 decide(facts, runs, context, config, now) -> Decision. No I/O, no clock.
-Times are UTC, to the second, in one text format, and compare as text.
+Times are UTC, to the second, in one text format. They compare as text, and the Kernel counts
+the seconds between two itself, from the pinned calendar in terms.py.
 """
 from __future__ import annotations
 
@@ -111,8 +112,10 @@ def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, confi
 def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> dict:
     d = _decide(facts, runs, context, config, now)
     # A wait past its State's limit, while passes ran, is the Maintainer's to see. Only what they see changes (I-1).
-    if d["attention"] in t.MAY_GO_STALE and stale(config["lifecycle"], d["state"], moved_at(facts, runs),
-                                                  context.get("passes_since"), now):
+    # A deferral that holds the whole scope is one cause, reported once (§4.6): the item keeps the attention it had.
+    if (d["attention"] in t.MAY_GO_STALE and d["reason"] not in t.SCOPE_DEFERRALS
+            and stale(config["lifecycle"], d["state"], moved_at(facts, runs, config, now), context.get("passes_since"),
+                      now)):
         return dict(d, attention=t.STALE)
     return d
 

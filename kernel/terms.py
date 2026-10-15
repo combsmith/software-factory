@@ -36,6 +36,9 @@ NONE = "none"
 # The classes a wait past its State's limit turns stale. A person is already called to `needs_you`, and a Run holds
 # a `working` item, so neither ever is.
 MAY_GO_STALE = frozenset({REVIEW, READY})
+# Deferrals that hold the whole scope, each one cause that health reports once (§4.6), so an item they defer is never
+# stale: a Pause, read or not, the model provider's deferral (`capacity`), capacity unread, and the org's limit on Runs.
+SCOPE_DEFERRALS = frozenset({"paused", "pause_unreadable", "capacity", "capacity_unreadable", "concurrency"})
 
 GATING_SEVERITIES = frozenset({"blocking", "major"})
 # The reasons an open gate gives, whoever's turn it is. On a queued item each is the one reason `gate_open`.

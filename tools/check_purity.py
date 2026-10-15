@@ -31,20 +31,40 @@ def _constant(node) -> bool:
     return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in CONSTANT_CALLS
 
 
-def _calendar(name: str, tree) -> set:
-    """The numbers in `tree` that are the calendar's, as ids of their nodes: in terms.py, named and valued as pinned."""
-    out = set()
-    for node in tree.body if name == "terms.py" else []:
-        if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
-                and node.targets[0].id in CALENDAR):
-            continue
-        try:
-            value = ast.literal_eval(node.value)
-        except ValueError:
-            continue
-        if repr(value) == repr(CALENDAR[node.targets[0].id]):
+def _pinned(name: str, node) -> bool:
+    """Whether `node` is the one form a calendar unit is written in: at the top of terms.py, alone, at its value."""
+    if not (name == "terms.py" and isinstance(node, ast.Assign) and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name) and node.targets[0].id in CALENDAR):
+        return False
+    try:
+        value = ast.literal_eval(node.value)
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return False
+    return repr(value) == repr(CALENDAR[node.targets[0].id])
+
+
+def _calendar(name: str, tree) -> tuple:
+    """(the numbers in `tree` that are the calendar's, as ids of their nodes; the problems with how it is written).
+
+    Each unit is assigned once, in its pinned form. Any other assignment to its name, a second one to 0, 1 or True
+    among them, or to an attribute of that name anywhere in the Kernel, is a problem: it would change the unit.
+    """
+    out, problems, seen = set(), [], set()
+    pinned = {id(node) for node in tree.body if _pinned(name, node)}
+    for node in ast.walk(tree):
+        if id(node) in pinned and node.targets[0].id not in seen:
+            seen.add(node.targets[0].id)
             out |= {id(n) for n in ast.walk(node.value)}
-    return out
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else \
+            [node.target] if isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr, ast.For)) else []
+        for target in targets:
+            for part in ast.walk(target):
+                unit = part.id if isinstance(part, ast.Name) else part.attr if isinstance(part, ast.Attribute) else None
+                if unit in CALENDAR and isinstance(part.ctx, ast.Store):
+                    problems.append("%s:%d assigns %s, a unit of the calendar: it is written once, in terms.py, as "
+                                    "tools/check_purity.py pins it" % (name, node.lineno, unit))
+    return out, problems
 
 
 def run(root: pathlib.Path = ROOT) -> list:
@@ -59,7 +79,8 @@ def run(root: pathlib.Path = ROOT) -> list:
         except (SyntaxError, ValueError) as err:
             problems.append("%s cannot be read as Python: %s" % (name, err))
             continue
-        calendar = _calendar(name, tree)
+        calendar, wrong = _calendar(name, tree)
+        problems += wrong
         for node in ast.walk(tree):
             line = getattr(node, "lineno", 0)
             mods = []

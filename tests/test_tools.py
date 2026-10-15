@@ -511,6 +511,21 @@ class Purity(unittest.TestCase):
                           ("kernel/terms.py", "FEBRUARY = HOURS_PER_DAY = 2\n"), ("kernel/x.py", "MINUTES_PER_HOUR = 60\n"),
                           ("kernel/terms.py", "def f():\n    MINUTES_PER_HOUR = 60\n    return MINUTES_PER_HOUR\n")):
             self.assertTrue(caught(check_purity.run(tree({rel: text})), "writes the number"), (rel, text))
+        # A unit is assigned once, so no second assignment can change it: not to 0, 1 or True, which are no number
+        # the check refuses, and not from outside terms.py. What cannot be read as a value is a problem, not a crash.
+        again = "SECONDS_PER_MINUTE = 60\nHOURS_PER_DAY = 24\n"
+        for rel, text in (("kernel/terms.py", again + "SECONDS_PER_MINUTE = 1\n"),
+                          ("kernel/terms.py", again + "HOURS_PER_DAY = True\n"),
+                          ("kernel/terms.py", again + "HOURS_PER_DAY = 24\n"),
+                          ("kernel/terms.py", "SECONDS_PER_MINUTE: int = 60\n"),
+                          ("kernel/terms.py", "SECONDS_PER_MINUTE = {[]: 1}\n"),
+                          ("kernel/terms.py", "SECONDS_PER_MINUTE, X = 60, 1\n"),
+                          ("kernel/x.py", "from kernel import terms as t\n\ndef f():\n    t.SECONDS_PER_MINUTE = 1\n"),
+                          ("kernel/x.py", "def f(n):\n    HOURS_PER_DAY = n\n    return HOURS_PER_DAY\n")):
+            self.assertTrue(caught(check_purity.run(tree({"kernel/terms.py": again, rel: text})), "a unit of the calendar"),
+                            (rel, text))
+        self.assertEqual(check_purity.run(tree({"kernel/terms.py": again, "kernel/x.py": "def f(t):\n"
+                                                "    return t.SECONDS_PER_MINUTE\n"})), [])
 
     def test_state_kept_between_calls_is_caught(self):
         root = tree({"kernel/x.py": "SEEN = {}\nKIND = 'held'\nNAMES = frozenset({'a'})\n"})
