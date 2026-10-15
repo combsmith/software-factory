@@ -15,6 +15,7 @@ PUNCTUATION = ";&|()`\n<>"
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
 # Programs that run the command string given to -c or --command, as a shell does.
 STRINGS = {"flock", "script", "runuser", "su"}
+STRING_OPTIONS = ("--command", "--session-command")
 ENV_VALUED = {"-u", "--unset", "-C", "--chdir", "-P"}
 HEREDOC = re.compile(r"<<(-?)[ \t]*\\?(['\"]?)([A-Za-z_][\w.-]*)\2")
 
@@ -127,30 +128,42 @@ def _inner(words: list, spend=None) -> list:
             for i in range(at + 1, len(words)):
                 if not words[i].startswith("-") and "=" not in words[i] and words[i - 1] not in ENV_VALUED:
                     break       # the program env runs: what follows is its own
-                script, taken = _value(words, i, "S", "--split-string")
+                script, taken = _value(words, i, "S", ("--split-string",), True)
                 if script is not None:
                     rest = words[i + 1 + taken:]
                     return commands(" ".join([script] + [shlex.quote(w) for w in rest]), spend)
         if name in SHELLS or name in STRINGS:
-            for i in range(at + 1, len(words)):
-                script, _ = _value(words, i, "c", "--command" if name in STRINGS else None)
-                if script is not None:
-                    return commands(script, spend)
-            if name in SHELLS:
-                return []
+            script = script_of(words, at)
+            return [] if script is None else commands(script, spend)
     return []
 
 
-def _value(words: list, i: int, letter: str, long) -> tuple:
-    """(the value words[i] gives the option -<letter> or `long`, whether it is the next word): -c's is the next word,
-    alone or in a bundle (-lc), -S's may be attached. (None, False) when it gives none."""
+def script_of(words: list, at: int):
+    """The script that words[at], a shell or a program of STRINGS, is given to run (-c), or None."""
+    strings = os.path.basename(words[at]) in STRINGS
+    for i in range(at + 1, len(words)):
+        # A shell reads -c's script from the next word; the others take it attached too (-c'...', -qc'...').
+        script, _ = _value(words, i, "c", STRING_OPTIONS if strings else (), strings)
+        if script is not None:
+            return script
+    return None
+
+
+def spelt(option: str, name: str) -> bool:
+    """Whether an option, before any `=`, is the long option `name`, whole or by a prefix, as getopt and git take it."""
+    return option == name or (len(option) > 2 and option.startswith("--") and name.startswith(option))
+
+
+def _value(words: list, i: int, letter: str, longs: tuple, attached: bool) -> tuple:
+    """(the value words[i] gives the option -<letter> or one of `longs`, whether it is the next word): alone or last
+    in a bundle (-lc), the next word; with `attached`, what follows the letter. (None, False) when it gives none."""
     word = words[i]
     after = (words[i + 1], True) if i + 1 < len(words) else (None, False)
-    if long and word.partition("=")[0] == long:
+    if word.startswith("--") and any(spelt(word.partition("=")[0], long) for long in longs):
         return (word.partition("=")[2], False) if "=" in word else after
     if word.startswith("-") and not word.startswith("--") and letter in word:
-        attached = word[word.index(letter) + 1:] if letter == "S" else ""
-        return (attached, False) if attached else after
+        rest = word[word.index(letter) + 1:] if attached else ""
+        return (rest, False) if rest else after
     return None, False
 
 

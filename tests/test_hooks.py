@@ -939,7 +939,14 @@ class MergesAndSettings(Asks):
                         "script -c 'git push origin HEAD:main' /dev/null", "flock /tmp/l -c 'git push origin HEAD:main'",
                         "flock -n /tmp/l --command='git push origin HEAD:main'", "su - x -c 'git push origin HEAD:main'",
                         "runuser -u x --command 'gh pr merge 1 --admin'", "env -S 'git push origin HEAD:main'",
-                        "env -i -S'git push' origin HEAD:main", "env -u X --split-string='gh pr merge' 1 --admin"):
+                        "env -i -S'git push' origin HEAD:main", "env -u X --split-string='gh pr merge' 1 --admin",
+                        # Abbreviated, attached, bundled, and su's and runuser's --session-command.
+                        "env --s='git push origin HEAD:main'", "env --split 'git push origin HEAD:main'",
+                        "script -q -c'git push origin HEAD:main' /dev/null", "flock /tmp/l -cgit\\ push\\ origin\\ main",
+                        "script -qc'git push origin HEAD:main' /dev/null", "su -c'git push origin HEAD:main'",
+                        "su root --session-command 'git push origin HEAD:main'",
+                        "runuser -u x --session-command='git push origin HEAD:main'",
+                        "su root --session-c 'git push origin HEAD:main'", "script --comm 'git push origin HEAD:main'"):
             self.asked(self.run_(command), "merge", command)
         for command in ("flock /tmp/l -c 'git push origin feature'", "script -qc 'git log' /dev/null",
                         "env -S 'git status'", "env git log -S x", "timeout 60 gh repo view", "nice gh pr view 5"):
@@ -952,6 +959,7 @@ class MergesAndSettings(Asks):
                         "git -c core.sshCommand='ssh -o ProxyCommand=x' fetch", "git -c diff.x.textconv=./t log -p",
                         "git -c filter.x.smudge=./s status", "git -c include.path=/tmp/c log",
                         "git -c merge.default=x -c merge.x.driver=./d log", "git -c core.attributesFile=/tmp/a log",
+                        "git -c merge.default=x -c merge.x.driver=./d merge-tree --write-tree a b",
                         "git -c core.hooksPath=/tmp/h status", "git --config-env=core.pager=P log",
                         "git -c protocol.ext.allow=always ls-remote x", "git diff --ext-diff", "git log -p --ext-diff",
                         "git show --ext-diff HEAD", "GIT_EXTERNAL_DIFF=./x git diff", "GIT_PAGER=./p git log",
@@ -983,7 +991,13 @@ class MergesAndSettings(Asks):
                         "git -c core.pager='less -Ro /tmp/x' log", "LESSOPEN='|./x %s' GIT_PAGER=less git log",
                         "export LESSKEY=/tmp/k; git -c core.pager=less log", "git -c core.pager='cat | sh' log",
                         "git -c core.pager='cat; ./x' log", "git -c core.pager='cat $(./x)' log",
-                        "git -c core.pager='less -R' -c core.pager=./x log"):
+                        "git -c core.pager='less -R' -c core.pager=./x log",
+                        # clone's -c with its setting attached; a reader by a bare name, with PATH set in the command;
+                        # the ext:: transport, which runs the command its URL names.
+                        "git clone -ccore.hooksPath=/tmp/hooks src dst", "git clone -qccore.hooksPath=/tmp/h src dst",
+                        "PATH=/tmp GIT_EXTERNAL_DIFF=cat git diff", "export PATH=/tmp; git -c core.pager=cat log",
+                        "GIT_ALLOW_PROTOCOL=ext git ls-remote x", "git ls-remote 'ext::/tmp/evil'",
+                        "git -c protocol.allow=always fetch 'ext::sh -c x'"):
             self.asked(self.run_(command), "command_unreadable", command)
         # A reader that redirects writes; --config-env's value is in the environment, so even a reader's name asks.
         for command in ("git -c core.pager='cat > lifecycle/a.json' log", "git --config-env=core.pager=cat log"):
