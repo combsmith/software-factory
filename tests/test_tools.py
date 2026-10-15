@@ -816,7 +816,8 @@ class Trials(unittest.TestCase):
         problems = check_trials.run(root)
         for where in ("tools/fetch.py", ".github/workflows/trial.yml", "Makefile", "config/where.json", "corpus/x.json"):
             self.assertTrue(caught(problems, where + ": names the canary repo"), where)
-        for where in ("docs/notes.md", "README.md", "trials/P-12.json", "examples/trial.json", "trial.schema.json", "worktrees"):
+        for where in ("docs/notes.md", "README.md", "trials/P-12.json", "examples/trial.json", "trial.schema.json", "worktrees",
+                      "config/apps.json", "schemas/apps.schema.json", "examples/invalid/apps."):
             self.assertFalse(caught(problems, where), where)
 
     def test_a_fixture_named_for_a_rule_must_exist_and_validate(self):

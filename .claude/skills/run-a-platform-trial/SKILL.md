@@ -25,8 +25,9 @@ everything a trial leaves in it: its runs, logs and artifacts.
   raise it with the Maintainer before anything runs. The fixture's schema accepts the canary
   alone, so such a trial needs that decided first.
 - **Nothing here reads the canary.** Only a document, a fixture, the fixture's example and its
-  schema name it here, and `tools/check_trials.py` refuses any other file that does. What a trial saw arrives here as a file, in a
-  pull request.
+  schema name it here, and so does `config/apps.json`, which declares where the Apps are
+  installed and which nothing runs. `tools/check_trials.py` refuses any other file that names
+  it. What a trial saw arrives here as a file, in a pull request.
 - **Who acts.** This session acts only as the Maintainer, through their own `gh` login. The
   Maintainer is advised to give a trial session a fine-grained token scoped to the canary alone,
   installed outside the session. A step that must run as another identity (the machine user, an

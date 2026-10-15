@@ -10,7 +10,9 @@ applies it. A fixture named there must exist and be valid. A rule with no fixtur
 and `verify` prints it.
 
 Nothing in this repo reads the canary at run time: a fixture arrives by pull request. So nothing
-but a document, a fixture and the fixture's schema names the canary.
+names the canary but a document, a fixture and the fixture's schema, and the declaration of where
+the Apps are installed (`config/apps.json`, its schema and its counter-examples), which is data the
+Maintainer registers from and which nothing runs.
 
 `python3 -m tools.check_trials` runs this check alone, before a fixture is added to git.
 """
@@ -237,14 +239,16 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
 
 
 def _canary(root: pathlib.Path) -> list:
-    """Each file but a document, a fixture or the fixture's schema that names the canary, and so could read it."""
+    """Each file but a document, a fixture, the fixture's schema or the Apps' installation data that names
+    the canary, and so could read it."""
     found = []
     for path in sorted(root.rglob("*")):
         rel = path.relative_to(root)
         if SKIP & set(rel.parts) or any(rel.parts[:len(o)] == o for o in OTHER_CHECKOUTS) or not path.is_file():
             continue
         exempt = rel.parts[0] in ("docs", "trials") or path.suffix == ".md" or \
-            rel.as_posix() == "schemas/trial.schema.json" or (rel.parts[0] == "examples" and path.name.startswith("trial"))
+            rel.as_posix() in ("schemas/trial.schema.json", "config/apps.json", "schemas/apps.schema.json") or \
+            (rel.parts[0] == "examples" and path.name.startswith(("trial", "apps.")))
         if exempt:
             continue
         try:
