@@ -23,7 +23,6 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2]))
 from tools.hooks import make, protected  # noqa: E402
 
 DEADLINE = 40   # seconds for every git command together; the settings give the hook 60
-SHOWN = 20      # paths put in front of the person
 BASE = "refs/remotes/origin/main"
 
 
@@ -75,9 +74,7 @@ def respond(payload: dict, env: dict, seconds: float = DEADLINE) -> tuple:
         return 0, json.dumps({"systemMessage": told}) + "\n", ""
     if not found:
         return 0, "", ""
-    lines = ["- %s: %s" % (shown(path), what) for path, what in found[:SHOWN]]
-    if len(found) > SHOWN:
-        lines.append("- and %d more" % (len(found) - SHOWN))
+    lines = ["- %s: %s" % (shown(path), what) for path, what in found]     # every one, so each is read
     told = ("This branch changes the Factory's own rules, against its merge base with origin/main. They are the "
             "Maintainer's to decide; read each before it merges:\n%s" % "\n".join(lines))
     return 0, json.dumps({"systemMessage": told}) + "\n", ""

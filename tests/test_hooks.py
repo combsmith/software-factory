@@ -532,6 +532,8 @@ class ProtectedPaths(Asks):
                 "git log --output lifecycle/x", "perl -e 'open(F, \">lifecycle\\/x\")'",
                 "cd config && python3 -c \"open('authority.json', 'w')\"",
                 "python3 -c \"open('LIFECYCLE/X.JSON', 'w')\"", "sort -o config/defaults.json /tmp/x",
+                "curl -olifecycle/issue.json https://example.com/x", "wget -Olifecycle/x https://example.com/x",
+                "gh repo clone combsmith/.github", "cd docs && gh repo clone o/r ../.github/new",
                 "python3 -m json.tool /tmp/x config/authority.json", "pytest --junitxml=lifecycle/x tests/",
                 "cp -r /tmp/stage/ config/", "git -C config checkout -- authority.json",
                 "gh api -X PUT repos/o/r/contents/.github/workflows/x.yml -f content=x"):
@@ -792,18 +794,20 @@ class MergesAndSettings(Asks):
         self.assertEqual(found, [])
 
     def test_a_push_naming_no_branch_asks_unless_where_it_goes_is_read_exactly(self):
-        feature, on_main, upstream, refspec = (repo(fresh=True) for _ in range(4))
+        feature, on_main, upstream, refspec, mirror = (repo(fresh=True) for _ in range(5))
         for where in (feature, upstream, refspec):
             git(where, "checkout", "-q", "-b", "feature")
         git(on_main, "checkout", "-q", "-B", "main")
         git(upstream, "config", "push.default", "upstream")
         git(refspec, "config", "remote.origin.push", "HEAD:refs/heads/main")
+        git(mirror, "checkout", "-q", "-b", "feature")
+        git(mirror, "config", "remote.origin.mirror", "yes")
         for command in ("git push", "git push origin", "git push -u origin HEAD", "git config --get push.default",
                         "git config --list", "git config core.editor vim", "git config push.default",
                         "git config --get-all remote.origin.push main", "git config --get push.default simple",
                         "git branch -a", "git branch --show-current"):
             self.assertEqual(self.run_(command, feature, project=feature), "", command)
-        for where in (on_main, upstream, refspec):
+        for where in (on_main, upstream, refspec, mirror):
             for command in ("git push", "git push origin", "git push --force-with-lease"):
                 self.asked(self.run_(command, where, project=where), "merge", (command, where))
         payload, no_git = bash("git push", feature), environment(programs(), CLAUDE_PROJECT_DIR=str(self.project))
@@ -832,6 +836,30 @@ class MergesAndSettings(Asks):
         for command in ("git fetch origin", "git fetch origin main", "git fetch origin main:refs/remotes/origin/main",
                         "git tag v1", "git tag -l", "git branch feature-x", "git branch --list 'origin/*'",
                         "git branch -r", "git symbolic-ref HEAD", "git symbolic-ref --short HEAD"):
+            self.assertEqual(self.run_(command), "", command)
+
+    def test_the_review_s_plain_spellings_ask(self):
+        mutation = "gh api graphql -f query='mutation { %s(input: {}) { clientMutationId } }'"
+        for command, code in (
+                ("git -c alias.land='push origin HEAD:main' land", "command_unreadable"),
+                ("git land", "command_unreadable"), ("git -c alias.st=\'push origin HEAD:main\' status", "command_unreadable"),
+                ("gh repo sync combsmith/software-factory --branch main --force", "merge"),
+                ("git push origin 'refs/heads/*:refs/heads/*'", "merge"), ("git push origin '+refs/heads/*'", "merge"),
+                ("git push origin :", "merge"), (mutation % "deleteRepository", "repo_settings"),
+                (mutation % "transferRepository", "repo_settings"), (mutation % "deleteRef", "merge"),
+                ("cat <(gh api -X DELETE repos/o/r)", "repo_settings"), ("diff <(git push origin HEAD:main) x", "merge"),
+                ("cat <(echo x > lifecycle/a.json)", "protected_path"),
+                ("git --git-dir=/x/.git push origin HEAD", "merge"), ("GIT_DIR=/x/.git git push origin HEAD", "merge"),
+                ("git remote set-url --push origin https://github.com/x/y.git", "merge"),
+                ("git remote add other https://github.com/x/y.git", "merge"), ("git remote rename origin old", "merge"),
+                ("curl -X DELETE https://api.github.com./repos/o/r", "command_unreadable"),
+                ("git fetch origin +refs/pull/1/head:refs/remotes/origin/main", "remote_ref"),
+                ("git fetch origin feature:refs/remotes/origin/main", "remote_ref")):
+            self.asked(self.run_(command), code, command)
+        for command in ("gh repo deploy-key list", "gh repo autolink list", "gh repo autolink view 1", "git remote -v",
+                        "git remote get-url origin", "git remote show origin", "git fetch origin main:refs/remotes/origin/main",
+                        "git fetch origin refs/heads/main:refs/remotes/origin/main", "diff <(cat lifecycle/issue.json) docs/notes.md",
+                        "git push origin feature:feature", "gh repo clone o/r /tmp/x", "echo '<(not a substitution)'"):
             self.assertEqual(self.run_(command), "", command)
 
     def test_a_write_to_a_ruleset_or_the_repos_settings_asks(self):
@@ -932,6 +960,15 @@ class RulesChanged(unittest.TestCase):
         for part in ("config/authority.json", ".github/workflows/x.yml", "kernel/decide.py", "the Kernel",
                      "lifecycle/staged.json"):
             self.assertIn(part, said)
+
+    def test_every_protected_path_changed_is_listed(self):
+        where = self.branch()
+        for n in range(25):
+            self.write(where, "lifecycle/f%02d.json" % n)
+        said = self.told(where)
+        for n in range(25):
+            self.assertIn("lifecycle/f%02d.json" % n, said)
+        self.assertNotIn("more", said)
 
     def test_a_branch_that_changes_no_rule_says_nothing(self):
         where = self.branch()

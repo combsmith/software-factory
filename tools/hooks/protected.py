@@ -37,7 +37,7 @@ from urllib.parse import urlsplit
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
-from tools.hooks import shell  # noqa: E402
+from tools.hooks import identity, shell  # noqa: E402
 
 DEADLINE = 5.0          # seconds to read one tool call; the settings give the hook 30
 LONGEST = 256 * 1024    # characters of a command the hook reads
@@ -87,6 +87,8 @@ GIT_READS = {"add", "annotate", "blame", "branch", "cat-file", "check-attr", "ch
              "shortlog", "show", "show-branch", "show-ref", "status", "tag", "var", "verify-commit", "verify-tag",
              "version", "whatchanged", "worktree"}
 GIT_VALUED = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}
+# Every git command the hooks know: another is an alias, or an extension, which the hook cannot read.
+GIT_KNOWN = identity.WRITES | identity.RUNNERS | identity.OTHERS | GIT_READS | {"symbolic-ref", "update-ref"}
 PUSH_VALUED = {"-o", "--push-option", "--receive-pack", "--exec", "--repo"}
 # Where a push with no refspec goes is read exactly only under these; any other push.default may reach main.
 PUSH_DEFAULTS = {None, "simple", "current"}
@@ -342,10 +344,13 @@ class Command:
         Raises Unreadable when where it leads cannot be read.
         """
         self.spend()
-        named = self.rules.names(word) if text else None
+        values = [word] + ([word.split("=", 1)[1]] if "=" in word[1:] else [])
+        if word.startswith("-") and not word.startswith("--") and len(word) > 2:
+            values.append(word[2:])         # a short option's value, attached: -olifecycle/x
+        named = next((n for n in map(self.rules.names, values) if n), None) if text else None
         if named:
             return named
-        for value in [word] + ([word.split("=", 1)[1]] if "=" in word[1:] else []):
+        for value in values:
             if value.startswith("-") or not value:
                 continue
             for path in self.paths(value, here):
@@ -395,7 +400,10 @@ class Command:
         if ">(" in self.text:
             self.ask("command_unreadable", "a process substitution writes where the hook cannot follow")
         try:
-            commands = shell.commands(self.text, self.spend)
+            outer, inner = _process_substitutions(self.text)
+            commands = shell.commands(outer, self.spend)
+            for script in inner:
+                commands += shell.commands(script, self.spend)
         except (ValueError, RecursionError):
             self.ask("command_unreadable", "the command cannot be split into words")
             return self.found
@@ -630,6 +638,10 @@ class Command:
 
     def _gh(self, program: str, args: list):
         positional = _positional(args, GH_VALUED)
+        if positional[:2] in (["repo", "clone"], ["gist", "clone"]) and len(positional) > 2:
+            name = re.sub(r"\.git$", "", positional[2].rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1])
+            self.check([positional[3] if len(positional) > 3 else name])
+            return
         if any(positional[:len(w)] == w for w in GH_WRITES_FILES):
             given = [args[i + 1] for i, w in enumerate(args[:-1]) if w in ("-D", "--dir")]
             self.into(given[0] if given else None)
@@ -681,7 +693,7 @@ class Command:
         program, args = os.path.basename(words[at]), words[at + 1:]
         if program == "git":
             self._refs(args)
-            self._push(args)
+            self._push(args, [w for w in words[:at] if ASSIGNMENT.match(w)])
             return
         positional = _positional(args, GH_VALUED)
         if not positional:
@@ -703,8 +715,8 @@ class Command:
                         _is_command(read, positional, args) for read in self.data[group].get("reads", [])):
                     self.ask(code, "gh %s %s" % (entry, does))
 
-    def _push(self, args: list):
-        here, i = self.here, 0
+    def _push(self, args: list, assigned: list = ()):
+        here, i, elsewhere = self.here, 0, False
         while i < len(args) and args[i].startswith("-"):
             option, given, value = args[i].partition("=")
             if option in GIT_VALUED and not given:
@@ -712,8 +724,13 @@ class Command:
                 value = args[i] if i < len(args) else ""
             if option == "-C":
                 here = self.cd_from(value, here)
+            elsewhere = elsewhere or option in ("--git-dir", "--work-tree")
             i += 1
         if args[i:i + 1] != ["push"]:
+            return
+        if elsewhere or any(w.startswith(("GIT_DIR=", "GIT_WORK_TREE=")) for w in assigned):
+            self.ask("merge", "the push is made from a repository the hook does not read, and may write %s"
+                     % self.data["branch"])
             return
         if not os.path.isabs(here or ""):
             here = None
@@ -737,6 +754,9 @@ class Command:
         targets = []
         for spec in positional[1:] or ["HEAD"]:
             target = spec.lstrip("+").rsplit(":", 1)[-1]
+            if spec in (":", "+:") or "*" in target:
+                self.ask("merge", "a refspec with a wildcard, or the matching refspec, may write %s" % branch)
+                return
             if target.startswith(REMOTE_REF):
                 self.ask("remote_ref", "git push writes a ref under refs/remotes/, which a stop compares the "
                                        "branch with")
@@ -757,13 +777,16 @@ class Command:
             inside = self.rules.inside(here)      # git is run only in the project
             default = _git_config(inside, self.env, ["--get", "push.default"], self.spend)
             refspecs = _git_config(inside, self.env, ["--get-regexp", r"^remote\..*\.push$"], self.spend)
+            mirrors = _git_config(inside, self.env, ["--type=bool", "--get-regexp", r"^remote\..*\.mirror$"],
+                                  self.spend)
         except Unreadable:
             self.ask("merge", "a push that names no branch goes where git's configuration says, which the hook cannot "
                               "read, and it may be %s" % branch)
             return False
-        if (default.strip().casefold() or None) not in PUSH_DEFAULTS or refspecs.strip():
-            self.ask("merge", "a push that names no branch goes where push.default or remote.*.push says, which may "
-                              "be %s" % branch)
+        if (default.strip().casefold() or None) not in PUSH_DEFAULTS or refspecs.strip() or any(
+                line.endswith(" true") for line in mirrors.splitlines()):
+            self.ask("merge", "a push that names no branch goes where push.default, remote.*.push or remote.*.mirror "
+                              "says, which may be %s" % branch)
             return False
         return True
 
@@ -777,15 +800,21 @@ class Command:
                 value = args[i] if i < len(args) else ""
             if option in ("-c", "--config-env") and PUSH_KEYS.match(value.split("=", 1)[0]):
                 self.ask("merge", "git -c sets where a push goes, which may be %s" % branch)
+            if option in ("-c", "--config-env") and value.casefold().startswith("alias."):
+                self.ask("command_unreadable", "git -c defines an alias, a command the hook cannot read")
             i += 1
         sub, rest = (args[i], args[i + 1:]) if i < len(args) else ("", [])
         names = [w for w in rest if not w.startswith("-")]
+        if sub and sub not in GIT_KNOWN:
+            self.ask("command_unreadable", "git is given a command the hook does not know; it may be an alias")
+            return
+        if sub == "remote" and names[:1] and names[0] in ("add", "rename", "remove", "rm", "set-url", "set-branches"):
+            self.ask("merge", "git remote changes where a push goes, which may be %s" % branch)
         if sub == "update-ref" and any(REMOTE_REF in w or w == "--stdin" for w in rest):
             self.ask("remote_ref", "git update-ref writes a ref under refs/remotes/, which a stop compares the branch with")
-        elif sub == "fetch" and len(names) > 1 and (names[0] == "." or "/" in names[0] or ":" in names[0]) and any(
-                spec.lstrip("+").rsplit(":", 1)[-1].startswith(REMOTE_REF) for spec in names[1:] if ":" in spec):
-            self.ask("remote_ref", "git fetch from a repository that is not a remote writes a ref under refs/remotes/, "
-                                   "which a stop compares the branch with")
+        elif sub == "fetch" and len(names) > 1 and not all(_own_branch(names[0], spec) for spec in names[1:]):
+            self.ask("remote_ref", "git fetch writes a ref under refs/remotes/ from what is not that remote's branch "
+                                   "of the same name, and a stop compares the branch with it")
         elif sub in ("branch", "tag") and not REF_READS & {w.split("=", 1)[0] for w in rest}:
             if sub == "branch" and any(w in ("-u", "--set-upstream-to") or w.startswith("--set-upstream-to=")
                                        for w in rest):
@@ -802,6 +831,55 @@ class Command:
                 if any(PUSH_KEYS.match(n) or n.split(".")[0].casefold() in ("remote", "branch", "push")
                        for n in names if n not in ("set", "unset")):
                     self.ask("merge", "git config writes where a push goes, which may be %s" % branch)
+
+
+
+def _own_branch(repository: str, spec: str) -> bool:
+    """Whether a fetch refspec writes, under refs/remotes/, only a named remote's own branch, by the same name."""
+    if ":" not in spec:
+        return True
+    source, target = spec.lstrip("+").rsplit(":", 1)
+    if not target.startswith(REMOTE_REF):
+        return True
+    named = repository not in (".", "") and "/" not in repository and ":" not in repository
+    return named and target == REMOTE_REF + repository + "/" + re.sub(r"^refs/heads/", "", source)
+
+
+def _process_substitutions(text: str) -> tuple:
+    """(text with each <( ... ) put as one word, the scripts inside them). Quoted text is left; one left open raises."""
+    out, inner, i, quote = [], [], 0, None
+    while i < len(text):
+        c = text[i]
+        if quote:
+            if c == quote:
+                quote = None
+            elif c == "\\" and quote == '"':
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            out.append(c)
+        elif c == "\\":
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        elif c in "'\"":
+            quote = c
+            out.append(c)
+        elif text.startswith("<(", i):
+            depth, j = 1, i + 2
+            while j < len(text) and depth:
+                depth += {"(": 1, ")": -1}.get(text[j], 0)
+                j += 1
+            if depth:
+                raise ValueError("a process substitution is never closed")
+            inner.append(text[i + 2:j - 1])
+            out.append("/dev/fd/63")
+            i = j
+            continue
+        else:
+            out.append(c)
+        i += 1
+    return "".join(out), inner
 
 
 HANDLED = {"sed", "find", "cp", "mv", "install", "git", "gh"}
@@ -842,7 +920,7 @@ def _names_api(text: str) -> bool:
     host named as a word outside any URL."""
     for url in URL.findall(text):
         try:
-            host = (urlsplit(url).hostname or "").casefold()
+            host = (urlsplit(url).hostname or "").casefold().rstrip(".")      # api.github.com. is the same host
         except ValueError:      # a URL that cannot be read may name it
             return True
         if host == "api.github.com" or host.endswith(".api.github.com"):
