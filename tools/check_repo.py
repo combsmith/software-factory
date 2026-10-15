@@ -147,17 +147,19 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems.append("%s: a dependency manifest; this repo installs nothing" % rel)
         if VENDORED & set(rel.parts):
             problems.append("%s: third-party code copied in is still third-party code" % rel)
-        if path.name == ".gitmodules":
+        # Names in any case: a file system that folds case opens .PYC, __PYCACHE__/ or .GITMODULES as Python or git asks.
+        folded = [part.casefold() for part in rel.parts]
+        if folded[-1] == ".gitmodules":
             problems.append("%s: declares a submodule, whose files come from another repo, at a commit this repo's "
                             "review never sees; commit the files themselves" % rel)
-        if path.suffix in COMPILED:
+        if path.suffix.casefold() in COMPILED:
             problems.append("%s: compiled code; Python loads it ahead of, or instead of, the reviewed source, and no "
                             "check reads it; commit the source only" % rel)
         # tools/walk.py lists what is in these folders only when git's index holds it.
-        if walk.SKIP & set(rel.parts[:-1]):
+        if walk.SKIP & set(folded[:-1]):
             problems.append("%s: in __pycache__/, Python's local output, committed; Python loads it ahead of the "
                             "reviewed source, and no check reads it; remove it from git" % rel)
-        if len(rel.parts) > 1 and rel.parts[0] in walk.ROOT_ONLY:
+        if len(rel.parts) > 1 and folded[0] in walk.ROOT_ONLY:
             problems.append("%s: in corpus/, local output make_corpus.py writes, committed; nothing reads it from "
                             "git, and the corpus is remade from the Kernel; remove it from git" % rel)
         text = path.read_text(errors="replace")     # every file, whatever it is called

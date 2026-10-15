@@ -43,19 +43,41 @@ def _varint(data: bytes, at: int) -> tuple:
     return value, at + 1
 
 
-def _read(data: bytes) -> dict:
-    """{path: mode} for every entry of git's index, versions 2 to 4, or ValueError."""
+def _size(gitdir: pathlib.Path) -> int:
+    """How many bytes name an object here: 32 where the repo's config says SHA-256, else SHA-1's 20.
+
+    A worktree's gitdir keeps no config of its own; its `commondir` names the directory that does.
+    """
+    common = gitdir
+    if (gitdir / "commondir").is_file():
+        common = gitdir / (gitdir / "commondir").read_text(errors="replace").strip()
+    config = common / "config"
+    section = ""
+    for line in config.read_text(errors="replace").splitlines() if config.is_file() else ():
+        line = line.split("#")[0].split(";")[0].strip()
+        if line.startswith("["):
+            section = (line.strip("[]").split() or [""])[0].lower()
+        elif section == "extensions" and "=" in line:
+            key, value = (part.strip().strip('"').lower() for part in line.split("=", 1))
+            if key == "objectformat":
+                if value not in ("sha1", "sha256"):
+                    raise ValueError("its objects are named by %s, which this does not read" % value)
+                return 32 if value == "sha256" else 20
+    return 20
+
+
+def _read(data: bytes, size: int) -> dict:
+    """{path: mode} for every entry of git's index, versions 2 to 4, whose object ids are `size` bytes; or ValueError."""
     if data[:4] != b"DIRC":
         raise ValueError("it is not an index")
     version, count = int.from_bytes(data[4:8], "big"), int.from_bytes(data[8:12], "big")
     if version not in (2, 3, 4):
         raise ValueError("version %d is not one this reads" % version)
-    # It ends in a hash of all before it, SHA-1 or SHA-256 as the repo's objects are, or in zeros.
-    if hashlib.sha256(data[:-32]).digest() == data[-32:]:
-        size = 32
-    elif hashlib.sha1(data[:-20], usedforsecurity=False).digest() == data[-20:] or not any(data[-20:]):
-        size = 20
-    else:
+    if len(data) < 12 + size:
+        raise ValueError("it ends early")
+    # It ends in a hash of all before it, by the repo's own hash, or in zeros where index.skipHash is set.
+    digest = hashlib.sha256(data[:-size]) if size == 32 else hashlib.sha1(data[:-size], usedforsecurity=False)
+    if any(data[-size:]) and digest.digest() != data[-size:]:
         raise ValueError("its checksum does not match")
     end, at, previous, held = len(data) - size, 12, b"", {}
     for _ in range(count):
@@ -90,17 +112,19 @@ def index(root: pathlib.Path) -> dict | None:
     gitdir = root / ".git"
     if not os.path.lexists(str(gitdir)):
         return None
-    if gitdir.is_file():            # a worktree's: it names the directory its index is in
-        line = gitdir.read_text(errors="replace").strip()
-        if not line.startswith("gitdir:"):
-            raise ValueError(".git is a file that names no gitdir")
-        gitdir = root / line[len("gitdir:"):].strip()
-    if not gitdir.is_dir():
-        raise ValueError("the gitdir .git names is not there")
-    if not (gitdir / "index").is_file():
-        return {}
     try:
-        return _read((gitdir / "index").read_bytes())
+        if gitdir.is_file():            # a worktree's: it names the directory its index is in
+            line = gitdir.read_text(errors="replace").strip()
+            if not line.startswith("gitdir:"):
+                raise ValueError(".git is a file that names no gitdir")
+            gitdir = root / line[len("gitdir:"):].strip()
+        if not gitdir.is_dir():
+            raise ValueError("the gitdir .git names is not there")
+        if not os.path.lexists(str(gitdir / "index")):
+            return {}
+        return _read((gitdir / "index").read_bytes(), _size(gitdir))
+    except OSError as err:
+        raise ValueError("it cannot be opened: %s" % (err.strerror or err)) from None
     except IndexError:
         raise ValueError("it ends early") from None
 
@@ -108,7 +132,8 @@ def index(root: pathlib.Path) -> dict | None:
 def _local(root: pathlib.Path):
     """Whether a path, by its name from `root` and whether it is a directory, is local output to skip."""
     def output(rel: str, folder: bool) -> bool:
-        dirs = rel.split("/") if folder else rel.split("/")[:-1]
+        # In any case: a file system may fold it, and Python then opens __PYCACHE__/ for __pycache__/.
+        dirs = [d.casefold() for d in (rel.split("/") if folder else rel.split("/")[:-1])]
         return bool(SKIP.intersection(dirs)) or (bool(dirs) and dirs[0] in ROOT_ONLY)
     try:
         held = index(root)
@@ -116,8 +141,8 @@ def _local(root: pathlib.Path):
         return lambda rel, folder: False    # it cannot be told what is committed, so nothing is skipped
     if held is None:
         return output
-    kept = set(held) | {parent.as_posix() for path in held for parent in pathlib.PurePosixPath(path).parents}
-    return lambda rel, folder: output(rel, folder) and rel not in kept
+    kept = {p.casefold() for path in held for p in [path] + [d.as_posix() for d in pathlib.PurePosixPath(path).parents]}
+    return lambda rel, folder: output(rel, folder) and rel.casefold() not in kept
 
 
 def _skip(root: pathlib.Path):
