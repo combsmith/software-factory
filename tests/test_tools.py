@@ -16,10 +16,11 @@ import os
 import pathlib
 import subprocess
 import tempfile
+import time
 import unittest
 
 from tools import (check_apps, check_authority, check_context, check_examples, check_lifecycle, check_purity,
-                   check_repo, check_trials, check_workflows, redact_trial, verify, walk)
+                   check_repo, check_trials, check_workflows, mutants, redact_trial, verify, walk)
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
@@ -651,7 +652,7 @@ class Workflows(unittest.TestCase):
         self.assertEqual(len(problems), len(check_workflows.RULES))
 
     def test_a_counter_example_must_break_its_rule_and_no_other(self):
-        both = GOOD.replace("ubuntu-24.04", "ubuntu-latest").replace("    timeout-minutes: 15\n", "")
+        both = GOOD.replace("ubuntu-24.04", "ubuntu-latest").replace("    timeout-minutes: 30\n", "")
         root = clone({"examples/workflows/invalid/runner.two-faults.yml": both,
                       "examples/workflows/invalid/soft.no-fault.yml": GOOD})
         problems = check_workflows.run(root)
@@ -660,11 +661,11 @@ class Workflows(unittest.TestCase):
 
     def test_an_example_in_the_standard_that_has_drifted_is_caught(self):
         root = tree({"examples/workflows/verify.yml": GOOD,
-                     "docs/standards/workflows.md": "```yaml\n" + GOOD.replace("15", "90") + "```\n"})
+                     "docs/standards/workflows.md": "```yaml\n" + GOOD.replace("30", "90") + "```\n"})
         self.assertTrue(caught(check_workflows.run(root), "word for word"))
 
     def test_the_required_check_that_has_drifted_from_its_example_is_caught(self):
-        root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD.replace("15", "45")})
+        root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD.replace("30", "45")})
         self.assertTrue(caught(check_workflows.run(root), "change both together"))
         bumped = GOOD.replace("3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", "a" * 40 + " # v8.0.0")
         root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": bumped})
@@ -715,7 +716,7 @@ class Workflows(unittest.TestCase):
             "a branch filter": (GOOD.replace("  pull_request:\n", "  pull_request:\n    branches:\n      - release\n"), "queue"),
             "an expression in a script": (GOOD.replace(STEP, "      - uses: actions/github-script@" + "a" * 40 + " # v7\n        with:\n          script: ${{ github.event.comment.body }}\n"), "expression"),
             "a checkout in quotes": (GOOD.replace("actions/checkout@", '"actions/checkout@').replace(" # v7.0.1\n        with:\n          persist-credentials: false", '" # v7.0.1'), "credentials"),
-            "a limit named in a comment": (GOOD.replace("    timeout-minutes: 15\n", "").replace("ubuntu-24.04\n", "ubuntu-24.04 # timeout-minutes: later\n"), "timeout"),
+            "a limit named in a comment": (GOOD.replace("    timeout-minutes: 30\n", "").replace("ubuntu-24.04\n", "ubuntu-24.04 # timeout-minutes: later\n"), "timeout"),
             "windows line ends": (GOOD.replace("\n", "\r\n"), "form"),
             "nothing at all": ("", "form"),
         }
@@ -1147,7 +1148,7 @@ FAILS = {
                                                          author_role="pr-review")),
     "check_purity": lambda: check_purity.run(clone({"kernel/clock.py": "import time\n"})),
     "check_repo": lambda: check_repo.run(clone({"requirements.txt": "requests\n"})),
-    "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("15", "45")})),
+    "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("30", "45")})),
     "check_context": lambda: check_context.run(clone({"docs/lessons.md": "# Lessons\n"})),
     "check_trials": lambda: check_trials.run(clone({"trials/notes.txt": "x\n"})),
 }
@@ -1358,3 +1359,93 @@ class Verify(unittest.TestCase):
         self.assertEqual([p.relative_to(root).as_posix() for p in walk.links(root)],
                          ["a/f.py", "a/gone.py", "a/l", "a/wt"])
         self.assertEqual([p.relative_to(root).as_posix() for p in walk.files(root)], ["a/f.py", "a/x.py"])
+
+
+FAILS_A_TEST = "F\n======\nFAIL: test_x (tests.test_x.T)\n------\nAssertionError\n\nRan 1 test\n\nFAILED (failures=1)\n"
+
+
+def told(behaviour: dict, calls: list):
+    """A stand-in for `mutants.suite`, which answers by the word the mutant wrote into k.py."""
+    def run(work):
+        said = (work / "k.py").read_text().strip()
+        calls.append(said)
+        wait, status, output = behaviour[said]
+        time.sleep(wait)
+        calls.append("done " + said)
+        return status, output
+    return run
+
+
+def mutate(*names) -> list:
+    return [(name, "k.py", "rule\n", name + "\n") for name in names]
+
+
+def suite_of(test: str) -> pathlib.Path:
+    """A throwaway repo whose tests are one module holding `test`, a method of a TestCase."""
+    return tree({"tests/__init__.py": "", "tests/test_x.py": "import os\nimport time\nimport unittest\n\n\n"
+                 "class T(unittest.TestCase):\n" + test})
+
+
+class Mutants(unittest.TestCase):
+    """The mutation check runs its mutants side by side, and only a failing test kills one."""
+
+    def check(self, behaviour: dict, names: list, extra: list = ()):
+        calls = []
+        behaviour = dict(behaviour, rule=(0, 0, "OK\n"))
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            code = mutants.main(mutate(*names) + list(extra), tree({"k.py": "rule\n"}), told(behaviour, calls), 3)
+        return code, said.getvalue().splitlines(), calls
+
+    def test_mutants_are_reported_in_their_order_however_their_runs_finish(self):
+        code, lines, calls = self.check({"slow": (0.5, 1, FAILS_A_TEST), "quick": (0, 1, FAILS_A_TEST),
+                                         "quicker": (0, 1, FAILS_A_TEST)}, ["slow", "quick", "quicker"])
+        self.assertEqual(calls[:2], ["rule", "done rule"], "the run of the unbroken tests is first, and alone")
+        self.assertLess(calls.index("done quicker"), calls.index("done slow"), "the runs did not overlap")
+        self.assertEqual(lines, ["killed    slow", "killed    quick", "killed    quicker", "3 of 3 mutants killed"])
+        self.assertEqual(code, 0)
+
+    def test_a_run_that_hangs_is_ended_reported_and_fails_the_check(self):
+        began = time.monotonic()
+        self.assertIsNone(mutants.suite(suite_of("    def test_x(self):\n        time.sleep(60)\n"), 1)[0])
+        self.assertLess(time.monotonic() - began, 30)
+        code, lines, _ = self.check({"hangs": (0, None, "")}, ["hangs"])
+        self.assertEqual(lines, ["ERROR     hangs (the run took longer than %d s)" % mutants.TIMEOUT,
+                                 "0 of 1 mutants killed"])
+        self.assertEqual(code, 1)
+
+    def test_only_a_failing_test_kills_a_mutant(self):
+        cases = {
+            "a test fails": ("    def test_x(self):\n        self.assertEqual(1, 2)\n", "killed"),
+            "a test raises": ("    def test_x(self):\n        {}['gone']\n", "killed"),
+            "every test passes": ("    def test_x(self):\n        pass\n", "SURVIVED"),
+            "the runner dies": ("    def test_x(self):\n        os._exit(1)\n", "ERROR"),
+            "a module will not import": ("    pass\n\n\nimport a_module_the_copy_left_out\n", "ERROR"),
+        }
+        for name, (test, outcome) in cases.items():
+            self.assertEqual(mutants.verdict(*mutants.suite(suite_of(test)))[0], outcome, name)
+        crash = "Traceback (most recent call last):\nMemoryError\n"
+        self.assertEqual(mutants.verdict(1, crash), ("ERROR", "exit status 1, and no test failed: MemoryError"))
+        self.assertEqual(mutants.verdict(2, FAILS_A_TEST)[0], "ERROR")
+        code, lines, _ = self.check({"crashes": (0, 1, crash)}, ["crashes"])
+        self.assertEqual(lines[0], "ERROR     crashes (exit status 1, and no test failed: MemoryError)")
+        self.assertEqual(code, 1)
+
+    def test_each_run_stops_at_its_first_failure(self):
+        status, output = mutants.suite(suite_of("    def test_a(self):\n        self.fail()\n\n"
+                                                "    def test_b(self):\n        self.fail()\n"))
+        self.assertEqual((status, output.count("FAIL: ")), (1, 1))
+
+    def test_the_summary_counts_only_the_mutants_killed(self):
+        stale = [("gone", "k.py", "not there\n", "x\n")]
+        code, lines, _ = self.check({"fails": (0, 1, FAILS_A_TEST), "passes": (0, 0, "OK\n")},
+                                    ["fails", "passes"], stale)
+        self.assertEqual(lines, ["killed    fails", "SURVIVED  passes", "STALE     gone (the code it mutates has changed)",
+                                 "1 of 3 mutants killed"])
+        self.assertEqual(code, 1)
+
+    def test_tests_that_fail_unbroken_stop_the_check_before_any_mutant(self):
+        calls = []
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            code = mutants.main(mutate("fails"), tree({"k.py": "rule\n"}), told({"rule": (0, 1, FAILS_A_TEST)}, calls))
+        self.assertEqual((code, calls), (1, ["rule", "done rule"]))
+        self.assertIn("the tests fail before anything is broken", said.getvalue())

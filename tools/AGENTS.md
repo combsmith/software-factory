@@ -28,6 +28,7 @@ session hooks `.claude/settings.json` runs; `hooks/shell.py` reads a shell comma
 | A hook never hands its own git an option taken from the command, and shows no credential | `tests/test_hooks.py::test_a_push_names_no_option_to_the_hooks_own_git`, `tests/test_hooks.py::test_a_credential_is_never_shown` |
 | A hook is fed a violation and a clean case. Most cases call the function its `main()` calls; one goes through the front door | `tests/test_hooks.py` |
 | A hook that guards an identity refuses what it cannot read: no git or gh, a command it cannot split, a directory it cannot tell | `tests/test_hooks.py::test_what_the_hook_cannot_read_is_refused` |
+| Only a failing test kills a mutant; a run that hangs, crashes or cannot import is an `ERROR` | `tests/test_tools.py::test_only_a_failing_test_kills_a_mutant`, `tests/test_tools.py::test_a_run_that_hangs_is_ended_reported_and_fails_the_check` |
 | An entry in `mutants.py` names text that appears once in its file. Change that text, or write the same text on a second line, and the entry goes `STALE`; update it | `mutants.py` |
 
 A check collects every problem and does not stop at the first. Its message says what is wrong and
