@@ -5,8 +5,11 @@ is a rule nothing is checking. Run with `python3 -m tools.mutants`.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import os
 import pathlib
+import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -114,33 +117,81 @@ MUTANTS = [
 ]
 
 
-def main() -> int:
-    survived = []
+TIMEOUT = 600      # seconds for one run of the suite. A run that takes longer is an ERROR, never a kill
+# What unittest prints last when a test failed or raised. Without it, the run broke some other way.
+FAILED = re.compile(r"^FAILED \((?:failures|errors)=", re.M)
+# unittest's stand-in for a test module that would not import: the copy is broken, not the rule.
+UNIMPORTABLE = "unittest.loader._FailedTest"
+# How every ERROR's reason ends. An ERROR says nothing of the rule, so the run is mended and made again.
+AGAIN = "; fix the copy or run named here, then run python3 -m tools.mutants again"
+
+
+def suite(cwd: pathlib.Path, timeout: float = TIMEOUT) -> tuple:
+    """Run the tests in `cwd` to the first failure: (exit status, output), the status None if it timed out."""
     env = dict(os.environ, SIM_SEEDS="40", MUTATING="1")
-    whole = subprocess.run([sys.executable, "-m", "unittest", "discover", "-q", "tests"],
-                           cwd=ROOT, env=env, capture_output=True)
-    if whole.returncode != 0:
-        print("the tests fail before anything is broken; a mutant cannot be told from that")
+    with subprocess.Popen([sys.executable, "-m", "unittest", "discover", "-q", "-f", "tests"], cwd=str(cwd),
+                          env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          start_new_session=True) as run:
+        try:
+            out, _ = run.communicate(timeout=timeout)
+            return run.returncode, out.decode(errors="replace")
+        except subprocess.TimeoutExpired:
+            # Its children go too, so that none is left holding the output open.
+            os.killpg(run.pid, signal.SIGKILL)
+            out, _ = run.communicate()
+            return None, out.decode(errors="replace")
+
+
+def verdict(status, output: str) -> tuple:
+    """What a run of the suite says of its mutant: ("killed", "SURVIVED" or "ERROR", and why)."""
+    if status is None:
+        return "ERROR", "the run took longer than %d s%s" % (TIMEOUT, AGAIN)
+    if status == 0:
+        return "SURVIVED", ""
+    if status == 1 and FAILED.search(output) and UNIMPORTABLE not in output:
+        return "killed", ""
+    last = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "no output")
+    return "ERROR", "exit status %d and no test failed, ending %r%s" % (status, last, AGAIN)
+
+
+def attempt(mutant: tuple, root: pathlib.Path, run) -> tuple:
+    """Break one rule in a fresh copy of `root` and run the tests there: (outcome, why)."""
+    name, rel, old, new = mutant
+    with tempfile.TemporaryDirectory() as tmp:
+        work = pathlib.Path(tmp) / "repo"
+        walk.copy(root, work)
+        target = work / rel
+        text = target.read_text()
+        if text.count(old) != 1:
+            return "STALE", "the code it mutates has changed"
+        target.write_text(text.replace(old, new))
+        return verdict(*run(work))
+
+
+def guarded(mutant: tuple, root: pathlib.Path, run) -> tuple:
+    """`attempt`, with anything it raises made an ERROR for this mutant, so that the others still report."""
+    try:
+        return attempt(mutant, root, run)
+    except Exception as err:    # a failed copy, read or run; never a kill
+        return "ERROR", "the run failed with %s: %s%s" % (type(err).__name__, err, AGAIN)
+
+
+def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: int = None) -> int:
+    mutants = MUTANTS if mutants is None else mutants
+    outcome, why = verdict(*run(root))
+    if outcome != "SURVIVED":
+        print("the tests fail before anything is broken; a mutant cannot be told from that%s"
+              % (" (%s)" % why if why else ""))
         return 1
-    for name, rel, old, new in MUTANTS:
-        with tempfile.TemporaryDirectory() as tmp:
-            work = pathlib.Path(tmp) / "repo"
-            walk.copy(ROOT, work)
-            target = work / rel
-            text = target.read_text()
-            if text.count(old) != 1:
-                print("STALE     %s (the code it mutates has changed)" % name)
-                survived.append(name)
-                continue
-            target.write_text(text.replace(old, new))
-            done = subprocess.run([sys.executable, "-m", "unittest", "discover", "-q", "tests"],
-                                  cwd=work, env=env, capture_output=True)
-            killed = done.returncode != 0
-            print("%-9s %s" % ("killed" if killed else "SURVIVED", name))
-            if not killed:
-                survived.append(name)
-    print("%d of %d mutants killed" % (len(MUTANTS) - len(survived), len(MUTANTS)))
-    return 1 if survived else 0
+    killed = 0
+    # One run to a CPU. map() hands the results back in the order of `mutants`, however the runs finish.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers or os.cpu_count() or 1) as pool:
+        results = pool.map(lambda mutant: guarded(mutant, root, run), mutants)
+        for mutant, (outcome, why) in zip(mutants, results):
+            print("%-9s %s%s" % (outcome, mutant[0], " (%s)" % why if why else ""), flush=True)
+            killed += outcome == "killed"
+    print("%d of %d mutants killed" % (killed, len(mutants)))
+    return 0 if killed == len(mutants) else 1
 
 
 if __name__ == "__main__":
