@@ -32,11 +32,12 @@ class Broken(AssertionError):
 
 class World:
     def __init__(self, seed: int, faults: bool = True, people: bool = True,
-                 approvals_land: bool = True, queue_merges: bool = True):
+                 approval_fails: str = None, queue_merges: bool = True):
         self.rng = random.Random(seed)
         self.seed, self.faults, self.people = seed, faults, people
-        # Two worlds that never end on their own: an approval that never lands, a queue that ejects every time.
-        self.approvals_land, self.queue_merges = approvals_land, queue_merges
+        # Worlds that never end on their own: an approval that never lands, failing every time with the
+        # fault `approval_fails` names ("item" or "environment"), and a queue that ejects every time.
+        self.approval_fails, self.queue_merges = approval_fails, queue_merges
         self.minute = 0
         self.content = 1
         self.pr_state = "open"
@@ -76,7 +77,8 @@ class World:
             "queue": self.queue,
             # GitHub: the_timeline_shows_each_act
             "acts_since_writer": self.acts,
-            "complete": {"reviews": True, "threads": True, "checks": True, "diff": True, "runs": True},
+            "complete": {"reviews": True, "threads": True, "checks": True, "diff": True, "runs": True,
+                         "timeline": True},
             "read_at": self.now(),
         }
 
@@ -166,9 +168,12 @@ class World:
                "intent": t.ISSUE_APPROVAL, "content_id": self.cid(), "status": "completed",
                "conclusion": "success", "outcome": None, "started_at": self.now()}
         self.runs.append(run)
-        if not self.approvals_land or (self.faults and self.rng.random() < 0.15):
+        fault = self.approval_fails
+        if fault is None and self.faults and self.rng.random() < 0.15:
+            fault = self.pick(["item", "environment", "capacity"])
+        if fault is not None:
             # GitHub: an_approval_can_fail_to_land
-            run.update(conclusion="failure", outcome="item")
+            run.update(conclusion="failure", outcome=fault)
             self.note("run %s: the approval did not land" % run["run"])
             return
         # GitHub: the_machine_users_approval_counts
@@ -319,12 +324,17 @@ class World:
             ok = any(rv["state"] == "approved" and rv["content_id"] == self.cid() for rv in self.reviews)
             self.check(ok, "NFR-4 merged without an approval of the merged content")
         since = [r for r in self.runs if r["started_at"] > self.last_writer and r["outcome"] != "superseded"]
-        model = [r for r in since if r["intent"] != t.ISSUE_APPROVAL]
-        self.check(len(model) <= CONFIG["limits"]["max_runs_per_item"] + 1, "run ceiling per item")
+        # A landed approval is an act, counted below; every other Run, a failed approval among them, is spent.
+        landed = [r for r in since if r["intent"] == t.ISSUE_APPROVAL and r["conclusion"] == "success"]
+        spent = [r for r in since if r not in landed]
+        self.check(len(spent) <= CONFIG["limits"]["max_runs_per_item"] + 1, "run ceiling per item")
         # I-8: every automated action is inside a Run, bounded above, or is an act, bounded here.
         self.check(self.acts <= CONFIG["limits"]["max_acts_per_item"], "I-8 acts since a writer exceed the ceiling")
-        failed = [r for r in since if r["intent"] == t.ISSUE_APPROVAL and r["outcome"] == "item"]
-        self.check(len(failed) <= CONFIG["limits"]["max_attempts"], "I-8 an approval that does not land is issued again")
+        unlanded = [r for r in spent if r["intent"] == t.ISSUE_APPROVAL]
+        self.check(len([r for r in unlanded if r["outcome"] == "item"]) <= CONFIG["limits"]["max_attempts"],
+                   "I-8 an approval that does not land is issued again")
+        self.check(len(unlanded) <= CONFIG["limits"]["max_runs_per_item"],
+                   "I-8 an approval that fails for a cause outside the item is issued for ever")
 
     def settle(self, steps: int = 400):
         """Stop the faults and the people, and let the Factory finish."""

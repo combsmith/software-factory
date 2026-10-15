@@ -251,7 +251,8 @@
         "threads",
         "checks",
         "diff",
-        "runs"
+        "runs",
+        "timeline"
       ],
       "properties": {
         "reviews": {
@@ -267,6 +268,9 @@
           "type": "boolean"
         },
         "runs": {
+          "type": "boolean"
+        },
+        "timeline": {
           "type": "boolean"
         }
       }

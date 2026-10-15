@@ -327,7 +327,7 @@ for contract tests, so one schema has three uses.
 | `queue` | Merge-queue membership |
 | `acts_since_writer` | Count of acts that landed since the last action by a person with write access, from GitHub's timeline: each approval, enqueue, dequeue and label a Factory identity made with no model Run |
 | `read_at`, `quota_remaining` | When it was read, and what the installation has left |
-| `complete` | For each list above, whether every page was read; whether the diff behind `content_id` was whole; and `runs`, whether the list of run records the pass read was whole |
+| `complete` | For each list above, whether every page was read; whether the diff behind `content_id` was whole; `runs`, whether the list of run records the pass read was whole; and `timeline`, whether the timeline behind `acts_since_writer` was read in full |
 
 An incomplete read is an unreadable one. A list cut off at a page limit must never be taken to mean
 "nothing more": the Kernel defers on any fact marked incomplete, and a truncated diff means a
@@ -342,7 +342,9 @@ moves work on, an approval or an enqueue, is made only while the count is below
 `max_acts_per_item`; at the ceiling the item is held, reason `act_ceiling`, for the Maintainer to
 see. An act that stops work, a Hold label or a dequeue, is counted and never refused. A count that
 is missing, negative or not a whole number is unreadable: the Kernel defers and makes no act
-(I-13). The count bounds acts only; a Run is bounded by the Run ceiling.
+(I-13). The count comes from the timeline, which is paged like any list, and `complete.timeline`
+says whether it was read in full: a timeline read short undercounts, and the item defers (I-20).
+The count bounds acts only; a Run is bounded by the Run ceiling.
 
 An issue has facts of its own (§4.1, the issue Lifecycle):
 
@@ -610,8 +612,11 @@ estimated. One cause must never become fifty Holds.
 holds the machine user's token (§4.9). It has no `run` job and no model, and it asks the Kernel
 again as it starts (I-38). Its run record is what bounds an approval that does not land: a failed
 one whose outcome is `item` is an attempt, and `max_attempts` of them since a person with write
-access acted hold the item, reason `attempts_exhausted` (I-28). It counts toward its own attempts
-and not toward the Run ceiling, which stays the cost ceiling (FR-39). Every other act, an enqueue,
+access acted hold the item, reason `attempts_exhausted` (I-28). An approval that lands is an act,
+and does not count toward the Run ceiling, which stays the cost ceiling (FR-39). One that does not
+land, whatever its fault, is never on the timeline, so it counts toward the Run ceiling like any
+Run: an approval failing for a cause outside the item, such as an expired token, is not an attempt,
+and without this would be issued for ever. Every other act, an enqueue,
 a dequeue or a label the Controller adds, is the Controller's and has no run record. Every act that
 lands, the approval among them, is counted from GitHub's timeline as `acts_since_writer` (§3.3).
 So every automated action on an item is either inside a Run, bounded by `max_runs_per_item`, or is
@@ -1275,7 +1280,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | The approver is the author or the last pusher | GitHub rejects or discards the approval. The Kernel reads `author` and `last_pusher`, attempts no approval, and holds the item with that reason (I-26). The machine user therefore never pushes (§5.1) |
 | A branch pushed every few minutes | Deterministic Lenses first; a model review starts only on content they have passed (I-27) |
 | A Hold released, or a pull request reopened, after attempts ran out | Attempts count since the last action by a person with write access, which grants a fresh allowance. No agent's action does, and nor does a stranger's comment: on a public repo that would let anyone keep an agent running (I-28) |
-| An approval that does not land | The approval is a Run with no Engine. A failed one whose fault is the item's is an attempt, and at `max_attempts` the item is held (§3.10) |
+| An approval that does not land | The approval is a Run with no Engine. A failed one whose fault is the item's is an attempt, and at `max_attempts` the item is held. One that fails for any other fault, such as an expired token, counts toward the Run ceiling (§3.10) |
 | A merge queue that ejects the pull request every time | Each enqueue is an act. At `max_acts_per_item` acts since a person with write access acted, the item is held, reason `act_ceiling` (§3.3) |
 | An empty diff | Never converges (I-24). The POC merged ten |
 | A diff too large to hash or to review | Each class has a size limit. Over it, one Hold, with the choices: split it, or review it by hand. No Run is spent finding out |

@@ -36,7 +36,7 @@ NONE = "none"
 GATING_SEVERITIES = frozenset({"blocking", "major"})
 
 # What the facts say was read in full: the flags `complete` requires in schemas/facts.schema.json.
-READ_IN_FULL = ("checks", "diff", "reviews", "runs", "threads")
+READ_IN_FULL = ("checks", "diff", "reviews", "runs", "threads", "timeline")
 
 # Labels: the human's input vocabulary.
 LABEL_HOLD = "factory:hold"

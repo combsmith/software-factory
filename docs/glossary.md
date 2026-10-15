@@ -10,7 +10,7 @@ This page holds only the words this repo uses that the requirements do not defin
 |---|---|
 | Facts | What GitHub holds about one Work item, read in one pass, with a flag for each list that was read in full. `schemas/facts.schema.json` |
 | Run record | GitHub's record that a Run happened and how it ended. `schemas/run-record.schema.json` |
-| Act | A change the Kernel decides with no model: an approval, an enqueue, a dequeue, or a label the Controller adds. The approval is made by a Run with no Engine, whose run record bounds the attempts at one that does not land. Every act that lands is counted from GitHub's timeline as `acts_since_writer`, against `max_acts_per_item`. An act that stops work is counted and never refused |
+| Act | A change the Kernel decides with no model: an approval, an enqueue, a dequeue, or a label the Controller adds. The approval is made by a Run with no Engine. One that does not land is bounded by its attempts, and by the Run ceiling whatever its fault. Every act that lands is counted from GitHub's timeline, read in full, as `acts_since_writer`, against `max_acts_per_item`. An act that stops work is counted and never refused |
 | Decision | What the Kernel concluded for one Work item in one pass: State, reason, outcome. `schemas/decision.schema.json` |
 | Class | Who a Work item comes from: `agent`, `maintainer`, `dependency` (opened by a dependency bot; a dependency update while that bot pushed its head itself) or `outside` (a fork, or someone who is not a collaborator). Worked out once, when the facts are read |
 | Gating | A Finding gates when it sends the Work item back to its author. That is not a Hold, which stops the item until a person acts |

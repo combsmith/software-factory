@@ -14,6 +14,8 @@ REVIEWED = [run()]
 DEPENDENCY = {"class": "dependency", "author": "dependabot[bot]", "last_pusher": "dependabot[bot]"}
 APPROVED = [{"actor": "donpetry-bot", "state": "approved", "commit": "c1", "content_id": "sha256:aaaa"}]
 LIMITS = CONFIG["limits"]
+# Every list the facts are read from, each with its flag in `complete`.
+PARTS = ("reviews", "threads", "checks", "diff", "runs", "timeline")
 
 
 def at(minute: int) -> str:
@@ -36,9 +38,10 @@ def go(f, runs=(), ctx=None, cfg=None):
 class Readability(unittest.TestCase):
     def test_incomplete_facts_never_converge_or_admit(self):  # I-20
         # A list of Runs read short can hide a Run in progress or one that counts toward a ceiling (I-13).
+        # A timeline read short undercounts the acts, and would let one past the act ceiling.
         for runs, whole in ((REVIEWED, "act"), ((), "admit")):
             self.assertEqual(go(facts(), runs)["outcome"], whole)
-            for part in ("reviews", "threads", "checks", "diff", "runs"):
+            for part in PARTS:
                 f = facts()
                 f["complete"][part] = False
                 d = go(f, runs)
@@ -49,7 +52,7 @@ class Readability(unittest.TestCase):
         # A fact read from outside is never given a default: a missing or malformed flag is not a whole list.
         approved = [{"actor": "donpetry-bot", "state": "approved", "commit": "c1", "content_id": "sha256:aaaa"}]
         for runs in (REVIEWED, ()):
-            for part in ("reviews", "threads", "checks", "diff", "runs"):
+            for part in PARTS:
                 for value in ("missing", "false", "no", "true", 1, 0, None):
                     f = facts(reviews=approved)
                     if value == "missing":
@@ -79,7 +82,7 @@ class Readability(unittest.TestCase):
     def test_incomplete_facts_are_read_after_a_merged_or_closed_item(self):  # I-20
         # The list of Runs is read once a pass for every item; cut short, it must not hide a merge or a close.
         for state in ("merged", "closed"):
-            for part in ("reviews", "threads", "checks", "diff", "runs"):
+            for part in PARTS:
                 f = facts(state=state)
                 f["complete"][part] = False
                 d = go(f, REVIEWED)
@@ -394,6 +397,25 @@ class Ceilings(unittest.TestCase):
             d = go(facts(), REVIEWED + approvals(LIMITS["max_attempts"], outcome=kind))
             self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"), kind)
 
+    def test_an_approval_that_keeps_failing_for_the_environment_is_bounded(self):  # I-8
+        # Not an attempt, and never landed, so not an act: only the Run ceiling can bound it.
+        ceiling = LIMITS["max_runs_per_item"]
+        for kind in ("environment", "capacity", "superseded", None):
+            d = go(facts(), REVIEWED + approvals(ceiling - 1, outcome=kind))
+            self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"]),
+                             ("held", "hold", "run_ceiling", "needs_you"), kind)
+            d = go(facts(), REVIEWED + approvals(ceiling - 2, outcome=kind))
+            self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"), kind)
+            # A writer's action renews the allowance, as for any Run.
+            d = go(facts(last_writer_action_at=at(40)), REVIEWED + approvals(ceiling - 1, outcome=kind))
+            self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"), kind)
+
+    def test_a_failed_model_run_is_not_an_approval_attempt(self):
+        fixes = [run(role="dev-lead", intent="fix-findings", conclusion="failure", outcome="item",
+                     at=at(20 + i), name="f%d" % i) for i in range(LIMITS["max_attempts"])]
+        d = go(facts(), REVIEWED + fixes)
+        self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
+
     def test_an_approval_that_landed_is_enqueued_whatever_failed_before(self):
         d = go(facts(reviews=APPROVED), REVIEWED + approvals(LIMITS["max_attempts"]))
         self.assertEqual((d["outcome"], d["action"]), ("act", "enqueue"))
@@ -436,9 +458,10 @@ class Ceilings(unittest.TestCase):
         for value in (over, None):
             d = go(facts(acts_since_writer=value))
             self.assertEqual((d["outcome"], d["admit"]["intent"]), ("admit", "review-change"), value)
-        cases = [({"labels": ["factory:hold"]}, REVIEWED, "human_hold"),
-                 ({"last_pusher": "donpetry-bot"}, REVIEWED, "approver_is_author_or_last_pusher"),
-                 ({}, REVIEWED + approvals(LIMITS["max_attempts"]), "attempts_exhausted")]
+        failing = approvals(LIMITS["max_runs_per_item"] - 1, outcome="environment")
+        cases = [({"last_pusher": "donpetry-bot"}, REVIEWED, "approver_is_author_or_last_pusher"),
+                 ({}, REVIEWED + approvals(LIMITS["max_attempts"]), "attempts_exhausted"),
+                 ({}, REVIEWED + failing, "run_ceiling")]
         for over_, runs, reason in cases:
             d = go(facts(acts_since_writer=over, **over_), runs)
             self.assertEqual((d["outcome"], d["reason"]), ("hold", reason), reason)

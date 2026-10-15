@@ -38,13 +38,17 @@ class Simulation(unittest.TestCase):
                 seed, last["state"], last["reason"], "\n".join(world.trace[-15:])))
 
     def test_an_approval_that_never_lands_is_bounded(self):  # I-8
-        self.rests_on_its_bound(dict(approvals_land=False), "attempts_exhausted")
+        self.rests_on_its_bound(dict(approval_fails="item"), "attempts_exhausted")
+
+    def test_an_approval_that_keeps_failing_for_the_environment_is_bounded(self):  # I-8
+        # Not an attempt and never an act: the Run ceiling bounds it.
+        self.rests_on_its_bound(dict(approval_fails="environment"), "run_ceiling")
 
     def test_a_queue_that_ejects_every_time_is_bounded(self):  # I-8
         self.rests_on_its_bound(dict(queue_merges=False), "act_ceiling")
 
     def rests_on_its_bound(self, world: dict, reason: str):
-        """A world that never ends on its own stops on a ceiling, with faults and people and after them."""
+        """A world that never ends on its own stops on its bound, or earlier on the Run ceiling."""
         reasons = []
         for seed in SEEDS:
             w = World(seed, **world)
@@ -53,8 +57,9 @@ class Simulation(unittest.TestCase):
             last = w.settle()
             self.assertEqual((w.pr_state, last["state"]), ("open", "held"), "seed %d: %s\n%s" % (
                 seed, last["reason"], "\n".join(w.trace[-15:])))
+            self.assertIn(last["reason"], (reason, "run_ceiling"), "seed %d" % seed)
             reasons.append(last["reason"])
-        self.assertGreater(reasons.count(reason), len(reasons) // 2, reasons)
+        self.assertIn(reason, reasons)
 
     def test_a_quiet_world_merges_or_stops_on_a_ceiling(self):
         for seed in SEEDS:
