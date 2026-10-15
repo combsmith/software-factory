@@ -244,13 +244,16 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     """Return {'state', 'reason', 'evidence'} for one pull request, and 'dequeue' when it must leave the merge queue.
 
     GitHub reads the reviews only as an item enters the queue (L-19). A queued item stays only while, read as if it
-    were not queued, it would be approved and ready to merge. Any other reading takes it out, with that reading's
+    were not queued, it would be approved and ready to merge. A wait that ends on its own is read past: a merge
+    state GitHub has not worked out, which it reports each time the base moves, a required check not reported yet,
+    and a required Lens that has not reported on this content. Any other reading takes it out, with that reading's
     State and reason: a lost approval and an open gate get codes of their own. An item that is ended or not served
     is left alone, and so is one marked hands-off, which the Factory never acts on.
     """
-    d = reading(facts, runs, config)
+    d = reading(facts, runs, config, ())
     if d["state"] in t.TERMINAL or not facts["queue"] or t.LABEL_HANDS_OFF in facts["labels"]:
         return d
+    d = reading(facts, runs, config, t.QUEUE_WAITS)
     if d["reason"] == "approved":
         return {"state": t.QUEUED, "reason": "in_merge_queue", "evidence": []}
     if d["reason"] == "approval_due":
@@ -260,8 +263,10 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     return dict(d, dequeue=True)
 
 
-def reading(facts: dict, runs: list, config: dict) -> dict:
+def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     """Return {'state', 'reason', 'evidence'} for one pull request, read as if it were not in the merge queue.
+
+    `past` names the waits to read past, by their reasons: none, or for a queued item `t.QUEUE_WAITS`.
 
     `state` is None when the facts of an open item are incomplete, or the
     merge state is not known: an incomplete read is an unreadable one, and
@@ -299,7 +304,7 @@ def reading(facts: dict, runs: list, config: dict) -> dict:
     mergeable = facts.get("mergeable")
     if mergeable is False:
         return {"state": t.ADDRESSING, "reason": "conflict", "evidence": []}
-    if mergeable is not True:
+    if mergeable is not True and "mergeable_unreadable" not in past:
         return {"state": None, "reason": "mergeable_unreadable", "evidence": []}
 
     # Deterministic Lenses first: a model's time is not spent on content they reject.
@@ -320,13 +325,13 @@ def reading(facts: dict, runs: list, config: dict) -> dict:
     # Otherwise a check that gave no verdict could have said anything, so nothing is decided on the others.
     if unreadable:
         return {"state": t.VERIFYING, "reason": "check_unreadable", "evidence": unreadable}
-    if waiting:
+    if waiting and "awaiting_checks" not in past:
         return {"state": t.VERIFYING, "reason": "awaiting_checks", "evidence": waiting}
 
     # Then the model Lenses this item needs: a dependency update needs none, and skips nothing else.
     mine = runs_on(runs, facts)
     for lens in required_model_lenses(facts, config):
-        if not reviewed_clean_or_not(mine, facts, lens):
+        if not reviewed_clean_or_not(mine, facts, lens) and "awaiting_review" not in past:
             return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens]}
 
     # Every gate before the approval: a standing approval never passes over a person's objection.

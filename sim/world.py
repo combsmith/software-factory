@@ -119,8 +119,8 @@ class World:
 
     def objections(self) -> list:
         """What a queued item may not merge over, in the world's own words: no approval of its content by the
-        approver that stands, a writer's request for changes or open thread, a Hold, or a required check that has
-        not passed (L-19, FR-23, I-9)."""
+        approver that stands, a writer's request for changes or open thread, a Hold, or a required check that
+        failed or gave no verdict (L-19, FR-23, I-9). A check still pending is a wait, and is no objection."""
         out = []
         if not any(rv["by"]["name"] == CONFIG["approver"] and rv["state"] == "approved" and rv["content_id"] == self.cid()
                    for rv in self.reviews):
@@ -131,8 +131,8 @@ class World:
             out.append("a writer's open thread")
         if t.LABEL_HOLD in self.labels:
             out.append("a Hold")
-        if any(v != "success" for v in self.checks.values()):
-            out.append("a required check that has not passed")
+        if any(v not in ("success", "pending") for v in self.checks.values()):
+            out.append("a required check that failed or gave no verdict")
         return out
 
     def note(self, what: str):

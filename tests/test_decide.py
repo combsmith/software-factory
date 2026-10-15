@@ -920,31 +920,55 @@ class Queue(unittest.TestCase):
             d = go(f, REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
                              (None, "facts_incomplete", [part], "act", "dequeue"), part)
-        for over, reason in (({"reviews": [review(), rv]}, "review_unreadable"), ({"mergeable": None}, "mergeable_unreadable"),
-                             ({"mergeable": "UNKNOWN"}, "mergeable_unreadable")):
-            d = go(facts(**AGENT, queue=True, **dict({"reviews": APPROVED}, **over)), ANSWERED)
-            self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]), (None, reason, "act", "dequeue"), over)
+        d = go(facts(**AGENT, queue=True, reviews=[review(), rv]), ANSWERED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]), (None, "review_unreadable", "act", "dequeue"))
         # The other side: not queued, the same read defers and acts on nothing.
         d = go(facts(**AGENT, reviews=[review(), rv]), ANSWERED)
         self.assertEqual((d["reason"], d["outcome"]), ("review_unreadable", "defer"))
         self.assertNotIn("action", d)
 
-    def test_a_check_or_review_that_no_longer_passes_takes_it_out_of_the_queue(self):  # I-9, I-27
-        # Convergence must still hold on the content: a required check that now fails, gives no verdict or has not
-        # reported, a required Lens's review that is missing, or a conflict with the base.
+    def test_a_check_that_no_longer_passes_takes_it_out_of_the_queue(self):  # I-9, I-27
+        # Convergence must still hold on the content: a required check that now fails or gives no verdict, or a
+        # conflict with the base. Each is a definite answer, and none ends on its own.
         lens = GREEN[0]["lens"]
-        cases = [({"checks": with_check(0, "failure")}, REVIEWED, "addressing", "check_failed", [lens]),
-                 ({"checks": with_check(0, "timed_out")}, REVIEWED, "addressing", "check_failed", [lens]),
-                 ({"checks": with_check(0, "neutral")}, REVIEWED, "verifying", "check_unreadable", [lens]),
-                 ({"checks": with_check(0, "absent")}, REVIEWED, "verifying", "awaiting_checks", [lens]),
-                 ({}, (), "verifying", "awaiting_review", ["pr-review"]),
-                 ({"mergeable": False}, REVIEWED, "addressing", "conflict", [])]
-        for over, runs, state, reason, evidence in cases:
-            d = go(facts(queue=True, reviews=APPROVED, **over), runs)
+        cases = [({"checks": with_check(0, "failure")}, "addressing", "check_failed", [lens]),
+                 ({"checks": with_check(0, "timed_out")}, "addressing", "check_failed", [lens]),
+                 ({"checks": with_check(0, "neutral")}, "verifying", "check_unreadable", [lens]),
+                 ({"mergeable": False}, "addressing", "conflict", [])]
+        for over, state, reason, evidence in cases:
+            d = go(facts(queue=True, reviews=APPROVED, **over), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
                              (state, reason, evidence, "act", "dequeue"), reason)
         # The other side: every check passing and the review there, it stays.
         self.assertEqual(go(facts(queue=True, reviews=APPROVED), REVIEWED)["reason"], "in_merge_queue")
+
+    def test_a_normal_wait_leaves_a_pull_request_in_the_queue(self):  # I-13
+        # A wait ends on its own, so it takes nothing out. GitHub reports the merge state as unknown each time the base
+        # moves, and the base moves each time the queue merges another item: a dequeue on it would empty the queue. A
+        # required check that is pending or not there yet, and a required Lens that has not reported on this content,
+        # are waits too. Each is read past, and what lies behind it still decides.
+        waits = [({"mergeable": None}, REVIEWED, (None, "mergeable_unreadable")),
+                 ({"mergeable": "UNKNOWN"}, REVIEWED, (None, "mergeable_unreadable")),
+                 ({"checks": with_check(0, "pending")}, REVIEWED, ("verifying", "awaiting_checks")),
+                 ({"checks": with_check(0, "absent")}, REVIEWED, ("verifying", "awaiting_checks")),
+                 ({}, (), ("verifying", "awaiting_review")),
+                 ({}, [run(conclusion="failure", outcome="environment")], ("verifying", "awaiting_review")),
+                 ({"mergeable": None, "checks": with_check(0, "pending")}, (), (None, "mergeable_unreadable"))]
+        for over, runs, unqueued in waits:
+            d = go(facts(queue=True, reviews=APPROVED, **over), runs)
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"), over)
+            self.assertNotIn("action", d)
+            # The other side: not queued, the same item waits as it always did.
+            d = go(facts(reviews=APPROVED, **over), runs)
+            self.assertEqual((d["state"], d["reason"]), unqueued, over)
+            self.assertNotEqual(d["outcome"], "act", over)
+            # And behind the wait, a definite stop still takes the item out.
+            behind = [({"reviews": []}, "approval_lost"), ({"threads": [thread()]}, "gate_open")]
+            if "checks" not in over:
+                behind.append(({"checks": with_check(1, "failure")}, "check_failed"))
+            for more, reason in behind:
+                d = go(facts(queue=True, **dict({"reviews": APPROVED}, **over, **more)), runs)
+                self.assertEqual((d["reason"], d["outcome"], d.get("action")), (reason, "act", "dequeue"), (over, more))
 
     def test_a_draft_leaves_the_queue_and_an_unserved_item_is_left_alone(self):
         # A draft is not ready, so it cannot be ready to merge. An item whose base is not protected is not served at

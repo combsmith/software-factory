@@ -900,16 +900,21 @@ leaves each item where it is.
 
 **Leaving the merge queue.** GitHub reads the reviews only as a pull request enters the merge queue
 (L-19). So every pass reads a queued item as if it were not queued. It stays only if that reading
-is approved and ready to merge: `converged`, reason `approved`. Any other reading takes it out with
-the act `dequeue`, and the Decision carries that reading's State and reason. Two get codes of their
+is approved and ready to merge: `converged`, reason `approved`. A wait that ends on its own is read
+past, and takes nothing out: a merge state GitHub has not worked out yet (`mergeable_unreadable`), a
+required check that is pending or has not reported (`awaiting_checks`), and a required Lens that has
+not reported on this content (`awaiting_review`). GitHub reports the merge state as unknown each time
+the base moves, and the base moves each time the queue merges another item, so a dequeue on it would
+empty the queue in normal running. What lies behind a wait still decides. Any other reading takes
+the item out with the act `dequeue`, and the Decision carries that reading's State and reason. Two get codes of their
 own. An approval that no longer stands for its content gives `approval_lost` (FR-31, I-9). An open
 gate gives `gate_open`: a thread or a request for changes from a person with write access, made
 before the item entered the queue or after, or a required Lens's Finding. Every Hold takes it out
 with its own reason: `human_hold`, `outside_not_admitted`, `too_large` or `empty_diff`. A Hold stops
 every Effect, and a merge is the last, so the dequeue is the one change the Factory makes to a held
-item (FR-23, I-21). So does a check that no longer passes, or a required Lens's review that is
-missing, with the reason the checks give (I-9, I-27), a conflict, and a draft. So does a read that
-fails: `facts_incomplete`, `review_unreadable` or `mergeable_unreadable`. A dequeue is a stop, not
+item (FR-23, I-21). So does a required check that now fails or gives no verdict, reason `check_failed` or
+`check_unreadable` (I-9, I-27), a conflict, and a draft. So does a read that fails:
+`facts_incomplete` or `review_unreadable`. A dequeue is a stop, not
 work, so a fact that cannot be read takes the item out rather than leaving it to merge (I-13).
 
 Three things are left alone. `factory:hands-off` is never acted on (§4.7). A merged or closed item
@@ -920,9 +925,10 @@ act ceiling (I-8), and not delayed by a Run in progress. Under a Pause, or a Pau
 read, it defers, reason `paused` or `pause_unreadable`, as every act does, and the item is the
 Maintainer's to see: only they can stop the merge then. Meanwhile the queue can merge over anything
 that would have taken the item out: a lost approval, a writer's request for changes or thread, a
-Hold, or a check that no longer passes. Only the lost approval is found afterwards, as a merge with
-no Override record (FR-28). The others leave no mark on the merge. Once out, the item is read again
-as any item is.
+Hold, or a check that now fails. Only the lost approval is found afterwards, as a merge with no
+Override record (FR-28). The others leave no mark on the merge. A wait read past can merge too: a
+required check that never reported, or a Lens newly required, does not hold the item. Once out, the
+item is read again as any item is.
 
 Human transitions are declared like any other: marking ready, converting to draft, adding or
 removing a hold label, requesting changes, resolving a thread, approving, merging by Override.
@@ -1401,7 +1407,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | An empty diff | Never converges (I-24). The POC merged ten |
 | A diff too large to hash or to review | Each class has a size limit. Over it, one Hold, with the choices: split it, or review it by hand. No Run is spent finding out |
 | A conflict with the base | `mergeable` is false. It is the author's turn; in the first slice it is the Maintainer's |
-| A merge state GitHub has not worked out yet | `mergeable` is null. It is unreadable, like anything but true or false: the Kernel defers, and approves, enqueues and admits nothing until it is known (I-13) |
+| A merge state GitHub has not worked out yet | `mergeable` is null. It is unreadable, like anything but true or false: the Kernel defers, and approves, enqueues and admits nothing until it is known (I-13). A queued item stays in the queue: GitHub reports it each time the base moves (§4.1) |
 | A pull request that targets another feature branch, as stacked pull requests do | The Factory serves pull requests that target a protected branch. Others are shown as not served |
 | The poller was down for hours | An item is stale only if it went unevaluated while passes were running. A missing pass is one health alert, not one alert per item |
 | A third-party thread the reviewer does not adopt | The reviewer resolves it (§4.2), so the ruleset does not block the merge on it |
