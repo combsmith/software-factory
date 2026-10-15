@@ -61,10 +61,17 @@ def context(**over) -> dict:
     return c
 
 
+# Said for a thread's category to mean the one its kind of opener gives, so that None stays None.
+BY_KIND = "by kind"
+
+
 def thread(tid="T1", kind="lens", name="pr-review", can_write=True, severity="major", resolved=False,
-           at="2026-10-11T12:15:00Z") -> dict:
+           at="2026-10-11T12:15:00Z", category=BY_KIND) -> dict:
+    """A thread as GitHub holds it. A person's is a `human` Finding; by default a Lens's is a `functional` one."""
+    if category == BY_KIND:
+        category = "human" if kind == "human" else "functional"
     return {"id": tid, "resolved": resolved, "opened_by": {"kind": kind, "name": name, "can_write": can_write},
-            "severity": severity, "resolved_by": None, "opened_at": at}
+            "category": category, "severity": severity, "resolved_by": None, "opened_at": at}
 
 
 def review(state="approved", kind="lens", name="donpetry-bot", can_write=True, content="sha256:aaaa", commit="c1",

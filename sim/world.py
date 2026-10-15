@@ -344,11 +344,16 @@ class World:
         if run["intent"] == "review-change":
             if self.rng.random() < 0.5:
                 # GitHub: a_lens_review_opens_a_thread
-                self.moves()
-                self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
-                                     "opened_by": {"kind": "lens", "name": "pr-review", "can_write": True},
-                                     "severity": self.pick(["blocking", "major", "minor"]), "resolved_by": None,
-                                     "opened_at": self.now()})
+                category, severity = self.pick(["functional", "security", "architecture"]), \
+                    self.pick(["blocking", "major", "minor"])
+                # A Finding that does not gate is an annotation on the Lens's check run, never a thread; a minor
+                # security Finding gates as a major one does, so it is one: severity is never how one gets merged.
+                if severity != "minor" or category == "security":
+                    self.moves()
+                    self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
+                                         "opened_by": {"kind": "lens", "name": "pr-review", "can_write": True},
+                                         "category": category, "severity": severity, "resolved_by": None,
+                                         "opened_at": self.now()})
         elif run["intent"] == "fix-findings":
             # GitHub: an_app_pushes_to_the_head
             self.push("combsmith-sf-dev-lead[bot]", writer=False)
@@ -454,7 +459,7 @@ class World:
     def open_thread(self):
         self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
                              "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
-                             "severity": None, "resolved_by": None, "opened_at": self.now()})
+                             "category": "human", "severity": None, "resolved_by": None, "opened_at": self.now()})
         self.writer_acted()
         self.note("maintainer opened a thread")
 

@@ -41,6 +41,7 @@
         "name": "pr-review",
         "can_write": true
       },
+      "category": "functional",
       "severity": "major",
       "resolved_by": null,
       "opened_at": "2026-10-11T12:15:00Z"
@@ -53,6 +54,7 @@
         "name": "coderabbit",
         "can_write": false
       },
+      "category": null,
       "severity": null,
       "resolved_by": null,
       "opened_at": "2026-10-11T12:15:00Z"

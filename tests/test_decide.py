@@ -661,6 +661,69 @@ class Convergence(unittest.TestCase):
         f = facts(threads=[thread(severity="minor"), thread(tid="T2", name="coderabbit", can_write=False)])
         self.assertEqual(go(f, REVIEWED)["state"], "converged")
 
+    def test_a_minor_security_finding_gates(self):  # FR-33, I-16: severity is never how a security defect is merged
+        # A required Lens's `security` Finding gates at any severity, a dependency update's too. One with no severity
+        # cannot be read at all (test_a_required_lens_thread_that_cannot_be_read_defers).
+        for severity in ("minor", "info"):
+            for over in ({}, DEPENDENCY):
+                f = facts(**over, threads=[thread(severity=severity, category="security")])
+                d = go(f, REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "findings_open", ["T1"]),
+                                 (severity, over))
+                self.assertEqual(d["admit"]["intent"], "fix-findings")
+        # The other side: a Finding of any other category gates by its severity alone.
+        for category in ("functional", "architecture", "mechanical", "uncategorised"):
+            f = facts(threads=[thread(severity="minor", category=category)])
+            self.assertEqual(go(f, REVIEWED)["state"], "converged", category)
+
+    def test_a_security_finding_from_a_lens_that_is_not_required_does_not_gate(self):  # FR-32
+        # A Lens outside the required set gates only when a required Lens adopts its Finding, whatever the category.
+        for severity in ("blocking", "minor"):
+            f = facts(threads=[thread(name="coderabbit", can_write=False, severity=severity, category="security")])
+            self.assertEqual(go(f, REVIEWED)["state"], "converged", severity)
+        # Adopted, it is the required Lens's own, and gates.
+        adopted = [thread(name="coderabbit", can_write=False, severity="minor", category="security"),
+                   thread(tid="T2", severity="minor", category="security")]
+        d = go(facts(threads=adopted), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "findings_open", ["T2"]))
+
+    def test_a_required_lens_thread_that_cannot_be_read_defers(self):  # I-13, FR-33
+        # Whether a required Lens's thread gates is read from its category and severity, and a security Finding gates
+        # at any severity. Either missing, null, or a word the Kernel does not know could hide one: nothing converges,
+        # nothing is admitted, and the item is the Maintainer's to see, as for a review that cannot be read.
+        unreadable = [{"category": None}, {"category": "Security"}, {"category": "security "}, {"category": "secret"},
+                      {"severity": None}, {"severity": "Minor"}, {"severity": "critical"},
+                      {"category": None, "severity": None}, "category", "severity"]
+        for bad in unreadable:
+            th = thread(severity="minor", category="security")
+            if isinstance(bad, str):
+                del th[bad]
+            else:
+                th.update(bad)
+            for reviews in ([], APPROVED):
+                d = go(facts(reviews=reviews, threads=[thread(tid="T0", severity="minor"), th]), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                 (None, "thread_unreadable", ["T1"], "defer", "needs_you"), (bad, reviews))
+            # It is read after what needs no thread, a Hold among them, and before a model review is admitted.
+            self.assertEqual(go(facts(labels=["factory:hold"], threads=[th]))["reason"], "human_hold", bad)
+            self.assertEqual(go(facts(threads=[th]))["reason"], "thread_unreadable", bad)
+            # A model Lens's thread is read whatever the class, as it gates whatever the class.
+            self.assertEqual(go(facts(**DEPENDENCY, threads=[th]))["reason"], "thread_unreadable", bad)
+        # The other side: every category and severity the schema names can be read, and one resolved is not read.
+        for category in ("functional", "security", "architecture", "delivery", "reliability", "requirements",
+                         "mechanical", "uncategorised", "human"):
+            for severity in ("blocking", "major", "minor", "info"):
+                d = go(facts(threads=[thread(severity=severity, category=category)]), REVIEWED)
+                self.assertNotEqual(d["reason"], "thread_unreadable", (category, severity))
+        resolved = thread(severity=None, category=None, resolved=True)
+        self.assertEqual(go(facts(threads=[resolved]), REVIEWED)["state"], "converged")
+        # A Lens that is not required gates nothing, and may write both only as prose; a person's thread has no
+        # severity, and gates whatever it says.
+        advisory = thread(name="coderabbit", can_write=False, severity=None, category=None)
+        self.assertEqual(go(facts(threads=[advisory]), REVIEWED)["state"], "converged")
+        person = thread(kind="human", name="don-petry", severity=None, category=None)
+        self.assertEqual(go(facts(threads=[person]), REVIEWED)["reason"], "human_finding")
+
     def test_after_the_author_it_is_the_owners_turn(self):
         runs = REVIEWED + [run(role="dev-lead", intent="fix-findings", at="2026-10-11T12:20:00Z", name="r2")]
         d = go(facts(threads=[thread()]), runs)
@@ -862,6 +925,19 @@ class Queue(unittest.TestCase):
             self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"), threads)
             self.assertNotIn("action", d)
 
+    def test_a_minor_security_finding_opened_while_queued_takes_it_out_of_the_queue(self):  # FR-33, I-16
+        # A required Lens's security Finding is a gate at any severity, so it is one in the merge queue too.
+        for severity in ("minor", "info"):
+            d = go(facts(queue=True, reviews=APPROVED, threads=[thread(severity=severity, category="security")]),
+                   REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
+                             ("addressing", "gate_open", ["T1"], "act", "dequeue"), severity)
+        # The other side: a minor Finding of another category, or from a Lens that is not required, leaves it there.
+        for th in (thread(severity="minor"), thread(name="coderabbit", can_write=False, severity="minor",
+                                                    category="security")):
+            d = go(facts(queue=True, reviews=APPROVED, threads=[th]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"), th)
+
     def test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue(self):  # L-14
         # A writer's request gates as that person's thread does, made before the item entered the queue or after.
         asked = review(state="changes_requested", **MAINTAINER, at=at(30))
@@ -950,6 +1026,12 @@ class Queue(unittest.TestCase):
                              (None, "facts_incomplete", [part], "act", "dequeue"), part)
         d = go(facts(**AGENT, queue=True, reviews=[review(), rv]), ANSWERED)
         self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]), (None, "review_unreadable", "act", "dequeue"))
+        # So does a required Lens's thread whose category or severity cannot be read.
+        th = thread(severity="minor", category=None)
+        d = go(facts(queue=True, reviews=APPROVED, threads=[th]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
+                         (None, "thread_unreadable", ["T1"], "act", "dequeue"))
+        self.assertEqual(go(facts(reviews=APPROVED, threads=[th]), REVIEWED)["outcome"], "defer")
         # The other side: not queued, the same read defers and acts on nothing.
         d = go(facts(**AGENT, reviews=[review(), rv]), ANSWERED)
         self.assertEqual((d["reason"], d["outcome"]), ("review_unreadable", "defer"))

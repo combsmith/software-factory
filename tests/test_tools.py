@@ -18,7 +18,9 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 
+from kernel import terms
 from tools import (check_apps, check_authority, check_context, check_examples, check_lifecycle, check_purity,
                    check_repo, check_trials, check_workflows, mutants, redact_trial, verify, walk)
 from tools.jsonschema_lite import SchemaError, validate
@@ -400,6 +402,23 @@ class Authority(unittest.TestCase):
         problems = check_authority.run(self.table)
         self.assertTrue(caught(problems, "category human, and nobody owns it"))
         self.assertTrue(caught(problems, "performance has an owner, and no Finding can carry it"))
+
+    def test_a_thread_carries_the_categories_a_finding_does(self):
+        facts = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
+        enum = facts["properties"]["threads"]["items"]["properties"]["category"]["enum"]
+        enum.remove("security")
+        enum.append("style")
+        problems = check_authority.run(self.table, facts=facts)
+        self.assertTrue(caught(problems, "a thread may carry the category style, and no Finding can"))
+        self.assertTrue(caught(problems, "a Finding may carry the category security, and no thread can"))
+        # A schema with no category on a thread is a problem reported, not one raised.
+        del facts["properties"]["threads"]["items"]["properties"]["category"]
+        self.assertTrue(caught(check_authority.run(self.table, facts=facts), "a thread in the facts carries no category"))
+
+    def test_the_kernel_reads_the_categories_and_severities_a_finding_carries(self):
+        for name, value in (("CATEGORIES", terms.CATEGORIES[1:]), ("SEVERITIES", terms.SEVERITIES + ("critical",))):
+            with mock.patch.object(terms, name, value):
+                self.assertTrue(caught(check_authority.run(self.table), "the Kernel reads the"), name)
 
     def test_a_category_a_model_judges_needs_a_role_and_no_role_shadows_itself(self):
         self.table["categories"]["functional"]["owner"] = "human"

@@ -128,7 +128,7 @@ class Simulation(unittest.TestCase):
             if human_thread:
                 w.threads.append({"id": "T0", "resolved": False,
                                   "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
-                                  "severity": None, "resolved_by": None, "opened_at": w.now()})
+                                  "category": "human", "severity": None, "resolved_by": None, "opened_at": w.now()})
             before = w.last_writer
             w.person()
             self.assertEqual((w.acts == 0, w.last_writer != before), (renewed, renewed), human_thread)
