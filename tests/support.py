@@ -8,10 +8,13 @@ import pathlib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CONFIG = json.loads((ROOT / "config" / "defaults.json").read_text())
+# The configuration the Kernel is given: the defaults, and the Lifecycle whose staleness limits it reads.
+CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()),
+              lifecycle=json.loads((ROOT / "lifecycle" / "pull_request.json").read_text()))
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 42}
 NOW = "2026-10-11T13:00:00Z"
-GREEN = [{"lens": name, "conclusion": "success"} for name in CONFIG["required_lenses"]["deterministic"]]
+GREEN = [{"lens": name, "conclusion": "success", "completed_at": "2026-10-11T12:05:00Z"}
+         for name in CONFIG["required_lenses"]["deterministic"]]
 
 
 def pending(test):
@@ -52,7 +55,8 @@ def run(role="pr-review", intent="review-change", content="sha256:aaaa", status=
 
 
 def context(**over) -> dict:
-    c = {"paused": False, "active_runs": 0, "model_deferred_until": None}
+    """What the Controller knows beside the facts. The chain of passes starts at NOW, so no wait here is stale."""
+    c = {"paused": False, "active_runs": 0, "model_deferred_until": None, "passes_since": NOW}
     c.update(over)
     return c
 

@@ -12,7 +12,7 @@ applies wins. A queued item is read as if it were not, and stays only if that re
 | No text from outside: no function takes a comment body or a title | `examples/invalid/facts.carries-prose.json` |
 | A reason is a code that matches `^[a-z_]+$`, never a sentence | `examples/invalid/decision.sentence-as-reason.json` |
 | Fail to a deferral or a Hold. A fact read from outside is never given a default | `tests/test_decide.py::test_unreadable_capacity_defers` |
-| No number but 0 and 1. A limit is read from `config`, which is `config/defaults.json` | `tests/test_tools.py::test_a_limit_written_into_the_kernel_is_caught` |
+| No number but 0 and 1, but the calendar's that `tools/check_purity.py` pins. A limit is read from `config` | `tests/test_tools.py::test_a_limit_written_into_the_kernel_is_caught`, `tests/test_tools.py::test_only_the_calendar_may_write_a_number` |
 
 ## Adding a rule: copy this one
 
@@ -35,6 +35,6 @@ Then, only if your rule needs it:
 - A person must act on the new reason: add it to `NEEDS_YOU_REASONS` in `decide.py`.
 - It reads a new fact: add the field to `schemas/facts.schema.json`, `examples/facts.json`,
   `facts()` in `tests/support.py` and `sim/world.py`, together; a flag in `complete`, to `terms.py` too.
-- It reads a new limit: add it to `config/defaults.json` and `schemas/config.schema.json`.
+- It reads a new limit: add it to `config/defaults.json` and `schemas/config.schema.json`. A staleness limit stays in `lifecycle/`.
 - It makes a new transition between States: declare it in `lifecycle/pull_request.json`.
 - It is a boundary of a record in `docs/decisions/`: add a row there naming your test.

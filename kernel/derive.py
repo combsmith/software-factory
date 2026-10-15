@@ -104,6 +104,49 @@ def is_time(value) -> bool:
             and all(c in t.DIGITS if shape == "9" else c == shape for c, shape in zip(value, t.TIME_SHAPE)))
 
 
+def seconds(time: str) -> int:
+    """Seconds from the calendar's first day to `time`, a time in the one text format: the Kernel reads no clock."""
+    date, clock = time[:-1].split("T")
+    year, month, day = (int(part) for part in date.split("-"))
+    hour, minute, second = (int(part) for part in clock.split(":"))
+    every, unless, still = t.LEAP_YEARS
+    leap = year % every == 0 and (year % unless != 0 or year % still == 0)
+    past = year - 1
+    days = past * t.DAYS_PER_YEAR + past // every - past // unless + past // still
+    days += t.DAYS_BEFORE_MONTH[month - 1] + int(leap and month > t.FEBRUARY) + day - 1
+    return ((days * t.HOURS_PER_DAY + hour) * t.MINUTES_PER_HOUR + minute) * t.SECONDS_PER_MINUTE + second
+
+
+def moved_at(facts: dict, runs: list):
+    """When the item last moved, or None if no time can be read.
+
+    State is never stored (decision 0002), so the time an item entered its State is read as the newest of what moves
+    one: a push, a check's completion, a review, a thread, a writer's action and a Run on this item. A time that
+    cannot be read is passed over, so the wait counts from earlier: that shows more, never less.
+    """
+    times = [facts["last_push_at"], facts.get("last_writer_action_at")]
+    times += [c.get("completed_at") for c in facts["checks"]]
+    times += [rv.get("submitted_at") for rv in facts["reviews"]]
+    times += [th.get("opened_at") for th in facts["threads"]]
+    times += [r["started_at"] for r in runs_on(runs, facts)]
+    readable = [x for x in times if is_time(x)]
+    return max(readable) if readable else None
+
+
+def stale(lifecycle: dict, state: str, moved, passes_since, now: str) -> bool:
+    """Whether a wait in `state` has run past its Lifecycle's limit. Any Lifecycle: an issue's as well (I-1).
+
+    The wait counts from `moved`, and no earlier than `passes_since`, the start of the current unbroken chain of
+    passes: an outage of the poller is one health alert, not one for each item (§4.6). Either, unreadable, is passed
+    over, which shows more, never less.
+    """
+    starts = [x for x in (moved, passes_since) if is_time(x)]
+    if not starts:
+        return True
+    waited = seconds(now) - seconds(max(starts))
+    return waited > lifecycle["stale_after_minutes"][state] * t.SECONDS_PER_MINUTE
+
+
 def readable_actor(actor) -> bool:
     """Who acted, read whole: a kind the Kernel knows, a name, and write access exactly true or false."""
     return (isinstance(actor, dict) and actor.get("kind") in t.ACTOR_KINDS

@@ -31,7 +31,11 @@ FAILED = "failed"
 REVIEW = "review"
 READY = "ready"
 WORKING = "working"
+STALE = "stale"
 NONE = "none"
+# The classes a wait past its State's limit turns stale. A person is already called to `needs_you`, and a Run holds
+# a `working` item, so neither ever is.
+MAY_GO_STALE = frozenset({REVIEW, READY})
 
 GATING_SEVERITIES = frozenset({"blocking", "major"})
 # The reasons an open gate gives, whoever's turn it is. On a queued item each is the one reason `gate_open`.
@@ -50,6 +54,16 @@ BOT_CLASSES = ("agent", "dependency")
 # The one text format of a time, YYYY-MM-DDTHH:MM:SSZ, with 9 for any digit. Times compare as text.
 TIME_SHAPE = "9999-99-99T99:99:99Z"
 DIGITS = "0123456789"
+# The calendar, which nobody chooses: the only numbers but 0 and 1 the Kernel writes. tools/check_purity.py pins each.
+SECONDS_PER_MINUTE = 60
+MINUTES_PER_HOUR = 60
+HOURS_PER_DAY = 24
+DAYS_PER_YEAR = 365
+# A year divisible by the first is a leap year, unless by the second, unless by the third.
+LEAP_YEARS = (4, 100, 400)
+# The days of a year that is not a leap year before each month begins, and the month a leap day ends.
+DAYS_BEFORE_MONTH = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
+FEBRUARY = 2
 
 # What the facts say was read in full: the flags `complete` requires in schemas/facts.schema.json.
 READ_IN_FULL = ("checks", "diff", "reviews", "runs", "threads", "timeline")

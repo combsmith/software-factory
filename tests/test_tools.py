@@ -501,6 +501,17 @@ class Purity(unittest.TestCase):
         root = tree({"kernel/x.py": "def f(runs):\n    return len(runs) >= 3 or runs[0] == 1\n"})
         self.assertEqual(len(check_purity.run(root)), 1)
 
+    def test_only_the_calendar_may_write_a_number(self):
+        # The calendar is nobody's choice, so it is the one place the Kernel writes a number but 0 and 1: in terms.py,
+        # under its own name, with its own value. Any other number is a limit, and a limit is data.
+        calendar = "MINUTES_PER_HOUR = 60\nLEAP_YEARS = (4, 100, 400)\nFEBRUARY = 2\n"
+        self.assertEqual(check_purity.run(tree({"kernel/terms.py": calendar})), [])
+        for rel, text in (("kernel/terms.py", "MINUTES_PER_HOUR = 61\n"), ("kernel/terms.py", "LEAP_YEARS = (4, 100, 401)\n"),
+                          ("kernel/terms.py", "MINUTES_PER_HOUR = 60.0\n"), ("kernel/terms.py", "MAX_ATTEMPTS = 3\n"),
+                          ("kernel/terms.py", "FEBRUARY = HOURS_PER_DAY = 2\n"), ("kernel/x.py", "MINUTES_PER_HOUR = 60\n"),
+                          ("kernel/terms.py", "def f():\n    MINUTES_PER_HOUR = 60\n    return MINUTES_PER_HOUR\n")):
+            self.assertTrue(caught(check_purity.run(tree({rel: text})), "writes the number"), (rel, text))
+
     def test_state_kept_between_calls_is_caught(self):
         root = tree({"kernel/x.py": "SEEN = {}\nKIND = 'held'\nNAMES = frozenset({'a'})\n"})
         self.assertEqual(check_purity.run(root), ["x.py:1 holds a value that can change; State is never stored"])

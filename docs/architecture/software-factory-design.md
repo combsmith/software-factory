@@ -898,6 +898,19 @@ those arrows are not all drawn. A
 Pause is not a state: it stops Admission, approval, enqueuing and dequeuing for a scope (I-7) and
 leaves each item where it is.
 
+**When a wait is stale.** A wait past its State's limit is the Maintainer's to see (FR-3, I-1): the
+attention class becomes `stale` (§8.4), and the State, the reason and the outcome do not change. Only
+`review` and `ready` go stale. A `needs_you` item already reaches a person, and a Run holds a
+`working` one, so the limits read are those of `verifying`, `adjudicating`, `converged` and `queued`.
+A stale `queued` item has sat in the merge queue too long. State is never stored (decision 0002), so
+the time an item entered its State is read as the newest time it moved: its last push, a check's
+completion (`completed_at`), a review, a thread, a writer's action, or a Run on it. The wait counts
+no earlier than `passes_since`, the start of the current unbroken chain of passes, which the
+Controller takes from the poller's own records and gives the Kernel beside the facts (§4.6). A time
+that cannot be read, `passes_since` among them, is passed over, which shows more, never less. The
+limits are the Lifecycle's `stale_after_minutes`. They reach the Kernel with the configuration and
+are never copied into `config/defaults.json`, and the same function reads the issue Lifecycle's.
+
 **Leaving the merge queue.** GitHub reads the reviews only as a pull request enters the merge queue
 (L-19). So every pass reads a queued item as if it were not queued. It stays only if that reading
 is approved and ready to merge: `converged`, reason `approved`. A wait that ends on its own is read
@@ -1198,7 +1211,7 @@ The triage Intents come with the remaining personas (slice 6); until then a pers
 only way to `ready`, and the Lifecycle behaves as it will when the Roles arrive. The stale times
 are declared as for a pull request, and are starting figures: `new` and `ready` 30 minutes once an
 act is due, `triage` and `in_progress` 24 hours, `in_review` as its pull request, `held` and `not_served`
-24 hours or their own time. Nothing reads a stale time yet, for either Lifecycle.
+24 hours or their own time. The Kernel reads a pull request's; an issue's wait until its State is derived.
 
 **Left open by this design,** and listed in §9.9: which Role's App opens the draft pull request,
 when `qa-lead` writes its first commit and `dev-lead` is the declared author; the Consumer
@@ -1301,7 +1314,7 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 
 | # | Invariant | PRD |
 |---|---|---|
-| I-1 | Every open item is evaluated on every pass, and within its state's limit once faults stop; a pass that has not run is itself reported | FR-3, FR-5, FR-43 |
+| I-1 | Every open item is evaluated on every pass, and within its state's limit once faults stop; a pass that has not run is itself reported, and a wait past its limit while passes ran is shown `stale` | FR-3, FR-5, FR-43 |
 | I-2 | At most one Run that can produce Effects is active per item | FR-16 |
 | I-3 | Active Runs never exceed the org limit, and Runs admitted in a window never exceed the Run ceiling | FR-35 |
 | I-4 | No Effect is applied twice | ADR-0013, decision 4 |
@@ -1410,7 +1423,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | A conflict with the base | `mergeable` is false. It is the author's turn; in the first slice it is the Maintainer's |
 | A merge state GitHub has not worked out yet | `mergeable` is null. It is unreadable, like anything but true or false: the Kernel defers, and approves, enqueues and admits nothing until it is known (I-13). A queued item stays in the queue: GitHub reports it each time the base moves (§4.1) |
 | A pull request that targets another feature branch, as stacked pull requests do | The Factory serves pull requests that target a protected branch. Others are shown as not served |
-| The poller was down for hours | An item is stale only if it went unevaluated while passes were running. A missing pass is one health alert, not one alert per item |
+| The poller was down for hours | A wait counts only while passes ran: from the item's last movement, and no earlier than `passes_since`, the start of the current unbroken chain of passes. If that cannot be read it is passed over, which shows more, never less. A missing pass is one health alert, not one alert per item (§4.1) |
 | A third-party thread the reviewer does not adopt | The reviewer resolves it (§4.2), so the ruleset does not block the merge on it |
 | A review thread from someone without write access | On a public repo anyone can open one. It is treated as a third-party reviewer's: `pr-review` adopts it or resolves it. Only a person with write access can hold a pull request with a thread |
 | A request for changes, from a person with write access or from anyone else | A writer's gates, as that person's thread does, and stands until that person approves or a person with write access dismisses it; new content and an App's dismissal do not clear it. A stranger's or a Lens's gates nothing. An approval answers that person's request even once dismissed, so an App's push that dismisses a stale approval revives nothing; it approves no content (§3.3) |
@@ -2070,7 +2083,7 @@ Attention classes, in the order the page lists them:
 | `review` | Waiting on Lenses or owners | `verifying`, `adjudicating` |
 | `ready` | Converged and approved, or in the queue | `converged`, `queued` |
 | `working` | A Run holds the item | A run record in progress |
-| `stale` | Unevaluated past its state's limit while passes were running | I-1 breached |
+| `stale` | A wait past its State's limit, counted from the item's last movement and only while passes ran. What happens next does not change | `review` or `ready` past the Lifecycle's `stale_after_minutes` (§4.1, I-1) |
 | `not_served` | Outside what the Factory serves | A pull request that does not target a protected branch; an issue the Consumer entry leaves out; an outsider's issue not yet admitted, whose State is `new`, which is listed and never counted toward I-32 |
 
 The class is computed by the Kernel beside the State, so the status on the item and the row on the
