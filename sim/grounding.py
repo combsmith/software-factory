@@ -16,6 +16,8 @@ RULES = (
     ("an_approval_survives_a_push", "A push leaves an earlier approval in place", ("P-7", "P-29"), None),
     ("a_push_restarts_the_checks", "A push sets every required check pending again", (), None),
     ("a_check_reports_on_its_own", "A pending required check reports success or failure with no one asking", (), None),
+    ("a_check_can_time_out_or_give_no_verdict", "A required check can conclude timed_out, neutral, skipped, cancelled "
+     "or stale, and keeps that conclusion until the content changes or a person runs it again", (), None),
     ("a_push_leaves_the_queue", "A push takes the pull request out of the merge queue", (), None),
     ("an_app_enters_the_queue", "An App can put an approved pull request in the merge queue", ("P-2",), None),
     ("the_queue_merges", "A pull request in the merge queue merges, unless a push takes it out first", (), None),

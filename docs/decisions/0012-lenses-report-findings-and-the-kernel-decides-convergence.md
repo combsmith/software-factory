@@ -7,7 +7,7 @@ as it stood on 2026-10-11. That file records how this was reached; this one is t
 
 Every source of judgement on a Work item, whether a Role, a third-party reviewer, a tool or a
 person, is a Lens that reports Findings in one schema. Convergence is a Kernel function: every
-required Lens has reported on the current content, and no gating Finding is open. Lenses do not
+required Lens has passed on the current content, and no gating Finding is open. Lenses do not
 address each other. A Finding from a Lens outside the required set gates only when a required Lens
 adopts it. A reviewing Role declares a rubric, which is a floor. A change that has not converged
 within its bound is placed on Hold.
@@ -27,6 +27,8 @@ comments, and waited for reviewers that never answered.
 | A required Lens's blocking or major Finding gates; a minor one, or one from a Lens that is not required, does not | `tests/test_decide.py::test_required_lens_major_finding_gates`, `tests/test_decide.py::test_minor_finding_and_unrequired_lens_do_not_gate` |
 | A required deterministic Lens is named for the check GitHub reports, and that check reports on every head and in the merge queue | waiting on `adapters/` |
 | No model Lens runs on content the deterministic Lenses have not passed | `tests/test_decide.py::test_no_model_review_before_deterministic_checks_pass` |
+| Only `success` passes a required check. `failure` and `timed_out` go back to the author, and are read first; queued, running, waiting and absent checks are waited for; a check that gave no verdict, or whose conclusion the map does not name, defers and needs the Maintainer | `tests/test_decide.py::test_a_neutral_required_check_defers`, `tests/test_decide.py::test_a_timed_out_required_check_goes_back_to_the_author`, `tests/test_decide.py::test_a_queued_running_or_absent_required_check_is_waited_for`, `tests/test_decide.py::test_a_failed_check_is_read_before_an_unreadable_or_waiting_one`, `tests/test_decide.py::test_a_failure_with_cancelled_or_skipped_siblings_goes_back_to_the_author` |
+| The configuration cannot make a check with no verdict pass | `tests/test_tools.py::test_only_success_can_pass_a_check`, `examples/invalid/config.a-neutral-check-passes.json`, `examples/invalid/config.conclusion-mapped-to-nothing.json` |
 | A dependency update is judged by the deterministic Lenses alone, and needs no model review | `tests/test_decide.py::test_a_dependency_update_needs_no_model_review` |
 | A Finding a model Lens has raised gates whatever the class, a dependency update's too, and after the bot recreates the branch | `tests/test_decide.py::test_a_model_lens_thread_gates_a_dependency_update` |
 | A dependency update is a dependency bot's pull request whose head that bot pushed; anyone else's push, and every other class, needs the model review | `tests/test_decide.py::test_a_dependency_update_someone_else_pushed_to_needs_a_model_review`, `tests/test_decide.py::test_every_other_class_needs_a_model_review`, `examples/invalid/config.a-change-by-a-person-skips-the-model-review.json` |

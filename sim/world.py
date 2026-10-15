@@ -133,6 +133,16 @@ class World:
         self.note("pass: %s %s -> %s" % (d["state"], d["reason"], d["outcome"]))
         whole = all(facts["complete"].values())
         self.check(whole or d["outcome"] == "defer", "I-20 incomplete facts never admit or converge")
+        # A check with no verdict lets no review start and no act be made. A fix Run may still be admitted
+        # for what is readable: another check that failed, or a conflict.
+        readings = CONFIG["check_conclusions"]
+        no_verdict = [c for c in facts["checks"] if readings.get(c["conclusion"], "unreadable") == "unreadable"]
+        reviews = d["outcome"] == "admit" and d["admit"]["intent"] == "review-change"
+        self.check(not no_verdict or not (reviews or d["outcome"] == "act"),
+                   "I-13 a review or an act while a check has no verdict")
+        waits = d["reason"] == "check_unreadable" and d["outcome"] == t.DEFER
+        self.check(not waits or d["attention"] == t.NEEDS_YOU,
+                   "a check with no verdict is not shown as needing a person")
         if whole and d["state"] is not None:
             if self.prev_state is not None and d["state"] != self.prev_state:
                 self.check((self.prev_state, d["state"]) in DECLARED,
@@ -274,7 +284,12 @@ class World:
         pending = [k for k, v in self.checks.items() if v == "pending"]
         if pending:
             # GitHub: a_check_reports_on_its_own
-            self.checks[self.pick(pending)] = "success" if self.rng.random() < 0.85 else "failure"
+            lens, roll = self.pick(pending), self.rng.random()
+            self.checks[lens] = "success" if roll < 0.85 else "failure"
+            if self.faults and roll >= 0.92:
+                # GitHub: a_check_can_time_out_or_give_no_verdict
+                self.checks[lens] = self.pick(["timed_out", "neutral", "skipped", "cancelled", "stale"])
+                self.note("check %s: %s" % (lens, self.checks[lens]))
 
     def person(self):
         roll = self.rng.random()
@@ -345,7 +360,8 @@ class World:
         for th in self.threads:
             if th["opened_by"]["kind"] == "human":
                 th.update(resolved=True, resolved_by="don-petry")
-        self.checks = {k: ("pending" if v == "failure" else v) for k, v in self.checks.items()}
+        # The person runs again every check that did not pass.
+        self.checks = {k: ("pending" if v != "success" else v) for k, v in self.checks.items()}
         self.writer_acted()
         for _ in range(steps):
             self.step()

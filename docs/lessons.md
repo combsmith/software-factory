@@ -47,8 +47,8 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 
 ### L-07 "Could not check" was read as "nothing to check"
 **Failure.** Four times in one week a check that could not be made was treated as passed: a brake whose input came back empty was skipped, a failed approval was announced as a success, a file that could not be read was overwritten. Separately, a capacity probe with no credential logged "usage 0% — ok" on every call: "check_provider_headroom has never worked" (issue 1862).
-**Rule.** An unreadable fact yields a deferral with a reason. It never yields an admission, an approval or a merge.
-**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `tests/test_decide.py::test_unreadable_pause_defers`, `tests/test_decide.py::test_unreadable_capacity_defers`, `tests/test_decide.py::test_an_unknown_mergeable_never_converges`
+**Rule.** An unreadable fact yields a deferral with a reason. It never yields an admission, an approval or a merge. A required check that gave no verdict, `neutral`, `skipped` or `cancelled`, or whose conclusion the Kernel does not know, is unreadable, never passed.
+**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `tests/test_decide.py::test_unreadable_pause_defers`, `tests/test_decide.py::test_unreadable_capacity_defers`, `tests/test_decide.py::test_an_unknown_mergeable_never_converges`, `tests/test_decide.py::test_a_neutral_required_check_defers`, `examples/invalid/config.a-neutral-check-passes.json`
 
 ### L-08 A failing check that was not required halted every merge
 **Failure.** A drift check that fails routinely, and is not required, was read as failing CI. The reviewer skipped every pull request: "Non-required failing check silently deadlocks every merge: template-drift fails on all PRs, review agent skips as ci-failing, no approval can land" (issue 1795).

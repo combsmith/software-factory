@@ -13,7 +13,7 @@ SCHEMA = "decision/1"
 NEEDS_YOU_REASONS = frozenset({
     "human_hold", "outside_not_admitted", "empty_diff", "too_large", "human_finding",
     "attempts_exhausted", "run_ceiling", "max_rounds", "approver_is_author_or_last_pusher",
-    "awaiting_human", "act_ceiling",
+    "awaiting_human", "act_ceiling", "check_unreadable",
 })
 
 
@@ -132,6 +132,9 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
             return _decision(facts, state, pause, evidence, t.DEFER)
         return _act(facts, state, reason, evidence, mine, config)
 
+    # A required check that gave no verdict is unreadable: admit nothing, and wait for a person (I-13).
+    if reason == "check_unreadable":
+        return _decision(facts, state, reason, evidence, t.DEFER)
     wanted = _wanted_run(state, reason, config)
     if wanted is None:
         return _decision(facts, state, reason, evidence, t.NOTHING)

@@ -15,7 +15,7 @@ changed rule may need its invariant changed too. Time is the counter `minute`.
 | A rule no trial asks is grounded only once a trial for it is added to section 6 of the design | `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate` |
 | The fake answers in GitHub's own shapes, so that its answers can be compared with a fixture | waiting on `adapters/` |
 
-The world is one pull request of class `maintainer`, never paused, whose checks pass or fail. A
+The world is one pull request of class `maintainer`, never paused, whose checks pass, fail, time out or give no verdict. A
 rule about anything else is not exercised here, so its boundary cases are all that hold it. An invariant is a call to `check()` with its name. When a seed finds a fault, the fix goes in the
 Kernel with a boundary case in `tests/test_decide.py`.
 
