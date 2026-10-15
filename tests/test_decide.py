@@ -175,11 +175,20 @@ class Classes(unittest.TestCase):
         f = facts(**DEPENDENCY, threads=[thread(kind="human", name="stranger", can_write=False, severity=None)])
         self.assertEqual(go(f)["state"], "converged")
 
-    def test_a_model_lens_thread_does_not_gate_a_dependency_update(self):  # §4.2: no model Lens is required of it
+    def test_a_model_lens_thread_gates_a_dependency_update(self):  # I-16: a Finding raised is never dropped
         d = go(facts(**DEPENDENCY, threads=[thread()]))
-        self.assertEqual((d["state"], d["outcome"]), ("converged", "act"))
-        d = go(facts(**dict(DEPENDENCY, last_pusher="dev-lead[bot]"), threads=[thread()]), REVIEWED)
         self.assertEqual((d["state"], d["reason"]), ("addressing", "findings_open"))
+        # Someone else pushes, pr-review reviews and opens a thread, then the bot recreates the branch.
+        for content in ("sha256:aaaa", "sha256:bbbb"):
+            d = go(facts(**DEPENDENCY, content_id=content, threads=[thread()]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"]), ("addressing", "findings_open"), content)
+
+    def test_a_neutral_check_does_not_pass_a_dependency_update(self):
+        for i, check in enumerate(GREEN):
+            neutral = GREEN[:i] + [dict(check, conclusion="neutral")] + GREEN[i + 1:]
+            d = go(facts(**DEPENDENCY, checks=neutral))
+            self.assertNotEqual(d["state"], "converged", check["lens"])
+            self.assertNotEqual(d["outcome"], "act", check["lens"])
 
     def test_a_dependency_update_skips_the_model_review_and_nothing_else(self):
         approved = [{"actor": "donpetry-bot", "state": "approved", "commit": "c1", "content_id": "sha256:aaaa"}]

@@ -63,8 +63,10 @@ def gating_threads(facts: dict, config: dict) -> list:
 
     A person with write access always gates. A Lens gates only if it is
     required and its Finding is blocking or major. Everyone else informs.
+    A Finding a model Lens has raised gates whatever the class: a dependency
+    update needs no review, and still answers one it was given.
     """
-    required = set(required_model_lenses(facts, config))
+    required = set(config["required_lenses"]["model"])
     out = []
     for th in facts["threads"]:
         if th["resolved"]:

@@ -312,7 +312,7 @@ for contract tests, so one schema has three uses.
 |---|---|
 | `item`, `state`, `is_draft`, `author` | Identity, open/closed/merged, draft flag, authoring actor |
 | `class` | `agent`, `maintainer`, `dependency` or `outside`, worked out by the port from the author and from whether the head is in another repo |
-| `last_pusher` | The actor who pushed the head commit |
+| `last_pusher` | The actor who pushed the head commit, as GitHub records the push. Never the commit's author or committer, which whoever makes the commit writes |
 | `targets_protected` | Whether the base branch is a protected one |
 | `mergeable` | Whether the head merges cleanly into the base: true, false, or null while GitHub has not worked it out |
 | `diff_size` | Files and lines changed |
@@ -1077,8 +1077,10 @@ A *blocking Finding*, here and in the diagram above, is one that gates: severity
 Which Lenses are required is data. The starting set is the deterministic checks, `pr-review` and
 humans. A Lens joins it only with a measured contribution (ADR-0013, decision 12). A dependency
 update, a pull request of class `dependency` whose head was pushed by the identity that opened it,
-requires no model Lens: the deterministic checks and humans judge it, so a model Lens's thread on it
-does not gate. Anyone else's push puts content of their own in it, and it needs `pr-review` again.
+requires no model Lens: the deterministic checks and humans judge it, and no model review is
+admitted for it. A Finding a model Lens has already raised still gates it, whatever its class, so a
+bot that recreates its branch does not drop one. Anyone else's push puts content of their own in it,
+and it needs `pr-review` again.
 
 A Finding from a Lens that is not required is shown and measured. It is given to `pr-review` as
 input. If `pr-review` adopts it, it raises a Finding of its own (§3.7), and that one gates. An Advisory reviewer that posts twenty threads therefore costs the reviewer
@@ -1242,7 +1244,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | Case | Rule |
 |---|---|
 | A pull request from a fork, or from someone who is not a collaborator | Its class is `outside`. It gets no Run, because a Run holds the model credential. It is held as "needs you" until the Maintainer admits it or closes it (I-25). Its status is written for a stranger: what is happening, and that a maintainer has to admit it. Admission lapses when the author pushes again, so a harmless commit cannot be admitted and then replaced (I-36) |
-| A dependency update | Its class is `dependency`, and the bot that opened it pushed its head. Its required Lenses are deterministic ones, and a person's thread still gates it. Once the author Role or a person pushes to it, it needs a model review like any change (§4.2). On a Consumer the POC's automerge serves it until that Intent is cut over. In the Factory's own repo no line serves it: nothing is installed there, so every update changes `.github/`, and the Maintainer reads and merges it (§5.1) |
+| A dependency update | Its class is `dependency`, and the bot that opened it pushed its head. Its required Lenses are deterministic ones, and a person's thread, or a model Lens's Finding already raised, still gates it. Once the author Role or a person pushes to it, it needs a model review like any change (§4.2). On a Consumer the POC's automerge serves it until that Intent is cut over. In the Factory's own repo no line serves it: nothing is installed there, so every update changes `.github/`, and the Maintainer reads and merges it (§5.1) |
 | The approver is the author or the last pusher | GitHub rejects or discards the approval. The Kernel reads `author` and `last_pusher`, attempts no approval, and holds the item with that reason (I-26). The machine user therefore never pushes (§5.1) |
 | A branch pushed every few minutes | Deterministic Lenses first; a model review starts only on content they have passed (I-27) |
 | A Hold released, or a pull request reopened, after attempts ran out | Attempts count since the last action by a person with write access, which grants a fresh allowance. No agent's action does, and nor does a stranger's comment: on a public repo that would let anyone keep an agent running (I-28) |
