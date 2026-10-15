@@ -26,16 +26,17 @@ DEADLINE = 45   # seconds for the whole check; the settings give the hook 60, an
 WRITES = {"am", "cherry-pick", "commit", "commit-tree", "filter-branch", "merge", "pull", "push", "rebase", "revert"}
 # Known, and not a commit. These run commands of their own, so their text is read for a commit or push.
 RUNNERS = {"bisect", "difftool", "mergetool", "submodule"}
-# Known, and read-only: they make no commit and move no branch. A write verb in their name or their words is only
-# text. merge-tree --write-tree and commit-graph write objects and no ref, fetch writes remote-tracking branches,
-# and archive writes a file.
-READS = {"annotate", "archive", "blame", "cat-file", "check-attr", "check-ignore", "check-mailmap", "check-ref-format",
-         "cherry", "commit-graph", "count-objects", "describe", "diff", "diff-files", "diff-index", "diff-tree", "fetch",
-         "for-each-ref", "fsck", "get-tar-commit-id", "grep", "help", "log", "ls-files", "ls-remote", "ls-tree",
-         "merge-base", "merge-tree", "name-rev", "patch-id", "range-diff", "rev-list", "rev-parse", "shortlog", "show",
-         "show-branch", "show-index", "show-ref", "status", "var", "verify-commit", "verify-pack", "verify-tag",
-         "version", "whatchanged"}
-# Known, and not a commit: the reads, and these, which change the repo, its index or its working tree.
+# Known, and not themselves a commit or a push: mostly they read, so a write verb in their name or their words is
+# only text. The split from the rest of OTHERS is documentary; every command in OTHERS is treated alike. Options
+# that make one of these run a program (--upload-pack, --exec, grep -O) or move a branch (git fetch . main:side)
+# are not read here; that is an open issue of its own.
+READS = {"annotate", "archive", "blame", "cat-file", "check-attr", "check-ignore", "check-mailmap",
+         "check-ref-format", "cherry", "commit-graph", "count-objects", "describe", "diff", "diff-files", "diff-index",
+         "diff-tree", "fetch", "for-each-ref", "fsck", "get-tar-commit-id", "grep", "help", "log", "ls-files",
+         "ls-remote", "ls-tree", "merge-base", "merge-tree", "name-rev", "patch-id", "range-diff", "rev-list",
+         "rev-parse", "shortlog", "show", "show-branch", "show-index", "show-ref", "status", "var", "verify-commit",
+         "verify-pack", "verify-tag", "version", "whatchanged"}
+# Known, and not a commit: READS, and these, which change the repo, its index or its working tree.
 OTHERS = READS | {"add", "apply", "branch", "bundle", "checkout", "clean", "clone", "config", "format-patch", "gc",
                   "hash-object", "init", "maintenance", "mv", "notes", "prune", "reflog", "remote", "repack", "reset",
                   "restore", "rm", "sparse-checkout", "stash", "switch", "symbolic-ref", "tag", "update-index",

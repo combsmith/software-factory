@@ -177,7 +177,7 @@ class Identity(unittest.TestCase):
                         "gh api -X GET search/issues -f q=x"):
             self.assertEqual(self.codes(command, folder(), programs()), "", command)
 
-    def test_a_read_only_command_passes_whatever_its_name_or_its_words_say(self):
+    def test_a_known_command_that_is_not_a_commit_or_a_push_passes_whatever_its_name_or_its_words_say(self):
         named = {"merge-base", "merge-tree", "rev-parse", "rev-list", "ls-tree", "ls-files", "cat-file", "show", "log",
                  "diff", "for-each-ref", "name-rev", "describe", "archive", "fetch", "commit-graph"}
         self.assertLessEqual(named, identity.READS)
@@ -189,7 +189,8 @@ class Identity(unittest.TestCase):
                         "git rev-list --count A..B", "git ls-tree -r HEAD", "git ls-files -z", "git cat-file -p HEAD",
                         "git show --stat HEAD", "git log --oneline -3", "git diff A B", "git name-rev HEAD",
                         "git for-each-ref --format='%(refname)' refs/heads", "git describe --tags", "git fetch origin",
-                        "git archive --format=tar HEAD", "git commit-graph verify", "git commit-graph write --reachable"):
+                        "git archive --format=tar HEAD", "git commit-graph verify",
+                        "git commit-graph write --reachable"):
             self.assertEqual(self.codes(command, folder(), programs()), "", command)
         for command in ("git log --grep=commit", "git log --grep commit --grep push -3", "git rev-list --grep=merge A",
                         "git show :/rebase", "git diff commit push", "git ls-files push.py cherry-pick.md",
@@ -926,6 +927,11 @@ class MergesAndSettings(Asks):
             self.assertIn('"ask"', said)
             self.assertNotIn("hunter2secret", said)
             self.assertNotIn("someone", said)
+
+    def test_the_git_commands_the_identity_hook_knows_are_known_here(self):
+        for command in ("git merge-tree --write-tree A B", "git commit-graph write --reachable"):
+            self.assertEqual(self.run_(command), "", command)
+        self.asked(self.run_("git mt A B"), "command_unreadable", "an alias")
 
 
 class RulesChanged(unittest.TestCase):
