@@ -1081,10 +1081,11 @@ class Verify(unittest.TestCase):
         real = (verify.failed, verify.unittest.TextTestRunner)
         verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
         try:
-            self.assertEqual(verify.main([]), 0)
-            self.assertEqual(ran["modules"], everything)
-            verify.main(["--fast"])
-            self.assertEqual(ran["modules"], everything - slow)
+            with contextlib.redirect_stdout(io.StringIO()):     # main prints the unverified rules
+                self.assertEqual(verify.main([]), 0)
+                self.assertEqual(ran["modules"], everything)
+                verify.main(["--fast"])
+                self.assertEqual(ran["modules"], everything - slow)
         finally:
             verify.failed, verify.unittest.TextTestRunner = real
         makefile = (ROOT / "Makefile").read_text()
