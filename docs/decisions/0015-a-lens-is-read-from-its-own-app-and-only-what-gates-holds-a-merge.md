@@ -58,7 +58,8 @@ the deterministic Lenses alone, they are its only judge.
 | Every check a Lens's own App reports under its name is read, never the last alone: any failure fails it, and it passes only when every one passes | `tests/test_decide.py::test_every_check_a_lens_reports_from_its_own_app_is_read` |
 | Each deterministic Lens names its check run's exact name and its App, and no Lens or check is named twice | `examples/invalid/config.a-required-lens-with-no-check.json`, `tests/test_tools.py::test_a_lens_or_a_check_named_twice_is_refused` |
 | The status on the item has one name, and it is no required Lens's or its check's, in any case | `tests/test_tools.py::test_the_status_on_the_item_never_carries_a_required_lens_name` |
-| The port gives every check run whose name is a Lens's check that Lens's name and the real id of its App, from every App, never dropped or merged across Apps | waiting on `adapters/` |
+| The port gives every check run with its exact name and the real id of its App, from every App, never dropped, merged or renamed | waiting on `adapters/` |
+| A check is a Lens's only under the exact name of the Lens's check: a job its own App runs under the Lens's name, or under the check's name in another case, passes nothing | `tests/test_decide.py::test_a_check_is_matched_to_a_lens_by_its_check_name_alone` |
 | Only a re-run of the same job in the same check suite replaces an earlier check run; two workflow runs on one commit both stay, and both are read | waiting on `adapters/` |
 | A dependency update is judged by the deterministic Lenses alone, and needs no model review | `tests/test_decide.py::test_a_dependency_update_needs_no_model_review` |
 | A Finding a model Lens has raised gates whatever the class, a dependency update's too, and after the bot recreates the branch | `tests/test_decide.py::test_a_model_lens_thread_gates_a_dependency_update` |

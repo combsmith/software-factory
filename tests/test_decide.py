@@ -8,7 +8,7 @@ import unittest
 
 from kernel import derive
 from kernel.decide import decide
-from tests.support import CONFIG, GREEN, NOW, OTHER_APP, ROOT, config, context, facts, review, run, thread
+from tests.support import CONFIG, GREEN, LENS_OF, NOW, OTHER_APP, ROOT, config, context, facts, review, run, thread
 from tools.jsonschema_lite import validate
 
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
@@ -274,7 +274,7 @@ class HumanControl(unittest.TestCase):
         asked = review(state="changes_requested", **MAINTAINER)
         # A failed check goes back to the author first, as it would with no request.
         d = go(facts(**AGENT, reviews=[asked], checks=with_check(0, "failure")), REVIEWED)
-        self.assertEqual((d["reason"], d["evidence"]), ("check_failed", [GREEN[0]["lens"]]))
+        self.assertEqual((d["reason"], d["evidence"]), ("check_failed", [LENS_OF[GREEN[0]["name"]]]))
         # A standing approval does not pass over the request: nothing is enqueued.
         d = go(facts(**AGENT, reviews=[review(), asked]), ANSWERED)
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("addressing", "awaiting_human", "nothing"))
@@ -504,7 +504,8 @@ class Classes(unittest.TestCase):
         for i, check in enumerate(GREEN):
             failed = GREEN[:i] + [dict(check, conclusion="failure")] + GREEN[i + 1:]
             d = go(facts(**DEPENDENCY, checks=failed))
-            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "check_failed", [check["lens"]]))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]),
+                             ("addressing", "check_failed", [LENS_OF[check["name"]]]))
             self.assertEqual(d["admit"]["intent"], "fix-findings")
             waiting = GREEN[:i] + [dict(check, conclusion="pending")] + GREEN[i + 1:]
             d = go(facts(**DEPENDENCY, checks=waiting))
@@ -533,8 +534,8 @@ class Classes(unittest.TestCase):
         for i, check in enumerate(GREEN):
             neutral = GREEN[:i] + [dict(check, conclusion="neutral")] + GREEN[i + 1:]
             d = go(facts(**DEPENDENCY, checks=neutral))
-            self.assertNotEqual(d["state"], "converged", check["lens"])
-            self.assertNotEqual(d["outcome"], "act", check["lens"])
+            self.assertNotEqual(d["state"], "converged", LENS_OF[check["name"]])
+            self.assertNotEqual(d["outcome"], "act", LENS_OF[check["name"]])
 
     def test_a_dependency_update_skips_the_model_review_and_nothing_else(self):
         approved = [review()]
@@ -574,7 +575,8 @@ class Content(unittest.TestCase):
         # A hung test usually belongs to the content, and attempts bound the fixes.
         for i, check in enumerate(GREEN):
             d = go(facts(checks=with_check(i, "timed_out")), REVIEWED)
-            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "check_failed", [check["lens"]]))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]),
+                             ("addressing", "check_failed", [LENS_OF[check["name"]]]))
             self.assertEqual(d["admit"]["intent"], "fix-findings")
         self.assertEqual(go(facts(), REVIEWED)["action"], "issue_approval")
 
@@ -588,8 +590,8 @@ class Content(unittest.TestCase):
                 for runs, reviews in (((), []), (REVIEWED, []), (REVIEWED, APPROVED)):
                     d = go(facts(checks=with_check(i, value), reviews=reviews), runs)
                     self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
-                                     ("verifying", "check_unreadable", [check["lens"]], "defer", "needs_you"),
-                                     (value, check["lens"]))
+                                     ("verifying", "check_unreadable", [LENS_OF[check["name"]]], "defer", "needs_you"),
+                                     (value, LENS_OF[check["name"]]))
                     self.assertNotIn("admit", d)
                     self.assertNotIn("action", d)
         # The other side: every required check passed, so the review is admitted, then the approval issued.
@@ -603,7 +605,8 @@ class Content(unittest.TestCase):
             for i, check in enumerate(GREEN):
                 d = go(facts(checks=with_check(i, value)), REVIEWED)
                 self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
-                                 ("verifying", "awaiting_checks", [check["lens"]], "nothing"), (value, check["lens"]))
+                                 ("verifying", "awaiting_checks", [LENS_OF[check["name"]]], "nothing"),
+                                 (value, check["name"]))
 
     def test_a_failed_check_is_read_before_an_unreadable_or_waiting_one(self):  # I-13
         # A failure is readable and decisive: whatever the check with no verdict would say, the content
@@ -611,10 +614,11 @@ class Content(unittest.TestCase):
         failed, neutral, waiting = (dict(c, conclusion=v) for c, v in zip(GREEN, ("failure", "neutral", "queued")))
         d = go(facts(checks=[failed, neutral, waiting]), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
-                         ("addressing", "check_failed", [failed["lens"]], "admit"))
+                         ("addressing", "check_failed", [LENS_OF[failed["name"]]], "admit"))
         self.assertEqual(d["admit"]["intent"], "fix-findings")
         d = go(facts(checks=[neutral, waiting]), REVIEWED)
-        self.assertEqual((d["reason"], d["evidence"], d["outcome"]), ("check_unreadable", [neutral["lens"]], "defer"))
+        self.assertEqual((d["reason"], d["evidence"], d["outcome"]),
+                         ("check_unreadable", [LENS_OF[neutral["name"]]], "defer"))
         d = go(facts(checks=[waiting]), REVIEWED)
         self.assertEqual((d["reason"], d["outcome"]), ("awaiting_checks", "nothing"))
 
@@ -625,7 +629,8 @@ class Content(unittest.TestCase):
                 checks = [dict(c, conclusion="failure" if j == i else sibling) for j, c in enumerate(GREEN)]
                 d = go(facts(checks=checks), REVIEWED)
                 self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
-                                 ("addressing", "check_failed", [check["lens"]], "admit"), (sibling, check["lens"]))
+                                 ("addressing", "check_failed", [LENS_OF[check["name"]]], "admit"),
+                                 (sibling, check["name"]))
                 self.assertEqual(d["admit"]["intent"], "fix-findings")
 
     def test_a_reading_the_kernel_does_not_know_is_unreadable(self):  # I-13
@@ -641,7 +646,7 @@ class Content(unittest.TestCase):
         self.assertEqual(d["admit"]["intent"], "fix-findings")
 
     def test_a_failed_check_that_is_not_required_does_not_gate(self):
-        f = facts(checks=GREEN + [{"lens": "template-drift", "app_id": OTHER_APP, "conclusion": "failure",
+        f = facts(checks=GREEN + [{"name": "template-drift", "app_id": OTHER_APP, "conclusion": "failure",
                                    "completed_at": None}])
         self.assertEqual(go(f, REVIEWED)["state"], "converged")
 
@@ -651,7 +656,7 @@ class Content(unittest.TestCase):
         # that is not a whole number, makes that Lens unreadable, whatever it concludes and whatever the Lens's own App
         # says beside it. The evidence names the Lens and the App, so it is not taken for a cancelled check.
         for i, check in enumerate(GREEN):
-            lens = check["lens"]
+            lens = LENS_OF[check["name"]]
             # An App no Lens is read from, another required Lens's own App, and an App that cannot be read.
             others = [OTHER_APP] + sorted({c["app_id"] for c in GREEN} - {check["app_id"]})
             for app in others + [None, True, float(check["app_id"]), str(check["app_id"]), "absent"]:
@@ -673,7 +678,7 @@ class Content(unittest.TestCase):
         # It is read before any Lens's failure, and before a conflict: a fix Run is an action, and an unreadable fact
         # never yields one (I-13). Where another App writes under a Lens's name, a person looks first.
         impostor = dict(GREEN[0], app_id=OTHER_APP)
-        said = ["%s:from_app:%d" % (GREEN[0]["lens"], OTHER_APP)]
+        said = ["%s:from_app:%d" % (LENS_OF[GREEN[0]["name"]], OTHER_APP)]
         for f in (facts(checks=[impostor, dict(GREEN[1], conclusion="failure")] + GREEN[2:]),
                   facts(checks=[impostor, dict(GREEN[1], conclusion="failure")] + GREEN[1:]),
                   facts(checks=[impostor] + GREEN[1:], mergeable=False)):
@@ -689,7 +694,7 @@ class Content(unittest.TestCase):
         # The other side: from its own App, the Lens is read; a check from another App under a name no Lens has is
         # not read at all.
         self.assertEqual(go(facts(), REVIEWED)["action"], "issue_approval")
-        other = {"lens": "template-drift", "app_id": OTHER_APP, "conclusion": "failure", "completed_at": None}
+        other = {"name": "template-drift", "app_id": OTHER_APP, "conclusion": "failure", "completed_at": None}
         self.assertEqual(go(facts(checks=GREEN + [other]), REVIEWED)["action"], "issue_approval")
 
     def test_every_check_a_lens_reports_from_its_own_app_is_read(self):  # I-13, I-27
@@ -697,7 +702,7 @@ class Content(unittest.TestCase):
         # is read, never the last alone. Any that fails fails the Lens; failing none, any that gave no verdict leaves
         # it unreadable; then any still running is a wait. The Lens passes only when every one of them passes.
         for i, check in enumerate(GREEN):
-            lens = check["lens"]
+            lens = LENS_OF[check["name"]]
             for other, reason in (("failure", "check_failed"), ("timed_out", "check_failed"),
                                   ("neutral", "check_unreadable"), ("skipped", "check_unreadable"),
                                   ("in_progress", "awaiting_checks"), ("queued", "awaiting_checks")):
@@ -713,6 +718,26 @@ class Content(unittest.TestCase):
             # The other side: every one of them passing, the Lens passes.
             d = go(facts(checks=GREEN[:i] + [check, dict(check)] + GREEN[i + 1:]), REVIEWED)
             self.assertEqual(d["action"], "issue_approval", lens)
+
+    def test_a_check_is_matched_to_a_lens_by_its_check_name_alone(self):  # I-13, I-27
+        # The facts carry each check run under the name GitHub gives it, and a Lens is the check the configuration
+        # names for it, exactly. A job that its own App runs under the Lens's own name, or under the check's name in
+        # another case or with space around it, is some other check: it neither passes the Lens nor makes it unreadable.
+        for i, lens in enumerate(CONFIG["required_lenses"]["deterministic"]):
+            others = [dict(GREEN[i], name=lens["lens"]), dict(GREEN[i], name=lens["check"].upper()),
+                      dict(GREEN[i], name=" %s" % lens["check"])]
+            for other in [o for o in others if o["name"] != lens["check"]]:
+                for wrong_app in (False, True):
+                    check = dict(other, app_id=OTHER_APP) if wrong_app else other
+                    d = go(facts(checks=GREEN[:i] + [check] + GREEN[i + 1:]), REVIEWED)
+                    self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
+                                     ("verifying", "awaiting_checks", [lens["lens"]], "nothing"), check)
+                    d = go(facts(checks=GREEN[:i] + [check, dict(GREEN[i], conclusion="failure")] + GREEN[i + 1:]),
+                           REVIEWED)
+                    self.assertEqual((d["reason"], d["evidence"]), ("check_failed", [lens["lens"]]), check)
+            # The other side: the check under its exact name passes the Lens.
+            self.assertEqual(go(facts(checks=GREEN[:i] + [GREEN[i]] + GREEN[i + 1:]), REVIEWED)["action"],
+                             "issue_approval", lens["lens"])
 
     def test_a_review_of_other_content_does_not_count(self):  # I-11, the other way round
         d = go(facts(content_id="sha256:bbbb"), REVIEWED)
@@ -1110,7 +1135,7 @@ class Queue(unittest.TestCase):
     def test_a_check_that_no_longer_passes_takes_it_out_of_the_queue(self):  # I-9, I-27
         # Convergence must still hold on the content: a required check that now fails or gives no verdict, or a
         # conflict with the base. Each is a definite answer, and none ends on its own.
-        lens = GREEN[0]["lens"]
+        lens = LENS_OF[GREEN[0]["name"]]
         cases = [({"checks": with_check(0, "failure")}, "addressing", "check_failed", [lens]),
                  ({"checks": with_check(0, "timed_out")}, "addressing", "check_failed", [lens]),
                  ({"checks": with_check(0, "neutral")}, "verifying", "check_unreadable", [lens]),
@@ -1124,7 +1149,7 @@ class Queue(unittest.TestCase):
 
     def test_a_check_from_another_app_or_a_failure_beside_a_pass_takes_it_out_of_the_queue(self):  # I-9, I-27
         # A Lens is read from its own App alone, and from every check it reports there, on a queued item too.
-        lens = GREEN[0]["lens"]
+        lens = LENS_OF[GREEN[0]["name"]]
         foreign = "%s:from_app:%d" % (lens, OTHER_APP)
         cases = [([dict(GREEN[0], app_id=OTHER_APP)], "verifying", "check_unreadable", foreign),
                  ([GREEN[0], dict(GREEN[0], app_id=OTHER_APP)], "verifying", "check_unreadable", foreign),
@@ -1294,7 +1319,7 @@ class Staleness(unittest.TestCase):
                     "a stranger's thread": {"threads": [thread(kind="human", name="stranger", can_write=False,
                                                                severity=None, at=at(20))]},
                     "a check that is not required": {"checks": self.SILENT + [
-                        {"lens": "template-drift", "app_id": OTHER_APP, "conclusion": "success",
+                        {"name": "template-drift", "app_id": OTHER_APP, "conclusion": "success",
                          "completed_at": at(20)}]}}
         for what, over in stranger.items():
             d = go(facts(**dict({"checks": self.SILENT}, **over)), ctx=self.PASSING, now=past)

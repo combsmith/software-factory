@@ -60,18 +60,26 @@ def check_reading(check: dict, config: dict) -> str:
     return config["check_conclusions"].get(check["conclusion"], "unreadable")
 
 
+def named_for(check: dict, lens: dict) -> bool:
+    """Whether `check` carries the name of the required Lens `lens`'s check run, exactly as the configuration gives it.
+
+    The facts give each check run the name GitHub gives it, and nothing maps it: a job named for the Lens itself, or
+    for its check in another case, is some other check.
+    """
+    return check.get("name") == lens["check"]
+
+
 def reports_for(check: dict, lens: dict) -> bool:
-    """Whether `check` reports for the required Lens `lens`: its name, from the App the configuration names for it.
+    """Whether `check` reports for the required Lens `lens`: its check's name, from the App the configuration names.
 
     An App is an id that is a whole number, in the facts and in the configuration: never true, nor 15368.0.
     """
     app = check.get("app_id")
-    return (check.get("lens") == lens["lens"] and type(app) is int and type(lens["app_id"]) is int
-            and app == lens["app_id"])
+    return named_for(check, lens) and type(app) is int and type(lens["app_id"]) is int and app == lens["app_id"]
 
 
 def foreign_checks(checks: list, config: dict) -> list:
-    """Each check with a required deterministic Lens's name that the Lens's own App did not report, as evidence.
+    """Each check under a required deterministic Lens's check name that the Lens's own App did not report, as evidence.
 
     Any App with checks: write can post a check under any name; the ruleset pins `verify` to its App, and the
     Kernel pins every required Lens. Such a check makes its Lens unreadable whatever it, or the Lens's own checks,
@@ -81,7 +89,7 @@ def foreign_checks(checks: list, config: dict) -> list:
     out = []
     for lens in config["required_lenses"]["deterministic"]:
         for c in checks:
-            if c.get("lens") == lens["lens"] and not reports_for(c, lens):
+            if named_for(c, lens) and not reports_for(c, lens):
                 app = c.get("app_id")
                 said = "%s:from_app:%s" % (lens["lens"], app if type(app) is int else "unreadable")
                 if said not in out:
@@ -92,7 +100,7 @@ def foreign_checks(checks: list, config: dict) -> list:
 def lens_reading(checks: list, lens: dict, config: dict) -> str:
     """What a required deterministic Lens says, from every check its own App reports: as `check_reading` gives it.
 
-    Another App's check under its name is read before any Lens (foreign_checks). Every check from its own App is
+    Another App's check under its check's name is read before any Lens (foreign_checks). Every check from its own App is
     read, never the last alone: any failing one fails the Lens; then any with no verdict leaves it unreadable;
     then any still running is a wait. It passes only when every one of them passes. A Lens that has not reported
     is pending.
@@ -214,8 +222,8 @@ def moved_at(facts: dict, runs: list, config: dict, now: str):
     State is never stored (decision 0002), so the time an item entered its State is read as the newest time a writer,
     a Lens or the Factory moved it: a push, a required check's completion, a review or a thread by a writer or a Lens's
     App (a gating thread is always one), a writer's action and a Run on this item. A stranger's comment, or a check
-    that is not required, moves nothing, or anyone could keep a stalled item from showing; nor does a check with a
-    required Lens's name from any App but that Lens's own (lens_reading). A time that is not a real
+    that is not required, moves nothing, or anyone could keep a stalled item from showing; nor does a check under a
+    required Lens's check name from any App but that Lens's own (reports_for). A time that is not a real
     moment no later than `now` is passed over, so the wait counts from earlier: that shows more, never less.
     """
     required = config["required_lenses"]["deterministic"]
@@ -444,7 +452,7 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     unread = unreadable_threads(facts, config)
     if unread:
         return {"state": None, "reason": "thread_unreadable", "evidence": unread}
-    # So could a check that another App posted under a required Lens's name: it is read before any Lens's failure
+    # So could a check that another App posted under a required Lens's check name: it is read before any Lens's failure
     # and before a conflict, as a fix Run is an action. It stays on this head, so only a push clears it.
     foreign = foreign_checks(facts["checks"], config)
     if foreign:

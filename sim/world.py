@@ -26,6 +26,8 @@ DECLARED = check_lifecycle.declared(check_lifecycle.load())
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 1}
 # Each required check, by its Lens's name, and the App that reports it: here, always that Lens's own.
 APPS = {lens["lens"]: lens["app_id"] for lens in CONFIG["required_lenses"]["deterministic"]}
+# The name GitHub gives each required check run, by its Lens's name.
+CHECKS = {lens["lens"]: lens["check"] for lens in CONFIG["required_lenses"]["deterministic"]}
 # An App no Lens is read from, which can write checks: the Controller's own can post a check under any name.
 IMPOSTOR_APP = 1000001
 START = datetime.datetime(2026, 10, 11, 12, 0, 0)
@@ -107,7 +109,7 @@ class World:
             "admitted_at": None, "last_push_at": self.last_push, "last_writer_action_at": self.last_writer,
             "reviews": copy.deepcopy(self.reviews), "threads": copy.deepcopy(self.threads),
             # GitHub: a_check_is_read_by_name_from_every_app
-            "checks": [{"lens": k, "app_id": APPS[k], "conclusion": v, "completed_at": self.completed.get(k)}
+            "checks": [{"name": CHECKS[k], "app_id": APPS[k], "conclusion": v, "completed_at": self.completed.get(k)}
                        for k, v in sorted(self.checks.items())] + copy.deepcopy(self.impostors),
             "queue": self.queue,
             # GitHub: the_timeline_shows_each_act
@@ -233,7 +235,8 @@ class World:
                    "I-13 a review or an act while a check has no verdict")
         # Another App's check under a required Lens's name lets no Run start and no act be made but a dequeue, not
         # even a fix for a check that failed.
-        foreign = [c for c in facts["checks"] if c["app_id"] != APPS[c["lens"]]]
+        apps = {CHECKS[lens]: app for lens, app in APPS.items()}
+        foreign = [c for c in facts["checks"] if c["app_id"] != apps[c["name"]]]
         self.check(not foreign or not (d["outcome"] == t.ADMIT or (d["outcome"] == t.ACT and not dequeue)),
                    "I-13 something done while another App's check stands under a Lens's name")
         waits = d["reason"] == "check_unreadable" and d["outcome"] == t.DEFER
@@ -445,7 +448,7 @@ class World:
                 self.note("check %s: %s" % (lens, self.checks[lens]))
             elif self.faults and roll < 0.87 and self.checks[lens] == "failure":
                 # GitHub: any_app_posts_a_check_under_any_name
-                self.impostors.append({"lens": lens, "app_id": IMPOSTOR_APP, "conclusion": "success",
+                self.impostors.append({"name": CHECKS[lens], "app_id": IMPOSTOR_APP, "conclusion": "success",
                                        "completed_at": self.now()})
                 self.note("check %s: failure, and another App posted a passing one under its name" % lens)
 

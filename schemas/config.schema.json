@@ -52,7 +52,7 @@
                 "minLength": 1
               },
               "check": {
-                "description": "The check run's name exactly as GitHub reports it. The port gives every check run of this name, from any App, this Lens's name in the facts",
+                "description": "The check run's name exactly as GitHub reports it. The Kernel matches a check in the facts to this Lens by its name, exactly, never by the Lens's own name",
                 "type": "string",
                 "minLength": 1
               },
