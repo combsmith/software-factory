@@ -231,7 +231,8 @@
           "level": "read",
           "needs": [
             "read:records.pass_record",
-            "read:records.runs"
+            "read:records.runs",
+            "read:records.artifacts"
           ]
         },
         "checks": {

@@ -101,6 +101,20 @@ def gating_threads(facts: dict, config: dict) -> list:
     return out
 
 
+def unreadable_threads(facts: dict, config: dict) -> list:
+    """The ids of open threads from a required Lens whose category or severity cannot be read.
+
+    Whether such a thread gates is read from both, and a security Finding gates at any severity, so one that is
+    missing, null, or a word the Kernel does not know could hide a gate: nothing may converge on it (I-13). A Lens
+    that is not required gates nothing, and may write both only as prose. A person's thread gates whatever it says.
+    A model Lens's thread is read whatever the class, as it gates whatever the class (gating_threads).
+    """
+    lenses = config["required_lenses"]["model"]
+    return [th["id"] for th in facts["threads"]
+            if not th["resolved"] and th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] in lenses
+            and (th.get("category") not in t.CATEGORIES or th.get("severity") not in t.SEVERITIES)]
+
+
 def is_leap(year: int) -> bool:
     every, unless, still = t.LEAP_YEARS
     return year % every == 0 and (year % unless != 0 or year % still == 0)
@@ -377,6 +391,10 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # admits a Run or converges: an unreadable fact never yields an action (I-13), only a stop.
     if unreadable_reviews(facts):
         return {"state": None, "reason": "review_unreadable", "evidence": []}
+    # So could a required Lens's thread whose category or severity cannot be read: a security Finding at any severity.
+    unread = unreadable_threads(facts, config)
+    if unread:
+        return {"state": None, "reason": "thread_unreadable", "evidence": unread}
     # GitHub works the merge state out after a push. Until it has, it is unknown, and unreadable.
     mergeable = facts.get("mergeable")
     if mergeable is False:

@@ -40,6 +40,11 @@ MAY_GO_STALE = frozenset({REVIEW, READY})
 # stale: a Pause, read or not, the model provider's deferral (`capacity`), capacity unread, and the org's limit on Runs.
 SCOPE_DEFERRALS = frozenset({"paused", "pause_unreadable", "capacity", "capacity_unreadable", "concurrency"})
 
+# A Finding's categories, as the authority table names them, and its severities: schemas/facts.schema.json names
+# them too, and a thread from a required Lens with any other, or none, cannot be read.
+CATEGORIES = ("functional", "security", "architecture", "delivery", "reliability", "requirements", "mechanical",
+              "uncategorised", "human")
+SEVERITIES = ("blocking", "major", "minor", "info")
 GATING_SEVERITIES = frozenset({"blocking", "major"})
 # A Finding of this category gates at any severity: severity is never how a security defect gets merged (FR-33).
 SECURITY = "security"

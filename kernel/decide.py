@@ -14,7 +14,7 @@ SCHEMA = "decision/1"
 NEEDS_YOU_REASONS = frozenset({
     "human_hold", "outside_not_admitted", "empty_diff", "too_large", "human_finding",
     "attempts_exhausted", "run_ceiling", "max_rounds", "approver_is_author_or_last_pusher",
-    "awaiting_human", "act_ceiling", "check_unreadable", "review_unreadable",
+    "awaiting_human", "act_ceiling", "check_unreadable", "review_unreadable", "thread_unreadable",
 })
 
 

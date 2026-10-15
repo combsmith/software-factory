@@ -36,6 +36,8 @@ def moved_after(rel: str, block: str, anchor: str) -> tuple:
 
 REVIEW_GUARD = ("    if unreadable_reviews(facts):\n"
                 '        return {"state": None, "reason": "review_unreadable", "evidence": []}\n')
+THREAD_GUARD = ("    unread = unreadable_threads(facts, config)\n    if unread:\n"
+                '        return {"state": None, "reason": "thread_unreadable", "evidence": unread}\n')
 REVIEW_WAIT = '            return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens]}\n'
 STAYS = '    if d["reason"] == "approved":\n'
 LEFT_ALONE = '    if d["state"] in t.TERMINAL or not facts["queue"] or t.LABEL_HANDS_OFF in facts["labels"]:\n'
@@ -67,6 +69,21 @@ MUTANTS = [
      'if by["kind"] == "human" and by["can_write"]:', 'if by["kind"] == "human":'),
     ("a minor finding gates", "kernel/derive.py",
      'th["severity"] in t.GATING_SEVERITIES', "True"),
+    ("a null category on a required Lens's thread is read as not security", "kernel/derive.py",
+     'th.get("category") not in t.CATEGORIES', 'th.get("category") not in t.CATEGORIES + (None,)'),
+    ("a null severity is readable", "kernel/derive.py",
+     'th.get("severity") not in t.SEVERITIES', 'th.get("severity") not in t.SEVERITIES + (None,)'),
+    ("a category outside the enum is read", "kernel/derive.py",
+     'th.get("category") not in t.CATEGORIES', 'th.get("category") is None'),
+    ("a thread from a Lens that is not required must be readable", "kernel/derive.py",
+     'th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] in lenses\n',
+     'th["opened_by"]["kind"] == "lens"\n'),
+    ("a model Lens's unreadable thread is read on a dependency update", "kernel/derive.py",
+     '    lenses = config["required_lenses"]["model"]\n', "    lenses = required_model_lenses(facts, config)\n"),
+    ("an unreadable thread is read after a model review is admitted", "kernel/derive.py",
+     *moved_after("kernel/derive.py", THREAD_GUARD, REVIEW_WAIT)),
+    ("an unreadable thread is not the Maintainer's to see", "kernel/decide.py",
+     '"review_unreadable", "thread_unreadable",', '"review_unreadable",'),
     ("a security finding gates by its severity", "kernel/derive.py",
      'th["category"] == t.SECURITY or ', ""),
     ("a security finding from a lens that is not required gates", "kernel/derive.py",

@@ -476,10 +476,12 @@ each withhold or dismiss the single approval the ruleset needs. Realizes UJ-1, U
 - **FR-33. One Disposition per gating Finding per content version.** Every Finding that gates is
   dispositioned exactly once for a given content version. The Gates read the outcome from the
   Finding's surface: a thread, and which App resolved it.
-  - A Finding gates when it is `blocking` or `major` and from a required Lens, when it is a
-    `security` Finding from a required Lens, at any severity, or when it is a `human` Finding.
-    Severity is never how a security defect is merged.
-  - A required Lens's Finding that does not gate, a `minor` or `info` one of any category but
+  - A Finding a required model Lens raises on a thread gates when it is `blocking` or `major`, or
+    when it is a `security` Finding, at any severity. Severity is never how a security defect is
+    merged. A required deterministic Lens gates through its check's conclusion, so what it fails on
+    is its tool's threshold: code scanning's must fail on a security alert of any severity (issue
+    #95 "Code scanning fails on a security alert of any severity"). A `human` Finding always gates.
+  - A required model Lens's Finding that does not gate, a `minor` or `info` one of any category but
     `security`, is given no Disposition. It is an annotation on its Lens's check run, never a
     thread, and closes when the Lens stops reporting it, as a `mechanical` Finding does. Its Lens's
     report still gives it one outcome, which FR-69 counts. Decided by the Maintainer on 2026-10-14.

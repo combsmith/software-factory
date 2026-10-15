@@ -235,7 +235,7 @@
             }
           },
           "category": {
-            "description": "The Finding's category, as the authority table names it: a person's thread is human. Null for a Lens that writes it only as prose. A security Finding gates at any severity",
+            "description": "The Finding's category, as the authority table names it: a person's thread is human. A required Lens's, and its severity, come from its own Finding record joined by surface.key, never the comment text; null there is unreadable. Null for a Lens that writes it only as prose. A security Finding gates at any severity",
             "enum": [
               "functional",
               "security",

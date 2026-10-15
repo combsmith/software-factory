@@ -9,10 +9,11 @@ Every source of judgement on a Work item, whether a Role, a third-party reviewer
 person, is a Lens that reports Findings in one schema. Convergence is a Kernel function: every
 required Lens has passed on the current content, and no gating Finding is open. Lenses do not
 address each other. A Finding from a Lens outside the required set gates only when a required Lens
-adopts it. A required Lens's Finding gates when it is `blocking` or `major`, and a `security` one at
-any severity. One that does not gate, `minor` or `info`, is an annotation on its Lens's check run
-and has no Disposition: it closes when its Lens stops reporting it, as a `mechanical` Finding does
-(Maintainer, 2026-10-14). A reviewing Role declares a rubric, which is a floor. A change that has
+adopts it. A required model Lens's Finding gates when it is `blocking` or `major`, and a `security`
+one at any severity; a required deterministic Lens gates through its check's conclusion. One that
+does not gate, a `minor` or `info` Finding of any category but `security`, is an annotation on its
+Lens's check run and has no Disposition: it closes when its Lens stops reporting it, as a
+`mechanical` Finding does (Maintainer, 2026-10-14). A reviewing Role declares a rubric, which is a floor. A change that has
 not converged within its bound is placed on Hold.
 
 ## Why
@@ -32,9 +33,11 @@ each Finding one outcome, which is counted. Severity is never how a security def
 |---|---|
 | A Finding is a structured record | `schemas/finding.schema.json`, `tools/check_examples.py` |
 | A reason is a code, never a sentence | `examples/invalid/decision.sentence-as-reason.json` |
-| A required Lens's blocking or major Finding gates; a minor one, or one from a Lens that is not required, does not | `tests/test_decide.py::test_required_lens_major_finding_gates`, `tests/test_decide.py::test_minor_finding_and_unrequired_lens_do_not_gate` |
+| A required Lens's blocking or major Finding gates; a minor one of any category but `security`, or one from a Lens that is not required, does not | `tests/test_decide.py::test_required_lens_major_finding_gates`, `tests/test_decide.py::test_minor_finding_and_unrequired_lens_do_not_gate` |
 | A required Lens's `security` Finding gates at any severity, in the merge queue too; one from a Lens that is not required gates only once a required Lens adopts it | `tests/test_decide.py::test_a_minor_security_finding_gates`, `tests/test_decide.py::test_a_minor_security_finding_opened_while_queued_takes_it_out_of_the_queue`, `tests/test_decide.py::test_a_security_finding_from_a_lens_that_is_not_required_does_not_gate` |
-| A thread carries its Finding's category, in the authority table's terms | `examples/invalid/facts.a-thread-without-its-category.json`, `examples/invalid/facts.a-category-nobody-owns.json`, `tests/test_tools.py::test_a_thread_carries_the_categories_a_finding_does` |
+| A required Lens's open thread whose category or severity is missing, null or not in the schema defers for the Maintainer, and takes a queued item out; a thread from a Lens that is not required may carry neither | `tests/test_decide.py::test_a_required_lens_thread_that_cannot_be_read_defers`, `tests/test_decide.py::test_a_read_that_fails_takes_a_pull_request_out_of_the_queue` |
+| A thread's category and severity are read from the required Lens's own Finding record, joined by its surface key, never from the comment text | waiting on `adapters/` |
+| A thread carries its Finding's category, in the authority table's terms, and the Kernel reads the Finding's categories and severities | `tests/test_tools.py::test_the_kernel_reads_the_categories_and_severities_a_finding_carries`, `examples/invalid/facts.a-thread-without-its-category.json`, `examples/invalid/facts.a-category-nobody-owns.json`, `tests/test_tools.py::test_a_thread_carries_the_categories_a_finding_does` |
 | A Finding that does not gate is an annotation on its Lens's check run; a Result that posts one on a thread is refused | waiting on `harness/` |
 | A required deterministic Lens is named for the check GitHub reports, and that check reports on every head and in the merge queue | waiting on `adapters/` |
 | No model Lens runs on content the deterministic Lenses have not passed | `tests/test_decide.py::test_no_model_review_before_deterministic_checks_pass` |

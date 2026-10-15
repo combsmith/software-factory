@@ -322,7 +322,7 @@ for contract tests, so one schema has three uses.
 | `changed_paths` | Paths in that diff |
 | `labels` | Names |
 | `reviews` | Who submitted it (`by`: kind, name and whether that actor has write access, as a thread's opening actor), state (`approved`, `changes_requested`, `commented` or `dismissed`, as GitHub holds it now), commit, `content_id`, `submitted_at`; and, from the timeline, `dismissed_by`: who dismissed it, of what kind and with what access, and `dismissed_from`: what it was before (`approved`, `changes_requested` or `commented`). Both are null unless it was dismissed |
-| `threads` | Thread id, path, line, when it was opened, resolved, outdated, opening actor and whether that actor has write access, resolving actor |
+| `threads` | Thread id, path, line, when it was opened, resolved, outdated, opening actor and whether that actor has write access, resolving actor; and the Finding's `category` and `severity`. For a required Lens's thread both come from that Lens's own Finding record, in its Run's `result.json` (§3.10), joined by `surface.key`, never from the comment text, which anyone with write access can edit. A person's thread is `human`, with no severity; an Advisory reviewer's, which no Finding record names, has neither |
 | `checks` | Name, App, conclusion as GitHub gives it (or the check's status while it has not concluded), completion time, annotation count |
 | `alerts` | Tool, rule, alert number, state, severity, path |
 | `queue` | Merge-queue membership |
@@ -399,6 +399,13 @@ is a stop: the item is taken out of the merge queue (§4.1). A time is
 readable only in the one format, because times compare as text. The item is the Maintainer's to
 see, as for a check with no verdict: a port that misreads does not mend itself. A request made
 after the item entered the merge queue takes it out of the queue (§4.1).
+
+A required Lens's open thread whose `category` or `severity` is missing, null, or a word the Finding
+schema does not name is unreadable in the same way. Whether it gates is read from both, and a
+`security` Finding gates at any severity (§4.2), so it could be one: the Kernel defers, reason
+`thread_unreadable`, with the thread's id as evidence, and the item is the Maintainer's to see. It
+is read just after the reviews, and on a queued item it is a stop. A thread from a Lens that is not
+required gates nothing, and may carry neither.
 
 An issue has facts of its own (§4.1, the issue Lifecycle):
 
@@ -560,11 +567,13 @@ There is no Effect that starts a Run. Only Admission does that.
 - `category` is one of `functional`, `security`, `architecture`, `delivery`, `reliability`,
   `requirements`, `mechanical`, `uncategorised`, or `human`.
 - `severity` is `blocking`, `major`, `minor` or `info`.
-- Whether a required Lens's Finding gates is read from its category and severity (§4.2). A
+- Whether a required model Lens's Finding gates is read from its category and severity (§4.2). A
   `security` Finding gates at any severity. One that does not gate, a `minor` or `info` Finding of
   any other category, is reported as an annotation on its Lens's check run (`surface.type`
   `annotation`), never as a thread, and has no Disposition (§4.3). The Harness refuses a Result
   that posts one on a thread.
+- A thread's category and severity in the facts are read from this record, joined to the thread by
+  `surface.key`, never from the comment text: anyone with write access can edit a comment (§3.3).
 - Category and severity are always fields. A deterministic tool supplies them. A Role supplies them
   for its own Findings. A third-party reviewer that writes them only as prose gets them by
   **adoption**: `pr-review` is given that reviewer's Finding as input and, if it agrees, raises a
@@ -1245,17 +1254,19 @@ Convergence is one Kernel function of facts and run records:
    on the current `content_id`. For a deterministic Lens, only `success` passes; a check that gave
    no verdict, `neutral`, `skipped` or `cancelled` among them, is unreadable and the Kernel defers
    (§3.3);
-2. no Finding raised by a required Lens is open or proposed that is of severity `blocking` or
-   `major`, or of category `security` at any severity;
+2. no Finding raised on a thread by a required model Lens is open or proposed that is of severity
+   `blocking` or `major`, or of category `security` at any severity. A required deterministic Lens
+   gates through its check's conclusion (item 1), so what it fails on is its tool's threshold;
 3. no `human` Finding is open. A `human` Finding is a review thread, or a review that requests
    changes, from a person with write access;
 4. where the item has an acceptance contract, every criterion has passing evidence on this
    content (§4.8).
 
 A *blocking Finding*, here and in the diagram above, is one that gates: severity `blocking` or
-`major`, or category `security` at any severity, from a required Lens; or a `human` Finding.
-Severity is never how a security defect is merged. A required Lens's Finding that does not gate is
-an annotation on its check run, and needs no Disposition before its item merges (§4.3, FR-33).
+`major`, or category `security` at any severity, from a required model Lens; a required
+deterministic Lens's failing check; or a `human` Finding. Severity is never how a security defect
+is merged. A required model Lens's Finding that does not gate is an annotation on its check run,
+and needs no Disposition before its item merges (§4.3, FR-33).
 
 Which Lenses are required is data. The starting set is the deterministic checks, `pr-review` and
 humans. A Lens joins it only with a measured contribution (ADR-0013, decision 12). A dependency
@@ -1327,7 +1338,7 @@ sequenceDiagram
 - A `security` Finding gates at any severity. It cannot be accepted as `declined` or `deferred` by
   any Role. Only an Override by the Maintainer does that.
 - A `mechanical` Finding is never judged by a model. It closes when its tool stops reporting it.
-- A required Lens's Finding that does not gate, a `minor` or `info` one of any category but
+- A required model Lens's Finding that does not gate, a `minor` or `info` one of any category but
   `security`, is never judged either. It is an annotation on its Lens's check run, never a thread, so no ruleset's
   requirement that threads be resolved can hold its item. It has no Disposition, and closes when
   its Lens stops reporting it, as a `mechanical` Finding does. Its Lens's report is its one
@@ -2381,7 +2392,8 @@ Found by explaining the design on one page and by comparing it with the PRD grou
 |---|---|
 | FR-1, for issues | Designed in §4.1 on 2026-10-11. Not yet declared as data, nor checked for termination. The Kernel has no facts or derivation for an issue yet. Left open there: which Role's App opens the draft pull request; the Consumer entry's fields for issues; the promotion record of an Intent that owns no category; and the PRD's own text on triage and arming (§10) |
 | FR-6, resumable Runs | Not designed. A Run that times out pushes nothing and starts again |
-| FR-33 and I-15, for a Finding that does not gate | Designed in §4.2 and §4.3 on 2026-10-14, by the Maintainer's ruling. A required Lens's `minor` or `info` Finding of any category but `security` is an annotation on its Lens's check run, has no Disposition, and closes when its Lens stops reporting it; a `security` Finding gates at any severity. The Kernel holds the gate. Refusing such a Finding when it is posted on a thread is waiting on `harness/` |
+| FR-33 and I-15, for a Finding that does not gate | Designed in §4.2 and §4.3 on 2026-10-14, by the Maintainer's ruling. A required model Lens's `minor` or `info` Finding of any category but `security` is an annotation on its Lens's check run, has no Disposition, and closes when its Lens stops reporting it; a `security` Finding gates at any severity. The Kernel holds the gate. Refusing such a Finding when it is posted on a thread is waiting on `harness/` |
+| A `security` Finding from a deterministic Lens, at any severity | Not held. A deterministic Lens gates through its check's conclusion, and code scanning's default fails the check only on a security alert of `high` or higher. Its threshold must be set to fail on a security alert of any severity: issue #95 "Code scanning fails on a security alert of any severity" |
 | FR-12, the injection test suite | Required before promotion; not designed |
 | FR-14, shared-branch safety | The rule is stated; the push guard is to be carried over from the POC |
 | FR-21, FR-36, priority and graceful degradation | Backpressure and the capacity outcome exist. The stages between full service and Pause are not designed |
