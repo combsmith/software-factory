@@ -34,7 +34,7 @@ Then, only if your rule needs it:
 
 - A person must act on the new reason: add it to `NEEDS_YOU_REASONS` in `decide.py`.
 - It reads a new fact: add the field to `schemas/facts.schema.json`, `examples/facts.json`,
-  `facts()` in `tests/support.py` and `facts()` in `sim/world.py`, in the same change.
+  `facts()` in `tests/support.py` and `sim/world.py`, together; a flag in `complete`, to `terms.py` too.
 - It reads a new limit: add it to `config/defaults.json` and `schemas/config.schema.json`.
 - It makes a new transition between States: declare it in `lifecycle/pull_request.json`.
 - It is a boundary of a record in `docs/decisions/`: add a row there naming your test.

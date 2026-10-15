@@ -23,11 +23,55 @@ def go(f, runs=(), ctx=None, cfg=None):
 
 class Readability(unittest.TestCase):
     def test_incomplete_facts_never_converge_or_admit(self):  # I-20
-        for part in ("reviews", "threads", "checks", "diff"):
+        # A list of Runs read short can hide a Run in progress or one that counts toward a ceiling (I-13).
+        for runs, whole in ((REVIEWED, "act"), ((), "admit")):
+            self.assertEqual(go(facts(), runs)["outcome"], whole)
+            for part in ("reviews", "threads", "checks", "diff", "runs"):
+                f = facts()
+                f["complete"][part] = False
+                d = go(f, runs)
+                self.assertEqual((d["outcome"], d["reason"], d["state"], d["evidence"]),
+                                 ("defer", "facts_incomplete", None, [part]), part)
+
+    def test_a_flag_that_is_not_exactly_true_is_incomplete(self):  # I-13, I-20
+        # A fact read from outside is never given a default: a missing or malformed flag is not a whole list.
+        approved = [{"actor": "donpetry-bot", "state": "approved", "commit": "c1", "content_id": "sha256:aaaa"}]
+        for runs in (REVIEWED, ()):
+            for part in ("reviews", "threads", "checks", "diff", "runs"):
+                for value in ("missing", "false", "no", "true", 1, 0, None):
+                    f = facts(reviews=approved)
+                    if value == "missing":
+                        del f["complete"][part]
+                    else:
+                        f["complete"][part] = value
+                    d = go(f, runs)
+                    self.assertEqual((d["outcome"], d["reason"], d["evidence"]),
+                                     ("defer", "facts_incomplete", [part]), (part, value))
+        for flags in ("missing", True, None, ["runs"]):
             f = facts()
-            f["complete"][part] = False
+            if flags == "missing":
+                del f["complete"]
+            else:
+                f["complete"] = flags
             d = go(f, REVIEWED)
-            self.assertEqual((d["outcome"], d["reason"], d["state"]), ("defer", "facts_incomplete", None))
+            self.assertEqual((d["outcome"], d["reason"]), ("defer", "facts_incomplete"), flags)
+
+    def test_the_kernel_reads_every_flag_the_facts_schema_requires(self):
+        schema = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
+        self.assertEqual(sorted(schema["properties"]["complete"]["required"]), sorted(facts()["complete"]))
+        for part in schema["properties"]["complete"]["required"]:
+            f = facts()
+            del f["complete"][part]
+            self.assertEqual(go(f, REVIEWED)["evidence"], [part], part)
+
+    def test_incomplete_facts_are_read_after_a_merged_or_closed_item(self):  # I-20
+        # The list of Runs is read once a pass for every item; cut short, it must not hide a merge or a close.
+        for state in ("merged", "closed"):
+            for part in ("reviews", "threads", "checks", "diff", "runs"):
+                f = facts(state=state)
+                f["complete"][part] = False
+                d = go(f, REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["outcome"]), (state, state, "nothing"), part)
 
     def test_unreadable_pause_defers(self):  # I-13
         d = go(facts(), ctx={"active_runs": 0, "model_deferred_until": None})

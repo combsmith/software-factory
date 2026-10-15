@@ -68,7 +68,8 @@
     "reviews": true,
     "threads": true,
     "checks": true,
-    "diff": true
+    "diff": true,
+    "runs": true
   },
   "read_at": "2026-10-11T12:20:00Z"
 }

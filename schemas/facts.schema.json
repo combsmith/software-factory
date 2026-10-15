@@ -245,7 +245,8 @@
         "reviews",
         "threads",
         "checks",
-        "diff"
+        "diff",
+        "runs"
       ],
       "properties": {
         "reviews": {
@@ -258,6 +259,9 @@
           "type": "boolean"
         },
         "diff": {
+          "type": "boolean"
+        },
+        "runs": {
           "type": "boolean"
         }
       }

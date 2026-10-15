@@ -286,7 +286,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-53 The list itself was cut off, and nothing said so
 **Failure.** The list of workflow runs stops at 1,000 for a query, however it is paged. A query over the resource limit came back as a success with no data, and a whole repo was read as having no pull requests.
 **Rule.** A list read short is unreadable. The list of Runs and the list of items each say whether they are whole, as the facts of one item do.
-**Check.** waiting on `adapters/`
+**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `examples/invalid/facts.no-completeness-for-runs.json` for the list of Runs; the list of items is waiting on `adapters/`
 
 ### L-54 A wrong fix cleared a gate
 **Failure.** A fix added a new test and broke an existing one without editing it. Nobody ran the suite against the state before the fix, and an outside reviewer marked the thread addressed on the strength of the reply.
