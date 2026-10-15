@@ -122,6 +122,8 @@ TIMEOUT = 600      # seconds for one run of the suite. A run that takes longer i
 FAILED = re.compile(r"^FAILED \((?:failures|errors)=", re.M)
 # unittest's stand-in for a test module that would not import: the copy is broken, not the rule.
 UNIMPORTABLE = "unittest.loader._FailedTest"
+# How every ERROR's reason ends. An ERROR says nothing of the rule, so the run is mended and made again.
+AGAIN = "; fix the copy or run named here, then run python3 -m tools.mutants again"
 
 
 def suite(cwd: pathlib.Path, timeout: float = TIMEOUT) -> tuple:
@@ -143,13 +145,13 @@ def suite(cwd: pathlib.Path, timeout: float = TIMEOUT) -> tuple:
 def verdict(status, output: str) -> tuple:
     """What a run of the suite says of its mutant: ("killed", "SURVIVED" or "ERROR", and why)."""
     if status is None:
-        return "ERROR", "the run took longer than %d s" % TIMEOUT
+        return "ERROR", "the run took longer than %d s%s" % (TIMEOUT, AGAIN)
     if status == 0:
         return "SURVIVED", ""
     if status == 1 and FAILED.search(output) and UNIMPORTABLE not in output:
         return "killed", ""
     last = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "no output")
-    return "ERROR", "exit status %d, and no test failed: %s" % (status, last)
+    return "ERROR", "exit status %d and no test failed, ending %r%s" % (status, last, AGAIN)
 
 
 def attempt(mutant: tuple, root: pathlib.Path, run) -> tuple:
@@ -171,7 +173,7 @@ def guarded(mutant: tuple, root: pathlib.Path, run) -> tuple:
     try:
         return attempt(mutant, root, run)
     except Exception as err:    # a failed copy, read or run; never a kill
-        return "ERROR", "the run failed: %s: %s" % (type(err).__name__, err)
+        return "ERROR", "the run failed with %s: %s%s" % (type(err).__name__, err, AGAIN)
 
 
 def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: int = None) -> int:

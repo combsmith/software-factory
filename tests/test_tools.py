@@ -1361,6 +1361,7 @@ class Verify(unittest.TestCase):
         self.assertEqual([p.relative_to(root).as_posix() for p in walk.files(root)], ["a/f.py", "a/x.py"])
 
 
+AGAIN = "; fix the copy or run named here, then run python3 -m tools.mutants again"
 FAILS_A_TEST = "F\n======\nFAIL: test_x (tests.test_x.T)\n------\nAssertionError\n\nRan 1 test\n\nFAILED (failures=1)\n"
 
 
@@ -1411,7 +1412,7 @@ class Mutants(unittest.TestCase):
         self.assertIsNone(mutants.suite(suite_of("    def test_x(self):\n        time.sleep(60)\n"), 1)[0])
         self.assertLess(time.monotonic() - began, 30)
         code, lines, _ = self.check({"hangs": (0, None, "")}, ["hangs"])
-        self.assertEqual(lines, ["ERROR     hangs (the run took longer than %d s)" % mutants.TIMEOUT,
+        self.assertEqual(lines, ["ERROR     hangs (the run took longer than %d s%s)" % (mutants.TIMEOUT, AGAIN),
                                  "0 of 1 mutants killed"])
         self.assertEqual(code, 1)
 
@@ -1424,12 +1425,14 @@ class Mutants(unittest.TestCase):
             "a module will not import": ("    pass\n\n\nimport a_module_the_copy_left_out\n", "ERROR"),
         }
         for name, (test, outcome) in cases.items():
-            self.assertEqual(mutants.verdict(*mutants.suite(suite_of(test)))[0], outcome, name)
+            said, why = mutants.verdict(*mutants.suite(suite_of(test)))
+            self.assertEqual(said, outcome, name)
+            self.assertTrue(said != "ERROR" or why.endswith(AGAIN), name)
         crash = "Traceback (most recent call last):\nMemoryError\n"
-        self.assertEqual(mutants.verdict(1, crash), ("ERROR", "exit status 1, and no test failed: MemoryError"))
+        self.assertEqual(mutants.verdict(1, crash), ("ERROR", "exit status 1 and no test failed, ending 'MemoryError'" + AGAIN))
         self.assertEqual(mutants.verdict(2, FAILS_A_TEST)[0], "ERROR")
         code, lines, _ = self.check({"crashes": (0, 1, crash)}, ["crashes"])
-        self.assertEqual(lines[0], "ERROR     crashes (exit status 1, and no test failed: MemoryError)")
+        self.assertEqual(lines[0], "ERROR     crashes (exit status 1 and no test failed, ending 'MemoryError'%s)" % AGAIN)
         self.assertEqual(code, 1)
 
     def test_each_run_stops_at_its_first_failure(self):
@@ -1448,7 +1451,7 @@ class Mutants(unittest.TestCase):
     def test_a_run_that_raises_is_an_error_and_the_rest_still_report(self):
         code, lines, _ = self.check({"before": (0, 1, FAILS_A_TEST), "raises": (0, 1, OSError("disk full")),
                                      "after": (0.2, 1, FAILS_A_TEST)}, ["before", "raises", "after"])
-        self.assertEqual(lines, ["killed    before", "ERROR     raises (the run failed: OSError: disk full)",
+        self.assertEqual(lines, ["killed    before", "ERROR     raises (the run failed with OSError: disk full%s)" % AGAIN,
                                  "killed    after", "2 of 3 mutants killed"])
         self.assertEqual(code, 1)
 
