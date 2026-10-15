@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import os
 import pathlib
-import shutil
 import subprocess
 import sys
 import tempfile
+
+from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MUTANTS = [
@@ -104,7 +105,7 @@ def main() -> int:
     for name, rel, old, new in MUTANTS:
         with tempfile.TemporaryDirectory() as tmp:
             work = pathlib.Path(tmp) / "repo"
-            shutil.copytree(ROOT, work, ignore=shutil.ignore_patterns(".git", "__pycache__"))
+            walk.copy(ROOT, work)
             target = work / rel
             text = target.read_text()
             if text.count(old) != 1:

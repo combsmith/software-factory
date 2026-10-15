@@ -8,6 +8,8 @@ from __future__ import annotations
 import ast
 import pathlib
 
+from tools import walk
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ALLOWED_IMPORTS = {"__future__", "typing", "kernel"}
 FORBIDDEN_NAMES = {"open", "print", "input", "exec", "eval", "__import__", "compile", "globals", "locals", "vars",
@@ -26,7 +28,7 @@ def _constant(node) -> bool:
 
 def run(root: pathlib.Path = ROOT) -> list:
     problems = []
-    files = sorted((root / "kernel").rglob("*.py"))
+    files = [p for p in walk.files(root, "kernel") if p.suffix == ".py"]
     if not files:
         return ["there is no kernel/ to check"]
     for path in files:

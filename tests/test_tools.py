@@ -5,17 +5,17 @@ one in the copy, so that a check is run from its front door and not only by its 
 """
 from __future__ import annotations
 
+import ast
 import contextlib
 import copy
 import io
 import json
 import pathlib
-import shutil
 import tempfile
 import unittest
 
 from tools import (check_apps, check_authority, check_context, check_examples, check_lifecycle, check_purity,
-                   check_repo, check_workflows, verify)
+                   check_repo, check_workflows, verify, walk)
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
@@ -39,7 +39,7 @@ def tree(files: dict) -> pathlib.Path:
 def clone(files: dict) -> pathlib.Path:
     """A copy of this repo with `files` written over it."""
     root = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "repo"
-    shutil.copytree(ROOT, root, ignore=shutil.ignore_patterns(".git", "__pycache__", "corpus"))
+    walk.copy(ROOT, root)
     for rel, text in files.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,6 +49,31 @@ def clone(files: dict) -> pathlib.Path:
 
 def caught(problems: list, words: str) -> bool:
     return any(words in p for p in problems)
+
+
+WALKS = {"walk", "fwalk", "rglob", "scandir", "copytree"}
+
+
+def walkers(source: str) -> list:
+    """(line, name) for each way `source` walks or copies a tree, read from its syntax, not its spelling."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        line = getattr(node, "lineno", 0)
+        syntax = isinstance(node, ast.Attribute) and getattr(node.value, "id", "") == "ast"   # ast.walk
+        if isinstance(node, ast.Attribute) and node.attr in WALKS and not syntax:
+            found.append((line, node.attr))
+        elif isinstance(node, ast.ImportFrom) and node.module != "tools":
+            found += [(line, a.name) for a in node.names if a.name in WALKS]
+        elif isinstance(node, ast.Call):
+            name = getattr(node.func, "attr", getattr(node.func, "id", ""))
+            if name in WALKS and isinstance(node.func, ast.Name):
+                found.append((line, name))
+            recursive = any(k.arg == "recursive" and not (isinstance(k.value, ast.Constant) and k.value.value is False)
+                            for k in node.keywords)
+            starred = any(isinstance(a, ast.Constant) and "**" in str(a.value) for a in node.args)
+            if name in ("glob", "iglob") and (recursive or starred):
+                found.append((line, name))
+    return found
 
 
 def rules(text: str) -> list:
@@ -685,6 +710,75 @@ class Verify(unittest.TestCase):
             self.assertTrue(planted(), "%s finds nothing wrong with a planted fault" % name)
         for name, check in verify.CHECKS:
             self.assertEqual(check(), [], "%s finds fault with this repo" % name)
+
+    def test_another_working_tree_inside_this_one_is_not_read(self):
+        # A session's git worktree sits in the main checkout, a whole copy of the repo with a .git
+        # file. A full clone has a .git directory. Neither is this repo, and nothing in it is checked.
+        stray = {"AGENTS.md": "# other\n\n| Rule | Held by |\n|---|---|\n| x | `tools/gone.py` |\n",
+                 "CLAUDE.md": "Be careful.\n", "requirements.txt": "requests\n",
+                 "tests/test_x.py": "def test_x():\n    pass\n", "tests/deep/test_y.py": "",
+                 "kernel/clock.py": "import time\n", "notes.txt": "github_pat_" + "x" * 40 + "\n"}
+        planted = {"wt/.git": "gitdir: /elsewhere\n", "wt/notes.txt": "A folder with no AGENTS.md.\n"}
+        for where, git in ((".claude/worktrees/other", ".git"), (".claude/worktrees/clone", ".git/HEAD"),
+                           ("kernel/wt", ".git"), ("docs/wt", ".git")):
+            planted["%s/%s" % (where, git)] = "gitdir: /elsewhere\n"
+            planted.update({"%s/%s" % (where, rel): text for rel, text in stray.items()})
+        root = clone(planted)
+        walking = [(name, check) for name, check in verify.CHECKS
+                   if "root" in check.__code__.co_varnames[:check.__code__.co_argcount]]
+        self.assertGreaterEqual(len(walking), 5)
+        for name, check in walking:
+            with self.subTest(check=name):
+                self.assertEqual(check(root), [], "%s reads another working tree as this one" % name)
+
+    def test_a_copy_of_the_repo_leaves_out_another_working_tree(self):
+        root = tree({"a/x.py": "", "a/__pycache__/x.pyc": "", "corpus/d.jsonl": "", ".git/HEAD": "",
+                     "wt/.git": "gitdir: /elsewhere\n", "wt/y.py": "", "a/clone/.git/HEAD": "", "a/clone/z.py": "",
+                     "a/corpus/y.py": ""})
+        self.assertEqual([p.relative_to(root).as_posix() for p in walk.files(root)], ["a/corpus/y.py", "a/x.py"])
+        to = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "copy"
+        walk.copy(root, to)
+        self.assertEqual([p.name for p in to.iterdir()], ["a"])
+        self.assertEqual(sorted(p.name for p in (to / "a").iterdir()), ["corpus", "x.py"])
+
+    def test_only_the_corpus_at_the_root_is_skipped_and_only_a_directory(self):
+        # make_corpus.py writes corpus/ at the root, and nowhere else. A folder of that name below
+        # the root is code like any other, and a file named for a skipped folder is a file.
+        token = "github_pat_" + "x" * 40 + "\n"
+        root = clone({"kernel/corpus/x.py": "import time\n", "sim/corpus/test_hidden.py": "",
+                      "sim/corpus/notes.txt": token, "corpus": token, "sim/__pycache__": token})
+        self.assertTrue(caught(check_purity.run(root), "corpus/x.py:1 imports time"))
+        problems = check_repo.run(root)
+        for words in ("sim/corpus/test_hidden.py: a test outside tests/", "sim/corpus/notes.txt: holds something",
+                      "corpus: holds something", "sim/__pycache__: holds something"):
+            self.assertTrue(caught(problems, words), words)
+
+    def test_a_link_is_not_followed_and_a_link_to_nothing_is_reported(self):
+        root = tree({"a/x.py": ""})
+        (root / "l").symlink_to("a", target_is_directory=True)
+        (root / "gone.py").symlink_to("nowhere.py")
+        self.assertEqual([p.relative_to(root).as_posix() for p in walk.files(root)], ["a/x.py"])
+        self.assertTrue(caught(check_repo.run(root), "gone.py: a link to nothing"))
+        to = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "copy"
+        walk.copy(root, to)
+        self.assertTrue((to / "l").is_symlink() and (to / "gone.py").is_symlink())
+
+    def test_only_the_walk_walks_the_tree(self):
+        # One walk, so that every check and every copy skips the same things.
+        found = sorted(p.relative_to(ROOT).as_posix() for p in walk.files(ROOT)
+                       if p.suffix == ".py" and p.relative_to(ROOT).parts[0] in ("tools", "tests", "sim")
+                       and walkers(p.read_text()))
+        self.assertEqual(found, ["tools/walk.py"])
+
+    def test_a_walk_written_another_way_is_still_a_walk(self):
+        for source in ("os.walk(root)\n", "os.walk (root)\n", "os.fwalk(root)\n", "root.walk()\n",
+                       "root.rglob('*.py')\n", "os.scandir(root)\n", "shutil.copytree(a, b)\n",
+                       "from os import walk\n", "from shutil import copytree as ct\nct(a, b)\n",
+                       "ct = shutil.copytree\n", "glob.glob('x', recursive=True)\n", "glob.iglob('**/*.py')\n",
+                       "root.glob('x/**/*.py')\n"):
+            self.assertTrue(walkers(source), source)
+        self.assertEqual(walkers("from tools import walk\nwalk.files(root)\nroot.glob('*.py')\n"
+                                 "glob.glob('x', recursive=False)\nast.walk(tree)\n"), [])
 
     def test_a_check_that_finds_a_problem_fails_verify(self):
         with contextlib.redirect_stdout(io.StringIO()) as said:
