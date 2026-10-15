@@ -462,6 +462,24 @@ class Repo(unittest.TestCase):
         self.assertTrue(caught(problems, "tests/unit/test_new.py: a test below tests/"))
         self.assertFalse(caught(problems, "test_ok.py"))
 
+    def test_a_link_is_refused_wherever_it_is(self):
+        # Every check reads the tree through tools/walk.py, which never follows a link. Python
+        # imports through one all the same, so a link would carry code past the purity check.
+        root = tree({"kernel/x.py": "", "sim/x.py": "", "docs/ext/clock.py": "import time\n",
+                     "docs/clock.py": "import time\n"})
+        for where in ("kernel", "sim"):
+            (root / where / "ext").symlink_to("../docs/ext", target_is_directory=True)
+            (root / where / "clock.py").symlink_to("../docs/clock.py")
+        (root / "kernel" / "gone.py").symlink_to("nowhere.py")
+        self.assertFalse(caught(check_purity.run(root), "ext/clock.py"))      # why: unread, yet importable
+        said = sorted(p for p in check_repo.run(root) if ": a link" in p)
+        self.assertEqual([p.split(";")[0] for p in said],
+                         ["kernel/clock.py: a link to a file", "kernel/ext: a link to a directory",
+                          "kernel/gone.py: a link to nothing",
+                          "sim/clock.py: a link to a file", "sim/ext: a link to a directory"])
+        self.assertTrue(caught(said, "kernel/ext: a link to a directory; Python imports through it, but no check"))
+        self.assertTrue(caught(said, "kernel/gone.py: a link to nothing; commit what it points at, or remove it"))
+
 
 class Workflows(unittest.TestCase):
     def test_the_example_passes_and_every_rule_has_been_tripped(self):
@@ -1104,3 +1122,14 @@ class Verify(unittest.TestCase):
 
         names(unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT)))
         self.assertEqual(found, {p.stem for p in (ROOT / "tests").glob("test_*.py")})
+
+    def test_every_link_is_listed_and_none_is_followed(self):
+        # A link is never another working tree to skip, even when what it points at holds a .git.
+        root = tree({"a/x.py": "", "other/.git": "gitdir: /elsewhere\n", "other/y.py": ""})
+        (root / "a" / "l").symlink_to("..", target_is_directory=True)
+        (root / "a" / "wt").symlink_to("../other", target_is_directory=True)
+        (root / "a" / "f.py").symlink_to("x.py")
+        (root / "a" / "gone.py").symlink_to("nowhere.py")
+        self.assertEqual([p.relative_to(root).as_posix() for p in walk.links(root)],
+                         ["a/f.py", "a/gone.py", "a/l", "a/wt"])
+        self.assertEqual([p.relative_to(root).as_posix() for p in walk.files(root)], ["a/f.py", "a/x.py"])

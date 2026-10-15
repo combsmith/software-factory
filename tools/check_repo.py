@@ -1,4 +1,4 @@
-"""What must never be in this repo: third-party code, a dependency manifest, a secret, a second definition."""
+"""What must never be in this repo: third-party code, a dependency manifest, a secret, a second definition, a link."""
 from __future__ import annotations
 
 import ast
@@ -21,6 +21,12 @@ MANIFESTS = {"pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "Pipfile.lock
              "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "environment.yml", "go.mod",
              "Cargo.toml", "Gemfile"}
 VENDORED = {"vendor", "vendored", "third_party", "site-packages", "node_modules"}
+# The links this repo needs, by path from the root. There are none. Every path is held to a rule by
+# some check, if only this one's search for secrets, and a check reads a path where it stands: behind a
+# link to a directory it reads nothing, since tools/walk.py never follows one, and through a link to a
+# file it reads what another path holds, under that path's review. A link that is truly needed is
+# named here, with its reason, in the same change.
+LINKS = set()
 # The org's secrets baseline opens .gitignore, word for word (combsmith/.github, the
 # gitignore standard, "L1 — Secrets baseline"). When the org changes it, copy the new block in
 # and put its hash here; never edit between the markers.
@@ -109,8 +115,18 @@ def run(root: pathlib.Path = ROOT) -> list:
     for stray in ("CODEOWNERS", "docs/CODEOWNERS"):
         if (root / stray).exists():
             problems.append("%s: GitHub reads the first code owners file it finds; keep only .github/CODEOWNERS" % stray)
-    for path in walk.broken(root):
-        problems.append("%s: a link to nothing; commit what it points at, or remove it" % path.relative_to(root))
+    for path in walk.links(root):
+        rel = path.relative_to(root)
+        if not path.exists():
+            problems.append("%s: a link to nothing; commit what it points at, or remove it" % rel)
+        elif rel.as_posix() in LINKS:
+            continue
+        elif path.is_dir():
+            problems.append("%s: a link to a directory; Python imports through it, but no check reads behind it, "
+                            "because tools/walk.py never follows a link; commit the files themselves" % rel)
+        else:
+            problems.append("%s: a link to a file; what it holds is changed at another path, under that path's "
+                            "rules and review, and may lie outside the repo; commit the file itself" % rel)
     for path in walk.files(root):
         rel = path.relative_to(root)
         listed = path.name in MANIFESTS or (path.suffix in (".txt", ".in") and
