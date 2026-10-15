@@ -14,7 +14,7 @@ import shutil
 import tempfile
 import unittest
 
-from tools import (check_authority, check_context, check_examples, check_lifecycle, check_purity,
+from tools import (check_apps, check_authority, check_context, check_examples, check_lifecycle, check_purity,
                    check_repo, check_workflows, verify)
 from tools.jsonschema_lite import SchemaError, validate
 
@@ -233,6 +233,85 @@ class Authority(unittest.TestCase):
         self.table["categories"]["security"]["shadow"] = "pr-review"
         problems = check_authority.run(self.table)
         self.assertTrue(caught(problems, "needs a Role as owner") and caught(problems, "cannot shadow itself"))
+
+
+class Apps(unittest.TestCase):
+    def setUp(self):
+        self.table = json.loads((ROOT / "config" / "apps.json").read_text())
+        self.apps, self.needs = self.table["apps"], self.table["needs"]
+
+    def check(self) -> list:
+        facts = (ROOT / "schemas" / "facts.schema.json").read_text()
+        return check_apps.run(tree({"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts}))
+
+    def test_a_permission_nothing_needs_is_caught(self):
+        self.apps["controller"]["permissions"]["checks"]["needs"] = []
+        del self.apps["reader"]["permissions"]["issues"]["needs"]
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: checks names no Effect, write or read that needs it"))
+        self.assertTrue(caught(problems, "reader: issues names no Effect, write or read that needs it"))
+
+    def test_the_reader_given_any_write_is_caught(self):
+        self.apps["reader"]["permissions"]["contents"]["level"] = "write"
+        self.apps["reader"]["permissions"]["pull_requests"]["needs"].append("effect:comment")
+        problems = self.check()
+        self.assertTrue(caught(problems, "reader: contents is write; the reader App writes nothing"))
+        self.assertTrue(caught(problems, "reader: pull_requests serves effect:comment; the reader App writes nothing"))
+
+    def test_a_write_that_only_a_read_needs_is_caught(self):
+        self.apps["pr-review"]["permissions"]["contents"]["level"] = "write"
+        self.assertTrue(caught(self.check(), "pr-review: contents is write and only a read needs it"))
+
+    def test_a_need_served_by_another_permission_or_level_is_caught(self):
+        self.apps["controller"]["permissions"]["contents"]["needs"].append("read:facts.reviews")
+        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("effect:comment")
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: contents serves read:facts.reviews, which the table maps to "
+                                         "pull_requests"))
+        self.assertTrue(caught(problems, "controller: pull_requests is read and serves effect:comment, which the "
+                                         "table maps to pull_requests write"))
+
+    def test_a_grant_for_a_need_that_is_waiting_is_caught(self):
+        self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("read:facts.queue")
+        self.assertTrue(caught(self.check(), "controller: pull_requests serves read:facts.queue, which waits on issue 26"))
+
+    def test_a_write_need_held_by_two_apps_is_caught(self):
+        self.apps["controller"]["permissions"]["pull_requests"] = {"level": "write", "needs": ["effect:comment"]}
+        self.assertTrue(caught(self.check(), "effect:comment is held by controller and pr-review"))
+
+    def test_a_need_with_no_mapping_and_no_wait_is_caught(self):
+        self.needs["read:facts.reviews"] = {}
+        self.needs["read:facts.threads"] = {"permission": "pull_requests", "level": "read", "waits_on": "trial P-2"}
+        del self.needs["read:facts.item"]
+        problems = self.check()
+        self.assertTrue(caught(problems, "read:facts.reviews maps to no permission and waits on nothing"))
+        self.assertTrue(caught(problems, "read:facts.threads both maps to a permission and waits"))
+        self.assertTrue(caught(problems, "controller: metadata serves read:facts.item, which is not in the table of needs"))
+
+    def test_a_read_of_a_fact_that_does_not_exist_is_caught(self):
+        self.needs["read:facts.title"] = {"permission": "pull_requests", "level": "read"}
+        self.assertTrue(caught(self.check(), "read:facts.title reads a field facts/1 does not have"))
+
+    def test_an_app_installed_across_the_org_is_caught(self):
+        self.apps["controller"]["installed_on"] = "all"
+        self.apps["reader"]["installed_on"] = ["combsmith"]
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: installed_on is not a list of named repos"))
+        self.assertTrue(caught(problems, "reader: installed_on is not a list of named repos"))
+
+    def test_a_repo_named_twice_is_caught(self):
+        self.apps["reader"]["installed_on"].append(self.apps["reader"]["installed_on"][0])
+        self.assertTrue(caught(self.check(), "reader: combsmith/software-factory is named twice in installed_on"))
+
+    def test_an_app_named_for_another_key_is_caught(self):
+        self.apps["controller"]["name"] = "combsmith-sf-reader"
+        self.assertTrue(caught(self.check(), "controller: the App is named combsmith-sf-reader; name it "
+                                             "combsmith-sf-controller"))
+
+    def test_a_file_that_is_missing_or_cannot_be_read_is_a_problem_not_a_crash(self):
+        self.assertTrue(caught(check_apps.run(tree({"x": ""})), "config/apps.json cannot be read"))
+        self.assertTrue(caught(check_apps.run(tree({"config/apps.json": "{"})), "config/apps.json cannot be read"))
+        self.assertTrue(caught(check_apps.run(tree({"config/apps.json": "{}"})), "names no Apps"))
 
 
 class Purity(unittest.TestCase):
@@ -583,6 +662,8 @@ FAILS = {
     "check_examples": lambda: check_examples.run(clone({"examples/decision.json": "{}"})),
     "check_lifecycle": lambda: check_lifecycle.run(clone({"lifecycle/issue.json": json.dumps(
         dict(check_lifecycle.load("issue"), terminal=[]))})),
+    "check_apps": lambda: check_apps.run(clone({"config/apps.json": (ROOT / "config" / "apps.json").read_text()
+                                                .replace('"level": "read"', '"level": "write"')})),
     "check_authority": lambda: check_authority.run(dict(json.loads((ROOT / "config" / "authority.json").read_text()),
                                                          author_role="pr-review")),
     "check_purity": lambda: check_purity.run(clone({"kernel/clock.py": "import time\n"})),
