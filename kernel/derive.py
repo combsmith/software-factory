@@ -108,8 +108,9 @@ def standing_approval(facts: dict, config: dict):
 def derive(facts: dict, runs: list, config: dict) -> dict:
     """Return {'state', 'reason', 'evidence'} for one pull request.
 
-    `state` is None when the facts are incomplete: an incomplete read is an
-    unreadable one, and nothing may be concluded from it.
+    `state` is None when the facts are incomplete, or the merge state is not
+    known: an incomplete read is an unreadable one, and nothing may be
+    concluded from it.
     """
     gaps = incomplete(facts)
     if gaps:
@@ -137,8 +138,12 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         return {"state": t.HELD, "reason": "too_large", "evidence": []}
     if facts["queue"]:
         return {"state": t.QUEUED, "reason": "in_merge_queue", "evidence": []}
-    if facts["mergeable"] is False:
+    # GitHub works the merge state out after a push. Until it has, it is unknown, and unreadable.
+    mergeable = facts.get("mergeable")
+    if mergeable is False:
         return {"state": t.ADDRESSING, "reason": "conflict", "evidence": []}
+    if mergeable is not True:
+        return {"state": None, "reason": "mergeable_unreadable", "evidence": []}
 
     # Deterministic Lenses first: a model's time is not spent on content they reject.
     by_lens = {c["lens"]: c for c in facts["checks"]}
