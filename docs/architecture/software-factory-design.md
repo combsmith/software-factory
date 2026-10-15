@@ -392,12 +392,12 @@ time, dismisser or earlier state cannot be read is unreadable: it could be a wri
 the Kernel defers, reason `review_unreadable`, and nothing converges on it (I-13). So is a review
 that is not dismissed but carries `dismissed_by` or `dismissed_from`: the schema cannot say that
 both are null unless the review was dismissed, so the Kernel holds it. An unreadable review is read
-after what needs no review (a merged, closed, unserved, draft, held or queued item) and before
-anything that admits a Run: a model review, or a fix for a conflict or a failed check. A time is
+after what needs no review (a merged, closed, unserved, draft or held item) and before anything
+that admits a Run: a model review, or a fix for a conflict or a failed check. On a queued item it
+is a stop: the item is taken out of the merge queue (§4.1). A time is
 readable only in the one format, because times compare as text. The item is the Maintainer's to
 see, as for a check with no verdict: a port that misreads does not mend itself. A request made
-after the item entered the merge queue is not read yet, because a queued item is read before its
-gates; taking it out of the queue is the dequeue's (#33).
+after the item entered the merge queue takes it out of the queue (§4.1).
 
 An issue has facts of its own (§4.1, the issue Lifecycle):
 
@@ -868,7 +868,11 @@ stateDiagram-v2
   converged --> queued: approval issued, enqueued
   converged --> verifying: new content or new Finding
   queued --> merged
-  queued --> verifying: removed from the queue
+  queued --> verifying: removed from the queue, or dequeued
+  queued --> converged: dequeued, its approval lost
+  queued --> addressing: dequeued, a gate open or a check failed
+  queued --> adjudicating: dequeued, a gate open
+  queued --> held: dequeued, held
   merged --> [*]
   closed --> [*]
   verifying --> held
@@ -891,8 +895,41 @@ stateDiagram-v2
 
 Any state may move to `closed` when a person closes the pull request, and to `held` on a Hold;
 those arrows are not all drawn. A
-Pause is not a state: it stops Admission, approval and enqueuing for a scope (I-7) and leaves
-each item where it is.
+Pause is not a state: it stops Admission, approval, enqueuing and dequeuing for a scope (I-7) and
+leaves each item where it is.
+
+**Leaving the merge queue.** GitHub reads the reviews only as a pull request enters the merge queue
+(L-19). So every pass reads a queued item as if it were not queued. It stays only if that reading
+is approved and ready to merge: `converged`, reason `approved`. A wait that ends on its own is read
+past, and takes nothing out: a merge state GitHub has not worked out yet (`mergeable_unreadable`), a
+required check that is pending or has not reported (`awaiting_checks`), and a required Lens that has
+not reported on this content (`awaiting_review`). GitHub reports the merge state as unknown each time
+the base moves, and the base moves each time the queue merges another item, so a dequeue on it would
+empty the queue in normal running. What lies behind a wait still decides. Any other reading takes
+the item out with the act `dequeue`, and the Decision carries that reading's State and reason. Two get codes of their
+own. An approval that no longer stands for its content gives `approval_lost` (FR-31, I-9). An open
+gate gives `gate_open`: a thread or a request for changes from a person with write access, made
+before the item entered the queue or after, or a required Lens's Finding. Every Hold takes it out
+with its own reason: `human_hold`, `outside_not_admitted`, `too_large`, `empty_diff`, or
+`approver_is_author_or_last_pusher`, since GitHub does not count that approval (I-26). A Hold stops
+every Effect, and a merge is the last, so the dequeue is the one change the Factory makes to a held
+item (FR-23, I-21). So does a required check that now fails or gives no verdict, reason `check_failed` or
+`check_unreadable` (I-9, I-27), a conflict, and a draft. So does a read that fails:
+`facts_incomplete` or `review_unreadable`. A dequeue is a stop, not
+work, so a fact that cannot be read takes the item out rather than leaving it to merge (I-13).
+
+Three things are left alone. `factory:hands-off` is never acted on (§4.7). A merged or closed item
+is ended. An item whose base is not protected is not served, so the Factory makes no change to it.
+
+The Controller's App makes the dequeue. It is an act that stops work: counted, never refused at the
+act ceiling (I-8), and not delayed by a Run in progress. Under a Pause, or a Pause that cannot be
+read, it defers, reason `paused` or `pause_unreadable`, as every act does, and the item is the
+Maintainer's to see: only they can stop the merge then. Meanwhile the queue can merge over anything
+that would have taken the item out: a lost approval, a writer's request for changes or thread, a
+Hold, or a check that now fails. Only the lost approval is found afterwards, as a merge with no
+Override record (FR-28). The others leave no mark on the merge. A wait read past can merge too: a
+required check that never reported, or a Lens newly required, does not hold the item. Once out, the
+item is read again as any item is.
 
 Human transitions are declared like any other: marking ready, converting to draft, adding or
 removing a hold label, requesting changes, resolving a thread, approving, merging by Override.
@@ -923,6 +960,7 @@ such as `max_diff_lines`, or on the whole org, such as `org_max_active_runs`, bo
 | `adjudicating → addressing`, `adjudicating → verifying` and `adjudicating → converged` | `max_rounds` | The owner Role's adjudicating Run that each follows |
 | `addressing → adjudicating` | `max_attempts`, as declared | Not what moves the item on: that is an author Run that succeeded. Every cycle through this transition leaves `adjudicating` by an exit bounded by `max_rounds`, and those bound it |
 | `converged → queued`: enqueued | `max_acts_per_item` | The enqueue, an act (§3.10). A queue that ejects every time comes to rest here |
+| `queued → converged`, `addressing`, `verifying`, `adjudicating` and `held`: dequeued | `max_acts_per_item` | The dequeue, an act. It is never refused, but it follows an enqueue, and every way back into the queue is an enqueue, which the ceiling refuses |
 
 #### The issue Lifecycle
 
@@ -1269,13 +1307,13 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 | I-4 | No Effect is applied twice | ADR-0013, decision 4 |
 | I-5 | No Effect is applied from a Result that failed validation, or outside the Role's permitted Effects | FR-9, FR-10 |
 | I-6 | No Run is admitted on a held item, and removing the Hold resumes work with no other event | FR-23 |
-| I-7 | Under a human Pause no Run is admitted, no approval is issued and nothing is enqueued, and automation never clears one | FR-24 |
-| I-8 | Automated actions since the last human decision never exceed the ceiling | FR-17 |
+| I-7 | Under a human Pause no Run is admitted, no approval is issued, nothing is enqueued and nothing is taken out of the merge queue, and automation never clears one | FR-24 |
+| I-8 | Automated actions since the last human decision never exceed the ceiling, except to take a pull request out of the merge queue | FR-17 |
 | I-9 | An approval exists only for a `content_id` on which Convergence held | FR-31, FR-67 |
 | I-10 | No Role decides a Disposition on a Finding about its own work | FR-30 |
 | I-11 | Unchanged content causes no new review Run | FR-7 |
 | I-12 | Every recorded Transition is declared in the Lifecycle | FR-1 |
-| I-13 | An unreadable fact or a missing capacity reading never yields an admission | FR-35, C-1 |
+| I-13 | An unreadable fact or a missing capacity reading never yields an admission, nor any act except to take a pull request out of the merge queue | FR-35, C-1 |
 | I-14 | Every cycle in the Lifecycle passes through a bounded counter or a human transition | FR-18, FR-57 |
 | I-15 | Each Finding has exactly one owner and one Disposition per content version | FR-33 |
 | I-16 | A `security` Finding is never closed as declined without an Override record | Maintainer, 2026-10-10 |
@@ -1283,7 +1321,7 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 | I-18 | A Run that ends with no Result counts as an attempt unless its fault is classed as capacity or environment, and its item is re-evaluated | ADR-0013, decision 4 |
 | I-19 | No decision reads the control room: the same facts and run records give the same Decision whatever the view holds | §3.9 |
 | I-20 | Incomplete facts never converge and never admit | §3.3 |
-| I-21 | No Effect is applied to an item that is held, paused, closed or changed at the moment of applying | §3.6 |
+| I-21 | No Effect is applied to an item that is held, paused, closed or changed at the moment of applying, except to take a held item out of the merge queue | §3.6, §4.1 |
 | I-22 | A Run does only what a recorded Decision admitted | §3.5 |
 | I-23 | A capacity or environment fault is never counted as an attempt, and one cause raises one alert | §3.10 |
 | I-24 | An empty diff never converges | FR-4 |
@@ -1370,7 +1408,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | An empty diff | Never converges (I-24). The POC merged ten |
 | A diff too large to hash or to review | Each class has a size limit. Over it, one Hold, with the choices: split it, or review it by hand. No Run is spent finding out |
 | A conflict with the base | `mergeable` is false. It is the author's turn; in the first slice it is the Maintainer's |
-| A merge state GitHub has not worked out yet | `mergeable` is null. It is unreadable, like anything but true or false: the Kernel defers, and approves, enqueues and admits nothing until it is known (I-13) |
+| A merge state GitHub has not worked out yet | `mergeable` is null. It is unreadable, like anything but true or false: the Kernel defers, and approves, enqueues and admits nothing until it is known (I-13). A queued item stays in the queue: GitHub reports it each time the base moves (§4.1) |
 | A pull request that targets another feature branch, as stacked pull requests do | The Factory serves pull requests that target a protected branch. Others are shown as not served |
 | The poller was down for hours | An item is stale only if it went unevaluated while passes were running. A missing pass is one health alert, not one alert per item |
 | A third-party thread the reviewer does not adopt | The reviewer resolves it (§4.2), so the ruleset does not block the merge on it |
@@ -1390,7 +1428,7 @@ Every human control is one ordinary GitHub action, the same for every Role and e
 | Control | What the Maintainer does | Effect |
 |---|---|---|
 | Start work on an issue | Add the label `factory:ready` to an accepted issue | The issue is `ready` whatever investigation has said, and the next pass may admit its opening Run. Removing it overrules Readiness for that content |
-| Hold | Add the label `factory:hold` | No Run is admitted on the item; an in-flight Run writes nothing (I-6, I-21) |
+| Hold | Add the label `factory:hold` | No Run is admitted on the item; an in-flight Run writes nothing. A queued pull request is taken out of the merge queue, the one change the Factory makes to a held item (I-6, I-21) |
 | Release | Remove the label | The next pass resumes, with a fresh allowance of attempts (I-28) |
 | Hands-off | Add the label `factory:hands-off` | The Factory watches the item and never acts on it |
 | Admit an outside item | Add the label `factory:admit` | The item is served like any other, until its author pushes again or, for an issue, edits it (I-25, I-36). For an issue, admission is acceptance for investigation. An admitted pull request that closes an issue is linked to it |
@@ -1398,7 +1436,7 @@ Every human control is one ordinary GitHub action, the same for every Role and e
 | Block | Open a review thread, or request changes | A `human` Finding, which gates until that person resolves it |
 | Approve | Approve the pull request | A human approval stands as an independent approval |
 | Override | Merge through GitHub's own bypass | The merge is recorded as an Override and a reason is asked for on the item |
-| Pause | Set the variable `FACTORY_PAUSED` for the org or a repo | In that scope the Factory admits no Run, issues no approval and enqueues nothing; only a person clears it |
+| Pause | Set the variable `FACTORY_PAUSED` for the org or a repo | In that scope the Factory admits no Run, issues no approval, enqueues nothing and takes nothing out of the merge queue; only a person clears it |
 | Re-evaluate | Nothing | Every pass evaluates every open item |
 
 A pass reads every open issue, most of them only as a listing (§4.1, the issue Lifecycle). It
@@ -1662,7 +1700,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | # | Question | Pass |
 |---|---|---|
 | P-1 | Does a pull request authored by an App need an extra approval under the live ruleset's rule for unattributed changes? | One approval suffices |
-| P-2 | Can an App enable auto-merge and enter the merge queue? | Yes |
+| P-2 | Can an App enable auto-merge and enter the merge queue, and take a pull request out of it before the queue merges it? And does the poller read a change before the queue merges it? | Yes to all three |
 | P-3 | Is an environment secret restricted to the default branch unreadable from a workflow on a work-item branch? | Unreadable |
 | P-4 | Can an installation token be minted with a subset of the App's permissions and repos? | Yes |
 | P-5 | Can one App resolve a review thread opened by another App or by a third-party reviewer? | Yes, with pull-request write |

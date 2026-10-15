@@ -32,7 +32,7 @@ MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
 # Invariants of rules the Kernel does not hold yet, each named by its test in tests/test_decide.py, which is marked
 # @pending there. A breach of one is noted in `unheld`, not raised, until the mark comes off in both places.
-NOT_YET_HELD = ("test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue",)
+NOT_YET_HELD = ()
 
 
 class Broken(AssertionError):
@@ -60,7 +60,9 @@ class World:
         self.queue = False
         self.last_push = self.last_writer = self.now()
         self.acts = 0              # acts that landed since a person with write access acted
+        self.last_act = None       # the action of the last act that landed: an act that stops work is never refused
         self.stale = None          # an older snapshot, served when facts go stale
+        self.read = None           # the facts the last whole, current pass read, as `unstamped` gives them
         self.prev_state = None
         self.trace = []
         self.model_runs = 0
@@ -111,6 +113,29 @@ class World:
     def held(self) -> bool:
         return bool(self.labels & {t.LABEL_HOLD, t.LABEL_HANDS_OFF})
 
+    @staticmethod
+    def unstamped(facts: dict) -> dict:
+        """Facts without the time they were read, so that two reads of an unchanged item compare equal."""
+        return {k: v for k, v in facts.items() if k != "read_at"}
+
+    def objections(self) -> list:
+        """What a queued item may not merge over, in the world's own words: no approval of its content by the
+        approver that stands, a writer's request for changes or open thread, a Hold, or a required check that
+        failed or gave no verdict (L-19, FR-23, I-9). A check still pending is a wait, and is no objection."""
+        out = []
+        if not any(rv["by"]["name"] == CONFIG["approver"] and rv["state"] == "approved" and rv["content_id"] == self.cid()
+                   for rv in self.reviews):
+            out.append("no standing approval")
+        if self.asked:
+            out.append("a writer's request for changes")
+        if any(not th["resolved"] and th["opened_by"]["kind"] == "human" for th in self.threads):
+            out.append("a writer's open thread")
+        if t.LABEL_HOLD in self.labels:
+            out.append("a Hold")
+        if any(v not in ("success", "pending") for v in self.checks.values()):
+            out.append("a required check that failed or gave no verdict")
+        return out
+
     def note(self, what: str):
         self.trace.append("%s %s" % (self.now(), what))
 
@@ -130,9 +155,11 @@ class World:
     def poll(self):
         facts, runs = self.facts(), self.records()
         fault = self.rng.random() if self.faults else 1.0
+        current = True
         if fault < 0.08 and self.stale is not None:
             # GitHub: a_read_can_be_stale
             facts, runs = self.stale
+            current = False
         elif fault < 0.14:
             # GitHub: a_short_diff_says_so
             # GitHub: a_short_list_says_so
@@ -152,17 +179,25 @@ class World:
         self.check(not wrong, "every Decision is valid: %s" % "; ".join(wrong))
         self.note("pass: %s %s -> %s" % (d["state"], d["reason"], d["outcome"]))
         whole = all(facts["complete"].values())
-        self.check(whole or d["outcome"] == "defer", "I-20 incomplete facts never admit or converge")
+        # A read that fails stops work: it defers, or takes a queued item out of the merge queue (I-13).
+        dequeue = d["outcome"] == t.ACT and d["action"] == "dequeue"
+        self.check(whole or d["outcome"] == "defer" or dequeue, "I-20 incomplete facts never admit or converge")
         # A check with no verdict lets no review start and no act be made. A fix Run may still be admitted
         # for what is readable: another check that failed, or a conflict.
         readings = CONFIG["check_conclusions"]
         no_verdict = [c for c in facts["checks"] if readings.get(c["conclusion"], "unreadable") == "unreadable"]
         reviews = d["outcome"] == "admit" and d["admit"]["intent"] == "review-change"
-        self.check(not no_verdict or not (reviews or d["outcome"] == "act"),
+        self.check(not no_verdict or not (reviews or (d["outcome"] == "act" and not dequeue)),
                    "I-13 a review or an act while a check has no verdict")
         waits = d["reason"] == "check_unreadable" and d["outcome"] == t.DEFER
         self.check(not waits or d["attention"] == t.NEEDS_YOU,
                    "a check with no verdict is not shown as needing a person")
+        if whole and current:
+            # A pass that reads a queued item whole, as it is now, takes it out if it may not merge (L-19).
+            stop = self.queue and self.objections()
+            self.check(not stop or (d["outcome"], d.get("action")) == (t.ACT, "dequeue"),
+                       "a pass leaves a queued item in the queue over %s" % ", ".join(stop or []))
+            self.read = self.unstamped(facts)
         if whole and d["state"] is not None:
             if self.prev_state is not None and d["state"] != self.prev_state:
                 self.check((self.prev_state, d["state"]) in DECLARED,
@@ -180,8 +215,16 @@ class World:
         # The act is made only if the Kernel, asked again on what GitHub holds now, still wants it.
         fresh = decide(self.facts(), self.records(), self.context(), CONFIG, self.now())
         same = fresh["outcome"] == t.ACT and fresh["action"] == d["action"] and fresh["content_id"] == d["content_id"]
-        if self.held() or d["content_id"] != self.cid() or not same:
+        # Taking it out of the queue is the one change made to a held item: it stops work (I-21).
+        if (self.held() and d["action"] != "dequeue") or d["content_id"] != self.cid() or not same:
             self.note("apply: refused, the item changed")
+            return
+        if d["action"] == "dequeue":
+            # GitHub: an_app_leaves_the_queue
+            self.queue = False
+            self.acts += 1
+            self.last_act = "dequeue"
+            self.note("apply: dequeued (%s)" % d["reason"])
             return
         # Only that person's approval, or a writer's dismissal, ends it: never new content or an App (L-17).
         self.check(not self.asked, "a writer's request for changes is passed over")
@@ -191,6 +234,7 @@ class World:
             # GitHub: an_app_enters_the_queue
             self.queue = True
             self.acts += 1
+            self.last_act = "enqueue"
             self.note("apply: enqueued")
 
     def approve(self):
@@ -213,6 +257,7 @@ class World:
                              "commit": "c%d" % self.content, "content_id": self.cid(), "submitted_at": self.now(),
                              "dismissed_by": None, "dismissed_from": None})
         self.acts += 1
+        self.last_act = "issue_approval"
         self.note("run %s: approved %s" % (run["run"], self.cid()))
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
@@ -311,10 +356,11 @@ class World:
             return
         # GitHub: the_queue_merges
         # GitHub: the_merge_group_is_not_checked
-        if self.queue and self.rng.random() < 0.6:
-            # A request made after the item entered the queue takes it out: #33 dequeues.
-            self.check_unheld(not self.asked, "test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue",
-                              "a merge over a writer's request for changes")
+        # GitHub: a_pass_comes_before_the_merge
+        if self.queue and self.rng.random() < 0.6 and self.read == self.unstamped(self.facts()):
+            # Whatever happened while it was queued, a pass has read it since, and would have taken it out.
+            objections = self.objections()
+            self.check(not objections, "a merge over %s" % ", ".join(objections))
             self.pr_state = "merged"
             self.note("merged")
             return
@@ -331,6 +377,9 @@ class World:
     def person(self):
         # GitHub refuses a review by the pull request's author: on the Maintainer's own, they do as they always did.
         reviews = self.cls == "agent"
+        if self.queue and self.faults and self.rng.random() < 0.5:
+            self.while_queued(self.pick(["dismiss", "thread", "hold"]))
+            return
         roll = self.rng.random()
         if roll < 0.25:
             self.labels ^= {t.LABEL_HOLD}
@@ -339,11 +388,7 @@ class World:
         elif roll < 0.45:
             self.push("don-petry", writer=True)
         elif roll < (0.55 if reviews else 0.60):
-            self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
-                                 "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
-                                 "severity": None, "resolved_by": None, "opened_at": self.now()})
-            self.writer_acted()
-            self.note("maintainer opened a thread")
+            self.open_thread()
         elif reviews and roll < 0.65:
             self.review(self.pick(["changes_requested", "commented", "approved"]))
         else:
@@ -353,6 +398,29 @@ class World:
             if mine:     # resolving nothing is no action, and renews nothing (I-28)
                 self.writer_acted()
                 self.note("maintainer resolved %d threads" % len(mine))
+
+    def open_thread(self):
+        self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
+                             "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
+                             "severity": None, "resolved_by": None, "opened_at": self.now()})
+        self.writer_acted()
+        self.note("maintainer opened a thread")
+
+    def while_queued(self, fault: str):
+        """The Maintainer acts after the item entered the merge queue, which read its reviews on the way in only."""
+        if fault == "thread":
+            self.open_thread()
+        elif fault == "hold":
+            self.labels.add(t.LABEL_HOLD)
+            self.writer_acted()
+            self.note("maintainer added a hold while queued")
+        else:
+            approvals = [rv for rv in self.reviews if rv["by"]["name"] == CONFIG["approver"] and rv["state"] == "approved"]
+            if approvals:
+                # GitHub: a_writer_can_dismiss_an_approval
+                approvals[-1].update(state="dismissed", dismissed_from="approved", dismissed_by=dict(MAINTAINER))
+                self.writer_acted()
+                self.note("maintainer dismissed the approval while queued")
 
     def review(self, state: str):
         """The Maintainer reviews. A request for changes stands until they approve; a comment changes nothing."""
@@ -407,7 +475,11 @@ class World:
         spent = [r for r in since if r not in landed]
         self.check(len(spent) <= CONFIG["limits"]["max_runs_per_item"] + 1, "run ceiling per item")
         # I-8: every automated action is inside a Run, bounded above, or is an act, bounded here.
-        self.check(self.acts <= CONFIG["limits"]["max_acts_per_item"], "I-8 acts since a writer exceed the ceiling")
+        # Only a dequeue, an act that stops work, takes the count past the ceiling, and by one: once it is there, an
+        # enqueue is refused, so nothing can enter the queue to be taken out again.
+        ceiling = CONFIG["limits"]["max_acts_per_item"]
+        self.check(self.acts <= ceiling or (self.acts == ceiling + 1 and self.last_act == "dequeue"),
+                   "I-8 acts since a writer exceed the ceiling")
         unlanded = [r for r in spent if r["intent"] == t.ISSUE_APPROVAL]
         self.check(len([r for r in unlanded if r["outcome"] == "item"]) <= CONFIG["limits"]["max_attempts"],
                    "I-8 an approval that does not land is issued again")

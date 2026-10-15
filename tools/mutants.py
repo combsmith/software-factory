@@ -37,6 +37,11 @@ def moved_after(rel: str, block: str, anchor: str) -> tuple:
 REVIEW_GUARD = ("    if unreadable_reviews(facts):\n"
                 '        return {"state": None, "reason": "review_unreadable", "evidence": []}\n')
 REVIEW_WAIT = '            return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens]}\n'
+STAYS = '    if d["reason"] == "approved":\n'
+LEFT_ALONE = '    if d["state"] in t.TERMINAL or not facts["queue"] or t.LABEL_HANDS_OFF in facts["labels"]:\n'
+DEQUEUE_IF = '    if d.get("dequeue"):\n'
+DEQUEUE = ('        return _decision(facts, state, reason, evidence, t.ACT, action="dequeue",'
+           ' content_id=facts["content_id"])\n')
 
 MUTANTS = [
     ("incomplete facts are trusted", "kernel/derive.py",
@@ -55,7 +60,7 @@ MUTANTS = [
      '        return {"state": None, "reason": "facts_incomplete", "evidence": incomplete(facts)}\n'
      '    if facts["state"] == "merged":\n'),
     ("model review before the checks pass", "kernel/derive.py",
-     "    if waiting:\n", "    if False:\n"),
+     '    if waiting and "awaiting_checks" not in past:\n', "    if False:\n"),
     ("a failed check is ignored", "kernel/derive.py",
      "    if failed:\n", "    if False:\n"),
     ("a stranger's thread gates", "kernel/derive.py",
@@ -74,9 +79,9 @@ MUTANTS = [
     ("the hold label is ignored", "kernel/derive.py",
      "    if t.LABEL_HOLD in labels:\n", "    if False:\n"),
     ("an unknown merge state is read as mergeable", "kernel/derive.py",
-     "    if mergeable is not True:\n", "    if False:\n"),
+     '    if mergeable is not True and "mergeable_unreadable" not in past:\n', "    if False:\n"),
     ("only a null merge state is unknown", "kernel/derive.py",
-     "    if mergeable is not True:\n", "    if mergeable is None:\n"),
+     'if mergeable is not True and', "if mergeable is None and"),
     ("a conflict is not sent back to the author", "kernel/derive.py",
      "    if mergeable is False:\n", "    if False:\n"),
     ("the merge state is read before a merged, closed, held, draft or queued item", "kernel/derive.py",
@@ -167,6 +172,52 @@ MUTANTS = [
      "    if unreadable_reviews(facts):\n", "    if False:\n"),
     ("an unreadable review is read after the model review's wait", "kernel/derive.py",
      *moved_after("kernel/derive.py", REVIEW_GUARD, REVIEW_WAIT)),
+    ("a queued pull request whose approval is lost stays in the queue", "kernel/derive.py",
+     STAYS, '    if d["reason"] in ("approved", "approval_due"):\n'),
+    ("a queued pull request with a gate open stays in the queue", "kernel/derive.py",
+     STAYS, '    if d["reason"] == "approved" or d["reason"] in t.GATE_REASONS:\n'),
+    ("a Hold leaves a queued pull request in the queue", "kernel/derive.py",
+     STAYS, '    if d["reason"] == "approved" or d["state"] == t.HELD:\n'),
+    ("a read that fails leaves a pull request in the queue", "kernel/derive.py",
+     STAYS, '    if d["reason"] == "approved" or d["state"] is None:\n'),
+    ("a check that no longer passes leaves a pull request in the queue", "kernel/derive.py",
+     STAYS, '    if d["reason"] in ("approved", "check_failed", "check_unreadable", "conflict"):\n'),
+    ("a merge state not worked out yet takes a queued pull request out", "kernel/derive.py",
+     ' and "mergeable_unreadable" not in past', ""),
+    ("a required check not reported yet takes a queued pull request out", "kernel/derive.py",
+     ' and "awaiting_checks" not in past', ""),
+    ("a required Lens that has not reported takes a queued pull request out", "kernel/derive.py",
+     ' and "awaiting_review" not in past', ""),
+    ("a wait is read past on a pull request that is not queued", "kernel/derive.py",
+     "    d = reading(facts, runs, config, ())\n", "    d = reading(facts, runs, config, t.QUEUE_WAITS)\n"),
+    ("a draft stays in the merge queue", "kernel/derive.py",
+     STAYS, '    if d["reason"] == "approved" or d["state"] == t.DRAFT:\n'),
+    ("hands-off takes a pull request out of the queue", "kernel/derive.py",
+     LEFT_ALONE, LEFT_ALONE.replace(' or t.LABEL_HANDS_OFF in facts["labels"]', "")),
+    ("a pull request that is not queued is dequeued", "kernel/derive.py",
+     LEFT_ALONE, LEFT_ALONE.replace(' or not facts["queue"]', "")),
+    ("a pull request that is not served is dequeued", "kernel/derive.py",
+     LEFT_ALONE, LEFT_ALONE.replace("d[\"state\"] in t.TERMINAL", "d[\"state\"] in (t.MERGED, t.CLOSED)")),
+    ("a pause lets a dequeue through", "kernel/decide.py",
+     "        if paused:\n", "        if False:\n"),
+    ("a deferred dequeue is not the Maintainer's to see", "kernel/decide.py",
+     ", attention=t.NEEDS_YOU)", ")"),
+    ("a dequeue is held to the act ceiling", "kernel/decide.py",
+     DEQUEUE,
+     '        if facts.get("acts_since_writer") is None or facts["acts_since_writer"] >= config["limits"]["max_acts_per_item"]:\n'
+     '            return _decision(facts, t.HELD, "act_ceiling", [], t.HOLD)\n' + DEQUEUE),
+    ("a Run in progress keeps a pull request in the queue", "kernel/decide.py",
+     DEQUEUE_IF,
+     "    if in_progress(runs_on(runs, facts)):\n"
+     "        return _decision(facts, state, reason, evidence, t.NOTHING, working=True)\n" + DEQUEUE_IF),
+    ("a draft or a queued item is left alone before the dequeue is read", "kernel/decide.py",
+     DEQUEUE_IF,
+     "    if state in t.TERMINAL or state in (t.DRAFT, t.QUEUED):\n"
+     "        return _decision(facts, state, reason, evidence, t.NOTHING)\n" + DEQUEUE_IF),
+    ("a read that fails defers before the dequeue is read", "kernel/decide.py",
+     DEQUEUE_IF,
+     "    if state is None:\n"
+     "        return _decision(facts, None, reason, evidence, t.DEFER)\n" + DEQUEUE_IF),
     ("an unreadable review is read before what needs no review", "kernel/derive.py",
      '    if facts["state"] == "merged":\n', REVIEW_GUARD + '    if facts["state"] == "merged":\n'),
     ("an unreadable dismissal is trusted", "kernel/derive.py",
@@ -206,22 +257,22 @@ MUTANTS = [
      '    if reason == "check_unreadable":\n', "    if False:\n"),
     ("two Runs on one item", "kernel/decide.py",
      "    if in_progress(mine):\n", "    if False:\n"),
-    ("the approver may be the author", "kernel/decide.py",
+    ("the approver may be the author", "kernel/derive.py",
      'if config["approver"] in (facts["author"], facts["last_pusher"]):', "if False:"),
     ("a pause admits a Run", "kernel/decide.py",
      "    pause = _pause(context)\n    if pause:\n", "    pause = _pause(context)\n    if False:\n"),
     ("a pause lets an approval or a merge through", "kernel/decide.py",
      "        pause = _pause(context)\n        if pause:\n", "        pause = _pause(context)\n        if False:\n"),
     ("a pause hides the approver Hold", "kernel/decide.py",
-     '        if config["approver"] in (facts["author"], facts["last_pusher"]):\n'
-     '            return _decision(facts, t.HELD, "approver_is_author_or_last_pusher", [], t.HOLD)\n'
-     "        # The Hold the facts establish first, then the Pause; neither approves.\n"
-     "        pause = _pause(context)\n        if pause:\n"
-     "            return _decision(facts, state, pause, evidence, t.DEFER)\n",
-     "        pause = _pause(context)\n        if pause:\n"
-     "            return _decision(facts, state, pause, evidence, t.DEFER)\n"
-     '        if config["approver"] in (facts["author"], facts["last_pusher"]):\n'
-     '            return _decision(facts, t.HELD, "approver_is_author_or_last_pusher", [], t.HOLD)\n'),
+     "    if state == t.HELD:\n        return _decision(facts, state, reason, evidence, t.HOLD)\n",
+     '    if state == t.HELD and reason == "approver_is_author_or_last_pusher" and _pause(context):\n'
+     "        return _decision(facts, state, _pause(context), evidence, t.DEFER)\n"
+     "    if state == t.HELD:\n        return _decision(facts, state, reason, evidence, t.HOLD)\n"),
+    ("the approver is read before the gates", "kernel/derive.py",
+     "    # Every gate before the approval: a standing approval never passes over a person's objection.\n",
+     '    if config["approver"] in (facts["author"], facts["last_pusher"]):\n'
+     '        return {"state": t.HELD, "reason": "approver_is_author_or_last_pusher", "evidence": []}\n'
+     "    # Every gate before the approval: a standing approval never passes over a person's objection.\n"),
     ("an unreadable pause is read as no pause", "kernel/decide.py",
      'if context.get("paused") is False:', 'if not context.get("paused"):'),
     ("attempts are unlimited", "kernel/decide.py",

@@ -34,6 +34,10 @@ WORKING = "working"
 NONE = "none"
 
 GATING_SEVERITIES = frozenset({"blocking", "major"})
+# The reasons an open gate gives, whoever's turn it is. On a queued item each is the one reason `gate_open`.
+GATE_REASONS = ("human_finding", "findings_open", "awaiting_human", "proposals_await_owner")
+# The waits that end on their own, and that a queued item is read past: they never take it out of the merge queue.
+QUEUE_WAITS = ("mergeable_unreadable", "awaiting_checks", "awaiting_review")
 
 # Who opened a thread or submitted a review, and the states of a review: schemas/facts.schema.json names them too.
 ACTOR_KINDS = ("human", "lens")

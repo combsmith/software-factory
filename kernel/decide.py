@@ -112,6 +112,14 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
     d = derive(facts, runs, config)
     state, reason, evidence = d["state"], d["reason"], d["evidence"]
 
+    # An act that stops work, read first: a Hold, a failed read or a draft takes a queued item out too (FR-23,
+    # I-13). It is counted, never refused at the act ceiling, and not delayed by a Run in progress. Only a Pause
+    # stops it, as it stops every act (decision 0003); then only the Maintainer can stop the merge.
+    if d.get("dequeue"):
+        paused = _pause(context)
+        if paused:
+            return _decision(facts, state, paused, evidence, t.DEFER, attention=t.NEEDS_YOU)
+        return _decision(facts, state, reason, evidence, t.ACT, action="dequeue", content_id=facts["content_id"])
     # Fail to a deferral, never to an action.
     if state is None:
         return _decision(facts, None, reason, evidence, t.DEFER)
@@ -125,9 +133,7 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
         return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
 
     if state == t.CONVERGED:
-        if config["approver"] in (facts["author"], facts["last_pusher"]):
-            return _decision(facts, t.HELD, "approver_is_author_or_last_pusher", [], t.HOLD)
-        # The Hold the facts establish first, then the Pause; neither approves.
+        # A Hold the facts establish, such as an approver who is the author, was read above; then the Pause.
         pause = _pause(context)
         if pause:
             return _decision(facts, state, pause, evidence, t.DEFER)
