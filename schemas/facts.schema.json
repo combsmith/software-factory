@@ -226,12 +226,9 @@
             "type": "string"
           },
           "conclusion": {
-            "enum": [
-              "success",
-              "failure",
-              "pending",
-              "neutral"
-            ]
+            "description": "GitHub's own conclusion, or the check's status while it has not concluded. The port maps nothing; config check_conclusions says what each means.",
+            "type": "string",
+            "pattern": "^[a-z_]+$"
           }
         }
       }

@@ -49,6 +49,19 @@ def reviewed_clean_or_not(runs: list, facts: dict, role: str) -> bool:
     )
 
 
+def check_reading(check, config: dict) -> str:
+    """What a required check says: 'passing', 'failing', 'pending' or 'unreadable'.
+
+    The facts carry GitHub's own conclusion, and the configuration's map says
+    what each means. A check that has not reported is pending. A conclusion the
+    map does not name is unreadable: a Lens that gave no verdict has not passed
+    the content (I-27). The caller reads any other value as unreadable too.
+    """
+    if check is None:
+        return "pending"
+    return config["check_conclusions"].get(check["conclusion"], "unreadable")
+
+
 def required_model_lenses(facts: dict, config: dict) -> list:
     """The model Lenses whose review this pull request needs.
 
@@ -170,13 +183,18 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
 
     # Deterministic Lenses first: a model's time is not spent on content they reject.
     by_lens = {c["lens"]: c for c in facts["checks"]}
-    failed, waiting = [], []
+    failed, waiting, unreadable = [], [], []
     for lens in config["required_lenses"]["deterministic"]:
-        check = by_lens.get(lens)
-        if check is None or check["conclusion"] == "pending":
-            waiting.append(lens)
-        elif check["conclusion"] != "success":
+        reading = check_reading(by_lens.get(lens), config)
+        if reading == "failing":
             failed.append(lens)
+        elif reading == "pending":
+            waiting.append(lens)
+        elif reading != "passing":
+            unreadable.append(lens)
+    # A check that gave no verdict could have said anything, so nothing is decided on the others (I-13).
+    if unreadable:
+        return {"state": t.VERIFYING, "reason": "check_unreadable", "evidence": unreadable}
     if failed:
         return {"state": t.ADDRESSING, "reason": "check_failed", "evidence": failed}
     if waiting:

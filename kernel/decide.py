@@ -132,6 +132,9 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
             return _decision(facts, state, pause, evidence, t.DEFER)
         return _act(facts, state, reason, evidence, mine, config)
 
+    # A required check that gave no verdict is unreadable: wait in this State, and admit nothing (I-13).
+    if reason == "check_unreadable":
+        return _decision(facts, state, reason, evidence, t.DEFER)
     wanted = _wanted_run(state, reason, config)
     if wanted is None:
         return _decision(facts, state, reason, evidence, t.NOTHING)

@@ -322,7 +322,7 @@ for contract tests, so one schema has three uses.
 | `labels` | Names |
 | `reviews` | Actor, state, commit, time |
 | `threads` | Thread id, path, line, when it was opened, resolved, outdated, opening actor and whether that actor has write access, resolving actor |
-| `checks` | Name, App, conclusion, completion time, annotation count |
+| `checks` | Name, App, conclusion as GitHub gives it (or the check's status while it has not concluded), completion time, annotation count |
 | `alerts` | Tool, rule, alert number, state, severity, path |
 | `queue` | Merge-queue membership |
 | `acts_since_writer` | Count of acts that landed since the last action by a person with write access, from GitHub's timeline: each approval, enqueue, dequeue and label a Factory identity made with no model Run |
@@ -345,6 +345,25 @@ is missing, negative or not a whole number is unreadable: the Kernel defers and 
 (I-13). The count comes from the timeline, which is paged like any list, and `complete.timeline`
 says whether it was read in full: a timeline read short undercounts, and the item defers (I-20).
 The count bounds acts only; a Run is bounded by the Run ceiling.
+
+A check's `conclusion` is GitHub's own word, or the check's status while it has not concluded; the
+port maps nothing. The configuration's `check_conclusions` says what each word means for a required
+check. `success` alone is passing. `failure` and `timed_out` are failing: the content goes back to
+the author, because a hung test usually belongs to the content and attempts bound the fixes (L-39).
+`queued`, `in_progress` and `pending`, and a required check that has not reported at all, are
+pending: the item waits in `verifying`. `neutral`, `skipped`, `cancelled`, `stale`,
+`action_required`, `startup_failure` and `error` are unreadable, and so is any word the map does not
+name, such as one GitHub adds later: a Lens that gave no verdict has neither passed the content nor
+found anything to fix. The Kernel defers, reason `check_unreadable`, and admits no Run and makes no
+act (I-13, I-27). The item stays in `verifying`, so that State's stale time (§4.1) is what brings it
+to a person; nothing reads a stale time yet. An unreadable check is read before a failed or a
+waiting one: whatever it would have said, nothing is decided on the others alone. GitHub treats a
+skipped required check as passing; the Kernel is stricter on purpose, and L-36 bans the path filters
+that cause skips. The configuration's schema refuses a map that reads anything but `success` as
+passing, or a word as anything but the four readings, so data cannot make `neutral` pass
+(`examples/invalid/config.a-neutral-check-passes.json`,
+`examples/invalid/config.conclusion-mapped-to-nothing.json`). A required Lens that is `neutral` by
+design leaves the required set for that class or scope (§5.3); the map is not bent for it.
 
 An issue has facts of its own (§4.1, the issue Lifecycle):
 
@@ -1119,8 +1138,10 @@ from the timeline (§3.10). The simulator asserts none of I-39 to I-44 yet.
 
 Convergence is one Kernel function of facts and run records:
 
-1. every Lens **required** for this class of item, this stage and these changed paths has reported
-   on the current `content_id`;
+1. every Lens **required** for this class of item, this stage and these changed paths has passed
+   on the current `content_id`. For a deterministic Lens, only `success` passes; a check that gave
+   no verdict, `neutral`, `skipped` or `cancelled` among them, is unreadable and the Kernel defers
+   (§3.3);
 2. no Finding of severity `blocking` or `major` raised by a required Lens is open or proposed;
 3. no `human` Finding is open. A `human` Finding is a review thread, or a review that requests
    changes, from a person with write access;
@@ -1269,7 +1290,8 @@ decision logic against a fake world, quickly, thousands of times.
 - **Faults.** A tick dropped or delayed by hours. A nudge dropped or duplicated. A job killed at
   every step boundary, including between two Effects and before any artifact is uploaded. The
   control room unwritable, or holding nonsense. A facts read that fails or is stale. A missing capacity reading.
-  A Result that fails validation. An Engine that times out. A human acting mid-Run. An approval
+  A Result that fails validation. An Engine that times out. A required check that times out or
+  gives no verdict. A human acting mid-Run. An approval
   that does not land, and a merge queue that ejects; each also as a world where it happens every
   time, which must come to rest on its bound (I-8).
 - **Properties.** I-2 to I-17 are checked after every step, as are I-19 to I-38. I-1 and I-18 are checked once faults
@@ -1307,6 +1329,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | A dependency update | Its class is `dependency`, and the bot that opened it pushed its head. Its required Lenses are deterministic ones, and a person's thread, or a model Lens's Finding already raised, still gates it. Once the author Role or a person pushes to it, it needs a model review like any change (§4.2). On a Consumer the POC's automerge serves it until that Intent is cut over. In the Factory's own repo no line serves it: nothing is installed there, so every update changes `.github/`, and the Maintainer reads and merges it (§5.1) |
 | The approver is the author or the last pusher | GitHub rejects or discards the approval. The Kernel reads `author` and `last_pusher`, attempts no approval, and holds the item with that reason (I-26). The machine user therefore never pushes (§5.1) |
 | A branch pushed every few minutes | Deterministic Lenses first; a model review starts only on content they have passed (I-27) |
+| A required check that concludes `neutral`, `skipped`, `cancelled` or `stale`, or with a word the Kernel does not know | It gave no verdict, so it has not passed. The Kernel defers, reason `check_unreadable`, and admits no Run; the item waits in `verifying` until the check reports again (I-13, §3.3). A `timed_out` check is a failure, and goes back to the author |
 | A Hold released, or a pull request reopened, after attempts ran out | Attempts count since the last action by a person with write access, which grants a fresh allowance. No agent's action does, and nor does a stranger's comment: on a public repo that would let anyone keep an agent running (I-28) |
 | An approval that does not land | The approval is a Run with no Engine. A failed one whose fault is the item's is an attempt, and at `max_attempts` the item is held. One that fails for any other fault, such as an expired token, counts toward the Run ceiling (§3.10) |
 | A merge queue that ejects the pull request every time | Each enqueue is an act. At `max_acts_per_item` acts since a person with write access acted, the item is held, reason `act_ceiling` (§3.3) |

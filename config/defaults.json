@@ -15,6 +15,21 @@
       "dependency"
     ]
   },
+  "check_conclusions": {
+    "success": "passing",
+    "failure": "failing",
+    "timed_out": "failing",
+    "queued": "pending",
+    "in_progress": "pending",
+    "pending": "pending",
+    "neutral": "unreadable",
+    "skipped": "unreadable",
+    "cancelled": "unreadable",
+    "stale": "unreadable",
+    "action_required": "unreadable",
+    "startup_failure": "unreadable",
+    "error": "unreadable"
+  },
   "limits": {
     "max_attempts": 3,
     "max_rounds": 3,

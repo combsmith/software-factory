@@ -197,6 +197,24 @@ class Examples(unittest.TestCase):
     def test_an_example_that_does_not_validate_is_caught(self):
         self.assertTrue(caught(check_examples.run(clone({"examples/decision.json": "{}"})), "decision.json: $: missing"))
 
+    def test_only_success_can_pass_a_check(self):  # I-27, L-07
+        # The configuration may say what a conclusion means, but never that one with no verdict has passed.
+        schema = json.loads((ROOT / "schemas" / "config.schema.json").read_text())
+        defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.assertEqual(validate(defaults, schema), [])
+        for conclusion in sorted(set(defaults["check_conclusions"]) - {"success"}) + ["a_value_github_adds_later"]:
+            for reading in ("passing", None, "", "ignored"):
+                cfg = copy.deepcopy(defaults)
+                cfg["check_conclusions"][conclusion] = reading
+                self.assertTrue(validate(cfg, schema), (conclusion, reading))
+        for reading in ("failing", "pending", "unreadable", "missing"):
+            cfg = copy.deepcopy(defaults)
+            if reading == "missing":
+                del cfg["check_conclusions"]["success"]
+            else:
+                cfg["check_conclusions"]["success"] = reading
+            self.assertTrue(validate(cfg, schema), reading)
+
     def test_a_schema_with_no_example_and_a_data_file_with_no_schema_are_caught(self):
         root = clone({"schemas/verdict.schema.json": '{"type": "object", "additionalProperties": false}',
                       "config/extra.json": "{}", "examples/invalid/nothing.x.json": "{}"})

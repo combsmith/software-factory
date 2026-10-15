@@ -28,6 +28,13 @@ def approvals(count, conclusion="failure", outcome="item", start=20):
             for i in range(count)]
 
 
+def with_check(i: int, conclusion: str) -> list:
+    """Every required check passing but the i-th, which concludes as GitHub says, or is not there ("absent")."""
+    if conclusion == "absent":
+        return GREEN[:i] + GREEN[i + 1:]
+    return GREEN[:i] + [dict(GREEN[i], conclusion=conclusion)] + GREEN[i + 1:]
+
+
 def go(f, runs=(), ctx=None, cfg=None):
     d = decide(f, list(runs), context() if ctx is None else ctx, CONFIG if cfg is None else cfg, NOW)
     errors = validate(d, DECISION_SCHEMA)
@@ -287,6 +294,57 @@ class Content(unittest.TestCase):
         d = go(f, REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "check_failed", ["verify"]))
         self.assertEqual(d["admit"]["intent"], "fix-findings")
+
+    def test_a_timed_out_required_check_goes_back_to_the_author(self):  # L-39
+        # A hung test usually belongs to the content, and attempts bound the fixes.
+        for i, check in enumerate(GREEN):
+            d = go(facts(checks=with_check(i, "timed_out")), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "check_failed", [check["lens"]]))
+            self.assertEqual(d["admit"]["intent"], "fix-findings")
+        self.assertEqual(go(facts(), REVIEWED)["action"], "issue_approval")
+
+    def test_a_neutral_required_check_defers(self):  # I-13, I-27, L-07
+        # A required Lens that gave no verdict has not judged the content. It has not passed, and it has
+        # not failed: there is nothing to fix. So does a conclusion the map does not name.
+        no_verdict = ("neutral", "skipped", "cancelled", "stale", "action_required", "startup_failure", "error",
+                      "a_value_github_adds_later")
+        for value in no_verdict:
+            for i, check in enumerate(GREEN):
+                for runs, reviews in (((), []), (REVIEWED, []), (REVIEWED, APPROVED)):
+                    d = go(facts(checks=with_check(i, value), reviews=reviews), runs)
+                    self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
+                                     ("verifying", "check_unreadable", [check["lens"]], "defer"), (value, check["lens"]))
+                    self.assertNotIn("admit", d)
+                    self.assertNotIn("action", d)
+        # The other side: every required check passed, so the review is admitted, then the approval issued.
+        self.assertEqual(go(facts())["admit"]["intent"], "review-change")
+        self.assertEqual(go(facts(), REVIEWED)["action"], "issue_approval")
+        self.assertEqual(go(facts(reviews=APPROVED), REVIEWED)["action"], "enqueue")
+
+    def test_a_queued_running_or_absent_required_check_is_waited_for(self):  # I-27
+        for value in ("queued", "in_progress", "pending", "absent"):
+            for i, check in enumerate(GREEN):
+                d = go(facts(checks=with_check(i, value)), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
+                                 ("verifying", "awaiting_checks", [check["lens"]], "nothing"), (value, check["lens"]))
+
+    def test_an_unreadable_check_is_read_before_a_failed_or_waiting_one(self):  # I-13
+        # Whatever the check with no verdict would say, nothing is decided on the others alone.
+        failed, neutral, waiting = (dict(c, conclusion=v) for c, v in zip(GREEN, ("failure", "neutral", "queued")))
+        d = go(facts(checks=[failed, neutral, waiting]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
+                         ("verifying", "check_unreadable", [neutral["lens"]], "defer"))
+        d = go(facts(checks=[failed, waiting]), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"], d["outcome"]), ("check_failed", [failed["lens"]], "admit"))
+        d = go(facts(checks=[waiting]), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"]), ("awaiting_checks", "nothing"))
+
+    def test_a_reading_the_kernel_does_not_know_is_unreadable(self):  # I-13
+        # The configuration's schema refuses such a map. A Kernel given one anyway passes nothing on it.
+        for reading in ("ignored", "", "PASSING", None, True):
+            cfg = config(check_conclusions=dict(CONFIG["check_conclusions"], neutral=reading))
+            d = go(facts(checks=with_check(0, "neutral")), REVIEWED, cfg=cfg)
+            self.assertEqual((d["reason"], d["outcome"]), ("check_unreadable", "defer"), reading)
 
     def test_a_conflict_goes_back_to_the_author(self):
         d = go(facts(mergeable=False), REVIEWED)

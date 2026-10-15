@@ -8,6 +8,7 @@
     "author_role",
     "owner_role",
     "required_lenses",
+    "check_conclusions",
     "limits"
   ],
   "properties": {
@@ -54,6 +55,25 @@
             ]
           }
         }
+      }
+    },
+    "check_conclusions": {
+      "description": "What each conclusion GitHub gives a required check means, by its own name. A conclusion the map does not name is unreadable. Only success passes: any other name maps to failing, pending or unreadable.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "const": "passing"
+        }
+      },
+      "additionalProperties": {
+        "enum": [
+          "failing",
+          "pending",
+          "unreadable"
+        ]
       }
     },
     "limits": {
