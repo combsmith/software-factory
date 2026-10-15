@@ -21,6 +21,11 @@ class Simulation(unittest.TestCase):
             for _ in range(250):
                 world.step()
 
+    def test_the_seeds_serve_a_maintainers_and_an_agents_pull_request(self):
+        # The Maintainer's own pull request, where their review is refused, and an agent's, which they review.
+        classes = {World(seed).facts()["class"] for seed in SEEDS}
+        self.assertEqual(classes, {"maintainer", "agent"})
+
     def test_a_seed_replays_exactly(self):
         traces = []
         for _ in range(2):
@@ -91,13 +96,13 @@ class Simulation(unittest.TestCase):
                 return 0.0
 
         name = "test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue"
-        w = World(1, faults=False, people=False)
+        w = World(2, faults=False, people=False)
         w.queue, w.rng = True, Roll()
         w.review("changes_requested")
         w.platform()
         self.assertEqual((w.pr_state, w.unheld), ("merged", [name]))
         # Once the rule is held, the same merge breaks the invariant.
-        w = World(1, faults=False, people=False)
+        w = World(2, faults=False, people=False)
         w.queue, w.rng = True, Roll()
         w.review("changes_requested")
         with mock.patch.object(world, "NOT_YET_HELD", ()):

@@ -380,6 +380,31 @@ class HumanControl(unittest.TestCase):
         d = go(facts(**AGENT, reviews=[review(**MAINTAINER, at="2026-10-11T12:15:01Z"), asked]), REVIEWED)
         self.assertEqual((d["state"], d["action"]), ("converged", "issue_approval"))
 
+    def test_an_unreadable_review_admits_nothing(self):  # I-13
+        # An unreadable fact never yields an action: not a model review, nor a fix for a conflict or a failed check.
+        rv = dict(review(state="changes_requested", **MAINTAINER), by=None)
+        for over in ({}, {"mergeable": False}, {"checks": with_check(0, "failure")}):
+            for runs in ((), REVIEWED):
+                d = go(facts(**AGENT, reviews=[rv], **over), runs)
+                self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                                 (None, "review_unreadable", "defer", "needs_you"), (over, len(runs)))
+                self.assertNotIn("admit", d)
+        # The other side: read whole, the same item admits pr-review, or a fix.
+        asked = review(state="changes_requested", **MAINTAINER)
+        self.assertEqual(go(facts(**AGENT, reviews=[asked]))["admit"]["intent"], "review-change")
+        self.assertEqual(go(facts(**AGENT, reviews=[asked], mergeable=False))["admit"]["intent"], "fix-findings")
+
+    def test_an_unreadable_review_is_read_after_what_needs_no_review(self):  # I-13
+        # A merged, closed, unserved, draft, held or queued item is shown as it is, whatever its reviews say.
+        rv = dict(review(state="changes_requested", **MAINTAINER), by=None)
+        cases = [({"state": "merged"}, "merged"), ({"state": "closed"}, "closed"), ({"targets_protected": False},
+                 "base_not_protected"), ({"is_draft": True}, "draft"), ({"labels": ["factory:hold"]}, "human_hold"),
+                 ({"diff": {"files": 0, "lines": 0, "truncated": False}}, "empty_diff"), ({"queue": True},
+                 "in_merge_queue")]
+        for over, reason in cases:
+            d = go(facts(**dict(AGENT, **over), reviews=[rv]), REVIEWED)
+            self.assertEqual(d["reason"], reason, over)
+
     def test_a_review_not_dismissed_that_carries_dismissal_fields_is_unreadable(self):  # I-13
         # The schema cannot say "null unless dismissed", so the Kernel holds it. Read as given, an approval tagged
         # as dismissed from a request would sort as a request in the same second, replace it, and drop the gate.

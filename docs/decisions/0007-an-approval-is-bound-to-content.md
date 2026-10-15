@@ -36,6 +36,7 @@ resolved state, so a gate built on comments can never be closed.
 | A request for changes made while the pull request is in the merge queue takes it out of the queue | not held yet: `tests/test_decide.py::test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue` |
 | A standing approval never passes over a request for changes | `tests/test_decide.py::test_a_request_for_changes_is_read_after_the_checks_and_before_the_approval` |
 | A review that cannot be read whole defers for the Maintainer to see, and is never counted as cleared: its time in another format, what a dismissed one was, or dismissal fields on one not dismissed among it | `tests/test_decide.py::test_an_unreadable_review_never_converges`, `tests/test_decide.py::test_an_unreadable_dismissed_from_defers`, `tests/test_decide.py::test_a_review_time_in_another_format_is_unreadable`, `tests/test_decide.py::test_a_review_not_dismissed_that_carries_dismissal_fields_is_unreadable` |
+| An unreadable review admits nothing, and is read after what needs no review | `tests/test_decide.py::test_an_unreadable_review_admits_nothing`, `tests/test_decide.py::test_an_unreadable_review_is_read_after_what_needs_no_review` |
 | A pull request that loses its approval leaves the merge queue | not held yet: `tests/test_decide.py::test_a_queued_pull_request_with_no_approval_leaves_the_queue` |
 | A merge without a standing independent approval has an Override record | waiting on `controller/` |
 | The Factory updates a branch only when it conflicts with its base | waiting on `harness/` |

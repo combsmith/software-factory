@@ -273,6 +273,10 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         return {"state": t.HELD, "reason": "too_large", "evidence": []}
     if facts["queue"]:
         return {"state": t.QUEUED, "reason": "in_merge_queue", "evidence": []}
+    # A review that cannot be read could be a writer's request for changes. It is read before anything
+    # admits a Run or converges: an unreadable fact never yields an action (I-13).
+    if unreadable_reviews(facts):
+        return {"state": None, "reason": "review_unreadable", "evidence": []}
     # GitHub works the merge state out after a push. Until it has, it is unknown, and unreadable.
     mergeable = facts.get("mergeable")
     if mergeable is False:
@@ -307,9 +311,6 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         if not reviewed_clean_or_not(mine, facts, lens):
             return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens]}
 
-    # A review that cannot be read could be a writer's request for changes: defer, and converge on nothing.
-    if unreadable_reviews(facts):
-        return {"state": None, "reason": "review_unreadable", "evidence": []}
     # Every gate before the approval: a standing approval never passes over a person's objection.
     open_gates = gates(facts, config)
     if open_gates:

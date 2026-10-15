@@ -17,6 +17,27 @@ import tempfile
 from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def moved_after(rel: str, block: str, anchor: str) -> tuple:
+    """(old, new) for a mutant that moves `block` down to just after the `anchor` that follows it in `rel`.
+
+    The text between them is read from the file, so it is not written out twice here. If either is not
+    found, `old` is text that is not in the file, and the mutant reports itself STALE.
+    """
+    text = (ROOT / rel).read_text()
+    start = text.find(block)
+    end = text.find(anchor, start + len(block)) if start >= 0 else -1
+    if end < 0:
+        return block + anchor, anchor + block
+    middle = text[start + len(block):end + len(anchor)]
+    return block + middle, middle + block
+
+
+REVIEW_GUARD = ("    if unreadable_reviews(facts):\n"
+                '        return {"state": None, "reason": "review_unreadable", "evidence": []}\n')
+REVIEW_WAIT = '            return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens]}\n'
+
 MUTANTS = [
     ("incomplete facts are trusted", "kernel/derive.py",
      "    gaps = incomplete(facts)\n", "    gaps = []\n"),
@@ -144,6 +165,10 @@ MUTANTS = [
      "    open_gates = gates(facts, config)\n"),
     ("an unreadable review is trusted", "kernel/derive.py",
      "    if unreadable_reviews(facts):\n", "    if False:\n"),
+    ("an unreadable review is read after the model review's wait", "kernel/derive.py",
+     *moved_after("kernel/derive.py", REVIEW_GUARD, REVIEW_WAIT)),
+    ("an unreadable review is read before what needs no review", "kernel/derive.py",
+     '    if facts["state"] == "merged":\n', REVIEW_GUARD + '    if facts["state"] == "merged":\n'),
     ("an unreadable dismissal is trusted", "kernel/derive.py",
      '        if rv["state"] == "dismissed" and not readable_actor(rv.get("dismissed_by")):\n',
      "        if False:\n"),

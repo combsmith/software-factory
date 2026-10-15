@@ -24,7 +24,8 @@ FACTS_SCHEMA = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
 DECLARED = check_lifecycle.declared(check_lifecycle.load())
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 1}
 START = datetime.datetime(2026, 10, 11, 12, 0, 0)
-# The pull request is an agent's, and the Maintainer reviews it as a colleague's (UJ-4). GitHub refuses a review by its author.
+# On an even seed the pull request is an agent's, and the Maintainer reviews it as a colleague's (UJ-4). On an odd
+# seed it is the Maintainer's own, as the simulator has always served, and GitHub refuses a review by its author.
 AUTHOR = "combsmith-sf-dev-lead[bot]"
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 # The reviewer's App holds pull_requests: write, and GitHub cannot grant it less.
@@ -49,7 +50,8 @@ class World:
         self.minute = 0
         self.content = 1
         self.pr_state = "open"
-        self.author = self.last_pusher = AUTHOR
+        self.cls = "maintainer" if seed % 2 else "agent"
+        self.author = self.last_pusher = AUTHOR if self.cls == "agent" else MAINTAINER["name"]
         self.asked = False         # the Maintainer's request for changes stands, as the world keeps it
         self.unheld = []           # breaches of invariants the Kernel does not hold yet (NOT_YET_HELD)
         self.labels = set()
@@ -78,7 +80,7 @@ class World:
     def facts(self) -> dict:
         return {
             "schema": "facts/1", "item": dict(ITEM), "state": self.pr_state, "is_draft": False,
-            "class": "agent", "author": self.author, "last_pusher": self.last_pusher,
+            "class": self.cls, "author": self.author, "last_pusher": self.last_pusher,
             "targets_protected": True, "mergeable": True, "content_id": self.cid(),
             "diff": {"files": 2, "lines": 40, "truncated": False}, "labels": sorted(self.labels),
             "admitted_at": None, "last_push_at": self.last_push, "last_writer_action_at": self.last_writer,
@@ -327,6 +329,8 @@ class World:
                 self.note("check %s: %s" % (lens, self.checks[lens]))
 
     def person(self):
+        # GitHub refuses a review by the pull request's author: on the Maintainer's own, they do as they always did.
+        reviews = self.cls == "agent"
         roll = self.rng.random()
         if roll < 0.25:
             self.labels ^= {t.LABEL_HOLD}
@@ -334,13 +338,13 @@ class World:
             self.note("maintainer toggled hold -> %s" % sorted(self.labels))
         elif roll < 0.45:
             self.push("don-petry", writer=True)
-        elif roll < 0.55:
+        elif roll < (0.55 if reviews else 0.60):
             self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
                                  "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
                                  "severity": None, "resolved_by": None, "opened_at": self.now()})
             self.writer_acted()
             self.note("maintainer opened a thread")
-        elif roll < 0.65:
+        elif reviews and roll < 0.65:
             self.review(self.pick(["changes_requested", "commented", "approved"]))
         else:
             mine = [th for th in self.threads if not th["resolved"] and th["opened_by"]["kind"] == "human"]

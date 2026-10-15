@@ -391,7 +391,9 @@ approval, so a standing approval never passes over it. A review whose author, wr
 time, dismisser or earlier state cannot be read is unreadable: it could be a writer's request, so
 the Kernel defers, reason `review_unreadable`, and nothing converges on it (I-13). So is a review
 that is not dismissed but carries `dismissed_by` or `dismissed_from`: the schema cannot say that
-both are null unless the review was dismissed, so the Kernel holds it. A time is
+both are null unless the review was dismissed, so the Kernel holds it. An unreadable review is read
+after what needs no review (a merged, closed, unserved, draft, held or queued item) and before
+anything that admits a Run: a model review, or a fix for a conflict or a failed check. A time is
 readable only in the one format, because times compare as text. The item is the Maintainer's to
 see, as for a check with no verdict: a port that misreads does not mend itself. A request made
 after the item entered the merge queue is not read yet, because a queued item is read before its
