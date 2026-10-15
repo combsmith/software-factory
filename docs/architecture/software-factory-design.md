@@ -844,10 +844,15 @@ each item where it is.
 Human transitions are declared like any other: marking ready, converting to draft, adding or
 removing a hold label, requesting changes, resolving a thread, approving, merging by Override.
 
-A transition is a person's whatever reports it. Only a person with write access releases a Hold
-(I-41, I-28): the platform only reports that one removed the label, so `held → verifying` is
-declared `human`, as is every way out of `held`. Re-running a check on unchanged content is a
-person's act too. A Lens reports once for each run on a `content_id`, unchanged content admits no
+A transition is a person's whatever reports it, and the Factory makes no transition out of a Hold
+(L-02). A `factory:hold` label ends when a person with write access removes it, and a ceiling
+when a writer acts (I-41, I-28). The platform only reports either, so `held → verifying` is
+declared `human`. A Hold on a condition of the content, `empty_diff` or `too_large`, ends when the
+diff changes, so `held → verifying` is declared by `platform` too. `not_served` is not terminal:
+GitHub serves a stacked pull request when it retargets it at the default branch, which takes it
+to `verifying` or `draft` by `platform`, and a person may close it. Every way into `not_served`
+is a person's, so no cycle passes through it without one. Re-running a check on unchanged content
+is a person's act too. A Lens reports once for each run on a `content_id`, unchanged content admits no
 second model review (I-11), and no Effect re-runs a check (§3.6). Nor can a Factory workflow: a
 re-run needs a write, and under "Nothing is granted that is not named" in
 `docs/standards/workflows.md` a workflow is granted nothing that can write. So a second verdict
@@ -856,13 +861,14 @@ on the same content is a person's, a flaky check re-run or a thread resolved, an
 
 **What bounds it.** Take away the transitions a person makes, and every cycle left passes through
 one that names its bound, whoever makes the rest: the Factory, a Lens or the platform (I-14,
-`tools/check_lifecycle.py`).
+`tools/check_lifecycle.py`). A bound is a limit the Kernel counts for one item; a limit on size,
+such as `max_diff_lines`, or on the whole org, such as `org_max_active_runs`, bounds no cycle.
 
 | Transition | Bound | What is counted |
 |---|---|---|
-| `addressing → verifying` and `converged → verifying`: new content pushed | `max_runs_per_item` | The author Role's Run that pushed. No Run is admitted in `converged`, so a push there is a counted Run's or a person's |
+| `addressing → verifying` and `converged → verifying`: new content pushed | `max_runs_per_item` | The author Role's Run that pushed, when the Factory pushed. Any other push is a person's or, for the `dependency` class, Dependabot's rebase. Each such rebase follows a move of the base or a new release, so the Factory cannot loop on it alone |
 | `adjudicating → addressing`, `adjudicating → verifying` and `adjudicating → converged` | `max_rounds` | The owner Role's adjudicating Run that each follows |
-| `addressing → adjudicating` | `max_attempts` | The author Role's Runs that failed on the item |
+| `addressing → adjudicating` | `max_attempts`, as declared | Not what moves the item on: that is an author Run that succeeded. Every cycle through this transition leaves `adjudicating` by an exit bounded by `max_rounds`, and those bound it |
 | `converged → queued`: enqueued | `max_acts_per_item` | The enqueue, an act (§3.10). A queue that ejects every time comes to rest here |
 
 #### The issue Lifecycle

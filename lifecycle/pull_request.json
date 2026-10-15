@@ -19,12 +19,9 @@
   ],
   "terminal": [
     "merged",
-    "closed",
-    "not_served"
+    "closed"
   ],
-  "person_only_exits": [
-    "held"
-  ],
+  "person_only_exits": [],
   "stale_after_minutes": {
     "draft": 1440,
     "verifying": 30,
@@ -32,7 +29,8 @@
     "adjudicating": 30,
     "converged": 15,
     "queued": 15,
-    "held": 1440
+    "held": 1440,
+    "not_served": 1440
   },
   "transitions": [
     {
@@ -228,6 +226,12 @@
       "bound": null
     },
     {
+      "from": "held",
+      "to": "verifying",
+      "by": "platform",
+      "bound": null
+    },
+    {
       "from": "draft",
       "to": "addressing",
       "by": "human",
@@ -386,6 +390,24 @@
     {
       "from": "held",
       "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "verifying",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "draft",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "closed",
       "by": "human",
       "bound": null
     }

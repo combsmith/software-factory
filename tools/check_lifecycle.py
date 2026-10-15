@@ -8,6 +8,9 @@ from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCHEMA = ROOT / "schemas" / "lifecycle.schema.json"
+# The limits the Kernel counts for one Work item, and so the only ones that can bound its cycles.
+# A limit on size or on the whole org is not among them. A new counter in the Kernel is added here.
+PER_ITEM = ("max_runs_per_item", "max_attempts", "max_rounds", "max_acts_per_item", "max_unmerged_closes")
 
 
 def load(name: str = "pull_request") -> dict:
@@ -60,15 +63,13 @@ def _shape(lc, schema: dict) -> list:
 
 
 def check(lc: dict, limits: dict = None, schema: dict = None) -> list:
-    """The problems of one Lifecycle. A bound must be one of `limits`, when they are given."""
+    """The problems of one Lifecycle. A bound is counted for each item, and is one of `limits` when they are given."""
     wrong = _shape(lc, json.loads(SCHEMA.read_text()) if schema is None else schema)
     if wrong:
         return ["does not match the Lifecycle schema: %s" % w for w in wrong]
     states, terminal = set(lc["states"]), set(lc["terminal"])
     gated = set(lc["person_only_exits"])
     problems = []
-    if "held" in states and "held" not in gated:
-        problems.append("only a person ends a Hold: list held in person_only_exits")
     for s in sorted(gated - states):
         problems.append("person_only_exits names an undeclared state: %s" % s)
     edges = []
@@ -78,10 +79,15 @@ def check(lc: dict, limits: dict = None, schema: dict = None) -> list:
                 problems.append("transition names an undeclared state: %s" % end)
         if tr["from"] in terminal:
             problems.append("a terminal state has a way out: %s" % tr["from"])
+        if tr["from"] == "held" and tr["by"] == "factory":     # L-02
+            problems.append("the Factory makes no transition out of a Hold: held -> %s is by factory" % tr["to"])
         if tr["from"] in gated and tr["by"] != "human":
             problems.append("%s is left by %s; only a person takes a Work item out of %s"
                             % (tr["from"], tr["by"], tr["from"]))
-        if limits is not None and tr["bound"] is not None and tr["bound"] not in limits:
+        if tr["bound"] is not None and tr["bound"] not in PER_ITEM:
+            problems.append("the bound %s is not a limit the Kernel counts for each item; a bound is one of %s"
+                            % (tr["bound"], ", ".join(PER_ITEM)))
+        elif limits is not None and tr["bound"] is not None and tr["bound"] not in limits:
             problems.append("the bound %s is not a limit in config/defaults.json; add its number there"
                             % tr["bound"])
         edges.append((tr["from"], tr["to"]))

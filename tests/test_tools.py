@@ -231,18 +231,20 @@ class Lifecycle(unittest.TestCase):
 
     def test_a_hold_the_factory_could_end_is_caught(self):
         lc = copy.deepcopy(check_lifecycle.load())
+        # L-02. A Hold ends when a person acts, or when the content that caused it changes; never by the Factory.
+        self.assertIn(("held", "verifying", "platform"), {(tr["from"], tr["to"], tr["by"]) for tr in lc["transitions"]})
         lc["transitions"].append({"from": "held", "to": "verifying", "by": "factory", "bound": "max_attempts"})
-        self.assertTrue(caught(check_lifecycle.check(lc), "only a person takes a Work item out of held"))
+        self.assertIn("the Factory makes no transition out of a Hold: held -> verifying is by factory",
+                      check_lifecycle.check(lc))
 
     def test_an_issue_the_factory_could_serve_again_is_caught(self):
         lc = copy.deepcopy(check_lifecycle.load("issue"))
         lc["transitions"].append({"from": "not_served", "to": "ready", "by": "factory", "bound": None})
         self.assertTrue(caught(check_lifecycle.check(lc), "only a person takes a Work item out of not_served"))
 
-    def test_a_hold_left_off_the_person_only_states_is_caught(self):
+    def test_an_undeclared_person_only_state_is_caught(self):
         lc = dict(check_lifecycle.load(), person_only_exits=["limbo"])
         problems = check_lifecycle.check(lc)
-        self.assertTrue(caught(problems, "list held in person_only_exits"), problems)
         self.assertTrue(caught(problems, "person_only_exits names an undeclared state: limbo"), problems)
 
     def test_malformed_lifecycle_data_is_reported_not_raised(self):
@@ -333,26 +335,29 @@ class Lifecycle(unittest.TestCase):
         problems = check_lifecycle.run(clone({"lifecycle/pull_request.json": json.dumps(lc)}))
         self.assertTrue(caught(problems, "lifecycle/pull_request.json: a cycle with no person in it"), problems)
 
-    def test_a_hold_the_platform_could_end_is_caught(self):
-        # I-41, I-28: only a person with write access releases a Hold. The platform reports that one did.
-        lc = check_lifecycle.load()
-        self.assertEqual({tr["by"] for tr in lc["transitions"] if tr["from"] == "held"}, {"human"})
-        lc["transitions"].append({"from": "held", "to": "queued", "by": "platform", "bound": None})
-        self.assertTrue(caught(check_lifecycle.check(lc), "held is left by platform; only a person"))
+    def test_a_bound_the_kernel_does_not_count_for_each_item_is_caught(self):
+        # A limit on size or on the whole org stops nothing going round on one item.
+        for limit in ("max_diff_lines", "org_max_active_runs"):
+            lc = check_lifecycle.load()
+            for tr in lc["transitions"]:
+                if (tr["from"], tr["to"]) == ("converged", "queued"):
+                    tr["bound"] = limit
+            words = "the bound %s is not a limit the Kernel counts for each item" % limit
+            self.assertTrue(caught(check_lifecycle.check(lc), words), limit)
+            problems = check_lifecycle.run(clone({"lifecycle/pull_request.json": json.dumps(lc)}))
+            self.assertTrue(caught(problems, "lifecycle/pull_request.json: " + words), problems)
 
-    def test_a_bound_is_any_limit_and_only_a_limit(self):
-        # The limits in the configuration are the one list of bounds; the schema keeps no second one.
-        config = json.loads((ROOT / "config" / "defaults.json").read_text())
-        config["limits"]["max_new_limit"] = 1
+    def test_a_pull_request_not_served_can_be_served_again_but_not_by_a_loop(self):
+        # A stacked pull request is not served until GitHub retargets it, so `not_served` is not terminal.
         lc = check_lifecycle.load()
-        for tr in lc["transitions"]:
-            if (tr["from"], tr["to"]) == ("converged", "queued"):
-                tr["bound"] = "max_new_limit"
-        files = {"config/defaults.json": json.dumps(config), "lifecycle/pull_request.json": json.dumps(lc)}
-        self.assertEqual(check_lifecycle.run(clone(files)), [])
-        del config["limits"]["max_new_limit"]
-        problems = check_lifecycle.run(clone(dict(files, **{"config/defaults.json": json.dumps(config)})))
-        self.assertTrue(caught(problems, "the bound max_new_limit is not a limit"), problems)
+        self.assertNotIn("not_served", lc["terminal"])
+        self.assertEqual(lc["stale_after_minutes"]["not_served"], 1440)
+        exits = {(tr["to"], tr["by"]) for tr in lc["transitions"] if tr["from"] == "not_served"}
+        self.assertLessEqual({("verifying", "platform"), ("draft", "platform"), ("closed", "human")}, exits)
+        self.assertEqual(check_lifecycle.check(lc), [])
+        lc["transitions"].append({"from": "verifying", "to": "not_served", "by": "platform", "bound": None})
+        self.assertIn("a cycle with no person in it has no bound: verifying -> not_served -> verifying",
+                      check_lifecycle.check(lc))
 
 
 class Authority(unittest.TestCase):
