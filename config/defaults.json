@@ -10,6 +10,9 @@
     ],
     "model": [
       "pr-review"
+    ],
+    "model_not_required_for": [
+      "dependency"
     ]
   },
   "limits": {
