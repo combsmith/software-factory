@@ -11,8 +11,8 @@ from tools import walk
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LOCAL = {"kernel", "tools", "sim", "tests"}
 # The standard-library modules in use. A new one is added here on purpose, in the same change.
-STDLIB = {"__future__", "ast", "contextlib", "copy", "datetime", "hashlib", "io", "json", "os", "pathlib", "random", "re", "shutil",
-          "subprocess", "sys", "tempfile", "typing", "unittest"}
+STDLIB = {"__future__", "ast", "contextlib", "copy", "datetime", "hashlib", "io", "json", "os", "pathlib", "random", "re", "shlex",
+          "shutil", "subprocess", "sys", "tempfile", "time", "typing", "unittest"}
 # Ways to load code that the list above cannot see.
 LOADERS = {"__import__", "exec", "eval", "compile"}
 # base64: tools/check_trials.py looks inside base64 for a credential.

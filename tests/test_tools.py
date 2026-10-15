@@ -48,6 +48,17 @@ def clone(files: dict) -> pathlib.Path:
     return root
 
 
+def modules_in(suite) -> set:
+    """The modules whose tests are in `suite`, at any depth."""
+    found = set()
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            found |= modules_in(item)
+        else:
+            found.add(type(item).__module__)
+    return found
+
+
 def caught(problems: list, words: str) -> bool:
     return any(words in p for p in problems)
 
@@ -871,7 +882,7 @@ class Trials(unittest.TestCase):
         verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
         try:
             with contextlib.redirect_stdout(io.StringIO()) as said:
-                self.assertEqual(verify.main(), 0)
+                self.assertEqual(verify.main([]), 0)
         finally:
             verify.failed, verify.unittest.TextTestRunner = real
         for code in codes:
@@ -1050,6 +1061,36 @@ class Verify(unittest.TestCase):
             self.assertTrue(verify.failed([("always", lambda: ["a problem"])]))
             self.assertFalse(verify.failed([("never", lambda: [])]))
         self.assertIn("a problem", said.getvalue())
+
+    def test_make_fast_is_verify_without_the_seeded_simulation(self):
+        """The required check runs every test file at any depth; only `make fast` leaves the slow ones out."""
+        everything = {".".join(p.relative_to(ROOT).with_suffix("").parts) for p in walk.files(ROOT, "tests")
+                      if p.name.startswith("test_") and p.suffix == ".py"}
+        slow = {"tests." + name for name in verify.SLOW}
+        self.assertTrue(slow <= everything, "a slow test named in verify.SLOW does not exist")
+        ran = {}
+
+        class Runner:
+            def __init__(self, **_):
+                pass
+
+            def run(self, suite):
+                ran["modules"] = modules_in(suite)
+                return unittest.TestResult()
+
+        real = (verify.failed, verify.unittest.TextTestRunner)
+        verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):     # main prints the unverified rules
+                self.assertEqual(verify.main([]), 0)
+                self.assertEqual(ran["modules"], everything)
+                verify.main(["--fast"])
+                self.assertEqual(ran["modules"], everything - slow)
+        finally:
+            verify.failed, verify.unittest.TextTestRunner = real
+        makefile = (ROOT / "Makefile").read_text()
+        self.assertIn("\nverify:\n\t$(PY) -m tools.verify\n", makefile)
+        self.assertIn("\nfast:\n\t$(PY) -m tools.verify --fast\n", makefile)
 
     def test_every_test_file_is_discovered(self):
         found = set()

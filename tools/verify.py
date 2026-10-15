@@ -1,12 +1,18 @@
-"""One command: everything the required check will run. `make verify`."""
+"""One command: everything the required check will run. `make verify`.
+
+`make fast` runs the same checks and every test but the seeded simulation, which is most of the
+time `make verify` takes. A session runs it after each edit (`tools/hooks/after_edit.py`).
+"""
 from __future__ import annotations
 
+import pathlib
 import sys
 import unittest
 
 from tools import (check_apps, check_authority, check_context, check_examples, check_lifecycle, check_purity,
                    check_repo, check_trials, check_workflows)
 
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHECKS = [
     ("schemas and examples", check_examples.run),
     ("lifecycle", check_lifecycle.run),
@@ -18,6 +24,8 @@ CHECKS = [
     ("workflows", check_workflows.run),
     ("context", check_context.run),
 ]
+# The test modules `make fast` leaves out. `make verify` runs them all.
+SLOW = ("test_simulator",)
 
 
 def failed(checks: list) -> bool:
@@ -39,13 +47,28 @@ def unverified(rules: list) -> None:
         print("    unverified: " + rule)
 
 
-def main() -> int:
+def _modules(tests) -> set:
+    found = set()
+    for item in tests:
+        found |= _modules(item) if isinstance(item, unittest.TestSuite) else {type(item).__module__}
+    return found
+
+
+def suite(fast: bool) -> unittest.TestSuite:
+    """Every test module under tests/, at any depth; when fast, all but those in SLOW."""
+    whole = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT))
+    if not fast:
+        return whole
+    slow = {"tests." + name for name in SLOW}
+    return unittest.TestSuite(item for item in whole if not _modules(item) & slow)
+
+
+def main(argv: list) -> int:
     checks_failed = failed(CHECKS)
     unverified(check_trials.unverified())
-    suite = unittest.defaultTestLoader.discover("tests")
-    result = unittest.TextTestRunner(verbosity=1).run(suite)
+    result = unittest.TextTestRunner(verbosity=1).run(suite("--fast" in argv))
     return 1 if checks_failed or not result.wasSuccessful() else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

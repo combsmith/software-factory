@@ -14,7 +14,7 @@ make verify                  # every check and every test, half a minute; SIM_SE
 python3 -m tools.mutants     # breaks each Kernel rule in turn; a test must notice. A minute or two
 ```
 
-Both must pass before a change is finished. Python 3.9 or later; there is nothing to install.
+Both must pass before a change is finished. Python 3.9 or later; nothing to install. Hooks in `.claude/settings.json` run `make fast` after an edit and `make verify` before a session with unpushed work ends, and refuse commits and pushes not the Maintainer's.
 
 ## The rules that are never broken
 
