@@ -136,8 +136,8 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 
 ### L-24 A deliberate pause looked like an outage
 **Failure.** The fleet was taken offline by withholding its model credential: "Make 'agents intentionally paused' a first-class state — deliberate token disable presented as fleet-wide outage (2026-08-16)" (issue 1525). The switch built afterwards was read by one agent of several.
-**Rule.** A Pause is an input of its own with a reason of its own, and it stops every admission.
-**Check.** `tests/test_decide.py::test_human_pause_admits_nothing`; not held yet for approvals and merges: `tests/test_decide.py::test_a_pause_stops_approvals_and_merges_too`
+**Rule.** A Pause is an input of its own with a reason of its own, and it stops every act: a Run, an approval, a merge.
+**Check.** `tests/test_decide.py::test_human_pause_admits_nothing`, `tests/test_decide.py::test_a_pause_stops_approvals_and_merges_too`
 
 ## Checks that could not fail
 

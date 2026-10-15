@@ -810,7 +810,8 @@ stateDiagram-v2
 
 Any state may move to `closed` when a person closes the pull request, and to `held` on a Hold;
 those arrows are not all drawn. A
-Pause is not a state: it stops Admission for a scope and leaves each item where it is.
+Pause is not a state: it stops Admission, approval and enqueuing for a scope (I-7) and leaves
+each item where it is.
 
 Human transitions are declared like any other: marking ready, converting to draft, adding or
 removing a hold label, requesting changes, resolving a thread, approving, merging by Override.

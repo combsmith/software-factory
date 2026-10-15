@@ -31,6 +31,14 @@ class Readability(unittest.TestCase):
         d = go(facts(), ctx={"active_runs": 0, "model_deferred_until": None})
         self.assertEqual((d["outcome"], d["reason"]), ("defer", "pause_unreadable"))
 
+    def test_an_unreadable_pause_stops_approvals_and_merges(self):  # I-7, I-13
+        approved = [{"actor": "donpetry-bot", "state": "approved", "commit": "c1", "content_id": "sha256:aaaa"}]
+        for reviews in ([], approved):
+            unread = {"active_runs": 0, "model_deferred_until": None}
+            for ctx in (unread, dict(unread, paused=None)):
+                d = go(facts(reviews=reviews), REVIEWED, ctx=ctx)
+                self.assertEqual((d["outcome"], d["reason"]), ("defer", "pause_unreadable"), ctx)
+
     def test_unreadable_capacity_defers(self):
         d = go(facts(), ctx={"paused": False, "model_deferred_until": None})
         self.assertEqual((d["outcome"], d["reason"]), ("defer", "capacity_unreadable"))
@@ -62,6 +70,13 @@ class HumanControl(unittest.TestCase):
     def test_human_pause_admits_nothing(self):  # I-7
         d = go(facts(), ctx=context(paused=True))
         self.assertEqual((d["outcome"], d["reason"]), ("defer", "paused"))
+
+    def test_a_pause_stops_approvals_and_merges_too(self):  # I-7
+        approved = [{"actor": "donpetry-bot", "state": "approved", "commit": "c1", "content_id": "sha256:aaaa"}]
+        for reviews in ([], approved):
+            d = go(facts(reviews=reviews), REVIEWED, ctx=context(paused=True))
+            self.assertEqual((d["outcome"], d["reason"]), ("defer", "paused"))
+            self.assertEqual(go(facts(reviews=reviews), REVIEWED)["outcome"], "act")
 
     def test_draft_is_watched_only(self):
         self.assertEqual(go(facts(is_draft=True))["outcome"], "nothing")
@@ -222,13 +237,6 @@ class Ceilings(unittest.TestCase):
 
 class NotYetHeld(unittest.TestCase):
     """Rules that are decided and that the Kernel does not hold yet. See `pending` in tests/support.py."""
-
-    @pending
-    def test_a_pause_stops_approvals_and_merges_too(self):  # I-7
-        approved = [{"actor": "donpetry-bot", "state": "approved", "commit": "c1", "content_id": "sha256:aaaa"}]
-        for reviews in ([], approved):
-            d = go(facts(reviews=reviews), REVIEWED, ctx=context(paused=True))
-            self.assertEqual((d["outcome"], d["reason"]), ("defer", "paused"))
 
     @pending
     def test_a_queued_pull_request_with_no_approval_leaves_the_queue(self):

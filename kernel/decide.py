@@ -47,6 +47,13 @@ def _decision(facts, state, reason, evidence, outcome, working=False, **extra) -
     return d
 
 
+def _pause(context: dict):
+    """Why a Pause stops this act, or None. It stops every act; one that cannot be read, too."""
+    if context.get("paused") is False:
+        return None
+    return "paused" if context.get("paused") else "pause_unreadable"
+
+
 def _wanted_run(state: str, reason: str, config: dict):
     """The Run this State calls for, as (role, intent), or None."""
     if state == t.VERIFYING and reason == "awaiting_review":
@@ -79,6 +86,10 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
     if state == t.CONVERGED:
         if config["approver"] in (facts["author"], facts["last_pusher"]):
             return _decision(facts, t.HELD, "approver_is_author_or_last_pusher", [], t.HOLD)
+        # The Hold the facts establish first, then the Pause; neither approves. The order is open.
+        pause = _pause(context)
+        if pause:
+            return _decision(facts, state, pause, evidence, t.DEFER)
         action = "enqueue" if reason == "approved" else "issue_approval"
         return _decision(facts, state, reason, evidence, t.ACT, action=action,
                          content_id=facts["content_id"])
@@ -88,10 +99,10 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
         return _decision(facts, state, reason, evidence, t.NOTHING)
     role, intent = wanted
 
-    # Brakes and ceilings, in one place.
-    if context.get("paused") is not False:
-        return _decision(facts, state, "paused" if context.get("paused") else "pause_unreadable",
-                         evidence, t.DEFER)
+    # Brakes and ceilings on a Run, in one place. The Pause stops an approval above, too.
+    pause = _pause(context)
+    if pause:
+        return _decision(facts, state, pause, evidence, t.DEFER)
     limits = config["limits"]
     recent = since_writer(mine, facts)
     attempts = [r for r in recent if r["intent"] == intent and r["status"] == "completed"
