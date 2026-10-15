@@ -378,10 +378,11 @@ it, because GitHub keeps it standing across pushes; a later review that only com
 nor does anyone else's approval. A dismissal by an App does not clear it either: the reviewer's App
 holds `pull_requests: write`, GitHub cannot grant less, and no Role closes a person's objection
 (L-17). A dismissed review is read by what it was, which GitHub's timeline records
-(`previousReviewState`). One dismissed from an approval or a comment is gone: it neither gates nor
-approves, so a person's stale approval that an App's push dismissed leaves the item waiting for
-the approver as usual, and an earlier request by that person is their latest verdict again. One
-dismissed from a request for changes stands, unless a person with write access dismissed it. A
+(`previousReviewState`). One dismissed from an approval still ends that person's earlier request,
+because the objection was answered, but approves no content: when an App's push dismisses a
+person's stale approval, nothing revives, and the item waits only for the approver, as usual. One
+dismissed from a comment changes nothing. One dismissed from a request for changes stands, unless
+a person with write access dismissed it. A
 request from a stranger or a Lens gates nothing (§4.6). It is read after the checks and before the
 approval, so a standing approval never passes over it. A review whose author, write access, state,
 time, dismisser or earlier state cannot be read is unreadable: it could be a writer's request, so
@@ -1363,7 +1364,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | The poller was down for hours | An item is stale only if it went unevaluated while passes were running. A missing pass is one health alert, not one alert per item |
 | A third-party thread the reviewer does not adopt | The reviewer resolves it (§4.2), so the ruleset does not block the merge on it |
 | A review thread from someone without write access | On a public repo anyone can open one. It is treated as a third-party reviewer's: `pr-review` adopts it or resolves it. Only a person with write access can hold a pull request with a thread |
-| A request for changes, from a person with write access or from anyone else | A writer's gates, as that person's thread does, and stands until that person approves or a person with write access dismisses it; new content and an App's dismissal do not clear it. A stranger's or a Lens's gates nothing. A dismissed approval or comment is gone, so an App's push that dismisses a person's stale approval does not make the item wait for that person (§3.3) |
+| A request for changes, from a person with write access or from anyone else | A writer's gates, as that person's thread does, and stands until that person approves or a person with write access dismisses it; new content and an App's dismissal do not clear it. A stranger's or a Lens's gates nothing. An approval answers that person's request even once dismissed, so an App's push that dismisses a stale approval revives nothing; it approves no content (§3.3) |
 | A plain comment from the Maintainer | It steers and gates nothing. It goes into the next Run's Task, and the Role's App reacts to it to show it was read. A plain comment has no resolved state, so it could never be closed. To block, use a review |
 
 Already handled with no special rule, because State is derived: a draft, a conversion back to

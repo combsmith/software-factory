@@ -319,11 +319,16 @@ class HumanControl(unittest.TestCase):
         d = go(facts(**AGENT, reviews=[dismissed(review(), AUTHOR_APP, "approved")]), REVIEWED)
         self.assertEqual((d["reason"], d["action"]), ("approval_due", "issue_approval"))
         self.assertEqual(go(facts(**AGENT, reviews=[review()]), REVIEWED)["action"], "enqueue")
-        # A dismissed review is gone: a request that person made before it is their latest verdict again.
+        # The Maintainer asks for changes, approves the fix, and an App's push dismisses that approval as stale.
+        # The objection was answered, so nothing revives: the item waits only for the approver.
         asked = review(state="changes_requested", **MAINTAINER, at=at(12))
-        d = go(facts(**AGENT, reviews=[asked, dismissed(approval, AUTHOR_APP, "approved")]), REVIEWED)
+        for who in (AUTHOR_APP, REVIEWER_APP, MAINTAINER):
+            d = go(facts(**AGENT, reviews=[asked, dismissed(approval, who, "approved")]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"), who)
+        # A dismissed comment was never a verdict, and answers nothing: the request stands.
+        d = go(facts(**AGENT, reviews=[asked, dismissed(review(state="commented", **MAINTAINER), AUTHOR_APP, "commented")]),
+               REVIEWED)
         self.assertEqual((d["state"], d["reason"]), ("addressing", "human_finding"))
-        self.assertEqual(go(facts(**AGENT, reviews=[asked, approval]), REVIEWED)["state"], "converged")
 
     def test_a_request_for_changes_an_app_dismissed_still_stands(self):  # L-17
         asked = review(state="changes_requested", **MAINTAINER)

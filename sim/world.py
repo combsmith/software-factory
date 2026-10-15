@@ -285,7 +285,7 @@ class World:
             # GitHub: an_app_can_dismiss_a_review
             dismissed = live[-1]
             dismissed.update(state="dismissed", dismissed_from=dismissed["state"], dismissed_by=dict(REVIEWER_APP))
-            # A dismissed request still stands. A dismissed approval or comment is gone, so what came before is the verdict.
+            # A dismissed request still stands; a dismissed approval still answered it; a dismissed comment changes nothing.
             latest = self.verdict()
             self.asked = latest is not None and "changes_requested" in (latest["state"], latest["dismissed_from"])
             self.note("the reviewer's App dismissed the Maintainer's review (%s)" % dismissed["dismissed_from"])
@@ -346,12 +346,12 @@ class World:
         self.note("maintainer reviewed: %s" % state)
 
     def verdict(self):
-        """The Maintainer's latest review that is more than a comment and not gone, or None.
+        """The Maintainer's latest verdict, dismissed or not, or None. A comment is none, dismissed or not.
 
-        A review dismissed from an approval or a comment is gone; one dismissed from a request for changes is not.
+        A dismissed approval still answered what came before it; a dismissed request still stands.
         """
         mine = [rv for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"] and rv["state"] != "commented"
-                and rv["dismissed_from"] in (None, "changes_requested")]
+                and rv["dismissed_from"] != "commented"]
         return mine[-1] if mine else None
 
     # ---- one step, and the invariants that hold at every step

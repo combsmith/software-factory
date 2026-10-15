@@ -126,22 +126,24 @@ def unreadable_reviews(facts: dict) -> bool:
 def standing_requests(facts: dict) -> list:
     """Requests for changes that hold the pull request, one for each person with write access.
 
-    A person's latest verdict counts; a review that only comments is none. A dismissed approval
-    or comment is gone: it neither gates nor approves, as when an App's push dismisses a stale
-    approval. A request stands across new content, as GitHub keeps it, until that person approves
-    or a person with write access dismisses it. An App's dismissal does not clear it: the
-    reviewer's App holds pull_requests: write, and no Role closes a person's objection (L-17).
-    A request from a stranger or a Lens gates nothing.
+    A person's latest verdict counts; a review that only comments is none, dismissed or not. A
+    request stands across new content, as GitHub keeps it, until that person approves or a person
+    with write access dismisses it. An approval answers it even once dismissed, as when an App's
+    push dismisses it as stale; it still approves no content. An App's dismissal of the request
+    does not clear it: the reviewer's App holds pull_requests: write, and no Role closes a
+    person's objection (L-17). A request from a stranger or a Lens gates nothing.
     """
     latest = {}
     for rv in sorted(facts["reviews"], key=lambda rv: rv["submitted_at"]):
-        if rv["state"] == "dismissed" and rv["dismissed_from"] != "changes_requested":
+        if rv["state"] == "dismissed" and rv["dismissed_from"] == "commented":
             continue
         if rv["by"]["kind"] == "human" and rv["by"]["can_write"] and rv["state"] != "commented":
             latest[rv["by"]["name"]] = rv
     out = []
     for name, rv in sorted(latest.items()):
         if rv["state"] == "dismissed":
+            if rv["dismissed_from"] != "changes_requested":
+                continue
             dismissed_by = rv["dismissed_by"]
             if dismissed_by["kind"] == "human" and dismissed_by["can_write"]:
                 continue
