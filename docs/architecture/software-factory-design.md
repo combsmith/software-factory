@@ -373,22 +373,33 @@ design leaves the required set for that class or scope (§5.3); the map is not b
 
 A required Lens is read only from the App that reports it. GitHub lets any App with `checks: write`
 post a check run under any name, the Controller's among them; the ruleset pins `verify` to its App,
-and the Kernel pins every required Lens to its own. Each check in the facts carries `app_id`, the check run's
-`app.id`, and the configuration names each deterministic Lens with the id of its App
-(`config/defaults.json`, `required_lenses.deterministic`; a Lens with no App is refused,
-`examples/invalid/config.a-required-lens-with-no-app.json`). `verify` and `secret-scan` run in
-GitHub Actions, 15368, the integration id the `main` ruleset pins for `verify`; `code-scanning` is
-CodeQL's check run, which GitHub Advanced Security, 57789, reports, as the check runs of a merged
-pull request's head showed on 2026-10-15. A check with a required Lens's name from any other App,
-or with no App, makes that Lens unreadable whatever it concludes, and whatever the Lens's own App
-says beside it: reason `check_unreadable`, for the Maintainer to see, since an App posting under a
-Lens's name is a person's to look into (I-13). Every check from the Lens's own App is read, never the
-last alone: GitHub can hold two with one name, from two workflows with one job name. The port reads
-GitHub's latest run of each check, so a re-run replaces the run it repeats. Any that fails fails the
-Lens; failing none, any that gave no verdict leaves it unreadable; then any still running is a wait.
-The Lens passes only when every one passes. The status on the item, the Controller's own check run,
-has one fixed name, `status_on_item` in the configuration, and `tools/check_authority.py` refuses
-it if it is a required Lens's name, deterministic or model: it would speak for that Lens.
+and the Kernel pins every required Lens to its own. The configuration names each deterministic Lens
+(`config/defaults.json`, `required_lenses.deterministic`) with `check`, the exact name of the check
+run GitHub reports for it, and `app_id`, the id of its App: `verify` is the check `verify` and
+`secret-scan` the check `Secret scan (gitleaks)`, both from GitHub Actions, 15368, the integration id
+the `main` ruleset pins for `verify`; `code-scanning` is the check `CodeQL`, from GitHub Advanced
+Security, 57789, as the check runs of a merged pull request's head showed on 2026-10-15. The
+schema refuses a Lens with no check or no App (`examples/invalid/config.a-required-lens-with-no-check.json`,
+`examples/invalid/config.a-required-lens-with-no-app.json`), and `tools/check_authority.py` a Lens
+or a check named twice. The port's contract: a check run whose name equals a Lens's `check` is
+given in the facts with that Lens's name as `lens` and its real `app.id` as `app_id`, whatever the
+App, and is never dropped or merged with another App's. Only a re-run of the same job in the same
+check suite replaces an earlier run: GitHub's `filter=latest` is per check suite, so two workflow
+runs on one commit both stay, and the Kernel reads both, which fails closed. Both rules wait on
+`adapters/`.
+
+A check with a required Lens's name from any other App, or with an App id that is not a whole
+number, makes that Lens unreadable whatever it concludes, and whatever the Lens's own App says
+beside it. It is read before the failure of any Lens and before a conflict, as `review_unreadable`
+is, because a fix Run is an action: reason `check_unreadable`, for the Maintainer to see, since an
+App posting under a Lens's name is a person's to look into (I-13). Its evidence is
+`<lens>:from_app:<id>`, so it is not taken for a check that was cancelled. A check run cannot be
+deleted, so it stays on that head, and only a push clears it. Every check from the Lens's own App is
+read, never the last alone: any that fails fails the Lens; failing none, any that gave no verdict
+leaves it unreadable; then any still running is a wait. The Lens passes only when every one passes.
+The status on the item, the Controller's own check run, has one fixed name, `status_on_item` in the
+configuration, and `tools/check_authority.py` refuses it if it is a required Lens's name or its
+check's, deterministic or model, ignoring case and the space around it: it would speak for that Lens.
 
 A request for changes from a person with write access is a `human` Finding (§4.2 item 3), and gates
 as that person's thread does: the author's Run answers it, and then it waits for that person. Each
@@ -1471,7 +1482,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | The approver is the author or the last pusher | GitHub rejects or discards the approval. The Kernel reads `author` and `last_pusher`, attempts no approval, and holds the item with that reason (I-26). The machine user therefore never pushes (§5.1) |
 | A branch pushed every few minutes | Deterministic Lenses first; a model review starts only on content they have passed (I-27) |
 | A required check that concludes `neutral`, `skipped`, `cancelled` or `stale`, or with a word the Kernel does not know | It gave no verdict, so it has not passed. The Kernel defers, reason `check_unreadable`, admits no Run, and shows the item as needing the Maintainer until the check reports again (I-13, §3.3). A `timed_out` check is a failure, and goes back to the author. A failure beside it is read first, so `fail-fast`'s cancelled siblings and a skipped dependent job do not hold an ordinary failure |
-| A check with a required Lens's name from another App, or two from the Lens's own App that disagree | The first leaves the Lens unreadable, reason `check_unreadable`, for the Maintainer to see, whatever the Lens's own check says; it moves nothing either. Of the second, every one is read: a failure fails the Lens, and it passes only when every one passes (§3.3) |
+| A check with a required Lens's name from another App, or two from the Lens's own App that disagree | The first leaves the Lens unreadable, reason `check_unreadable` with the evidence `<lens>:from_app:<id>`, for the Maintainer to see, whatever any Lens's own check says, a failure among them; it moves nothing either. A check run cannot be deleted, so it stays on that head for good, and only a push clears it. Of the second, every one is read: a failure fails the Lens, and it passes only when every one passes (§3.3) |
 | A Hold released, or a pull request reopened, after attempts ran out | Attempts count since the last action by a person with write access, which grants a fresh allowance. No agent's action does, and nor does a stranger's comment: on a public repo that would let anyone keep an agent running (I-28) |
 | An approval that does not land | The approval is a Run with no Engine. A failed one whose fault is the item's is an attempt, and at `max_attempts` the item is held. One that fails for any other fault, such as an expired token, counts toward the Run ceiling (§3.10) |
 | A merge queue that ejects the pull request every time | Each enqueue is an act. At `max_acts_per_item` acts since a person with write access acted, the item is held, reason `act_ceiling` (§3.3) |
@@ -1613,7 +1624,7 @@ room. That shapes every row.
 | Get a harmless fork commit admitted, then push the real one | Admission lapses on the next push (I-36) |
 | From a fork, open pull requests that say they close an issue, to park it, hold it or spend its one retry | Only a pull request opened by a Factory App or a person with write access, or one the Maintainer has admitted, is linked to an issue (I-39) |
 | Get a harmless issue admitted, then edit it; or write an issue that tells the model to call itself ready, perhaps in a comment the rendered page hides | An edit ends acceptance at the next pass (I-36, I-42), and `apply` refuses a Run admitted for other content (I-21, I-40). Admission never changes the class of the text: a Run that reads it has no shell and no network tool (I-35), and the Runs that have them are given the investigating Role's statement instead. What remains is an instruction that survives that restatement. Against it: the readiness Intent is promoted only on an eval set, the model holds no credential that can write, and no implementing Run starts before the Maintainer has approved the contract (I-29). The opening Run can still push a contract and open a draft |
-| With any App that can write checks, the Controller's among them, post a passing check under a required Lens's name, or a passing one after that Lens's failure | A required Lens is read only from its own App, by id, and every check it reports there is read: another App's check leaves the Lens unreadable, and any failure fails it. The status on the item has one name, which can never be a Lens's (§3.3) |
+| With any App that can write checks, the Controller's among them, post a passing check under a required Lens's name, or a passing one after that Lens's failure | A required Lens is read only from its own App, by id, and every check it reports there is read: another App's check leaves the Lens unreadable, before any failure, and any failure fails it. The status on the item has one name, which can never be a Lens's or its check's (§3.3). The pin is to an App, so `verify` and `secret-scan` are bound to any GitHub Actions job, one a pull request adds with the same name among them. Reading every check from the Lens's App, all of which must pass, is what makes an extra passing one harmless; replacing the real job needs a change to `.github/`, a protected path that only the Maintainer authors (decisions 0004, 0005). A remaining risk, unverified: an upload to code scanning with CodeQL's tool and category, by anyone with `security_events: write`, might replace the CodeQL verdict. A follow-up story pins each Lens to its workflow file |
 | Steal what the relay holds | It holds a webhook secret and nothing that can act on the Factory repo. The worst a thief can do is cause passes (§7.3) |
 | Forge a fault report from inside a Run, to pause the Factory | A pause needs agreeing faults from Runs on different items, and `apply` and the poller class the faults they see themselves. The worst case is delay, bounded by the probe Run |
 | Replace the commit bundle from inside `verify` | The bundle is taken by identifier and digest (§3.6) |

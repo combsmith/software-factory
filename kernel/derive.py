@@ -61,26 +61,46 @@ def check_reading(check: dict, config: dict) -> str:
 
 
 def reports_for(check: dict, lens: dict) -> bool:
-    """Whether `check` reports for the required Lens `lens`: its name, from the App the configuration names for it."""
-    return check.get("lens") == lens["lens"] and check.get("app_id") == lens["app_id"]
+    """Whether `check` reports for the required Lens `lens`: its name, from the App the configuration names for it.
+
+    An App is an id that is a whole number, in the facts and in the configuration: never true, nor 15368.0.
+    """
+    app = check.get("app_id")
+    return (check.get("lens") == lens["lens"] and type(app) is int and type(lens["app_id"]) is int
+            and app == lens["app_id"])
+
+
+def foreign_checks(checks: list, config: dict) -> list:
+    """Each check with a required deterministic Lens's name that the Lens's own App did not report, as evidence.
+
+    Any App with checks: write can post a check under any name; the ruleset pins `verify` to its App, and the
+    Kernel pins every required Lens. Such a check makes its Lens unreadable whatever it, or the Lens's own checks,
+    conclude (I-13). Each is given as `<lens>:from_app:<id>`, the id `unreadable` when it is not a whole number,
+    so that the Maintainer can tell it from a check that gave no verdict.
+    """
+    out = []
+    for lens in config["required_lenses"]["deterministic"]:
+        for c in checks:
+            if c.get("lens") == lens["lens"] and not reports_for(c, lens):
+                app = c.get("app_id")
+                said = "%s:from_app:%s" % (lens["lens"], app if type(app) is int else "unreadable")
+                if said not in out:
+                    out.append(said)
+    return out
 
 
 def lens_reading(checks: list, lens: dict, config: dict) -> str:
-    """What a required deterministic Lens says, from every check with its name: as `check_reading` gives it.
+    """What a required deterministic Lens says, from every check its own App reports: as `check_reading` gives it.
 
-    A Lens is read only from the App that reports it. Any App with checks: write can post a check under any
-    name; the ruleset pins `verify` to its App, and the Kernel pins every required Lens. A check with its name from
-    another App, or with no App that can be read, makes the Lens unreadable, whatever it or the Lens's own
-    checks conclude (I-13). Every check from its own App is read, never the last alone: any failing one fails
-    the Lens; then any with no verdict leaves it unreadable; then any still running is a wait. It passes only
-    when every one of them passes. A Lens that has not reported is pending.
+    Another App's check under its name is read before any Lens (foreign_checks). Every check from its own App is
+    read, never the last alone: any failing one fails the Lens; then any with no verdict leaves it unreadable;
+    then any still running is a wait. It passes only when every one of them passes. A Lens that has not reported
+    is pending.
     """
-    named = [c for c in checks if c.get("lens") == lens["lens"]]
-    if not named:
+    mine = [c for c in checks if reports_for(c, lens)]
+    if not mine:
         return "pending"
-    if not all(reports_for(c, lens) for c in named):
-        return "unreadable"
-    readings = {check_reading(c, config) for c in named}
+    readings = {check_reading(c, config) for c in mine}
     if "failing" in readings:
         return "failing"
     if readings - {"passing", "pending"}:
@@ -424,6 +444,11 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     unread = unreadable_threads(facts, config)
     if unread:
         return {"state": None, "reason": "thread_unreadable", "evidence": unread}
+    # So could a check that another App posted under a required Lens's name: it is read before any Lens's failure
+    # and before a conflict, as a fix Run is an action. It stays on this head, so only a push clears it.
+    foreign = foreign_checks(facts["checks"], config)
+    if foreign:
+        return {"state": t.VERIFYING, "reason": "check_unreadable", "evidence": foreign}
     # GitHub works the merge state out after a push. Until it has, it is unknown, and unreadable.
     mergeable = facts.get("mergeable")
     if mergeable is False:

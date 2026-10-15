@@ -426,9 +426,23 @@ class Authority(unittest.TestCase):
         config = json.loads((ROOT / "config" / "defaults.json").read_text())
         self.assertEqual(check_authority.run(self.table, config), [])
         required = config["required_lenses"]
-        for name in [lens["lens"] for lens in required["deterministic"]] + required["model"]:
+        names = [lens[key] for lens in required["deterministic"] for key in ("lens", "check")] + required["model"]
+        # A Lens's name or its check's, in any case and with any space around it: a reader of names may fold either.
+        for name in names + [n.upper() for n in names] + [" %s\t" % n for n in names]:
             problems = check_authority.run(self.table, dict(config, status_on_item=name))
-            self.assertTrue(caught(problems, "the status on the item is named %s, a required Lens's name" % name), name)
+            self.assertTrue(caught(problems, "the status on the item is named %r, a required Lens's" % name), name)
+
+    def test_a_lens_or_a_check_named_twice_is_refused(self):
+        # Two entries for one Lens, or for one check, could each pin another App: which one reads the Lens is unclear.
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        lenses = config["required_lenses"]["deterministic"]
+        for twice in (dict(lenses[0], app_id=1000001), dict(lenses[1], lens=lenses[0]["lens"].upper()),
+                      dict(lenses[1], lens="another", check=" %s " % lenses[0]["check"])):
+            config["required_lenses"]["deterministic"] = lenses + [twice]
+            self.assertTrue(caught(check_authority.run(self.table, config), "is named twice"), twice)
+        # The other side: each named once.
+        config["required_lenses"]["deterministic"] = lenses
+        self.assertEqual(check_authority.run(self.table, config), [])
 
     def test_a_category_a_model_judges_needs_a_role_and_no_role_shadows_itself(self):
         self.table["categories"]["functional"]["owner"] = "human"

@@ -21,6 +21,13 @@ RULES = (
     ("a_check_reports_on_its_own", "A pending required check reports success or failure with no one asking", (), None),
     ("a_check_can_time_out_or_give_no_verdict", "A required check can conclude timed_out, neutral, skipped, cancelled "
      "or stale, and keeps that conclusion until the content changes or a person runs it again", (), None),
+    ("a_check_is_read_by_name_from_every_app", "A check run whose name is a required Lens's check is read with that "
+     "Lens's name and the id of the App that reported it, from every App, never dropped or merged across Apps", (),
+     None),
+    ("a_rerun_replaces_only_its_own_run", "Only a re-run of the same job in the same check suite replaces an earlier "
+     "check run: filter=latest is per check suite, so two workflow runs on one commit both stay", (), None),
+    ("any_app_posts_a_check_under_any_name", "Any App with checks: write can post a check run under any name, a "
+     "required Lens's too, and it stays on that head: a check run cannot be deleted", (), None),
     ("a_push_leaves_the_queue", "A push takes the pull request out of the merge queue", (), None),
     ("an_app_enters_the_queue", "An App can put an approved pull request in the merge queue", ("P-2",), None),
     ("the_queue_merges", "A pull request in the merge queue merges, unless a push takes it out first", (), None),

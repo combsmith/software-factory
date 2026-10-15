@@ -647,13 +647,15 @@ class Content(unittest.TestCase):
 
     def test_a_check_from_another_app_is_unreadable_for_its_lens(self):  # I-13, I-27
         # Any App with checks: write can post a check under any name. The ruleset pins `verify` to its App, and the
-        # Kernel pins every required Lens: a check with a required Lens's name from any other App, or with no App,
-        # makes that Lens unreadable, whatever it concludes and whatever the Lens's own App says beside it.
+        # Kernel pins every required Lens: a check with a required Lens's name from any other App, or with an App id
+        # that is not a whole number, makes that Lens unreadable, whatever it concludes and whatever the Lens's own App
+        # says beside it. The evidence names the Lens and the App, so it is not taken for a cancelled check.
         for i, check in enumerate(GREEN):
             lens = check["lens"]
             # An App no Lens is read from, another required Lens's own App, and an App that cannot be read.
             others = [OTHER_APP] + sorted({c["app_id"] for c in GREEN} - {check["app_id"]})
-            for app in others + [None, True, str(check["app_id"]), "absent"]:
+            for app in others + [None, True, float(check["app_id"]), str(check["app_id"]), "absent"]:
+                said = "%s:from_app:%s" % (lens, app if type(app) is int else "unreadable")
                 for conclusion in ("success", "failure"):
                     impostor = dict(check, app_id=app, conclusion=conclusion)
                     if app == "absent":
@@ -664,14 +666,26 @@ class Content(unittest.TestCase):
                         for runs, reviews in (((), []), (REVIEWED, []), (REVIEWED, APPROVED)):
                             d = go(facts(checks=checks, reviews=reviews), runs)
                             self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
-                                             ("verifying", "check_unreadable", [lens], "defer", "needs_you"),
+                                             ("verifying", "check_unreadable", [said], "defer", "needs_you"),
                                              (lens, app, conclusion, len(checks)))
                             self.assertNotIn("admit", d)
                             self.assertNotIn("action", d)
-        # A failure from another required Lens's own App is still read first: it is readable and decisive.
+        # It is read before any Lens's failure, and before a conflict: a fix Run is an action, and an unreadable fact
+        # never yields one (I-13). Where another App writes under a Lens's name, a person looks first.
         impostor = dict(GREEN[0], app_id=OTHER_APP)
-        d = go(facts(checks=[impostor, dict(GREEN[1], conclusion="failure")] + GREEN[2:]), REVIEWED)
-        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "check_failed", [GREEN[1]["lens"]]))
+        said = ["%s:from_app:%d" % (GREEN[0]["lens"], OTHER_APP)]
+        for f in (facts(checks=[impostor, dict(GREEN[1], conclusion="failure")] + GREEN[2:]),
+                  facts(checks=[impostor, dict(GREEN[1], conclusion="failure")] + GREEN[1:]),
+                  facts(checks=[impostor] + GREEN[1:], mergeable=False)):
+            d = go(f, REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                             ("verifying", "check_unreadable", said, "defer", "needs_you"))
+        # A configuration whose App id is not a whole number reads no check as that Lens's: the schema refuses it.
+        for app in (float(GREEN[0]["app_id"]), True, str(GREEN[0]["app_id"])):
+            lenses = [dict(CONFIG["required_lenses"]["deterministic"][0], app_id=app)]
+            cfg = config(required_lenses=dict(CONFIG["required_lenses"],
+                                              deterministic=lenses + CONFIG["required_lenses"]["deterministic"][1:]))
+            self.assertEqual(go(facts(), REVIEWED, cfg=cfg)["reason"], "check_unreadable", app)
         # The other side: from its own App, the Lens is read; a check from another App under a name no Lens has is
         # not read at all.
         self.assertEqual(go(facts(), REVIEWED)["action"], "issue_approval")
@@ -1111,15 +1125,18 @@ class Queue(unittest.TestCase):
     def test_a_check_from_another_app_or_a_failure_beside_a_pass_takes_it_out_of_the_queue(self):  # I-9, I-27
         # A Lens is read from its own App alone, and from every check it reports there, on a queued item too.
         lens = GREEN[0]["lens"]
-        cases = [([dict(GREEN[0], app_id=OTHER_APP)], "verifying", "check_unreadable"),
-                 ([GREEN[0], dict(GREEN[0], app_id=OTHER_APP)], "verifying", "check_unreadable"),
-                 ([dict(GREEN[0], conclusion="failure"), GREEN[0]], "addressing", "check_failed"),
-                 ([GREEN[0], dict(GREEN[0], conclusion="failure")], "addressing", "check_failed"),
-                 ([GREEN[0], dict(GREEN[0], conclusion="neutral")], "verifying", "check_unreadable")]
-        for entries, state, reason in cases:
+        foreign = "%s:from_app:%d" % (lens, OTHER_APP)
+        cases = [([dict(GREEN[0], app_id=OTHER_APP)], "verifying", "check_unreadable", foreign),
+                 ([GREEN[0], dict(GREEN[0], app_id=OTHER_APP)], "verifying", "check_unreadable", foreign),
+                 ([dict(GREEN[0], app_id=OTHER_APP), dict(GREEN[1], conclusion="failure")], "verifying",
+                  "check_unreadable", foreign),
+                 ([dict(GREEN[0], conclusion="failure"), GREEN[0]], "addressing", "check_failed", lens),
+                 ([GREEN[0], dict(GREEN[0], conclusion="failure")], "addressing", "check_failed", lens),
+                 ([GREEN[0], dict(GREEN[0], conclusion="neutral")], "verifying", "check_unreadable", lens)]
+        for entries, state, reason, evidence in cases:
             d = go(facts(queue=True, reviews=APPROVED, checks=entries + GREEN[1:]), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
-                             (state, reason, [lens], "act", "dequeue"), entries)
+                             (state, reason, [evidence], "act", "dequeue"), entries)
         # The other side: one still running beside a pass is a wait, and a wait takes nothing out; nor do two passes.
         for entries in ([GREEN[0], dict(GREEN[0], conclusion="in_progress")], [GREEN[0], dict(GREEN[0])]):
             d = go(facts(queue=True, reviews=APPROVED, checks=entries + GREEN[1:]), REVIEWED)
@@ -1294,7 +1311,7 @@ class Staleness(unittest.TestCase):
         own = dict(GREEN[1], completed_at=at(20))
         self.assertEqual(derive.moved_at(facts(checks=self.SILENT + [own]), [], CONFIG, NOW), at(20))
         another_lens = next(c["app_id"] for c in GREEN if c["app_id"] != own["app_id"])
-        for app in (OTHER_APP, another_lens, None, str(own["app_id"])):
+        for app in (OTHER_APP, another_lens, None, str(own["app_id"]), float(own["app_id"])):
             impostor = dict(own, app_id=app)
             self.assertEqual(derive.moved_at(facts(checks=self.SILENT + [impostor]), [], CONFIG, NOW), at(5), app)
         missing = dict(own)

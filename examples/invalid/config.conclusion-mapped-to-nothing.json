@@ -6,14 +6,17 @@
     "deterministic": [
       {
         "lens": "verify",
+        "check": "verify",
         "app_id": 15368
       },
       {
         "lens": "secret-scan",
+        "check": "Secret scan (gitleaks)",
         "app_id": 15368
       },
       {
         "lens": "code-scanning",
+        "check": "CodeQL",
         "app_id": 57789
       }
     ],

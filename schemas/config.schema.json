@@ -35,7 +35,7 @@
       ],
       "properties": {
         "deterministic": {
-          "description": "Each deterministic Lens, by the name of the check GitHub reports, and the id of the one App whose check it is read from",
+          "description": "Each deterministic Lens: its name, the exact name of the check run GitHub reports for it, and the id of the one App whose check it is read from. tools/check_authority.py refuses a Lens or a check named twice",
           "type": "array",
           "minItems": 1,
           "items": {
@@ -43,10 +43,16 @@
             "additionalProperties": false,
             "required": [
               "lens",
+              "check",
               "app_id"
             ],
             "properties": {
               "lens": {
+                "type": "string",
+                "minLength": 1
+              },
+              "check": {
+                "description": "The check run's name exactly as GitHub reports it. The port gives every check run of this name, from any App, this Lens's name in the facts",
                 "type": "string",
                 "minLength": 1
               },

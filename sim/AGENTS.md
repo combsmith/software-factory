@@ -15,7 +15,7 @@ changed rule may need its invariant changed too. Time is the counter `minute`.
 | A rule no trial asks is grounded only once a trial for it is added to section 6 of the design | `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate` |
 | The fake answers in GitHub's own shapes, so that its answers can be compared with a fixture | waiting on `adapters/` |
 
-The world is one pull request, never paused, whose checks pass, fail, time out or give no verdict. On an odd seed it
+The world is one pull request, never paused, whose checks pass, fail, time out or give no verdict, and where another App can post a passing check under the name of a Lens that failed. On an odd seed it
 is the Maintainer's own, of class `maintainer`: GitHub refuses a review by its author, so the Maintainer acts with
 threads, a Hold and pushes. On an even seed it is an agent's, of class `agent`, and the Maintainer also reviews it:
 requests changes, comments or approves (`tests/test_simulator.py::test_the_seeds_serve_a_maintainers_and_an_agents_pull_request`).

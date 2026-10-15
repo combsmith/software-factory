@@ -11,6 +11,11 @@ MODEL_JUDGED = {"functional", "security", "architecture", "delivery", "reliabili
                 "requirements", "uncategorised"}
 
 
+def _folded(name: str) -> str:
+    """A name as a reader that ignores case and the space around it would read it."""
+    return name.strip().casefold()
+
+
 def run(authority: dict = None, config: dict = None, facts: dict = None) -> list:
     a = json.loads((ROOT / "config" / "authority.json").read_text()) if authority is None else authority
     c = json.loads((ROOT / "config" / "defaults.json").read_text()) if config is None else config
@@ -19,12 +24,23 @@ def run(authority: dict = None, config: dict = None, facts: dict = None) -> list
         problems.append("the author Role differs between the authority table and the configuration")
     if a["max_rounds"] != c["limits"]["max_rounds"]:
         problems.append("max_rounds differs between the authority table and the configuration")
-    # The Controller posts the status on the item as a check run. Under a required Lens's name it would speak for it.
+    # A Lens or its check named twice could pin two Apps, and which one reads the Lens would be unclear. Names are
+    # compared folded, as a reader of names may fold them.
     lenses = c["required_lenses"]
-    names = [lens["lens"] for lens in lenses["deterministic"]] + list(lenses["model"])
-    if c["status_on_item"] in names:
-        problems.append("the status on the item is named %s, a required Lens's name; give it a name no Lens has"
-                        % c["status_on_item"])
+    for key, what in (("lens", "Lens"), ("check", "check")):
+        seen = set()
+        for lens in lenses["deterministic"]:
+            name = _folded(lens[key])
+            if name in seen:
+                problems.append("the %s %r is named twice in required_lenses.deterministic; name each once"
+                                % (what, lens[key]))
+            seen.add(name)
+    # The Controller posts the status on the item as a check run. Under a required Lens's name, or the name of its
+    # check, it would speak for that Lens.
+    names = [lens[key] for lens in lenses["deterministic"] for key in ("lens", "check")] + list(lenses["model"])
+    if _folded(c["status_on_item"]) in {_folded(name) for name in names}:
+        problems.append("the status on the item is named %r, a required Lens's or its check's; give it a name no Lens "
+                        "or check has" % c["status_on_item"])
     cats = a["categories"]
     finding = json.loads((ROOT / "schemas" / "finding.schema.json").read_text())
     known = set(finding["properties"]["category"]["enum"])
