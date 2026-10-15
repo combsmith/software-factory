@@ -903,6 +903,51 @@ class MergesAndSettings(Asks):
                         "git push origin feature:feature", "gh repo clone o/r /tmp/x", "echo '<(not a substitution)'"):
             self.assertEqual(self.run_(command), "", command)
 
+    def test_deleting_a_remote_branch_of_origin_asks(self):
+        # It takes away refs/remotes/origin/*, the base a stop compares the branch with.
+        for command in ("git branch -r -d origin/main", "git branch -r -D origin/main", "git branch -rd origin/main",
+                        "git branch -dr origin/feature", "git branch -Dr origin/main", "git branch --remotes --delete origin/x",
+                        "git branch --rem --del origin/main", "git branch -d -r ORIGIN/main",
+                        "git -C . branch -r -d origin/main", "setsid git branch -r -D origin/main"):
+            self.asked(self.run_(command), "remote_ref", command)
+        for command in ("git branch -d feature", "git branch -D origin/main", "git branch -r", "git branch -rv",
+                        "git branch -r -d upstream/main", "git branch -r --list 'origin/*'", "git branch --delete x"):
+            self.assertEqual(self.run_(command), "", command)
+
+    def test_a_wrapper_that_runs_its_words_is_read_as_one(self):
+        for wrapper in ("setsid", "setsid --wait", "setsid -w", "setsid -f -c", "setsid --fork --ctty --wait", "doas",
+                        "nice -n 5", "ionice -c3", "chrt -r 1", "taskset 1", "numactl -N 0", "flock /tmp/lock",
+                        "gtimeout 5", "unbuffer", "chronic", "script -q /dev/null", "arch -arm64", "xcrun",
+                        "sandbox-exec -n no-network", "fakeroot", "unshare -r", "systemd-run --user"):
+            for command, code in (("%s git push origin HEAD:main", "merge"), ("%s gh pr merge --admin 5", "merge"),
+                                  ("%s git branch -r -d origin/main", "remote_ref")):
+                self.asked(self.run_(command % wrapper), code, command % wrapper)
+            self.assertEqual(self.run_("%s git push origin feature" % wrapper), "", wrapper)
+        self.assertTrue({"setsid", "nice", "timeout", "env", "sudo"} <= protected.WRAPPERS)    # data, not code
+
+    def test_git_given_a_helper_in_the_command_asks(self):
+        # A read-only git command runs the program it is given: a pager, an external diff, a monitor.
+        for command in ("git -c diff.external=./x.sh diff", "git -c core.pager='sh -c \"echo > lifecycle/a.json\"' log",
+                        "git -c core.PAGER=./p log", "git -c pager.log=./p log", "git -c core.fsmonitor=./m status",
+                        "git -c core.sshCommand='ssh -o ProxyCommand=x' fetch", "git -c diff.x.textconv=./t log -p",
+                        "git -c filter.x.smudge=./s status", "git -c include.path=/tmp/c log",
+                        "git -c merge.default=x -c merge.x.driver=./d log", "git -c core.attributesFile=/tmp/a log",
+                        "git -c core.hooksPath=/tmp/h status", "git --config-env=core.pager=P log",
+                        "git -c protocol.ext.allow=always ls-remote x", "git diff --ext-diff", "git log -p --ext-diff",
+                        "git show --ext-diff HEAD", "GIT_EXTERNAL_DIFF=./x git diff", "GIT_PAGER=./p git log",
+                        "env PAGER=./p git log", "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.pager GIT_CONFIG_VALUE_0=./p git log",
+                        "GIT_CONFIG_PARAMETERS=\"'core.pager'='./p'\" git log", "git grep -O./p x", "git grep -O x",
+                        "git grep --open-files-in-pager=./p x", "git fetch --upload-pack=./u .", "git ls-remote -u ./u .",
+                        "git ls-remote --upload-pack ./u .", "git push --receive-pack ./r . HEAD:feature",
+                        "git difftool -x ./d", "setsid --wait git -c core.pager=./p log", "nice git diff --ext-diff"):
+            self.asked(self.run_(command), "command_unreadable", command)
+        for command in ("git -c core.pager=cat log", "git -c core.pager='less -R' log", "git -c core.pager= log",
+                        "GIT_PAGER=cat git log", "PAGER= git log", "env GIT_PAGER=cat git log", "git --no-pager log",
+                        "git diff --no-ext-diff", "git -c color.ui=always log", "git log -- --ext-diff",
+                        "git -c core.editor=true status", "git -c diff.external=cat diff", "git grep -n x",
+                        "git ls-remote origin", "git fetch origin"):
+            self.assertEqual(self.run_(command), "", command)
+
     def test_a_write_to_a_ruleset_or_the_repos_settings_asks(self):
         mutation = "gh api graphql -f query='mutation { %s(input: {}) { clientMutationId } }'"
         for command in (
@@ -1040,6 +1085,20 @@ class RulesChanged(unittest.TestCase):
         git(where, "commit", "-q", "-m", "a rule")
         git(where, "tag", "origin/main")
         git(where, "branch", "origin/main")
+        self.assertIn("lifecycle/issue.json", self.told(where))
+
+    def test_a_replacement_ref_does_not_hide_a_changed_rule(self):
+        where = self.branch()
+        self.write(where, "lifecycle/issue.json")
+        git(where, "add", "-A")
+        git(where, "commit", "-q", "-m", "a rule")
+
+        def out(*args):
+            return subprocess.run(["git"] + list(args), cwd=where, env=environment(programs("git")), check=True,
+                                  capture_output=True, text=True).stdout.strip()
+        # The base replaced with a commit whose tree already holds the change: read through it, nothing differs.
+        git(where, "replace", "HEAD~1", out("commit-tree", "-m", "base", out("rev-parse", "HEAD^{tree}")))
+        self.assertEqual(out("diff", "--name-only", out("merge-base", "HEAD", rules_changed.BASE)), "")
         self.assertIn("lifecycle/issue.json", self.told(where))
 
     def test_a_name_with_a_newline_or_bytes_that_are_not_utf8_is_listed_escaped(self):

@@ -4,10 +4,10 @@ The hook that asks before an edit (protected.py) reads a command's words, and a 
 spelt so that it does not see the path it writes. This hook reads the state instead: what differs
 from the merge base of HEAD and refs/remotes/origin/main, named in full so that a tag or a branch
 called origin/main cannot stand in for it, in the branch's commits, the index and the working tree,
-and what git does not track yet. It refuses nothing. It shows the list, since these are the
-Factory's own rules and the Maintainer decides them, and says so when it cannot be made: whatever
-goes wrong, within its own deadline. A file name is shown escaped, never raw. A file git ignores is
-not listed. Run as `python3 -I` on this file; see after_edit.py.
+and what git does not track yet, with git's replacement refs disabled. It refuses nothing. It shows
+the list, since these are the Factory's own rules and the Maintainer decides them, and says so when
+it cannot be made: whatever goes wrong, within its own deadline. A file name is shown escaped, never
+raw. A file git ignores is not listed. Run as `python3 -I` on this file; see after_edit.py.
 """
 from __future__ import annotations
 
@@ -31,8 +31,9 @@ def _git(where: pathlib.Path, env: dict, args: list, until: float) -> str:
     exe = shutil.which("git", path=env.get("PATH", os.defpath))
     if exe is None:
         raise protected.Unreadable("git is not on PATH")
+    # Replacement refs are off: an object under refs/replace/ could make the base read as holding the branch's change.
     try:        # past the deadline, a timeout of zero or less ends the command at once
-        done = subprocess.run([exe] + args, cwd=str(where), env=env, capture_output=True,
+        done = subprocess.run([exe, "--no-replace-objects"] + args, cwd=str(where), env=env, capture_output=True,
                               timeout=until - time.monotonic())
     except (OSError, subprocess.TimeoutExpired):
         raise protected.Unreadable("git %s did not finish" % args[0])
