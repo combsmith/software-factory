@@ -440,8 +440,14 @@ class Authority(unittest.TestCase):
                       dict(lenses[1], lens="another", check=" %s " % lenses[0]["check"])):
             config["required_lenses"]["deterministic"] = lenses + [twice]
             self.assertTrue(caught(check_authority.run(self.table, config), "is named twice"), twice)
-        # The other side: each named once.
         config["required_lenses"]["deterministic"] = lenses
+        # So is a model Lens named twice, or one that shares a deterministic Lens's name.
+        model = config["required_lenses"]["model"]
+        for twice in (model + [model[0]], model + [" %s" % lenses[0]["lens"].upper()]):
+            config["required_lenses"]["model"] = twice
+            self.assertTrue(caught(check_authority.run(self.table, config), "is named twice"), twice)
+        # The other side: each named once.
+        config["required_lenses"]["model"] = model
         self.assertEqual(check_authority.run(self.table, config), [])
 
     def test_a_category_a_model_judges_needs_a_role_and_no_role_shadows_itself(self):

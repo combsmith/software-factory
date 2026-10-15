@@ -381,7 +381,7 @@ the `main` ruleset pins for `verify`; `code-scanning` is the check `CodeQL`, fro
 Security, 57789, as the check runs of a merged pull request's head showed on 2026-10-15. The
 schema refuses a Lens with no check or no App (`examples/invalid/config.a-required-lens-with-no-check.json`,
 `examples/invalid/config.a-required-lens-with-no-app.json`), and `tools/check_authority.py` a Lens
-or a check named twice. The port's contract: a check run whose name equals a Lens's `check` is
+or a check named twice, a model Lens among them. The port's contract: a check run whose name equals a Lens's `check` is
 given in the facts with that Lens's name as `lens` and its real `app.id` as `app_id`, whatever the
 App, and is never dropped or merged with another App's. Only a re-run of the same job in the same
 check suite replaces an earlier run: GitHub's `filter=latest` is per check suite, so two workflow

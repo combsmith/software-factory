@@ -24,21 +24,20 @@ def run(authority: dict = None, config: dict = None, facts: dict = None) -> list
         problems.append("the author Role differs between the authority table and the configuration")
     if a["max_rounds"] != c["limits"]["max_rounds"]:
         problems.append("max_rounds differs between the authority table and the configuration")
-    # A Lens or its check named twice could pin two Apps, and which one reads the Lens would be unclear. Names are
-    # compared folded, as a reader of names may fold them.
+    # A Lens or a check named twice, deterministic or model, could pin two Apps or be read as the other, and which one
+    # judges would be unclear. Names are compared folded, as a reader of names may fold them.
     lenses = c["required_lenses"]
-    for key, what in (("lens", "Lens"), ("check", "check")):
+    names = [lens["lens"] for lens in lenses["deterministic"]] + list(lenses["model"])
+    checks = [lens["check"] for lens in lenses["deterministic"]]
+    for what, listed in (("Lens", names), ("check", checks)):
         seen = set()
-        for lens in lenses["deterministic"]:
-            name = _folded(lens[key])
-            if name in seen:
-                problems.append("the %s %r is named twice in required_lenses.deterministic; name each once"
-                                % (what, lens[key]))
-            seen.add(name)
+        for name in listed:
+            if _folded(name) in seen:
+                problems.append("the %s %r is named twice in required_lenses; name each once" % (what, name))
+            seen.add(_folded(name))
     # The Controller posts the status on the item as a check run. Under a required Lens's name, or the name of its
     # check, it would speak for that Lens.
-    names = [lens[key] for lens in lenses["deterministic"] for key in ("lens", "check")] + list(lenses["model"])
-    if _folded(c["status_on_item"]) in {_folded(name) for name in names}:
+    if _folded(c["status_on_item"]) in {_folded(name) for name in names + checks}:
         problems.append("the status on the item is named %r, a required Lens's or its check's; give it a name no Lens "
                         "or check has" % c["status_on_item"])
     cats = a["categories"]
