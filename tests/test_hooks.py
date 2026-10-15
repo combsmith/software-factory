@@ -19,11 +19,7 @@ import tempfile
 import time
 import unittest
 
-from tools.hooks import after_edit, before_stop, identity, protected
-try:
-    from tools.hooks import rules_changed
-except ImportError:     # not written yet: the tests that need it fail, and the rest run
-    rules_changed = None
+from tools.hooks import after_edit, before_stop, identity, protected, rules_changed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOOKS = ROOT / "tools" / "hooks"
@@ -650,7 +646,9 @@ class MergesAndSettings(Asks):
                 "env GH_PAGER= gh pr merge --admin 5", "true && gh pr merge --admin 5",
                 "gh api -X POST repos/o/r/git/refs -f ref=refs/heads/x -f sha=y",
                 "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=y", "git push origin HEAD:main", "git push origin main",
-                "git push origin +x:refs/heads/main", "git push --mirror", "git push origin --delete main"):
+                "git push origin +x:refs/heads/main", "git push --mirror", "git push origin --delete main",
+                # A repository named in place overrides --repo, as git reads it: these push main.
+                "git push --repo=origin origin main", "git push --repo origin origin HEAD:main"):
             self.asked(self.run_(command), "merge", command)
         on_main = a_tree("main")        # with HEAD, a push goes to the branch it is on
         for command in ("git push -u origin HEAD", "git push origin @",

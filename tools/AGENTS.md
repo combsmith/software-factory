@@ -30,7 +30,7 @@ session hooks `.claude/settings.json` runs; `hooks/shell.py` reads a shell comma
 | A hook that guards an identity refuses what it cannot read: no git or gh, a command it cannot split, a directory it cannot tell | `tests/test_hooks.py::test_what_the_hook_cannot_read_is_refused` |
 | A hook that guards what is the Maintainer's asks about what it cannot read within its budget, and says no word of the command. `onFailure: block` needs v2.1.295 | `tests/test_hooks.py::test_the_brace_bomb_is_answered_ask_within_the_deadline` |
 | A protected path is protected in every working tree, however it is written: with `..`, through a link, in any case | `tests/test_hooks.py::test_a_path_written_another_way_still_asks` |
-| At each stop, every protected path or Kernel module the branch changes against origin's main, named in full, is listed; a write to a remote branch asks | `tests/test_hooks.py::test_an_edit_made_through_eval_is_listed`, `tests/test_hooks.py::test_a_write_to_the_base_the_stop_compares_with_asks` |
+| A stop lists every protected path or Kernel module changed against origin's main; a write to a remote branch asks | `tests/test_hooks.py::test_an_edit_made_through_eval_is_listed`, `tests/test_hooks.py::test_a_write_to_the_base_the_stop_compares_with_asks` |
 | Only a failing test kills a mutant; a run that hangs, crashes or cannot import is an `ERROR` | `tests/test_tools.py::test_only_a_failing_test_kills_a_mutant`, `tests/test_tools.py::test_a_run_that_hangs_is_ended_reported_and_fails_the_check` |
 | An entry in `mutants.py` names text that appears once in its file. Change that text, or write the same text on a second line, and the entry goes `STALE`; update it | `mutants.py` |
 
