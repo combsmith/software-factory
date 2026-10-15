@@ -811,13 +811,15 @@ class Trials(unittest.TestCase):
         name = "combsmith/" + check_trials.CANARY
         root = clone({"tools/fetch.py": "REPO = %r\n" % name, ".github/workflows/trial.yml": "repository: %s\n" % name,
                       "Makefile": "trial:\n\tgh api repos/%s\n" % name, "config/where.json": '{"repo": "%s"}' % name,
-                      "corpus/x.json": name, "docs/notes.md": name + "\n", "README.md": name + "\n",
-                      "trials/P-12.json": fixture(), ".claude/worktrees/other/tools/x.py": name})
+                      "docs/notes.md": name + "\n", "README.md": name + "\n", "trials/P-12.json": fixture(),
+                      "sim/deep/er/x.py": name, "corpus/x.json": name,
+                      ".claude/worktrees/other/.git": "gitdir: elsewhere\n", ".claude/worktrees/other/tools/x.py": name})
         problems = check_trials.run(root)
-        for where in ("tools/fetch.py", ".github/workflows/trial.yml", "Makefile", "config/where.json", "corpus/x.json"):
+        for where in ("tools/fetch.py", ".github/workflows/trial.yml", "Makefile", "config/where.json", "sim/deep/er/x.py"):
             self.assertTrue(caught(problems, where + ": names the canary repo"), where)
+        # Another working tree, and the corpus make_corpus.py writes, are not this repo's: tools/walk.py skips both.
         for where in ("docs/notes.md", "README.md", "trials/P-12.json", "examples/trial.json", "trial.schema.json", "worktrees",
-                      "config/apps.json", "schemas/apps.schema.json", "examples/invalid/apps."):
+                      "corpus", "config/apps.json", "schemas/apps.schema.json", "examples/invalid/apps."):
             self.assertFalse(caught(problems, where), where)
 
     def test_a_fixture_named_for_a_rule_must_exist_and_validate(self):

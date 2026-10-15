@@ -25,13 +25,11 @@ import pathlib
 import re
 import sys
 
+from tools import walk
 from tools.check_examples import _load
 from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-# Never read: git's own files, compiled Python, and other checkouts, which git ignores.
-SKIP = {".git", "__pycache__"}
-OTHER_CHECKOUTS = ((".claude", "worktrees"), (".worktrees",))
 # Named in data and in documents. Anything else that names it could read it.
 CANARY = "software-factory-" + "canary"
 FIXTURE = re.compile(r"^(P-[1-9][0-9]*)(\.[a-z0-9-]+)?\.json$")
@@ -187,7 +185,9 @@ def _fixtures(root: pathlib.Path, schema: dict, problems: list) -> dict:
 def _examples(root: pathlib.Path) -> list:
     """The examples of a fixture, counter-examples too, hold no credential either."""
     problems = []
-    for path in sorted((root / "examples").rglob("trial*.json")):
+    for path in walk.files(root, "examples"):
+        if not (path.name.startswith("trial") and path.suffix == ".json"):
+            continue
         rel = path.relative_to(root).as_posix()
         try:
             data = _load(path)
@@ -240,12 +240,10 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
 
 def _canary(root: pathlib.Path) -> list:
     """Each file but a document, a fixture, the fixture's schema or the Apps' installation data that names
-    the canary, and so could read it."""
+    the canary, and so could read it. `tools/walk.py` decides which files are this repo's."""
     found = []
-    for path in sorted(root.rglob("*")):
+    for path in walk.files(root):
         rel = path.relative_to(root)
-        if SKIP & set(rel.parts) or any(rel.parts[:len(o)] == o for o in OTHER_CHECKOUTS) or not path.is_file():
-            continue
         exempt = rel.parts[0] in ("docs", "trials") or path.suffix == ".md" or \
             rel.as_posix() in ("schemas/trial.schema.json", "config/apps.json", "schemas/apps.schema.json") or \
             (rel.parts[0] == "examples" and path.name.startswith(("trial", "apps.")))
