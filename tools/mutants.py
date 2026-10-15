@@ -41,6 +41,11 @@ MUTANTS = [
      "    if mergeable is not True:\n", "    if mergeable is None:\n"),
     ("a conflict is not sent back to the author", "kernel/derive.py",
      "    if mergeable is False:\n", "    if False:\n"),
+    ("the merge state is read before a merged, closed, held, draft or queued item", "kernel/derive.py",
+     '    if facts["state"] == "merged":\n',
+     '    if facts.get("mergeable") is not True and facts.get("mergeable") is not False:\n'
+     '        return {"state": None, "reason": "mergeable_unreadable", "evidence": []}\n'
+     '    if facts["state"] == "merged":\n'),
     ("two Runs on one item", "kernel/decide.py",
      "    if in_progress(mine):\n", "    if False:\n"),
     ("the approver may be the author", "kernel/decide.py",

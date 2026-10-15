@@ -44,7 +44,17 @@ class Readability(unittest.TestCase):
         for reviews in ([], approved):
             d = go(facts(mergeable=None, reviews=reviews), REVIEWED)
             self.assertEqual((d["outcome"], d["reason"], d["state"]), ("defer", "mergeable_unreadable", None))
-            self.assertEqual(go(facts(reviews=reviews), REVIEWED)["outcome"], "act")
+            d = go(facts(reviews=reviews), REVIEWED)
+            self.assertEqual((d["outcome"], d["action"]), ("act", "enqueue" if reviews else "issue_approval"))
+
+    def test_an_unknown_mergeable_is_read_after_what_needs_no_merge(self):  # I-13
+        # GitHub reports a null merge state on merged and closed pull requests; read first, they would defer for ever.
+        cases = [({"state": "merged"}, "merged", "merged"), ({"state": "closed"}, "closed", "closed"),
+                 ({"labels": ["factory:hold"]}, "held", "human_hold"), ({"is_draft": True}, "draft", "draft"),
+                 ({"queue": True}, "queued", "in_merge_queue")]
+        for over, state, reason in cases:
+            d = go(facts(mergeable=None, **over), REVIEWED)
+            self.assertEqual((d["state"], d["reason"]), (state, reason), over)
 
     def test_an_unknown_mergeable_admits_nothing(self):  # I-13
         d = go(facts(mergeable=None))
