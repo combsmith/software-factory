@@ -890,6 +890,25 @@ class Queue(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "human_hold", "hold"))
         self.assertNotIn("action", d)
 
+    def test_an_approver_who_is_the_author_or_last_pusher_takes_it_out_of_the_queue(self):  # I-26, L-18
+        # GitHub does not count that approval, so the item may not merge on it: the Hold the facts establish on the
+        # converged path takes a queued item out too.
+        for who in ("author", "last_pusher"):
+            d = go(facts(queue=True, reviews=APPROVED, **{who: "donpetry-bot"}), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action"), d["attention"]),
+                             ("held", "approver_is_author_or_last_pusher", "act", "dequeue", "needs_you"), who)
+            # Under a Pause the dequeue defers, for the Maintainer to see.
+            d = go(facts(queue=True, reviews=APPROVED, **{who: "donpetry-bot"}), REVIEWED, ctx=context(paused=True))
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("held", "paused", "defer", "needs_you"), who)
+            # The other side: not queued, it is held, as it always was.
+            d = go(facts(reviews=APPROVED, **{who: "donpetry-bot"}), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "approver_is_author_or_last_pusher", "hold"))
+        # An item with a gate open goes back to its author first, queued or not, as on the converged path.
+        for queue, outcome in ((True, "act"), (False, "admit")):
+            d = go(facts(queue=queue, reviews=APPROVED, threads=[thread()], author="donpetry-bot"), REVIEWED)
+            self.assertEqual((d["reason"], d["outcome"]), ("gate_open" if queue else "findings_open", outcome), queue)
+
     def test_every_hold_takes_a_queued_pull_request_out(self):  # FR-23
         # A Hold the facts establish stops every Effect as a person's does: an outside item whose admission was taken
         # away, a diff too large or read short, an empty one.

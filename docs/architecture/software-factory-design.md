@@ -910,7 +910,8 @@ the item out with the act `dequeue`, and the Decision carries that reading's Sta
 own. An approval that no longer stands for its content gives `approval_lost` (FR-31, I-9). An open
 gate gives `gate_open`: a thread or a request for changes from a person with write access, made
 before the item entered the queue or after, or a required Lens's Finding. Every Hold takes it out
-with its own reason: `human_hold`, `outside_not_admitted`, `too_large` or `empty_diff`. A Hold stops
+with its own reason: `human_hold`, `outside_not_admitted`, `too_large`, `empty_diff`, or
+`approver_is_author_or_last_pusher`, since GitHub does not count that approval (I-26). A Hold stops
 every Effect, and a merge is the last, so the dequeue is the one change the Factory makes to a held
 item (FR-23, I-21). So does a required check that now fails or gives no verdict, reason `check_failed` or
 `check_unreadable` (I-9, I-27), a conflict, and a draft. So does a read that fails:

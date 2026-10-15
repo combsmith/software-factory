@@ -348,6 +348,10 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
             return {"state": t.ADJUDICATING, "reason": "proposals_await_owner", "evidence": for_owner}
         return {"state": t.ADDRESSING, "reason": "awaiting_human", "evidence": sorted(turns)}
 
+    # GitHub does not count an approval by the author or the last pusher, so nothing may merge on one (I-26). It is
+    # a Hold the facts establish, read here so that a queued item leaves the queue on it too.
+    if config["approver"] in (facts["author"], facts["last_pusher"]):
+        return {"state": t.HELD, "reason": "approver_is_author_or_last_pusher", "evidence": []}
     approval = standing_approval(facts, config)
     if approval is not None:
         return {"state": t.CONVERGED, "reason": "approved", "evidence": [approval["commit"]]}

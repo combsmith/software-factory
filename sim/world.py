@@ -60,6 +60,7 @@ class World:
         self.queue = False
         self.last_push = self.last_writer = self.now()
         self.acts = 0              # acts that landed since a person with write access acted
+        self.last_act = None       # the action of the last act that landed: an act that stops work is never refused
         self.stale = None          # an older snapshot, served when facts go stale
         self.read = None           # the facts the last whole, current pass read, as `unstamped` gives them
         self.prev_state = None
@@ -222,6 +223,7 @@ class World:
             # GitHub: an_app_leaves_the_queue
             self.queue = False
             self.acts += 1
+            self.last_act = "dequeue"
             self.note("apply: dequeued (%s)" % d["reason"])
             return
         # Only that person's approval, or a writer's dismissal, ends it: never new content or an App (L-17).
@@ -232,6 +234,7 @@ class World:
             # GitHub: an_app_enters_the_queue
             self.queue = True
             self.acts += 1
+            self.last_act = "enqueue"
             self.note("apply: enqueued")
 
     def approve(self):
@@ -254,6 +257,7 @@ class World:
                              "commit": "c%d" % self.content, "content_id": self.cid(), "submitted_at": self.now(),
                              "dismissed_by": None, "dismissed_from": None})
         self.acts += 1
+        self.last_act = "issue_approval"
         self.note("run %s: approved %s" % (run["run"], self.cid()))
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
@@ -471,7 +475,11 @@ class World:
         spent = [r for r in since if r not in landed]
         self.check(len(spent) <= CONFIG["limits"]["max_runs_per_item"] + 1, "run ceiling per item")
         # I-8: every automated action is inside a Run, bounded above, or is an act, bounded here.
-        self.check(self.acts <= CONFIG["limits"]["max_acts_per_item"], "I-8 acts since a writer exceed the ceiling")
+        # Only a dequeue, an act that stops work, takes the count past the ceiling, and by one: once it is there, an
+        # enqueue is refused, so nothing can enter the queue to be taken out again.
+        ceiling = CONFIG["limits"]["max_acts_per_item"]
+        self.check(self.acts <= ceiling or (self.acts == ceiling + 1 and self.last_act == "dequeue"),
+                   "I-8 acts since a writer exceed the ceiling")
         unlanded = [r for r in spent if r["intent"] == t.ISSUE_APPROVAL]
         self.check(len([r for r in unlanded if r["outcome"] == "item"]) <= CONFIG["limits"]["max_attempts"],
                    "I-8 an approval that does not land is issued again")

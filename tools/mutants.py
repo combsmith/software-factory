@@ -257,22 +257,22 @@ MUTANTS = [
      '    if reason == "check_unreadable":\n', "    if False:\n"),
     ("two Runs on one item", "kernel/decide.py",
      "    if in_progress(mine):\n", "    if False:\n"),
-    ("the approver may be the author", "kernel/decide.py",
+    ("the approver may be the author", "kernel/derive.py",
      'if config["approver"] in (facts["author"], facts["last_pusher"]):', "if False:"),
     ("a pause admits a Run", "kernel/decide.py",
      "    pause = _pause(context)\n    if pause:\n", "    pause = _pause(context)\n    if False:\n"),
     ("a pause lets an approval or a merge through", "kernel/decide.py",
      "        pause = _pause(context)\n        if pause:\n", "        pause = _pause(context)\n        if False:\n"),
     ("a pause hides the approver Hold", "kernel/decide.py",
-     '        if config["approver"] in (facts["author"], facts["last_pusher"]):\n'
-     '            return _decision(facts, t.HELD, "approver_is_author_or_last_pusher", [], t.HOLD)\n'
-     "        # The Hold the facts establish first, then the Pause; neither approves.\n"
-     "        pause = _pause(context)\n        if pause:\n"
-     "            return _decision(facts, state, pause, evidence, t.DEFER)\n",
-     "        pause = _pause(context)\n        if pause:\n"
-     "            return _decision(facts, state, pause, evidence, t.DEFER)\n"
-     '        if config["approver"] in (facts["author"], facts["last_pusher"]):\n'
-     '            return _decision(facts, t.HELD, "approver_is_author_or_last_pusher", [], t.HOLD)\n'),
+     "    if state == t.HELD:\n        return _decision(facts, state, reason, evidence, t.HOLD)\n",
+     '    if state == t.HELD and reason == "approver_is_author_or_last_pusher" and _pause(context):\n'
+     "        return _decision(facts, state, _pause(context), evidence, t.DEFER)\n"
+     "    if state == t.HELD:\n        return _decision(facts, state, reason, evidence, t.HOLD)\n"),
+    ("the approver is read before the gates", "kernel/derive.py",
+     "    # Every gate before the approval: a standing approval never passes over a person's objection.\n",
+     '    if config["approver"] in (facts["author"], facts["last_pusher"]):\n'
+     '        return {"state": t.HELD, "reason": "approver_is_author_or_last_pusher", "evidence": []}\n'
+     "    # Every gate before the approval: a standing approval never passes over a person's objection.\n"),
     ("an unreadable pause is read as no pause", "kernel/decide.py",
      'if context.get("paused") is False:', 'if not context.get("paused"):'),
     ("attempts are unlimited", "kernel/decide.py",
