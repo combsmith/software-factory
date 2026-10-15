@@ -20,8 +20,8 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 
 ### L-02 The runaway could reset the cap that stopped it
 **Failure.** The review cap fired once. Its documented way back in was to mention the reviewer, which the loop itself did.
-**Rule.** An allowance is renewed by a person with write access, and the Factory makes no transition out of a Hold.
-**Check.** `tests/test_decide.py::test_a_writers_action_grants_a_fresh_allowance`, `tests/test_tools.py::test_a_hold_the_factory_could_end_is_caught`
+**Rule.** An allowance is renewed by a person with write access, and the Factory makes no transition out of a Hold: a Hold an App took off still binds.
+**Check.** `tests/test_decide.py::test_a_writers_action_grants_a_fresh_allowance`, `tests/test_tools.py::test_a_hold_the_factory_could_end_is_caught`, `tests/test_decide.py::test_a_hold_that_anyone_but_a_person_removed_still_binds`
 
 ### L-03 The caps counted failures, and counted them per worker
 **Failure.** The attempt limit counted only failed runs, and the cap on review cycles re-armed itself. Fixes that succeeded took one pull request to 378 commits in four days, for a diff of 18 files.
@@ -99,8 +99,8 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 
 ### L-17 The agent resolved the threads that were holding it
 **Failure.** Four of the Maintainer's review threads were resolved by the account the author agent ran as, and the pull request merged itself.
-**Rule.** No Role decides a Finding about its own work. A person's thread is closed by that person.
-**Check.** `tools/check_authority.py`, `tests/test_decide.py::test_an_answered_human_thread_waits_for_that_person`
+**Rule.** No Role decides a Finding about its own work. A person's thread is closed by that person: resolved by anyone else, it stays open. A Lens's thread is closed only by that Lens or a person with write access. What a person placed, only a person ends.
+**Check.** `tools/check_authority.py`, `tests/test_decide.py::test_an_answered_human_thread_waits_for_that_person`, `tests/test_decide.py::test_a_persons_thread_resolved_by_anyone_but_that_person_stays_open`, `tests/test_decide.py::test_a_lens_thread_resolved_by_anyone_but_that_lens_or_a_writer_stays_open`, `tests/test_decide.py::test_only_a_person_ends_a_request_for_changes`
 
 ### L-18 The approver was the author, or the last to push
 **Failure.** GitHub does not count an approval from either. With two code owners, one the author and the other the last pusher, nobody could approve, and only an administrator's bypass merged anything.

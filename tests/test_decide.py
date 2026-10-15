@@ -8,7 +8,8 @@ import unittest
 
 from kernel import derive
 from kernel.decide import decide
-from tests.support import CONFIG, GREEN, LENS_OF, NOW, OTHER_APP, ROOT, config, context, facts, review, run, thread
+from tests.support import (CONFIG, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, ROOT, config, context, facts, labelled,
+                           review, run, thread, unlabelled)
 from tools.jsonschema_lite import validate
 
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
@@ -19,14 +20,19 @@ APPROVED = [review()]
 LIMITS = CONFIG["limits"]
 # An agent's pull request, which the Maintainer reviews as they would a colleague's (UJ-4).
 AGENT = {"class": "agent", "author": "combsmith-sf-dev-lead[bot]", "last_pusher": "combsmith-sf-dev-lead[bot]"}
-MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 COLLEAGUE = {"kind": "human", "name": "a-colleague", "can_write": True}
 STRANGER = {"kind": "human", "name": "stranger", "can_write": False}
 # The reviewer's App: GitHub cannot grant it less than pull_requests: write, so it can dismiss a review.
 REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
 ADVISORY = {"kind": "lens", "name": "coderabbit", "can_write": False}
-# The author's App, whose push dismisses a stale approval. The facts have no kind for an App that is not a Lens yet.
-AUTHOR_APP = {"kind": "lens", "name": "dev-lead", "can_write": True}
+# The author's App, whose push dismisses a stale approval: the bot that opens an agent's pull request.
+AUTHOR_APP = {"kind": "app", "name": "combsmith-sf-dev-lead[bot]", "can_write": True}
+# The machine user, which only approves: the approver the configuration names.
+MACHINE = {"kind": "machine_user", "name": CONFIG["approver"], "can_write": True}
+# Everyone who is not a person: an App, a Lens's App, a third-party reviewer, the machine user and a stranger.
+NOT_PEOPLE = (AUTHOR_APP, REVIEWER_APP, ADVISORY, MACHINE, STRANGER)
+# Kinds the Kernel cannot read: missing, null, a word GitHub uses for an account type, or one in another case.
+NO_KIND = ("missing", None, "bot", "Bot", "User", "HUMAN", "", 1)
 # The author's Run after the Maintainer asked for changes at minute 15.
 ANSWERED = REVIEWED + [run(role="dev-lead", intent="fix-findings", at="2026-10-11T12:20:00Z", name="r2")]
 # Every list the facts are read from, each with its flag in `complete`.
@@ -144,7 +150,7 @@ class Readability(unittest.TestCase):
     def test_an_unknown_mergeable_is_read_after_what_needs_no_merge(self):  # I-13
         # GitHub reports a null merge state on merged and closed pull requests; read first, they would defer for ever.
         cases = [({"state": "merged"}, "merged", "merged"), ({"state": "closed"}, "closed", "closed"),
-                 ({"labels": ["factory:hold"]}, "held", "human_hold"), ({"is_draft": True}, "draft", "draft")]
+                 ({"label_events": [labelled("factory:hold")]}, "held", "human_hold"), ({"is_draft": True}, "draft", "draft")]
         for over, state, reason in cases:
             d = go(facts(mergeable=None, **over), REVIEWED)
             self.assertEqual((d["state"], d["reason"]), (state, reason), over)
@@ -171,7 +177,7 @@ class Derived(unittest.TestCase):
         f, runs = facts(threads=[thread()]), REVIEWED + [run(role="dev-lead", intent="fix-findings", name="r2")]
         before = json.dumps([f, runs], sort_keys=True)
         first = go(f, runs)
-        go(facts(labels=["factory:hold"]))
+        go(facts(label_events=[labelled("factory:hold")]))
         self.assertEqual(go(f, runs), first)
         self.assertEqual(json.dumps([f, runs], sort_keys=True), before)
 
@@ -182,11 +188,11 @@ class Derived(unittest.TestCase):
 
 class HumanControl(unittest.TestCase):
     def test_hold_label_binds(self):  # I-6
-        d = go(facts(labels=["factory:hold"]))
+        d = go(facts(label_events=[labelled("factory:hold")]))
         self.assertEqual((d["outcome"], d["reason"], d["attention"]), ("hold", "human_hold", "needs_you"))
 
     def test_hands_off_is_left_alone(self):
-        d = go(facts(labels=["factory:hands-off"]))
+        d = go(facts(label_events=[labelled("factory:hands-off")]))
         self.assertEqual((d["outcome"], d["reason"], d["attention"]), ("hold", "hands_off", "none"))
 
     def test_human_pause_admits_nothing(self):  # I-7
@@ -341,23 +347,21 @@ class HumanControl(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"]), ("addressing", "human_finding"))
 
     def test_neither_the_machine_user_nor_an_author_bot_ends_a_request(self):  # L-17, I-28
-        # Whatever kind the facts give them, the approver and the bot that opened an agent's or a dependency
-        # update's pull request are not people: their dismissal or approval ends no request.
+        # The approver and the bot that opened an agent's or a dependency update's pull request are not people. Read
+        # as the kinds they are, their dismissal ends no request. Read as a person, the facts say what the configuration
+        # or the class denies: the review cannot be read, and the item is the Maintainer's to see.
         asked = review(state="changes_requested", **MAINTAINER)
-        machine = dict(MAINTAINER, name="donpetry-bot")
-        bot = dict(MAINTAINER, name="combsmith-sf-dev-lead[bot]")
-        for cls, who in (("agent", machine), ("agent", bot), ("dependency", bot), ("maintainer", machine)):
+        for cls, who in (("agent", MACHINE), ("agent", AUTHOR_APP), ("dependency", AUTHOR_APP), ("maintainer", MACHINE)):
             f = dict(AGENT, **{"class": cls})
             d = go(facts(**f, reviews=[dismissed(asked, who)]), ANSWERED)
             self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "awaiting_human", ["don-petry"]),
                              (cls, who))
-            # Nor does their approval end a request made under their own name, standing or dismissed.
-            own = review(state="changes_requested", **who, at=at(12))
-            approval = review(**who, at=at(14))
-            for later in (approval, dismissed(approval, AUTHOR_APP, "approved")):
-                d = go(facts(**f, reviews=[own, later]), ANSWERED)
-                self.assertEqual((d["state"], d["reason"], d["evidence"]),
-                                 ("addressing", "awaiting_human", [who["name"]]), (cls, who, later["state"]))
+            posing = dict(who, kind="human")
+            for reviews in ([dismissed(asked, posing)], [asked, review(**posing, at=at(14))],
+                            [review(state="changes_requested", **posing, at=at(12)), review(**posing, at=at(14))]):
+                d = go(facts(**f, reviews=reviews), ANSWERED)
+                self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                                 (None, "review_unreadable", "defer", "needs_you"), (cls, who))
         # The other side: on a maintainer's pull request its author is a person, and their dismissal ends it.
         f = dict(AGENT, **{"class": "maintainer"}, author="a-colleague")
         d = go(facts(**f, reviews=[dismissed(asked, COLLEAGUE)]), ANSWERED)
@@ -407,7 +411,7 @@ class HumanControl(unittest.TestCase):
         # not: whether it stays in the queue turns on its reviews.
         rv = dict(review(state="changes_requested", **MAINTAINER), by=None)
         cases = [({"state": "merged"}, "merged"), ({"state": "closed"}, "closed"), ({"targets_protected": False},
-                 "base_not_protected"), ({"is_draft": True}, "draft"), ({"labels": ["factory:hold"]}, "human_hold"),
+                 "base_not_protected"), ({"is_draft": True}, "draft"), ({"label_events": [labelled("factory:hold")]}, "human_hold"),
                  ({"diff": {"files": 0, "lines": 0, "truncated": False}}, "empty_diff")]
         for over, reason in cases:
             d = go(facts(**dict(AGENT, **over), reviews=[rv]), REVIEWED)
@@ -462,16 +466,279 @@ class HumanControl(unittest.TestCase):
         self.assertEqual(go(facts(**AGENT, reviews=[dismissed(asked, AUTHOR_APP)]), REVIEWED)["reason"], "human_finding")
 
 
+def without(actor: dict, kind) -> dict:
+    """`actor` with a kind the Kernel cannot read: `kind`, or none at all if it is "missing"."""
+    if kind == "missing":
+        return {k: v for k, v in actor.items() if k != "kind"}
+    return dict(actor, kind=kind)
+
+
+class OnlyAPersonEnds(unittest.TestCase):
+    """What a person placed, only a person ends. A person is an actor of kind `human` with write access; nobody else is.
+
+    The port tells a person, an App, a Lens's App and the machine user apart from GitHub's account type and the
+    configuration, never from a name's spelling (I-28, L-57).
+    """
+
+    def test_an_actor_whose_kind_cannot_be_read_defers(self):  # I-13, I-28
+        # Whoever reviewed, dismissed, opened or resolved a thread, or added or removed a label: a kind the Kernel does
+        # not know could be a person's, so nothing is decided on it. The item is the Maintainer's to see, and a queued
+        # one leaves the queue.
+        asked = review(state="changes_requested", **MAINTAINER)
+        person = thread(kind="human", name="don-petry", severity=None)
+        for kind in NO_KIND:
+            posing = without(MAINTAINER, kind)
+            cases = [({"reviews": [dict(asked, by=posing)]}, "review_unreadable", []),
+                     ({"reviews": [dismissed(asked, posing)]}, "review_unreadable", []),
+                     ({"threads": [dict(person, opened_by=posing)]}, "thread_unreadable", ["T1"]),
+                     ({"threads": [dict(person, resolved=True, resolved_by=posing)]}, "thread_unreadable", ["T1"]),
+                     ({"label_events": [labelled("factory:hold", posing)]}, "label_unreadable", []),
+                     ({"label_events": [labelled("factory:hold"), unlabelled("factory:hold", posing)]},
+                      "label_unreadable", [])]
+            for over, reason, evidence in cases:
+                for runs in ((), REVIEWED):
+                    d = go(facts(**dict(AGENT, **over)), runs)
+                    self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                     (None, reason, evidence, "defer", "needs_you"), (kind, over))
+                    self.assertNotIn("admit", d)
+                    self.assertNotIn("action", d)
+                d = go(facts(**dict(AGENT, queue=True, **dict({"reviews": APPROVED}, **over))), ANSWERED)
+                self.assertEqual((d["reason"], d["outcome"], d.get("action")), (reason, "act", "dequeue"), (kind, over))
+        # The other side: read whole, the same actors are read.
+        self.assertEqual(go(facts(**AGENT, reviews=[asked]), ANSWERED)["reason"], "awaiting_human")
+        self.assertEqual(go(facts(**AGENT, threads=[person]), ANSWERED)["reason"], "awaiting_human")
+        self.assertEqual(go(facts(**AGENT, label_events=[labelled("factory:hold")]), ANSWERED)["reason"], "human_hold")
+
+    def test_the_approver_or_an_author_bot_read_as_another_kind_cannot_be_read(self):  # I-13, I-28
+        # The machine user is the approver the configuration names, and nobody else; an agent's or a dependency update's
+        # pull request was opened by an App. Facts that say otherwise contradict the configuration or the class.
+        for cls, who, kinds in (("maintainer", MACHINE, ("human", "lens", "app")),
+                                ("agent", AUTHOR_APP, ("human", "lens", "machine_user")),
+                                ("dependency", AUTHOR_APP, ("human", "lens", "machine_user")),
+                                ("maintainer", dict(MAINTAINER, kind="machine_user"), ("machine_user",))):
+            f = dict(AGENT, **{"class": cls})
+            for kind in kinds:
+                posing = dict(who, kind=kind)
+                cases = [({"reviews": [review(state="commented", **posing)]}, "review_unreadable"),
+                         ({"threads": [thread(kind="human", name="don-petry", severity=None, resolved=True,
+                                              resolved_by=posing)]}, "thread_unreadable"),
+                         ({"label_events": [labelled("factory:admit", posing)]}, "label_unreadable")]
+                for over, reason in cases:
+                    d = go(facts(**dict(f, **over)), REVIEWED)
+                    self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                                     (None, reason, "defer", "needs_you"), (cls, posing, reason))
+        # The other side: each read as the kind it is, nothing defers.
+        for cls, who in (("maintainer", MACHINE), ("agent", AUTHOR_APP), ("dependency", AUTHOR_APP),
+                         ("maintainer", MAINTAINER), ("maintainer", AUTHOR_APP)):
+            for over in ({"reviews": [review(state="commented", **who)]},
+                         {"label_events": [labelled("factory:admit", who)]}):
+                d = go(facts(**dict(AGENT, **{"class": cls}, **over)), REVIEWED)
+                self.assertEqual((d["state"], d["action"]), ("converged", "issue_approval"), (cls, who, over))
+
+    def test_a_hold_that_anyone_but_a_person_removed_still_binds(self):  # I-6, I-21, L-02
+        # A Hold is a stop, so anyone may place one, and an App's binds as a person's does. Only a person ends it.
+        for placed_by in (MAINTAINER, AUTHOR_APP):
+            for who in NOT_PEOPLE:
+                events = [labelled("factory:hold", placed_by), unlabelled("factory:hold", who)]
+                d = go(facts(label_events=events), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                 ("held", "human_hold", ["factory:hold"], "hold", "needs_you"), (placed_by, who))
+                d = go(facts(queue=True, reviews=APPROVED, label_events=events), REVIEWED)
+                self.assertEqual((d["reason"], d["outcome"], d.get("action")), ("human_hold", "act", "dequeue"), who)
+            # The other side: a person with write access removes it, the Maintainer or another writer, and work resumes.
+            for who in (MAINTAINER, COLLEAGUE):
+                d = go(facts(label_events=[labelled("factory:hold", placed_by), unlabelled("factory:hold", who)]),
+                       REVIEWED)
+                self.assertEqual((d["state"], d["action"]), ("converged", "issue_approval"), (placed_by, who))
+        # A Hold an App removed binds until a person ends it: placed again and removed by a person, it is gone.
+        events = [labelled("factory:hold"), unlabelled("factory:hold", AUTHOR_APP), labelled("factory:hold", at=at(3)),
+                  unlabelled("factory:hold", at=at(4))]
+        self.assertEqual(go(facts(label_events=events), REVIEWED)["action"], "issue_approval")
+
+    def test_hands_off_binds_only_when_a_person_placed_it(self):
+        hands_off = "factory:hands-off"
+        for who in (MAINTAINER, COLLEAGUE):
+            for queue in (False, True):
+                d = go(facts(queue=queue, reviews=APPROVED, label_events=[labelled(hands_off, who)]), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                 ("held", "hands_off", [hands_off], "hold", "none"), (who, queue))
+                self.assertNotIn("action", d)
+        # Placed by anyone else it is read as a Hold: it stops, it is the Maintainer's to see, and it takes a queued
+        # item out. An App adding hands-off can no longer freeze an item in the merge queue.
+        for who in NOT_PEOPLE:
+            d = go(facts(label_events=[labelled(hands_off, who)]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                             ("held", "human_hold", [hands_off], "hold", "needs_you"), who)
+            d = go(facts(queue=True, reviews=APPROVED, label_events=[labelled(hands_off, who)]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
+                             ("held", "human_hold", "act", "dequeue"), who)
+            # A person's hands-off that anyone else removed still binds, as it was placed.
+            d = go(facts(queue=True, reviews=APPROVED, label_events=[labelled(hands_off), unlabelled(hands_off, who)]),
+                   REVIEWED)
+            self.assertEqual((d["reason"], d["outcome"]), ("hands_off", "hold"), who)
+            self.assertNotIn("action", d)
+            # An App's that anyone else removed still binds as a Hold.
+            d = go(facts(label_events=[labelled(hands_off, AUTHOR_APP), unlabelled(hands_off, who)]), REVIEWED)
+            self.assertEqual((d["reason"], d["outcome"]), ("human_hold", "hold"), who)
+        # Who placed it last is who placed it: a person's, removed, then added again by an App, is a Hold.
+        events = [labelled(hands_off), unlabelled(hands_off), labelled(hands_off, AUTHOR_APP, at=at(3))]
+        self.assertEqual(go(facts(label_events=events), REVIEWED)["reason"], "human_hold")
+        # The other side: a person removes it, whoever placed it, and the item is served.
+        for placed_by in (MAINTAINER, AUTHOR_APP):
+            d = go(facts(label_events=[labelled(hands_off, placed_by), unlabelled(hands_off, COLLEAGUE)]), REVIEWED)
+            self.assertEqual((d["state"], d["action"]), ("converged", "issue_approval"), placed_by)
+
+    def test_admit_admits_only_when_a_person_placed_it(self):  # I-25, I-36
+        outside = {"class": "outside", "author": "stranger", "last_pusher": "stranger"}
+        admit = "factory:admit"
+        for who in NOT_PEOPLE:
+            d = go(facts(**outside, label_events=[labelled(admit, who)]))
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "outside_not_admitted", "hold"), who)
+            d = go(facts(**outside, queue=True, reviews=APPROVED, label_events=[labelled(admit, who)]), REVIEWED)
+            self.assertEqual((d["reason"], d["outcome"], d.get("action")), ("outside_not_admitted", "act", "dequeue"))
+            # A person's admission that anyone else removed stands, as it was placed.
+            d = go(facts(**outside, label_events=[labelled(admit), unlabelled(admit, who)]))
+            self.assertEqual(d["admit"]["intent"], "review-change", who)
+        # Who placed it last is who placed it: a person's, removed, then added again by an App, admits nothing.
+        events = [labelled(admit), unlabelled(admit), labelled(admit, AUTHOR_APP, at=at(3))]
+        self.assertEqual(go(facts(**outside, label_events=events))["reason"], "outside_not_admitted")
+        # The other side: placed by a person with write access after the latest push, it admits; removed by a person,
+        # it no longer does.
+        for who in (MAINTAINER, COLLEAGUE):
+            self.assertEqual(go(facts(**outside, label_events=[labelled(admit, who)]))["admit"]["intent"],
+                             "review-change", who)
+            d = go(facts(**outside, label_events=[labelled(admit), unlabelled(admit, who)]))
+            self.assertEqual(d["reason"], "outside_not_admitted", who)
+
+    def test_label_events_are_read_in_the_order_they_happened(self):
+        # The timeline gives each event its time, and they are read by it, however they are listed.
+        added, removed = labelled("factory:hold", at=at(3)), unlabelled("factory:hold", at=at(4))
+        for events in ([added, removed], [removed, added]):
+            self.assertEqual(go(facts(label_events=events), REVIEWED)["action"], "issue_approval")
+        added, removed = labelled("factory:hold", at=at(4)), unlabelled("factory:hold", at=at(3))
+        for events in ([added, removed], [removed, added]):
+            self.assertEqual(go(facts(label_events=events), REVIEWED)["reason"], "human_hold")
+
+    def test_a_label_event_that_cannot_be_read_defers(self):  # I-13
+        # Who added or removed a control label, what was done and when decide whether it binds. A fact read from outside
+        # is never given a default.
+        broken = []
+        for label in ("factory:hold", "factory:hands-off", "factory:admit"):
+            for ev in (labelled(label), unlabelled(label)):
+                broken += [dict(ev, by=None), dict(ev, by="don-petry"), dict(ev, by=dict(MAINTAINER, can_write=None)),
+                           dict(ev, by=dict(MAINTAINER, can_write="true")), dict(ev, by=dict(MAINTAINER, name="")),
+                           dict(ev, at=None), dict(ev, at="2026-10-11 12:01:00Z"), dict(ev, at="2026-02-30T12:01:00Z"),
+                           dict(ev, action=None), dict(ev, action="added"), dict(ev, action="LABELED")]
+                for field in ("by", "at", "action"):
+                    broken.append({k: v for k, v in ev.items() if k != field})
+        broken += [dict(labelled("factory:hold"), label=None), {"action": "labeled", "by": dict(MAINTAINER), "at": at(1)},
+                   "factory:hold"]
+        outside = {"class": "outside", "author": "stranger", "last_pusher": "stranger"}
+        for ev in broken:
+            for over in ({}, outside):
+                for runs in ((), REVIEWED):
+                    d = go(facts(**over, label_events=[labelled("factory:admit"), ev]), runs)
+                    self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                                     (None, "label_unreadable", "defer", "needs_you"), ev)
+                    self.assertNotIn("admit", d)
+            # It is read before a Hold, and before hands-off: on a queued item it is a stop.
+            for placed in ("factory:hold", "factory:hands-off"):
+                d = go(facts(queue=True, reviews=APPROVED, label_events=[labelled(placed), ev]), REVIEWED)
+                self.assertEqual((d["reason"], d["outcome"], d.get("action")), ("label_unreadable", "act", "dequeue"), ev)
+            # It is read after what needs no label.
+            for over, reason in (({"state": "merged"}, "merged"), ({"is_draft": True}, "draft"),
+                                 ({"targets_protected": False}, "base_not_protected")):
+                self.assertEqual(go(facts(**over, label_events=[ev]), REVIEWED)["reason"], reason, (over, ev))
+        # The other side: an event of a label the Factory does not read is not read, whoever made it.
+        other = {"label": "bug", "action": "labeled", "by": dict(MAINTAINER, kind="bot"), "at": "yesterday"}
+        self.assertEqual(go(facts(label_events=[other]), REVIEWED)["action"], "issue_approval")
+
+    def test_a_persons_thread_resolved_by_anyone_but_that_person_stays_open(self):  # L-17
+        for who in NOT_PEOPLE + (COLLEAGUE,):
+            th = thread(kind="human", name="don-petry", severity=None, resolved=True, resolved_by=who)
+            d = go(facts(threads=[th]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "human_finding", ["T1"]), who)
+            d = go(facts(threads=[th]), ANSWERED)
+            self.assertEqual((d["reason"], d["outcome"], d["attention"]), ("awaiting_human", "nothing", "needs_you"), who)
+            d = go(facts(queue=True, reviews=APPROVED, threads=[th]), REVIEWED)
+            self.assertEqual((d["reason"], d["evidence"], d.get("action")), ("gate_open", ["T1"], "dequeue"), who)
+        # The other side: resolved by that person, it is closed.
+        th = thread(kind="human", name="don-petry", severity=None, resolved=True)
+        self.assertEqual(go(facts(threads=[th]), REVIEWED)["action"], "issue_approval")
+        self.assertEqual(go(facts(queue=True, reviews=APPROVED, threads=[th]), REVIEWED)["reason"], "in_merge_queue")
+
+    def test_a_lens_thread_resolved_by_anyone_but_that_lens_or_a_writer_stays_open(self):  # L-17
+        # The author agent resolving the threads that hold it among them: no Role decides a Finding about its own work.
+        another_lens = dict(REVIEWER_APP, name="security-review")
+        for who in (AUTHOR_APP, ADVISORY, another_lens, MACHINE, STRANGER):
+            for category in ("functional", "security"):
+                th = thread(category=category, resolved=True, resolved_by=who)
+                d = go(facts(threads=[th]), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "findings_open", ["T1"]), who)
+                d = go(facts(queue=True, reviews=APPROVED, threads=[th]), REVIEWED)
+                self.assertEqual((d["reason"], d.get("action")), ("gate_open", "dequeue"), who)
+            # Still open, it is read: a category or severity it cannot be read is unreadable.
+            th = thread(severity=None, category=None, resolved=True, resolved_by=who)
+            self.assertEqual(go(facts(threads=[th]), REVIEWED)["reason"], "thread_unreadable", who)
+        # The other side: that Lens's own App, or a person with write access, closes it.
+        for who in (REVIEWER_APP, MAINTAINER, COLLEAGUE):
+            for th in (thread(resolved=True, resolved_by=who), thread(severity=None, category=None, resolved=True,
+                                                                       resolved_by=who)):
+                self.assertEqual(go(facts(threads=[th]), REVIEWED)["action"], "issue_approval", who)
+
+    def test_a_thread_whose_resolution_cannot_be_read_defers(self):  # I-13
+        # A thread says whether it is resolved, exactly, and a resolved one says who resolved it: without them, a
+        # person's thread could be read as closed. One that is not resolved names nobody.
+        person = thread(kind="human", name="don-petry", severity=None)
+        broken = [dict(person, resolved=True, resolved_by=None), dict(person, resolved=True, resolved_by="don-petry"),
+                  dict(person, resolved=False, resolved_by=dict(MAINTAINER)), dict(person, resolved="true"),
+                  dict(person, resolved=None), {k: v for k, v in person.items() if k != "resolved"},
+                  dict(thread(kind="human", name="don-petry", severity=None, resolved=True), resolved_by=None)]
+        for th in broken:
+            for queue in (False, True):
+                d = go(facts(queue=queue, reviews=APPROVED, threads=[th]), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["attention"]),
+                                 (None, "thread_unreadable", ["T1"], "needs_you"), th)
+                self.assertEqual((d["outcome"], d.get("action")), ("act", "dequeue") if queue else ("defer", None), th)
+        # The other side: open and naming nobody, or resolved and naming who, it is read.
+        self.assertEqual(go(facts(threads=[person]), REVIEWED)["reason"], "human_finding")
+        resolved = thread(kind="human", name="don-petry", severity=None, resolved=True)
+        self.assertEqual(go(facts(threads=[resolved]), REVIEWED)["action"], "issue_approval")
+
+    def test_only_the_approvers_approval_stands(self):  # I-9, decision 0005
+        # A person's approval answers that person's request, and approves no content: the approver's alone stands.
+        for who in (MAINTAINER, COLLEAGUE, REVIEWER_APP, AUTHOR_APP, ADVISORY):
+            d = go(facts(reviews=[review(**who)]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"), who)
+            d = go(facts(queue=True, reviews=[review(**who)]), REVIEWED)
+            self.assertEqual((d["reason"], d.get("action")), ("approval_lost", "dequeue"), who)
+        # The other side: the machine user's approval of this content stands.
+        self.assertEqual(go(facts(reviews=[review(**MACHINE)]), REVIEWED)["action"], "enqueue")
+
+    def test_only_a_person_ends_a_request_for_changes(self):  # L-17
+        asked = review(state="changes_requested", **MAINTAINER)
+        for who in NOT_PEOPLE:
+            d = go(facts(**AGENT, reviews=[dismissed(asked, who)]), ANSWERED)
+            self.assertEqual((d["reason"], d["evidence"]), ("awaiting_human", ["don-petry"]), who)
+            # Nor does an approval by anyone but that person.
+            d = go(facts(**AGENT, reviews=[asked, review(**who, at=at(30))]), ANSWERED)
+            self.assertEqual((d["reason"], d["evidence"]), ("awaiting_human", ["don-petry"]), who)
+        # The other side: a person with write access dismisses it.
+        for who in (MAINTAINER, COLLEAGUE):
+            d = go(facts(**AGENT, reviews=[dismissed(asked, who)]), ANSWERED)
+            self.assertEqual(d["action"], "issue_approval", who)
+
+
 class Classes(unittest.TestCase):
     def test_outside_item_gets_no_run_until_admitted(self):  # I-25
         d = go(facts(**{"class": "outside"}))
         self.assertEqual((d["outcome"], d["reason"]), ("hold", "outside_not_admitted"))
 
     def test_admission_lapses_on_the_next_push(self):  # I-36
-        f = facts(**{"class": "outside"}, labels=["factory:admit"],
-                  admitted_at="2026-10-11T11:00:00Z", last_push_at="2026-10-11T12:00:00Z")
+        f = facts(**{"class": "outside"}, label_events=[labelled("factory:admit", at="2026-10-11T11:00:00Z")],
+                  last_push_at="2026-10-11T12:00:00Z")
         self.assertEqual(go(f)["reason"], "outside_not_admitted")
-        f["admitted_at"] = "2026-10-11T12:30:00Z"
+        f["label_events"] = [labelled("factory:admit", at="2026-10-11T12:30:00Z")]
         self.assertEqual(go(f)["outcome"], "admit")
 
     def test_stacked_pull_request_is_not_served(self):
@@ -486,7 +753,7 @@ class Classes(unittest.TestCase):
         self.assertEqual(d["admit"], {"role": "pr-review", "intent": "review-change", "content_id": "sha256:aaaa"})
 
     def test_every_other_class_needs_a_model_review(self):
-        admitted = {"labels": ["factory:admit"], "admitted_at": "2026-10-11T12:30:00Z"}
+        admitted = {"label_events": [labelled("factory:admit", at="2026-10-11T12:30:00Z")]}
         for cls, over in (("agent", {}), ("maintainer", {}), ("outside", admitted)):
             d = go(facts(**dict(DEPENDENCY, **{"class": cls}, **over)))
             self.assertEqual((d["reason"], d["admit"]["intent"]), ("awaiting_review", "review-change"), cls)
@@ -539,7 +806,7 @@ class Classes(unittest.TestCase):
 
     def test_a_dependency_update_skips_the_model_review_and_nothing_else(self):
         approved = [review()]
-        cases = [({"labels": ["factory:hold"]}, None, ("held", "human_hold", "hold")),
+        cases = [({"label_events": [labelled("factory:hold")]}, None, ("held", "human_hold", "hold")),
                  ({"mergeable": None}, None, (None, "mergeable_unreadable", "defer")),
                  ({"mergeable": False}, None, ("addressing", "conflict", "admit")),
                  ({}, context(paused=True), ("converged", "paused", "defer")),
@@ -800,7 +1067,7 @@ class Convergence(unittest.TestCase):
                 self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
                                  (None, "thread_unreadable", ["T1"], "defer", "needs_you"), (bad, reviews))
             # It is read after what needs no thread, a Hold among them, and before a model review is admitted.
-            self.assertEqual(go(facts(labels=["factory:hold"], threads=[th]))["reason"], "human_hold", bad)
+            self.assertEqual(go(facts(label_events=[labelled("factory:hold")], threads=[th]))["reason"], "human_hold", bad)
             self.assertEqual(go(facts(threads=[th]))["reason"], "thread_unreadable", bad)
             # A model Lens's thread is read whatever the class, as it gates whatever the class.
             self.assertEqual(go(facts(**DEPENDENCY, threads=[th]))["reason"], "thread_unreadable", bad)
@@ -1050,23 +1317,23 @@ class Queue(unittest.TestCase):
     def test_a_hold_takes_a_queued_pull_request_out(self):  # FR-23, I-21
         # Taking it out of the queue is the one change the Factory makes to a held item: a merge is the last Effect.
         for reviews in (APPROVED, []):
-            d = go(facts(queue=True, labels=["factory:hold"], reviews=reviews), REVIEWED)
+            d = go(facts(queue=True, label_events=[labelled("factory:hold")], reviews=reviews), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"], d["attention"]),
                              ("held", "human_hold", "act", "dequeue", "needs_you"), reviews)
         # Hands-off means the Factory never acts: the item stays where the Maintainer left it, whatever else holds.
         incomplete = facts()["complete"]
         incomplete["threads"] = False
-        for over in ({}, {"labels": ["factory:hold"]}, {"is_draft": True}, {"reviews": []}, {"complete": incomplete},
+        for over in ({}, {"label_events": [labelled("factory:hold")]}, {"is_draft": True}, {"reviews": []}, {"complete": incomplete},
                      {"checks": with_check(0, "failure")}):
             f = facts(queue=True, **dict({"reviews": APPROVED}, **over))
-            f["labels"] = f["labels"] + ["factory:hands-off"]
+            f["label_events"] = f["label_events"] + [labelled("factory:hands-off")]
             d = go(f, REVIEWED)
             self.assertNotEqual(d["outcome"], "act", over)
             self.assertNotIn("action", d)
-        d = go(facts(queue=True, labels=["factory:hands-off"], reviews=[]), REVIEWED)
+        d = go(facts(queue=True, label_events=[labelled("factory:hands-off")], reviews=[]), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "hands_off", "hold"))
         # A held item that is not queued is only held.
-        d = go(facts(labels=["factory:hold"], reviews=APPROVED), REVIEWED)
+        d = go(facts(label_events=[labelled("factory:hold")], reviews=APPROVED), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "human_hold", "hold"))
         self.assertNotIn("action", d)
 
@@ -1094,7 +1361,7 @@ class Queue(unittest.TestCase):
         # away, a diff too large or read short, an empty one.
         outside = {"class": "outside", "author": "stranger", "last_pusher": "stranger"}
         holds = [(outside, "outside_not_admitted"),
-                 (dict(outside, labels=["factory:admit"], admitted_at=at(5), last_push_at=at(10)), "outside_not_admitted"),
+                 (dict(outside, label_events=[labelled("factory:admit", at=at(5))], last_push_at=at(10)), "outside_not_admitted"),
                  ({"diff": {"files": 2, "lines": 40, "truncated": True}}, "too_large"),
                  ({"diff": {"files": 2, "lines": LIMITS["max_diff_lines"] + 1, "truncated": False}}, "too_large"),
                  ({"diff": {"files": 0, "lines": 0, "truncated": False}}, "empty_diff")]
@@ -1106,7 +1373,7 @@ class Queue(unittest.TestCase):
             d = go(facts(reviews=APPROVED, **over), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", reason, "hold"), over)
         # An outside item admitted after its author's latest push stays in the queue.
-        d = go(facts(queue=True, reviews=APPROVED, **dict(outside, labels=["factory:admit"], admitted_at=at(5)),
+        d = go(facts(queue=True, reviews=APPROVED, **dict(outside, label_events=[labelled("factory:admit", at=at(5))]),
                      last_push_at=at(1)), REVIEWED)
         self.assertEqual((d["reason"], d["outcome"]), ("in_merge_queue", "nothing"))
 
@@ -1212,7 +1479,7 @@ class Queue(unittest.TestCase):
         # A dequeue defers like every other act. Only the Maintainer can stop the merge now, so each one needs them.
         incomplete = facts()["complete"]
         incomplete["reviews"] = False
-        stops = [({"labels": ["factory:hold"], "reviews": APPROVED}, "held"),
+        stops = [({"label_events": [labelled("factory:hold")], "reviews": APPROVED}, "held"),
                  ({"reviews": []}, "converged"),
                  ({"reviews": APPROVED, "threads": [thread(kind="human", name="don-petry", severity=None)]}, "addressing"),
                  ({"reviews": APPROVED, "checks": with_check(0, "failure")}, "addressing"),
@@ -1230,7 +1497,7 @@ class Queue(unittest.TestCase):
 
     def test_a_dequeue_is_never_refused_at_the_act_ceiling(self):  # I-8
         # An act that stops work is counted and never refused, so neither the count nor its reading stops it.
-        stops = [({"labels": ["factory:hold"], "reviews": APPROVED}, "human_hold"), ({"reviews": []}, "approval_lost"),
+        stops = [({"label_events": [labelled("factory:hold")], "reviews": APPROVED}, "human_hold"), ({"reviews": []}, "approval_lost"),
                  ({"reviews": APPROVED, "threads": [thread()]}, "gate_open")]
         for over, reason in stops:
             for acts in (LIMITS["max_acts_per_item"], LIMITS["max_acts_per_item"] + 1, None, -1):
@@ -1243,7 +1510,7 @@ class Queue(unittest.TestCase):
     def test_a_run_in_progress_does_not_keep_a_pull_request_in_the_queue(self):  # I-2
         # A dequeue is the Controller's act, not a Run, and it stops work: one writer per item does not delay it.
         busy = REVIEWED + [run(role="dev-lead", intent="fix-findings", status="in_progress", at=at(20), name="r2")]
-        for over, reason in (({"labels": ["factory:hold"], "reviews": APPROVED}, "human_hold"),
+        for over, reason in (({"label_events": [labelled("factory:hold")], "reviews": APPROVED}, "human_hold"),
                              ({"reviews": []}, "approval_lost")):
             d = go(facts(queue=True, **over), busy)
             self.assertEqual((d["reason"], d["outcome"], d.get("action")), (reason, "act", "dequeue"), reason)
@@ -1302,7 +1569,8 @@ class Staleness(unittest.TestCase):
                  "a required check that reports": {"checks": self.SILENT[:1] + [dict(GREEN[1], completed_at=at(20))]
                                                    + GREEN[2:]},
                  "a writer's review": {"reviews": [review(state="commented", kind="human", name="a-colleague", at=at(20))]},
-                 "a Lens's review": {"reviews": [review(state="commented", at=at(20))]},
+                 "a Lens's review": {"reviews": [review(state="commented", **REVIEWER_APP, at=at(20))]},
+                 "the machine user's review": {"reviews": [review(state="commented", at=at(20))]},
                  "a Lens's thread": {"threads": [dict(thread(severity=None, at=at(20)), opened_by=lens)]},
                  "a writer's thread, resolved": {"threads": [thread(kind="human", name="don-petry", resolved=True,
                                                                     severity=None, at=at(20))]},
@@ -1313,11 +1581,14 @@ class Staleness(unittest.TestCase):
         d = go(f, [run(at=at(20))], ctx=self.PASSING, now=past)
         self.assertEqual((d["state"], d["attention"]), ("verifying", "review"), "a Run")
         # The other side: anyone can comment, so a stranger's review or thread moves nothing, and nor does a check
-        # that is not required, or a Run on another item. Otherwise a comment every half hour would hide a stall.
+        # that is not required, or a Run on another item. Otherwise a comment every half hour would hide a stall. Nor
+        # does an App that is no Lens's: no configuration names it, and any App installed on the repo could comment.
         stranger = {"a stranger's review": {"reviews": [review(state="commented", kind="human", name="stranger",
                                                                can_write=False, at=at(20))]},
                     "a stranger's thread": {"threads": [thread(kind="human", name="stranger", can_write=False,
                                                                severity=None, at=at(20))]},
+                    "an App's review": {"reviews": [review(state="commented", **AUTHOR_APP, at=at(20))]},
+                    "an App's thread": {"threads": [dict(thread(severity=None, at=at(20)), opened_by=AUTHOR_APP)]},
                     "a check that is not required": {"checks": self.SILENT + [
                         {"name": "template-drift", "app_id": OTHER_APP, "conclusion": "success",
                          "completed_at": at(20)}]}}
@@ -1443,13 +1714,13 @@ class Staleness(unittest.TestCase):
         incomplete = facts()["complete"]
         incomplete["checks"] = False
         busy = [run(role="dev-lead", intent="fix-findings", status="in_progress", at=at(20), name="r2")]
-        cases = [(facts(labels=["factory:hold"]), (), "needs_you"),
+        cases = [(facts(label_events=[labelled("factory:hold")]), (), "needs_you"),
                  (facts(checks=with_check(0, "neutral")), (), "needs_you"),
                  (facts(threads=[thread(kind="human", name="don-petry", severity=None)]), REVIEWED, "needs_you"),
                  (facts(threads=[thread()]), REVIEWED + busy, "working"),
                  (facts(checks=with_check(0, "failure")), (), "failed"),
                  (facts(is_draft=True), (), "none"),
-                 (facts(labels=["factory:hands-off"]), (), "none"),
+                 (facts(label_events=[labelled("factory:hands-off")]), (), "none"),
                  (facts(complete=incomplete), (), "none")]
         for f, runs, attention in cases:
             self.assertEqual(go(f, runs, self.PASSING, now="2026-10-12T13:00:00Z")["attention"], attention, attention)

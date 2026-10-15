@@ -15,8 +15,7 @@
     "mergeable",
     "content_id",
     "diff",
-    "labels",
-    "admitted_at",
+    "label_events",
     "last_push_at",
     "last_writer_action_at",
     "reviews",
@@ -94,18 +93,37 @@
         }
       }
     },
-    "labels": {
+    "label_events": {
+      "description": "Every labeled and unlabeled event on the pull request's timeline, with who added or removed the label and when. Read in the order they happened. A control label binds from when anyone adds it until a person removes it; hands-off and an admission bind as a person's only when a person placed them",
       "type": "array",
       "items": {
-        "type": "string"
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "action",
+          "by",
+          "at"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "enum": [
+              "labeled",
+              "unlabeled"
+            ]
+          },
+          "by": {
+            "$ref": "#/$defs/actor"
+          },
+          "at": {
+            "$ref": "#/$defs/time"
+          }
+        }
       }
-    },
-    "admitted_at": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
     },
     "last_push_at": {
       "$ref": "#/$defs/time"
@@ -212,27 +230,7 @@
             "type": "boolean"
           },
           "opened_by": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "kind",
-              "name",
-              "can_write"
-            ],
-            "properties": {
-              "kind": {
-                "enum": [
-                  "human",
-                  "lens"
-                ]
-              },
-              "name": {
-                "type": "string"
-              },
-              "can_write": {
-                "type": "boolean"
-              }
-            }
+            "$ref": "#/$defs/actor"
           },
           "category": {
             "description": "The Finding's category, as the authority table names it: a person's thread is human. A required Lens's, and its severity, come from its own Finding record joined by surface.key, never the comment text; null there is unreadable. Null for a Lens that writes it only as prose. A security Finding gates at any severity",
@@ -259,10 +257,29 @@
             ]
           },
           "resolved_by": {
+            "description": "Who resolved the thread, of what kind and with what access; null unless it is resolved. A person's thread resolved by anyone but that person stays open, and a Lens's resolved by anyone but that Lens's App or a person",
             "type": [
-              "string",
+              "object",
               "null"
-            ]
+            ],
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "name",
+              "can_write"
+            ],
+            "properties": {
+              "kind": {
+                "$ref": "#/$defs/actor_kind"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "can_write": {
+                "type": "boolean"
+              }
+            }
           },
           "opened_at": {
             "$ref": "#/$defs/time"
@@ -377,7 +394,7 @@
       }
     },
     "actor": {
-      "description": "Who submitted a review, and whether they have write access, as a thread's opened_by says",
+      "description": "Who acted, of what kind, and whether they have write access: who submitted a review, opened a thread, or added or removed a label",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -399,9 +416,12 @@
       }
     },
     "actor_kind": {
+      "description": "The port's contract: it tells the kind from GitHub's own account type and the configuration, never from a name's spelling (I-28, L-57). human: a User account. machine_user: the User the configuration names as the approver, and no other. lens: the Bot account of an App that reports as a Lens, a Role's or a third-party reviewer's. app: the Bot account of any other App. A person is human with write access, read with one named credential; nobody else is",
       "enum": [
         "human",
-        "lens"
+        "lens",
+        "app",
+        "machine_user"
       ]
     },
     "time": {

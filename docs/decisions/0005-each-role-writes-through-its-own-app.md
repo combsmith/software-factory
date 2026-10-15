@@ -24,6 +24,10 @@ GitHub does not count an approval from an author or a last pusher, so the approv
 | Boundary | Check |
 |---|---|
 | No approval is attempted where the approver is the author or the last pusher | `tests/test_decide.py::test_approver_is_never_the_author_or_last_pusher` |
+| Every actor in the facts has a kind: a person (`human`), a Lens's App (`lens`), any other App (`app`), or the machine user (`machine_user`). One whose kind cannot be read defers for the Maintainer, and takes a queued item out | `tests/test_decide.py::test_an_actor_whose_kind_cannot_be_read_defers`, `examples/invalid/facts.an-actor-without-its-kind.json`, `examples/invalid/facts.an-actor-of-a-kind-the-kernel-does-not-know.json` |
+| The machine user is the approver the configuration names, and nobody else is; an agent's or a dependency update's author is an App. Facts that say otherwise cannot be read | `tests/test_decide.py::test_the_approver_or_an_author_bot_read_as_another_kind_cannot_be_read` |
+| The port tells a person, a Lens's App, any other App and the machine user apart from GitHub's account type and the configuration, never from a name's spelling | waiting on `adapters/` |
+| Only the machine user's approval stands | `tests/test_decide.py::test_only_the_approvers_approval_stands` |
 | No Role owns or shadows a category of Finding about its own work | `tools/check_authority.py` |
 | No workflow names the owner account's token | `tools/check_workflows.py` |
 | No commit in this repo is authored or pushed by the machine user | waiting on `controller/` |

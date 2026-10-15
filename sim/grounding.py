@@ -45,6 +45,15 @@ RULES = (
      "timeline, with its actor, so the acts since a person with write access acted can be counted", ("P-8",), None),
     ("a_lens_review_opens_a_thread", "A Lens's review can open a review thread on the pull request", (), None),
     ("an_app_resolves_a_lens_thread", "The reviewer's App can resolve a thread a Lens opened", ("P-5",), None),
+    ("an_app_resolves_any_thread", "An App with pull_requests: write can resolve any review thread, a person's too, "
+     "and the thread says who resolved it", ("P-5",), None),
+    ("an_app_can_label", "An App can add or remove a control label on a pull request, a Hold or hands-off among them",
+     ("P-32",), None),
+    ("a_label_event_names_its_actor", "The timeline's labeled and unlabeled events say who added or removed each "
+     "label, and when", ("P-32",), None),
+    ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an account "
+     "type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any other App "
+     "and the machine user apart, never from a name's spelling", (), None),
     ("a_run_waits_its_turn", "One Run on an item is in progress, and any number wait queued behind it", (), None),
     ("a_queued_run_is_listed", "A Run is in the list of run records from when it is queued, before its job starts",
      ("P-17",), None),

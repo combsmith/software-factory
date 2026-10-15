@@ -6,13 +6,14 @@ An org standard is cited from combsmith/.github at commit 9e2daad, by file and h
 ## A decision is a pure function
 
 ```python
-def admitted(facts: dict) -> bool:
-    """An outside item is admitted only after its author's latest push."""
+def admitted(facts: dict, labels: dict) -> bool:
+    """An outside item is admitted only by a person with write access, after its author's latest push."""
     if facts["class"] != "outside":
         return True
-    if t.LABEL_ADMIT not in facts["labels"] or facts["admitted_at"] is None:
+    placed = labels.get(t.LABEL_ADMIT)
+    if placed is None or not is_person(placed["by"]):
         return False
-    return facts["admitted_at"] > facts["last_push_at"]
+    return placed["at"] > facts["last_push_at"]
 ```
 
 Facts in, answer out. No file, socket, process, environment variable or clock: the time is the

@@ -320,9 +320,9 @@ for contract tests, so one schema has three uses.
 | `head`, `base`, `merge_base` | Commit hashes |
 | `content_id` | Hash of the pull request's own diff against its merge base, computed by the port |
 | `changed_paths` | Paths in that diff |
-| `labels` | Names |
+| `label_events` | Every `labeled` and `unlabeled` event on the timeline: the label, who added or removed it (kind, name and write access), and when |
 | `reviews` | Who submitted it (`by`: kind, name and whether that actor has write access, as a thread's opening actor), state (`approved`, `changes_requested`, `commented` or `dismissed`, as GitHub holds it now), commit, `content_id`, `submitted_at`; and, from the timeline, `dismissed_by`: who dismissed it, of what kind and with what access, and `dismissed_from`: what it was before (`approved`, `changes_requested` or `commented`). Both are null unless it was dismissed |
-| `threads` | Thread id, path, line, when it was opened, resolved, outdated, opening actor and whether that actor has write access, resolving actor; and the Finding's `category` and `severity`. For a required Lens's thread both come from that Lens's own Finding record, in its Run's `result.json` (§3.10), joined by `surface.key`, never from the comment text, which anyone with write access can edit. A person's thread is `human`, with no severity; an Advisory reviewer's, which no Finding record names, has neither |
+| `threads` | Thread id, path, line, when it was opened, resolved, outdated, opening actor and resolving actor, each with its kind and whether it has write access (the resolving actor null unless resolved); and the Finding's `category` and `severity`. For a required Lens's thread both come from that Lens's own Finding record, in its Run's `result.json` (§3.10), joined by `surface.key`, never from the comment text, which anyone with write access can edit. A person's thread is `human`, with no severity; an Advisory reviewer's, which no Finding record names, has neither |
 | `checks` | Name exactly as GitHub gives it, the id of the App that reported it (`app_id`, the check run's `app.id`), conclusion as GitHub gives it (or the check's status while it has not concluded), completion time, annotation count |
 | `alerts` | Tool, rule, alert number, state, severity, path |
 | `queue` | Merge-queue membership |
@@ -417,7 +417,8 @@ person's stale approval, nothing revives, and the item waits only for the approv
 dismissed from a comment changes nothing. One dismissed from a request for changes stands, unless
 a person with write access dismissed it. Neither the machine user nor the bot that opened an agent's
 or a dependency update's pull request is a person, whatever kind the facts give them: their
-dismissal or approval ends no request. A request and an approval by one person in the same second
+dismissal or approval ends no request: read as the kinds they are, neither is a person, and read as
+a person, either is unreadable (below). A request and an approval by one person in the same second
 leave the request standing. A
 request from a stranger or a Lens gates nothing (§4.6). It is read after the checks and before the
 approval, so a standing approval never passes over it. A review whose author, write access, state,
@@ -438,6 +439,35 @@ schema does not name is unreadable in the same way. Whether it gates is read fro
 `thread_unreadable`, with the thread's id as evidence, and the item is the Maintainer's to see. It
 is read just after the reviews, and on a queued item it is a stop. A thread from a Lens that is not
 required gates nothing, and may carry neither.
+
+Every actor in the facts has a `kind`: `human`, a User account; `machine_user`, the User the
+configuration names as `approver`, and no other; `lens`, the Bot account of an App that reports as
+a Lens, a Role's or a third-party reviewer's; and `app`, the Bot account of any other App. The
+port's contract: it tells the kinds apart from GitHub's own account type and the configuration,
+never from a name's spelling, and reads write access with one named credential (I-28, L-57); it
+waits on `adapters/`. A person is `human` with write access, and nobody else is. What a person
+placed, only a person ends:
+
+- A person's thread resolved by anyone but that person stays open (L-17). A Lens's thread resolved
+  by anyone but that Lens's own App or a person also stays open, so the author agent resolving the
+  threads that hold it closes none. A thread that gates nothing is closed by whoever resolves it.
+- Only the approver's approval stands, and only a person ends a request for changes.
+- `label_events` carry who added and who removed each label, from the timeline, read in the order
+  they happened. A control label binds from when anyone adds it until a person removes it: removed
+  by anyone else, it binds as it was placed. A Hold an App took off still binds. `factory:hands-off`
+  binds only when a person placed it; placed by anyone else it is read as `factory:hold`, reason
+  `human_hold`, so it stops and takes a queued item out, and an App can no longer freeze an item in
+  the merge queue. `factory:admit` admits only when a person placed it, after the author's latest
+  push; placed by anyone else, the item is `outside_not_admitted`.
+
+An actor whose kind cannot be read, or whose kind contradicts the configuration or the class (the
+approver read as anything but `machine_user`, any other name read as it, or the author of an agent's
+or a dependency update's pull request read as anything but `app`), is unreadable, as are a thread
+that says it is resolved and not by whom, or names a resolver while open, and a control label's
+event whose action, actor or time cannot be read. The Kernel defers for the Maintainer, reason
+`review_unreadable`, `thread_unreadable` or `label_unreadable`, and a queued item leaves the queue
+(I-13). An unreadable label event is read just after a draft, before hands-off and the Hold. Reading
+who added each label costs one timeline call per item, which trial P-8 measures.
 
 An issue has facts of its own (§4.1, the issue Lifecycle):
 
@@ -1403,14 +1433,14 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 | I-18 | A Run that ends with no Result counts as an attempt unless its fault is classed as capacity or environment, and its item is re-evaluated | ADR-0013, decision 4 |
 | I-19 | No decision reads the control room: the same facts and run records give the same Decision whatever the view holds | §3.9 |
 | I-20 | Incomplete facts never converge and never admit | §3.3 |
-| I-21 | No Effect is applied to an item that is held, paused, closed or changed at the moment of applying, except to take a held item out of the merge queue | §3.6, §4.1 |
+| I-21 | No Effect is applied to an item that is held, paused, closed or changed at the moment of applying, except to take a held item out of the merge queue. An item is held by a Hold until a person removes it, whoever took the label off since, and by hands-off whoever placed it | §3.6, §4.1 |
 | I-22 | A Run does only what a recorded Decision admitted | §3.5 |
 | I-23 | A capacity or environment fault is never counted as an attempt, and one cause raises one alert | §3.10 |
 | I-24 | An empty diff never converges | FR-4 |
 | I-25 | An `outside` item gets no Run until the Maintainer has admitted it | FR-63 |
 | I-26 | No approval is attempted where the approver is the author or the last pusher; the item is held instead | C-6 |
 | I-27 | No model Lens runs on content that has not passed the deterministic required Lenses | §4.2 |
-| I-28 | Attempts are reset only by an action on the item from a person with write access. A stranger's comment, an App's and the machine user's do not count | FR-17 |
+| I-28 | Attempts are reset only by an action on the item from a person with write access. A stranger's comment, an App's and the machine user's do not count. A person is an actor of kind `human` with write access, told from GitHub's account type and the configuration, never a name's spelling; what a person placed, only a person ends | FR-17 |
 | I-29 | Once acceptance contracts are in force, no implementing Run is admitted for an item without an approved one | FR-59 |
 | I-30 | No change by an implementing Role touches an acceptance contract or a test it names | FR-59 |
 | I-31 | An item with an acceptance contract never converges with a criterion lacking passing evidence on that content | §4.2 |
@@ -1512,10 +1542,10 @@ Every human control is one ordinary GitHub action, the same for every Role and e
 | Control | What the Maintainer does | Effect |
 |---|---|---|
 | Start work on an issue | Add the label `factory:ready` to an accepted issue | The issue is `ready` whatever investigation has said, and the next pass may admit its opening Run. Removing it overrules Readiness for that content |
-| Hold | Add the label `factory:hold` | No Run is admitted on the item; an in-flight Run writes nothing. A queued pull request is taken out of the merge queue, the one change the Factory makes to a held item (I-6, I-21) |
-| Release | Remove the label | The next pass resumes, with a fresh allowance of attempts (I-28) |
-| Hands-off | Add the label `factory:hands-off` | The Factory watches the item and never acts on it |
-| Admit an outside item | Add the label `factory:admit` | The item is served like any other, until its author pushes again or, for an issue, edits it (I-25, I-36). For an issue, admission is acceptance for investigation. An admitted pull request that closes an issue is linked to it |
+| Hold | Add the label `factory:hold` | No Run is admitted on the item; an in-flight Run writes nothing. A queued pull request is taken out of the merge queue, the one change the Factory makes to a held item (I-6, I-21). A Hold anyone adds binds, an App's too |
+| Release | Remove the label | The next pass resumes, with a fresh allowance of attempts (I-28). Only a person releases: a Hold an App or anyone else took off still binds, and the Maintainer adds it and removes it again |
+| Hands-off | Add the label `factory:hands-off` | The Factory watches the item and never acts on it, until a person removes the label. Added by anyone but a person, it is read as a Hold: it stops, and takes a queued pull request out of the merge queue |
+| Admit an outside item | Add the label `factory:admit` | The item is served like any other, until its author pushes again or, for an issue, edits it (I-25, I-36). For an issue, admission is acceptance for investigation. An admitted pull request that closes an issue is linked to it. Added by anyone but a person, it admits nothing |
 | Steer | Write a plain comment | It reaches the next Run's Task and is acknowledged with a reaction |
 | Block | Open a review thread, or request changes | A `human` Finding, which gates until that person resolves it |
 | Approve | Approve the pull request | A human approval stands as an independent approval |

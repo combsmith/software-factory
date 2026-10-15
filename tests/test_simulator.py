@@ -7,6 +7,7 @@ import re
 import unittest
 from unittest import mock
 
+from kernel import terms
 from kernel.decide import decide
 from sim import world
 from sim.world import World
@@ -28,7 +29,7 @@ def queued() -> World:
     w.runs.append({"run": "r0", "item": dict(world.ITEM), "role": "pr-review", "intent": "review-change",
                    "content_id": w.cid(), "status": "completed", "conclusion": "success", "outcome": None,
                    "started_at": w.now()})
-    w.reviews.append({"by": {"kind": "lens", "name": world.CONFIG["approver"], "can_write": True},
+    w.reviews.append({"by": dict(world.MACHINE),
                       "state": "approved", "commit": "c1", "content_id": w.cid(), "submitted_at": w.now(),
                       "dismissed_by": None, "dismissed_from": None})
     w.queue, w.rng = True, Roll()
@@ -200,6 +201,48 @@ class Simulation(unittest.TestCase):
             impostors += sum("another App posted" in line for line in w.trace)
         self.assertLessEqual({"approval_lost", "gate_open", "human_hold"}, causes)
         self.assertTrue(impostors)
+
+    def test_what_an_app_does_in_a_persons_place_ends_nothing(self):  # L-17, I-6
+        # An App takes the Maintainer's Hold off, adds hands-off, or resolves the Maintainer's thread. On a queued item,
+        # each takes it out of the queue; and the seeds reach each, with every invariant holding.
+        def unhold(w):
+            w.label(terms.LABEL_HOLD, world.MAINTAINER)
+            w.unlabel(terms.LABEL_HOLD, world.AUTHOR_APP)
+
+        def resolve(w):
+            w.open_thread()
+            w.threads[-1].update(resolved=True, resolved_by=dict(world.AUTHOR_APP))
+
+        acts = {"unhold": (unhold, "human_hold"),
+                "hands-off": (lambda w: w.label(terms.LABEL_HANDS_OFF, world.AUTHOR_APP), "human_hold"),
+                "resolve": (resolve, "gate_open")}
+        for name, (act, reason) in acts.items():
+            w = queued()
+            act(w)
+            self.assertTrue(w.objections(), name)
+            w.poll()
+            self.assertEqual(w.queue, False, name)
+            self.assertIn("apply: dequeued (%s)" % reason, w.trace[-1], name)
+            # Had the queue merged over it once a pass had read it, the invariant breaks.
+            w = queued()
+            act(w)
+            w.read = w.unstamped(w.facts())
+            self.assertRaises(world.Broken, w.platform)
+        # The other side: the Maintainer's own hands-off leaves the item where it is, and the Maintainer ends each.
+        w = queued()
+        w.label(terms.LABEL_HANDS_OFF, world.MAINTAINER)
+        w.poll()
+        self.assertEqual((w.queue, w.trace[-1].split()[-3:]), (True, ["hands_off", "->", "hold"]))
+        w.release()
+        self.assertFalse(w.held())
+        seen = set()
+        for seed in SEEDS:
+            w = World(seed)
+            for _ in range(250):
+                w.step()
+            seen |= {line.split(" ", 1)[1].rstrip("T0123456789 ") for line in w.trace if " an App " in line}
+        self.assertEqual(seen, {"an App took the Hold off", "an App added hands-off",
+                                "an App resolved the Maintainer's thread"})
 
     def test_every_invariant_not_yet_held_names_a_pending_test(self):
         # When a rule is built and its test loses @pending, its invariant here must start to raise too.

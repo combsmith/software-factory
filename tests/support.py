@@ -20,6 +20,8 @@ GREEN = [{"name": lens["check"], "app_id": lens["app_id"], "conclusion": "succes
 LENS_OF = {lens["check"]: lens["lens"] for lens in CONFIG["required_lenses"]["deterministic"]}
 # An App no required Lens is read from: any App with checks: write, the Controller's among them, can post a check.
 OTHER_APP = 1000001
+# The Maintainer: a person, which is an actor of kind human with write access, and nobody else is.
+MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 
 
 def pending(test):
@@ -39,8 +41,8 @@ def facts(**over) -> dict:
         "schema": "facts/1", "item": dict(ITEM), "state": "open", "is_draft": False,
         "class": "maintainer", "author": "don-petry", "last_pusher": "don-petry",
         "targets_protected": True, "mergeable": True, "content_id": "sha256:aaaa",
-        "diff": {"files": 2, "lines": 40, "truncated": False}, "labels": [],
-        "admitted_at": None, "last_push_at": "2026-10-11T12:00:00Z",
+        "diff": {"files": 2, "lines": 40, "truncated": False}, "label_events": [],
+        "last_push_at": "2026-10-11T12:00:00Z",
         "last_writer_action_at": "2026-10-11T12:00:00Z", "reviews": [], "threads": [],
         "checks": copy.deepcopy(GREEN), "queue": False, "acts_since_writer": 0,
         "complete": {"reviews": True, "threads": True, "checks": True, "diff": True, "runs": True,
@@ -68,20 +70,38 @@ def context(**over) -> dict:
 
 # Said for a thread's category to mean the one its kind of opener gives, so that None stays None.
 BY_KIND = "by kind"
+# Said for who resolved a thread to mean whoever opened it.
+BY_OPENER = "by opener"
 
 
 def thread(tid="T1", kind="lens", name="pr-review", can_write=True, severity="major", resolved=False,
-           at="2026-10-11T12:15:00Z", category=BY_KIND) -> dict:
-    """A thread as GitHub holds it. A person's is a `human` Finding; by default a Lens's is a `functional` one."""
+           at="2026-10-11T12:15:00Z", category=BY_KIND, resolved_by=BY_OPENER) -> dict:
+    """A thread as GitHub holds it. A person's is a `human` Finding; by default a Lens's is a `functional` one.
+
+    A resolved thread says who resolved it, by default whoever opened it; an open one says nobody.
+    """
     if category == BY_KIND:
         category = "human" if kind == "human" else "functional"
-    return {"id": tid, "resolved": resolved, "opened_by": {"kind": kind, "name": name, "can_write": can_write},
-            "category": category, "severity": severity, "resolved_by": None, "opened_at": at}
+    opener = {"kind": kind, "name": name, "can_write": can_write}
+    if resolved_by == BY_OPENER:
+        resolved_by = dict(opener) if resolved else None
+    return {"id": tid, "resolved": resolved, "opened_by": opener, "category": category, "severity": severity,
+            "resolved_by": resolved_by, "opened_at": at}
 
 
-def review(state="approved", kind="lens", name="donpetry-bot", can_write=True, content="sha256:aaaa", commit="c1",
-           at="2026-10-11T12:15:00Z", dismissed_by=None, dismissed_from=None) -> dict:
-    """A review as GitHub holds it. By default, the approver's approval of this content."""
+def labelled(label: str, by=None, at="2026-10-11T12:01:00Z", action="labeled") -> dict:
+    """A label event from the timeline. By default the Maintainer adds `label`, a minute after the push."""
+    return {"label": label, "action": action, "by": dict(MAINTAINER if by is None else by), "at": at}
+
+
+def unlabelled(label: str, by=None, at="2026-10-11T12:02:00Z") -> dict:
+    """`label` removed. By default by the Maintainer, a minute after `labelled` adds it."""
+    return labelled(label, by, at, "unlabeled")
+
+
+def review(state="approved", kind="machine_user", name="donpetry-bot", can_write=True, content="sha256:aaaa",
+           commit="c1", at="2026-10-11T12:15:00Z", dismissed_by=None, dismissed_from=None) -> dict:
+    """A review as GitHub holds it. By default, the approver's approval of this content: the machine user's."""
     return {"by": {"kind": kind, "name": name, "can_write": can_write}, "state": state, "commit": commit,
             "content_id": content, "submitted_at": at, "dismissed_by": dismissed_by, "dismissed_from": dismissed_from}
 

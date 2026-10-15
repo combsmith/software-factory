@@ -53,12 +53,16 @@ GATE_REASONS = ("human_finding", "findings_open", "awaiting_human", "proposals_a
 # The waits that end on their own, and that a queued item is read past: they never take it out of the merge queue.
 QUEUE_WAITS = ("mergeable_unreadable", "awaiting_checks", "awaiting_review")
 
-# Who opened a thread or submitted a review, and the states of a review: schemas/facts.schema.json names them too.
-ACTOR_KINDS = ("human", "lens")
+# The kinds of actor, and the states of a review: schemas/facts.schema.json names them too. The port tells them apart
+# from GitHub's account type and the configuration, never from a name's spelling: a person (`human`), the App of a
+# Lens (`lens`), any other App (`app`), and the machine user, the approver the configuration names (`machine_user`).
+ACTOR_KINDS = ("human", "lens", "app", "machine_user")
+MACHINE_USER = "machine_user"
+APP = "app"
 REVIEW_STATES = ("approved", "changes_requested", "commented", "dismissed")
 # What a dismissed review was before, as the timeline records it.
 DISMISSED_FROM = ("approved", "changes_requested", "commented")
-# Classes of pull request whose author is a bot: an agent's, or a dependency update's.
+# Classes of pull request whose author is an App: an agent's, or a dependency update's.
 BOT_CLASSES = ("agent", "dependency")
 
 # The one text format of a time, YYYY-MM-DDTHH:MM:SSZ, with 9 for any digit. Times compare as text.
@@ -82,3 +86,6 @@ READ_IN_FULL = ("checks", "diff", "reviews", "runs", "threads", "timeline")
 LABEL_HOLD = "factory:hold"
 LABEL_HANDS_OFF = "factory:hands-off"
 LABEL_ADMIT = "factory:admit"
+# The labels the Kernel reads on a pull request, and what the timeline records was done to one.
+CONTROL_LABELS = ("factory:hold", "factory:hands-off", "factory:admit")
+LABEL_ACTIONS = ("labeled", "unlabeled")
