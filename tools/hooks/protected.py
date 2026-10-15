@@ -14,10 +14,12 @@ cannot read within its budget (a length, and a deadline well inside the settings
 about, and one it misreads is caught by state: `rules_changed.py` lists, at every stop, each
 protected path the branch has changed.
 
-A protected path is protected in every working tree: the project, a worktree under
-`.claude/worktrees/`, or any other directory that holds a `.git`, since its branch can merge here.
-A path is read as it is written, normalised, and as the file system resolves it, symbolic links
-followed, and compared without regard to case. What the hook says names no word of the command:
+A protected path is protected in the project and in each worktree under `.claude/worktrees/`, and,
+outside them, wherever a path's last parts are a protected path, since another clone's branch can
+merge here. A path is read as it is written, normalised, and as the file system resolves it,
+symbolic links followed, and compared without regard to case. The hook reads the file system and
+git's state only inside the project, resolved: what lies outside it is read by its words alone, and
+a decision that needs git's state there (where a push goes) asks. What the hook says names no word of the command:
 only codes, and text from config/hooks.json. Run as `python3 -I` on this file; see after_edit.py.
 """
 from __future__ import annotations
@@ -190,43 +192,54 @@ class Rules:
                                          else [])
             self.named.append((re.compile(r"(?<![\w.-])(%s)(?![\w.-])" % "|".join(
                 _glob(f, r"[^/\s'\"]", "{0,%d}" % NAME) for f in forms), re.S), path, what))
-        project = pathlib.Path(env.get("CLAUDE_PROJECT_DIR") or ROOT)
-        tops = {str(project), str(ROOT)} | ({env["HOME"]} if env.get("HOME") else set())
-        self.tops = {os.path.normpath(t) for t in tops} | {os.path.realpath(t) for t in tops}
-        self.worktrees = {os.path.join(t, ".claude", "worktrees").casefold() for t in self.tops}
+        # The one tree whose state the hook reads: the project, resolved once. Its worktrees lie inside it.
+        self.root = os.path.realpath(env.get("CLAUDE_PROJECT_DIR") or str(ROOT))
+        self.low_root = self.root.casefold()
+        self.worktrees = os.path.join(self.low_root, ".claude", "worktrees")
 
     def names(self, text: str):
         """The protected path that `text` names, as text, wherever it stands; None if none."""
         text = text.casefold().replace("\\", "")
         return next(((path, what) for named, path, what in self.named if named.search(text)), None)
 
-    def _tops(self, path: str) -> set:
-        found, here = set(self.tops), path
-        while True:
-            self.spend()
-            parent = os.path.dirname(here)
-            if os.path.lexists(os.path.join(here, ".git")) or parent.casefold() in self.worktrees:
-                found.add(here)
-            if parent == here:
-                return found
-            here = parent
+    def inside(self, path):
+        """`path` resolved, when it lies in the project; None otherwise. Nothing outside the project is read."""
+        if not isinstance(path, str) or not os.path.isabs(path):
+            return None
+        real = os.path.realpath(path)
+        return real if os.path.commonpath([self.root, real]) == self.root else None
 
     def where(self, path: str, holds: bool = True):
         """(path in config, what it is) for an absolute path that is protected, or that holds one; None otherwise.
 
-        `holds` counts a directory that holds a protected path, which a command that writes below it can reach.
+        It reads only words, never the file system. In the project, a path is read from the project's top or from
+        its worktree's; outside it, a path whose last parts are a protected path is one. `holds` counts a directory
+        that holds a protected path, which a command that writes below it can reach.
         """
         for form in dict.fromkeys((os.path.normpath(path), os.path.realpath(path))):
+            self.spend()
             low = form.casefold()
-            for top in self._tops(form):
-                top = top.casefold()
-                if low == top or (top.startswith(low.rstrip("/") + "/") and holds):
+            if low == self.low_root or self.low_root.startswith(low.rstrip("/") + "/"):
+                if holds:
+                    return "a working tree", "a directory that holds every protected path"
+                continue
+            if not low.startswith(self.low_root + "/"):
+                parts = low.strip("/").split("/")
+                for at in range(len(parts)):
+                    rel = "/".join(parts[at:])
+                    found = next(((p, what) for p, what, _, whole in self.entries if whole.match(rel)), None)
+                    if found:
+                        return found
+                continue
+            tops = [self.low_root]
+            if low.startswith(self.worktrees + "/"):
+                tops.append("/".join(low.split("/")[:self.worktrees.count("/") + 2]))
+            for top in tops:
+                if low == top:
                     if holds:
                         return "a working tree", "a directory that holds every protected path"
                     continue
-                if not low.startswith(top.rstrip("/") + "/"):
-                    continue
-                rel = low[len(top.rstrip("/")) + 1:]
+                rel = low[len(top) + 1:]
                 parts = rel.split("/")
                 for path_, what, entry, whole in self.entries:
                     if whole.match(rel):
@@ -236,13 +249,21 @@ class Rules:
                         return path_, "a directory that holds %s" % what
         return None
 
+    def hard_linked(self, path: str) -> bool:
+        """Whether a file in the project has a second name, which may be protected. Outside the project, not read."""
+        real = self.inside(path)
+        if real is None:
+            return False
+        try:
+            st = os.stat(real)
+        except OSError:
+            return False
+        return st.st_nlink > 1 and not os.path.isdir(real)
 
-def _hard_linked(path: str) -> bool:
-    try:
-        st = os.stat(path)
-    except OSError:
-        return False
-    return st.st_nlink > 1 and not os.path.isdir(path)
+    def is_dir(self, path: str) -> bool:
+        """Whether a path in the project is a directory. Outside the project, not read."""
+        real = self.inside(path)
+        return real is not None and os.path.isdir(real)
 
 
 # ---- the file tools
@@ -262,7 +283,7 @@ def edit(payload: dict, rules: Rules) -> list:
     found = rules.where(path, holds=False)
     if found:
         return [("protected_path", "%s is %s" % found)]
-    if _hard_linked(path):
+    if rules.hard_linked(path):
         return [("path_unreadable", "the file has more than one name, and one may be protected")]
     return []
 
@@ -313,10 +334,10 @@ class Command:
             word = os.path.join(here, word)
         starred = _starred(word, self.spend)
         if starred != word:
-            if any(self.rules.where(p) for p in _wildcards(starred, self.spend)):
+            if any(self.rules.where(p) for p in _wildcards(starred, self.rules)):
                 raise Unreadable("a brace may spell a protected path, and the hook does not expand braces")
             return []
-        return _wildcards(word, self.spend) if GLOB.search(word) else [word]
+        return _wildcards(word, self.rules) if GLOB.search(word) else [word]
 
     def hit(self, word: str, holds: bool = True, here=None, text: bool = True):
         """What protected path a word names, by where it leads or, with `text`, as text; None if none.
@@ -334,7 +355,7 @@ class Command:
                 found = self.rules.where(path, holds)
                 if found:
                     return found
-                if _hard_linked(path):
+                if self.rules.hard_linked(path):
                     return "a file with more than one name", "one of them may be protected"
         return None
 
@@ -547,7 +568,13 @@ class Command:
             self.ask("path_unreadable", "the command is given a target the hook cannot read: %s" % err)
             return
         for place in places:
-            if as_file or not (os.path.isdir(place) or target.endswith("/")):
+            if self.rules.inside(place) is None:
+                # Outside the project, a file and a directory are not told apart: the place is read by its own words,
+                # and as a directory that may hold the project.
+                if self.check([place]):
+                    return
+                continue
+            if as_file or not (self.rules.is_dir(place) or target.endswith("/")):
                 if self.check([place], holds=False):
                     return
                 continue
@@ -718,7 +745,7 @@ class Command:
                                        "branch with")
                 return
             if target in ("HEAD", "@") or "$" in target or "`" in target:   # the branch it is on
-                target = _branch(here)
+                target = _branch(here, self.rules.root)
                 if target is None:
                     self.ask("merge", "the branch a push goes to cannot be read, and it may be %s" % branch)
                     return
@@ -730,8 +757,9 @@ class Command:
         """Whether a push that names no refspec goes, exactly, to the branch it is on. If not, it asks."""
         branch = self.data["branch"]
         try:
-            default = _git_config(here, self.env, ["--get", "push.default"], self.spend)
-            refspecs = _git_config(here, self.env, ["--get-regexp", r"^remote\..*\.push$"], self.spend)
+            inside = self.rules.inside(here)      # git is run only in the project
+            default = _git_config(inside, self.env, ["--get", "push.default"], self.spend)
+            refspecs = _git_config(inside, self.env, ["--get-regexp", r"^remote\..*\.push$"], self.spend)
         except Unreadable:
             self.ask("merge", "a push that names no branch goes where git's configuration says, which the hook cannot "
                               "read, and it may be %s" % branch)
@@ -782,19 +810,29 @@ class Command:
 HANDLED = {"sed", "find", "cp", "mv", "install", "git", "gh"}
 
 
-def _branch(here):
-    """The branch checked out where a command runs, read from git's HEAD; "" when none is, None when it cannot be read."""
-    while here:
+def _branch(here, root: str):
+    """The branch checked out where a command runs, read from git's HEAD; "" when none is, None when it cannot be read.
+
+    Only the project is read: `here` is resolved, and must lie in `root`, the project resolved. The walk up stops at
+    the project's top.
+    """
+    if not isinstance(here, str) or not os.path.isabs(here):
+        return None
+    here = os.path.realpath(here)
+    if os.path.commonpath([root, here]) != root:
+        return None
+    while True:
         dot = os.path.join(here, ".git")
         try:
             if os.path.isdir(dot):
                 gitdir = dot
             elif os.path.isfile(dot):
                 found = re.match(r"gitdir: (.+)", pathlib.Path(dot).read_text()[:4096].strip())
-                gitdir = _git_dir(os.path.join(here, found.group(1))) if found else None
+                gitdir = _git_dir(os.path.join(here, found.group(1)), root) if found else None
+            elif here == root or os.path.dirname(here) == here:     # the project's top, or the file system's
+                return None
             else:
-                parent = os.path.dirname(here)
-                here = None if parent == here else parent
+                here = os.path.dirname(here)
                 continue
             head = pathlib.Path(gitdir, "HEAD").read_text()[:4096].strip() if gitdir else None
         except OSError:
@@ -803,7 +841,6 @@ def _branch(here):
             return None
         found = re.match(r"ref: refs/heads/(.+)$", head)
         return found.group(1) if found else ""
-    return None
 
 
 def _is_command(entry: str, positional: list, args: list) -> bool:
@@ -834,17 +871,21 @@ def _names_api(text: str) -> bool:
     return bool(API_HOST.search(URL.sub(" ", text)))
 
 
-def _git_dir(path: str):
-    """`path` resolved, when it is a git directory: one named *.git, or a worktree's under .git/worktrees/. Otherwise
-    None, so a branch is not read from a directory a `.git` file merely points at."""
+def _git_dir(path: str, root: str):
+    """`path` resolved, when it is a git directory in the project: one named *.git, or a worktree's under
+    .git/worktrees/. Otherwise None, so a branch is not read from a directory a `.git` file merely points at."""
     real = os.path.realpath(path)
+    if os.path.commonpath([root, real]) != root:
+        return None
     parent = os.path.dirname(real)
     named = real.endswith(".git") or (os.path.basename(parent) == "worktrees" and os.path.dirname(parent).endswith(".git"))
     return real if named and os.path.isdir(real) else None
 
 
-def _wildcards(path: str, spend, limit: int = MATCHES) -> list:
-    """The paths a pattern matches in the file system; the pattern itself when none does, as the shell leaves it."""
+def _wildcards(path: str, rules, limit: int = MATCHES) -> list:
+    """The paths a pattern matches in the project's file system; the pattern itself when none does, as the shell
+    leaves it. A directory outside the project is not listed."""
+    spend = rules.spend
     parts, found = path.split("/"), ["/"]
     for part in parts[1:]:
         if not part:
@@ -856,8 +897,11 @@ def _wildcards(path: str, spend, limit: int = MATCHES) -> list:
             raise Unreadable("a wildcard is longer than the hook reads")
         tokens, nxt = _tokens(part), []
         for f in found:
+            real = rules.inside(f)
+            if real is None:
+                continue
             try:
-                names = sorted(os.listdir(f))
+                names = sorted(os.listdir(real))
             except OSError:
                 continue
             for n in names:

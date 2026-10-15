@@ -397,14 +397,17 @@ class Asks(unittest.TestCase):
         cls.project = a_tree()
         cls.env = environment(programs("git"), CLAUDE_PROJECT_DIR=str(cls.project), TMPDIR=str(folder()))
 
-    def edit(self, path, tool="Edit", cwd=None, **check) -> str:
-        payload = {"hook_event_name": "PreToolUse", "tool_name": tool, "cwd": str(cwd or self.project),
-                   "tool_input": {EDIT_TOOLS[tool]: str(path), "old_string": "a", "new_string": "b"}}
-        return " ".join("%s: %s." % found for found in protected.check(payload, self.env, **check))
+    def env_for(self, project):
+        return self.env if project is None else dict(self.env, CLAUDE_PROJECT_DIR=str(project))
 
-    def run_(self, command, cwd=None, **check) -> str:
-        return " ".join("%s: %s." % found for found in protected.check(bash(command, cwd or self.project), self.env,
-                                                                        **check))
+    def edit(self, path, tool="Edit", cwd=None, project=None, **check) -> str:
+        payload = {"hook_event_name": "PreToolUse", "tool_name": tool, "cwd": str(cwd or project or self.project),
+                   "tool_input": {EDIT_TOOLS[tool]: str(path), "old_string": "a", "new_string": "b"}}
+        return " ".join("%s: %s." % found for found in protected.check(payload, self.env_for(project), **check))
+
+    def run_(self, command, cwd=None, project=None, **check) -> str:
+        payload = bash(command, cwd or project or self.project)
+        return " ".join("%s: %s." % found for found in protected.check(payload, self.env_for(project), **check))
 
     def asked(self, said, code, case):
         self.assertTrue(said.startswith(code + ":") or (". %s:" % code) in said, "%r was not asked about as %s: %s"
@@ -455,7 +458,7 @@ class ProtectedPaths(Asks):
         outside = folder()
         (outside / "rules").symlink_to(p / "lifecycle")
         (p / "docs" / "alias.json").symlink_to(p / "config" / "authority.json")
-        os.link(p / "lifecycle" / "issue.json", outside / "hard.json")
+        os.link(p / "lifecycle" / "issue.json", p / "docs" / "hard.json")
         shutil.rmtree(p / "tools" / "hooks")
         (p / "tools" / "hooks").symlink_to(outside)     # a protected directory that leads out of the tree
         for path, cwd in [("%s/./lifecycle/../lifecycle/issue.json" % p, None), ("%s/docs/../lifecycle/x" % p, None),
@@ -466,8 +469,8 @@ class ProtectedPaths(Asks):
                           ("%s/.claude/worktrees/w/lifecycle/issue.json" % p, None),
                           ("%s/.claude/worktrees/w/./docs/../.claude/settings.json" % p, None),
                           ("%s/tools/hooks/x.py" % p, None)]:
-            self.asked(self.edit(path, cwd=cwd), "protected_path", path)
-        self.asked(self.edit(outside / "hard.json"), "path_unreadable", "a hard link")
+            self.asked(self.edit(path, cwd=cwd, project=p), "protected_path", path)
+        self.asked(self.edit(p / "docs" / "hard.json", project=p), "path_unreadable", "a hard link")
 
     def test_a_protected_path_in_any_working_tree_or_in_the_users_settings_asks(self):
         other = folder()
@@ -602,7 +605,7 @@ class ProtectedPaths(Asks):
         (p / "lifecycle" / ("a" * 250)).write_text("")
         (p / "docs" / "l").symlink_to(p / "lifecycle")     # a way into a protected path that names none
         started = time.monotonic()
-        self.asked(self.run_("rm docs/l/*a*a*a*a*c", p), "protected_path", "a wildcard over a long name")
+        self.asked(self.run_("rm docs/l/*a*a*a*a*c", p, project=p), "protected_path", "a wildcard over a long name")
         self.assertLess(time.monotonic() - started, protected.DEADLINE)
         for pattern, name, matches in (("*a*a*c", "a" * 250, False), ("*a*a*a", "a" * 250, True),
                                        ("*.json", "x.json", True), ("*.json", "x.jsonx", False),
@@ -705,8 +708,49 @@ class MergesAndSettings(Asks):
             (where / gitdir / "HEAD").write_text("ref: refs/heads/feature\n")
             (where / "tree").mkdir()
             (where / "tree" / ".git").write_text("gitdir: ../%s\n" % gitdir)
-            self.assertEqual(self.run_("git push origin HEAD", where / "tree"), "", gitdir)
+            self.assertEqual(self.run_("git push origin HEAD", where / "tree", project=where), "", gitdir)
         self.assertEqual(self.run_("git push origin HEAD", self.project / ".claude" / "worktrees" / "w"), "")
+
+    def test_git_state_is_read_only_inside_the_project(self):
+        outside = repo(fresh=True)
+        git(outside, "checkout", "-q", "-b", "feature")
+        self.assertEqual(self.run_("git push origin HEAD", outside, project=outside), "")
+        for command in ("git push origin HEAD", "git push", "git push origin"):
+            self.asked(self.run_(command, outside), "merge", command)       # its project is another
+        self.asked(self.run_("git push origin HEAD", "/tmp"), "merge", "a push from /tmp")
+        root = os.path.realpath(str(self.project))
+        self.assertEqual(protected._branch(str(self.project), root), "feature")
+        self.assertEqual(protected._branch(str(self.project / "docs"), root), "feature")
+        self.assertEqual(protected._branch(str(self.project / ".claude" / "worktrees" / "w"), root), "w")
+        self.assertIsNone(protected._branch(str(outside), root))
+        self.assertIsNone(protected._branch("/tmp", root))
+        self.assertIsNone(protected._git_dir(str(outside / ".git"), root))
+        self.assertEqual(protected._git_dir(str(self.project / ".git"), root), os.path.join(root, ".git"))
+
+    def test_nothing_outside_the_project_is_read(self):
+        outside = repo(fresh=True)
+        git(outside, "checkout", "-q", "-b", "feature")
+        # Where a push naming no branch goes is git's configuration's to say, and git is not run outside the project.
+        self.assertIn("git's configuration says, which the hook cannot read", self.run_("git push", outside))
+        elsewhere = folder()
+        (elsewhere / "lifecycle").mkdir()
+        os.link(self.project / "docs" / "notes.md", elsewhere / "hard.md")
+        for command in ("cp -r .github %s" % elsewhere, "rm -rf %s/*" % elsewhere, "echo x > %s/hard.md" % elsewhere):
+            self.assertEqual(self.run_(command), "", command)      # a directory there is not read, nor listed
+        p = a_tree()
+        (p / "docs" / "fake").mkdir()
+        (p / "docs" / "fake" / "HEAD").write_text("ref: refs/heads/feature\n")
+        (p / "sub").mkdir()
+        (p / "sub" / ".git").write_text("gitdir: ../docs/fake\n")
+        self.assertIn("the branch a push goes to cannot be read", self.run_("git push origin HEAD", p / "sub", project=p))
+
+    def test_an_edit_outside_the_project_is_read_by_its_words(self):
+        other = folder()
+        (other / ".git").mkdir()
+        for path in (other / "notes.md", other / "config" / "x.json", pathlib.Path("/tmp/x.txt")):
+            self.assertEqual(self.edit(path), "", path)
+        for path in (other / "lifecycle" / "x.json", other / "deep" / "tools" / "hooks" / "x.py"):
+            self.asked(self.edit(path), "protected_path", path)
 
     def test_a_temporary_directory_is_known_without_tmpdir(self):
         env = environment(programs("git"), CLAUDE_PROJECT_DIR=str(self.project))
@@ -725,10 +769,10 @@ class MergesAndSettings(Asks):
                         "git config --list", "git config core.editor vim", "git config push.default",
                         "git config --get-all remote.origin.push main", "git config --get push.default simple",
                         "git branch -a", "git branch --show-current"):
-            self.assertEqual(self.run_(command, feature), "", command)
+            self.assertEqual(self.run_(command, feature, project=feature), "", command)
         for where in (on_main, upstream, refspec):
             for command in ("git push", "git push origin", "git push --force-with-lease"):
-                self.asked(self.run_(command, where), "merge", (command, where))
+                self.asked(self.run_(command, where, project=where), "merge", (command, where))
         payload, no_git = bash("git push", feature), environment(programs(), CLAUDE_PROJECT_DIR=str(self.project))
         self.assertIn("merge", " ".join(c for c, _ in protected.check(payload, no_git)))
         for command in ("git -c push.default=upstream push", "git -c push.default=upstream push origin feature",
@@ -739,8 +783,8 @@ class MergesAndSettings(Asks):
                         "git config --add remote.origin.push HEAD:refs/heads/main",
                         "git config branch.feature.merge refs/heads/main", "git config branch.feature.remote origin",
                         "git config --unset-all remote.origin.push"):
-            self.asked(self.run_(command, feature), "merge", command)
-        self.asked(self.run_("echo '[push] default = upstream' >> .git/config", feature), "protected_path",
+            self.asked(self.run_(command, feature, project=feature), "merge", command)
+        self.asked(self.run_("echo '[push] default = upstream' >> .git/config", feature, project=feature), "protected_path",
                    "a write to git's configuration")
 
     def test_a_write_to_the_base_the_stop_compares_with_asks(self):
