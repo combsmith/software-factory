@@ -171,6 +171,9 @@ def _calls(commands: list, cwd, text: str) -> tuple:
                 if KEYS.match(value):
                     always.append(("identity_set_in_command", "git %s %s sets in the command what the hook reads "
                                                               "from configuration" % (option, value.split("=")[0])))
+                if WRITE_TEXT.search(value.partition("=")[2]):     # a driver, a pager or a tool: a program git runs
+                    always.append(("command_unreadable", "git %s %s sets a command the hook cannot read"
+                                   % (option, value.split("=")[0])))
             elif option in ("--git-dir", "--work-tree"):
                 always.append(("identity_set_in_command", "%s points git at a repo the hook does not read" % option))
             elif option not in GIT_FLAGS:

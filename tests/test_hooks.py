@@ -224,8 +224,14 @@ class Identity(unittest.TestCase):
             self.assertIn("git_command_unknown", self.refused(command), command)
         self.assertIn("git_command_unknown", self.refused("xargs -I{} git {} < verbs"))
         self.assertIn("git_option_unknown", self.refused("git --frobnicate commit -m x"))
-        for command in ("git submodule foreach git push", "echo 'git push' | sh", "python3 -c 'git push'"):
+        for command in ("git submodule foreach git push", "echo 'git push' | sh", "python3 -c 'git push'",
+                        "git -c merge.x.driver='git push origin HEAD' merge-tree --write-tree A B",
+                        "git -c core.pager='git push origin HEAD:main' log"):
             self.assertIn("command_unreadable", self.refused(command), command)
+
+    def test_a_configuration_set_in_the_command_that_names_no_commit_or_push_passes(self):
+        for command in ("git -c color.ui=always log", "git -c merge.x.driver='cat %A' merge-tree --write-tree A B"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
 
     def test_a_push_as_the_machine_user_or_anyone_else_is_refused(self):
         self.assertIn("account_is_machine_user", self.refused("git push", FAKE_GH_USER=MACHINE))
