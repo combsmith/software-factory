@@ -320,7 +320,7 @@ for contract tests, so one schema has three uses.
 | `content_id` | Hash of the pull request's own diff against its merge base, computed by the port |
 | `changed_paths` | Paths in that diff |
 | `labels` | Names |
-| `reviews` | Actor, state, commit, time |
+| `reviews` | Who submitted it (`by`: kind, name and whether that actor has write access, as a thread's opening actor), state (`approved`, `changes_requested`, `commented` or `dismissed`, as GitHub holds it now), commit, `content_id`, `submitted_at`; and, from the timeline, `dismissed_by`: who dismissed it, of what kind and with what access, and `dismissed_from`: what it was before (`approved`, `changes_requested` or `commented`). Both are null unless it was dismissed |
 | `threads` | Thread id, path, line, when it was opened, resolved, outdated, opening actor and whether that actor has write access, resolving actor |
 | `checks` | Name, App, conclusion as GitHub gives it (or the check's status while it has not concluded), completion time, annotation count |
 | `alerts` | Tool, rule, alert number, state, severity, path |
@@ -369,6 +369,35 @@ anything but `success` as passing, or a word as anything but the four readings, 
 `neutral` pass (`examples/invalid/config.a-neutral-check-passes.json`,
 `examples/invalid/config.conclusion-mapped-to-nothing.json`). A required Lens that is `neutral` by
 design leaves the required set for that class or scope (§5.3); the map is not bent for it.
+
+A request for changes from a person with write access is a `human` Finding (§4.2 item 3), and gates
+as that person's thread does: the author's Run answers it, and then it waits for that person. Each
+such person's latest review that is more than a comment is the one that counts. The request stands
+until that person approves, or a person with write access dismisses it. New content does not clear
+it, because GitHub keeps it standing across pushes; a later review that only comments does not, and
+nor does anyone else's approval. A dismissal by an App does not clear it either: the reviewer's App
+holds `pull_requests: write`, GitHub cannot grant less, and no Role closes a person's objection
+(L-17). A dismissed review is read by what it was, which GitHub's timeline records
+(`previousReviewState`). One dismissed from an approval still ends that person's earlier request,
+because the objection was answered, but approves no content: when an App's push dismisses a
+person's stale approval, nothing revives, and the item waits only for the approver, as usual. One
+dismissed from a comment changes nothing. One dismissed from a request for changes stands, unless
+a person with write access dismissed it. Neither the machine user nor the bot that opened an agent's
+or a dependency update's pull request is a person, whatever kind the facts give them: their
+dismissal or approval ends no request. A request and an approval by one person in the same second
+leave the request standing. A
+request from a stranger or a Lens gates nothing (§4.6). It is read after the checks and before the
+approval, so a standing approval never passes over it. A review whose author, write access, state,
+time, dismisser or earlier state cannot be read is unreadable: it could be a writer's request, so
+the Kernel defers, reason `review_unreadable`, and nothing converges on it (I-13). So is a review
+that is not dismissed but carries `dismissed_by` or `dismissed_from`: the schema cannot say that
+both are null unless the review was dismissed, so the Kernel holds it. An unreadable review is read
+after what needs no review (a merged, closed, unserved, draft, held or queued item) and before
+anything that admits a Run: a model review, or a fix for a conflict or a failed check. A time is
+readable only in the one format, because times compare as text. The item is the Maintainer's to
+see, as for a check with no verdict: a port that misreads does not mend itself. A request made
+after the item entered the merge queue is not read yet, because a queued item is read before its
+gates; taking it out of the queue is the dequeue's (#33).
 
 An issue has facts of its own (§4.1, the issue Lifecycle):
 
@@ -1296,7 +1325,7 @@ decision logic against a fake world, quickly, thousands of times.
   every step boundary, including between two Effects and before any artifact is uploaded. The
   control room unwritable, or holding nonsense. A facts read that fails or is stale. A missing capacity reading.
   A Result that fails validation. An Engine that times out. A required check that times out or
-  gives no verdict. A human acting mid-Run. An approval
+  gives no verdict. A human acting mid-Run. An App dismissing a person's request for changes. An approval
   that does not land, and a merge queue that ejects; each also as a world where it happens every
   time, which must come to rest on its bound (I-8).
 - **Properties.** I-2 to I-17 are checked after every step, as are I-19 to I-38. I-1 and I-18 are checked once faults
@@ -1346,6 +1375,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | The poller was down for hours | An item is stale only if it went unevaluated while passes were running. A missing pass is one health alert, not one alert per item |
 | A third-party thread the reviewer does not adopt | The reviewer resolves it (§4.2), so the ruleset does not block the merge on it |
 | A review thread from someone without write access | On a public repo anyone can open one. It is treated as a third-party reviewer's: `pr-review` adopts it or resolves it. Only a person with write access can hold a pull request with a thread |
+| A request for changes, from a person with write access or from anyone else | A writer's gates, as that person's thread does, and stands until that person approves or a person with write access dismisses it; new content and an App's dismissal do not clear it. A stranger's or a Lens's gates nothing. An approval answers that person's request even once dismissed, so an App's push that dismisses a stale approval revives nothing; it approves no content (§3.3) |
 | A plain comment from the Maintainer | It steers and gates nothing. It goes into the next Run's Task, and the Role's App reacts to it to show it was read. A plain comment has no resolved state, so it could never be closed. To block, use a review |
 
 Already handled with no special rule, because State is derived: a draft, a conversion back to

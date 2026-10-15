@@ -17,6 +17,27 @@ import tempfile
 from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def moved_after(rel: str, block: str, anchor: str) -> tuple:
+    """(old, new) for a mutant that moves `block` down to just after the `anchor` that follows it in `rel`.
+
+    The text between them is read from the file, so it is not written out twice here. If either is not
+    found, `old` is text that is not in the file, and the mutant reports itself STALE.
+    """
+    text = (ROOT / rel).read_text()
+    start = text.find(block)
+    end = text.find(anchor, start + len(block)) if start >= 0 else -1
+    if end < 0:
+        return block + anchor, anchor + block
+    middle = text[start + len(block):end + len(anchor)]
+    return block + middle, middle + block
+
+
+REVIEW_GUARD = ("    if unreadable_reviews(facts):\n"
+                '        return {"state": None, "reason": "review_unreadable", "evidence": []}\n')
+REVIEW_WAIT = '            return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens]}\n'
+
 MUTANTS = [
     ("incomplete facts are trusted", "kernel/derive.py",
      "    gaps = incomplete(facts)\n", "    gaps = []\n"),
@@ -102,8 +123,85 @@ MUTANTS = [
      "    if not required_model_lenses(facts, config):\n"
      '        return {"state": t.CONVERGED, "reason": "approval_due", "evidence": []}\n'),
     ("a dependency update converges before its threads are read", "kernel/derive.py",
-     "    open_gates = gating_threads(facts, config)\n",
-     "    open_gates = gating_threads(facts, config) if required_model_lenses(facts, config) else []\n"),
+     "    open_gates = gates(facts, config)\n",
+     "    open_gates = gates(facts, config) if required_model_lenses(facts, config) else []\n"),
+    ("a writer's request for changes does not gate", "kernel/derive.py",
+     "    return threads + standing_requests(facts, config)\n", "    return threads\n"),
+    ("a stranger's request for changes gates", "kernel/derive.py",
+     'if rv["by"]["kind"] == "human" and rv["by"]["can_write"] and', 'if rv["by"]["kind"] == "human" and'),
+    ("a Lens's request for changes gates", "kernel/derive.py",
+     'if rv["by"]["kind"] == "human" and rv["by"]["can_write"] and', 'if rv["by"]["can_write"] and'),
+    ("new content clears a request for changes", "kernel/derive.py",
+     'for rv in sorted(facts["reviews"], key=verdict_order):',
+     'for rv in sorted([rv for rv in facts["reviews"] if rv["content_id"] == facts["content_id"]],'
+     ' key=verdict_order):'),
+    ("a review that only comments clears a request for changes", "kernel/derive.py",
+     ' and rv["state"] != "commented":', ":"),
+    ("another writer's approval clears a request for changes", "kernel/derive.py",
+     '            latest[rv["by"]["name"]] = rv\n', '            latest["anyone"] = rv\n'),
+    ("an earlier review is read as the latest", "kernel/derive.py",
+     'sorted(facts["reviews"], key=verdict_order)', 'facts["reviews"]'),
+    ("a tie between a request and an approval resolves to the approval", "kernel/derive.py",
+     '"changes_requested" in (rv["state"], rv.get("dismissed_from"))',
+     '"changes_requested" not in (rv["state"], rv.get("dismissed_from"))'),
+    ("an App's dismissal clears a request for changes", "kernel/derive.py",
+     'if dismissed_by["kind"] == "human" and dismissed_by["can_write"] and', 'if dismissed_by["can_write"] and'),
+    ("a stranger's dismissal clears a request for changes", "kernel/derive.py",
+     'if dismissed_by["kind"] == "human" and dismissed_by["can_write"] and',
+     'if dismissed_by["kind"] == "human" and'),
+    ("the machine user's or an author bot's dismissal ends a request", "kernel/derive.py",
+     ' and dismissed_by["name"] not in bots:', ":"),
+    ("the machine user's or an author bot's approval ends a request", "kernel/derive.py",
+     '        if approves and rv["by"]["name"] in bots:\n            continue\n', ""),
+    ("an agent's author bot is read as a person", "kernel/derive.py",
+     '    if facts["class"] in t.BOT_CLASSES:\n', "    if False:\n"),
+    ("the author of a maintainer's pull request is not read as a person", "kernel/derive.py",
+     '    if facts["class"] in t.BOT_CLASSES:\n', "    if True:\n"),
+    ("a standing approval is read before a request for changes", "kernel/derive.py",
+     "    open_gates = gates(facts, config)\n",
+     "    approval = standing_approval(facts, config)\n"
+     "    if approval is not None:\n"
+     '        return {"state": t.CONVERGED, "reason": "approved", "evidence": [approval["commit"]]}\n'
+     "    open_gates = gates(facts, config)\n"),
+    ("an unreadable review is trusted", "kernel/derive.py",
+     "    if unreadable_reviews(facts):\n", "    if False:\n"),
+    ("an unreadable review is read after the model review's wait", "kernel/derive.py",
+     *moved_after("kernel/derive.py", REVIEW_GUARD, REVIEW_WAIT)),
+    ("an unreadable review is read before what needs no review", "kernel/derive.py",
+     '    if facts["state"] == "merged":\n', REVIEW_GUARD + '    if facts["state"] == "merged":\n'),
+    ("an unreadable dismissal is trusted", "kernel/derive.py",
+     '        if rv["state"] == "dismissed" and not readable_actor(rv.get("dismissed_by")):\n',
+     "        if False:\n"),
+    ("a dismissed approval is read as a request for changes", "kernel/derive.py",
+     '            if rv["dismissed_from"] != "changes_requested":\n                continue\n', ""),
+    ("a dismissed approval does not end an earlier request", "kernel/derive.py",
+     'if rv["state"] == "dismissed" and rv["dismissed_from"] == "commented":',
+     'if rv["state"] == "dismissed" and rv["dismissed_from"] != "changes_requested":'),
+    ("a dismissed comment ends an earlier request", "kernel/derive.py",
+     '        if rv["state"] == "dismissed" and rv["dismissed_from"] == "commented":\n            continue\n', ""),
+    ("a review not dismissed that carries dismissal fields is trusted", "kernel/derive.py",
+     '        if rv["state"] != "dismissed" and (rv.get("dismissed_by") is not None'
+     ' or rv.get("dismissed_from") is not None):\n',
+     "        if False:\n"),
+    ("an unreadable dismissed_from is trusted", "kernel/derive.py",
+     '        if rv["state"] == "dismissed" and rv.get("dismissed_from") not in t.DISMISSED_FROM:\n',
+     "        if False:\n"),
+    ("write access that is not exactly true or false is read", "kernel/derive.py",
+     'and type(actor.get("can_write")) is bool', 'and "can_write" in actor'),
+    ("a kind the Kernel does not know is read", "kernel/derive.py",
+     'actor.get("kind") in t.ACTOR_KINDS', '"kind" in actor'),
+    ("an empty name is read", "kernel/derive.py",
+     ' and actor["name"] != ""', ""),
+    ("a review state the Kernel does not know is read", "kernel/derive.py",
+     'rv.get("state") not in t.REVIEW_STATES', '"state" not in rv'),
+    ("a review with no time is read", "kernel/derive.py",
+     '        if not is_time(rv.get("submitted_at")):\n            return True\n', ""),
+    ("a review's time in another format is read", "kernel/derive.py",
+     'if not is_time(rv.get("submitted_at")):', 'if not isinstance(rv.get("submitted_at"), str):'),
+    ("an unreadable review is not the Maintainer's to see", "kernel/decide.py",
+     '"check_unreadable", "review_unreadable",', '"check_unreadable",'),
+    ("an item with no State is never the Maintainer's to see", "kernel/decide.py",
+     "    if state is None and reason not in NEEDS_YOU_REASONS:\n", "    if state is None:\n"),
     ("a check with no verdict does not defer", "kernel/decide.py",
      '    if reason == "check_unreadable":\n', "    if False:\n"),
     ("two Runs on one item", "kernel/decide.py",

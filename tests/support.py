@@ -63,6 +63,13 @@ def thread(tid="T1", kind="lens", name="pr-review", can_write=True, severity="ma
             "severity": severity, "resolved_by": None, "opened_at": at}
 
 
+def review(state="approved", kind="lens", name="donpetry-bot", can_write=True, content="sha256:aaaa", commit="c1",
+           at="2026-10-11T12:15:00Z", dismissed_by=None, dismissed_from=None) -> dict:
+    """A review as GitHub holds it. By default, the approver's approval of this content."""
+    return {"by": {"kind": kind, "name": name, "can_write": can_write}, "state": state, "commit": commit,
+            "content_id": content, "submitted_at": at, "dismissed_by": dismissed_by, "dismissed_from": dismissed_from}
+
+
 def config(**over) -> dict:
     c = copy.deepcopy(CONFIG)
     c.update(over)

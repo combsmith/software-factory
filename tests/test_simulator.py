@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import os
+import pathlib
+import re
 import unittest
+from unittest import mock
 
+from sim import world
 from sim.world import World
 
 # Fixed seeds: the required check cannot fail at random. SIM_SEEDS shortens a local run.
@@ -16,6 +20,11 @@ class Simulation(unittest.TestCase):
             world = World(seed)
             for _ in range(250):
                 world.step()
+
+    def test_the_seeds_serve_a_maintainers_and_an_agents_pull_request(self):
+        # The Maintainer's own pull request, where their review is refused, and an agent's, which they review.
+        classes = {World(seed).facts()["class"] for seed in SEEDS}
+        self.assertEqual(classes, {"maintainer", "agent"})
 
     def test_a_seed_replays_exactly(self):
         traces = []
@@ -79,6 +88,31 @@ class Simulation(unittest.TestCase):
             before = w.last_writer
             w.person()
             self.assertEqual((w.acts == 0, w.last_writer != before), (renewed, renewed), human_thread)
+
+    def test_a_merge_over_a_request_for_changes_is_noted_until_it_is_held(self):
+        # The Maintainer asks for changes after the item entered the queue, and the queue merges it (#33).
+        class Roll:
+            def random(self):
+                return 0.0
+
+        name = "test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue"
+        w = World(2, faults=False, people=False)
+        w.queue, w.rng = True, Roll()
+        w.review("changes_requested")
+        w.platform()
+        self.assertEqual((w.pr_state, w.unheld), ("merged", [name]))
+        # Once the rule is held, the same merge breaks the invariant.
+        w = World(2, faults=False, people=False)
+        w.queue, w.rng = True, Roll()
+        w.review("changes_requested")
+        with mock.patch.object(world, "NOT_YET_HELD", ()):
+            self.assertRaises(world.Broken, w.platform)
+
+    def test_every_invariant_not_yet_held_names_a_pending_test(self):
+        # When a rule is built and its test loses @pending, its invariant here must start to raise too.
+        text = (pathlib.Path(__file__).resolve().parent / "test_decide.py").read_text()
+        for name in world.NOT_YET_HELD:
+            self.assertRegex(text, r"@pending\s+def %s\(" % re.escape(name), name)
 
     def test_a_quiet_world_merges_or_stops_on_a_ceiling(self):
         for seed in SEEDS:

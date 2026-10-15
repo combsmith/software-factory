@@ -123,20 +123,25 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "actor",
+          "by",
           "state",
           "commit",
-          "content_id"
+          "content_id",
+          "submitted_at",
+          "dismissed_by",
+          "dismissed_from"
         ],
         "properties": {
-          "actor": {
-            "type": "string"
+          "by": {
+            "$ref": "#/$defs/actor"
           },
           "state": {
+            "description": "As GitHub holds it now: a review that was dismissed is dismissed, whatever it said.",
             "enum": [
               "approved",
               "changes_requested",
-              "commented"
+              "commented",
+              "dismissed"
             ]
           },
           "commit": {
@@ -144,6 +149,43 @@
           },
           "content_id": {
             "$ref": "#/$defs/content_id"
+          },
+          "submitted_at": {
+            "$ref": "#/$defs/time"
+          },
+          "dismissed_by": {
+            "description": "Who dismissed the review, from the timeline; null unless it was dismissed.",
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "name",
+              "can_write"
+            ],
+            "properties": {
+              "kind": {
+                "$ref": "#/$defs/actor_kind"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "can_write": {
+                "type": "boolean"
+              }
+            }
+          },
+          "dismissed_from": {
+            "description": "What a dismissed review was before, from the timeline (previousReviewState); null unless it was dismissed.",
+            "enum": [
+              "approved",
+              "changes_requested",
+              "commented",
+              null
+            ]
           }
         }
       }
@@ -301,6 +343,34 @@
           "minimum": 1
         }
       }
+    },
+    "actor": {
+      "description": "Who submitted a review, and whether they have write access, as a thread's opened_by says",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "name",
+        "can_write"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/actor_kind"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "can_write": {
+          "type": "boolean"
+        }
+      }
+    },
+    "actor_kind": {
+      "enum": [
+        "human",
+        "lens"
+      ]
     },
     "time": {
       "type": "string",

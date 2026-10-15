@@ -24,6 +24,15 @@ FACTS_SCHEMA = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
 DECLARED = check_lifecycle.declared(check_lifecycle.load())
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 1}
 START = datetime.datetime(2026, 10, 11, 12, 0, 0)
+# On an even seed the pull request is an agent's, and the Maintainer reviews it as a colleague's (UJ-4). On an odd
+# seed it is the Maintainer's own, as the simulator has always served, and GitHub refuses a review by its author.
+AUTHOR = "combsmith-sf-dev-lead[bot]"
+MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
+# The reviewer's App holds pull_requests: write, and GitHub cannot grant it less.
+REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
+# Invariants of rules the Kernel does not hold yet, each named by its test in tests/test_decide.py, which is marked
+# @pending there. A breach of one is noted in `unheld`, not raised, until the mark comes off in both places.
+NOT_YET_HELD = ("test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue",)
 
 
 class Broken(AssertionError):
@@ -41,7 +50,10 @@ class World:
         self.minute = 0
         self.content = 1
         self.pr_state = "open"
-        self.author = self.last_pusher = "don-petry"
+        self.cls = "maintainer" if seed % 2 else "agent"
+        self.author = self.last_pusher = AUTHOR if self.cls == "agent" else MAINTAINER["name"]
+        self.asked = False         # the Maintainer's request for changes stands, as the world keeps it
+        self.unheld = []           # breaches of invariants the Kernel does not hold yet (NOT_YET_HELD)
         self.labels = set()
         self.threads, self.reviews, self.runs = [], [], []
         self.checks = dict.fromkeys(CONFIG["required_lenses"]["deterministic"], "pending")
@@ -68,7 +80,7 @@ class World:
     def facts(self) -> dict:
         return {
             "schema": "facts/1", "item": dict(ITEM), "state": self.pr_state, "is_draft": False,
-            "class": "maintainer", "author": self.author, "last_pusher": self.last_pusher,
+            "class": self.cls, "author": self.author, "last_pusher": self.last_pusher,
             "targets_protected": True, "mergeable": True, "content_id": self.cid(),
             "diff": {"files": 2, "lines": 40, "truncated": False}, "labels": sorted(self.labels),
             "admitted_at": None, "last_push_at": self.last_push, "last_writer_action_at": self.last_writer,
@@ -105,6 +117,14 @@ class World:
     def check(self, ok: bool, invariant: str):
         if not ok:
             raise Broken("seed %d broke %s\n%s" % (self.seed, invariant, "\n".join(self.trace[-25:])))
+
+    def check_unheld(self, ok: bool, test: str, invariant: str):
+        """`check`, for a rule whose test is still marked @pending: a breach is noted, and raised once it is held."""
+        if test not in NOT_YET_HELD:
+            self.check(ok, invariant)
+        elif not ok:
+            self.unheld.append(test)
+            self.note("not held yet: %s" % invariant)
 
     # ---- the poller
     def poll(self):
@@ -163,6 +183,8 @@ class World:
         if self.held() or d["content_id"] != self.cid() or not same:
             self.note("apply: refused, the item changed")
             return
+        # Only that person's approval, or a writer's dismissal, ends it: never new content or an App (L-17).
+        self.check(not self.asked, "a writer's request for changes is passed over")
         if d["action"] == "issue_approval":
             self.approve()
         elif d["action"] == "enqueue":
@@ -187,8 +209,9 @@ class World:
             self.note("run %s: the approval did not land" % run["run"])
             return
         # GitHub: the_machine_users_approval_counts
-        self.reviews = [{"actor": CONFIG["approver"], "state": "approved", "commit": "c%d" % self.content,
-                         "content_id": self.cid()}]
+        self.reviews.append({"by": {"kind": "lens", "name": CONFIG["approver"], "can_write": True}, "state": "approved",
+                             "commit": "c%d" % self.content, "content_id": self.cid(), "submitted_at": self.now(),
+                             "dismissed_by": None, "dismissed_from": None})
         self.acts += 1
         self.note("run %s: approved %s" % (run["run"], self.cid()))
 
@@ -267,9 +290,20 @@ class World:
         # GitHub: a_push_leaves_the_queue
         self.queue = False
         # GitHub: an_approval_survives_a_push
+        # GitHub: a_request_for_changes_survives_a_push
         self.note("push by %s -> %s" % (who, self.cid()))
 
     def platform(self):
+        live = [rv for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"] and rv["state"] != "dismissed"]
+        if self.faults and live and self.rng.random() < 0.1:
+            # GitHub: an_app_can_dismiss_a_review
+            dismissed = live[-1]
+            dismissed.update(state="dismissed", dismissed_from=dismissed["state"], dismissed_by=dict(REVIEWER_APP))
+            # A dismissed request still stands; a dismissed approval still answered it; a dismissed comment changes nothing.
+            latest = self.verdict()
+            self.asked = latest is not None and "changes_requested" in (latest["state"], latest["dismissed_from"])
+            self.note("the reviewer's App dismissed the Maintainer's review (%s)" % dismissed["dismissed_from"])
+            return
         if self.queue and (not self.queue_merges or (self.faults and self.rng.random() < 0.2)):
             # GitHub: the_queue_can_eject
             self.queue = False
@@ -278,6 +312,9 @@ class World:
         # GitHub: the_queue_merges
         # GitHub: the_merge_group_is_not_checked
         if self.queue and self.rng.random() < 0.6:
+            # A request made after the item entered the queue takes it out: #33 dequeues.
+            self.check_unheld(not self.asked, "test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue",
+                              "a merge over a writer's request for changes")
             self.pr_state = "merged"
             self.note("merged")
             return
@@ -292,6 +329,8 @@ class World:
                 self.note("check %s: %s" % (lens, self.checks[lens]))
 
     def person(self):
+        # GitHub refuses a review by the pull request's author: on the Maintainer's own, they do as they always did.
+        reviews = self.cls == "agent"
         roll = self.rng.random()
         if roll < 0.25:
             self.labels ^= {t.LABEL_HOLD}
@@ -299,12 +338,14 @@ class World:
             self.note("maintainer toggled hold -> %s" % sorted(self.labels))
         elif roll < 0.45:
             self.push("don-petry", writer=True)
-        elif roll < 0.60:
+        elif roll < (0.55 if reviews else 0.60):
             self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
                                  "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
                                  "severity": None, "resolved_by": None, "opened_at": self.now()})
             self.writer_acted()
             self.note("maintainer opened a thread")
+        elif reviews and roll < 0.65:
+            self.review(self.pick(["changes_requested", "commented", "approved"]))
         else:
             mine = [th for th in self.threads if not th["resolved"] and th["opened_by"]["kind"] == "human"]
             for th in mine:
@@ -312,6 +353,25 @@ class World:
             if mine:     # resolving nothing is no action, and renews nothing (I-28)
                 self.writer_acted()
                 self.note("maintainer resolved %d threads" % len(mine))
+
+    def review(self, state: str):
+        """The Maintainer reviews. A request for changes stands until they approve; a comment changes nothing."""
+        self.reviews.append({"by": dict(MAINTAINER), "state": state, "commit": "c%d" % self.content,
+                             "content_id": self.cid(), "submitted_at": self.now(), "dismissed_by": None,
+                             "dismissed_from": None})
+        if state != "commented":
+            self.asked = state == "changes_requested"
+        self.writer_acted()
+        self.note("maintainer reviewed: %s" % state)
+
+    def verdict(self):
+        """The Maintainer's latest verdict, dismissed or not, or None. A comment is none, dismissed or not.
+
+        A dismissed approval still answered what came before it; a dismissed request still stands.
+        """
+        mine = [rv for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"] and rv["state"] != "commented"
+                and rv["dismissed_from"] != "commented"]
+        return mine[-1] if mine else None
 
     # ---- one step, and the invariants that hold at every step
     def step(self):
@@ -336,9 +396,10 @@ class World:
     def invariants(self):
         self.check(len([r for r in self.runs if r["status"] == "in_progress"]) <= 1, "I-2 one writer per item")
         for rv in self.reviews:
-            self.check(rv["actor"] not in (self.author,), "I-26 the approver is the author")
+            self.check(rv["by"]["name"] not in (self.author,), "I-26 the approver is the author")
         if self.pr_state == "merged":
-            ok = any(rv["state"] == "approved" and rv["content_id"] == self.cid() for rv in self.reviews)
+            ok = any(rv["by"]["name"] == CONFIG["approver"] and rv["state"] == "approved"
+                     and rv["content_id"] == self.cid() for rv in self.reviews)
             self.check(ok, "NFR-4 merged without an approval of the merged content")
         since = [r for r in self.runs if r["started_at"] > self.last_writer and r["outcome"] != "superseded"]
         # A landed approval is an act, counted below; every other Run, a failed approval among them, is spent.
@@ -360,6 +421,11 @@ class World:
         for th in self.threads:
             if th["opened_by"]["kind"] == "human":
                 th.update(resolved=True, resolved_by="don-petry")
+        # The Maintainer approves what they asked to be changed, after the last step: a request and an approval in
+        # the same second leave the request standing.
+        self.minute += 1
+        if self.asked:
+            self.review("approved")
         # The person runs again every check that did not pass.
         self.checks = {k: ("pending" if v != "success" else v) for k, v in self.checks.items()}
         self.writer_acted()
