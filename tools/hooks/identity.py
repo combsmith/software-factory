@@ -59,6 +59,16 @@ ENVIRONMENT = re.compile(r"^(GIT_AUTHOR_\w*|GIT_COMMITTER_\w*|GIT_CONFIG\w*|GIT_
 GIT_CONFIG_FILE = re.compile(r"(^|/)\.git/config$|\.gitconfig$|(^|/)git/config$")
 KEYS = re.compile(r"^(user|author|committer|credential|url|remote|include|includeif|core\.sshcommand|alias|http)\b",
                   re.I)
+# Set in the command, each of these names a program git runs, or where it finds one; KEYS holds the rest.
+PROGRAM_KEYS = re.compile(r"^(merge\..+\.driver|core\.pager|pager\..+|core\.editor|sequence\.editor|core\.fsmonitor|"
+                          r"core\.hookspath|core\.attributesfile|diff\.external|diff\..+\.(textconv|command)|"
+                          r"filter\..+|gpg\.program|gpg\..+\.program|gpg\.ssh\.defaultkeycommand|trailer\..+\.cmd|"
+                          r"tar\..+\.command|(difftool|mergetool|man|browser)\..+\.(cmd|path)|sendemail\.sendmailcmd|"
+                          r"remote\..+\.vcs|protocol\..+\.allow|init\.templatedir|core\.gitproxy|ssh\.variant|"
+                          r"uploadpack\.packobjectshook)$", re.I)
+SWITCHES = re.compile(r"^(pager\..+|core\.fsmonitor)$", re.I)    # of these, a boolean runs nothing
+BOOLEANS = {"true", "false", "yes", "no", "on", "off", "1", "0"}
+PAGERS = {"cat", "less"}    # a bare program git may run, which runs nothing of its own
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 IDENT = re.compile(r"^(.*) <(.*)> \d+ [+-]\d{4}$")
 GITHUB = re.compile(r"^https://(?:([^@/]+)@)?github\.com/")
@@ -171,9 +181,12 @@ def _calls(commands: list, cwd, text: str) -> tuple:
                 if KEYS.match(value):
                     always.append(("identity_set_in_command", "git %s %s sets in the command what the hook reads "
                                                               "from configuration" % (option, value.split("=")[0])))
-                if WRITE_TEXT.search(value.partition("=")[2]):     # a driver, a pager or a tool: a program git runs
-                    always.append(("command_unreadable", "git %s %s sets a command the hook cannot read"
-                                   % (option, value.split("=")[0])))
+                key, valued, setting = value.partition("=")
+                plain = option == "-c" and (setting in PAGERS or (SWITCHES.match(key) is not None and (
+                    not valued or setting.lower() in BOOLEANS)))
+                if PROGRAM_KEYS.match(key) and not plain:
+                    always.append(("command_unreadable", "git %s %s sets a program git runs, which the hook cannot "
+                                                         "read" % (option, key)))
             elif option in ("--git-dir", "--work-tree"):
                 always.append(("identity_set_in_command", "%s points git at a repo the hook does not read" % option))
             elif option not in GIT_FLAGS:

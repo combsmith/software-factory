@@ -86,6 +86,8 @@ GIT_READS = {"add", "annotate", "blame", "branch", "cat-file", "check-attr", "ch
              "name-rev", "prune", "push", "range-diff", "reflog", "remote", "repack", "rev-list", "rev-parse",
              "shortlog", "show", "show-branch", "show-ref", "status", "tag", "var", "verify-commit", "verify-tag",
              "version", "whatchanged", "worktree"}
+GIT_READS |= {"check-mailmap", "check-ref-format", "get-tar-commit-id", "merge-tree", "patch-id", "show-index",
+              "verify-pack"}    # plumbing that reads; and commit-graph when it verifies, in _git
 GIT_VALUED = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}
 # Every git command the hooks know: another is an alias, or an extension, which the hook cannot read.
 GIT_KNOWN = identity.WRITES | identity.RUNNERS | identity.OTHERS | GIT_READS | {"symbolic-ref", "update-ref"}
@@ -609,7 +611,7 @@ class Command:
                 tree_unknown = True
             i += 1
         sub, rest = (args[i], args[i + 1:]) if i < len(args) else ("", [])
-        if sub in GIT_READS:        # but --output writes a file
+        if sub in GIT_READS or (sub, rest[:1]) == ("commit-graph", ["verify"]):     # but --output writes a file
             outputs = [rest[j + 1] if w == "--output" and j + 1 < len(rest) else w[len("--output="):]
                        for j, w in enumerate(rest) if w == "--output" or w.startswith("--output=")]
             self.check(outputs, holds=False, here=here, text=False)

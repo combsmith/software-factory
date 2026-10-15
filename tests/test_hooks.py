@@ -229,8 +229,22 @@ class Identity(unittest.TestCase):
                         "git -c core.pager='git push origin HEAD:main' log"):
             self.assertIn("command_unreadable", self.refused(command), command)
 
-    def test_a_configuration_set_in_the_command_that_names_no_commit_or_push_passes(self):
-        for command in ("git -c color.ui=always log", "git -c merge.x.driver='cat %A' merge-tree --write-tree A B"):
+    def test_a_program_set_in_the_command_for_git_to_run_is_refused(self):
+        for command in ("git -c merge.evil.driver=./driver merge-tree --write-tree a b",
+                        "GIT_X='git push' git --config-env=pager.log=GIT_X log",
+                        "git --config-env=core.pager=GIT_X log", "git --config-env core.pager=GIT_X log",
+                        "git -c merge.x.driver='cat %A' merge-tree A B",
+                        "git -c core.pager='less -R' log", "git -c core.pager=/bin/cat log", "git -c pager.log=./p log",
+                        "git -c core.hooksPath=/tmp/h status", "git -c core.fsmonitor=./m status",
+                        "git -c diff.x.textconv=./t log -p", "git -c filter.lfs.smudge=./s status",
+                        "git -c gpg.program=./g log --show-signature", "git -c difftool.x.path=./d diff",
+                        "git -c protocol.ext.allow=always fetch origin", "git -c core.editor=./e status"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+
+    def test_a_configuration_set_in_the_command_that_runs_no_program_passes(self):
+        for command in ("git -c core.pager=cat log", "git -c core.pager=less log", "git -c pager.log=false log",
+                        "git -c pager.log log", "git -c core.fsmonitor=off status", "git -c color.ui=always log",
+                        "git -c pretty.foo='format:git commit %H' log --pretty=foo -1"):
             self.assertEqual(self.codes(command, folder(), programs()), "", command)
 
     def test_a_push_as_the_machine_user_or_anyone_else_is_refused(self):
@@ -938,6 +952,15 @@ class MergesAndSettings(Asks):
         for command in ("git merge-tree --write-tree A B", "git commit-graph write --reachable"):
             self.assertEqual(self.run_(command), "", command)
         self.asked(self.run_("git mt A B"), "command_unreadable", "an alias")
+
+    def test_git_plumbing_that_reads_is_not_asked_about_for_the_words_it_is_given(self):
+        for command in ("git check-ref-format --branch lifecycle/x", "git check-mailmap 'A <a@x>' lifecycle/x",
+                        "git verify-pack -v lifecycle/x.idx", "git show-index lifecycle/x.idx",
+                        "git patch-id lifecycle/x", "git get-tar-commit-id lifecycle/x",
+                        "git merge-tree --write-tree lifecycle/x main", "git merge-tree lifecycle/x main",
+                        "git commit-graph verify --object-dir lifecycle/x"):
+            self.assertEqual(self.run_(command), "", command)
+        self.asked(self.run_("git commit-graph write --object-dir lifecycle/x"), "protected_path", "a write")
 
 
 class RulesChanged(unittest.TestCase):
