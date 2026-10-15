@@ -2,6 +2,9 @@
 
 The checks, `verify.py` which runs them all, and `mutants.py` which breaks the Kernel on purpose.
 `walk.py` lists this working tree's files, and nothing in another nested inside it, for all of them.
+It skips local output, Python's caches and the corpus, only while git's index does not hold it, and
+reads the index as a file, so no git is needed. CI checks out the commit afresh, so there all else
+is committed; an export, with no `.git`, cannot tell, and skips it all.
 `make_corpus.py` records every decision the Kernel makes, under a directory git ignores, to hold
 another implementation to this one; the required check does not depend on it. `hooks/` holds the
 session hooks `.claude/settings.json` runs; `hooks/shell.py` reads a shell command as words for any of them.
@@ -13,6 +16,10 @@ session hooks `.claude/settings.json` runs; `hooks/shell.py` reads a shell comma
 | A check imports only what `STDLIB` in `check_repo.py` lists; a module not yet used is added there in the same change | `tests/test_tools.py::test_third_party_code_is_caught` |
 | The tree is walked or copied only by `walk.py`, which skips another working tree nested in this one | `tests/test_tools.py::test_only_the_walk_walks_the_tree`, `tests/test_tools.py::test_another_working_tree_inside_this_one_is_not_read` |
 | No link is committed unless `LINKS` in `check_repo.py` names it; the walk lists a link and never follows it | `tests/test_tools.py::test_a_link_is_refused_wherever_it_is`, `tests/test_tools.py::test_every_link_is_listed_and_none_is_followed` |
+| No compiled code and no submodule is committed, in any case of its name: Python loads what no check reads | `tests/test_tools.py::test_compiled_code_is_refused_wherever_it_is`, `tests/test_tools.py::test_a_submodule_is_refused` |
+| Local output is skipped only while git's index does not hold it, and refused when it does | `tests/test_tools.py::test_local_output_is_skipped_only_while_git_does_not_hold_it`, `tests/test_tools.py::test_committed_local_output_is_refused` |
+| A path git's index holds is refused by its name though the working tree no longer has it | `tests/test_tools.py::test_what_git_holds_is_refused_though_gone_from_disk` |
+| An index the walk cannot read is a problem, and skips nothing | `tests/test_tools.py::test_an_index_that_cannot_be_read_is_a_problem_and_skips_nothing` |
 | A check fails closed: what it does not understand is a problem, and it allows what is named instead of refusing what is known | `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way` |
 | A workflow rule has a counter-example that breaks it and nothing else | `tests/test_tools.py::test_a_rule_with_no_counter_example_is_caught` |
 | `make fast` is `make verify` without the test modules in `SLOW`, and is what runs after each edit | `tests/test_tools.py::test_make_fast_is_verify_without_the_seeded_simulation` |
