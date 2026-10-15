@@ -10,6 +10,8 @@ from tools.jsonschema_lite import validate
 
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
 REVIEWED = [run()]
+# A dependency bot's pull request, whose head that bot pushed itself.
+DEPENDENCY = {"class": "dependency", "author": "dependabot[bot]", "last_pusher": "dependabot[bot]"}
 
 
 def go(f, runs=(), ctx=None, cfg=None):
@@ -134,6 +136,61 @@ class Classes(unittest.TestCase):
     def test_stacked_pull_request_is_not_served(self):
         d = go(facts(targets_protected=False))
         self.assertEqual((d["state"], d["outcome"]), ("not_served", "nothing"))
+
+    def test_a_dependency_update_needs_no_model_review(self):  # §4.2
+        self.assertEqual(go(facts(**{"class": "dependency"}))["state"], "converged")
+        d = go(facts(**DEPENDENCY))
+        self.assertEqual((d["state"], d["outcome"], d["action"]), ("converged", "act", "issue_approval"))
+        d = go(facts(**dict(DEPENDENCY, **{"class": "maintainer"})))
+        self.assertEqual(d["admit"], {"role": "pr-review", "intent": "review-change", "content_id": "sha256:aaaa"})
+
+    def test_every_other_class_needs_a_model_review(self):
+        admitted = {"labels": ["factory:admit"], "admitted_at": "2026-10-11T12:30:00Z"}
+        for cls, over in (("agent", {}), ("maintainer", {}), ("outside", admitted)):
+            d = go(facts(**dict(DEPENDENCY, **{"class": cls}, **over)))
+            self.assertEqual((d["reason"], d["admit"]["intent"]), ("awaiting_review", "review-change"), cls)
+
+    def test_a_dependency_update_someone_else_pushed_to_needs_a_model_review(self):
+        # The class is worked out from who opened the pull request; whoever pushed its head put content in it.
+        for pusher in ("dev-lead[bot]", "don-petry"):
+            f = facts(**dict(DEPENDENCY, last_pusher=pusher))
+            d = go(f)
+            self.assertEqual((d["reason"], d["admit"]["intent"]), ("awaiting_review", "review-change"), pusher)
+            self.assertEqual(go(f, REVIEWED)["action"], "issue_approval")
+
+    def test_a_dependency_update_is_judged_by_every_deterministic_lens(self):  # I-27
+        # secret-scan and code-scanning judge security; a dependency update meets them as any change does.
+        for i, check in enumerate(GREEN):
+            failed = GREEN[:i] + [dict(check, conclusion="failure")] + GREEN[i + 1:]
+            d = go(facts(**DEPENDENCY, checks=failed))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("addressing", "check_failed", [check["lens"]]))
+            self.assertEqual(d["admit"]["intent"], "fix-findings")
+            waiting = GREEN[:i] + [dict(check, conclusion="pending")] + GREEN[i + 1:]
+            d = go(facts(**DEPENDENCY, checks=waiting))
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("verifying", "awaiting_checks", "nothing"))
+
+    def test_a_writers_thread_still_gates_a_dependency_update(self):
+        d = go(facts(**DEPENDENCY, threads=[thread(kind="human", name="don-petry", severity=None)]))
+        self.assertEqual((d["state"], d["reason"]), ("addressing", "human_finding"))
+        f = facts(**DEPENDENCY, threads=[thread(kind="human", name="stranger", can_write=False, severity=None)])
+        self.assertEqual(go(f)["state"], "converged")
+
+    def test_a_model_lens_thread_does_not_gate_a_dependency_update(self):  # §4.2: no model Lens is required of it
+        d = go(facts(**DEPENDENCY, threads=[thread()]))
+        self.assertEqual((d["state"], d["outcome"]), ("converged", "act"))
+        d = go(facts(**dict(DEPENDENCY, last_pusher="dev-lead[bot]"), threads=[thread()]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"]), ("addressing", "findings_open"))
+
+    def test_a_dependency_update_skips_the_model_review_and_nothing_else(self):
+        approved = [{"actor": "donpetry-bot", "state": "approved", "commit": "c1", "content_id": "sha256:aaaa"}]
+        cases = [({"labels": ["factory:hold"]}, None, ("held", "human_hold", "hold")),
+                 ({"mergeable": None}, None, (None, "mergeable_unreadable", "defer")),
+                 ({"mergeable": False}, None, ("addressing", "conflict", "admit")),
+                 ({}, context(paused=True), ("converged", "paused", "defer")),
+                 ({"reviews": approved}, None, ("converged", "approved", "act"))]
+        for over, ctx, want in cases:
+            d = go(facts(**DEPENDENCY, **over), ctx=ctx)
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), want, over)
 
 
 class Content(unittest.TestCase):
@@ -281,10 +338,6 @@ class NotYetHeld(unittest.TestCase):
         # The facts do not yet say whether a review's author can write; this one is the Maintainer's.
         asked = [{"actor": "don-petry", "state": "changes_requested", "commit": "c1", "content_id": "sha256:aaaa"}]
         self.assertNotEqual(go(facts(reviews=asked), REVIEWED)["state"], "converged")
-
-    @pending
-    def test_a_dependency_update_needs_no_model_review(self):
-        self.assertEqual(go(facts(**{"class": "dependency"}))["state"], "converged")
 
 
 if __name__ == "__main__":

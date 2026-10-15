@@ -1,7 +1,8 @@
 # config/
 
 The Factory's settings, as data: `defaults.json` for the Kernel's limits and required Lenses (a
-deterministic Lens is named for the check GitHub reports: `verify`, `secret-scan`, `code-scanning`),
+deterministic Lens is named for the check GitHub reports: `verify`, `secret-scan`, `code-scanning`;
+only a dependency update may be judged without a model Lens),
 `authority.json` for who owns each category of Finding, `rubric-pr-review.json` for what a review
 must look at.
 

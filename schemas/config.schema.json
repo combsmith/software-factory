@@ -28,7 +28,8 @@
       "additionalProperties": false,
       "required": [
         "deterministic",
-        "model"
+        "model",
+        "model_not_required_for"
       ],
       "properties": {
         "deterministic": {
@@ -42,6 +43,14 @@
           "minItems": 1,
           "items": {
             "type": "string"
+          }
+        },
+        "model_not_required_for": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "dependency"
+            ]
           }
         }
       }

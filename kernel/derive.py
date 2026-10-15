@@ -43,13 +43,28 @@ def reviewed_clean_or_not(runs: list, facts: dict, role: str) -> bool:
     )
 
 
+def required_model_lenses(facts: dict, config: dict) -> list:
+    """The model Lenses whose review this pull request needs.
+
+    A dependency update is judged by the deterministic Lenses alone. It is a
+    pull request of a class the configuration names, whose head was pushed
+    by the identity that opened it. The class is worked out from who opened
+    it; anyone else's push puts content of their own in it, and that is
+    reviewed as any change is.
+    """
+    lenses = config["required_lenses"]
+    if facts["class"] in lenses["model_not_required_for"] and facts["last_pusher"] == facts["author"]:
+        return []
+    return list(lenses["model"])
+
+
 def gating_threads(facts: dict, config: dict) -> list:
     """Open threads that hold the pull request.
 
     A person with write access always gates. A Lens gates only if it is
     required and its Finding is blocking or major. Everyone else informs.
     """
-    required = set(config["required_lenses"]["model"])
+    required = set(required_model_lenses(facts, config))
     out = []
     for th in facts["threads"]:
         if th["resolved"]:
@@ -159,8 +174,9 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     if waiting:
         return {"state": t.VERIFYING, "reason": "awaiting_checks", "evidence": waiting}
 
+    # Then the model Lenses this item needs: a dependency update needs none, and skips nothing else.
     mine = runs_on(runs, facts)
-    for lens in config["required_lenses"]["model"]:
+    for lens in required_model_lenses(facts, config):
         if not reviewed_clean_or_not(mine, facts, lens):
             return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens]}
 
