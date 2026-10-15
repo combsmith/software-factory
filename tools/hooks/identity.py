@@ -26,14 +26,21 @@ DEADLINE = 45   # seconds for the whole check; the settings give the hook 60, an
 WRITES = {"am", "cherry-pick", "commit", "commit-tree", "filter-branch", "merge", "pull", "push", "rebase", "revert"}
 # Known, and not a commit. These run commands of their own, so their text is read for a commit or push.
 RUNNERS = {"bisect", "difftool", "mergetool", "submodule"}
-OTHERS = {"add", "annotate", "apply", "archive", "blame", "branch", "bundle", "cat-file", "check-attr",
-          "check-ignore", "checkout", "cherry", "clean", "clone", "config", "count-objects", "describe", "diff",
-          "diff-files", "diff-index", "diff-tree", "fetch", "for-each-ref", "format-patch", "fsck", "gc", "grep",
-          "hash-object", "help", "init", "log", "ls-files", "ls-remote", "ls-tree", "maintenance", "merge-base",
-          "mv", "name-rev", "notes", "prune", "range-diff", "reflog", "remote", "repack", "reset", "restore",
-          "rev-list", "rev-parse", "rm", "shortlog", "show", "show-branch", "show-ref", "sparse-checkout", "stash",
-          "status", "switch", "symbolic-ref", "tag", "update-index", "update-ref", "var", "verify-commit",
-          "verify-tag", "version", "whatchanged", "worktree", "write-tree"}
+# Known, and not themselves a commit or a push: mostly they read, so a write verb in their name or their words is
+# only text. The split from the rest of OTHERS is documentary; every command in OTHERS is treated alike. Options
+# that make one of these run a program (--upload-pack, --exec, grep -O) or move a branch (git fetch . main:side)
+# are not read here; that is an open issue of its own.
+READS = {"annotate", "archive", "blame", "cat-file", "check-attr", "check-ignore", "check-mailmap",
+         "check-ref-format", "cherry", "commit-graph", "count-objects", "describe", "diff", "diff-files", "diff-index",
+         "diff-tree", "fetch", "for-each-ref", "fsck", "get-tar-commit-id", "grep", "help", "log", "ls-files",
+         "ls-remote", "ls-tree", "merge-base", "merge-tree", "name-rev", "patch-id", "range-diff", "rev-list",
+         "rev-parse", "shortlog", "show", "show-branch", "show-index", "show-ref", "status", "var", "verify-commit",
+         "verify-pack", "verify-tag", "version", "whatchanged"}
+# Known, and not a commit: READS, and these, which change the repo, its index or its working tree.
+OTHERS = READS | {"add", "apply", "branch", "bundle", "checkout", "clean", "clone", "config", "format-patch", "gc",
+                  "hash-object", "init", "maintenance", "mv", "notes", "prune", "reflog", "remote", "repack", "reset",
+                  "restore", "rm", "sparse-checkout", "stash", "switch", "symbolic-ref", "tag", "update-index",
+                  "update-ref", "worktree", "write-tree"}
 GIT_FLAGS = {"-p", "--paginate", "-P", "--no-pager", "--bare", "--no-replace-objects", "--literal-pathspecs",
              "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs", "--no-optional-locks", "--no-lazy-fetch",
              "--no-advice", "--version", "-v", "--help", "-h", "--html-path", "--man-path", "--info-path",
@@ -52,6 +59,16 @@ ENVIRONMENT = re.compile(r"^(GIT_AUTHOR_\w*|GIT_COMMITTER_\w*|GIT_CONFIG\w*|GIT_
 GIT_CONFIG_FILE = re.compile(r"(^|/)\.git/config$|\.gitconfig$|(^|/)git/config$")
 KEYS = re.compile(r"^(user|author|committer|credential|url|remote|include|includeif|core\.sshcommand|alias|http)\b",
                   re.I)
+# Set in the command, each of these names a program git runs, or where it finds one; KEYS holds the rest.
+PROGRAM_KEYS = re.compile(r"^(merge\..+\.driver|core\.pager|pager\..+|core\.editor|sequence\.editor|core\.fsmonitor|"
+                          r"core\.hookspath|core\.attributesfile|diff\.external|diff\..+\.(textconv|command)|"
+                          r"filter\..+|gpg\.program|gpg\..+\.program|gpg\.ssh\.defaultkeycommand|trailer\..+\.cmd|"
+                          r"tar\..+\.command|(difftool|mergetool|man|browser)\..+\.(cmd|path)|sendemail\.sendmailcmd|"
+                          r"remote\..+\.vcs|protocol\..+\.allow|init\.templatedir|core\.gitproxy|ssh\.variant|"
+                          r"uploadpack\.packobjectshook)$", re.I)
+SWITCHES = re.compile(r"^(pager\..+|core\.fsmonitor)$", re.I)    # of these, a boolean runs nothing
+BOOLEANS = {"true", "false", "yes", "no", "on", "off", "1", "0"}
+PAGERS = {"cat", "less"}    # a bare program git may run, which runs nothing of its own
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 IDENT = re.compile(r"^(.*) <(.*)> \d+ [+-]\d{4}$")
 GITHUB = re.compile(r"^https://(?:([^@/]+)@)?github\.com/")
@@ -164,6 +181,12 @@ def _calls(commands: list, cwd, text: str) -> tuple:
                 if KEYS.match(value):
                     always.append(("identity_set_in_command", "git %s %s sets in the command what the hook reads "
                                                               "from configuration" % (option, value.split("=")[0])))
+                key, valued, setting = value.partition("=")
+                plain = option == "-c" and (setting in PAGERS or (SWITCHES.match(key) is not None and (
+                    not valued or setting.lower() in BOOLEANS)))
+                if PROGRAM_KEYS.match(key) and not plain:
+                    always.append(("command_unreadable", "git %s %s sets a program git runs, which the hook cannot "
+                                                         "read" % (option, key)))
             elif option in ("--git-dir", "--work-tree"):
                 always.append(("identity_set_in_command", "%s points git at a repo the hook does not read" % option))
             elif option not in GIT_FLAGS:

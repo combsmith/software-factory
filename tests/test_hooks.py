@@ -177,6 +177,26 @@ class Identity(unittest.TestCase):
                         "gh api -X GET search/issues -f q=x"):
             self.assertEqual(self.codes(command, folder(), programs()), "", command)
 
+    def test_a_known_command_that_is_not_a_commit_or_a_push_passes_whatever_its_name_or_its_words_say(self):
+        named = {"merge-base", "merge-tree", "rev-parse", "rev-list", "ls-tree", "ls-files", "cat-file", "show", "log",
+                 "diff", "for-each-ref", "name-rev", "describe", "archive", "fetch", "commit-graph"}
+        self.assertLessEqual(named, identity.READS)
+        self.assertFalse(identity.READS & (identity.WRITES | identity.RUNNERS))
+        for sub in sorted(identity.READS):
+            self.assertEqual(self.codes("git %s HEAD" % sub, folder(), programs()), "", sub)
+        for command in ("git merge-tree --write-tree --name-only A B", "git merge-tree A B", "git merge-base A B",
+                        "git -C . merge-base --is-ancestor HEAD origin/main", "git rev-parse --verify HEAD",
+                        "git rev-list --count A..B", "git ls-tree -r HEAD", "git ls-files -z", "git cat-file -p HEAD",
+                        "git show --stat HEAD", "git log --oneline -3", "git diff A B", "git name-rev HEAD",
+                        "git for-each-ref --format='%(refname)' refs/heads", "git describe --tags", "git fetch origin",
+                        "git archive --format=tar HEAD", "git commit-graph verify",
+                        "git commit-graph write --reachable"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+        for command in ("git log --grep=commit", "git log --grep commit --grep push -3", "git rev-list --grep=merge A",
+                        "git show :/rebase", "git diff commit push", "git ls-files push.py cherry-pick.md",
+                        "git for-each-ref refs/heads/rebase", "git log --author=revert"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+
     def test_a_commit_identity_that_is_not_the_maintainers_is_refused(self):
         cases = [(self.bad, {}), (repo(email="someone@example.com"), {}), (repo(name="Someone Else"), {}),
                  (self.here, {"GIT_COMMITTER_EMAIL": "someone@example.com"})]
@@ -200,11 +220,32 @@ class Identity(unittest.TestCase):
             self.assertIn("identity_set_in_command", self.refused(command), command)
 
     def test_what_looks_like_a_commit_or_push_and_was_not_read_as_one_is_refused(self):
-        self.assertIn("git_command_unknown", self.refused("git ci -m x"))
+        for command in ("git ci -m x", "git mt --write-tree A B", "git merge-trees A B", "git commit-graphs write"):
+            self.assertIn("git_command_unknown", self.refused(command), command)
         self.assertIn("git_command_unknown", self.refused("xargs -I{} git {} < verbs"))
         self.assertIn("git_option_unknown", self.refused("git --frobnicate commit -m x"))
-        for command in ("git submodule foreach git push", "echo 'git push' | sh", "python3 -c 'git push'"):
+        for command in ("git submodule foreach git push", "echo 'git push' | sh", "python3 -c 'git push'",
+                        "git -c merge.x.driver='git push origin HEAD' merge-tree --write-tree A B",
+                        "git -c core.pager='git push origin HEAD:main' log"):
             self.assertIn("command_unreadable", self.refused(command), command)
+
+    def test_a_program_set_in_the_command_for_git_to_run_is_refused(self):
+        for command in ("git -c merge.evil.driver=./driver merge-tree --write-tree a b",
+                        "GIT_X='git push' git --config-env=pager.log=GIT_X log",
+                        "git --config-env=core.pager=GIT_X log", "git --config-env core.pager=GIT_X log",
+                        "git -c merge.x.driver='cat %A' merge-tree A B",
+                        "git -c core.pager='less -R' log", "git -c core.pager=/bin/cat log", "git -c pager.log=./p log",
+                        "git -c core.hooksPath=/tmp/h status", "git -c core.fsmonitor=./m status",
+                        "git -c diff.x.textconv=./t log -p", "git -c filter.lfs.smudge=./s status",
+                        "git -c gpg.program=./g log --show-signature", "git -c difftool.x.path=./d diff",
+                        "git -c protocol.ext.allow=always fetch origin", "git -c core.editor=./e status"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+
+    def test_a_configuration_set_in_the_command_that_runs_no_program_passes(self):
+        for command in ("git -c core.pager=cat log", "git -c core.pager=less log", "git -c pager.log=false log",
+                        "git -c pager.log log", "git -c core.fsmonitor=off status", "git -c color.ui=always log",
+                        "git -c pretty.foo='format:git commit %H' log --pretty=foo -1"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
 
     def test_a_push_as_the_machine_user_or_anyone_else_is_refused(self):
         self.assertIn("account_is_machine_user", self.refused("git push", FAKE_GH_USER=MACHINE))
@@ -906,6 +947,20 @@ class MergesAndSettings(Asks):
             self.assertIn('"ask"', said)
             self.assertNotIn("hunter2secret", said)
             self.assertNotIn("someone", said)
+
+    def test_the_git_commands_the_identity_hook_knows_are_known_here(self):
+        for command in ("git merge-tree --write-tree A B", "git commit-graph write --reachable"):
+            self.assertEqual(self.run_(command), "", command)
+        self.asked(self.run_("git mt A B"), "command_unreadable", "an alias")
+
+    def test_git_plumbing_that_reads_is_not_asked_about_for_the_words_it_is_given(self):
+        for command in ("git check-ref-format --branch lifecycle/x", "git check-mailmap 'A <a@x>' lifecycle/x",
+                        "git verify-pack -v lifecycle/x.idx", "git show-index lifecycle/x.idx",
+                        "git patch-id lifecycle/x", "git get-tar-commit-id lifecycle/x",
+                        "git merge-tree --write-tree lifecycle/x main", "git merge-tree lifecycle/x main",
+                        "git commit-graph verify --object-dir lifecycle/x"):
+            self.assertEqual(self.run_(command), "", command)
+        self.asked(self.run_("git commit-graph write --object-dir lifecycle/x"), "protected_path", "a write")
 
 
 class RulesChanged(unittest.TestCase):
