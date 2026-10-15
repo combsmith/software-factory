@@ -77,6 +77,7 @@ class World:
 
     def records(self) -> list:
         """What the records port lists: every Run, including one still waiting for a runner."""
+        # GitHub: a_queued_run_is_listed
         return [copy.deepcopy(r) for r in self.runs]
 
     def context(self) -> dict:
@@ -98,11 +99,15 @@ class World:
         facts, runs = self.facts(), self.records()
         fault = self.rng.random() if self.faults else 1.0
         if fault < 0.08 and self.stale is not None:
-            facts, runs = self.stale            # a stale read
+            # GitHub: a_read_can_be_stale
+            facts, runs = self.stale
         elif fault < 0.14:
+            # GitHub: a_short_diff_says_so
+            # GitHub: a_short_list_says_so
             facts["complete"][self.pick(sorted(facts["complete"]))] = False
         elif fault < 0.20 and runs:
-            runs = runs[:-1]                    # the newest Run is not listed yet
+            # GitHub: a_new_run_is_listed_late
+            runs = runs[:-1]
         self.stale = (copy.deepcopy(facts), copy.deepcopy(runs))
         wrong = validate(facts, FACTS_SCHEMA)
         self.check(not wrong, "facts are valid: %s" % "; ".join(wrong))
@@ -132,15 +137,18 @@ class World:
             return
         if d["action"] == "issue_approval":
             self.check(CONFIG["approver"] not in (self.author, self.last_pusher), "I-26 approver is author or last pusher")
+            # GitHub: the_machine_users_approval_counts
             self.reviews = [{"actor": CONFIG["approver"], "state": "approved", "commit": "c%d" % self.content,
                              "content_id": self.cid()}]
             self.note("apply: approved %s" % self.cid())
         elif d["action"] == "enqueue" and fresh["reason"] == "approved":
+            # GitHub: an_app_enters_the_queue
             self.queue = True
             self.note("apply: enqueued")
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
     def start_next(self):
+        # GitHub: a_run_waits_its_turn
         if any(r["status"] == "in_progress" for r in self.runs):
             return
         waiting = [r for r in self.runs if r["status"] == "queued"]
@@ -152,6 +160,7 @@ class World:
         again = decide(self.facts(), others, ctx, CONFIG, self.now())
         wanted = {"role": run["role"], "intent": run["intent"], "content_id": run["content_id"]}
         if again["outcome"] != "admit" or again["admit"] != wanted:
+            # GitHub: a_superseded_run_fails
             run.update(status="completed", conclusion="failure", outcome="superseded")
             self.note("run %s: superseded before it started" % run["run"])
             return
@@ -171,10 +180,12 @@ class World:
         run = live[0]
         run["status"] = "completed"
         if self.faults and self.rng.random() < 0.12:
+            # GitHub: a_killed_job_times_out
             run.update(conclusion="timed_out", outcome=self.pick(["item", "capacity", "environment"]))
             self.note("run %s: killed (%s)" % (run["run"], run["outcome"]))
             return
         if self.held() or run["content_id"] != self.cid() or self.pr_state != "open":
+            # GitHub: a_superseded_run_fails
             run.update(conclusion="failure", outcome="superseded")   # apply read the item again
             self.note("run %s: apply refused, the item changed" % run["run"])
             return
@@ -182,13 +193,16 @@ class World:
         run["conclusion"] = "success"
         if run["intent"] == "review-change":
             if self.rng.random() < 0.5:
+                # GitHub: a_lens_review_opens_a_thread
                 self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
                                      "opened_by": {"kind": "lens", "name": "pr-review", "can_write": True},
                                      "severity": self.pick(["blocking", "major", "minor"]), "resolved_by": None,
                                      "opened_at": self.now()})
         elif run["intent"] == "fix-findings":
+            # GitHub: an_app_pushes_to_the_head
             self.push("combsmith-sf-dev-lead[bot]", writer=False)
         elif run["intent"] == "adjudicate-findings":
+            # GitHub: an_app_resolves_a_lens_thread
             for th in self.threads:
                 if not th["resolved"] and th["opened_by"]["kind"] == "lens" and self.rng.random() < 0.7:
                     th.update(resolved=True, resolved_by="combsmith-sf-pr-review[bot]")
@@ -196,21 +210,29 @@ class World:
 
     # ---- the platform and the people
     def push(self, who: str, writer: bool):
+        # GitHub: a_push_is_new_content
         self.content += 1
+        # GitHub: the_pusher_is_the_last_pusher
         self.last_pusher, self.last_push = who, self.now()
         if writer:
             self.last_writer = self.now()
+        # GitHub: a_push_restarts_the_checks
         self.checks = dict.fromkeys(self.checks, "pending")
+        # GitHub: a_push_leaves_the_queue
         self.queue = False
+        # GitHub: an_approval_survives_a_push
         self.note("push by %s -> %s" % (who, self.cid()))
 
     def platform(self):
+        # GitHub: the_queue_merges
+        # GitHub: the_merge_group_is_not_checked
         if self.queue and self.rng.random() < 0.6:
             self.pr_state = "merged"
             self.note("merged")
             return
         pending = [k for k, v in self.checks.items() if v == "pending"]
         if pending:
+            # GitHub: a_check_reports_on_its_own
             self.checks[self.pick(pending)] = "success" if self.rng.random() < 0.85 else "failure"
 
     def person(self):
@@ -240,7 +262,8 @@ class World:
             return
         roll = self.rng.random()
         if roll < 0.40:
-            if not (self.faults and self.rng.random() < 0.3):   # a dropped tick
+            # GitHub: a_tick_can_be_lost
+            if not (self.faults and self.rng.random() < 0.3):
                 self.poll()
         elif roll < 0.60:
             self.start_next()

@@ -15,6 +15,8 @@ STDLIB = {"__future__", "ast", "contextlib", "copy", "datetime", "hashlib", "io"
           "subprocess", "sys", "tempfile", "typing", "unittest"}
 # Ways to load code that the list above cannot see.
 LOADERS = {"__import__", "exec", "eval", "compile"}
+# base64: tools/check_trials.py looks inside base64 for a credential.
+STDLIB = STDLIB | {"base64"}
 MANIFESTS = {"pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "Pipfile.lock", "poetry.lock", "uv.lock",
              "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "environment.yml", "go.mod",
              "Cargo.toml", "Gemfile"}
@@ -128,9 +130,11 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems.append("%s: a test below tests/ is never found; keep tests in tests/ itself" % rel)
         if path.suffix not in TEXT:
             continue
-        if path.suffix != ".md" and FOREIGN in text:
+        # A fixture keeps what GitHub said, which may name either. check_trials.py keeps all else out of trials/.
+        recorded = len(rel.parts) == 2 and rel.parts[0] == "trials" and path.suffix == ".json"
+        if path.suffix != ".md" and FOREIGN in text and not recorded:
             problems.append("%s: names the proof-of-concept repo; nothing here depends on it" % rel)
-        if rel.parts[0] != "docs" and MODEL_ID.search(text):
+        if rel.parts[0] != "docs" and MODEL_ID.search(text) and not recorded:
             problems.append("%s: names a model by its full id" % rel)
         if path.suffix == ".py":
             problems += _python(rel, text)

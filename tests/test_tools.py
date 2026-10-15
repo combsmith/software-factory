@@ -6,6 +6,7 @@ one in the copy, so that a check is run from its front door and not only by its 
 from __future__ import annotations
 
 import ast
+import base64
 import contextlib
 import copy
 import io
@@ -15,7 +16,7 @@ import tempfile
 import unittest
 
 from tools import (check_apps, check_authority, check_context, check_examples, check_lifecycle, check_purity,
-                   check_repo, check_workflows, verify, walk)
+                   check_repo, check_trials, check_workflows, redact_trial, verify, walk)
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
@@ -655,6 +656,29 @@ class Context(unittest.TestCase):
                                                "tools/x.py": ""}))
         self.assertTrue(caught(bare, "no 'Org standard:' line") and not caught(cited, "no 'Org standard:' line"))
 
+    def test_a_skill_the_root_file_does_not_point_to_is_caught(self):
+        good = "---\nname: run-it\ndescription: Run it, when a story asks for it.\n---\n\n# Run it\n"
+        pointer = "Read `.claude/skills/run-it/SKILL.md`.\n"
+        self.assertEqual(check_context._skills(tree({"AGENTS.md": pointer, ".claude/skills/run-it/SKILL.md": good})), [])
+        quoted = good.replace("name: run-it", 'name: "run-it"').replace("description: Run it", "description: >\n  Run it")
+        self.assertEqual(check_context._skills(tree({"AGENTS.md": pointer, ".claude/skills/run-it/SKILL.md": quoted})), [])
+        root = tree({"AGENTS.md": "Not `.claude/skills/run-it/SKILL.md.old`, nor x.claude/skills/run-it/SKILL.mdx\n",
+                     ".claude/skills/run-it/SKILL.md": good, ".claude/skills/other/SKILL.md": "# Other\n",
+                     ".claude/skills/third/SKILL.md": good.replace("description: Run it, when a story asks for it.", "description:"),
+                     ".claude/skills/fourth/SKILL.md": good.replace("run-it", "fourth").replace("description: Run it, when a story asks for it.",
+                                                                                                 "description: >\n")})
+        problems = check_context._skills(root)
+        for words in ("run-it/SKILL.md: the root AGENTS.md does not point to it", "other/SKILL.md: opens with no frontmatter",
+                      "third/SKILL.md: is named run-it; a skill is named for its directory", "third/SKILL.md: no description",
+                      "fourth/SKILL.md: no description"):
+            self.assertTrue(caught(problems, words), words)
+        planted = clone({".claude/skills/run-a-platform-trial/SKILL.md": good.replace("run-it", "run-a-platform-trial")
+                         + "See `tools/gone.py`.\n", ".claude/skills/other/SKILL.md": "# Other\n"})
+        problems = check_context.run(planted)
+        for words in ("SKILL.md: names tools/gone.py", "other/SKILL.md: the root AGENTS.md does not point to it",
+                      "other/SKILL.md: opens with no frontmatter"):
+            self.assertTrue(caught(problems, words), words)
+
     def test_a_second_copy_of_the_review_standard_is_caught(self):
         root = tree({"docs/standards/review.md": "# Review\n", "docs/standards/release.md": "# Release\n"})
         problems = check_context._standards(root)
@@ -682,6 +706,246 @@ class Context(unittest.TestCase):
             self.assertTrue(caught(problems, words), words)
 
 
+def fixture(**fields) -> str:
+    """The example fixture, as text, with `fields` written over it."""
+    data = json.loads((ROOT / "examples" / "trial.json").read_text())
+    data.update(fields)
+    return json.dumps(data, indent=2)
+
+
+GROUNDING = (ROOT / "sim" / "grounding.py").read_text()
+
+
+def grounded(fixture_path: str, trials: str = '("P-28",)') -> str:
+    """sim/grounding.py with the rule P-28 asks grounded by `fixture_path`, and asked by `trials`."""
+    rule = '("P-28",), None)'
+    assert GROUNDING.count(rule) == 1
+    return GROUNDING.replace(rule, '%s, "%s")' % (trials, fixture_path))
+
+
+TAIL = "A" * 36
+# What the security pass tried to slip through. Each must be refused wherever it stands in a fixture.
+SHAPED = {
+    "ghp": "gh" + "p_" + TAIL, "gho": "gh" + "o_" + TAIL, "ghu": "gh" + "u_" + TAIL, "ghs": "gh" + "s_" + TAIL,
+    "ghr": "gh" + "r_" + TAIL, "short ghs": "gh" + "s_short", "pat": "github" + "_pat_11" + "A" * 20 + "_" + "b" * 59,
+    "after an underscore": "x_gh" + "p_" + TAIL, "after a digit": "%3Agh" + "p_" + TAIL, "upper case": "GH" + "P_" + TAIL,
+    "raw url": "https://raw.githubusercontent.com/o/r/main/f?to" + "ken=GHSAT0AAAAAACAAAAAAAAAAAAAAAAAAZZZZZZ",
+    "ghsat": "GHS" + "AT0AAAAAACAAAAAA", "jwt": "eyJ" + "hbGciOiJSUzI1NiJ9.eyJpc3MiOiIxMjMifQ.sig", "short jwt": "eyJ" + "0eXAi.eyJ.sig",
+    "token scheme": "tok" + "en abcdef0123456789abcdef0123456789abcdef",
+    "basic": "Bas" + "ic eC1hY2Nlc3MtdG9rZW46Z2hzX0FBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFB",
+    "bearer": "Bear" + "er abc", "bearer in capitals": "BEAR" + "ER abc",
+    "set-cookie in a string": "Set-" + "Cookie: user_session=abcdef; path=/", "authorization in a string": "Authoriz" + "ation: x",
+    "user and password in a url": "https://don:hunt" + "er2@github.com/combsmith/x.git",
+    "token in a url": "https://x-access-tok" + "en:gh" + "s_" + TAIL + "@github.com/o/r",
+    "signed url": "https://productionresultssa0.blob.core.windows.net/x?sv=2019&s" + "ig=AbCdEf%2Bxyz%3D&se=2026",
+    "amazon signature": "https://objects.githubusercontent.com/x?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Sign" + "ature=abcd1234",
+    "amazon credential": "https://x/y?X-Amz-Cred" + "ential=AKIDEXAMPLE%2F2026",
+    "hex beside a keyword": "access_tok" + "en=" + "a1" * 20, "runner registration": "AABF3JGZDX3P5PMEXLND6TS6FCWO6",
+    "jit config": "encoded_jit" + "_config", "private key": "-----BEGIN OPENSSH PRIV" + "ATE KEY-----\nb3Blbn",
+    "private key body": "MIIEowIBAAKCAQEA" + "x" * 60, "openssh key body": "b3BlbnNzaC1rZXktdjE" + "AAAAB",
+    "base64 of a token": base64.b64encode(("gh" + "p_" + TAIL).encode()).decode(),
+    "base64 of a runner's credentials": base64.b64encode(json.dumps({".runner": "x", ".credentials_rsaparams": "k"}).encode()).decode(),
+    "anthropic": "sk-" + "ant-oat01-" + "A" * 40,
+    "base64 of a token behind a byte that does not print": base64.b64encode(("\x00gh" + "p_" + TAIL).encode()).decode(),
+}
+# What a fixture keeps: GitHub's ordinary words must not be refused.
+PLAIN = ["6dcb09b5b57875f334f61aebed695e2e4193db5e", "a" * 40, "application/vnd.github+json", "MDQ6VXNlcjE=",
+         "https://api.github.com/repos/combsmith/x/check-runs/4", "2026-10-15T14:02:11Z", "Requires authentication",
+         "highs and lows", "bearer", "factory-run-r1", "Resource not accessible by integration"]
+REFUSED_KEYS = ["Authorization", "AUTHORIZATION", "Authorization ", "Proxy-Authorization", "Set-Cookie", "cookie",
+                "x-github-otp", "x-access-token", "github_token", "GITHUB_TOKEN", "accessToken", "installation_token",
+                "encoded_jit_config", "x-jit-config", "jwt", "auth", "Auth ", "webhook_secret", "client_secret", "password", "credentials", "token"]
+PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", "value", "author", "external_id"]
+# Not caught, by design or as a known hole: a commit hash alone is no credential; a token split across two strings
+# and a one-time code alone have no shape. The field names a header or field must have are the guard there.
+
+
+class Trials(unittest.TestCase):
+    def test_a_fixture_that_is_misnamed_or_invalid_is_caught(self):
+        root = clone({"trials/P-12.json": fixture(trial="P-13"), "trials/P-12.retry.json": "{}",
+                      "trials/notes.md": "x\n", "trials/P12.json": fixture(), "trials/P-9.json/P-9.json": fixture(trial="P-9")})
+        problems = check_trials.run(root)
+        for words in ("trials/P-12.json: records trial P-13", "trials/P-12.retry.json: $: missing",
+                      "trials/notes.md: trials/ holds fixtures only", "trials/P12.json: trials/ holds fixtures only",
+                      "trials/P-9.json: trials/ holds fixtures only"):
+            self.assertTrue(caught(problems, words), words)
+        self.assertEqual(check_trials.run(clone({"trials/P-12.json": fixture(), "trials/P-12.retry.json": fixture()})), [])
+
+    def test_a_credential_in_a_fixture_is_caught(self):
+        for name, value in sorted(SHAPED.items()):
+            self.assertTrue(check_trials._credentials({"note": value}, ""), name)
+            self.assertTrue(check_trials._credentials({"a": [[{"b": [value]}]]}, ""), name)
+        for value in PLAIN:
+            self.assertEqual(check_trials._credentials({"note": value}, ""), [], value)
+        for key in REFUSED_KEYS:
+            self.assertTrue(check_trials._credentials({"a": [[{key: "x"}]]}, ""), key)
+        for key in PLAIN_KEYS:
+            self.assertEqual(check_trials._credentials({key: "x"}, ""), [], key)
+        data = json.loads(fixture())
+        data["exchanges"][0]["request"]["headers"]["Authorization"] = "x"
+        data["exchanges"][0]["response"]["body"]["note"] = SHAPED["ghs"]
+        problems = check_trials.run(clone({"trials/P-12.json": json.dumps(data)}))
+        self.assertTrue(caught(problems, "trials/P-12.json: exchanges[0].request.headers.Authorization is a field"))
+        self.assertTrue(caught(problems, "trials/P-12.json: exchanges[0].response.body.note holds something shaped"))
+        self.assertFalse(any(SHAPED["ghs"] in p for p in problems), "a problem never repeats the credential")
+
+    def test_a_header_a_fixture_may_not_keep_is_caught(self):
+        data = json.loads(fixture())
+        data["exchanges"][1]["response"]["headers"]["X-GitHub-SSO"] = "required"
+        data["exchanges"][1]["response"]["headers"]["X-RateLimit-Used"] = "2"
+        problems = check_trials.run(clone({"trials/P-12.json": json.dumps(data)}))
+        self.assertTrue(caught(problems, "exchanges[1].response.headers.X-GitHub-SSO is not a header a fixture may keep"))
+        self.assertFalse(caught(problems, "X-RateLimit-Used"))
+
+    def test_every_example_of_a_fixture_and_the_folder_notes_are_scanned(self):
+        data = json.loads((ROOT / "examples" / "invalid" / "trial.run-outside-the-canary.json").read_text())
+        data["exchanges"][0]["request"]["headers"]["authorization"] = "x"
+        notes = (ROOT / "trials" / "AGENTS.md").read_text() + "\nFor example " + SHAPED["ghs"] + "\n"
+        problems = check_trials.run(clone({"examples/invalid/trial.run-outside-the-canary.json": json.dumps(data),
+                                           "examples/trial.json": fixture(note=SHAPED["jwt"]), "trials/AGENTS.md": notes}))
+        self.assertTrue(caught(problems, "examples/invalid/trial.run-outside-the-canary.json: exchanges[0].request.headers"))
+        self.assertTrue(caught(problems, "examples/trial.json: note holds something shaped like a credential"))
+        self.assertTrue(caught(problems, "trials/AGENTS.md: holds something shaped like a credential"))
+
+    def test_code_that_reads_the_canary_is_caught(self):
+        name = "combsmith/" + check_trials.CANARY
+        root = clone({"tools/fetch.py": "REPO = %r\n" % name, ".github/workflows/trial.yml": "repository: %s\n" % name,
+                      "Makefile": "trial:\n\tgh api repos/%s\n" % name, "config/where.json": '{"repo": "%s"}' % name,
+                      "docs/notes.md": name + "\n", "README.md": name + "\n", "trials/P-12.json": fixture(),
+                      "sim/deep/er/x.py": name, "corpus/x.json": name,
+                      ".claude/worktrees/other/.git": "gitdir: elsewhere\n", ".claude/worktrees/other/tools/x.py": name})
+        problems = check_trials.run(root)
+        for where in ("tools/fetch.py", ".github/workflows/trial.yml", "Makefile", "config/where.json", "sim/deep/er/x.py"):
+            self.assertTrue(caught(problems, where + ": names the canary repo"), where)
+        # Another working tree, and the corpus make_corpus.py writes, are not this repo's: tools/walk.py skips both.
+        for where in ("docs/notes.md", "README.md", "trials/P-12.json", "examples/trial.json", "trial.schema.json", "worktrees",
+                      "corpus", "config/apps.json", "schemas/apps.schema.json", "examples/invalid/apps."):
+            self.assertFalse(caught(problems, where), where)
+
+    def test_a_fixture_named_for_a_rule_must_exist_and_validate(self):
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json")}))
+        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-28.json does not exist"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json"), "trials/P-28.json": "{}"}))
+        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-28.json is not a valid fixture"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-12.json"), "trials/P-12.json": fixture()}))
+        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-12.json records P-12, and P-28 asks this"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("examples/trial.json")}))
+        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: examples/trial.json is not a fixture in trials/"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json", "()"),
+                                           "trials/P-28.json": fixture(trial="P-28")}))
+        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: no trial asks this; add one to section 6 first"))
+        root = clone({"sim/grounding.py": grounded("trials/P-28.json", '("P-7", "P-28")'),
+                      "trials/P-28.json": fixture(trial="P-28")})
+        self.assertEqual(check_trials.run(root), [])
+        self.assertFalse(caught(check_trials.unverified(root), "the_pusher_is_the_last_pusher"))
+        self.assertTrue(caught(check_trials.unverified(), "the_pusher_is_the_last_pusher"))
+
+    def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
+        world = (ROOT / "sim" / "world.py").read_text()
+        problems = check_trials.run(clone({"sim/world.py": world + "\n# GitHub: a_rule_nobody_listed\n"}))
+        self.assertTrue(caught(problems, "sim/world.py applies a_rule_nobody_listed, which sim/grounding.py does not list"))
+        listed = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_never_applied", "It is so", (), None),', 1)
+        problems = check_trials.run(clone({"sim/grounding.py": listed}))
+        self.assertTrue(caught(problems, "a_rule_never_applied is listed in sim/grounding.py and applied nowhere in sim/world.py"))
+        twice = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_tick_can_be_lost", "It is so", ("P-8",), None),', 1)
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": twice})), "a_tick_can_be_lost is listed twice"))
+        for broken in ("RULES = rules()\n", "RULES = (('Not a code', 'x', ('P-1',), None),)\n", "RULES = (('x', 'x'),)\n",
+                       "x = 1\n", "RULES = (('a_tick_can_be_lost', 'x', 'P-8', None),)\n"):
+            self.assertTrue(check_trials.run(clone({"sim/grounding.py": broken})), broken)
+
+    def test_verify_prints_every_rule_no_fixture_grounds(self):
+        codes = [rule[0] for rule in check_trials.rules()]
+        self.assertTrue(codes)
+        self.assertEqual(len(check_trials.unverified()), len(codes))
+        ran = {}
+
+        class Runner:
+            def __init__(self, **_):
+                pass
+
+            def run(self, suite):
+                ran["suite"] = suite
+                return unittest.TestResult()
+
+        real = (verify.failed, verify.unittest.TextTestRunner)
+        verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as said:
+                self.assertEqual(verify.main(), 0)
+        finally:
+            verify.failed, verify.unittest.TextTestRunner = real
+        for code in codes:
+            self.assertIn("unverified: " + code, said.getvalue())
+
+    def test_the_check_runs_alone_before_anything_is_added(self):
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(check_trials.main(ROOT), 0)
+            self.assertEqual(check_trials.main(clone({"trials/notes.txt": "x\n"})), 1)
+        self.assertIn("trials/notes.txt", said.getvalue())
+
+    def test_only_a_fixture_may_name_a_model_or_the_proof_of_concept(self):
+        said = json.dumps({"model": "claude-" + "opus-5-5", "repo": "combsmith/" + check_repo.FOREIGN})
+        problems = check_repo.run(tree({"trials/P-13.json": said, "trials/old/P-13.json": said, "trials/P-13.txt": said,
+                                        "config/x.json": said}))
+        for where in ("trials/old/P-13.json", "trials/P-13.txt", "config/x.json"):
+            self.assertTrue(caught(problems, where + ": names a model"), where)
+            self.assertTrue(caught(problems, where + ": names the proof-of-concept repo"), where)
+        self.assertFalse(caught(problems, "trials/P-13.json"))
+
+
+class Redaction(unittest.TestCase):
+    """`tools/redact_trial.py` runs on the raw capture, outside the repo, before anyone reads it."""
+
+    def redact(self, raw: str) -> tuple:
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (folder / "raw").write_text(raw)
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(redact_trial.main([str(folder / "raw"), str(folder / "out")]), 0)
+        return (folder / "out").read_text(), said.getvalue()
+
+    def test_a_drafted_fixture_comes_out_with_no_credential(self):
+        data = json.loads(fixture())
+        data["exchanges"][0]["request"]["headers"]["Authorization"] = "tok" + "en " + SHAPED["ghs"]
+        data["exchanges"][0]["request"]["headers"]["X-GitHub-SSO"] = "required"
+        data["exchanges"][0]["response"]["body"]["token"] = SHAPED["runner registration"]
+        data["exchanges"][0]["response"]["body"]["expires_at"] = "2026-10-15T15:02:11Z"
+        data["exchanges"][0]["response"]["body"]["clone"] = SHAPED["token in a url"]
+        data["exchanges"][0]["response"]["body"]["blob"] = SHAPED["base64 of a runner's credentials"]
+        data["exchanges"][0]["response"]["body"]["notes"] = [SHAPED[name] for name in sorted(SHAPED)]
+        out, said = self.redact(json.dumps(data))
+        kept = json.loads(out)
+        self.assertEqual(check_trials._credentials(kept, ""), [])
+        self.assertEqual(check_trials._headers(kept), [])
+        self.assertEqual(validate(kept, json.loads((ROOT / "schemas" / "trial.schema.json").read_text())), [])
+        body = kept["exchanges"][0]["response"]["body"]
+        self.assertEqual((body["expires_at"], body["external_id"]), ("2026-10-15T15:02:11Z", "factory-run-r1"))
+        self.assertNotIn("token", body)
+        self.assertNotIn("clone", body)
+        self.assertEqual(body["notes"], [])
+        self.assertIn("exchanges[0].request.headers.Authorization", kept["removed"])
+        self.assertIn("exchanges[0].response.body.token", kept["removed"])
+        self.assertIn("exchanges[0].response.body.clone", kept["removed"])
+        for value in SHAPED.values():
+            self.assertNotIn(value, out + said)
+
+    def test_a_raw_capture_comes_out_with_no_credential(self):
+        raw = ("HTTP/2.0 201 Created\nAuthorization: tok" + "en " + SHAPED["ghp"] + "\nX-Ratelimit-Remaining: 4999\nX-GitHub-SSO: required\n"
+               "Set-" + "Cookie: user_session=abcdef\nLocation: " + SHAPED["signed url"] + "\n\n"
+               + json.dumps({"tok" + "en": SHAPED["runner registration"], "expires_at": "2026-10-15T15:02:11Z"}) + "\n")
+        out, said = self.redact(raw)
+        self.assertIn("X-Ratelimit-Remaining: 4999", out)
+        self.assertIn("expires_at", out)
+        self.assertNotIn("Cookie", out)
+        self.assertNotIn("X-GitHub-SSO", out)
+        for value in (SHAPED["ghp"], SHAPED["runner registration"], "user_session", "sig=AbCdEf"):
+            self.assertNotIn(value, out + said)
+        self.assertIn("Authorization", said)
+
+    def test_text_that_is_not_a_capture_is_still_redacted(self):
+        out, said = self.redact("kept line\none line, " + SHAPED["jwt"] + " and done\n")
+        self.assertEqual((out, said.splitlines()[0]), ("kept line\n", "removed: line 2"))
+
+
 # One planted fault for each check, run from its front door. A check gutted to return nothing fails here.
 FAILS = {
     "check_examples": lambda: check_examples.run(clone({"examples/decision.json": "{}"})),
@@ -695,6 +959,7 @@ FAILS = {
     "check_repo": lambda: check_repo.run(clone({"requirements.txt": "requests\n"})),
     "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("15", "45")})),
     "check_context": lambda: check_context.run(clone({"docs/lessons.md": "# Lessons\n"})),
+    "check_trials": lambda: check_trials.run(clone({"trials/notes.txt": "x\n"})),
 }
 
 

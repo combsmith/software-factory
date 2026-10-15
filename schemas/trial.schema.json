@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "The fixture of one platform trial: what was asked of GitHub in the canary repo, what it answered, and the verdict.",
+  "$comment": "A credential is refused by tools/check_trials.py, not here: this validator has no not and no propertyNames, and its pattern refuses every string that ends in a newline, so a pattern that refused token shapes would refuse a recorded log line too.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "trial",
+    "question",
+    "pass",
+    "repo",
+    "ran_at",
+    "exchanges",
+    "removed",
+    "verdict"
+  ],
+  "properties": {
+    "schema": {
+      "const": "trial/1"
+    },
+    "trial": {
+      "description": "The trial's number in section 6 of the design.",
+      "type": "string",
+      "pattern": "^P-[1-9][0-9]*$"
+    },
+    "question": {
+      "description": "The question, as section 6 or the story asks it.",
+      "type": "string",
+      "minLength": 1
+    },
+    "pass": {
+      "description": "The pass condition, written before the trial ran: section 6's, or the story's where section 6 gives no threshold.",
+      "type": "string",
+      "minLength": 1
+    },
+    "repo": {
+      "description": "Every trial runs in the canary repo.",
+      "const": "combsmith/software-factory-canary"
+    },
+    "ran_at": {
+      "$ref": "#/$defs/time"
+    },
+    "exchanges": {
+      "description": "Each request made, and the response observed, in the order they happened.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/exchange"
+      }
+    },
+    "removed": {
+      "description": "Where each credential was taken out, as a path such as exchanges[0].request.headers.authorization. Empty when there was none.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "verdict": {
+      "description": "Against the pass condition. A fail opens an issue against the design before any code depends on it.",
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    }
+  },
+  "$defs": {
+    "time": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "exchange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request",
+        "response"
+      ],
+      "properties": {
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "as",
+            "via",
+            "call",
+            "headers",
+            "body"
+          ],
+          "properties": {
+            "as": {
+              "description": "Who made the request, by name. Never the credential.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "name"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "person",
+                    "machine_user",
+                    "app",
+                    "workflow",
+                    "anonymous"
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "via": {
+              "enum": [
+                "rest",
+                "graphql",
+                "cli",
+                "git",
+                "workflow"
+              ]
+            },
+            "call": {
+              "description": "The method and path, the GraphQL operation, the command line, or the workflow and the event that ran it.",
+              "type": "string",
+              "minLength": 1
+            },
+            "headers": {
+              "$ref": "#/$defs/headers"
+            },
+            "body": {
+              "$ref": "#/$defs/recorded"
+            }
+          }
+        },
+        "response": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "headers",
+            "body"
+          ],
+          "properties": {
+            "status": {
+              "description": "The HTTP status, the exit code, or a workflow run's conclusion.",
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "headers": {
+              "$ref": "#/$defs/headers"
+            },
+            "body": {
+              "$ref": "#/$defs/recorded"
+            }
+          }
+        }
+      }
+    },
+    "headers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "recorded": {
+      "description": "What was sent or seen, kept as it was: any JSON, since its shape is GitHub's and not ours.",
+      "type": [
+        "object",
+        "array",
+        "string",
+        "number",
+        "boolean",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/recorded"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/recorded"
+      }
+    }
+  }
+}

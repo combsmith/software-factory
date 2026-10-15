@@ -29,6 +29,9 @@ CHECKS = ("tools", "tests", "examples", "schemas", "sim")
 # Files other tools load as rules. There is one set of rules, so there are none of these but the
 # root CLAUDE.md, which holds one line that imports AGENTS.md.
 OTHER_RULES = {"CLAUDE.md", "GEMINI.md", "copilot-instructions.md", ".cursorrules", ".windsurfrules"}
+# A procedure done rarely and exactly is a skill: `.claude/skills/<name>/SKILL.md`, loaded when a task
+# calls for it. Loading on demand alone was measured as unreliable, so the root file points to each.
+FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 
 TOKEN = re.compile(r"`([^`\n]+)`")
 LINK = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
@@ -53,9 +56,14 @@ def _kept(root: pathlib.Path, pattern: str) -> list:
 
 
 def _markdown(root: pathlib.Path) -> list:
-    """The files an author is told to read: every AGENTS.md, and everything under docs/ but the record."""
+    """The files an author is told to read: every AGENTS.md, every skill, and everything under docs/ but the record."""
     found = [p for p in _kept(root, "*.md") if p.relative_to(root).parts[:2] not in RECORD]
-    return [p for p in found if p.name == "AGENTS.md" or p.relative_to(root).parts[0] == "docs"]
+    return [p for p in found if p.name == "AGENTS.md" or p.relative_to(root).parts[0] == "docs"] + _skill_files(root)
+
+
+def _skill_files(root: pathlib.Path) -> list:
+    folder = root / ".claude" / "skills"
+    return sorted(folder.glob("*/SKILL.md")) if folder.is_dir() else []
 
 
 def _named(text: str, root: pathlib.Path, here: pathlib.Path) -> list:
@@ -253,6 +261,41 @@ def _agents_files(root: pathlib.Path) -> list:
     return problems
 
 
+def _frontmatter(text: str) -> dict:
+    """The top-level fields of the YAML frontmatter, quotes taken off; a folded or literal value is joined."""
+    fields, key = {}, None
+    for line in text.splitlines():
+        if line[:1] in (" ", "\t") and key:
+            fields[key] = (fields[key] + " " + line.strip()).strip()
+            continue
+        key, _, value = line.partition(":")
+        key, value = key.strip(), value.strip()
+        fields[key] = "" if value in (">", "|", ">-", "|-", ">+", "|+") else value.strip("\"'")
+    return fields
+
+
+def _skills(root: pathlib.Path) -> list:
+    """Each skill opens with the name and description its loader reads, and the root AGENTS.md points to it."""
+    problems = []
+    agents = root / "AGENTS.md"
+    pointed = {rel.as_posix() for _, ok, rel in _named(_text(agents), root, root) if ok} if agents.exists() else set()
+    for path in _skill_files(root):
+        rel = path.relative_to(root).as_posix()
+        if rel not in pointed:
+            problems.append("%s: the root AGENTS.md does not point to it, and a skill loaded on demand alone is often "
+                            "not loaded" % rel)
+        front = FRONTMATTER.match(_text(path))
+        if not front:
+            problems.append("%s: opens with no frontmatter holding its name and description" % rel)
+            continue
+        fields = _frontmatter(front.group(1))
+        if fields.get("name") != path.parent.name:
+            problems.append("%s: is named %s; a skill is named for its directory" % (rel, fields.get("name") or "nothing"))
+        if not fields.get("description"):
+            problems.append("%s: no description; it is how a task finds the skill" % rel)
+    return problems
+
+
 def _decisions(root: pathlib.Path) -> list:
     problems = []
     records = sorted((root / "docs" / "decisions").glob("*.md"))
@@ -349,4 +392,4 @@ def run(root: pathlib.Path = ROOT) -> list:
     problems = []
     for path in _markdown(root):
         problems += _references(path, _text(path), root)
-    return problems + _agents_files(root) + _decisions(root) + _lessons(root) + _standards(root)
+    return problems + _agents_files(root) + _skills(root) + _decisions(root) + _lessons(root) + _standards(root)
