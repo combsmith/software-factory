@@ -86,15 +86,13 @@ MUTANTS = [
      '    if check is None:\n        return "pending"\n', '    if check is None:\n        return "passing"\n'),
     ("a check with no verdict is ignored", "kernel/derive.py",
      "    if unreadable:\n", "    if False:\n"),
-    ("a failed check is read before one with no verdict", "kernel/derive.py",
+    ("a check with no verdict is read before a failed one", "kernel/derive.py",
+     "    if failed:\n"
+     '        return {"state": t.ADDRESSING, "reason": "check_failed", "evidence": failed}\n',
      "    if unreadable:\n"
      '        return {"state": t.VERIFYING, "reason": "check_unreadable", "evidence": unreadable}\n'
      "    if failed:\n"
-     '        return {"state": t.ADDRESSING, "reason": "check_failed", "evidence": failed}\n',
-     "    if failed:\n"
-     '        return {"state": t.ADDRESSING, "reason": "check_failed", "evidence": failed}\n'
-     "    if unreadable:\n"
-     '        return {"state": t.VERIFYING, "reason": "check_unreadable", "evidence": unreadable}\n'),
+     '        return {"state": t.ADDRESSING, "reason": "check_failed", "evidence": failed}\n'),
     ("a dependency bot's pull request someone else pushed to skips the model review", "kernel/derive.py",
      ' and facts["last_pusher"] == facts["author"]:', ":"),
     ("a class the configuration does not name skips the model review", "kernel/derive.py",
@@ -167,6 +165,8 @@ MUTANTS = [
      "if type(acts) is not int or acts < 0:", "if type(acts) is not int:"),
     ("the act ceiling is not the Maintainer's to see", "kernel/decide.py",
      '"awaiting_human", "act_ceiling",', '"awaiting_human",'),
+    ("an unreadable check is not the Maintainer's to see", "kernel/decide.py",
+     '"act_ceiling", "check_unreadable",', '"act_ceiling",'),
     ("the act ceiling stops a Run", "kernel/decide.py",
      "    wanted = _wanted_run(state, reason, config)\n",
      '    if facts.get("acts_since_writer") is None or facts["acts_since_writer"] >= config["limits"]["max_acts_per_item"]:\n'

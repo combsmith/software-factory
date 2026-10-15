@@ -133,9 +133,16 @@ class World:
         self.note("pass: %s %s -> %s" % (d["state"], d["reason"], d["outcome"]))
         whole = all(facts["complete"].values())
         self.check(whole or d["outcome"] == "defer", "I-20 incomplete facts never admit or converge")
+        # A check with no verdict lets no review start and no act be made. A fix Run may still be admitted
+        # for what is readable: another check that failed, or a conflict.
         readings = CONFIG["check_conclusions"]
         no_verdict = [c for c in facts["checks"] if readings.get(c["conclusion"], "unreadable") == "unreadable"]
-        self.check(not no_verdict or d["outcome"] not in ("admit", "act"), "I-13 a check with no verdict admits or acts")
+        reviews = d["outcome"] == "admit" and d["admit"]["intent"] == "review-change"
+        self.check(not no_verdict or not (reviews or d["outcome"] == "act"),
+                   "I-13 a review or an act while a check has no verdict")
+        waits = d["reason"] == "check_unreadable" and d["outcome"] == t.DEFER
+        self.check(not waits or d["attention"] == t.NEEDS_YOU,
+                   "a check with no verdict is not shown as needing a person")
         if whole and d["state"] is not None:
             if self.prev_state is not None and d["state"] != self.prev_state:
                 self.check((self.prev_state, d["state"]) in DECLARED,

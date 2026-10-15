@@ -192,11 +192,13 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
             waiting.append(lens)
         elif reading != "passing":
             unreadable.append(lens)
-    # A check that gave no verdict could have said anything, so nothing is decided on the others (I-13).
-    if unreadable:
-        return {"state": t.VERIFYING, "reason": "check_unreadable", "evidence": unreadable}
+    # A failure is readable and decisive: whatever a check with no verdict would say, the content goes
+    # back to the author. Read otherwise, fail-fast's cancelled siblings would hold every failure (I-13).
     if failed:
         return {"state": t.ADDRESSING, "reason": "check_failed", "evidence": failed}
+    # Otherwise a check that gave no verdict could have said anything, so nothing is decided on the others.
+    if unreadable:
+        return {"state": t.VERIFYING, "reason": "check_unreadable", "evidence": unreadable}
     if waiting:
         return {"state": t.VERIFYING, "reason": "awaiting_checks", "evidence": waiting}
 

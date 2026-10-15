@@ -312,8 +312,9 @@ class Content(unittest.TestCase):
             for i, check in enumerate(GREEN):
                 for runs, reviews in (((), []), (REVIEWED, []), (REVIEWED, APPROVED)):
                     d = go(facts(checks=with_check(i, value), reviews=reviews), runs)
-                    self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
-                                     ("verifying", "check_unreadable", [check["lens"]], "defer"), (value, check["lens"]))
+                    self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                     ("verifying", "check_unreadable", [check["lens"]], "defer", "needs_you"),
+                                     (value, check["lens"]))
                     self.assertNotIn("admit", d)
                     self.assertNotIn("action", d)
         # The other side: every required check passed, so the review is admitted, then the approval issued.
@@ -322,22 +323,35 @@ class Content(unittest.TestCase):
         self.assertEqual(go(facts(reviews=APPROVED), REVIEWED)["action"], "enqueue")
 
     def test_a_queued_running_or_absent_required_check_is_waited_for(self):  # I-27
-        for value in ("queued", "in_progress", "pending", "absent"):
+        # A normal wait is pending, not unreadable: it ends on its own.
+        for value in ("queued", "in_progress", "pending", "waiting", "requested", "expected", "absent"):
             for i, check in enumerate(GREEN):
                 d = go(facts(checks=with_check(i, value)), REVIEWED)
                 self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
                                  ("verifying", "awaiting_checks", [check["lens"]], "nothing"), (value, check["lens"]))
 
-    def test_an_unreadable_check_is_read_before_a_failed_or_waiting_one(self):  # I-13
-        # Whatever the check with no verdict would say, nothing is decided on the others alone.
+    def test_a_failed_check_is_read_before_an_unreadable_or_waiting_one(self):  # I-13
+        # A failure is readable and decisive: whatever the check with no verdict would say, the content
+        # goes back to the author. Read the other way, an ordinary failure would wait for a person.
         failed, neutral, waiting = (dict(c, conclusion=v) for c, v in zip(GREEN, ("failure", "neutral", "queued")))
         d = go(facts(checks=[failed, neutral, waiting]), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
-                         ("verifying", "check_unreadable", [neutral["lens"]], "defer"))
-        d = go(facts(checks=[failed, waiting]), REVIEWED)
-        self.assertEqual((d["reason"], d["evidence"], d["outcome"]), ("check_failed", [failed["lens"]], "admit"))
+                         ("addressing", "check_failed", [failed["lens"]], "admit"))
+        self.assertEqual(d["admit"]["intent"], "fix-findings")
+        d = go(facts(checks=[neutral, waiting]), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"], d["outcome"]), ("check_unreadable", [neutral["lens"]], "defer"))
         d = go(facts(checks=[waiting]), REVIEWED)
         self.assertEqual((d["reason"], d["outcome"]), ("awaiting_checks", "nothing"))
+
+    def test_a_failure_with_cancelled_or_skipped_siblings_goes_back_to_the_author(self):  # I-13
+        # GitHub's fail-fast cancels the jobs beside a failure, and a job that needs the failed one is skipped.
+        for sibling in ("cancelled", "skipped"):
+            for i, check in enumerate(GREEN):
+                checks = [dict(c, conclusion="failure" if j == i else sibling) for j, c in enumerate(GREEN)]
+                d = go(facts(checks=checks), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
+                                 ("addressing", "check_failed", [check["lens"]], "admit"), (sibling, check["lens"]))
+                self.assertEqual(d["admit"]["intent"], "fix-findings")
 
     def test_a_reading_the_kernel_does_not_know_is_unreadable(self):  # I-13
         # The configuration's schema refuses such a map. A Kernel given one anyway passes nothing on it.

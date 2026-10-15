@@ -21,7 +21,7 @@ Result that only requests changes. `verify` runs the checks where the author con
 `apply` reads the item again, and only then makes the changes, through the Role's own GitHub App.
 The model never holds a credential that can write.
 
-**A change converges when** every required check has reported, no required reviewer and no person
+**A change converges when** every required check has passed, no required reviewer and no person
 with write access has an open objection, and, once acceptance contracts are in force, every
 criterion written before the work has passing evidence. Third-party reviewers inform the in-house
 reviewer, and gate only through it.
@@ -346,22 +346,27 @@ is missing, negative or not a whole number is unreadable: the Kernel defers and 
 says whether it was read in full: a timeline read short undercounts, and the item defers (I-20).
 The count bounds acts only; a Run is bounded by the Run ceiling.
 
-A check's `conclusion` is GitHub's own word, or the check's status while it has not concluded; the
-port maps nothing. The configuration's `check_conclusions` says what each word means for a required
+A check's `conclusion` is GitHub's own word, or the check's status while it has not concluded.
+GitHub's GraphQL gives it in capitals (`SUCCESS`, `IN_PROGRESS`); the port lowercases it and does
+nothing else. The configuration's `check_conclusions` says what each word means for a required
 check. `success` alone is passing. `failure` and `timed_out` are failing: the content goes back to
 the author, because a hung test usually belongs to the content and attempts bound the fixes (L-39).
-`queued`, `in_progress` and `pending`, and a required check that has not reported at all, are
-pending: the item waits in `verifying`. `neutral`, `skipped`, `cancelled`, `stale`,
-`action_required`, `startup_failure` and `error` are unreadable, and so is any word the map does not
-name, such as one GitHub adds later: a Lens that gave no verdict has neither passed the content nor
-found anything to fix. The Kernel defers, reason `check_unreadable`, and admits no Run and makes no
-act (I-13, I-27). The item stays in `verifying`, so that State's stale time (§4.1) is what brings it
-to a person; nothing reads a stale time yet. An unreadable check is read before a failed or a
-waiting one: whatever it would have said, nothing is decided on the others alone. GitHub treats a
-skipped required check as passing; the Kernel is stricter on purpose, and L-36 bans the path filters
-that cause skips. The configuration's schema refuses a map that reads anything but `success` as
-passing, or a word as anything but the four readings, so data cannot make `neutral` pass
-(`examples/invalid/config.a-neutral-check-passes.json`,
+`queued`, `in_progress`, `pending`, `waiting`, `requested` and `expected`, and a required check that
+has not reported at all, are pending: a normal wait that ends on its own, so the item waits in
+`verifying`. `neutral`, `skipped`, `cancelled`, `stale`, `action_required`, `startup_failure` and
+`error` are unreadable, and so is any word the map does not name, such as one GitHub adds later: a
+Lens that gave no verdict has neither passed the content nor found anything to fix. A failed check
+is read first. It is readable and decisive: whatever a check with no verdict would have said, the
+content goes back to the author, so no decision rests on the unreadable one. Read the other way, an
+ordinary failure would wait for a person, because GitHub's `fail-fast` reports one failure beside
+`cancelled` siblings, and a job that `needs:` the failed one is `skipped`. With no failure, an
+unreadable check is read before a waiting one: the Kernel defers, reason `check_unreadable`, admits
+no Run and makes no act (I-13, I-27). The item stays in `verifying` and is the Maintainer's to see,
+because almost every such check needs a person: an approval, a change to the required set, or a
+re-run. GitHub treats a skipped required check as passing; the Kernel is stricter on purpose, and
+L-36 bans the path filters that cause skips. The configuration's schema refuses a map that reads
+anything but `success` as passing, or a word as anything but the four readings, so data cannot make
+`neutral` pass (`examples/invalid/config.a-neutral-check-passes.json`,
 `examples/invalid/config.conclusion-mapped-to-nothing.json`). A required Lens that is `neutral` by
 design leaves the required set for that class or scope (§5.3); the map is not bent for it.
 
@@ -825,7 +830,7 @@ stateDiagram-v2
   [*] --> verifying
   draft --> verifying: marked ready (human, or the implementing Run's apply)
   verifying --> addressing: a blocking Finding is open
-  verifying --> converged: every required Lens reported, none blocking
+  verifying --> converged: every required Lens passed, none blocking
   addressing --> adjudicating: author proposed a Disposition for each
   addressing --> verifying: new content pushed
   adjudicating --> addressing: owner rejected a proposal
@@ -1329,7 +1334,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | A dependency update | Its class is `dependency`, and the bot that opened it pushed its head. Its required Lenses are deterministic ones, and a person's thread, or a model Lens's Finding already raised, still gates it. Once the author Role or a person pushes to it, it needs a model review like any change (§4.2). On a Consumer the POC's automerge serves it until that Intent is cut over. In the Factory's own repo no line serves it: nothing is installed there, so every update changes `.github/`, and the Maintainer reads and merges it (§5.1) |
 | The approver is the author or the last pusher | GitHub rejects or discards the approval. The Kernel reads `author` and `last_pusher`, attempts no approval, and holds the item with that reason (I-26). The machine user therefore never pushes (§5.1) |
 | A branch pushed every few minutes | Deterministic Lenses first; a model review starts only on content they have passed (I-27) |
-| A required check that concludes `neutral`, `skipped`, `cancelled` or `stale`, or with a word the Kernel does not know | It gave no verdict, so it has not passed. The Kernel defers, reason `check_unreadable`, and admits no Run; the item waits in `verifying` until the check reports again (I-13, §3.3). A `timed_out` check is a failure, and goes back to the author |
+| A required check that concludes `neutral`, `skipped`, `cancelled` or `stale`, or with a word the Kernel does not know | It gave no verdict, so it has not passed. The Kernel defers, reason `check_unreadable`, admits no Run, and shows the item as needing the Maintainer until the check reports again (I-13, §3.3). A `timed_out` check is a failure, and goes back to the author. A failure beside it is read first, so `fail-fast`'s cancelled siblings and a skipped dependent job do not hold an ordinary failure |
 | A Hold released, or a pull request reopened, after attempts ran out | Attempts count since the last action by a person with write access, which grants a fresh allowance. No agent's action does, and nor does a stranger's comment: on a public repo that would let anyone keep an agent running (I-28) |
 | An approval that does not land | The approval is a Run with no Engine. A failed one whose fault is the item's is an attempt, and at `max_attempts` the item is held. One that fails for any other fault, such as an expired token, counts toward the Run ceiling (§3.10) |
 | A merge queue that ejects the pull request every time | Each enqueue is an act. At `max_acts_per_item` acts since a person with write access acted, the item is held, reason `act_ceiling` (§3.3) |

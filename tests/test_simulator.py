@@ -33,7 +33,9 @@ class Simulation(unittest.TestCase):
             for _ in range(150):
                 world.step()
             last = world.settle()
-            resting = last["state"] in ("merged", "held")
+            # A check with no verdict that a person has not run again waits for that person, and says so.
+            stuck = last["reason"] == "check_unreadable" and last["attention"] == "needs_you"
+            resting = last["state"] in ("merged", "held") or stuck
             self.assertTrue(resting, "seed %d rests in %s (%s)\n%s" % (
                 seed, last["state"], last["reason"], "\n".join(world.trace[-15:])))
 
