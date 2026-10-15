@@ -55,6 +55,17 @@ def _pause(context: dict):
     return "paused" if context.get("paused") else "pause_unreadable"
 
 
+def _leaves_queue(facts: dict, state: str, reason: str) -> bool:
+    """Whether a queued item is taken out of the merge queue: a gate is open, its approval is lost, or it is held.
+
+    A Hold stops every Effect, and a merge is the last, so this is the one change the Factory makes to a held
+    item. Hands-off is not among them: the Factory never acts on that item (FR-23, I-21).
+    """
+    if state == t.QUEUED:
+        return reason in ("gate_open", "approval_lost")
+    return reason == "human_hold" and facts["queue"] is True
+
+
 def _wanted_run(state: str, reason: str, config: dict):
     """The Run this State calls for, as (role, intent), or None."""
     if state == t.VERIFYING and reason == "awaiting_review":
@@ -115,7 +126,17 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
     # Fail to a deferral, never to an action.
     if state is None:
         return _decision(facts, None, reason, evidence, t.DEFER)
-    if state in t.TERMINAL or state in (t.DRAFT, t.QUEUED):
+    if state in t.TERMINAL or state == t.DRAFT:
+        return _decision(facts, state, reason, evidence, t.NOTHING)
+    # An act that stops work: counted, never refused at the act ceiling, and not delayed by a Run in progress.
+    # Only a Pause stops it, as it stops every act (decision 0003). The item is shown by what stops it: a Hold
+    # is still the Maintainer's.
+    if _leaves_queue(facts, state, reason):
+        paused = _pause(context)
+        if paused:
+            return _decision(facts, state, paused, evidence, t.DEFER, attention=_attention(state, reason, False))
+        return _decision(facts, state, reason, evidence, t.ACT, action="dequeue", content_id=facts["content_id"])
+    if state == t.QUEUED:
         return _decision(facts, state, reason, evidence, t.NOTHING)
     if state == t.HELD:
         return _decision(facts, state, reason, evidence, t.HOLD)

@@ -19,6 +19,8 @@ The world is one pull request, never paused, whose checks pass, fail, time out o
 is the Maintainer's own, of class `maintainer`: GitHub refuses a review by its author, so the Maintainer acts with
 threads, a Hold and pushes. On an even seed it is an agent's, of class `agent`, and the Maintainer also reviews it:
 requests changes, comments or approves (`tests/test_simulator.py::test_the_seeds_serve_a_maintainers_and_an_agents_pull_request`).
+While the item is queued, the Maintainer may dismiss its approval, open a thread or add a Hold, and the queue merges only once a
+pass has read the item since (`tests/test_simulator.py::test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause`).
 A rule about anything else is not exercised here, so its boundary cases are all that hold it. An invariant is a call to `check()` with its name. When a seed finds a fault, the fix goes in the
 Kernel with a boundary case in `tests/test_decide.py`.
 

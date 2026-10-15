@@ -37,6 +37,9 @@ def moved_after(rel: str, block: str, anchor: str) -> tuple:
 REVIEW_GUARD = ("    if unreadable_reviews(facts):\n"
                 '        return {"state": None, "reason": "review_unreadable", "evidence": []}\n')
 REVIEW_WAIT = '            return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens]}\n'
+IN_QUEUE = '        return {"state": t.QUEUED, "reason": "in_merge_queue", "evidence": []}\n'
+DEQUEUE = ('        return _decision(facts, state, reason, evidence, t.ACT, action="dequeue",'
+           ' content_id=facts["content_id"])\n')
 
 MUTANTS = [
     ("incomplete facts are trusted", "kernel/derive.py",
@@ -167,6 +170,31 @@ MUTANTS = [
      "    if unreadable_reviews(facts):\n", "    if False:\n"),
     ("an unreadable review is read after the model review's wait", "kernel/derive.py",
      *moved_after("kernel/derive.py", REVIEW_GUARD, REVIEW_WAIT)),
+    ("an unreadable review is read after the merge queue", "kernel/derive.py",
+     *moved_after("kernel/derive.py", REVIEW_GUARD, IN_QUEUE)),
+    ("a queued pull request whose approval is lost stays in the queue", "kernel/derive.py",
+     "        if standing_approval(facts, config) is None:\n", "        if False:\n"),
+    ("a queued pull request with a gate open stays in the queue", "kernel/derive.py",
+     "        if stopping:\n", "        if False:\n"),
+    ("a Hold leaves a queued pull request in the queue", "kernel/decide.py",
+     'return reason == "human_hold" and facts["queue"] is True', "return False"),
+    ("hands-off takes a pull request out of the queue", "kernel/decide.py",
+     'return reason == "human_hold" and', 'return reason in ("human_hold", "hands_off") and'),
+    ("a held pull request that is not queued is dequeued", "kernel/decide.py",
+     ' and facts["queue"] is True', ""),
+    ("a pause lets a dequeue through", "kernel/decide.py",
+     "        if paused:\n", "        if False:\n"),
+    ("a dequeue is held to the act ceiling", "kernel/decide.py",
+     DEQUEUE,
+     '        if facts.get("acts_since_writer") is None or facts["acts_since_writer"] >= config["limits"]["max_acts_per_item"]:\n'
+     '            return _decision(facts, t.HELD, "act_ceiling", [], t.HOLD)\n' + DEQUEUE),
+    ("a Run in progress keeps a pull request in the queue", "kernel/decide.py",
+     "    if _leaves_queue(facts, state, reason):\n",
+     "    if in_progress(runs_on(runs, facts)):\n"
+     "        return _decision(facts, state, reason, evidence, t.NOTHING, working=True)\n"
+     "    if _leaves_queue(facts, state, reason):\n"),
+    ("a held item under a pause is not the Maintainer's to see", "kernel/decide.py",
+     ", attention=_attention(state, reason, False))", ")"),
     ("an unreadable review is read before what needs no review", "kernel/derive.py",
      '    if facts["state"] == "merged":\n', REVIEW_GUARD + '    if facts["state"] == "merged":\n'),
     ("an unreadable dismissal is trusted", "kernel/derive.py",

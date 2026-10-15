@@ -5,7 +5,7 @@ import json
 import unittest
 
 from kernel.decide import decide
-from tests.support import CONFIG, GREEN, NOW, ROOT, config, context, facts, pending, review, run, thread
+from tests.support import CONFIG, GREEN, NOW, ROOT, config, context, facts, review, run, thread
 from tools.jsonschema_lite import validate
 
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
@@ -136,7 +136,7 @@ class Readability(unittest.TestCase):
         # GitHub reports a null merge state on merged and closed pull requests; read first, they would defer for ever.
         cases = [({"state": "merged"}, "merged", "merged"), ({"state": "closed"}, "closed", "closed"),
                  ({"labels": ["factory:hold"]}, "held", "human_hold"), ({"is_draft": True}, "draft", "draft"),
-                 ({"queue": True}, "queued", "in_merge_queue")]
+                 ({"queue": True, "reviews": [review()]}, "queued", "in_merge_queue")]
         for over, state, reason in cases:
             d = go(facts(mergeable=None, **over), REVIEWED)
             self.assertEqual((d["state"], d["reason"]), (state, reason), over)
@@ -395,12 +395,12 @@ class HumanControl(unittest.TestCase):
         self.assertEqual(go(facts(**AGENT, reviews=[asked], mergeable=False))["admit"]["intent"], "fix-findings")
 
     def test_an_unreadable_review_is_read_after_what_needs_no_review(self):  # I-13
-        # A merged, closed, unserved, draft, held or queued item is shown as it is, whatever its reviews say.
+        # A merged, closed, unserved, draft or held item is shown as it is, whatever its reviews say. A queued one is
+        # not: whether it stays in the queue turns on its reviews.
         rv = dict(review(state="changes_requested", **MAINTAINER), by=None)
         cases = [({"state": "merged"}, "merged"), ({"state": "closed"}, "closed"), ({"targets_protected": False},
                  "base_not_protected"), ({"is_draft": True}, "draft"), ({"labels": ["factory:hold"]}, "human_hold"),
-                 ({"diff": {"files": 0, "lines": 0, "truncated": False}}, "empty_diff"), ({"queue": True},
-                 "in_merge_queue")]
+                 ({"diff": {"files": 0, "lines": 0, "truncated": False}}, "empty_diff")]
         for over, reason in cases:
             d = go(facts(**dict(AGENT, **over), reviews=[rv]), REVIEWED)
             self.assertEqual(d["reason"], reason, over)
@@ -826,25 +826,113 @@ class Ceilings(unittest.TestCase):
         self.assertEqual((d["outcome"], d["attention"]), ("nothing", "failed"))
 
 
-class NotYetHeld(unittest.TestCase):
-    """Rules that are decided and that the Kernel does not hold yet. See `pending` in tests/support.py."""
+class Queue(unittest.TestCase):
+    """What takes a pull request out of the merge queue: GitHub reads its reviews only on the way in (L-19)."""
 
-    @pending
-    def test_a_queued_pull_request_with_no_approval_leaves_the_queue(self):
-        self.assertEqual(go(facts(queue=True), REVIEWED)["outcome"], "act")
+    def test_a_queued_pull_request_with_no_approval_leaves_the_queue(self):  # I-9, FR-31
+        # Its approval no longer stands for its content: there is none, it is of other content, or it was dismissed.
+        lost = ([], [review(commit="c0", content="sha256:0000")], [dismissed(review(), MAINTAINER, "approved")])
+        for reviews in lost:
+            d = go(facts(queue=True, reviews=reviews), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"], d["content_id"]),
+                             ("queued", "approval_lost", "act", "dequeue", "sha256:aaaa"), reviews)
+        # An open gate takes it out too, whatever approval stands: a writer's thread, or a required Lens's Finding.
+        for th in (thread(kind="human", name="don-petry", severity=None), thread()):
+            for reviews in (APPROVED, []):
+                d = go(facts(queue=True, reviews=reviews, threads=[th]), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
+                                 ("queued", "gate_open", ["T1"], "act", "dequeue"), (th["opened_by"], reviews))
+        # The other side: a standing approval with no open gate stays in the queue, and so does one that a
+        # stranger's thread or a minor Finding is open on.
+        for threads in ([], [thread(kind="human", name="stranger", can_write=False, severity=None)],
+                        [thread(severity="minor")]):
+            d = go(facts(queue=True, reviews=APPROVED, threads=threads), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"), threads)
+            self.assertNotIn("action", d)
 
-    @pending
-    def test_a_dequeue_is_never_refused_at_the_act_ceiling(self):
-        # An act that stops work is counted and never refused. The Kernel does not dequeue yet.
-        f = facts(queue=True, acts_since_writer=LIMITS["max_acts_per_item"] + 1)
-        self.assertEqual(go(f, REVIEWED).get("action"), "dequeue")
-
-    @pending
-    def test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue(self):
-        # A queued item is read before its gates, so a request made after it entered the queue is never read. #33.
+    def test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue(self):  # L-14
+        # A writer's request gates as that person's thread does, made before the item entered the queue or after.
         asked = review(state="changes_requested", **MAINTAINER, at=at(30))
         d = go(facts(**AGENT, queue=True, reviews=[review(), asked]), ANSWERED)
-        self.assertEqual((d["outcome"], d.get("action")), ("act", "dequeue"))
+        self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d.get("action")),
+                         ("queued", "gate_open", ["don-petry"], "act", "dequeue"))
+        # The other side: that person's approval answers it, and the item stays in the queue.
+        d = go(facts(**AGENT, queue=True, reviews=[review(), asked, review(**MAINTAINER, at=at(35))]), ANSWERED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"))
+        # A stranger's or a Lens's request gates nothing here either.
+        for who in (STRANGER, REVIEWER_APP):
+            d = go(facts(**AGENT, queue=True, reviews=[review(), review(state="changes_requested", **who)]), ANSWERED)
+            self.assertEqual((d["reason"], d["outcome"]), ("in_merge_queue", "nothing"), who)
+
+    def test_a_hold_takes_a_queued_pull_request_out(self):  # FR-23, I-21
+        # Taking it out of the queue is the one change the Factory makes to a held item: a merge is the last Effect.
+        for reviews in (APPROVED, []):
+            d = go(facts(queue=True, labels=["factory:hold"], reviews=reviews), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"], d["attention"]),
+                             ("held", "human_hold", "act", "dequeue", "needs_you"), reviews)
+        # Hands-off means the Factory never acts: the item stays where the Maintainer left it.
+        for labels in (["factory:hands-off"], ["factory:hands-off", "factory:hold"]):
+            d = go(facts(queue=True, labels=labels, reviews=APPROVED), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "hands_off", "hold"), labels)
+            self.assertNotIn("action", d)
+        # A held item that is not queued is only held.
+        d = go(facts(labels=["factory:hold"], reviews=APPROVED), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "human_hold", "hold"))
+        self.assertNotIn("action", d)
+
+    def test_under_a_pause_a_dequeue_defers(self):  # I-7
+        # A dequeue defers like every other act. The Maintainer accepted that the item may merge meanwhile.
+        stops = [({"labels": ["factory:hold"], "reviews": APPROVED}, "held", "needs_you"),
+                 ({"reviews": []}, "queued", "ready"),
+                 ({"reviews": APPROVED, "threads": [thread(kind="human", name="don-petry", severity=None)]},
+                  "queued", "ready")]
+        for over, state, attention in stops:
+            for paused, reason in ((True, "paused"), (None, "pause_unreadable")):
+                d = go(facts(queue=True, **over), REVIEWED, ctx=context(paused=paused))
+                self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                                 (state, reason, "defer", attention), (over, paused))
+                self.assertNotIn("action", d)
+            self.assertEqual(go(facts(queue=True, **over), REVIEWED)["action"], "dequeue", over)
+
+    def test_a_dequeue_is_never_refused_at_the_act_ceiling(self):  # I-8
+        # An act that stops work is counted and never refused, so neither the count nor its reading stops it.
+        stops = [({"labels": ["factory:hold"], "reviews": APPROVED}, "human_hold"), ({"reviews": []}, "approval_lost"),
+                 ({"reviews": APPROVED, "threads": [thread()]}, "gate_open")]
+        for over, reason in stops:
+            for acts in (LIMITS["max_acts_per_item"], LIMITS["max_acts_per_item"] + 1, None, -1):
+                d = go(facts(queue=True, acts_since_writer=acts, **over), REVIEWED)
+                self.assertEqual((d["reason"], d["outcome"], d.get("action")), (reason, "act", "dequeue"), (reason, acts))
+        # The other side: the same count refuses an enqueue.
+        d = go(facts(reviews=APPROVED, acts_since_writer=LIMITS["max_acts_per_item"]), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"]), ("act_ceiling", "hold"))
+
+    def test_a_run_in_progress_does_not_keep_a_pull_request_in_the_queue(self):  # I-2
+        # A dequeue is the Controller's act, not a Run, and it stops work: one writer per item does not delay it.
+        busy = REVIEWED + [run(role="dev-lead", intent="fix-findings", status="in_progress", at=at(20), name="r2")]
+        for over, reason in (({"labels": ["factory:hold"], "reviews": APPROVED}, "human_hold"),
+                             ({"reviews": []}, "approval_lost")):
+            d = go(facts(queue=True, **over), busy)
+            self.assertEqual((d["reason"], d["outcome"], d.get("action")), (reason, "act", "dequeue"), reason)
+        # The other side: a Run in progress still holds an item that is not queued.
+        d = go(facts(reviews=[]), busy)
+        self.assertEqual((d["outcome"], d["attention"]), ("nothing", "working"))
+
+    def test_an_unreadable_review_takes_nothing_out_of_the_queue(self):  # I-13
+        # Whether a queued item may stay turns on its reviews. One that cannot be read could be a writer's request, so
+        # the Kernel defers for the Maintainer to see: an unreadable fact never yields an act, a dequeue among them.
+        rv = dict(review(state="changes_requested", **MAINTAINER), by=None)
+        for reviews in ([rv], [review(), rv]):
+            d = go(facts(**AGENT, queue=True, reviews=reviews), ANSWERED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             (None, "review_unreadable", "defer", "needs_you"))
+            self.assertNotIn("action", d)
+        # A Hold is read first, and needs no review to be read.
+        d = go(facts(**AGENT, queue=True, labels=["factory:hold"], reviews=[rv]), ANSWERED)
+        self.assertEqual((d["reason"], d["action"]), ("human_hold", "dequeue"))
+
+
+class NotYetHeld(unittest.TestCase):
+    """Rules that are decided and that the Kernel does not hold yet. See `pending` in tests/support.py."""
 
 
 if __name__ == "__main__":

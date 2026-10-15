@@ -334,6 +334,36 @@
       "bound": "max_acts_per_item"
     },
     {
+      "from": "queued",
+      "to": "converged",
+      "by": "factory",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "queued",
+      "to": "addressing",
+      "by": "factory",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "queued",
+      "to": "verifying",
+      "by": "factory",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "queued",
+      "to": "adjudicating",
+      "by": "factory",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "queued",
+      "to": "held",
+      "by": "factory",
+      "bound": "max_acts_per_item"
+    },
+    {
       "from": "converged",
       "to": "adjudicating",
       "by": "lens",

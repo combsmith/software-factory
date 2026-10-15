@@ -1,0 +1,17 @@
+{
+  "schema": "decision/1",
+  "item": {
+    "repo": "combsmith/software-factory",
+    "type": "pull_request",
+    "number": 42
+  },
+  "state": "queued",
+  "reason": "gate_open",
+  "evidence": [
+    "don-petry"
+  ],
+  "attention": "ready",
+  "outcome": "act",
+  "action": "dequeue",
+  "content_id": "sha256:5d0c"
+}

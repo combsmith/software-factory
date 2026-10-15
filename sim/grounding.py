@@ -24,14 +24,19 @@ RULES = (
     ("a_push_leaves_the_queue", "A push takes the pull request out of the merge queue", (), None),
     ("an_app_enters_the_queue", "An App can put an approved pull request in the merge queue", ("P-2",), None),
     ("the_queue_merges", "A pull request in the merge queue merges, unless a push takes it out first", (), None),
+    ("a_pass_comes_before_the_merge", "The merge queue takes longer to merge a pull request than the poller takes to "
+     "read it again, so a dequeue the Kernel decides lands before the merge", ("P-2",), None),
+    ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue", ("P-2",), None),
+    ("a_writer_can_dismiss_an_approval", "A person with write access can dismiss the machine user's approval, and the "
+     "timeline says who and what the review was before", (), None),
     ("the_merge_group_is_not_checked", "The merge queue merges without running the checks on the merge group", (), None),
     ("the_machine_users_approval_counts", "The machine user's approval counts when an App pushed last", ("P-7",), None),
     ("an_approval_can_fail_to_land", "The machine user's approval can fail to land, by a fault of the item or of "
      "the environment, and its Run then concludes failure", ("P-7",), None),
     ("the_queue_can_eject", "The merge queue can take a pull request out without merging it, and its approval stays",
      (), None),
-    ("the_timeline_shows_each_act", "Each approval, enqueue and label a Factory identity makes is on the timeline, "
-     "with its actor, so the acts since a person with write access acted can be counted", ("P-8",), None),
+    ("the_timeline_shows_each_act", "Each approval, enqueue, dequeue and label a Factory identity makes is on the "
+     "timeline, with its actor, so the acts since a person with write access acted can be counted", ("P-8",), None),
     ("a_lens_review_opens_a_thread", "A Lens's review can open a review thread on the pull request", (), None),
     ("an_app_resolves_a_lens_thread", "The reviewer's App can resolve a thread a Lens opened", ("P-5",), None),
     ("a_run_waits_its_turn", "One Run on an item is in progress, and any number wait queued behind it", (), None),

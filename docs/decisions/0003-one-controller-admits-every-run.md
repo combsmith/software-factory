@@ -31,11 +31,13 @@ single decider has no race to lose and one place for every brake.
 | A failed model Run is not an approval attempt | `tests/test_decide.py::test_a_failed_model_run_is_not_an_approval_attempt` |
 | Acts since a person with write access acted are held to `max_acts_per_item`; an unreadable count makes no act | `tests/test_decide.py::test_acts_are_bounded`, `tests/test_decide.py::test_an_unreadable_count_of_acts_makes_no_act`, `examples/invalid/facts.no-count-of-acts.json`, `tests/test_simulator.py::test_a_queue_that_ejects_every_time_is_bounded` |
 | The act ceiling stops acts that move work on, and nothing else: a Run is bounded by the Run ceiling, and a Hold is never refused | `tests/test_decide.py::test_the_act_ceiling_stops_acts_and_nothing_else` |
-| A dequeue, an act that stops work, is never refused at the act ceiling | `tests/test_decide.py::test_a_dequeue_is_never_refused_at_the_act_ceiling`, not held yet |
+| A dequeue, an act that stops work, is never refused at the act ceiling, and a Run in progress does not delay it | `tests/test_decide.py::test_a_dequeue_is_never_refused_at_the_act_ceiling`, `tests/test_decide.py::test_a_run_in_progress_does_not_keep_a_pull_request_in_the_queue` |
+| A Hold takes a queued pull request out of the merge queue, the one change the Factory makes to a held item; hands-off does not | `tests/test_decide.py::test_a_hold_takes_a_queued_pull_request_out` |
 | Acts are counted from GitHub's timeline: each approval, enqueue, dequeue and label a Factory identity made, since a person with write access acted | waiting on `adapters/` |
 | A missing or unreadable Pause or capacity reading admits nothing | `tests/test_decide.py::test_unreadable_pause_defers`, `tests/test_decide.py::test_an_unreadable_pause_stops_approvals_and_merges`, `tests/test_decide.py::test_unreadable_capacity_defers` |
 | Each brake is a rule a test would miss if it were removed | `tools/mutants.py` |
 | A Pause stops approvals and merges as well as Runs | `tests/test_decide.py::test_a_pause_stops_approvals_and_merges_too` |
+| Under a Pause a dequeue defers, as every act does, and a held item stays the Maintainer's to see | `tests/test_decide.py::test_under_a_pause_a_dequeue_defers` |
 | Under a Pause, a Hold the facts establish is shown first: the approver may not be the author or last pusher | `tests/test_decide.py::test_under_a_pause_a_hold_the_facts_establish_shows_first` |
 | A Run's lane is one concurrency group for each Work item, declared on the job, and never cancels what is running | waiting on `harness/` |
 | Work is never lost once faults stop | `tests/test_simulator.py::test_work_is_never_lost_once_faults_stop` |

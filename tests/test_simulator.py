@@ -89,24 +89,62 @@ class Simulation(unittest.TestCase):
             w.person()
             self.assertEqual((w.acts == 0, w.last_writer != before), (renewed, renewed), human_thread)
 
-    def test_a_merge_over_a_request_for_changes_is_noted_until_it_is_held(self):
-        # The Maintainer asks for changes after the item entered the queue, and the queue merges it (#33).
+    def test_an_invariant_not_yet_held_is_noted_until_it_is_held(self):
+        w = World(1)
+        with mock.patch.object(world, "NOT_YET_HELD", ("test_later",)):
+            w.check_unheld(False, "test_later", "a rule")
+        self.assertEqual(w.unheld, ["test_later"])
+        # Once the rule is held, the same breach raises.
+        self.assertRaises(world.Broken, w.check_unheld, False, "test_later", "a rule")
+
+    def test_what_happens_while_queued_takes_the_item_out_before_it_merges(self):  # L-19
+        # The Maintainer asks for changes, opens a thread, dismisses the approval or adds a Hold after the item
+        # entered the queue. The queue waits for a pass, and the pass takes it out.
         class Roll:
             def random(self):
                 return 0.0
 
-        name = "test_a_request_for_changes_made_while_queued_takes_it_out_of_the_queue"
-        w = World(2, faults=False, people=False)
-        w.queue, w.rng = True, Roll()
-        w.review("changes_requested")
-        w.platform()
-        self.assertEqual((w.pr_state, w.unheld), ("merged", [name]))
-        # Once the rule is held, the same merge breaks the invariant.
-        w = World(2, faults=False, people=False)
-        w.queue, w.rng = True, Roll()
-        w.review("changes_requested")
-        with mock.patch.object(world, "NOT_YET_HELD", ()):
+        def queued():
+            w = World(2, faults=False, people=False)
+            w.checks = dict.fromkeys(w.checks, "success")
+            w.reviews.append({"by": {"kind": "lens", "name": world.CONFIG["approver"], "can_write": True},
+                              "state": "approved", "commit": "c1", "content_id": w.cid(), "submitted_at": w.now(),
+                              "dismissed_by": None, "dismissed_from": None})
+            w.queue, w.rng = True, Roll()
+            w.minute += 1
+            return w
+
+        acts = {"changes": lambda w: w.review("changes_requested"), "thread": lambda w: w.while_queued("thread"),
+                "dismiss": lambda w: w.while_queued("dismiss"), "hold": lambda w: w.while_queued("hold")}
+        for name, act in acts.items():
+            w = queued()
+            act(w)
+            w.platform()
+            self.assertEqual((w.pr_state, w.queue), ("open", True), name)
+            w.poll()
+            self.assertEqual((w.pr_state, w.queue), ("open", False), name)
+            # Had the queue merged over it once a pass had read it, the invariant breaks.
+            w = queued()
+            act(w)
+            w.read = w.unstamped(w.facts())
             self.assertRaises(world.Broken, w.platform)
+        # The other side: with nothing in the way, the queue merges once a pass has read the item.
+        w = queued()
+        w.platform()
+        self.assertEqual(w.pr_state, "open")
+        w.poll()
+        w.platform()
+        self.assertEqual(w.pr_state, "merged")
+
+    def test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause(self):
+        # The faults while queued are reached: a dismissed approval, an open gate and a Hold each take one out.
+        causes = set()
+        for seed in SEEDS:
+            w = World(seed)
+            for _ in range(250):
+                w.step()
+            causes |= {line.split("(")[-1].rstrip(")") for line in w.trace if "apply: dequeued" in line}
+        self.assertEqual(causes, {"approval_lost", "gate_open", "human_hold"})
 
     def test_every_invariant_not_yet_held_names_a_pending_test(self):
         # When a rule is built and its test loses @pending, its invariant here must start to raise too.
