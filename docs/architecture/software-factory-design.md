@@ -1075,6 +1075,26 @@ such as `max_diff_lines`, or on the whole org, such as `org_max_active_runs`, bo
 | `addressing → adjudicating` | `max_attempts`, as declared | Not what moves the item on: that is an author Run that succeeded. Every cycle through this transition leaves `adjudicating` by an exit bounded by `max_rounds`, and those bound it |
 | `converged → queued`: enqueued | `max_acts_per_item` | The enqueue, an act (§3.10). A queue that ejects every time comes to rest here |
 | `queued → converged`, `addressing`, `verifying`, `adjudicating` and `held`: dequeued | `max_acts_per_item` | The dequeue, an act. It is never refused, but it follows an enqueue, and every way back into the queue is an enqueue, which the ceiling refuses |
+| `addressing`, `adjudicating` and `converged → verifying` by `factory`: a fix Run pushed | `max_runs_per_item` | The author Role's Run that pushed |
+| `verifying`, `addressing` and `adjudicating → held` by `factory`, and `verifying → held` by a Lens or the platform | `max_runs_per_item` | A Hold made with no person comes at a ceiling: the change, a Run that ends or a Lens's report or a conflict that calls for a Run, finds the Run ceiling or the attempts spent. Or a Role's App places a label, and a Role's App writes only inside a Run (decision 0005) |
+| `converged → held` by `factory` or the platform, and `queued → held` by the platform | `max_acts_per_item` | An approval, a dequeue, or the queue ejecting the item, finds the act ceiling reached |
+
+**Who makes a transition.** Whoever made the change in the facts that moved the State. A person
+with write access is `human`. A Lens is `lens`: a required check that reports, or a reviewing Role's
+Run that gives a verdict. The Factory is `factory`: a Run it admitted ending, a fix Run's push, an act,
+and anything a Role's App does, in turn or not. The platform is `platform`: GitHub on its own, which
+merges or ejects from the queue, works out a conflict, or retargets a stacked pull request, and any
+App that is not a Lens's or a Role's, a check posted under a Lens's name among them, since the Kernel
+cannot tell which App posted it. Someone with no write access is none of these and changes no State.
+`tests/test_transitions.py` applies every change each of them can make to facts for every reason the
+Kernel gives with a State, and again to each result, and every transition it finds is declared with who
+made it; the simulator checks each one it makes the same way. So the queue can merge an item the
+Kernel would take out, the race that "Leaving the merge queue" accepts. A ceiling holds only what it
+bounds, so an item held at one leaves `held` when the facts call for something else, as a conflict on
+an item held at the act ceiling calls for a fix Run; the counter is renewed only when a writer acts.
+An item that is not served becomes whatever it is once retargeted. A conflict that a later move of
+the base clears, with no push, is not reached: it would make `converged → addressing → converged` a
+cycle the platform alone makes, with no bound.
 
 #### The issue Lifecycle
 

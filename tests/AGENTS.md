@@ -1,7 +1,8 @@
 # tests/
 
 `test_decide.py` holds one test for each boundary case of the Kernel. `test_tools.py` makes every
-check fail. `test_simulator.py` runs the seeded simulation. `test_hooks.py` feeds each session hook a
+check fail. `test_simulator.py` runs the seeded simulation. `test_transitions.py` finds every change of State the Kernel can
+make, and who makes it, and holds each to the Lifecycle. `test_hooks.py` feeds each session hook a
 violation and a clean case. `support.py` builds ordinary inputs.
 The page `docs/standards/tests.md` shows each of these by example.
 

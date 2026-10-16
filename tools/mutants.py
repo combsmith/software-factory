@@ -43,7 +43,7 @@ THREAD_GUARD = ("    unread = unreadable_threads(facts, config)\n    if unread:\
                 '        return {"state": None, "reason": "thread_unreadable", "evidence": unread}\n')
 REVIEW_WAIT = '            return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens]}\n'
 STAYS = '    if d["reason"] == "approved":\n'
-LEFT_ALONE = '    if d["state"] in t.TERMINAL or not facts["queue"] or hands_off(facts, config):\n'
+LEFT_ALONE = '    if d["state"] in t.ADMITS_NOTHING or not facts["queue"] or hands_off(facts, config):\n'
 DEQUEUE_IF = '    if d.get("dequeue"):\n'
 DEQUEUE = ('        return _decision(facts, state, reason, evidence, t.ACT, action="dequeue",'
            ' content_id=facts["content_id"])\n')
@@ -372,7 +372,15 @@ MUTANTS = [
     ("a pull request that is not queued is dequeued", "kernel/derive.py",
      LEFT_ALONE, LEFT_ALONE.replace(' or not facts["queue"]', "")),
     ("a pull request that is not served is dequeued", "kernel/derive.py",
-     LEFT_ALONE, LEFT_ALONE.replace("d[\"state\"] in t.TERMINAL", "d[\"state\"] in (t.MERGED, t.CLOSED)")),
+     LEFT_ALONE, LEFT_ALONE.replace("d[\"state\"] in t.ADMITS_NOTHING", "d[\"state\"] in (t.MERGED, t.CLOSED)")),
+    ("a pull request that is not served is someone's to see", "kernel/decide.py",
+     '    if state in t.ADMITS_NOTHING or state == t.DRAFT or reason == "hands_off":\n',
+     '    if state in (t.MERGED, t.CLOSED) or state == t.DRAFT or reason == "hands_off":\n'),
+    ("a Run in progress on a pull request that is not served is shown as working", "kernel/decide.py",
+     "    if state in t.ADMITS_NOTHING or state in (t.DRAFT, t.QUEUED):\n",
+     "    if state in (t.MERGED, t.CLOSED) or state in (t.DRAFT, t.QUEUED):\n"),
+    ("the States that admit nothing are only the ends", "kernel/terms.py",
+     "ADMITS_NOTHING = frozenset({MERGED, CLOSED, NOT_SERVED})", "ADMITS_NOTHING = frozenset({MERGED, CLOSED})"),
     ("a pause lets a dequeue through", "kernel/decide.py",
      "        if paused:\n", "        if False:\n"),
     ("a deferred dequeue is not the Maintainer's to see", "kernel/decide.py",
@@ -387,7 +395,7 @@ MUTANTS = [
      "        return _decision(facts, state, reason, evidence, t.NOTHING, working=True)\n" + DEQUEUE_IF),
     ("a draft or a queued item is left alone before the dequeue is read", "kernel/decide.py",
      DEQUEUE_IF,
-     "    if state in t.TERMINAL or state in (t.DRAFT, t.QUEUED):\n"
+     "    if state in t.ADMITS_NOTHING or state in (t.DRAFT, t.QUEUED):\n"
      "        return _decision(facts, state, reason, evidence, t.NOTHING)\n" + DEQUEUE_IF),
     ("a read that fails defers before the dequeue is read", "kernel/decide.py",
      DEQUEUE_IF,

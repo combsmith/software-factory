@@ -26,7 +26,7 @@ def _attention(state, reason, working: bool) -> str:
         return t.WORKING
     if reason in NEEDS_YOU_REASONS:
         return t.NEEDS_YOU
-    if state in t.TERMINAL or state == t.DRAFT or reason == "hands_off":
+    if state in t.ADMITS_NOTHING or state == t.DRAFT or reason == "hands_off":
         return t.NONE
     if state == t.ADDRESSING:
         return t.FAILED
@@ -135,7 +135,7 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     # Fail to a deferral, never to an action.
     if state is None:
         return _decision(facts, None, reason, evidence, t.DEFER)
-    if state in t.TERMINAL or state in (t.DRAFT, t.QUEUED):
+    if state in t.ADMITS_NOTHING or state in (t.DRAFT, t.QUEUED):
         return _decision(facts, state, reason, evidence, t.NOTHING)
     if state == t.HELD:
         return _decision(facts, state, reason, evidence, t.HOLD)

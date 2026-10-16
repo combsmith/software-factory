@@ -13,7 +13,10 @@ MERGED = "merged"
 CLOSED = "closed"
 NOT_SERVED = "not_served"
 
-TERMINAL = frozenset({MERGED, CLOSED, NOT_SERVED})
+# The States that admit nothing: no Run, and no act, not even a dequeue. The Factory leaves the item alone. Merged
+# and closed end the Lifecycle; not served does not, as GitHub serves the item again when it retargets it. The
+# Lifecycle's `terminal` names the ends.
+ADMITS_NOTHING = frozenset({MERGED, CLOSED, NOT_SERVED})
 
 # Decision outcomes.
 NOTHING = "nothing"

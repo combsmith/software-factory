@@ -516,7 +516,7 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     is left alone, and so is one a person marked hands-off, which the Factory never acts on.
     """
     d = reading(facts, runs, config, ())
-    if d["state"] in t.TERMINAL or not facts["queue"] or hands_off(facts, config):
+    if d["state"] in t.ADMITS_NOTHING or not facts["queue"] or hands_off(facts, config):
         return d
     d = reading(facts, runs, config, t.QUEUE_WAITS)
     if d["reason"] == "approved":

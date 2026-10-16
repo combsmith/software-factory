@@ -11,6 +11,7 @@ from kernel import terms
 from kernel.decide import decide
 from sim import world
 from sim.world import World
+from tests import test_transitions
 
 # Fixed seeds: the required check cannot fail at random. SIM_SEEDS shortens a local run.
 SEEDS = range(1, 1 + int(os.environ.get("SIM_SEEDS", "300")))
@@ -39,10 +40,40 @@ def queued() -> World:
 
 class Simulation(unittest.TestCase):
     def test_invariants_hold_under_faults(self):
+        made = set()
         for seed in SEEDS:
             world = World(seed)
             for _ in range(250):
                 world.step()
+            made |= world.made
+        # Each change of State the seeds make, and who made it, is one the exploration of every change finds too: what
+        # the world reaches and the exploration does not is a gap in the exploration.
+        found, _ = test_transitions.explored()
+        self.assertEqual(sorted(made - set(found)), [])
+        self.assertEqual({by for _, _, by in made}, {"human", "lens", "factory", "platform"})
+
+    def test_every_change_of_state_is_checked_with_who_made_it(self):  # I-12
+        # The queue merges an item: the world records the transition as the platform's, and checks it is declared so.
+        w = queued()
+        w.read = w.unstamped(w.facts())
+        w.caused("factory")
+        w.platform()
+        self.assertEqual((w.pr_state, w.made), ("merged", {("queued", "merged", "platform")}))
+        # Had the Lifecycle declared it as anyone else's, the invariant breaks.
+        w = queued()
+        w.read = w.unstamped(w.facts())
+        w.caused("factory")
+        with mock.patch.object(world, "DECLARED", world.DECLARED - {("queued", "merged", "platform")}):
+            self.assertRaises(world.Broken, w.platform)
+        # Someone with no write access is nobody the Lifecycle names: a comment of theirs changes nothing, and any
+        # change of State put down to them breaks the invariant.
+        w = queued()
+        w.caused("factory")
+        w.stranger_comments()
+        w.caused(w.by_of(world.STRANGER))
+        self.assertEqual((w.by_of(world.STRANGER), w.made), ("stranger", set()))
+        w.queue = False
+        self.assertRaises(world.Broken, w.caused, w.by_of(world.STRANGER))
 
     def test_the_seeds_serve_a_maintainers_and_an_agents_pull_request(self):
         # The Maintainer's own pull request, where their review is refused, and an agent's, which they review.

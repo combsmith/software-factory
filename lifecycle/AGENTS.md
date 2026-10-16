@@ -15,4 +15,4 @@ join them when the Kernel derives an issue's State, which it does not yet.
 | The Factory makes no transition out of a Hold. A person ends a label or a ceiling; a changed diff, by `platform`, ends a Hold on the content | `tests/test_tools.py::test_a_hold_the_factory_could_end_is_caught` |
 | Only a person leaves a State in `person_only_exits`: an issue's `held` and `not_served` | `tests/test_tools.py::test_an_issue_the_factory_could_serve_again_is_caught` |
 | A pull request that is not served is not ended: GitHub serves it again when it retargets it | `tests/test_tools.py::test_a_pull_request_not_served_can_be_served_again_but_not_by_a_loop` |
-| A transition the Kernel makes is declared here | `tests/test_simulator.py::test_invariants_hold_under_faults` |
+| A transition the Kernel makes is declared here, with who makes it | `tests/test_transitions.py::test_every_change_of_state_is_declared_with_who_makes_it`, `tests/test_simulator.py::test_every_change_of_state_is_checked_with_who_made_it` |

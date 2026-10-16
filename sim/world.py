@@ -30,6 +30,9 @@ APPS = {lens["lens"]: lens["app_id"] for lens in CONFIG["required_lenses"]["dete
 CHECKS = {lens["lens"]: lens["check"] for lens in CONFIG["required_lenses"]["deterministic"]}
 # An App no Lens is read from, which can write checks: the Controller's own can post a check under any name.
 IMPOSTOR_APP = 1000001
+# Who posts it, in the Lifecycle's words: the facts give only its App's id, and no Run or act of the Factory's posts a
+# check under a Lens's name, so the change is the platform's (by_of).
+IMPOSTOR = {"kind": "app", "name": "another-app[bot]", "can_write": True}
 START = datetime.datetime(2026, 10, 11, 12, 0, 0)
 # On an even seed the pull request is an agent's, and the Maintainer reviews it as a colleague's (UJ-4). On an odd
 # seed it is the Maintainer's own, as the simulator has always served, and GitHub refuses a review by its author.
@@ -39,6 +42,8 @@ MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
 # The author's App: it pushes the agent's fixes, and can label and resolve threads, as any App with write access can.
 AUTHOR_APP = {"kind": "app", "name": AUTHOR, "can_write": True}
+# Someone with no write access, who can comment and nothing more.
+STRANGER = {"kind": "human", "name": "stranger", "can_write": False}
 # The machine user, which only approves.
 MACHINE = {"kind": "machine_user", "name": CONFIG["approver"], "can_write": True}
 # Invariants of rules the Kernel does not hold yet, each named by its test in tests/test_decide.py, which is marked
@@ -86,7 +91,8 @@ class World:
         self.last_act = None       # the action of the last act that landed: an act that stops work is never refused
         self.stale = None          # an older snapshot, served when facts go stale
         self.read = None           # the facts the last whole, current pass read, as `unstamped` gives them
-        self.prev_state = None
+        self.true_state = None     # the State the Kernel gives what GitHub holds now, after the last change
+        self.made = set()          # each transition a change made, as (from, to, by)
         self.trace = []
         self.model_runs = 0
 
@@ -233,6 +239,32 @@ class World:
             self.unheld.append(test)
             self.note("not held yet: %s" % invariant)
 
+    @classmethod
+    def by_of(cls, actor: dict) -> str:
+        """Who makes what `actor` does, in the Lifecycle's words. A Role's App, such as the author's, writes only inside
+        a Run, with a token minted for it (decision 0005), so what it does is the Factory's, in turn or not. Any other
+        App is the platform's. Someone with no write access is nobody the Lifecycle names: nothing they do may change a
+        State."""
+        if cls.is_person(actor):
+            return "human"
+        if actor["kind"] == "lens":
+            return "lens"
+        if actor["kind"] == t.MACHINE_USER or actor == AUTHOR_APP:
+            return "factory"
+        return "platform" if actor["kind"] == t.APP else "stranger"
+
+    def caused(self, by: str):
+        """A change was just made by `by`. If it changed the State the Kernel gives what GitHub holds, the Lifecycle
+        declares that transition, made by `by` (I-12)."""
+        state = decide(self.facts(), self.records(), self.context(), CONFIG, self.now())["state"]
+        if state is None:
+            return
+        if self.true_state is not None and state != self.true_state:
+            self.made.add((self.true_state, state, by))
+            self.check((self.true_state, state, by) in DECLARED,
+                       "I-12 undeclared transition %s -> %s by %s" % (self.true_state, state, by))
+        self.true_state = state
+
     # ---- the poller
     def poll(self):
         if self.gap:
@@ -307,18 +339,15 @@ class World:
             self.check(not stop or (d["outcome"], d.get("action")) == (t.ACT, "dequeue"),
                        "a pass leaves a queued item in the queue over %s" % ", ".join(stop or []))
             self.read = self.unstamped(facts)
-        if whole and d["state"] is not None:
-            if self.prev_state is not None and d["state"] != self.prev_state:
-                self.check((self.prev_state, d["state"]) in DECLARED,
-                           "I-12 undeclared transition %s -> %s" % (self.prev_state, d["state"]))
-            self.prev_state = d["state"]
         if d["outcome"] == "admit":
             self.moves()
             self.runs.append({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"],
                               "intent": d["admit"]["intent"], "content_id": d["admit"]["content_id"],
                               "status": "queued", "conclusion": None, "outcome": None, "started_at": self.now()})
+            self.caused("factory")
         elif d["outcome"] == "act":
             self.apply_action(d)
+            self.caused("factory")
 
     # ---- an act: a change that needs no model
     def apply_action(self, d: dict):
@@ -388,8 +417,10 @@ class World:
             # GitHub: a_superseded_run_fails
             run.update(status="completed", conclusion="failure", outcome="superseded")
             self.note("run %s: superseded before it started" % run["run"])
+            self.caused("factory")
             return
         run["status"] = "in_progress"
+        self.caused("factory")
         self.model_runs += 1
         self.note("run %s: started %s %s" % (run["run"], run["role"], run["intent"]))
         if run["intent"] == "review-change":
@@ -403,6 +434,12 @@ class World:
         if not live:
             return
         run = live[0]
+        self.ending(run)
+        # A Lens's verdict is the Lens's report; every other end of a Run, a review that gave none among them, is the
+        # Factory's.
+        self.caused("lens" if run["intent"] == "review-change" and run["conclusion"] == "success" else "factory")
+
+    def ending(self, run: dict):
         run["status"] = "completed"
         if self.faults and self.rng.random() < 0.12:
             # GitHub: a_killed_job_times_out
@@ -463,7 +500,7 @@ class World:
         """A review that only comments, by someone with no write access. It moves nothing: else a comment every half
         hour would keep a stall from showing."""
         # GitHub: anyone_can_comment
-        self.reviews.append({"by": {"kind": "human", "name": "stranger", "can_write": False}, "state": "commented",
+        self.reviews.append({"by": dict(STRANGER), "state": "commented",
                              "commit": "c%d" % self.content, "content_id": self.cid(), "submitted_at": self.now(),
                              "dismissed_by": None, "dismissed_from": None})
         self.note("a stranger commented")
@@ -496,8 +533,8 @@ class World:
         return True
 
     def platform(self):
-        if self.faults and self.meddler.random() < 0.03:
-            self.an_app_meddles()
+        if self.faults and self.meddler.random() < 0.03 and self.an_app_meddles():
+            self.caused(self.by_of(AUTHOR_APP))
         live = [rv for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"] and rv["state"] != "dismissed"]
         if self.faults and live and self.rng.random() < 0.1:
             # GitHub: an_app_can_dismiss_a_review
@@ -507,11 +544,13 @@ class World:
             latest = self.verdict()
             self.asked = latest is not None and "changes_requested" in (latest["state"], latest["dismissed_from"])
             self.note("the reviewer's App dismissed the Maintainer's review (%s)" % dismissed["dismissed_from"])
+            self.caused(self.by_of(REVIEWER_APP))
             return
         if self.queue and (not self.queue_merges or (self.faults and self.rng.random() < 0.2)):
             # GitHub: the_queue_can_eject
             self.queue = False
             self.note("ejected from the queue")
+            self.caused("platform")
             return
         # GitHub: the_queue_merges
         # GitHub: the_merge_group_is_not_checked
@@ -522,6 +561,7 @@ class World:
             self.check(not objections, "a merge over %s" % ", ".join(objections))
             self.pr_state = "merged"
             self.note("merged")
+            self.caused("platform")
             return
         pending = [k for k, v in self.checks.items() if v == "pending"]
         if pending:
@@ -534,18 +574,25 @@ class World:
                 # GitHub: a_check_can_time_out_or_give_no_verdict
                 self.checks[lens] = self.pick(["timed_out", "neutral", "skipped", "cancelled", "stale"])
                 self.note("check %s: %s" % (lens, self.checks[lens]))
-            elif self.faults and roll < 0.87 and self.checks[lens] == "failure":
+            self.caused("lens")
+            if self.faults and roll < 0.87 and self.checks[lens] == "failure":
                 # GitHub: any_app_posts_a_check_under_any_name
                 self.impostors.append({"name": CHECKS[lens], "app_id": IMPOSTOR_APP, "conclusion": "success",
                                        "completed_at": self.now()})
                 self.note("check %s: failure, and another App posted a passing one under its name" % lens)
+                self.caused(self.by_of(IMPOSTOR))
 
     def person(self):
+        """The Maintainer acts, or a stranger comments, and the State the Kernel gives may change."""
+        self.caused(self.acting())
+
+    def acting(self) -> str:
+        """Who acted: the Maintainer, or a stranger, who is no person with write access."""
         # GitHub refuses a review by the pull request's author: on the Maintainer's own, they do as they always did.
         reviews = self.cls == "agent"
         if self.queue and self.faults and self.rng.random() < 0.5:
             self.while_queued(self.pick(["dismiss", "thread", "hold"]))
-            return
+            return "human"
         roll = self.rng.random()
         if roll < 0.25:
             # The Maintainer ends what holds the item, whoever took a label off since; or places a Hold.
@@ -570,6 +617,8 @@ class World:
                 self.note("maintainer resolved %d threads" % len(mine))
             else:        # and in that time a stranger, who renews nothing either, comments
                 self.stranger_comments()
+                return self.by_of(STRANGER)
+        return "human"
 
     def open_thread(self):
         self.threads.append({"id": "T%d" % len(self.threads), "resolved": False,
@@ -683,6 +732,7 @@ class World:
         if self.impostors:
             # Another App's check cannot be run again or deleted: only a push leaves it behind.
             self.push(MAINTAINER["name"], writer=True)
+        self.caused("human")
         for _ in range(steps):
             self.step()
         return decide(self.facts(), self.records(), self.context(), CONFIG, self.now())

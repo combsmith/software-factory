@@ -157,4 +157,10 @@ def run(root: pathlib.Path = ROOT) -> list:
 
 
 def declared(lifecycle: dict) -> set:
-    return {(tr["from"], tr["to"]) for tr in lifecycle["transitions"]}
+    """Every transition `lifecycle` declares, as (from, to, by)."""
+    return {(tr["from"], tr["to"], tr["by"]) for tr in lifecycle["transitions"]}
+
+
+def undeclared(lifecycle: dict, made) -> list:
+    """Each transition in `made`, as (from, to, by), that `lifecycle` does not declare. Any Lifecycle."""
+    return sorted(set(made) - declared(lifecycle))

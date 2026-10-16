@@ -883,6 +883,19 @@ class Classes(unittest.TestCase):
         d = go(facts(targets_protected=False))
         self.assertEqual((d["state"], d["outcome"]), ("not_served", "nothing"))
 
+    def test_a_state_that_admits_nothing_is_nobodys_to_see(self):
+        # Merged, closed and not served admit nothing, and are shown as nothing, a Run still in progress or not. Not
+        # served is no end of the Lifecycle: GitHub serves the item again when it retargets it.
+        for over in ({"state": "merged"}, {"state": "closed"}, {"targets_protected": False}):
+            for runs in ([], [run(status="in_progress")]):
+                d = go(facts(**over), runs)
+                self.assertEqual((d["outcome"], d["attention"]), ("nothing", "none"), (over, runs))
+        # The other side: on an item that is served, a Run in progress is shown as working, and with none it waits.
+        d = go(facts(), [run(status="in_progress")])
+        self.assertEqual((d["state"], d["outcome"], d["attention"]), ("verifying", "nothing", "working"))
+        d = go(facts(), [run()])
+        self.assertEqual((d["state"], d["attention"]), ("converged", "ready"))
+
     def test_a_dependency_update_needs_no_model_review(self):  # §4.2
         self.assertEqual(go(facts(**{"class": "dependency"}))["state"], "converged")
         d = go(facts(**DEPENDENCY))
