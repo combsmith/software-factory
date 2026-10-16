@@ -678,7 +678,7 @@ def sites(sources: dict) -> tuple:
 
 
 def kernel_sites() -> tuple:
-    return sites({rel: (ROOT / rel).read_text() for rel in ("kernel/derive.py", "kernel/decide.py")})
+    return sites({rel: (ROOT / rel).read_text() for rel in ("kernel/derive.py", "kernel/decide.py", "kernel/brakes.py")})
 
 
 def uncovered(pairs: set, alone: set, decisions: list) -> list:

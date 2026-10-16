@@ -1,8 +1,8 @@
 # kernel/
 
-Every decision the Factory makes, as pure functions. `derive.py` works out the State of a pull
-request and answers "where does this item stand": its tests run in order and the first that
-applies wins. A queued item is read as if it were not, and stays only if that reading is approved. `decide.py` answers "what now", and holds every brake. `terms.py` holds the codes.
+Every decision the Factory makes, as pure functions. `derive.py` works out the State of a pull request and answers "where does this item stand": its tests run in order and the first that applies wins.
+A queued item is read as if it were not, and stays only if that reading is approved. `decide.py` answers "what now". `terms.py` holds the codes. `gate.py` holds the gate: which open Findings hold a pull request, and the severities that gate.
+`brakes.py` holds every brake of design §2.2, the Pause, the Run ceiling and the loop counts, asked before every act and Run. Neither works out a State or imports Kernel logic. Both are protected paths in `config/hooks.json`; the rest of the Kernel is not.
 
 | Rule | Held by |
 |---|---|
@@ -32,7 +32,7 @@ one, take the mark off, move it out of `NotYetHeld`, and take "not held yet" out
 
 Then, only if your rule needs it:
 
-- A person must act on the new reason: add it to `NEEDS_YOU_REASONS` in `decide.py`.
+- A person must act on the new reason: add it to `NEEDS_YOU_REASONS` in `decide.py`. A new brake goes in `brakes.py`, and what gates in `gate.py`.
 - It reads a new fact: add the field to `schemas/facts.schema.json`, `examples/facts.json`,
   `facts()` in `tests/support.py` and `sim/world.py`, together; a flag in `complete`, to `terms.py` too.
 - It reads a new limit: add it to `config/defaults.json` and `schemas/config.schema.json`. A staleness limit stays in `lifecycle/`.

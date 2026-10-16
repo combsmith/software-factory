@@ -1279,21 +1279,25 @@ class RulesChanged(unittest.TestCase):
                        check=True)
         self.assertIn("lifecycle/b.json", self.told(where))
 
-    def test_the_index_the_working_tree_the_commits_and_the_kernel_are_listed(self):
+    def test_the_index_the_working_tree_the_commits_the_brakes_and_the_gate_are_listed(self):
         where = self.branch()
         self.write(where, "config/authority.json")
         git(where, "add", "-A")
         git(where, "commit", "-q", "-m", "committed")
         self.write(where, ".github/workflows/x.yml")
         git(where, "add", ".github")
+        self.write(where, "kernel/brakes.py")
+        self.write(where, "kernel/gate.py")
         self.write(where, "kernel/decide.py")
         self.write(where, "lifecycle/staged.json")
         git(where, "add", "lifecycle/staged.json")
         (where / "lifecycle" / "staged.json").unlink()      # in the index alone
         said = self.told(where)
-        for part in ("config/authority.json", ".github/workflows/x.yml", "kernel/decide.py", "the Kernel",
-                     "lifecycle/staged.json"):
+        for part in ("config/authority.json", ".github/workflows/x.yml", "kernel/brakes.py", "the brakes",
+                     "kernel/gate.py", "the gate", "lifecycle/staged.json"):
             self.assertIn(part, said)
+        # The rest of the Kernel is not one of the Factory's own rules, and is not listed.
+        self.assertNotIn("kernel/decide.py", said)
 
     def test_every_protected_path_changed_is_listed(self):
         where = self.branch()
