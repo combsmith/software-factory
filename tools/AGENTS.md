@@ -37,4 +37,4 @@ session hooks `.claude/settings.json` runs; `hooks/shell.py` reads a shell comma
 A check collects every problem and does not stop at the first. Its message says what is wrong and
 what to do, in one sentence, because an author will read it with nothing else to go on.
 
-What the hooks decide without reading is `docs/decisions/0016-what-the-session-hooks-decide-without-reading.md`.
+What the hooks decide without reading is `docs/decisions/0017-the-session-hooks-read-every-commit-a-push-sends.md`.
