@@ -319,7 +319,7 @@
       "from": "converged",
       "to": "addressing",
       "by": "lens",
-      "bound": null
+      "bound": "max_runs_per_item"
     },
     {
       "from": "converged",
@@ -337,7 +337,7 @@
       "from": "converged",
       "to": "adjudicating",
       "by": "lens",
-      "bound": null
+      "bound": "max_runs_per_item"
     },
     {
       "from": "queued",
@@ -763,7 +763,7 @@
       "from": "queued",
       "to": "converged",
       "by": "lens",
-      "bound": null
+      "bound": "max_runs_per_item"
     },
     {
       "from": "adjudicating",
@@ -848,6 +848,96 @@
       "to": "converged",
       "by": "platform",
       "bound": "max_acts_per_item"
+    },
+    {
+      "from": "addressing",
+      "to": "held",
+      "by": "platform",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "addressing",
+      "to": "held",
+      "by": "platform",
+      "bound": "max_attempts"
+    },
+    {
+      "from": "addressing",
+      "to": "held",
+      "by": "platform",
+      "bound": "max_rounds"
+    },
+    {
+      "from": "addressing",
+      "to": "held",
+      "by": "platform",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "adjudicating",
+      "to": "held",
+      "by": "factory",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "held",
+      "to": "addressing",
+      "by": "lens",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "verifying",
+      "to": "addressing",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "held",
+      "by": "lens",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "adjudicating",
+      "to": "held",
+      "by": "lens",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "converged",
+      "to": "held",
+      "by": "factory",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "converged",
+      "to": "held",
+      "by": "lens",
+      "bound": "max_rounds"
+    },
+    {
+      "from": "addressing",
+      "to": "converged",
+      "by": "lens",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "adjudicating",
+      "to": "addressing",
+      "by": "lens",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "adjudicating",
+      "to": "converged",
+      "by": "lens",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "held",
+      "to": "converged",
+      "by": "lens",
+      "bound": "max_runs_per_item"
     }
   ]
 }

@@ -81,6 +81,7 @@ class World:
         self.checks = dict.fromkeys(APPS, "pending")
         self.completed = dict.fromkeys(self.checks)   # when each check completed, or None
         self.impostors = []        # checks another App posted under a required Lens's name, on this head
+        self.rerun = set()         # the checks a person ran again on this head, whose verdicts are that person's
         self.queue = False
         self.last_push = self.last_writer = self.now()
         # The world's own clock for staleness, in minutes, kept apart from the facts the Kernel reads: when a writer,
@@ -91,10 +92,16 @@ class World:
         self.last_act = None       # the action of the last act that landed: an act that stops work is never refused
         self.stale = None          # an older snapshot, served when facts go stale
         self.read = None           # the facts the last whole, current pass read, as `unstamped` gives them
-        self.true_state = None     # the State the Kernel gives what GitHub holds now, after the last change
         self.made = set()          # each transition a change made, as (from, to, by)
         self.trace = []
         self.model_runs = 0
+        self.true_state = None     # the State the Kernel gives what GitHub holds now, after the last change
+        self.starts()
+
+    def starts(self):
+        """The world as it stands is where it starts: the State the Kernel gives it is no transition, and the next
+        change is checked from it. A test that sets a world up by hand says so here."""
+        self.true_state = decide(self.facts(), self.records(), self.context(), CONFIG, self.now())["state"]
 
     def pick(self, options):
         """Choose with random() only, whose sequence is the same on every Python version."""
@@ -259,7 +266,7 @@ class World:
         state = decide(self.facts(), self.records(), self.context(), CONFIG, self.now())["state"]
         if state is None:
             return
-        if self.true_state is not None and state != self.true_state:
+        if state != self.true_state:
             self.made.add((self.true_state, state, by))
             self.check((self.true_state, state, by) in DECLARED,
                        "I-12 undeclared transition %s -> %s by %s" % (self.true_state, state, by))
@@ -490,6 +497,7 @@ class World:
         self.completed = dict.fromkeys(self.checks)
         # A check run cannot be deleted: another App's stays on the head it was posted on, and the new head has none.
         self.impostors = []
+        self.rerun = set()
         # GitHub: a_push_leaves_the_queue
         self.queue = False
         # GitHub: an_approval_survives_a_push
@@ -574,7 +582,8 @@ class World:
                 # GitHub: a_check_can_time_out_or_give_no_verdict
                 self.checks[lens] = self.pick(["timed_out", "neutral", "skipped", "cancelled", "stale"])
                 self.note("check %s: %s" % (lens, self.checks[lens]))
-            self.caused("lens")
+            self.caused("human" if lens in self.rerun else "lens")
+            self.rerun.discard(lens)
             if self.faults and roll < 0.87 and self.checks[lens] == "failure":
                 # GitHub: any_app_posts_a_check_under_any_name
                 self.impostors.append({"name": CHECKS[lens], "app_id": IMPOSTOR_APP, "conclusion": "success",
@@ -716,23 +725,30 @@ class World:
         self.faults = self.people = False
         # The Maintainer acts after the last step: a request and an approval in the same second leave the request
         # standing, and so does a label placed and removed in the same second.
+        # Each act is the Maintainer's, and each change of State it makes is checked on its own.
         self.minute += 1
         self.release()
+        self.caused("human")
         for th in self.threads:
             if self.open_for(th):
                 th.update(resolved=True, resolved_by=dict(MAINTAINER))
+        self.caused("human")
         # The Maintainer approves what they asked to be changed.
         if self.asked:
             self.review("approved")
-        # The person runs again every check that did not pass, and the re-run replaces the run it repeats.
+            self.caused("human")
+        # The person runs again every check that did not pass, and the re-run replaces the run it repeats. What each
+        # re-run then says is that person's: a Lens reports once for each run (the ruling on #38).
         # GitHub: a_rerun_replaces_only_its_own_run
+        self.rerun = {k for k, v in self.checks.items() if v != "success"}
         self.checks = {k: ("pending" if v != "success" else v) for k, v in self.checks.items()}
         self.completed = {k: (self.completed[k] if v == "success" else None) for k, v in self.checks.items()}
         self.writer_acted()
+        self.caused("human")
         if self.impostors:
             # Another App's check cannot be run again or deleted: only a push leaves it behind.
             self.push(MAINTAINER["name"], writer=True)
-        self.caused("human")
+            self.caused("human")
         for _ in range(steps):
             self.step()
         return decide(self.facts(), self.records(), self.context(), CONFIG, self.now())

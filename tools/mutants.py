@@ -386,6 +386,10 @@ MUTANTS = [
     ("a reason that is not written out", "kernel/derive.py",
      '        return {"state": t.DRAFT, "reason": "draft", "evidence": []}\n',
      '        why = "draft"\n        return {"state": t.DRAFT, "reason": why, "evidence": []}\n'),
+    ("a reason beside derive's State that no facts give", "kernel/decide.py",
+     "    if state == t.HELD:\n        return _decision(facts, state, reason, evidence, t.HOLD)\n",
+     '    if facts.get("frozen"):\n        return _decision(facts, state, "untested_reason", evidence, t.HOLD)\n'
+     "    if state == t.HELD:\n        return _decision(facts, state, reason, evidence, t.HOLD)\n"),
     ("a person's Finding is read as a Lens's", "kernel/derive.py",
      '            if any(g["by"]["kind"] == "human" for g in open_gates if g["id"] in for_author):\n',
      "            if False:\n"),
@@ -453,13 +457,16 @@ MUTANTS = [
     ("the approver may be the author", "kernel/derive.py",
      'if config["approver"] in (facts["author"], facts["last_pusher"]):', "if False:"),
     ("a pause admits a Run", "kernel/decide.py",
-     "    pause = _pause(context)\n    if pause:\n", "    pause = _pause(context)\n    if False:\n"),
+     "    pause = _paused(facts, state, evidence, context)\n    if pause:\n",
+     "    pause = _paused(facts, state, evidence, context)\n    if False:\n"),
     ("a pause lets an approval or a merge through", "kernel/decide.py",
-     "        pause = _pause(context)\n        if pause:\n", "        pause = _pause(context)\n        if False:\n"),
+     "        pause = _paused(facts, state, evidence, context)\n        if pause:\n",
+     "        pause = _paused(facts, state, evidence, context)\n        if False:\n"),
     ("a pause hides the approver Hold", "kernel/decide.py",
      "    if state == t.HELD:\n        return _decision(facts, state, reason, evidence, t.HOLD)\n",
-     '    if state == t.HELD and reason == "approver_is_author_or_last_pusher" and _pause(context):\n'
-     "        return _decision(facts, state, _pause(context), evidence, t.DEFER)\n"
+     '    if state == t.HELD and reason == "approver_is_author_or_last_pusher" and _paused(facts, state, evidence,'
+     ' context):\n'
+     "        return _paused(facts, state, evidence, context)\n"
      "    if state == t.HELD:\n        return _decision(facts, state, reason, evidence, t.HOLD)\n"),
     ("the approver is read before the gates", "kernel/derive.py",
      "    # Every gate before the approval: a standing approval never passes over a person's objection.\n",

@@ -1085,11 +1085,13 @@ such as `max_diff_lines`, or on the whole org, such as `org_max_active_runs`, bo
 | `converged → verifying` by `platform`: a dependency bot's rebase | `max_acts_per_item` | The Maintainer's ruling of 2026-10-15. Each lap needs a fresh approval act on the new content (decision 0007), which the act ceiling counts (decision 0003). No Run is made, so the Run ceiling never advances on it |
 | `adjudicating → addressing` and `adjudicating → converged` by `factory`, and `adjudicating → verifying` by `platform` | `max_rounds` | The owner Role's adjudicating Run that each follows, or that the lap calls for |
 | `addressing → adjudicating` by `factory`: the author's Run answers with no push | `max_runs_per_item` | That Run. `max_attempts` counts only Runs that failed, so it does not advance here |
-| `addressing → adjudicating` by a Lens or the platform | `max_runs_per_item` | A Lens's App marks its thread unresolved, which a Role's App does only inside a Run (decision 0005); or a conflict clears, and the work is then the owner's ruling Run |
+| `addressing → adjudicating` by the platform | `max_runs_per_item` | A conflict clears, and the work is then the owner's ruling Run |
+| Any transition a Lens's App makes by resolving its own threads, marking them unresolved, or dismissing the approval | `max_runs_per_item` | The reviewer's App is a Role's App, which writes only inside a Run (decision 0005) |
 | `addressing → converged` by `platform`: a conflict that a later move of the base clears | `max_acts_per_item` | The act the Factory makes each time the lap reaches `converged` |
 | `converged → queued`: enqueued | `max_acts_per_item` | The enqueue, an act (§3.10). A queue that ejects every time comes to rest here |
 | `queued → converged` by `factory`: a Role's App dismisses the approval | `max_runs_per_item` | The Run inside which a Role's App writes. A dequeue changes no State: derive has already given the State the item leaves the queue in, and the dequeue follows it |
-| Any State `→ held` by anyone but a person, at a ceiling | The ceiling reached: `max_runs_per_item`, `max_attempts`, `max_rounds` or `max_acts_per_item` | The counter that reached its limit, which only a writer's action renews. Each such Hold names the ceiling it gives (`tests/test_transitions.py::test_a_hold_no_person_makes_names_what_bounds_it`) |
+| Any State `→ held` by anyone but a person, at a ceiling | The ceiling reached: `max_runs_per_item`, `max_attempts`, `max_rounds` or `max_acts_per_item` | The counter that reached its limit, which only a writer's action renews. Each such Hold names the ceiling it gives (`tests/test_transitions.py::test_a_hold_no_person_makes_names_what_bounds_it`), whether it is made first or made again after a conflict or a reopened thread took the item out |
+| Any State `→ held` by anyone but a person, on I-26 | `max_runs_per_item` | The Hold ends only by a push, a person's or a fix Run's. On a lap a Lens or the platform makes through it, the only work the Factory does is that Run, which the Run ceiling counts; otherwise the Factory does nothing on the lap |
 | Any State `→ held` by anyone but a person, on a label | `person` | No counter: a label any App placed stands until a person removes it (L-17), and only a person ends what a label holds (`tests/test_transitions.py::test_only_a_person_ends_what_a_label_holds`). `tools/check_lifecycle.py` takes `person` as a bound only on a Hold that no person makes |
 | `not_served → held`, and every transition out of `not_served` or `draft` by anyone but a person | none | Every way into `not_served` is a person's, and every way into `draft` is a person's or from `not_served`, so a cycle through either passes through a person |
 
@@ -1101,8 +1103,10 @@ update held at the act ceiling is rebased to `verifying`, passes its checks and 
 is the platform's churn, which no counter of the Factory's bounds and on which it spends nothing.
 
 **Who makes a transition.** Whoever made the change in the facts that moved the State. A person
-with write access is `human`. A Lens is `lens`: a required check that reports, or a reviewing Role's
-Run that gives a verdict. The Factory is `factory`: a Run it admitted ending, a fix Run's push, an act,
+with write access is `human`, and so is what a check a person ran again says on unchanged content:
+a Lens reports once for each run, and only a person runs a check again (the ruling on "Lifecycle
+check: bounds in the data for every cycle with no person in it", issue thirty-eight). A Lens is
+`lens`: a required check that reports, a reviewing Role's Run that gives a verdict, or its App. The Factory is `factory`: a Run it admitted ending, a fix Run's push, an act,
 and anything a Role's App does, in turn or not. The platform is `platform`: GitHub on its own, which
 merges or ejects from the queue, works out a conflict, or retargets a stacked pull request, and any
 App that is not a Lens's or a Role's. A check posted under a required Lens's name by any App but

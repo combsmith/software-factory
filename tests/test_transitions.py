@@ -156,6 +156,20 @@ BASES = {
                                        for r in (fix(20 + 2 * i, "a%d" % i), ruling(21 + 2 * i, "o%d" % i))]
                        + [fix(27, "a9")], threads=[thread()]),
     "act_ceiling": base([reviewed()], acts_since_writer=LIMITS["max_acts_per_item"]),
+    # A Hold that leaves on a conflict or a reopened thread, one change from coming back: each starts nearer than two
+    # changes from another base would reach.
+    "act_ceiling, conflicted": base([reviewed()], acts_since_writer=LIMITS["max_acts_per_item"], mergeable=False),
+    "attempts_exhausted, of approvals, conflicted": base([reviewed()] + failures(LIMITS["max_attempts"],
+                                                                                "issue-approval"), mergeable=False),
+    "approver_is_author_or_last_pusher, conflicted": base([reviewed()], last_pusher=CONFIG["approver"],
+                                                          mergeable=False),
+    "approver_is_author_or_last_pusher, awaiting review": base(last_pusher=CONFIG["approver"]),
+    "proposals_await_owner at the act ceiling, with a ruling Run": base(
+        [reviewed(), fix(), dict(ruling(), status="in_progress", conclusion=None)], threads=[thread()],
+        acts_since_writer=LIMITS["max_acts_per_item"]),
+    "max_rounds, conflicted": base([reviewed()] + [r for i in range(LIMITS["max_rounds"])
+                                                   for r in (fix(20 + 2 * i, "a%d" % i), ruling(21 + 2 * i, "o%d" % i))]
+                                   + [fix(27, "a9")], threads=[thread()], mergeable=False),
     "act_ceiling, one act short": base([reviewed()], acts_since_writer=LIMITS["max_acts_per_item"] - 1),
     "draft": base(is_draft=True),
     "base_not_protected": base(targets_protected=False),
@@ -172,7 +186,21 @@ def now(pr: dict) -> str:
 
 
 def kernel(pr: dict) -> dict:
-    return decide(pr["facts"], pr["runs"], context(passes_since=now(pr)), CONFIG, now(pr))
+    ctx = context(passes_since=now(pr), **pr.get("context", {}))
+    return decide(pr["facts"], pr["runs"], ctx, CONFIG, now(pr))
+
+
+# Facts for the reasons that keep the State they were given: a Pause, capacity, concurrency and a count of acts that
+# cannot be read. They change no State, so they are not explored; each must still be given.
+STILL = {
+    "paused": dict(base([reviewed()]), context={"paused": True}),
+    "pause_unreadable": dict(base([reviewed()]), context={"paused": None}),
+    "capacity": dict(base(), context={"model_deferred_until": "2099-01-01T00:00:00Z"}),
+    "capacity_unreadable": dict(base(), context={"active_runs": None}),
+    "concurrency": dict(base(), context={"active_runs": CONFIG["limits"]["org_max_active_runs"]}),
+    # A count the facts schema refuses, which the Kernel still reads as unreadable.
+    "acts_unreadable": base([reviewed()], acts_since_writer=None),
+}
 
 
 # ---- the changes, each by one actor. A change returns the pull request after it, or None where it cannot be made.
@@ -198,6 +226,7 @@ def push(pr: dict, who: str, writer: bool, diff=None) -> dict:
              mergeable=True, checks=copy.deepcopy(PENDING), diff=diff or {"files": 2, "lines": 40, "truncated": False})
     if writer:
         f["last_writer_action_at"] = now(pr)
+    pr.pop("rerun", None)
     return pr
 
 
@@ -256,22 +285,28 @@ def dismiss(pr: dict, by: dict, whose: str) -> dict:
     return writer_acted(pr) if by["kind"] == "human" else pr
 
 
-def check(pr: dict, i: int, conclusion: str) -> dict:
+def check(pr: dict, i: int, conclusion: str, rerun: bool = False) -> dict:
+    """The i-th required check reports. On a run a person started again, on unchanged content, the verdict is that
+    person's (the ruling on #38): a Lens reports once for each run, and only a person runs a check again."""
     c = pr["facts"]["checks"][i]
-    if CONFIG["check_conclusions"].get(c["conclusion"]) != "pending":
+    again = pr.get("rerun", [])
+    if CONFIG["check_conclusions"].get(c["conclusion"]) != "pending" or (i in again) != rerun:
         return None
     c.update(conclusion=conclusion, completed_at=now(pr))
+    pr["rerun"] = [j for j in again if j != i]
     return pr
 
 
-def rerun(pr: dict) -> dict:
-    """A person runs again every required check that did not pass; the re-run replaces the run it repeats."""
-    f = pr["facts"]
-    again = [c for c in f["checks"] if c["conclusion"] != "success" and c["app_id"] != OTHER_APP]
+def ran_again(pr: dict, which) -> dict:
+    """A person runs again each required check `which` picks: it is pending until its Lens reports once more, and the
+    re-run replaces the run it repeats."""
+    checks = pr["facts"]["checks"]
+    again = [i for i, c in enumerate(checks) if c["app_id"] != OTHER_APP and which(c)]
     if not again:
         return None
-    for c in again:
-        c.update(conclusion="queued", completed_at=None)
+    for i in again:
+        checks[i].update(conclusion="queued", completed_at=None)
+    pr["rerun"] = sorted(set(pr.get("rerun", [])) | set(again))
     return writer_acted(pr)
 
 
@@ -399,10 +434,28 @@ def a_persons(fn):
 
 
 class Move:
-    def __init__(self, name: str, by: str, fn, whole: bool = False):
-        """`fn` takes a copy of an open pull request a minute on; with `whole`, the pull request as it stands."""
+    def __init__(self, name: str, by: str, fn, whole: bool = False, when=None):
+        """`fn` takes a copy of an open pull request a minute on; with `whole`, the pull request as it stands. `when`,
+        if given, says cheaply whether the change can be made at all, so that no copy is made for one that cannot."""
         self.name, self.by = name, by
-        self.make = fn if whole else open_item(fn)
+        make = fn if whole else open_item(fn)
+        self.make = make if when is None else (lambda pr: make(pr) if when(pr) else None)
+
+
+def running(pr: dict) -> bool:
+    return any(r["status"] != "completed" for r in pr["runs"])
+
+
+def checking(i: int, rerun: bool):
+    """Whether the i-th required check is pending, on a run a person started again or not."""
+    def when(pr):
+        c = pr["facts"]["checks"][i]
+        return CONFIG["check_conclusions"].get(c["conclusion"]) == "pending" and (i in pr.get("rerun", [])) == rerun
+    return when
+
+
+def resolved(pr: dict) -> bool:
+    return any(th["resolved"] for th in pr["facts"]["threads"])
 
 
 NORMAL = {"files": 2, "lines": 40, "truncated": False}
@@ -422,7 +475,7 @@ MOVES = [
     Move("a person admits it", "human", lambda pr: label(pr, t.LABEL_ADMIT, MAINTAINER)),
     Move("a person takes its admission off", "human", lambda pr: label(pr, t.LABEL_ADMIT, MAINTAINER, "unlabeled")),
     Move("a person opens a thread", "human", lambda pr: writer_acted(new_thread(pr, MAINTAINER, severity=None))),
-    Move("a person marks the resolved threads unresolved", "human", lambda pr: reopen(pr, MAINTAINER)),
+    Move("a person marks the resolved threads unresolved", "human", lambda pr: reopen(pr, MAINTAINER), when=resolved),
     Move("a person resolves their threads", "human", a_persons(
         lambda pr: resolve(pr, MAINTAINER, lambda th: th["opened_by"]["name"] == MAINTAINER["name"]))),
     Move("a person resolves a Lens's threads", "human", a_persons(
@@ -431,7 +484,12 @@ MOVES = [
     Move("a person approves", "human", lambda pr: person_review(pr, "approved")),
     Move("a person dismisses the approver's approval", "human", lambda pr: dismiss(pr, MAINTAINER, CONFIG["approver"])),
     Move("a person dismisses a request for changes", "human", lambda pr: dismiss(pr, MAINTAINER, COLLEAGUE["name"])),
-    Move("a person runs the checks again", "human", rerun),
+    Move("a person runs the checks again", "human", lambda pr: ran_again(pr, lambda c: c["conclusion"] != "success")),
+    Move("a person runs a passing check again", "human",
+         lambda pr: ran_again(pr, lambda c: c["conclusion"] == "success")),
+    *[Move("the check %s a person ran again %s" % (c["name"], said), "human",
+           (lambda i, said: lambda pr: check(pr, i, said, rerun=True))(i, said), when=checking(i, True))
+      for i, c in enumerate(GREEN) for said in ("success", "failure", "neutral")],
     Move("a person closes it", "human", a_persons(set_fact(state="closed", queue=False))),
     Move("a person merges it", "human", a_persons(set_fact(state="merged", queue=False))),
     Move("a person points it at a base that is not protected", "human",
@@ -442,14 +500,16 @@ MOVES = [
         review("commented", content=pr["facts"]["content_id"], at=now(pr), **STRANGER)) or pr)),
     Move("a stranger opens a thread", "stranger", lambda pr: new_thread(pr, STRANGER, severity=None)),
     # A Lens: its check reports, its review Run gives a verdict, its App dismisses a review.
-    *[Move("the check %s %s" % (c["name"], said), "lens", (lambda i, said: lambda pr: check(pr, i, said))(i, said))
-      for i, c in enumerate(GREEN) for said in ("success", "failure", "neutral")],
-    Move("a Lens's review passes", "lens", lambda pr: review_ends(pr, False)),
-    Move("a Lens's review opens a Finding", "lens", lambda pr: review_ends(pr, True)),
+    *[Move("the check %s %s" % (c["name"], said), "lens", (lambda i, said: lambda pr: check(pr, i, said))(i, said),
+           when=checking(i, False)) for i, c in enumerate(GREEN) for said in ("success", "failure", "neutral")],
+    Move("a Lens's review passes", "lens", lambda pr: review_ends(pr, False), when=running),
+    Move("a Lens's review opens a Finding", "lens", lambda pr: review_ends(pr, True), when=running),
     Move("a Lens's App dismisses a person's review", "lens", lambda pr: dismiss(pr, REVIEWER_APP, COLLEAGUE["name"])),
     # Any App with write access can dismiss a review and place or remove a label (`an_app_can_dismiss_a_review`,
     # `an_app_can_label`), a Lens's among them.
-    Move("a Lens's App marks its threads unresolved", "lens", lambda pr: reopen(pr, REVIEWER_APP)),
+    Move("a Lens's App marks its threads unresolved", "lens", lambda pr: reopen(pr, REVIEWER_APP), when=resolved),
+    Move("a Lens's App resolves its own threads", "lens",
+         lambda pr: resolve(pr, REVIEWER_APP, lambda th: th["opened_by"]["name"] == REVIEWER_APP["name"])),
     Move("a Lens's App dismisses the approver's approval", "lens",
          lambda pr: dismiss(pr, REVIEWER_APP, CONFIG["approver"])),
     Move("a Lens's App adds a Hold", "lens", lambda pr: label(pr, t.LABEL_HOLD, REVIEWER_APP)),
@@ -460,14 +520,14 @@ MOVES = [
     Move("the Controller admits a Run", "factory", admits, whole=True),
     Move("the Controller makes an act", "factory", acts, whole=True),
     Move("an approval does not land", "factory", lambda pr: acts(pr, lands=False), whole=True),
-    Move("a fix Run pushes", "factory", fix_ends),
-    Move("a fix Run answers with no push", "factory", lambda pr: applies(pr, "fix-findings")),
-    Move("a ruling Run accepts", "factory", lambda pr: ruling_ends(pr, True)),
-    Move("a ruling Run rejects", "factory", lambda pr: ruling_ends(pr, False)),
-    Move("a Run is superseded", "factory", superseded),
-    Move("a Run fails for the item", "factory", lambda pr: ending(pr, "failure", "item")),
-    Move("a Run fails for the environment", "factory", lambda pr: ending(pr, "failure", "environment")),
-    Move("a Run times out", "factory", lambda pr: ending(pr, "timed_out", "capacity")),
+    Move("a fix Run pushes", "factory", fix_ends, when=running),
+    Move("a fix Run answers with no push", "factory", lambda pr: applies(pr, "fix-findings"), when=running),
+    Move("a ruling Run accepts", "factory", lambda pr: ruling_ends(pr, True), when=running),
+    Move("a ruling Run rejects", "factory", lambda pr: ruling_ends(pr, False), when=running),
+    Move("a Run is superseded", "factory", superseded, when=running),
+    Move("a Run fails for the item", "factory", lambda pr: ending(pr, "failure", "item"), when=running),
+    Move("a Run fails for the environment", "factory", lambda pr: ending(pr, "failure", "environment"), when=running),
+    Move("a Run times out", "factory", lambda pr: ending(pr, "timed_out", "capacity"), when=running),
     Move("a Role's App adds a Hold", "factory", lambda pr: label(pr, t.LABEL_HOLD, AUTHOR_APP)),
     Move("a Role's App removes a Hold", "factory", lambda pr: label(pr, t.LABEL_HOLD, AUTHOR_APP, "unlabeled")),
     Move("a Role's App adds hands-off", "factory", lambda pr: label(pr, t.LABEL_HANDS_OFF, AUTHOR_APP)),
@@ -569,9 +629,10 @@ def sites(sources: dict) -> tuple:
     [problem]).
 
     A State and a reason written together are a pair. A reason given to a Decision derive already made,
-    `dict(d, reason=...)`, keeps that Decision's State, so it is a reason alone. `_decision(facts, state, ...)` and
-    `_decision(facts, None, ...)` pass on derive's State, or none, and give no State of their own. Anything else that
-    is not written out, a variable or a conditional, cannot be read, and is a problem: so is a reason with no State.
+    `dict(d, reason=...)`, keeps that Decision's State, so it is a reason alone; so is a reason written out beside
+    `state` in `_decision(facts, state, ...)`, which passes on derive's State. `_decision(facts, None, ...)` gives no
+    State. Anything else that is not written out, a variable other than derive's own `reason` passed on, or a
+    conditional, cannot be read, and is a problem: so is a reason with no State.
     """
     pairs, alone, problems = set(), set(), []
     for rel, text in sources.items():
@@ -600,11 +661,17 @@ def sites(sources: dict) -> tuple:
                     elif kw.arg == "reason" and reason_of(kw.value, where, problems) is not None:
                         alone.add(kw.value.value)
             elif isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_decision":
-                given = node.args[1]
+                given, said = node.args[1], node.args[2]
                 if (isinstance(given, ast.Name) and given.id == "state") or \
                         (isinstance(given, ast.Constant) and given.value is None):
+                    # derive's State, or none, passed on: with derive's reason, or with one of its own written out,
+                    # which keeps derive's State and so is a reason alone.
+                    if not (isinstance(said, ast.Name) and said.id == "reason"):
+                        reason = reason_of(said, where, problems)
+                        if reason is not None and isinstance(given, ast.Name):
+                            alone.add(reason)
                     continue
-                state, reason = state_of(given, where, problems), reason_of(node.args[2], where, problems)
+                state, reason = state_of(given, where, problems), reason_of(said, where, problems)
                 if state is not None and reason is not None:
                     pairs.add((state, reason))
     return pairs, alone, problems
@@ -636,9 +703,12 @@ def explored():
 
 # What bounds a Hold that no person makes, by the reason it gives: the ceiling it was reached at, whose counter only a
 # writer's action renews; or, for a label, a person, since only a person ends what a label holds, whoever placed it.
+# The Hold of I-26 ends only by a push: a person's, or a fix Run's, after which the Role's App is the last pusher. On a
+# lap through it that a Lens or the platform makes, the only work the Factory does is that Run, which the Run ceiling
+# counts, so it is bound as the at-ceiling laps are: by the counter of the Factory's own work on the lap.
 HOLD_BOUNDS = {"run_ceiling": "max_runs_per_item", "attempts_exhausted": "max_attempts", "max_rounds": "max_rounds",
                "act_ceiling": "max_acts_per_item", "human_hold": check_lifecycle.PERSON,
-               "hands_off": check_lifecycle.PERSON}
+               "hands_off": check_lifecycle.PERSON, "approver_is_author_or_last_pusher": "max_runs_per_item"}
 # What a label holds.
 LABEL_HOLDS = ("human_hold", "hands_off")
 # Transitions the Lifecycle declares that nothing here makes, each with why it is kept.
@@ -686,8 +756,8 @@ class Transitions(unittest.TestCase):
     def test_every_state_and_reason_the_kernel_gives_has_facts(self):
         pairs, alone, problems = kernel_sites()
         self.assertEqual(problems, [], "write each State and reason out, so that this test can read it")
-        self.assertEqual(uncovered(pairs, alone, [kernel(pr) for pr in BASES.values()]), [],
-                         "add facts to BASES that give each of these")
+        decisions = [kernel(pr) for pr in list(BASES.values()) + list(STILL.values())]
+        self.assertEqual(uncovered(pairs, alone, decisions), [], "add facts to BASES, or STILL, that give each of these")
         self.assertEqual(sorted({s for s, _ in pairs} - set(LIFECYCLE["states"])), [])
 
     def test_a_state_or_reason_the_source_does_not_write_out_fails(self):
@@ -703,9 +773,14 @@ class Transitions(unittest.TestCase):
                      '_decision(facts, t.HELD if x else t.DRAFT, "draft", [], t.HOLD)'):
             _, _, problems = sites({"x.py": "r = %s\n" % code})
             self.assertEqual(len(problems), 1, code)
-        # The other side: what passes on derive's State, or none, gives no State of its own.
-        pairs, alone, problems = sites({"x.py": "r = _decision(facts, state, why, [], t.DEFER)\n"
-                                                "r = _decision(facts, None, why, [], t.DEFER)\n"})
+        # A reason of its own beside derive's State is a reason alone, which facts must give; a variable there is
+        # unreadable, but derive's own reason passed on is not.
+        pairs, alone, problems = sites({"x.py": 'r = _decision(facts, state, "untested_reason", [], t.HOLD)\n'})
+        self.assertEqual((uncovered(pairs, alone, decisions), problems), (["untested_reason"], []))
+        for code in ("_decision(facts, state, why, [], t.DEFER)", "_decision(facts, None, why, [], t.DEFER)"):
+            self.assertEqual(len(sites({"x.py": "r = %s\n" % code})[2]), 1, code)
+        pairs, alone, problems = sites({"x.py": "r = _decision(facts, state, reason, [], t.DEFER)\n"
+                                                "r = _decision(facts, None, reason, [], t.DEFER)\n"})
         self.assertEqual((pairs, alone, problems), (set(), set(), []))
 
     def test_every_state_reached_is_one_the_lifecycle_declares(self):
