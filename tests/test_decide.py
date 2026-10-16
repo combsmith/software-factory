@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime
 import json
 import random
+import re
 import unittest
 
 from kernel import derive
@@ -52,6 +53,17 @@ def approvals(count, conclusion="failure", outcome="item", start=20):
 def dismissed(rv: dict, by, was: str = "changes_requested") -> dict:
     """`rv` once `by` has dismissed it. GitHub holds its state as dismissed; the timeline says what it was."""
     return dict(rv, state="dismissed", dismissed_by=dict(by) if isinstance(by, dict) else by, dismissed_from=was)
+
+
+# The one form in which a Decision's evidence shows a workflow file's path: the configuration's own, and no longer than
+# its limit. Any other text is shown as `unreadable`, so a path cannot carry a look-alike or a control character into it.
+WORKFLOW_FORM = re.compile(r"^\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$")
+
+
+def shown(path) -> str:
+    """How a Decision's evidence shows the workflow file a check names."""
+    ok = isinstance(path, str) and WORKFLOW_FORM.match(path) and not path.endswith("\n")
+    return path if ok and len(path) <= LIMITS["max_path_length"] else "unreadable"
 
 
 def with_check(i: int, conclusion: str) -> list:
@@ -1147,8 +1159,7 @@ class Content(unittest.TestCase):
                 # The same file in another case, or from another directory, is another file; and null is no file read.
                 others += [check["workflow"].upper(), "x/" + check["workflow"], None]
             for path in others + ["absent"]:
-                said = "%s:from_workflow:%s" % (lens["lens"], path if isinstance(path, str) and path != "absent"
-                                                else "unreadable")
+                said = "%s:from_workflow:%s" % (lens["lens"], shown(None if path == "absent" else path))
                 for conclusion in ("success", "failure"):
                     impostor = dict(check, workflow=path, conclusion=conclusion)
                     if path == "absent":
@@ -1191,6 +1202,33 @@ class Content(unittest.TestCase):
         self.assertEqual(go(facts(checks=[dict(actions)] + GREEN), REVIEWED)["action"], "issue_approval")
         other = dict(actions, name="template-drift", workflow=OTHER_WORKFLOW, conclusion="failure")
         self.assertEqual(go(facts(checks=GREEN + [other]), REVIEWED)["action"], "issue_approval")
+
+    def test_a_workflow_path_is_shown_only_in_its_form(self):  # I-13
+        # The evidence shows the path of another workflow file only in the form the configuration names one in, and no
+        # longer than the configuration's limit: anything else could carry text from outside into a Decision, a
+        # look-alike of a Lens's own file or a control character that turns the text round, and is shown `unreadable`.
+        # Whatever it shows, the check is not the Lens's.
+        actions = next(c for c in GREEN if isinstance(c["workflow"], str))
+        lens = LENS_OF[actions["name"]]
+        limit = LIMITS["max_path_length"]
+        longest = ".github/workflows/" + "a" * (limit - len(".github/workflows/.yml")) + ".yml"
+        self.assertEqual(len(longest), limit)
+        for path in (OTHER_WORKFLOW, ".github/workflows/x.yaml", ".github/workflows/a_b-c.1.yml", longest):
+            d = go(facts(checks=GREEN + [dict(actions, workflow=path)]), REVIEWED)
+            self.assertEqual((d["reason"], d["evidence"]), ("check_unreadable", ["%s:from_workflow:%s" % (lens, path)]),
+                             path)
+        unshown = ["", " ", ".github/workflows/verify .yml", ".github/workflows/v\u0435rify.yml",
+                   "\u202e.github/workflows/verify.yml", ".github/workflows/verify.yml\u200b",
+                   ".github/workflows/" + "a" * 5000 + ".yml", longest[:-4] + "a.yml",
+                   "dynamic/github-code-scanning/codeql", "dynamic/workflows/x.yml", ".github/workflows_a.yml",
+                   ".github/workflows/sub/x.yml", "../.github/workflows/x.yml",
+                   ".github/workflows/x.yml\n", ".github/workflows/.yml", ".github/workflows/x.YML",
+                   ".github/workflows/x.json", "x/" + actions["workflow"], actions["workflow"].upper(), 1, [], {}]
+        for path in unshown:
+            self.assertEqual(shown(path), "unreadable", path)
+            d = go(facts(checks=GREEN + [dict(actions, workflow=path)]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
+                             ("verifying", "check_unreadable", ["%s:from_workflow:unreadable" % lens], "defer"), path)
 
     def test_every_check_a_lens_reports_from_its_own_app_is_read(self):  # I-13, I-27
         # GitHub can hold several checks with one name from one App: two workflows with the same job name, say. Each

@@ -62,12 +62,12 @@
                 "minimum": 1
               },
               "workflow": {
-                "description": "For a Lens GitHub Actions runs, the path of its workflow file, which only the Maintainer changes; null for a Lens no workflow runs. GitHub Actions is one App for every job in the repo, one a pull request adds among them, so a check under the Lens's name from any other file is not the Lens's",
+                "description": "For a Lens GitHub Actions runs, the path of its workflow file; null for a Lens no workflow runs. GitHub Actions is one App for every job in the repo, one a pull request adds among them, so a check under the Lens's name from any other path is not the Lens's. The pin is to the path, not to what the file says. tools/check_workflows.py refuses null for a Lens whose App is GitHub Actions, and holds the file to running the Lens's check",
                 "type": [
                   "string",
                   "null"
                 ],
-                "pattern": "^\\.github/workflows/[^/]+\\.ya?ml$"
+                "pattern": "^\\.github/workflows/[A-Za-z0-9._-]+\\.ya?ml$"
               }
             }
           }
@@ -123,7 +123,8 @@
         "max_unmerged_closes",
         "org_max_active_runs",
         "max_diff_lines",
-        "max_acts_per_item"
+        "max_acts_per_item",
+        "max_path_length"
       ],
       "properties": {
         "max_attempts": {
@@ -151,6 +152,11 @@
           "minimum": 1
         },
         "max_acts_per_item": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_path_length": {
+          "description": "The longest path of a workflow file a Decision's evidence shows. A longer one, or one not in the form a Lens's workflow takes, is shown as unreadable",
           "type": "integer",
           "minimum": 1
         }

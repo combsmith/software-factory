@@ -1,0 +1,22 @@
+# Must be rejected. With security-events: write a job can upload to code scanning under CodeQL's tool and
+# category, and so might stand for CodeQL's verdict (design, trial P-36).
+name: factory
+on:
+  pull_request:
+  merge_group:
+permissions: {}
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: make verify
+      - run: python3 -m tools.mutants

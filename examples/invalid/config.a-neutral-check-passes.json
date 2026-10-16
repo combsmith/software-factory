@@ -56,6 +56,7 @@
     "max_unmerged_closes": 1,
     "org_max_active_runs": 4,
     "max_diff_lines": 4000,
-    "max_acts_per_item": 6
+    "max_acts_per_item": 6,
+    "max_path_length": 255
   }
 }

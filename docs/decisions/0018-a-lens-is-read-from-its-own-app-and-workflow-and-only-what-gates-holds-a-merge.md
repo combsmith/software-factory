@@ -19,9 +19,10 @@ one at any severity. One that does not gate, a `minor` or `info` Finding of any 
 `security`, is an annotation on its Lens's check run and has no Disposition: it closes when its
 Lens stops reporting it, as a `mechanical` Finding does. A required deterministic Lens gates through
 its check's conclusion. It is read only from the App the configuration names for it, by the exact
-name of its check run, and, where GitHub Actions runs it, only from the workflow file the
-configuration names: a check under its name from any other App, from another workflow file, or with
-no file read, leaves it unreadable, for the Maintainer, before any Lens's failure. A Lens no workflow
+name of its check run, and, where GitHub Actions runs it, only from the path of the workflow file
+the configuration names: a check under its name from any other App, from another path, or with no
+path read, leaves it unreadable, for the Maintainer, before any Lens's failure. The pin is to the
+path, not to what the file at that path says. A Lens no workflow
 runs names none, and is read only from a check that names none. Every check its own App and file
 report under that name is read, and it passes only when every one passes. A reviewing Role
 declares a rubric, which is a floor. A change that has not converged within its bound is placed on
@@ -45,13 +46,23 @@ the deterministic Lenses alone, they are its only judge.
 
 GitHub Actions is one App for every job in the repo, so a pin to the App alone binds `verify` and the
 secret scan to any Actions job under their check's name, one a pull request adds in a workflow file
-of its own among them. The workflow file is the narrowest thing GitHub records of what ran a check,
-and only the Maintainer authors a change under `.github/` (decisions 0004, 0005), so a job in another
-file is not the Lens, and a change to the Lens's own file is the Maintainer's. Pinning each required
-check to its App in the `main` ruleset, not only `verify`, is the Maintainer's, in the repo's settings,
-with "The Factory repo's rulesets hold the Release tags and each required check's App" (issue 62); the
-Kernel's pin does not wait on it. Whether an upload to code scanning under CodeQL's tool and category
-can replace the CodeQL verdict is a platform fact not yet tried: the fake GitHub assumes it cannot.
+of its own among them. The path of the workflow file is the narrowest thing GitHub records of what
+ran a check, so a job from another path is not the Lens.
+
+The pin holds the path and nothing more. A pull request from a branch of this repo can change the
+file at that path, and its check still reports from it; so can a dependency bot's security update,
+which edits the pins in workflow files and, as class `dependency`, has no model review. `verify` also
+runs the pull request's own Makefile, tools and tests, and the secret scan reads its own
+`.gitleaks.toml`. What holds `.github/` today is: GitHub refusing an App's push there without the
+`workflows` permission, which no Factory App holds (`config/apps.json`, `tools/check_apps.py`); the
+admission of a fork's pull request by a person, after its last push (I-36); a Role's `apply`, waiting
+on `harness/`; and the session hooks, locally. The `main` ruleset requires no review, and pins only
+`verify` to its App; pinning each required check is the Maintainer's, in the repo's settings, with
+"The Factory repo's rulesets hold the Release tags and each required check's App" (issue 62). That a
+change to a Lens's inputs, or to the Factory's own rules, needs a person is
+"Kernel: a change to the Factory's own rules or a Lens's inputs needs a person" (issue 113). Whether
+an upload to code scanning under CodeQL's tool and category can replace the CodeQL verdict is a
+platform fact not yet tried: the fake GitHub assumes it cannot.
 
 ## Boundaries
 
@@ -71,11 +82,14 @@ can replace the CodeQL verdict is a platform fact not yet tried: the fake GitHub
 | The configuration cannot make a check with no verdict pass | `tests/test_tools.py::test_only_success_can_pass_a_check`, `examples/invalid/config.a-neutral-check-passes.json`, `examples/invalid/config.conclusion-mapped-to-nothing.json` |
 | A required deterministic Lens is read only from the App the configuration names for it, by an id that is a whole number: a check with its name from another App, or with no such id, leaves it unreadable, before any Lens's failure or a conflict, on a queued item too, says which App, and moves nothing | `tests/test_decide.py::test_a_check_from_another_app_is_unreadable_for_its_lens`, `tests/test_decide.py::test_a_check_from_another_app_or_a_failure_beside_a_pass_takes_it_out_of_the_queue`, `tests/test_decide.py::test_only_a_check_from_its_lens_app_moves_an_item`, `examples/invalid/facts.a-check-without-its-app.json`, `examples/invalid/config.a-required-lens-with-no-app.json` |
 | Every check a Lens's own App and workflow file report under its name is read, never the last alone: any failure fails it, and it passes only when every one passes | `tests/test_decide.py::test_every_check_a_lens_reports_from_its_own_app_is_read` |
-| A required deterministic Lens that GitHub Actions runs is read only from the workflow file the configuration names for it, exactly: a check with its name from another file of its App, or with no file read, leaves it unreadable, before any Lens's failure or a conflict, on a queued item too, says which file, and moves nothing. One from another App is shown as another App's, whatever file it names | `tests/test_decide.py::test_a_check_from_another_workflow_is_unreadable_for_its_lens`, `tests/test_decide.py::test_a_check_from_another_workflow_takes_it_out_of_the_queue`, `tests/test_decide.py::test_only_a_check_from_its_lens_workflow_moves_an_item`, `examples/invalid/facts.a-check-without-its-workflow.json` |
+| A required deterministic Lens that GitHub Actions runs is read only from the path of the workflow file the configuration names for it, exactly: a check with its name from another path of its App, or with no path read, leaves it unreadable, before any Lens's failure or a conflict, on a queued item too, says which path, and moves nothing. One from another App is shown as another App's, whatever path it names | `tests/test_decide.py::test_a_check_from_another_workflow_is_unreadable_for_its_lens`, `tests/test_decide.py::test_a_check_from_another_workflow_takes_it_out_of_the_queue`, `tests/test_decide.py::test_only_a_check_from_its_lens_workflow_moves_an_item`, `examples/invalid/facts.a-check-without-its-workflow.json` |
 | A Lens no workflow runs names none, and is read only from a check that names none | `tests/test_decide.py::test_a_check_from_another_workflow_is_unreadable_for_its_lens`, `tests/test_decide.py::test_only_a_check_from_its_lens_workflow_moves_an_item` |
-| Each deterministic Lens names its workflow file, or null where no workflow runs it, and the file it names exists and runs a job under the Lens's check name | `examples/invalid/config.a-required-lens-with-no-workflow.json`, `tests/test_tools.py::test_a_lens_read_from_a_workflow_that_does_not_run_its_check_is_caught` |
-| The port gives each check run GitHub Actions reports with the path of its check suite's workflow run, and null only for a check no workflow ran | waiting on `adapters/` |
-| A Role's change to a Lens's own workflow file, a change under `.github/`, is refused unless a person approved it | waiting on `harness/` |
+| Each deterministic Lens names its workflow file, and one whose App is GitHub Actions names one; one of another App names none | `examples/invalid/config.a-required-lens-with-no-workflow.json`, `tests/test_tools.py::test_a_lens_run_by_actions_names_its_workflow_and_no_other_does` |
+| The file a Lens names exists, runs on both `pull_request` and `merge_group`, and has a job whose own `name:`, or whose id where it has none, is the Lens's check, with no `strategy.matrix`, job-level `if:` or `uses:`; a workflow's or a step's `name:` names no check | `tests/test_tools.py::test_a_lens_read_from_a_workflow_that_does_not_run_its_check_is_caught`, `tests/test_tools.py::test_only_a_jobs_own_name_or_its_id_names_a_lens_check`, `tests/test_tools.py::test_a_lens_job_that_would_never_report_under_its_name_is_caught` |
+| A Decision shows a workflow path only in the form a Lens's workflow takes, `.github/workflows/` and a name of letters, digits, `.`, `_` and `-` ending .yml or .yaml, no longer than `max_path_length`; any other, dynamic paths among them, is shown `unreadable` | `tests/test_decide.py::test_a_workflow_path_is_shown_only_in_its_form` |
+| No Factory App holds `workflows` or `security_events`, and no workflow grants a job `security-events: write` | `tests/test_tools.py::test_no_app_may_change_a_workflow_or_upload_to_code_scanning`, `examples/workflows/invalid/permissions.security-events-on-a-job.yml` |
+| The port gives each check run GitHub Actions reports with the path of its check suite's workflow run as GitHub gives it, a dynamic one verbatim, and null only for a check no workflow ran | waiting on `adapters/` |
+| A Role's change to a Lens's own workflow file, a change under `.github/`, is refused unless a person approved it; a change by anyone to a Lens's inputs needs a person, "Kernel: a change to the Factory's own rules or a Lens's inputs needs a person" (issue 113) | waiting on `harness/` |
 | Whether an upload to code scanning under CodeQL's tool and category, by an identity holding `security_events: write`, can replace the CodeQL verdict is a platform fact, unverified until trial P-36 grounds it | `sim/grounding.py`, `tools/check_trials.py` |
 | Each deterministic Lens names its check run's exact name and its App, and no Lens or check is named twice | `examples/invalid/config.a-required-lens-with-no-check.json`, `tests/test_tools.py::test_a_lens_or_a_check_named_twice_is_refused` |
 | The status on the item has one name, and it is no required Lens's or its check's, in any case | `tests/test_tools.py::test_the_status_on_the_item_never_carries_a_required_lens_name` |

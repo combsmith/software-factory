@@ -492,6 +492,18 @@ class Apps(unittest.TestCase):
         facts = (ROOT / "schemas" / "facts.schema.json").read_text()
         return check_apps.run(tree({"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts}))
 
+    def test_no_app_may_change_a_workflow_or_upload_to_code_scanning(self):
+        # GitHub refuses an App's push under .github/workflows/ without `workflows`, and with `security_events: write`
+        # an App could upload to code scanning under CodeQL's tool and category. No Factory App holds either, at any
+        # level, whatever need it names.
+        self.assertEqual(self.check(), [])
+        for name in ("workflows", "security_events"):
+            for level in ("read", "write"):
+                self.setUp()
+                self.apps["controller"]["permissions"][name] = {"level": level, "needs": ["read:facts.checks"]}
+                said = "controller: holds %s; no Factory App may" % name
+                self.assertTrue(caught(self.check(), said), (name, level))
+
     def test_a_permission_nothing_needs_is_caught(self):
         self.apps["controller"]["permissions"]["checks"]["needs"] = []
         del self.apps["reader"]["permissions"]["issues"]["needs"]
@@ -934,6 +946,58 @@ class Workflows(unittest.TestCase):
             self.assertNotEqual(renamed, text, lens["lens"])
             root = clone({lens["workflow"]: renamed})
             self.assertTrue(caught(check_workflows.run(root), "runs no job named %r" % lens["check"]), lens["lens"])
+
+    def lens_problems(self, text: str, lens: str = "verify") -> list:
+        """The problems check_workflows finds when the Lens `lens` is read from a workflow file holding `text`."""
+        defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
+        lenses = [dict(x, workflow=".github/workflows/lens.yml") if x["lens"] == lens else x
+                  for x in defaults["required_lenses"]["deterministic"]]
+        cfg = dict(defaults, required_lenses=dict(defaults["required_lenses"], deterministic=lenses))
+        root = clone({"config/defaults.json": json.dumps(cfg, indent=2) + "\n", ".github/workflows/lens.yml": text})
+        return [p for p in check_workflows.run(root) if "the Lens %s" % lens in p]
+
+    def test_only_a_jobs_own_name_or_its_id_names_a_lens_check(self):
+        # GitHub names a job's check run by the job's own name, or by its id where it has none. A workflow's name, or a
+        # step's, names no check run.
+        self.assertEqual(self.lens_problems(GOOD), [])
+        self.assertEqual(self.lens_problems(GOOD.replace("    name: verify\n", "")), [])
+        elsewhere = GOOD.replace("name: factory\n", "name: verify\n").replace("  verify:\n    name: verify\n", "  build:\n")
+        elsewhere = elsewhere.replace("      - run: make verify\n", "      - name: verify\n        run: make verify\n")
+        self.assertNotEqual(elsewhere, GOOD)
+        self.assertTrue(caught(self.lens_problems(elsewhere), "runs no job named 'verify'"))
+        renamed = GOOD.replace("  verify:\n    name: verify\n", "  verify:\n    name: build\n")
+        self.assertTrue(caught(self.lens_problems(renamed), "runs no job named 'verify'"))
+
+    def test_a_lens_job_that_would_never_report_under_its_name_is_caught(self):
+        # A matrix names each of its check runs after the job and its values; a job-level if: can skip the job; a job
+        # that calls a reusable workflow reports under the caller's and the callee's names; and a workflow that does not
+        # run on both pull_request and merge_group reports on no head, or not in the merge queue. Each leaves the Lens
+        # waiting for ever.
+        matrix = GOOD.replace("    timeout-minutes: 30\n",
+                              "    timeout-minutes: 30\n    strategy:\n      matrix:\n        python:\n          - 3.9\n")
+        skipped = GOOD.replace("    timeout-minutes: 30\n",
+                               "    timeout-minutes: 30\n    if: github.event_name == 'pull_request'\n")
+        called = "\n".join(GOOD.split("\n")[:9]) + "\n    uses: combsmith/factory/.github/workflows/v.yml@v1-stable\n"
+        cases = [(matrix, "has a strategy.matrix"), (skipped, "has a job-level if:"),
+                 (called, "calls a reusable workflow with uses:"),
+                 (GOOD.replace("  merge_group:\n", ""), "not on both pull_request and merge_group"),
+                 (GOOD.replace("  pull_request:\n", ""), "not on both pull_request and merge_group")]
+        for text, said in cases:
+            self.assertNotEqual(text, GOOD, said)
+            self.assertTrue(caught(self.lens_problems(text), said), said)
+
+    def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
+        # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
+        defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
+        for lens in defaults["required_lenses"]["deterministic"]:
+            if lens["app_id"] == check_workflows.ACTIONS_APP:
+                changed, said = dict(lens, workflow=None), "is run by GitHub Actions and names no workflow file"
+            else:
+                changed, said = dict(lens, workflow=".github/workflows/verify.yml"), "only GitHub Actions runs one"
+            lenses = [changed if x is lens else x for x in defaults["required_lenses"]["deterministic"]]
+            cfg = dict(defaults, required_lenses=dict(defaults["required_lenses"], deterministic=lenses))
+            root = clone({"config/defaults.json": json.dumps(cfg, indent=2) + "\n"})
+            self.assertTrue(caught(check_workflows.run(root), said), lens["lens"])
 
     def test_a_live_workflow_is_held_to_the_rules(self):
         bad = (ROOT / "examples" / "workflows" / "invalid" / "pin.a-tag-can-move.yml").read_text()

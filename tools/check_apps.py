@@ -3,6 +3,7 @@
 A need is a code. `effect:` is an Effect a Result requests and `apply` makes; `write:` is a write
 the Controller makes that is not an Effect; `read:` is something read. The table in
 `config/apps.json` maps each need to one GitHub permission and level, or says what it waits on.
+No App holds `workflows` or `security_events` (NEVER).
 A write permission serves a read of the same permission too, since GitHub's write includes read.
 """
 from __future__ import annotations
@@ -16,6 +17,10 @@ READER = "reader"
 PREFIX = "combsmith-sf-"
 WRITES = ("effect:", "write:")
 FACT = "read:facts."
+# Permissions no Factory App holds, at any level. Without `workflows` GitHub refuses an App's push under
+# .github/workflows/, so a Role cannot change what a required Lens runs; with `security_events` an App could upload to
+# code scanning under CodeQL's tool and category, and might stand for CodeQL's verdict (design, trial P-36).
+NEVER = ("workflows", "security_events")
 REPO = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$")
 
 
@@ -104,6 +109,8 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems.append("%s: no permissions can be read; give the App an object of permissions" % app)
             continue
         for name, grant in sorted(permissions.items()):
+            if name in NEVER:
+                problems.append("%s: holds %s; no Factory App may, at any level: take it out" % (app, name))
             problems += _grant(app, name, grant, needs)
             for need in grant.get("needs", []) if isinstance(grant, dict) else []:
                 if isinstance(need, str) and need.startswith(WRITES):

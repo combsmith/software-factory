@@ -28,8 +28,9 @@ RULES = (
     ("any_app_posts_a_check_under_any_name", "Any App with checks: write can post a check run under any name, a "
      "required Lens's too, and it stays on that head: a check run cannot be deleted", (), None),
     ("a_check_names_the_workflow_that_ran_it", "Every check run GitHub Actions reports is read with the path of the "
-     "workflow file that ran it, the path of its check suite's workflow run, with the permissions the reader and the "
-     "Controller hold; a check run no workflow ran, as GitHub Advanced Security's, is read with none", ("P-35",), None),
+     "workflow file that ran it, the path of its check suite's workflow run as GitHub gives it, a dynamic/ one "
+     "verbatim, with the permissions the reader and the Controller hold; a check run no workflow ran, as GitHub "
+     "Advanced Security's, is read with none", ("P-35",), None),
     ("actions_runs_a_job_under_any_name", "GitHub Actions reports every job in the repo as one App, 15368, one a pull "
      "request adds in a workflow file of its own under a required Lens's check name among them, and its check run "
      "names that file", ("P-35",), None),

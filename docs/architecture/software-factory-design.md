@@ -397,19 +397,35 @@ pinned to its workflow file: the configuration's `workflow` names it, `.github/w
 for `verify` and `.github/workflows/ci.yml` for `secret-scan`, the files whose jobs carry those
 names, and null for `code-scanning`, which no workflow runs. The port gives each check run the `path`
 of its check suite's workflow run as `workflow`, and null for a check no workflow ran (trial P-35).
-The Kernel matches the file exactly. A check under a Lens's check name from its own App and another
-file, or with no file read where the Lens names one, is read as one from another App is, with the
-evidence `<lens>:from_workflow:<path>`, the path `unreadable` when none was read; and a check that
-names a file, where the Lens names none, is not that Lens's either. `tools/check_workflows.py` holds
-the configuration to the files: each file it names exists and runs a job under the Lens's check name.
-A change to a Lens's own file is a change under `.github/`, which only the Maintainer authors
-(decisions 0004, 0005). The `main` ruleset pins `verify` to its App; pinning each required check is
-the Maintainer's, in the repo's settings, with "The Factory repo's rulesets hold the Release tags and each required check's App"
-(issue 62), and the Kernel's pin does not wait on it. A Lens no workflow runs has a gap of its own:
-whether an upload to code scanning under CodeQL's tool and category, by an identity holding
-`security_events: write`, can replace the CodeQL verdict is unverified (trial P-36). Such an upload
-would be reported by the Lens's own App under its own check, so the Kernel could not tell it from
-the Lens; if it can, the answer is that no identity but CodeQL's own analysis holds that permission.
+The Kernel matches the path exactly. A check under a Lens's check name from its own App and another
+path, or with no path read where the Lens names one, is read as one from another App is, with the
+evidence `<lens>:from_workflow:<path>`; and a check that names a path, where the Lens names none, is
+not that Lens's either. The evidence shows the path only in the form a Lens's workflow takes in the
+configuration, `.github/workflows/` and a name of ASCII letters, digits, `.`, `_` and `-` ending
+`.yml` or `.yaml`, no longer than `max_path_length`; any other, a `dynamic/` path, a look-alike or a
+control character among them, is shown `unreadable`, so text from outside never reaches a Decision.
+`tools/check_workflows.py` holds the configuration to the files: a Lens whose App is GitHub Actions
+names a file, no other Lens names one, and the file exists, runs on both `pull_request` and
+`merge_group`, and has a job whose own `name:`, or whose id where it has none, is the Lens's check,
+with no `strategy.matrix`, job-level `if:` or `uses:`, any of which would leave the Lens waiting.
+
+The pin is to the path, not to what the file says, nor to what it runs. A pull request from a
+branch of this repo can change the file at that path in place, and its check still reports from
+it; so can a dependency bot's security update, which edits the pins in workflow files and, as class
+`dependency`, skips the model review. `verify` runs the pull request's own Makefile, tools and
+tests, and the secret scan reads its own `.gitleaks.toml`. What holds `.github/` today is GitHub
+refusing an App's push there without the `workflows` permission, which no Factory App holds
+(`config/apps.json`, held by `tools/check_apps.py`); a person's admission of a fork's pull request
+after its last push (I-36); a Role's `apply`, which waits on `harness/`; and the session hooks,
+locally. The `main` ruleset requires no review and pins only `verify` to its App; pinning each
+required check is the Maintainer's, in the repo's settings, with
+"The Factory repo's rulesets hold the Release tags and each required check's App" (issue 62), and
+the Kernel's pin does not wait on it. That a change to a Lens's inputs needs a person is
+"Kernel: a change to the Factory's own rules or a Lens's inputs needs a person" (issue 113). A Lens
+no workflow runs has a gap of its own: whether an upload to code scanning under CodeQL's tool and
+category, by an identity holding `security_events: write`, can replace the CodeQL verdict is
+unverified (trial P-36). Such an upload would be reported by the Lens's own App under its own
+check, so the Kernel could not tell it from the Lens.
 
 A check under a required Lens's check name from any other App, or with an App id that is not a whole
 number, makes that Lens unreadable whatever it concludes, and whatever the Lens's own App says
@@ -1735,7 +1751,7 @@ room. That shapes every row.
 | Get a harmless fork commit admitted, then push the real one | Admission lapses on the next push (I-36) |
 | From a fork, open pull requests that say they close an issue, to park it, hold it or spend its one retry | Only a pull request opened by a Factory App or a person with write access, or one the Maintainer has admitted, is linked to an issue (I-39) |
 | Get a harmless issue admitted, then edit it; or write an issue that tells the model to call itself ready, perhaps in a comment the rendered page hides | An edit ends acceptance at the next pass (I-36, I-42), and `apply` refuses a Run admitted for other content (I-21, I-40). Admission never changes the class of the text: a Run that reads it has no shell and no network tool (I-35), and the Runs that have them are given the investigating Role's statement instead. What remains is an instruction that survives that restatement. Against it: the readiness Intent is promoted only on an eval set, the model holds no credential that can write, and no implementing Run starts before the Maintainer has approved the contract (I-29). The opening Run can still push a contract and open a draft |
-| With any App that can write checks, the Controller's among them, post a passing check under a required Lens's name, or a passing one after that Lens's failure | A required Lens is read only from its own App, by id, and every check it reports there is read: another App's check leaves the Lens unreadable, before any failure, and any failure fails it. The status on the item has one name, which can never be a Lens's or its check's (§3.3). A Lens GitHub Actions runs is pinned to its workflow file as well, since Actions is one App for every job: a job a pull request adds in a file of its own under `verify`'s or the secret scan's name leaves the Lens unreadable, and changing the Lens's own file needs a change to `.github/`, a protected path that only the Maintainer authors (decisions 0004, 0005). A remaining risk, unverified: an upload to code scanning with CodeQL's tool and category, by anyone with `security_events: write`, might replace the CodeQL verdict (P-36) |
+| With any App that can write checks, the Controller's among them, post a passing check under a required Lens's name, or a passing one after that Lens's failure | A required Lens is read only from its own App, by id, and every check it reports there is read: another App's check leaves the Lens unreadable, before any failure, and any failure fails it. The status on the item has one name, which can never be a Lens's or its check's (§3.3). A Lens GitHub Actions runs is pinned to the path of its workflow file as well, since Actions is one App for every job: a job a pull request adds in a file of its own under `verify`'s or the secret scan's name leaves the Lens unreadable. The pin holds the path, not the file's content or what it runs: a pull request from a branch of this repo, or a dependency bot's security update, can change the file in place, or the Makefile, tools, tests and `.gitleaks.toml` the Lenses run, and nothing in the Kernel stops it yet: "Kernel: a change to the Factory's own rules or a Lens's inputs needs a person" (issue 113). No Factory App holds `workflows`, so none can push there. A remaining risk, unverified: an upload to code scanning with CodeQL's tool and category, by anyone with `security_events: write`, might replace the CodeQL verdict (P-36) |
 | Steal what the relay holds | It holds a webhook secret and nothing that can act on the Factory repo. The worst a thief can do is cause passes (§7.3) |
 | Forge a fault report from inside a Run, to pause the Factory | A pause needs agreeing faults from Runs on different items, and `apply` and the poller class the faults they see themselves. The worst case is delay, bounded by the probe Run |
 | Replace the commit bundle from inside `verify` | The bundle is taken by identifier and digest (§3.6) |
@@ -1926,9 +1942,9 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-22 | How soon after it is started does a Run appear in the list of run records? | Soon enough that a pass never admits the same Run twice; the item's lane and I-21 cover the gap |
 | P-32 | Can an issue's author's permission be read in the listing of open issues, and who added and who removed each label, with the time, in the full read? | Yes to both, within the budget P-8 measures |
 | P-34 | Can the time an issue's title or body last changed be read, apart from the time anything on it changed; and each reopening, with who did it? | Yes to both |
-| P-35 | Can the workflow file of each check run on a head be read, as the `path` of its check suite's workflow run, with the permissions the reader and the Controller hold, in the one read of the facts; and does a job a pull request adds in a file of its own, under a required Lens's check name, report under GitHub Actions with that file's path? | Yes to both, within the budget P-8 measures |
-| P-36 | Can an upload to code scanning under CodeQL's tool and category, on a pull request's head, by an identity holding `security_events: write` but not CodeQL's own analysis, change the conclusion of the check run `CodeQL` that GitHub Advanced Security reports? | It cannot. If it can, no identity but CodeQL's own analysis holds `security_events: write`, and the permission tables of the Apps and the workflows are checked to say so |
 | P-33 | Can the issue a pull request closes be read from a draft, an open, a merged and a closed-unmerged pull request alike, with its opening actor; and does a pull request to a branch that is not the default one carry it? Can who last changed the draft flag be read? | Yes to the first and last. If a closed pull request loses the reference, closes are counted by the work's branch name. If a non-default base carries none, the issue Lifecycle serves the default branch only. If who changed the draft flag cannot be read, a linked pull request that has once left draft and is a draft again is treated as taken in hand |
+| P-35 | Where does each check run's workflow file come from, and in what form? Can it be read as the `path` of the check run's check suite's workflow run, with the permissions the reader and the Controller hold, in the one read of the facts, and does that `path` ever carry a ref suffix or take a `dynamic/` form, which the port passes on verbatim, never as null? Does the check run `CodeQL` that GitHub Advanced Security reports have a workflow run at all? Where does a check run created through the API with `GITHUB_TOKEN` and `checks: write` land, in which check suite and under which workflow path, and can that token update a check run of another workflow's run? And does a job a pull request adds in a file of its own, under a required Lens's check name, report under GitHub Actions with that file's path? | Each answered and recorded; the path readable within the budget P-8 measures; CodeQL's check with no workflow run; a check created with `GITHUB_TOKEN` under its own workflow's path and unable to change another's |
+| P-36 | Can an upload to code scanning under CodeQL's tool and category, on a pull request's head, by an identity holding `security_events: write` but not CodeQL's own analysis, change the conclusion of the check run `CodeQL` that GitHub Advanced Security reports? | It cannot. If it can, no identity but CodeQL's own analysis may hold `security_events: write`: for the Factory's Apps `tools/check_apps.py` holds that, and for the live workflows the workflow lint, which refuses `security-events: write` on any job; for a third-party App installed on a served repo it waits on the readiness check (§3.12) |
 
 ### 6.1 The order to run them in
 

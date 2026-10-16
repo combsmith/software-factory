@@ -89,6 +89,21 @@ def from_its_workflow(check: dict, lens: dict) -> bool:
     return "workflow" in check and check["workflow"] == lens["workflow"]
 
 
+def shown_path(path, config: dict) -> str:
+    """`path` as a Decision's evidence shows it: as it is only when it is in the form a Lens's workflow takes and no
+    longer than the configuration's limit, and otherwise `unreadable`. A path is text from outside, so a look-alike of
+    a Lens's own file, or a character that turns the text round, never reaches a Decision."""
+    if not (isinstance(path, str) and path.startswith(t.WORKFLOW_DIR)
+            and len(path) <= config["limits"]["max_path_length"]):
+        return "unreadable"
+    name = path[len(t.WORKFLOW_DIR):]
+    for ending in t.WORKFLOW_ENDINGS:
+        stem = name[:-len(ending)]
+        if name.endswith(ending) and stem != "" and all(c in t.FILE_NAME_CHARS for c in stem):
+            return path
+    return "unreadable"
+
+
 def reports_for(check: dict, lens: dict) -> bool:
     """Whether `check` reports for the required Lens `lens`: its check's name, from the App and the workflow file the
     configuration names."""
@@ -103,8 +118,8 @@ def foreign_checks(checks: list, config: dict) -> list:
     ruleset pins `verify` to its App, and the Kernel pins every required Lens to its App and its file. Such a check
     makes its Lens unreadable whatever it, or the Lens's own checks, conclude (I-13). One from another App is given as
     `<lens>:from_app:<id>`, the id `unreadable` when it is not a whole number; one from the Lens's App and another
-    file as `<lens>:from_workflow:<path>`, the path `unreadable` when no file was read. So the Maintainer can tell it
-    from a check that gave no verdict.
+    file as `<lens>:from_workflow:<path>`, the path `unreadable` when no file was read or it is not in the form a
+    Lens's workflow takes (shown_path). So the Maintainer can tell it from a check that gave no verdict.
     """
     out = []
     for lens in config["required_lenses"]["deterministic"]:
@@ -115,8 +130,7 @@ def foreign_checks(checks: list, config: dict) -> list:
                 app = c.get("app_id")
                 said = "%s:from_app:%s" % (lens["lens"], app if type(app) is int else "unreadable")
             else:
-                path = c.get("workflow")
-                said = "%s:from_workflow:%s" % (lens["lens"], path if isinstance(path, str) else "unreadable")
+                said = "%s:from_workflow:%s" % (lens["lens"], shown_path(c.get("workflow"), config))
             if said not in out:
                 out.append(said)
     return out

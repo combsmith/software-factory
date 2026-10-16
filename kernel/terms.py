@@ -71,6 +71,11 @@ EVIDENCE_RESULTS = ("passing", "failing")
 CRITERION_PREFIX = "AC-"
 CONTENT_PREFIX = "sha256:"
 HEX_DIGITS = "0123456789abcdef"
+# The one form in which a Decision's evidence shows a workflow file's path, the form a Lens's workflow takes in
+# schemas/config.schema.json: this directory, a name of these characters alone, and one of these endings.
+WORKFLOW_DIR = ".github/workflows/"
+WORKFLOW_ENDINGS = (".yml", ".yaml")
+FILE_NAME_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
 # Classes of pull request whose author is an App: an agent's, or a dependency update's.
 BOT_CLASSES = ("agent", "dependency")
 
