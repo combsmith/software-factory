@@ -21,8 +21,8 @@ import unittest
 from unittest import mock
 
 from kernel import terms
-from tools import (check_apps, check_authority, check_context, check_examples, check_lifecycle, check_purity,
-                   check_repo, check_trials, check_workflows, mutants, redact_trial, verify, walk)
+from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_lifecycle,
+                   check_purity, check_repo, check_trials, check_workflows, mutants, redact_trial, verify, walk)
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
@@ -1048,6 +1048,109 @@ class Context(unittest.TestCase):
             self.assertTrue(caught(problems, words), words)
 
 
+RECORD = ("# 0001. One thing\n\nStatus: accepted.\n\n## Decision\n\nWe do one thing.\nAnd only that.\n\n"
+          "## Why\n\nTwo things split the work.\n\n## Boundaries\n\n| Boundary | Check |\n|---|---|\n"
+          "| One thing | `tools/check_x.py` |\n")
+FIRST = "docs/decisions/0001-one-thing.md"
+LATER = "docs/decisions/0002-two-things.md"
+
+
+def history(files: dict = None) -> pathlib.Path:
+    """A repo whose main, on origin, holds decision 0001 and `files`; the working tree is main, unchanged."""
+    root = tree(dict({FIRST: RECORD}, **(files or {})))
+    git(root, "init", "-q", "-b", "main")
+    git(root, "add", "-f", ".")
+    git(root, "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "main")
+    git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+    return root
+
+
+def edited(root: pathlib.Path, files: dict, commit: bool = False) -> pathlib.Path:
+    """`root` with `files` written over it, and committed on a branch when `commit`."""
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    if commit:
+        git(root, "checkout", "-q", "-b", "change")
+        git(root, "add", "-f", ".")
+        git(root, "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "change")
+    return root
+
+
+class Decisions(unittest.TestCase):
+    def test_an_edit_to_a_decision_is_refused(self):
+        for commit in (False, True):     # in the working tree, or committed on the branch
+            with self.subTest(commit=commit):
+                root = edited(history(), {FIRST: RECORD.replace("one thing.", "two things.")}, commit)
+                self.assertTrue(caught(check_decisions.run(root), "0001-one-thing.md: its Decision changed"))
+
+    def test_an_edit_to_why_is_refused(self):
+        root = edited(history(), {FIRST: RECORD.replace("split the work", "share the work")})
+        self.assertTrue(caught(check_decisions.run(root), "0001-one-thing.md: its Why changed"))
+        # Its Status set to anything but its replacement, or a section taken away, changes it all the same.
+        superseded = RECORD.replace("accepted.", "superseded.").replace("split the work", "share the work")
+        self.assertTrue(caught(check_decisions.run(edited(history(), {FIRST: superseded})), "names no record"))
+        gone = RECORD.replace("## Why\n\nTwo things split the work.\n\n", "")
+        self.assertTrue(caught(check_decisions.run(edited(history(), {FIRST: gone})), "its Why changed"))
+
+    def test_an_edit_with_status_naming_the_record_that_replaces_it_is_allowed(self):
+        replaced = RECORD.replace("Status: accepted.", "Status: replaced by\n`%s`, which holds the rule." % LATER)
+        replacing = "# 0002. Two things\n\nStatus: accepted. Replaces `%s`.\n" % FIRST
+        for commit in (False, True):
+            with self.subTest(commit=commit):
+                root = edited(history(), {FIRST: replaced.replace("one thing.", "two things."), LATER: replacing},
+                              commit)
+                self.assertEqual(check_decisions.run(root), [])
+        # The record it names must exist, and come later; and a record replaced already is the rule as it was.
+        root = edited(history(), {FIRST: replaced.replace("one thing.", "two things.")})
+        self.assertTrue(caught(check_decisions.run(root), "which does not exist"))
+        earlier = replaced.replace("0002-two-things", "0000-nothing")
+        root = edited(history({"docs/decisions/0000-nothing.md": "x\n"}), {FIRST: earlier.replace("one thing.", "x.")})
+        self.assertTrue(caught(check_decisions.run(root), "which is not a later record"))
+        root = edited(history({FIRST: replaced, LATER: replacing}), {FIRST: replaced.replace("one thing.", "x.")})
+        self.assertTrue(caught(check_decisions.run(root), "before this change, so it is the rule as it was"))
+
+    def test_a_boundary_row_added_is_allowed(self):
+        added = RECORD + "| Another thing | `tests/test_x.py::test_y` |\n"
+        moved = added.replace("`tools/check_x.py`", "`tools/check_y.py`")
+        rewrapped = moved.replace("one thing.\nAnd only", "one thing. And\nonly")
+        for text in (added, moved, rewrapped):
+            with self.subTest(text=text):
+                self.assertEqual(check_decisions.run(edited(history(), {FIRST: text}, commit=True)), [])
+
+    def test_a_new_record_is_allowed(self):
+        self.assertEqual(check_decisions.run(edited(history(), {LATER: "# 0002. Two things\n"}, commit=True)), [])
+        self.assertEqual(check_decisions.run(history()), [])
+        # A record taken away, or renamed, is not a new one.
+        root = history()
+        (root / FIRST).rename(root / "docs/decisions/0001-another-name.md")
+        self.assertTrue(caught(check_decisions.run(root), "0001-one-thing.md: is gone"))
+
+    def test_a_base_that_cannot_be_read_fails_and_only_an_export_is_skipped(self):
+        # CI's checkout writes .git, so with a .git and no base to read the check fails, and never passes.
+        bare = tree({FIRST: RECORD})
+        git(bare, "init", "-q")
+        shallow = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "shallow"
+        git(SCRATCH.name, "clone", "-q", "--depth", "1", (history() / ".git").as_uri(), str(shallow))
+        no_origin = history()
+        git(no_origin, "update-ref", "-d", "refs/remotes/origin/main")
+        for name, root, words in (("no commit", bare, "failed"), ("shallow", shallow, "shallow"),
+                                  ("no origin", no_origin, "git rev-parse failed")):
+            with self.subTest(name):
+                self.assertTrue(caught(check_decisions.run(root), "cannot be compared"))
+                self.assertIn(words, check_decisions.described(root))
+        with mock.patch("shutil.which", return_value=None):
+            self.assertTrue(caught(check_decisions.run(history()), "git is not on PATH"))
+        # A replacement ref is not read: the base is main as it was committed, not as a replace says.
+        root = edited(history(), {FIRST: RECORD.replace("one thing.", "two things.")}, commit=True)
+        git(root, "replace", git(root, "rev-parse", "main").strip(), "HEAD")
+        self.assertTrue(caught(check_decisions.run(root), "its Decision changed"))
+        # An export has no .git, and so no history: the comparison is skipped, and verify says so.
+        export = tree({FIRST: RECORD.replace("one thing.", "two things.")})
+        self.assertEqual(check_decisions.run(export), [])
+        self.assertIn("skipped", check_decisions.described(export))
+
+
 def fixture(**fields) -> str:
     """The example fixture, as text, with `fields` written over it."""
     data = json.loads((ROOT / "examples" / "trial.json").read_text())
@@ -1302,6 +1405,7 @@ FAILS = {
     "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("30", "45")})),
     "check_context": lambda: check_context.run(clone({"docs/lessons.md": "# Lessons\n"})),
     "check_trials": lambda: check_trials.run(clone({"trials/notes.txt": "x\n"})),
+    "check_decisions": lambda: check_decisions.run(edited(history(), {FIRST: RECORD.replace("one thing.", "x.")})),
 }
 
 

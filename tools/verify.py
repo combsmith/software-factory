@@ -9,8 +9,8 @@ import pathlib
 import sys
 import unittest
 
-from tools import (check_apps, check_authority, check_context, check_examples, check_lifecycle, check_purity,
-                   check_repo, check_trials, check_workflows)
+from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_lifecycle,
+                   check_purity, check_repo, check_trials, check_workflows)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHECKS = [
@@ -23,6 +23,7 @@ CHECKS = [
     ("repo", check_repo.run),
     ("workflows", check_workflows.run),
     ("context", check_context.run),
+    ("decision records", check_decisions.run),
 ]
 # The test modules `make fast` leaves out. `make verify` runs them all.
 SLOW = ("test_simulator",)
@@ -65,6 +66,7 @@ def suite(fast: bool) -> unittest.TestSuite:
 
 def main(argv: list) -> int:
     checks_failed = failed(CHECKS)
+    print("%-22s %s" % ("decision base", check_decisions.described()))
     unverified(check_trials.unverified())
     result = unittest.TextTestRunner(verbosity=1).run(suite("--fast" in argv))
     return 1 if checks_failed or not result.wasSuccessful() else 0

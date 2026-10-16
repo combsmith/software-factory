@@ -2,13 +2,12 @@
 
 Each rule shows its example first, then says what holds it. Every rule has workflows that break
 it, and only it, under `examples/workflows/invalid/`. A workflow is written in a narrow form the
-check can read: block style, bare keys, one key to a line. Any other spelling is refused.
-An org standard is cited from combsmith/.github at commit 9e2daad, by file and heading.
+check can read: block style, bare keys, one key to a line. Any other spelling is refused. An org standard is cited from combsmith/.github at commit 9e2daad, by file and heading.
 
 ## The whole of a good workflow
 
 ```yaml
-# The required check, `factory / verify`: `make verify` and the mutation check, on the commit and nothing else.
+# The required check, `factory / verify`: `make verify` and the mutation check, on the commit, with the history tools/check_decisions.py compares it with.
 name: factory
 on:
   pull_request:
@@ -25,6 +24,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - run: make verify
       - run: python3 -m tools.mutants
 ```
