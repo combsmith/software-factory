@@ -125,16 +125,18 @@ class Simulation(unittest.TestCase):
 
     def test_the_seeds_change_the_list_by_a_role_the_dependency_bot_and_the_maintainer(self):  # I-45
         # A Role's fix Run touches a Lens's input, the dependency bot a workflow's pin, the Maintainer the brakes'
-        # limits; and the list is read short now and then. Every invariant holds, I-45 among them.
-        by, short = set(), False
+        # limits; and the list is read short now and then, or, said to be whole, leaves a path out, which the
+        # Maintainer is shown. Every invariant holds, I-45 among them.
+        by, short, left = set(), False, False
         for seed in SEEDS:
             w = World(seed)
             for _ in range(250):
                 w.step()
             by |= w.listed_by
             short = short or any("the paths were read short" in line for line in w.trace)
+            left = left or any("pass: None paths_unreadable -> defer" in line for line in w.trace)
         self.assertEqual(by, {"role", "dependency", "maintainer"})
-        self.assertTrue(short)
+        self.assertTrue(short and left)
         # The dependency bot's update to a workflow's pin, its checks passed, is reviewed before the machine user
         # approves it; the same update to a path on neither list is approved with no review.
         for seed, listed in ((DEPENDENCY_ON_THE_LIST, True), (DEPENDENCY_OFF_THE_LIST, False)):
@@ -159,7 +161,7 @@ class Simulation(unittest.TestCase):
         w = World(DEPENDENCY_ON_THE_LIST, faults=False, people=False)
         w.checks = dict.fromkeys(w.checks, "success")
         w.starts()
-        with mock.patch.dict(world.CONFIG, protected_paths=[]):
+        with mock.patch.dict(world.CONFIG, protected_paths=["lifecycle/"]):
             self.assertRaises(world.Broken, w.poll)
 
     def test_a_seed_replays_exactly(self):

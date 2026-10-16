@@ -75,7 +75,7 @@ DEPENDABOT = "dependabot[bot]"
 # brakes' limits. What a change touches draws from its own generator, so that the rest of each world stays as it was.
 ON_THE_LIST = {"role": "tests/test_decide.py", "dependency": ".github/workflows/verify.yml",
                "maintainer": "config/defaults.json"}
-OFF_THE_LIST = {"role": "kernel/derive.py", "dependency": "docs/requirements.txt", "maintainer": "docs/glossary.md"}
+OFF_THE_LIST = {"role": "docs/lessons.md", "dependency": "docs/requirements.txt", "maintainer": "docs/glossary.md"}
 
 
 class Broken(AssertionError):
@@ -196,7 +196,7 @@ class World:
             "schema": "facts/1", "item": dict(ITEM), "state": self.pr_state, "is_draft": False,
             "class": self.cls, "author": self.author, "last_pusher": self.last_pusher,
             "targets_protected": True, "mergeable": True, "content_id": self.cid(),
-            "diff": {"files": 2, "lines": 40, "truncated": False},
+            "diff": {"files": len(self.changed), "lines": 40, "truncated": False},
             # GitHub: a_pull_request_lists_the_paths_it_changes
             "changed_paths": sorted(self.changed), "label_events": copy.deepcopy(self.events),
             "last_push_at": self.last_push, "last_writer_action_at": self.last_writer,
@@ -403,6 +403,12 @@ class World:
             runs = runs[self.pick(range(1, len(runs) + 1)):]
             facts["complete"]["runs"] = False
         self.stale = (copy.deepcopy(facts), copy.deepcopy(runs))
+        if self.cls == "dependency" and self.faults and self.paths.random() < 0.1:
+            # A list said to be whole leaves a path out. Only on a dependency bot's update, so every other world stays as
+            # it was. The schema refuses a path that cannot be read, so a list too short is the misread fed here.
+            # GitHub: a_path_list_can_leave_out_a_file
+            facts["changed_paths"] = facts["changed_paths"][:-1]
+            self.note("a path was left out of the list")
         if facts["acceptance"] is not None and self.faults and self.judge.random() < 0.2:
             # The contract was read short, or a result on this content names a criterion it does not.
             if self.judge.random() < 0.3:
@@ -451,6 +457,13 @@ class World:
         self.check(not (self.on_the_list(facts["changed_paths"]) and (moves_on or d["state"] == t.QUEUED))
                    or self.reviewed(runs, facts["content_id"]),
                    "I-45 %s %s on a change to the list with no review of its head" % (d["state"], d["reason"]))
+        # A list of paths shorter than the diff admits nothing and acts on nothing but a dequeue, and is the
+        # Maintainer's to see (I-13).
+        short = len(set(facts["changed_paths"])) < facts["diff"]["files"]
+        self.check(not short or not (d["outcome"] == t.ADMIT or (d["outcome"] == t.ACT and d["action"] != "dequeue")),
+                   "I-13 %s %s on a list of paths shorter than the diff" % (d["outcome"], d["reason"]))
+        self.check(d["reason"] != "paths_unreadable" or d["attention"] == t.NEEDS_YOU,
+                   "unreadable paths are not shown as needing a person")
         whole = all(facts["complete"].values())
         # A read that fails stops work: it defers, or takes a queued item out of the merge queue (I-13).
         dequeue = d["outcome"] == t.ACT and d["action"] == "dequeue"

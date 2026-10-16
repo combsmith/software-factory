@@ -1098,7 +1098,7 @@ class TheList(unittest.TestCase):
                 for end in ("", "/a", "/a/b.json", "x", ".bak"):
                     for path in (stem.rstrip("/") + end, "x/" + stem.rstrip("/") + end):
                         corpus |= {path, path.upper(), path.title()}
-        corpus = sorted(p for p in corpus if derive.readable_paths([p]))
+        corpus = sorted(p for p in corpus if derive.readable_paths([p], 1))
         self.assertGreater(len(corpus), 1000)
         for pattern in patterns:
             whole = protected.entries([(pattern, "")])[0][3]
@@ -1119,10 +1119,14 @@ class TheList(unittest.TestCase):
         for entry in self.HOOKS["lens_inputs"]:
             self.assertIn(entry["lens"], lenses, entry["path"])
             inputs.setdefault(entry["lens"], []).append(entry["path"])
-        # verify runs the Makefile, and the Makefile every check and test where checks live.
-        for path in ["Makefile"] + ["%s/x.py" % where for where in check_context.CHECKS]:
+        # verify runs make, which reads GNUmakefile, makefile or Makefile, and every check and test where checks live;
+        # `python3 -m` puts the top of the repo first on the path, so a module there shadows the standard library; and
+        # the tests import the Kernel. The secret scan reads its configuration and the findings it is told to pass over.
+        for path in ["Makefile", "makefile", "GNUmakefile", "json.py", "kernel/derive.py"] + [
+                "%s/x.py" % where for where in check_context.CHECKS]:
             self.assertTrue(any(derive.matches(p, path) for p in inputs["verify"]), path)
-        self.assertIn(".gitleaks.toml", inputs["secret-scan"])
+        for path in (".gitleaks.toml", ".gitleaksignore"):
+            self.assertTrue(any(derive.matches(p, path) for p in inputs["secret-scan"]), path)
 
     def test_each_lens_workflow_file_is_protected(self):  # decision 0018
         patterns = [e["path"] for e in self.HOOKS["protected"]]

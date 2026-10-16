@@ -75,6 +75,8 @@ RULES = (
     ("a_short_list_says_so", "A list of reviews, threads, checks or timeline events read short says so", (), None),
     ("a_pull_request_lists_the_paths_it_changes", "Every path a pull request changes is read, each once, from the top "
      "of the repo: a rename or a copy gives its old path and its new, a deletion its old", (), None),
+    ("a_path_list_can_leave_out_a_file", "A list of the paths a pull request changes can leave one out while it says "
+     "it was read in full; it then names fewer paths than the diff has files", (), None),
     ("a_short_path_list_says_so", "The list of paths a pull request changes, read short or cut off at its limit, says "
      "so", (), None),
     ("a_dependency_bot_updates_a_workflow_pin", "A dependency bot's update can change the pin of an Action in a "

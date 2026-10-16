@@ -158,13 +158,26 @@ def lens_reading(checks: list, lens: dict, config: dict) -> str:
     return "passing"
 
 
-def readable_paths(paths) -> bool:
+def readable_paths(paths, files: int) -> bool:
     """Whether the paths the pull request changes can be read whole: a list of paths from the top of the repo, each
     text whose every name is a name. None is empty, so no path is empty, starts or ends with the separator or doubles
     it; and none is `.` or `..`. A path that cannot be read could be a protected one read as another (I-13).
+    GitHub lists each of the diff's `files` once by its own name, and a rename or a copy adds its other name, so a list
+    of fewer distinct paths left one out, though it says it was read in full: the one left out could be on the list.
     Whether the list was read in full is `complete.changed_paths`, read with the other flags."""
-    return isinstance(paths, list) and all(
-        isinstance(path, str) and not any(name in t.NOT_A_NAME for name in path.split(t.SEPARATOR)) for path in paths)
+    if not (isinstance(paths, list) and all(
+            isinstance(path, str) and not any(name in t.NOT_A_NAME for name in path.split(t.SEPARATOR))
+            for path in paths)):
+        return False
+    return len(set(paths)) >= files
+
+
+def readable_rules(config: dict) -> bool:
+    """Whether the protected paths and Lenses' inputs the Kernel is given can be read: a list of at least one pattern,
+    each text. The Controller builds it from the base branch's config/hooks.json, never the head's (decision 0020). A
+    list that is empty, or not there, would let a change to the Factory's own rules pass as any other (I-13)."""
+    rules = config.get("protected_paths")
+    return isinstance(rules, list) and len(rules) > 0 and all(isinstance(p, str) and p != "" for p in rules)
 
 
 def within_a_name(text: str) -> bool:
@@ -632,7 +645,10 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     if unreadable_reviews(facts, config):
         return {"state": None, "reason": "review_unreadable", "evidence": []}
     # So could a path the pull request changes: a protected one, or a Lens's input, whose change no model Lens reviewed.
-    if not readable_paths(facts.get("changed_paths")):
+    # The list they are matched against is the configuration's; read before them, it says what a path is.
+    if not readable_rules(config):
+        return {"state": None, "reason": "protected_paths_unreadable", "evidence": []}
+    if not readable_paths(facts.get("changed_paths"), facts["diff"]["files"]):
         return {"state": None, "reason": "paths_unreadable", "evidence": []}
     # So could a required Lens's thread whose category or severity cannot be read: a security Finding at any severity.
     unread = unreadable_threads(facts, config)

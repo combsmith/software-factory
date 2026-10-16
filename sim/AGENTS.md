@@ -20,7 +20,7 @@ Its checks pass, fail, time out or give no verdict, and another App can post a p
 is the Maintainer's own, of class `maintainer`: GitHub refuses a review by its author, so the Maintainer acts with
 threads, a Hold and pushes. On an even seed it is an agent's, of class `agent`, and the Maintainer also reviews it:
 requests changes, comments or approves (`tests/test_simulator.py::test_the_seeds_serve_a_maintainers_and_an_agents_pull_request`).
-On one seed in ten it is a dependency bot's update, on every other such seed to a workflow's pin. A Role's fix, the Maintainer's push and that update
+On one seed in ten it is a dependency bot's update, on every other such seed to a workflow's pin, whose list of paths can leave one out. A Role's fix, the Maintainer's push and that update
 may change the Factory's own rules or a Lens's input (`tests/test_simulator.py::test_the_seeds_change_the_list_by_a_role_the_dependency_bot_and_the_maintainer`).
 While the item is queued, the Maintainer may dismiss its approval, open a thread or add a Hold. The queue merges only after a
 pass has read the item whole and current, and found the same facts GitHub holds at the merge

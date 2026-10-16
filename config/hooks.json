@@ -35,12 +35,16 @@
   ],
   "lens_inputs": [
     {"lens": "verify", "path": "Makefile", "is": "how verify runs the checks and the tests"},
+    {"lens": "verify", "path": "GNUmakefile", "is": "the file make reads before the Makefile"},
+    {"lens": "verify", "path": "*.py", "is": "a module at the top of the repo, which verify imports before the standard library"},
+    {"lens": "verify", "path": "kernel/", "is": "the Kernel, which the tests verify runs import"},
     {"lens": "verify", "path": "tools/", "is": "the checks verify runs"},
     {"lens": "verify", "path": "tests/", "is": "the tests verify runs"},
     {"lens": "verify", "path": "examples/", "is": "the examples and counter-examples verify holds the schemas to"},
     {"lens": "verify", "path": "schemas/", "is": "the schemas verify holds every message and data file to"},
     {"lens": "verify", "path": "sim/", "is": "the simulator verify runs"},
-    {"lens": "secret-scan", "path": ".gitleaks.toml", "is": "what the secret scan looks for, and what it lets pass"}
+    {"lens": "secret-scan", "path": ".gitleaks.toml", "is": "what the secret scan looks for, and what it lets pass"},
+    {"lens": "secret-scan", "path": ".gitleaksignore", "is": "the findings the secret scan is told to pass over"}
   ],
   "merging": {
     "branch": "main",

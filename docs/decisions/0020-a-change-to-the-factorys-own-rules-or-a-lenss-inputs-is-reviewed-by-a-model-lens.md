@@ -3,8 +3,9 @@
 Status: accepted. The working rulings on issue 113,
 "Kernel: a change to the Factory's own rules or a Lens's inputs needs a person",
 with rule 3 decided by the Maintainer on 2026-10-16: no person is needed, and no push of one's own is
-excused. It builds on decision 0018, whose row on a change to a Lens's own workflow file now names
-its check.
+excused. It decides one row of decision 0018 otherwise: the row on a Role's change to a Lens's own
+workflow file, and a change to a Lens's inputs, which it said needs a person. Under this decision no
+person is needed: every model Lens's review of the change's head is.
 
 ## Decision
 
@@ -14,15 +15,24 @@ read in full is `complete.changed_paths`, read with the other flags: a list read
 incomplete facts, and a queued item leaves the queue. A list read in full that is no list of text, or
 holds a path one of whose names is empty, `.` or `..`, is unreadable: the Kernel defers for the
 Maintainer, `paths_unreadable`, read where an unreadable review is, and a queued item leaves the
-queue.
+queue. So is a list of fewer distinct paths than the diff has files: GitHub lists each file once by
+its own name, and a rename adds its other name, so such a list left a path out, whatever it says.
 
 The Factory's own rules and the inputs of each deterministic Lens are one list, in
 `config/hooks.json`: `protected`, which gains `config/apps.json`, and `lens_inputs`, each with the
-Lens that reads it (verify reads the Makefile and every place checks live; the secret scan its
-`.gitleaks.toml`). The session hooks ask about a protected path, and report a Lens's input as they
+Lens that reads it. verify reads what make reads (`GNUmakefile`, `makefile` or `Makefile`), every
+place checks live, a module at the top of the repo, which `python3 -m` imports before the standard
+library, and the Kernel the tests import; the secret scan reads `.gitleaks.toml` and
+`.gitleaksignore`. The session hooks ask about a protected path, and report a Lens's input as they
 report what is listed at a stop. The Kernel is given the patterns of both as `protected_paths`, from
 one function beside the hooks' own reader, in one syntax: a final `/` names a directory and all
 below it, `*` any part of one name, and case is not compared, so the list holds more, never less.
+
+The list is the Kernel's configuration, never the change's: the Controller builds `protected_paths`
+from `config/hooks.json` as the base branch holds it, never as the pull request's head does, so a
+change cannot take itself off the list. A list the Kernel is given that is not a list of patterns,
+or is empty, defers for the Maintainer, `protected_paths_unreadable`, read before the paths it
+judges, and a queued item leaves the queue.
 
 A pull request that changes a path on the list converges only once every model Lens has reviewed its
 current head, whatever its class. A dependency update is no exception: the class that otherwise needs
@@ -69,12 +79,16 @@ not weaken the Lens that judges it, and that story comes next.
 | A queued change to the list whose head moved, or whose approval of this head came with no review of it, leaves the queue and waits for the review | `tests/test_decide.py::test_a_queued_change_to_the_list_whose_head_moves_leaves_the_queue` |
 | A list of paths read short defers as incomplete facts, and takes a queued item out | `tests/test_decide.py::test_changed_paths_read_short_defer`, `examples/invalid/facts.no-completeness-for-changed-paths.json` |
 | A list that is no list of text, or a path with an empty, `.` or `..` name, defers for the Maintainer, after what needs no paths, and takes a queued item out | `tests/test_decide.py::test_an_unreadable_changed_path_defers_for_the_maintainer` |
+| A list of fewer distinct paths than the diff has files defers for the Maintainer, and takes a queued item out; more, for a rename, is whole | `tests/test_decide.py::test_a_list_of_paths_shorter_than_the_diff_defers_for_the_maintainer` |
+| A list of protected paths that is empty, not there or not a list of patterns defers for the Maintainer, and takes a queued item out | `tests/test_decide.py::test_an_unreadable_list_of_protected_paths_defers_for_the_maintainer` |
+| The Controller builds `protected_paths` from the base branch's `config/hooks.json`, never the head's | waiting on `controller/` |
+| A Role's change to a Lens's own workflow file, a change under `.github/`, or anyone's change to a Lens's inputs needs no person: it converges once every model Lens has reviewed its head, and the machine user approves it (decision 0018's row, decided otherwise) | `tests/test_decide.py::test_a_lens_input_counts_like_a_protected_path`, `tests/test_decide.py::test_a_dependency_update_to_a_workflow_pin_needs_the_model_review` |
 | A Decision names each pattern of the configuration that matched, in its order, never a path | `tests/test_decide.py::test_a_decision_names_the_pattern_never_the_path` |
 | The Kernel's matcher and the session hooks' agree on every file in the repo and on paths made from each pattern | `tests/test_tools.py::test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus` |
 | The Kernel is given every protected path and every Lens's input, from `config/hooks.json`, in the tests and the simulator alike | `tests/test_tools.py::test_the_kernel_is_given_every_protected_path_and_lens_input` |
-| Each Lens's input names a required deterministic Lens, and verify's cover the Makefile and every place checks live | `tests/test_tools.py::test_each_lens_input_is_a_required_lens_and_verifys_cover_every_check`, `examples/invalid/hooks.a-lens-input-with-no-lens.json` |
+| Each Lens's input names a required deterministic Lens; verify's cover what make reads, every place checks live, a module at the top of the repo and the Kernel, and the secret scan's its configuration and its ignore file | `tests/test_tools.py::test_each_lens_input_is_a_required_lens_and_verifys_cover_every_check`, `examples/invalid/hooks.a-lens-input-with-no-lens.json` |
 | The workflow file each Lens is read from is a protected path | `tests/test_tools.py::test_each_lens_workflow_file_is_protected` |
 | The session hooks ask about `config/apps.json`, and list a Lens's input at a stop without asking about it | `tests/test_hooks.py::test_an_edit_elsewhere_is_not_asked_about`, `tests/test_hooks.py::test_a_lens_input_changed_is_listed_as_reported` |
-| In the simulator a Role, the dependency bot and the Maintainer change the list, the list is read short, and nothing that changes it is approved, enqueued, left queued or merged without every model Lens's review of that head (I-45) | `tests/test_simulator.py::test_the_seeds_change_the_list_by_a_role_the_dependency_bot_and_the_maintainer` |
+| In the simulator a Role, the dependency bot and the Maintainer change the list, the list is read short or leaves a path out, and nothing that changes it is approved, enqueued, left queued or merged without every model Lens's review of that head (I-45) | `tests/test_simulator.py::test_the_seeds_change_the_list_by_a_role_the_dependency_bot_and_the_maintainer` |
 | The port reads every path the pull request changes, both names of a rename among them, and says when the list was cut short. "Port: the paths a pull request changes, and both names of a rename" | waiting on `adapters/` |
 | `apply` refuses a Role's push to a protected path or a Lens's input that no model Lens has reviewed. "Harness: apply refuses a push to the list that no model Lens has reviewed" | waiting on `harness/` |

@@ -95,9 +95,11 @@ BASES = {
     "a dependency update awaiting its checks": base(checks=PENDING, **DEPENDENCY),
     "a dependency update, approved": base(reviews=APPROVED, **DEPENDENCY),
     # One that changes a workflow's pin: it waits for the model review, and is queued only once reviewed.
-    "a dependency update to a workflow's pin, awaiting its review": base(changed_paths=[PIN], **DEPENDENCY),
+    "a dependency update to a workflow's pin, awaiting its review": base(changed_paths=[PIN, "README.md"],
+                                                                          **DEPENDENCY),
     "a dependency update to a workflow's pin, queued": base([reviewed()], reviews=APPROVED, queue=True,
-                                                             acts_since_writer=2, changed_paths=[PIN], **DEPENDENCY),
+                                                             acts_since_writer=2, changed_paths=[PIN, "README.md"],
+                                                             **DEPENDENCY),
     # A dependency bot's rebase at the act ceiling: held, then rebased, then its last check passes, and held again.
     "a dependency update held at the act ceiling": base(content_id="sha256:bbbb", reviews=APPROVED,
                                                         acts_since_writer=LIMITS["max_acts_per_item"], **DEPENDENCY),

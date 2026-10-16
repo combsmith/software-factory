@@ -1646,12 +1646,13 @@ class RulesChanged(unittest.TestCase):
         # A Lens's input is listed with what it is, as a reported path is, and is never asked about before an edit.
         where = self.branch()
         inputs = json.loads((ROOT / "config" / "hooks.json").read_text())["lens_inputs"]
+        def rel(entry):
+            return entry["path"].replace("*", "x") + ("x.txt" if entry["path"].endswith("/") else "")
         for entry in inputs:
-            self.write(where, entry["path"] + ("x.txt" if entry["path"].endswith("/") else ""))
+            self.write(where, rel(entry))
         said = self.told(where)
         for entry in inputs:
-            self.assertIn("%s: %s" % (entry["path"] + ("x.txt" if entry["path"].endswith("/") else ""), entry["is"]),
-                          said)
+            self.assertIn("%s: %s" % (rel(entry), entry["is"]), said)
         self.assertEqual(protected.load()["lens_inputs"], [(e["lens"], e["path"], e["is"]) for e in inputs])
 
     def test_every_protected_path_changed_is_listed(self):

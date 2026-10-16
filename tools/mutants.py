@@ -42,7 +42,7 @@ STOPS = "for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF) if name in labels]"
 THREAD_GUARD = ("    unread = unreadable_threads(facts, config)\n    if unread:\n"
                 '        return {"state": None, "reason": "thread_unreadable", "evidence": unread}\n')
 REVIEW_WAIT = '            return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens] + rules}\n'
-PATHS_GUARD = ('    if not readable_paths(facts.get("changed_paths")):\n'
+PATHS_GUARD = ('    if not readable_paths(facts.get("changed_paths"), facts["diff"]["files"]):\n'
                '        return {"state": None, "reason": "paths_unreadable", "evidence": []}\n')
 STAYS = '    if d["reason"] == "approved":\n'
 LEFT_ALONE = '    if d["state"] in t.ADMITS_NOTHING or not facts["queue"] or hands_off(facts, config):\n'
@@ -600,7 +600,7 @@ MUTANTS = [
     ("a result on this content in a word the Kernel does not know is passed over", "kernel/derive.py",
      ' or ev.get("result") not in t.EVIDENCE_RESULTS:\n', ":\n"),
     ("unreadable acceptance is not the Maintainer's to see", "kernel/decide.py",
-     '    "acceptance_unreadable", "paths_unreadable",\n', '    "paths_unreadable",\n'),
+     '    "acceptance_unreadable", "paths_unreadable",', '    "paths_unreadable",'),
     ("a queued item waiting for its evidence stays in the queue", "kernel/derive.py",
      '    if said == "missing":\n', '    if said == "missing" and "awaiting_review" not in past:\n'),
     ("acceptance is read before the gates", "kernel/derive.py",
@@ -638,17 +638,27 @@ MUTANTS = [
      "[name for name in t.READ_IN_FULL if flags.get(name) is not True]",
      '[name for name in t.READ_IN_FULL if name != "changed_paths" and flags.get(name) is not True]'),
     ("an unreadable path is read", "kernel/derive.py",
-     '    if not readable_paths(facts.get("changed_paths")):\n', "    if False:\n"),
+     '    if not readable_paths(facts.get("changed_paths"), facts["diff"]["files"]):\n', "    if False:\n"),
+    ("a list of paths shorter than the diff is read", "kernel/derive.py",
+     "    return len(set(paths)) >= files\n", "    return True\n"),
+    ("a path named twice counts twice against the diff", "kernel/derive.py",
+     "    return len(set(paths)) >= files\n", "    return len(paths) >= files\n"),
+    ("an unreadable list of protected paths is read", "kernel/derive.py",
+     "    if not readable_rules(config):\n", "    if False:\n"),
+    ("an empty list of protected paths is read", "kernel/derive.py",
+     "isinstance(rules, list) and len(rules) > 0 and all(", "isinstance(rules, list) and all("),
+    ("an unreadable list of protected paths is not the Maintainer's to see", "kernel/decide.py",
+     ' "protected_paths_unreadable",\n', "\n"),
     ("a name `..` is read", "kernel/terms.py",
      'NOT_A_NAME = ("", ".", "..")', 'NOT_A_NAME = ("", ".")'),
     ("an empty name is read", "kernel/terms.py",
      'NOT_A_NAME = ("", ".", "..")', 'NOT_A_NAME = (".", "..")'),
     ("a list of paths that is no list is read", "kernel/derive.py",
-     "    return isinstance(paths, list) and all(\n", "    return all(\n"),
+     "    if not (isinstance(paths, list) and all(\n", "    if not (all(\n"),
     ("a path that is not text is read", "kernel/derive.py",
      "isinstance(path, str) and not any(", "not any("),
     ("unreadable paths are not the Maintainer's to see", "kernel/decide.py",
-     '    "acceptance_unreadable", "paths_unreadable",\n', '    "acceptance_unreadable",\n'),
+     ' "paths_unreadable", "protected_paths_unreadable",', ' "protected_paths_unreadable",'),
     ("unreadable paths are read before what needs no paths", "kernel/derive.py",
      '    if facts["state"] == "merged":\n', PATHS_GUARD + '    if facts["state"] == "merged":\n'),
     ("the evidence is the paths", "kernel/derive.py",
@@ -661,6 +671,11 @@ MUTANTS = [
      ' + [p for _, p, _ in data["lens_inputs"]]', ""),
     ("a Lens's input is not listed at a stop", "tools/hooks/protected.py",
      ' + [(p, what) for _, p, what in inputs]', ""),
+    ("verify's inputs leave out the Kernel the tests import", "config/hooks.json",
+     '    {"lens": "verify", "path": "kernel/", "is": "the Kernel, which the tests verify runs import"},\n', ""),
+    ("the secret scan's inputs leave out what it is told to pass over", "config/hooks.json",
+     ',\n    {"lens": "secret-scan", "path": ".gitleaksignore", "is": "the findings the secret scan is told to pass over"}',
+     ""),
     ("verify's inputs leave out a place where checks live", "config/hooks.json",
      '    {"lens": "verify", "path": "sim/", "is": "the simulator verify runs"},\n', ""),
     ("the Apps' permissions are not protected", "config/hooks.json",

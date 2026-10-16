@@ -84,6 +84,11 @@ def example(pattern: str) -> str:
     return pattern.replace("*", "x") + ("a.txt" if pattern.endswith("/") else "")
 
 
+def changing(**over) -> dict:
+    """Facts for a pull request whose diff has one file: any readable list of the paths it changes names it."""
+    return facts(diff={"files": 1, "lines": 40, "truncated": False}, **over)
+
+
 def later(time: str, minutes: int) -> str:
     """`time`, `minutes` later, as the calendar counts."""
     shape = "%Y-%m-%dT%H:%M:%SZ"
@@ -2279,7 +2284,7 @@ class TheFactorysOwnRules(unittest.TestCase):
     def waits_for_review(self, paths, pattern=None, cls=DEPENDENCY, content="sha256:bbbb"):
         """A pull request of `cls` that changes `paths`, reviewed only on the head before, waits for the review of this one,
         naming `pattern`."""
-        d = go(facts(**cls, changed_paths=list(paths), content_id=content), REVIEWED)
+        d = go(changing(**cls, changed_paths=list(paths), content_id=content), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["outcome"], d["evidence"][0]),
                          ("verifying", "awaiting_review", "admit", "pr-review"), paths)
         self.assertEqual(d["admit"], dict(REVIEW_IT, content_id=content), paths)
@@ -2289,7 +2294,7 @@ class TheFactorysOwnRules(unittest.TestCase):
 
     def converges(self, paths, cls=DEPENDENCY):
         """A pull request of `cls` that changes `paths`, with no review at all, is due its approval."""
-        d = go(facts(**cls, changed_paths=list(paths)))
+        d = go(changing(**cls, changed_paths=list(paths)))
         self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]),
                          ("converged", "approval_due", "act", "issue_approval"), paths)
 
@@ -2300,11 +2305,11 @@ class TheFactorysOwnRules(unittest.TestCase):
             path = example(entry["path"])
             self.waits_for_review(["README.md", path], entry["path"])
             # Reviewed on this head, it converges, and the machine user approves it as usual.
-            d = go(facts(**DEPENDENCY, changed_paths=["README.md", path]), REVIEWED)
+            d = go(changing(**DEPENDENCY, changed_paths=["README.md", path]), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"),
                              path)
         # Every other class needs the review anyway; the list names what it touched.
-        d = go(facts(changed_paths=["lifecycle/pull_request.json"]))
+        d = go(changing(changed_paths=["lifecycle/pull_request.json"]))
         self.assertEqual((d["reason"], d["evidence"], d["admit"]), ("awaiting_review", ["pr-review", "lifecycle/"],
                                                                     REVIEW_IT))
 
@@ -2313,10 +2318,11 @@ class TheFactorysOwnRules(unittest.TestCase):
             self.waits_for_review([example(entry["path"])], entry["path"])
         # Deep below a directory, and the directory's own name; never a name that only starts with it, nor the same
         # name further down.
-        for path in ("tests/a/b/test_x.py", "tests", "sim/world.py", "Makefile", ".gitleaks.toml"):
+        for path in ("tests/a/b/test_x.py", "tests", "sim/world.py", "Makefile", "makefile", "GNUmakefile", "json.py",
+                     "kernel/gate.py", ".gitleaks.toml", ".gitleaksignore"):
             self.waits_for_review([path])
-        for path in ("testsuite/x.py", "tests.md", "docs/tests/x.py", "Makefile.bak", "docs/Makefile",
-                     "x/.gitleaks.toml"):
+        for path in ("testsuite/x.py", "tests.md", "docs/tests/x.py", "Makefile.bak", "docs/Makefile", "docs/json.py",
+                     "x/.gitleaks.toml", "kernelx/a.py"):
             self.converges([path])
 
     def test_a_pattern_matches_one_name_per_star_in_any_case(self):  # I-45
@@ -2343,7 +2349,7 @@ class TheFactorysOwnRules(unittest.TestCase):
     def test_a_dependency_update_to_a_workflow_pin_needs_the_model_review(self):  # I-45, decision 0018
         # The dependency bot edits the pin of an Action in the file the verify Lens is read from: the Lens it edits
         # would otherwise be its only judge.
-        f = facts(**DEPENDENCY, changed_paths=[PIN])
+        f = changing(**DEPENDENCY, changed_paths=[PIN])
         d = go(f)
         self.assertEqual((d["state"], d["reason"], d["evidence"], d["admit"]),
                          ("verifying", "awaiting_review", ["pr-review", ".github/"], REVIEW_IT))
@@ -2359,7 +2365,7 @@ class TheFactorysOwnRules(unittest.TestCase):
         self.converges(["docs/standards/workflows.md"])
 
     def test_a_queued_change_to_the_list_whose_head_moves_leaves_the_queue(self):  # I-45, I-9
-        f = facts(**DEPENDENCY, changed_paths=[PIN], queue=True)
+        f = changing(**DEPENDENCY, changed_paths=[PIN], queue=True)
         d = go(dict(f, reviews=APPROVED), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"))
         # Its head moved: the review is of the head before, and it leaves the queue whatever approval it holds, one
@@ -2380,7 +2386,7 @@ class TheFactorysOwnRules(unittest.TestCase):
     def test_changed_paths_read_short_defer(self):  # I-13, I-20
         # A list read short could leave out the one path on the list.
         for value in ("missing", False, None, "true", 1):
-            f = facts(**DEPENDENCY, changed_paths=["README.md"])
+            f = changing(**DEPENDENCY, changed_paths=["README.md"])
             if value == "missing":
                 del f["complete"]["changed_paths"]
             else:
@@ -2399,7 +2405,7 @@ class TheFactorysOwnRules(unittest.TestCase):
                       "docs/../lifecycle/a.json", "..", ".", "docs/..", 5, None, ["lifecycle/a.json"])
         for path in unreadable:
             for cls in (DEPENDENCY, AGENT):
-                d = go(facts(**cls, changed_paths=["README.md", path]), REVIEWED)
+                d = go(changing(**cls, changed_paths=["README.md", path]), REVIEWED)
                 self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
                                  (None, "paths_unreadable", [], "defer", "needs_you"), (path, cls["class"]))
         # So is a list that is no list, or none.
@@ -2419,18 +2425,53 @@ class TheFactorysOwnRules(unittest.TestCase):
         for path in ("..lifecycle", "docs/...", "docs/a..b", ".github.md"):
             self.converges([path])
         # It is read where an unreadable review is: after what needs no paths, a draft or a Hold.
-        self.assertEqual(go(facts(changed_paths=None, is_draft=True))["reason"], "draft")
-        d = go(facts(changed_paths=[""], label_events=[labelled("factory:hold")]))
+        self.assertEqual(go(changing(changed_paths=None, is_draft=True))["reason"], "draft")
+        d = go(changing(changed_paths=[""], label_events=[labelled("factory:hold")]))
         self.assertEqual((d["state"], d["reason"]), ("held", "human_hold"))
+
+    def test_a_list_of_paths_shorter_than_the_diff_defers_for_the_maintainer(self):  # I-13
+        # GitHub lists each file of the diff once by its own name, and a rename adds its other name: a list of fewer
+        # distinct paths, though said to be whole, left one out, which could be on the list.
+        two = {"files": 2, "lines": 40, "truncated": False}
+        for paths in ([], ["README.md"], ["README.md", "README.md"]):
+            f = facts(**DEPENDENCY, changed_paths=paths, diff=two)
+            d = go(f)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             (None, "paths_unreadable", "defer", "needs_you"), paths)
+            d = go(dict(f, queue=True, reviews=APPROVED))
+            self.assertEqual((d["reason"], d["outcome"], d["action"]), ("paths_unreadable", "act", "dequeue"), paths)
+        # The other side: one path for each file, or more for a rename, is whole.
+        for paths, files in ((["README.md", "docs/a.md"], 2), (["docs/old.md", "docs/new.md"], 1)):
+            d = go(facts(**DEPENDENCY, changed_paths=paths, diff=dict(two, files=files)))
+            self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"), paths)
+
+    def test_an_unreadable_list_of_protected_paths_defers_for_the_maintainer(self):  # I-13
+        # The list is the Kernel's configuration, built from the base branch's config/hooks.json. Empty or not read,
+        # it would let a change to the rules pass as any other.
+        f = changing(**DEPENDENCY, changed_paths=[PIN])
+        for rules in ("missing", [], None, ".github/", [""], [5]):
+            cfg = config()
+            if rules == "missing":
+                del cfg["protected_paths"]
+            else:
+                cfg["protected_paths"] = rules
+            d = go(f, cfg=cfg)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             (None, "protected_paths_unreadable", "defer", "needs_you"), rules)
+            d = go(dict(f, queue=True, reviews=APPROVED), REVIEWED, cfg=cfg)
+            self.assertEqual((d["reason"], d["action"]), ("protected_paths_unreadable", "dequeue"), rules)
+        # The other side: one pattern is a list.
+        d = go(f, cfg=config(protected_paths=[".github/"]))
+        self.assertEqual((d["reason"], d["evidence"]), ("awaiting_review", ["pr-review", ".github/"]))
 
     def test_a_decision_names_the_pattern_never_the_path(self):  # I-45
         # A path is text from outside. The Decision names each pattern of the configuration that matched, once, in the
         # configuration's order.
         paths = [PIN, ".github/dependabot.yml", "tests/test_decide.py", "README.md"]
-        d = go(facts(**DEPENDENCY, changed_paths=paths))
+        d = go(changing(**DEPENDENCY, changed_paths=paths))
         self.assertEqual(d["evidence"], ["pr-review", ".github/", "tests/"])
         spelt = ".GitHub/workflows/a\u202eb.yml"
-        d = go(facts(**DEPENDENCY, changed_paths=[spelt]))
+        d = go(changing(**DEPENDENCY, changed_paths=[spelt]))
         self.assertEqual(d["evidence"], ["pr-review", ".github/"])
         self.assertNotIn(spelt, d["evidence"])
 
