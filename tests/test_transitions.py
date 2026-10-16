@@ -11,10 +11,11 @@ moves are every kind of change the facts schema can record, by everyone who can 
 made only when the Kernel asks for them, as the Controller makes them, and `apply` writes nothing to an item that is
 held or changed. Two changes deep reaches a change that needs one to set it up. The seeded simulation runs thousands of
 changes deep, and `tests/test_simulator.py::test_invariants_hold_under_faults` fails if it makes a transition this does
-not find. What it cannot reach: a sequence that needs three changes to set up, which no base starts nearer to and the
-seeds miss; a Pause, capacity or concurrency, which keep the State and change only the outcome; and what no move makes:
-a conflict that a later move of the base clears with no push, a rebase that changes the diff's size, a dependency bot's
-draft, and a push by the machine user, which only approves.
+not find. The comparison runs both ways: a transition the Lifecycle declares and nothing here makes fails too, unless
+`UNREACHED` keeps it with the reason. What it cannot reach: a sequence that needs three changes to set up, which no base
+starts nearer to and the seeds miss; a Pause, capacity or concurrency, which keep the State and change only the outcome;
+and what no move makes: a rebase that changes the diff's size, a second check run a Lens's own App reports on unchanged
+content (a re-run, which is a person's act), and a push by the machine user, which only approves.
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ import ast
 import copy
 import datetime
 import json
+import marshal
 import unittest
 
 from kernel import terms as t
@@ -41,6 +43,8 @@ COLLEAGUE = {"kind": "human", "name": "a-colleague", "can_write": True}
 STRANGER = {"kind": "human", "name": "stranger", "can_write": False}
 REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
 AUTHOR_APP = {"kind": "app", "name": "combsmith-sf-dev-lead[bot]", "can_write": True}
+# An App that is neither a Lens's nor a Role's: any App installed with write access.
+ANOTHER_APP = {"kind": "app", "name": "another-app[bot]", "can_write": True}
 MACHINE = {"kind": "machine_user", "name": CONFIG["approver"], "can_write": True}
 AGENT = {"class": "agent", "author": AUTHOR_APP["name"], "last_pusher": AUTHOR_APP["name"]}
 DEPENDENCY = {"class": "dependency", "author": "dependabot[bot]", "last_pusher": "dependabot[bot]"}
@@ -85,12 +89,20 @@ BASES = {
     "awaiting_review of the author's answer": base([reviewed(), fix()], content_id="sha256:bbbb", threads=[thread()]),
     "a dependency update awaiting its checks": base(checks=PENDING, **DEPENDENCY),
     "a dependency update, approved": base(reviews=APPROVED, **DEPENDENCY),
+    # A dependency bot's rebase at the act ceiling: held, then rebased, then its last check passes, and held again.
+    "a dependency update held at the act ceiling": base(content_id="sha256:bbbb", reviews=APPROVED,
+                                                        acts_since_writer=LIMITS["max_acts_per_item"], **DEPENDENCY),
+    "a dependency update at the act ceiling, awaiting its last check": base(
+        content_id="sha256:bbbb", reviews=APPROVED, acts_since_writer=LIMITS["max_acts_per_item"],
+        checks=GREEN[:2] + PENDING[2:], **DEPENDENCY),
     "check_unreadable": base(checks=GREEN[:1] + [dict(GREEN[1], conclusion="neutral")] + GREEN[2:]),
     "check_unreadable from another App": base(checks=GREEN + [dict(GREEN[0], app_id=OTHER_APP)]),
     "check_failed": base(checks=[dict(GREEN[0], conclusion="failure")] + GREEN[1:]),
     "check_failed, with a fix Run": base([fix(status="in_progress")], checks=[dict(GREEN[0], conclusion="failure")]
                                          + GREEN[1:]),
     "conflict": base(mergeable=False),
+    "conflict, after a review": base([reviewed()], mergeable=False),
+    "conflict, on the owner's turn": base([reviewed(), fix()], threads=[thread()], mergeable=False),
     "findings_open": base([reviewed()], threads=[thread()]),
     "findings_open, an agent's": base([reviewed()], threads=[thread()], **AGENT),
     "findings_open, with a fix Run": base([reviewed(), fix(status="in_progress")], threads=[thread()]),
@@ -134,6 +146,12 @@ BASES = {
                                        threads=[thread()]),
     "run_ceiling, awaiting checks": base(failures(LIMITS["max_runs_per_item"], outcome="environment"),
                                          checks=PENDING),
+    "awaiting_review at the Run ceiling, with a review Run": base(
+        failures(LIMITS["max_runs_per_item"] - 1, outcome="environment")
+        + [dict(reviewed(minute=25, name="r9"), status="in_progress", conclusion=None)]),
+    "proposals_await_owner at the Run ceiling, with a ruling Run": base(
+        [reviewed(), fix()] + failures(LIMITS["max_runs_per_item"] - 3, outcome="environment")
+        + [dict(ruling(25, "o9"), status="in_progress", conclusion=None)], threads=[thread()]),
     "max_rounds": base([reviewed()] + [r for i in range(LIMITS["max_rounds"])
                                        for r in (fix(20 + 2 * i, "a%d" % i), ruling(21 + 2 * i, "o%d" % i))]
                        + [fix(27, "a9")], threads=[thread()]),
@@ -161,7 +179,7 @@ def kernel(pr: dict) -> dict:
 
 def changed(pr: dict) -> dict:
     """A copy of `pr` a minute later, for a change to be made to."""
-    out = json.loads(json.dumps(pr))     # a deep copy of plain data, and quicker than copy.deepcopy
+    out = marshal.loads(marshal.dumps(pr))     # a deep copy of plain data, and quicker than copy.deepcopy
     out["minute"] += 1
     return out
 
@@ -209,6 +227,17 @@ def resolve(pr: dict, by: dict, which) -> dict:
     for th in found:
         th.update(resolved=True, resolved_by=dict(by))
     return pr
+
+
+def reopen(pr: dict, by: dict) -> dict:
+    """`by` marks unresolved again every resolved thread it may: a person any, a Lens's App its own Lens's."""
+    found = [th for th in pr["facts"]["threads"] if th["resolved"]
+             and (by["kind"] == "human" or th["opened_by"]["name"] == by["name"])]
+    if not found:
+        return None
+    for th in found:
+        th.update(resolved=False, resolved_by=None)
+    return writer_acted(pr) if by["kind"] == "human" else pr
 
 
 def person_review(pr: dict, state: str) -> dict:
@@ -393,6 +422,7 @@ MOVES = [
     Move("a person admits it", "human", lambda pr: label(pr, t.LABEL_ADMIT, MAINTAINER)),
     Move("a person takes its admission off", "human", lambda pr: label(pr, t.LABEL_ADMIT, MAINTAINER, "unlabeled")),
     Move("a person opens a thread", "human", lambda pr: writer_acted(new_thread(pr, MAINTAINER, severity=None))),
+    Move("a person marks the resolved threads unresolved", "human", lambda pr: reopen(pr, MAINTAINER)),
     Move("a person resolves their threads", "human", a_persons(
         lambda pr: resolve(pr, MAINTAINER, lambda th: th["opened_by"]["name"] == MAINTAINER["name"]))),
     Move("a person resolves a Lens's threads", "human", a_persons(
@@ -417,12 +447,21 @@ MOVES = [
     Move("a Lens's review passes", "lens", lambda pr: review_ends(pr, False)),
     Move("a Lens's review opens a Finding", "lens", lambda pr: review_ends(pr, True)),
     Move("a Lens's App dismisses a person's review", "lens", lambda pr: dismiss(pr, REVIEWER_APP, COLLEAGUE["name"])),
+    # Any App with write access can dismiss a review and place or remove a label (`an_app_can_dismiss_a_review`,
+    # `an_app_can_label`), a Lens's among them.
+    Move("a Lens's App marks its threads unresolved", "lens", lambda pr: reopen(pr, REVIEWER_APP)),
+    Move("a Lens's App dismisses the approver's approval", "lens",
+         lambda pr: dismiss(pr, REVIEWER_APP, CONFIG["approver"])),
+    Move("a Lens's App adds a Hold", "lens", lambda pr: label(pr, t.LABEL_HOLD, REVIEWER_APP)),
+    Move("a Lens's App adds hands-off", "lens", lambda pr: label(pr, t.LABEL_HANDS_OFF, REVIEWER_APP)),
+    Move("a Lens's App removes a Hold", "lens", lambda pr: label(pr, t.LABEL_HOLD, REVIEWER_APP, "unlabeled")),
     # The Factory: the Runs and acts the Kernel asks for, a Run that fails, and its Apps acting out of turn. A Role's
     # App writes only inside a Run, with a token minted for it (decision 0005).
     Move("the Controller admits a Run", "factory", admits, whole=True),
     Move("the Controller makes an act", "factory", acts, whole=True),
     Move("an approval does not land", "factory", lambda pr: acts(pr, lands=False), whole=True),
     Move("a fix Run pushes", "factory", fix_ends),
+    Move("a fix Run answers with no push", "factory", lambda pr: applies(pr, "fix-findings")),
     Move("a ruling Run accepts", "factory", lambda pr: ruling_ends(pr, True)),
     Move("a ruling Run rejects", "factory", lambda pr: ruling_ends(pr, False)),
     Move("a Run is superseded", "factory", superseded),
@@ -434,6 +473,10 @@ MOVES = [
     Move("a Role's App adds hands-off", "factory", lambda pr: label(pr, t.LABEL_HANDS_OFF, AUTHOR_APP)),
     Move("a Role's App removes hands-off", "factory",
          lambda pr: label(pr, t.LABEL_HANDS_OFF, AUTHOR_APP, "unlabeled")),
+    Move("a Role's App marks its draft ready", "factory", set_fact(is_draft=False)),
+    Move("a Role's App dismisses the approver's approval", "factory",
+         lambda pr: dismiss(pr, AUTHOR_APP, CONFIG["approver"])),
+    Move("a Role's App dismisses a person's review", "factory", lambda pr: dismiss(pr, AUTHOR_APP, COLLEAGUE["name"])),
     Move("a Role's App resolves a person's threads", "factory",
          lambda pr: resolve(pr, AUTHOR_APP, lambda th: th["opened_by"]["kind"] == "human")),
     # GitHub itself, and any App that is not the one a Lens is read from: the Kernel cannot tell which.
@@ -441,7 +484,17 @@ MOVES = [
         dict(GREEN[0], app_id=OTHER_APP, completed_at=now(pr))) or pr)),
     Move("the queue merges it", "platform", queue_merges),
     Move("the queue ejects it", "platform", queue_ejects),
-    Move("the base moves", "platform", lambda pr: set_fact(mergeable=None)(pr) if pr["facts"]["mergeable"] else None),
+    Move("another App adds a Hold", "platform", lambda pr: label(pr, t.LABEL_HOLD, ANOTHER_APP)),
+    Move("another App adds hands-off", "platform", lambda pr: label(pr, t.LABEL_HANDS_OFF, ANOTHER_APP)),
+    Move("another App removes a Hold", "platform", lambda pr: label(pr, t.LABEL_HOLD, ANOTHER_APP, "unlabeled")),
+    Move("another App removes hands-off", "platform",
+         lambda pr: label(pr, t.LABEL_HANDS_OFF, ANOTHER_APP, "unlabeled")),
+    Move("another App marks a draft ready", "platform", set_fact(is_draft=False)),
+    Move("another App dismisses the approver's approval", "platform",
+         lambda pr: dismiss(pr, ANOTHER_APP, CONFIG["approver"])),
+    # The base moves, whether the item merged cleanly or conflicted: a conflict can clear with no push.
+    Move("the base moves", "platform",
+         lambda pr: set_fact(mergeable=None)(pr) if pr["facts"]["mergeable"] is not None else None),
     Move("GitHub works out it merges cleanly", "platform",
          lambda pr: set_fact(mergeable=True)(pr) if pr["facts"]["mergeable"] is None else None),
     # The queue drops a pull request that conflicts.
@@ -458,8 +511,8 @@ def key(item: dict) -> str:
 
 
 def explore(bases: dict, moves: list, judge=None, depth: int = 2):
-    """Every transition the moves make from `bases`, `depth` changes deep, as {(from, to, by): an example}; and every
-    (State, reason) reached on the way. Any type of Work item: `judge` gives {'state', 'reason'} for one, by default
+    """Every transition the moves make from `bases`, `depth` changes deep, as {(from, to, by): {(reason before, reason
+    after): an example}}; and every (State, reason) reached on the way. Any type of Work item: `judge` gives {'state', 'reason'} for one, by default
     the Kernel's Decision on a pull request.
 
     Facts that give no State, such as a merge state GitHub has not worked out, are passed through: the transition is
@@ -484,36 +537,92 @@ def explore(bases: dict, moves: list, judge=None, depth: int = 2):
                 if after["state"] is None:
                     after = dict(after, state=before["state"], reason=before["reason"])
                 elif before["state"] is not None and after["state"] != before["state"]:
-                    made.setdefault((before["state"], after["state"], m.by),
-                                    "%s, then %s (%s -> %s)" % (how, m.name, before["reason"], after["reason"]))
+                    made.setdefault((before["state"], after["state"], m.by), {}).setdefault(
+                        (before["reason"], after["reason"]), "%s, then %s" % (how, m.name))
                 following.append(("%s, then %s" % (how, m.name), after_pr, after))
         level = following
     reached |= {(after["state"], after["reason"]) for _, _, after in level}
     return made, reached
 
 
-def reasons_with_a_state() -> set:
-    """Every reason the Kernel's source gives with a State: derive's, decide's Holds, and the queue's own codes.
+def state_of(node, where: str, problems: list):
+    """The State a node of the Kernel's source writes out: a code from `terms`, a string, or None. Else a problem."""
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "t" \
+            and isinstance(getattr(t, node.attr, None), str):
+        return getattr(t, node.attr)
+    if isinstance(node, ast.Constant) and (node.value is None or isinstance(node.value, str)):
+        return node.value
+    problems.append("%s: a State that is not written out" % where)
+    return None
 
-    A reason given with no State (`"state": None`), or with the State it was given (`_decision(facts, state, ...)`),
-    starts or ends no transition.
+
+def reason_of(node, where: str, problems: list):
+    """The reason a node writes out: a string. Else a problem: a variable or a conditional cannot be read."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    problems.append("%s: a reason that is not written out" % where)
+    return None
+
+
+def sites(sources: dict) -> tuple:
+    """Every place the Kernel's source gives a reason, read without running it: ({(State, reason)}, {reason},
+    [problem]).
+
+    A State and a reason written together are a pair. A reason given to a Decision derive already made,
+    `dict(d, reason=...)`, keeps that Decision's State, so it is a reason alone. `_decision(facts, state, ...)` and
+    `_decision(facts, None, ...)` pass on derive's State, or none, and give no State of their own. Anything else that
+    is not written out, a variable or a conditional, cannot be read, and is a problem: so is a reason with no State.
     """
-    found = set()
-    for rel in ("kernel/derive.py", "kernel/decide.py"):
-        for node in ast.walk(ast.parse((ROOT / rel).read_text())):
+    pairs, alone, problems = set(), set(), []
+    for rel, text in sources.items():
+        tree = ast.parse(text)
+        # `_decision` builds a Decision from the State and reason its callers give, which are read where they call it.
+        maker = {id(n) for f in ast.walk(tree) if isinstance(f, ast.FunctionDef) and f.name == "_decision"
+                 for n in ast.walk(f)}
+        for node in ast.walk(tree):
+            where = "%s:%d" % (rel, getattr(node, "lineno", 0))
+            if id(node) in maker:
+                continue
             if isinstance(node, ast.Dict):
                 fields = {k.value: v for k, v in zip(node.keys, node.values) if isinstance(k, ast.Constant)}
-                state, reason = fields.get("state"), fields.get("reason")
-                if isinstance(reason, ast.Constant) and not (isinstance(state, ast.Constant) and state.value is None):
-                    found.add(reason.value)
+                if "reason" not in fields:
+                    continue
+                if "state" not in fields:
+                    problems.append("%s: a reason with no State" % where)
+                    continue
+                state, reason = state_of(fields["state"], where, problems), reason_of(fields["reason"], where, problems)
+                if state is not None and reason is not None:
+                    pairs.add((state, reason))
             elif isinstance(node, ast.Call) and getattr(node.func, "id", None) == "dict":
-                found |= {kw.value.value for kw in node.keywords
-                          if kw.arg == "reason" and isinstance(kw.value, ast.Constant)}
+                for kw in node.keywords:
+                    if kw.arg == "state":
+                        problems.append("%s: a State given to a Decision already made" % where)
+                    elif kw.arg == "reason" and reason_of(kw.value, where, problems) is not None:
+                        alone.add(kw.value.value)
             elif isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_decision":
-                state, reason = node.args[1], node.args[2]
-                if isinstance(reason, ast.Constant) and isinstance(state, ast.Attribute):
-                    found.add(reason.value)
-    return found
+                given = node.args[1]
+                if (isinstance(given, ast.Name) and given.id == "state") or \
+                        (isinstance(given, ast.Constant) and given.value is None):
+                    continue
+                state, reason = state_of(given, where, problems), reason_of(node.args[2], where, problems)
+                if state is not None and reason is not None:
+                    pairs.add((state, reason))
+    return pairs, alone, problems
+
+
+def kernel_sites() -> tuple:
+    return sites({rel: (ROOT / rel).read_text() for rel in ("kernel/derive.py", "kernel/decide.py")})
+
+
+def uncovered(pairs: set, alone: set, decisions: list) -> list:
+    """Each pair, and each reason alone, that no Decision in `decisions` gives."""
+    given = {(d["state"], d["reason"]) for d in decisions}
+    return sorted(pairs - given) + sorted(alone - {reason for _, reason in given})
+
+
+def example(pairs: dict) -> str:
+    (before, after), how = sorted(pairs.items())[0]
+    return "%s (%s -> %s)" % (how, before, after)
 
 
 EXPLORED = {}
@@ -523,6 +632,44 @@ def explored():
     if not EXPLORED:
         EXPLORED["made"], EXPLORED["reached"] = explore(BASES, MOVES)
     return EXPLORED["made"], EXPLORED["reached"]
+
+
+# What bounds a Hold that no person makes, by the reason it gives: the ceiling it was reached at, whose counter only a
+# writer's action renews; or, for a label, a person, since only a person ends what a label holds, whoever placed it.
+HOLD_BOUNDS = {"run_ceiling": "max_runs_per_item", "attempts_exhausted": "max_attempts", "max_rounds": "max_rounds",
+               "act_ceiling": "max_acts_per_item", "human_hold": check_lifecycle.PERSON,
+               "hands_off": check_lifecycle.PERSON}
+# What a label holds.
+LABEL_HOLDS = ("human_hold", "hands_off")
+# Transitions the Lifecycle declares that nothing here makes, each with why it is kept.
+UNREACHED = {
+}
+
+
+def entered_through_a_person(lifecycle: dict) -> set:
+    """The States every way into is a person's, or from another such State. An item may start in one, as in a draft,
+    but a cycle through one passes through a person, so what leaves it needs no bound."""
+    found, more = set(), True
+    while more:
+        more = False
+        for state in set(lifecycle["states"]) - found:
+            ways_in = [tr for tr in lifecycle["transitions"] if tr["to"] == state]
+            if ways_in and all(tr["by"] == "human" or tr["from"] in found for tr in ways_in):
+                found.add(state)
+                more = True
+    return found
+
+
+def holds_made_by_no_person(made: dict, lifecycle: dict = LIFECYCLE) -> dict:
+    """Each Hold made by anyone but a person, from a State not entered only through a person, as {(from, held, by,
+    bound): an example}."""
+    through = entered_through_a_person(lifecycle)
+    out = {}
+    for (start, end, by), pairs in made.items():
+        if end == t.HELD and by != "human" and start not in through:
+            for (before, after), how in sorted(pairs.items()):
+                out.setdefault((start, end, by, HOLD_BOUNDS.get(after)), "%s (%s -> %s)" % (how, before, after))
+    return out
 
 
 class Transitions(unittest.TestCase):
@@ -536,10 +683,30 @@ class Transitions(unittest.TestCase):
                 if out is not None:
                     self.assertEqual(validate(out["facts"], FACTS_SCHEMA), [], (name, m.name))
 
-    def test_every_reason_the_kernel_gives_with_a_state_has_facts(self):
-        given = {kernel(pr)["reason"] for pr in BASES.values()}
-        self.assertEqual(sorted(reasons_with_a_state() - given), [],
-                         "add facts to BASES that give each of these reasons")
+    def test_every_state_and_reason_the_kernel_gives_has_facts(self):
+        pairs, alone, problems = kernel_sites()
+        self.assertEqual(problems, [], "write each State and reason out, so that this test can read it")
+        self.assertEqual(uncovered(pairs, alone, [kernel(pr) for pr in BASES.values()]), [],
+                         "add facts to BASES that give each of these")
+        self.assertEqual(sorted({s for s, _ in pairs} - set(LIFECYCLE["states"])), [])
+
+    def test_a_state_or_reason_the_source_does_not_write_out_fails(self):
+        # A State the Lifecycle does not know, given with a reason the Kernel already gives elsewhere, is a pair no
+        # facts give.
+        decisions = [kernel(pr) for pr in BASES.values()]
+        pairs, alone, problems = sites({"x.py": 'r = {"state": "frozen", "reason": "too_large"}\n'})
+        self.assertEqual((uncovered(pairs, alone, decisions), problems), ([("frozen", "too_large")], []))
+        # A reason or a State that is not written out cannot be read at all.
+        for code in ('{"state": t.HELD, "reason": why}', '{"state": t.HELD, "reason": "a" if x else "b"}',
+                     '{"state": s, "reason": "too_large"}', '{"reason": "too_large"}', 'dict(d, reason=why)',
+                     'dict(d, state=t.HELD)', '_decision(facts, t.HELD, why, [], t.HOLD)',
+                     '_decision(facts, t.HELD if x else t.DRAFT, "draft", [], t.HOLD)'):
+            _, _, problems = sites({"x.py": "r = %s\n" % code})
+            self.assertEqual(len(problems), 1, code)
+        # The other side: what passes on derive's State, or none, gives no State of its own.
+        pairs, alone, problems = sites({"x.py": "r = _decision(facts, state, why, [], t.DEFER)\n"
+                                                "r = _decision(facts, None, why, [], t.DEFER)\n"})
+        self.assertEqual((pairs, alone, problems), (set(), set(), []))
 
     def test_every_state_reached_is_one_the_lifecycle_declares(self):
         _, reached = explored()
@@ -548,7 +715,36 @@ class Transitions(unittest.TestCase):
     def test_every_change_of_state_is_declared_with_who_makes_it(self):  # I-12
         made, _ = explored()
         missing = check_lifecycle.undeclared(LIFECYCLE, made)
-        self.assertEqual(missing, [], "\n".join("%s -> %s by %s: %s" % (*m, made[m]) for m in missing))
+        self.assertEqual(missing, [], "\n".join("%s -> %s by %s: %s" % (*m, example(made[m])) for m in missing))
+
+    def test_a_hold_no_person_makes_names_what_bounds_it(self):  # I-14
+        # The ceiling it was reached at, or for a label, a person. Never a counter that did not advance to it.
+        made, _ = explored()
+        declared = {(tr["from"], tr["to"], tr["by"], tr["bound"]) for tr in LIFECYCLE["transitions"]}
+        holds = holds_made_by_no_person(made)
+        self.assertEqual(sorted(h for h in holds if h[3] is None), [], "a Hold with nothing behind it")
+        missing = sorted(set(holds) - declared)
+        self.assertEqual(missing, [], "\n".join("%s -> %s by %s, bound %s: %s" % (*h, holds[h]) for h in missing))
+        # And no such Hold is declared with a bound that nothing here reaches it at.
+        through = entered_through_a_person(LIFECYCLE)
+        self.assertEqual(through, {t.NOT_SERVED, t.DRAFT, t.CLOSED})
+        unfound = {h for h in declared if h[1] == t.HELD and h[2] != "human" and h[0] not in through} - set(holds)
+        self.assertEqual(sorted(unfound), [])
+
+    def test_only_a_person_ends_what_a_label_holds(self):  # I-6, L-02, L-17
+        # The queue can still merge a held item before a pass takes it out: that race ends the item, not the Hold.
+        made, _ = explored()
+        ended = sorted("%s -> %s by %s: %s" % (start, end, by, how) for (start, end, by), pairs in made.items()
+                       if start == t.HELD and by != "human" and end not in LIFECYCLE["terminal"]
+                       for (before, _), how in pairs.items() if before in LABEL_HOLDS)
+        self.assertEqual(ended, [])
+
+    def test_every_transition_declared_is_found_or_kept_for_a_reason(self):
+        made, _ = explored()
+        declared = check_lifecycle.declared(LIFECYCLE)
+        self.assertEqual(sorted(declared - set(made) - set(UNREACHED)), [], "remove it, or say in UNREACHED why not")
+        # Nothing is kept that is found, or not declared.
+        self.assertEqual(sorted(set(UNREACHED) - (declared - set(made))), [])
 
     def test_a_stranger_changes_no_state(self):  # I-28
         made, _ = explored()
@@ -561,7 +757,7 @@ class Transitions(unittest.TestCase):
         for state in t.ADMITS_NOTHING:
             self.assertIn(state, LIFECYCLE["states"])
 
-    def test_every_kind_of_maker_moves_some_state(self):
+    def test_a_person_a_lens_the_factory_and_the_platform_each_change_some_state(self):
         # The exploration is not empty: each who may change a State is seen to.
         made, _ = explored()
         self.assertEqual({by for _, _, by in made}, {"human", "lens", "factory", "platform"})

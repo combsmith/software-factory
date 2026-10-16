@@ -619,9 +619,9 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
         for_author = [gid for gid, who in turns.items() if who == "author"]
         for_owner = [gid for gid, who in turns.items() if who == "owner"]
         if for_author:
-            human = any(g["by"]["kind"] == "human" for g in open_gates if g["id"] in for_author)
-            return {"state": t.ADDRESSING, "reason": "human_finding" if human else "findings_open",
-                    "evidence": for_author}
+            if any(g["by"]["kind"] == "human" for g in open_gates if g["id"] in for_author):
+                return {"state": t.ADDRESSING, "reason": "human_finding", "evidence": for_author}
+            return {"state": t.ADDRESSING, "reason": "findings_open", "evidence": for_author}
         if for_owner:
             return {"state": t.ADJUDICATING, "reason": "proposals_await_owner", "evidence": for_owner}
         return {"state": t.ADDRESSING, "reason": "awaiting_human", "evidence": sorted(turns)}

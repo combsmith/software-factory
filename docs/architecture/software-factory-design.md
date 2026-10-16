@@ -1049,10 +1049,20 @@ Human transitions are declared like any other: marking ready, converting to draf
 removing a hold label, requesting changes, resolving a thread, approving, merging by Override.
 
 A transition is a person's whatever reports it, and the Factory makes no transition out of a Hold
-(L-02). A `factory:hold` label ends when a person with write access removes it, and a ceiling
-when a writer acts (I-41, I-28). The platform only reports either, so `held → verifying` is
-declared `human`. A Hold on a condition of the content, `empty_diff` or `too_large`, ends when the
-diff changes, so `held → verifying` is declared by `platform` too. `not_served` is not terminal:
+(L-02). A label ends when a person with write access removes it, whoever placed it: what a Role's
+App, a Lens's App or any other App does to it ends nothing (L-17), so nobody but a person takes an
+item out of `held` on a label. A ceiling is a reading, not a lock (the working ruling on "Kernel:
+every change of State that derive can make is declared", issue eighty-one). The Kernel holds an
+item at a ceiling only while the action that ceiling bounds is wanted, and only its counter,
+`acts_since_writer` or the Runs and attempts since a writer acted, waits for a person: it renews
+only when a person with write access acts (I-41, I-28). So an item held at a ceiling leaves `held`
+with no person when the facts call for something else, as a conflict on an item held at the act
+ceiling admits a fix Run, which the Run ceiling bounds, and `held → addressing` is declared by
+`platform`. The Hold of I-26, `approver_is_author_or_last_pusher`, is a reading too: after a
+conflict the Factory's fix Run pushes, the Role's App becomes the last pusher, and the Hold ends with
+no person, as it should, since GitHub would then count the approver's approval. A Hold on a
+condition of the content, `empty_diff` or `too_large`, ends when the diff changes, so `held →
+verifying` is declared by `human` and by `platform`. `not_served` is not terminal:
 GitHub serves a stacked pull request when it retargets it at the default branch, which takes it
 to `verifying` or `draft` by `platform`, and a person may close it. Every way into `not_served`
 is a person's, so no cycle passes through it without one. Re-running a check on unchanged content
@@ -1070,31 +1080,41 @@ such as `max_diff_lines`, or on the whole org, such as `org_max_active_runs`, bo
 
 | Transition | Bound | What is counted |
 |---|---|---|
-| `addressing → verifying` and `converged → verifying`: new content pushed | `max_runs_per_item` | The author Role's Run that pushed, when the Factory pushed. Any other push is a person's or, for the `dependency` class, Dependabot's rebase. Each such rebase follows a move of the base or a new release, so the Factory cannot loop on it alone |
-| `adjudicating → addressing`, `adjudicating → verifying` and `adjudicating → converged` | `max_rounds` | The owner Role's adjudicating Run that each follows |
-| `addressing → adjudicating` | `max_attempts`, as declared | Not what moves the item on: that is an author Run that succeeded. Every cycle through this transition leaves `adjudicating` by an exit bounded by `max_rounds`, and those bound it |
-| `converged → queued`: enqueued | `max_acts_per_item` | The enqueue, an act (§3.10). A queue that ejects every time comes to rest here |
-| `queued → converged`, `addressing`, `verifying`, `adjudicating` and `held`: dequeued | `max_acts_per_item` | The dequeue, an act. It is never refused, but it follows an enqueue, and every way back into the queue is an enqueue, which the ceiling refuses |
 | `addressing`, `adjudicating` and `converged → verifying` by `factory`: a fix Run pushed | `max_runs_per_item` | The author Role's Run that pushed |
-| `verifying`, `addressing` and `adjudicating → held` by `factory`, and `verifying → held` by a Lens or the platform | `max_runs_per_item` | A Hold made with no person comes at a ceiling: the change, a Run that ends or a Lens's report or a conflict that calls for a Run, finds the Run ceiling or the attempts spent. Or a Role's App places a label, and a Role's App writes only inside a Run (decision 0005) |
-| `converged → held` by `factory` or the platform, and `queued → held` by the platform | `max_acts_per_item` | An approval, a dequeue, or the queue ejecting the item, finds the act ceiling reached |
+| `addressing → verifying` by `platform`: a dependency bot's rebase, or another App's check | `max_runs_per_item` | The work the Factory does on the lap: a fix Run for what failed |
+| `converged → verifying` by `platform`: a dependency bot's rebase | `max_acts_per_item` | The Maintainer's ruling of 2026-10-15. Each lap needs a fresh approval act on the new content (decision 0007), which the act ceiling counts (decision 0003). No Run is made, so the Run ceiling never advances on it |
+| `adjudicating → addressing` and `adjudicating → converged` by `factory`, and `adjudicating → verifying` by `platform` | `max_rounds` | The owner Role's adjudicating Run that each follows, or that the lap calls for |
+| `addressing → adjudicating` by `factory`: the author's Run answers with no push | `max_runs_per_item` | That Run. `max_attempts` counts only Runs that failed, so it does not advance here |
+| `addressing → adjudicating` by a Lens or the platform | `max_runs_per_item` | A Lens's App marks its thread unresolved, which a Role's App does only inside a Run (decision 0005); or a conflict clears, and the work is then the owner's ruling Run |
+| `addressing → converged` by `platform`: a conflict that a later move of the base clears | `max_acts_per_item` | The act the Factory makes each time the lap reaches `converged` |
+| `converged → queued`: enqueued | `max_acts_per_item` | The enqueue, an act (§3.10). A queue that ejects every time comes to rest here |
+| `queued → converged` by `factory`: a Role's App dismisses the approval | `max_runs_per_item` | The Run inside which a Role's App writes. A dequeue changes no State: derive has already given the State the item leaves the queue in, and the dequeue follows it |
+| Any State `→ held` by anyone but a person, at a ceiling | The ceiling reached: `max_runs_per_item`, `max_attempts`, `max_rounds` or `max_acts_per_item` | The counter that reached its limit, which only a writer's action renews. Each such Hold names the ceiling it gives (`tests/test_transitions.py::test_a_hold_no_person_makes_names_what_bounds_it`) |
+| Any State `→ held` by anyone but a person, on a label | `person` | No counter: a label any App placed stands until a person removes it (L-17), and only a person ends what a label holds (`tests/test_transitions.py::test_only_a_person_ends_what_a_label_holds`). `tools/check_lifecycle.py` takes `person` as a bound only on a Hold that no person makes |
+| `not_served → held`, and every transition out of `not_served` or `draft` by anyone but a person | none | Every way into `not_served` is a person's, and every way into `draft` is a person's or from `not_served`, so a cycle through either passes through a person |
+
+**Laps the platform makes.** A dependency bot's rebase, or a base that conflicts and then clears,
+can take an item round with no person. The Factory's own work on such a lap, an approval or a Run,
+is what the bound counts, and at that ceiling the Factory does nothing on the lap. A dependency
+update held at the act ceiling is rebased to `verifying`, passes its checks and is held again
+(`verifying → held` by a Lens, bound `max_acts_per_item`) with no Run and no act made. What is left
+is the platform's churn, which no counter of the Factory's bounds and on which it spends nothing.
 
 **Who makes a transition.** Whoever made the change in the facts that moved the State. A person
 with write access is `human`. A Lens is `lens`: a required check that reports, or a reviewing Role's
 Run that gives a verdict. The Factory is `factory`: a Run it admitted ending, a fix Run's push, an act,
 and anything a Role's App does, in turn or not. The platform is `platform`: GitHub on its own, which
 merges or ejects from the queue, works out a conflict, or retargets a stacked pull request, and any
-App that is not a Lens's or a Role's, a check posted under a Lens's name among them, since the Kernel
-cannot tell which App posted it. Someone with no write access is none of these and changes no State.
-`tests/test_transitions.py` applies every change each of them can make to facts for every reason the
-Kernel gives with a State, and again to each result, and every transition it finds is declared with who
-made it; the simulator checks each one it makes the same way. So the queue can merge an item the
-Kernel would take out, the race that "Leaving the merge queue" accepts. A ceiling holds only what it
-bounds, so an item held at one leaves `held` when the facts call for something else, as a conflict on
-an item held at the act ceiling calls for a fix Run; the counter is renewed only when a writer acts.
-An item that is not served becomes whatever it is once retargeted. A conflict that a later move of
-the base clears, with no push, is not reached: it would make `converged → addressing → converged` a
-cycle the platform alone makes, with no bound.
+App that is not a Lens's or a Role's. A check posted under a required Lens's name by any App but
+that Lens's own is put down to `platform`, since the Kernel cannot tell which App posted it; that is
+safe only because such a check reads `check_unreadable`, which admits nothing and makes no act but a
+dequeue, and only a push clears it. Someone with no write access is none of these and changes no
+State. `tests/test_transitions.py` applies every change each of them can make to facts for every
+State and reason the Kernel gives, and again to each result. Every transition it finds is declared
+with who made it, and every transition declared is found, or kept by name with the reason nothing
+makes it; the simulator checks each one it makes the same way. So the queue can merge an item the
+Kernel would take out, the race that "Leaving the merge queue" accepts, and an item that is not
+served, or a draft an App marks ready, becomes whatever it is.
 
 #### The issue Lifecycle
 
@@ -1544,7 +1564,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 |---|---|
 | A pull request from a fork, or from someone who is not a collaborator | Its class is `outside`. It gets no Run, because a Run holds the model credential. It is held as "needs you" until the Maintainer admits it or closes it (I-25). Its status is written for a stranger: what is happening, and that a maintainer has to admit it. Admission lapses when the author pushes again, so a harmless commit cannot be admitted and then replaced (I-36) |
 | A dependency update | Its class is `dependency`, and the bot that opened it pushed its head. Its required Lenses are deterministic ones, and a person's thread, or a model Lens's Finding already raised, still gates it. Once the author Role or a person pushes to it, it needs a model review like any change (§4.2). On a Consumer the POC's automerge serves it until that Intent is cut over. In the Factory's own repo no line serves it: nothing is installed there, so every update changes `.github/`, and the Maintainer reads and merges it (§5.1) |
-| The approver is the author or the last pusher | GitHub rejects or discards the approval. The Kernel reads `author` and `last_pusher`, attempts no approval, and holds the item with that reason (I-26). The machine user therefore never pushes (§5.1) |
+| The approver is the author or the last pusher | GitHub rejects or discards the approval. The Kernel reads `author` and `last_pusher`, attempts no approval, and holds the item with that reason (I-26). The machine user therefore never pushes (§5.1). The Hold is a reading: after a conflict, the Factory's fix Run pushes, the Role's App becomes the last pusher, and the Hold ends with no person, since GitHub would then count the approval (§4.1) |
 | A branch pushed every few minutes | Deterministic Lenses first; a model review starts only on content they have passed (I-27) |
 | A required check that concludes `neutral`, `skipped`, `cancelled` or `stale`, or with a word the Kernel does not know | It gave no verdict, so it has not passed. The Kernel defers, reason `check_unreadable`, admits no Run, and shows the item as needing the Maintainer until the check reports again (I-13, §3.3). A `timed_out` check is a failure, and goes back to the author. A failure beside it is read first, so `fail-fast`'s cancelled siblings and a skipped dependent job do not hold an ordinary failure |
 | A check under a required Lens's check name from another App, or two from the Lens's own App that disagree | The first leaves the Lens unreadable, reason `check_unreadable` with the evidence `<lens>:from_app:<id>`, for the Maintainer to see, whatever any Lens's own check says, a failure among them; it moves nothing either. A check run cannot be deleted, so it stays on that head for good, and only a push clears it. Of the second, every one is read: a failure fails the Lens, and it passes only when every one passes (§3.3) |

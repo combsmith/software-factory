@@ -48,9 +48,10 @@ class Simulation(unittest.TestCase):
             made |= world.made
         # Each change of State the seeds make, and who made it, is one the exploration of every change finds too: what
         # the world reaches and the exploration does not is a gap in the exploration.
+        # It holds at any number of seeds; that each of a person, a Lens, the Factory and the platform changes a State
+        # is held by the exploration, which needs no seeds.
         found, _ = test_transitions.explored()
         self.assertEqual(sorted(made - set(found)), [])
-        self.assertEqual({by for _, _, by in made}, {"human", "lens", "factory", "platform"})
 
     def test_every_change_of_state_is_checked_with_who_made_it(self):  # I-12
         # The queue merges an item: the world records the transition as the platform's, and checks it is declared so.

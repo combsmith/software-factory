@@ -348,12 +348,29 @@ class Lifecycle(unittest.TestCase):
 
     def test_a_cycle_through_the_platform_with_no_bound_is_caught(self):
         # A merge queue that ejects every time, and an enqueue made again each time it does.
-        lc = unbound(check_lifecycle.load(), "max_acts_per_item")
+        lc = check_lifecycle.load()
+        lc["transitions"] = [dict(tr, bound=None) if (tr["from"], tr["to"]) == ("converged", "queued") else tr
+                             for tr in lc["transitions"]]
         problems = check_lifecycle.check(lc)
         self.assertTrue(any(p.startswith("a cycle with no person in it has no bound: ") and "converged -> queued" in p
                             for p in problems), problems)
         problems = check_lifecycle.run(clone({"lifecycle/pull_request.json": json.dumps(lc)}))
         self.assertTrue(caught(problems, "lifecycle/pull_request.json: a cycle with no person in it"), problems)
+
+    def test_a_hold_only_a_person_ends_is_bound_by_a_person_and_nothing_else_is(self):
+        # A Hold an App places has no ceiling behind it, and stands until a person removes it.
+        lc = check_lifecycle.load()
+        self.assertIn(("verifying", "held", "platform", check_lifecycle.PERSON),
+                      {(tr["from"], tr["to"], tr["by"], tr["bound"]) for tr in lc["transitions"]})
+        limits = json.loads((ROOT / "config" / "defaults.json").read_text())["limits"]
+        self.assertEqual(check_lifecycle.check(lc, limits), [])
+        for tr in ({"from": "verifying", "to": "addressing", "by": "lens", "bound": check_lifecycle.PERSON},
+                   {"from": "verifying", "to": "held", "by": "human", "bound": check_lifecycle.PERSON}):
+            problems = check_lifecycle.check(dict(lc, transitions=lc["transitions"] + [tr]), limits)
+            self.assertTrue(caught(problems, "the bound person is only for a Hold that no person makes"), tr)
+        # Without it, the platform's way out of a Hold on the content closes a cycle with no person in it.
+        self.assertTrue(caught(check_lifecycle.check(unbound(lc, check_lifecycle.PERSON)),
+                               "a cycle with no person in it has no bound"))
 
     def test_a_bound_the_kernel_does_not_count_for_each_item_is_caught(self):
         # A limit on size or on the whole org stops nothing going round on one item.
