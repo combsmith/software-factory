@@ -700,6 +700,16 @@ MUTANTS = [
      ' + [p for _, p, _ in data["lens_inputs"]]', ""),
     ("a Lens's input is not listed at a stop", "tools/hooks/protected.py",
      ' + [(p, what) for _, p, what in inputs]', ""),
+    ("verify's inputs leave out a package at the top of the repo", "config/hooks.json",
+     '    {"lens": "verify", "path": "*/__init__.*", "is": "a package at the top of the repo, which verify imports '
+     'before the standard library"},\n', ""),
+    ("verify's inputs leave out an extension module at the top of the repo", "config/hooks.json",
+     '    {"lens": "verify", "path": "*.so", "is": "an extension module at the top of the repo, which verify imports '
+     'before the standard library"},\n', ""),
+    ("verify's inputs leave out the compiled modules at the top of the repo", "config/hooks.json",
+     '    {"lens": "verify", "path": "__pycache__/", "is": "the compiled modules at the top of the repo"},\n', ""),
+    ("verify's inputs leave out a compiled module at the top of the repo", "config/hooks.json",
+     '"path": "*.py*", "is"', '"path": "*.py", "is"'),
     ("verify's inputs leave out the Kernel the tests import", "config/hooks.json",
      '    {"lens": "verify", "path": "kernel/", "is": "the Kernel, which the tests verify runs import"},\n', ""),
     ("the secret scan's inputs leave out what it is told to pass over", "config/hooks.json",

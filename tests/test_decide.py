@@ -2330,6 +2330,20 @@ class TheFactorysOwnRules(unittest.TestCase):
                      "x/.gitleaks.toml", "kernelx/a.py"):
             self.converges([path])
 
+    def test_a_package_at_the_top_of_the_repo_counts_as_a_lens_input(self):  # I-45
+        # `python3 -m tools.verify` puts the top of the repo first on the path, so a package there, `unittest/` with an
+        # `__init__`, is imported before the standard library's, and changes what verify does.
+        f = changing(**DEPENDENCY, changed_paths=["unittest/__init__.py", "unittest/AGENTS.md"])
+        d = go(f)
+        self.assertEqual((d["state"], d["reason"], d["evidence"], d["admit"]),
+                         ("verifying", "awaiting_review", ["pr-review", "*/__init__.*"], REVIEW_IT))
+        for path in ("ast/__init__.pyc", "json.cpython-39-darwin.so", "json.pyd", "__pycache__/json.cpython-39.pyc"):
+            self.waits_for_review([path])
+        # The other side: a directory with no __init__ is a namespace package, which shadows no module; nor does a
+        # package below the top.
+        for path in ("unittest/AGENTS.md", "docs/unittest/__init__.py", "docs/__pycache__/x.pyc"):
+            self.converges([path])
+
     def test_a_pattern_matches_one_name_per_star_in_any_case(self):  # I-45
         # `*` stands for any part of one name, none included, and never for a `/`.
         for path in ("config/rubric-pr-review.json", "config/rubric-.json", ".claude/settings.local.json"):
@@ -2478,6 +2492,7 @@ class TheFactorysOwnRules(unittest.TestCase):
         f = changing(**DEPENDENCY, changed_paths=[PIN])
         # A pattern that matches nothing is unreadable too: an empty, `.` or `..` name, or a leading separator.
         for rules in ("missing", [], None, ".github/", [""], [5], ["/"], ["./.github/"], [".github//"], ["../.github/"],
+                      ["foo//bar"], ["/foo"], ["foo/../bar"],
                       ["/.github/"], [".github/", "lifecycle/../x"]):
             cfg = config()
             if rules == "missing":

@@ -10,6 +10,7 @@ import base64
 import contextlib
 import copy
 import hashlib
+import importlib.machinery
 import io
 import json
 import os
@@ -1127,6 +1128,15 @@ class TheList(unittest.TestCase):
             self.assertTrue(any(derive.matches(p, path) for p in inputs["verify"]), path)
         for path in (".gitleaks.toml", ".gitleaksignore"):
             self.assertTrue(any(derive.matches(p, path) for p in inputs["secret-scan"]), path)
+        # Whatever the import system loads from the top of the repo ahead of the standard library, by every suffix it
+        # knows here and Windows's: a module, a regular package's __init__, and the compiled modules. A directory with
+        # no __init__ is a namespace package, which a module found later on the path wins over, so it shadows nothing.
+        machinery = importlib.machinery
+        suffixes = (machinery.SOURCE_SUFFIXES + machinery.BYTECODE_SUFFIXES + machinery.EXTENSION_SUFFIXES
+                    + [".pyw", ".pyd", ".cp312-win_amd64.pyd", ".cpython-312-x86_64-linux-gnu.so", ".abi3.so"])
+        for path in (["json" + s for s in suffixes] + ["unittest/__init__" + s for s in suffixes]
+                     + ["__pycache__/json.cpython-39.pyc"]):
+            self.assertTrue(any(derive.matches(p, path) for p in inputs["verify"]), path)
 
     def test_each_lens_workflow_file_is_protected(self):  # decision 0018
         patterns = [e["path"] for e in self.HOOKS["protected"]]

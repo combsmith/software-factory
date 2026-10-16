@@ -22,8 +22,10 @@ files: such a list left a file out or misread one, whatever it says.
 The Factory's own rules and the inputs of each deterministic Lens are one list, in
 `config/hooks.json`: `protected`, which gains `config/apps.json`, and `lens_inputs`, each with the
 Lens that reads it. verify reads what make reads (`GNUmakefile`, `makefile` or `Makefile`), every
-place checks live, a module at the top of the repo, which `python3 -m` imports before the standard
-library, and the Kernel the tests import; the secret scan reads `.gitleaks.toml` and
+place checks live, the Kernel the tests import, and whatever `python3 -m` imports from the top of
+the repo before the standard library: a module, source, compiled or an extension, a regular package's
+`__init__`, and the compiled modules in `__pycache__`. A directory with no `__init__` is a namespace package, which a module
+found later on the path wins over, so it is not listed; the secret scan reads `.gitleaks.toml` and
 `.gitleaksignore`. The session hooks ask about a protected path, and report a Lens's input as they
 report what is listed at a stop. The Kernel is given the patterns of both as `protected_paths`, from
 one function beside the hooks' own reader, in one syntax: a final `/` names a directory and all
@@ -76,6 +78,7 @@ not weaken the Lens that judges it, and that story comes next.
 | A dependency update that changes a protected path waits for every model Lens's review of its head, and converges once it has one; one that changes nothing on the list does not | `tests/test_decide.py::test_a_change_to_a_protected_path_needs_the_model_review` |
 | A Lens's input counts as a protected path does: below a directory however deep, and never a name that only starts with one | `tests/test_decide.py::test_a_lens_input_counts_like_a_protected_path` |
 | `*` stands for any part of one name, none included, never across a `/`; case is not compared; the pieces between stars are found in order and never overlap | `tests/test_decide.py::test_a_pattern_matches_one_name_per_star_in_any_case`, `tests/test_decide.py::test_a_pattern_of_several_stars_matches_each_piece_in_order_once` |
+| A package at the top of the repo, which verify imports before the standard library, is a Lens's input; a directory there with no `__init__` is not | `tests/test_decide.py::test_a_package_at_the_top_of_the_repo_counts_as_a_lens_input` |
 | Either name of a rename or a copy counts | `tests/test_decide.py::test_either_name_of_a_rename_counts` |
 | A dependency bot's update to a workflow's pin is reviewed by the model Lens before the machine user approves it, and what that review raises gates it | `tests/test_decide.py::test_a_dependency_update_to_a_workflow_pin_needs_the_model_review` |
 | A queued change to the list whose head moved, or whose approval of this head came with no review of it, leaves the queue and waits for the review | `tests/test_decide.py::test_a_queued_change_to_the_list_whose_head_moves_leaves_the_queue` |
@@ -88,7 +91,7 @@ not weaken the Lens that judges it, and that story comes next.
 | A Decision names each pattern of the configuration that matched, in its order, never a path | `tests/test_decide.py::test_a_decision_names_the_pattern_never_the_path` |
 | The Kernel's matcher and the session hooks' agree on every file in the repo and on paths made from each pattern | `tests/test_tools.py::test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus` |
 | The Kernel is given every protected path and every Lens's input, from `config/hooks.json`, in the tests and the simulator alike | `tests/test_tools.py::test_the_kernel_is_given_every_protected_path_and_lens_input` |
-| Each Lens's input names a required deterministic Lens; verify's cover what make reads, every place checks live, a module at the top of the repo and the Kernel, and the secret scan's its configuration and its ignore file | `tests/test_tools.py::test_each_lens_input_is_a_required_lens_and_verifys_cover_every_check`, `examples/invalid/hooks.a-lens-input-with-no-lens.json` |
+| Each Lens's input names a required deterministic Lens; verify's cover what make reads, every place checks live, the Kernel, and a module, a package or a compiled module at the top of the repo by every suffix the import system knows, and the secret scan's its configuration and its ignore file | `tests/test_tools.py::test_each_lens_input_is_a_required_lens_and_verifys_cover_every_check`, `examples/invalid/hooks.a-lens-input-with-no-lens.json` |
 | The workflow file each Lens is read from is a protected path | `tests/test_tools.py::test_each_lens_workflow_file_is_protected` |
 | The session hooks ask about `config/apps.json`, and list a Lens's input at a stop without asking about it | `tests/test_hooks.py::test_an_edit_elsewhere_is_not_asked_about`, `tests/test_hooks.py::test_a_lens_input_changed_is_listed_as_reported` |
 | In the simulator a Role, the dependency bot and the Maintainer change the list, the list is read short or leaves a path out, and nothing that changes it is approved, enqueued, left queued or merged without every model Lens's review of that head (I-45) | `tests/test_simulator.py::test_the_seeds_change_the_list_by_a_role_the_dependency_bot_and_the_maintainer` |
