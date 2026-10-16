@@ -296,6 +296,59 @@ class Simulation(unittest.TestCase):
         self.assertLessEqual({"approval_lost", "gate_open", "human_hold"}, causes)
         self.assertTrue(impostors)
 
+    def test_the_seeds_serve_items_with_an_acceptance_contract_and_without(self):  # I-31
+        # Some worlds carry a contract, and its evidence goes missing for a while, fails, is given twice and disagrees,
+        # expires, is read short or unreadable and is left behind on content that changed; with every invariant holding,
+        # some merge once the faults stop. The others carry none.
+        reasons, contracts, notes, behind, merged = set(), set(), set(), False, False
+        for seed in SEEDS:
+            w = World(seed)
+            for _ in range(250):
+                w.step()
+            contracts.add(w.criteria is not None)
+            reasons |= {r for line in w.trace if "pass: " in line
+                        for r in ("acceptance_evidence_missing", "acceptance_failed", "acceptance_unreadable") if r in line}
+            notes |= {n for line in w.trace for n in ("expired", "a second result") if n in line}
+            behind = behind or any(ev["content_id"] != w.cid() for ev in w.results)
+            if w.criteria is not None and not merged:
+                w.settle()
+                merged = w.pr_state == "merged"
+        self.assertEqual(contracts, {True, False})
+        self.assertEqual(reasons, {"acceptance_evidence_missing", "acceptance_failed", "acceptance_unreadable"})
+        self.assertEqual(notes, {"expired", "a second result"})
+        self.assertTrue(behind and merged)
+
+    def test_a_queued_item_whose_evidence_is_gone_is_taken_out_before_it_merges(self):  # I-31
+        # GitHub's merge queue knows nothing of the contract. The evidence a queued item converged on is gone, as an
+        # artifact is after its retention: the queue waits for a pass, and the pass takes it out.
+        class Never:
+            def random(self):
+                return 0.99
+
+        def gone(w):
+            w.criteria, w.results, w.judge = ["AC-1"], [], Never()
+
+        w = queued()
+        gone(w)
+        w.caused("platform")
+        w.platform()
+        self.assertEqual((w.pr_state, w.queue), ("open", True))
+        w.poll()
+        self.assertEqual((w.pr_state, w.queue), ("open", False))
+        self.assertIn("apply: dequeued (acceptance_evidence_missing)", w.trace[-1])
+        # Had the queue merged over it once a pass had read it, the invariant breaks.
+        w = queued()
+        gone(w)
+        w.read = w.unstamped(w.facts())
+        self.assertRaises(world.Broken, w.platform)
+        # The other side: with the evidence there, on this content, the queue merges once a pass has read it.
+        w = queued()
+        gone(w)
+        w.results = [{"criterion": "AC-1", "content_id": w.cid(), "result": "passing"}]
+        w.poll()
+        w.platform()
+        self.assertEqual(w.pr_state, "merged")
+
     def test_every_label_act_in_the_world_takes_its_own_minute(self):  # I-6
         # The world never leans on how a tie is read: a label placed and released in one step, or put back and taken
         # off again, gives each event its own time, and the Kernel reads what the world holds.

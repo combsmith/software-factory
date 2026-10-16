@@ -16,6 +16,7 @@ NEEDS_YOU_REASONS = frozenset({
     "human_hold", "outside_not_admitted", "empty_diff", "too_large", "human_finding",
     "attempts_exhausted", "run_ceiling", "max_rounds", "approver_is_author_or_last_pusher",
     "awaiting_human", "act_ceiling", "check_unreadable", "review_unreadable", "thread_unreadable", "label_unreadable",
+    "acceptance_unreadable",
 })
 
 
@@ -54,7 +55,8 @@ def _wanted_run(state: str, reason: str, config: dict):
     """The Run this State calls for, as (role, intent), or None."""
     if state == t.VERIFYING and reason == "awaiting_review":
         return (config["required_lenses"]["model"][0], "review-change")
-    if state == t.ADDRESSING and reason in ("check_failed", "findings_open", "human_finding", "conflict"):
+    if state == t.ADDRESSING and reason in ("check_failed", "findings_open", "human_finding", "conflict",
+                                              "acceptance_failed"):
         if config["author_role"] is None:
             return None
         return (config["author_role"], "fix-findings")

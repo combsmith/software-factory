@@ -8,8 +8,8 @@ import unittest
 
 from kernel import derive
 from kernel.decide import decide
-from tests.support import (CONFIG, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, ROOT, config, context, facts, labelled,
-                           review, run, thread, unlabelled)
+from tests.support import (CONFIG, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, ROOT, config, context, contract,
+                           evidence, facts, labelled, review, run, thread, unlabelled)
 from tools.jsonschema_lite import validate
 
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
@@ -36,7 +36,7 @@ NO_KIND = ("missing", None, "bot", "Bot", "User", "HUMAN", "", 1)
 # The author's Run after the Maintainer asked for changes at minute 15.
 ANSWERED = REVIEWED + [run(role="dev-lead", intent="fix-findings", at="2026-10-11T12:20:00Z", name="r2")]
 # Every list the facts are read from, each with its flag in `complete`.
-PARTS = ("reviews", "threads", "checks", "diff", "runs", "timeline")
+PARTS = ("acceptance", "reviews", "threads", "checks", "diff", "runs", "timeline")
 
 
 def at(minute: int) -> str:
@@ -1298,6 +1298,167 @@ class Convergence(unittest.TestCase):
             self.assertEqual((d["outcome"], d["reason"]), ("hold", "approver_is_author_or_last_pusher"))
 
 
+class Acceptance(unittest.TestCase):
+    """Convergence's fourth condition (§4.2 item 4, §4.8, I-31): where the item has an acceptance contract, every
+    criterion has passing evidence on this content. The facts carry the contract's criteria by id and each result read
+    for one, with the content it was given on; an item with no contract carries none, and converges as it always did."""
+
+    BOTH = [evidence("AC-1"), evidence("AC-2")]
+
+    def test_with_a_contract_it_converges_only_when_every_criterion_has_passing_evidence(self):  # I-31
+        # No evidence yet, or for one criterion of two: a wait for the evidence, like a Lens that has not reported. It
+        # needs no Run, and is the Maintainer's to see only once it has waited past its limit.
+        for given, lacking in (([], ["AC-1", "AC-2"]), ([evidence("AC-1")], ["AC-2"]), ([evidence("AC-2")], ["AC-1"])):
+            d = go(facts(acceptance=contract(results=given)), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                             ("verifying", "acceptance_evidence_missing", lacking, "nothing", "review"), given)
+            # An approval that already stands does not pass over it.
+            d = go(facts(acceptance=contract(results=given), reviews=APPROVED), REVIEWED)
+            self.assertEqual((d["reason"], d["outcome"]), ("acceptance_evidence_missing", "nothing"), given)
+        # The other side: every criterion passing on this content converges, and the approval is issued, then enqueued.
+        d = go(facts(acceptance=contract(results=self.BOTH)), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]),
+                         ("converged", "approval_due", "act", "issue_approval"))
+        d = go(facts(acceptance=contract(results=self.BOTH), reviews=APPROVED), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approved", "enqueue"))
+        # One criterion, passing, is a whole contract too.
+        d = go(facts(acceptance=contract(["AC-7"], [evidence("AC-7")])), REVIEWED)
+        self.assertEqual(d["reason"], "approval_due")
+
+    def test_evidence_for_other_content_does_not_count(self):  # I-31
+        # Evidence given on earlier content says nothing of this content, passing or failing.
+        old = "sha256:0000"
+        for given, lacking in (([evidence("AC-1", content=old), evidence("AC-2", content=old)], ["AC-1", "AC-2"]),
+                               ([evidence("AC-1"), evidence("AC-2", content=old)], ["AC-2"]),
+                               ([evidence("AC-1"), evidence("AC-2", "failing", old)], ["AC-2"])):
+            d = go(facts(acceptance=contract(results=given), reviews=APPROVED), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
+                             ("verifying", "acceptance_evidence_missing", lacking, "nothing"), given)
+        # The other side: a failure on earlier content does not hold content that passes now.
+        given = self.BOTH + [evidence("AC-1", "failing", old)]
+        self.assertEqual(go(facts(acceptance=contract(results=given)), REVIEWED)["reason"], "approval_due")
+
+    def test_a_failing_criterion_goes_back_to_the_author(self):  # I-31
+        # A failing result on this content is readable and decisive, as a failed check is: the author's fix Run.
+        for given in ([evidence("AC-1", "failing"), evidence("AC-2")], [evidence("AC-1", "failing")],
+                      # Two results for one criterion on this content that disagree: the failure is read.
+                      self.BOTH + [evidence("AC-1", "failing")], [evidence("AC-1", "failing")] + self.BOTH):
+            d = go(facts(acceptance=contract(results=given)), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                             ("addressing", "acceptance_failed", ["AC-1"], "admit", "failed"), given)
+            self.assertEqual(d["admit"], {"role": "dev-lead", "intent": "fix-findings", "content_id": "sha256:aaaa"})
+        # A failure is read before a criterion still waiting for its evidence.
+        d = go(facts(acceptance=contract(results=[evidence("AC-2", "failing")])), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"]), ("acceptance_failed", ["AC-2"]))
+        # Every criterion that failed is named, in the contract's order.
+        d = go(facts(acceptance=contract(["AC-1", "AC-2", "AC-3"], [evidence("AC-3", "failing"), evidence("AC-2"),
+                                                                     evidence("AC-1", "failing")])), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"]), ("acceptance_failed", ["AC-1", "AC-3"]))
+        # The fix Run is a Run like any other: a Run in progress holds the item.
+        busy = [run(role="dev-lead", intent="fix-findings", status="in_progress", at=at(20), name="r2")]
+        d = go(facts(acceptance=contract(results=[evidence("AC-1", "failing")])), REVIEWED + busy)
+        self.assertEqual((d["reason"], d["outcome"], d["attention"]), ("acceptance_failed", "nothing", "working"))
+
+    def test_an_item_with_no_contract_converges_as_it_did(self):  # I-31, the other way round
+        # No contract, as the facts carry it: the fourth condition asks nothing, and every other reading is unchanged.
+        for runs, reason in (((), "awaiting_review"), (REVIEWED, "approval_due")):
+            self.assertEqual(go(facts(acceptance=None), runs)["reason"], reason)
+        self.assertEqual(go(facts(acceptance=None, reviews=APPROVED), REVIEWED)["action"], "enqueue")
+
+    def test_acceptance_is_read_after_every_other_condition_of_convergence(self):  # §4.2
+        # The first three conditions are read first, whatever the evidence says: a failed check, a check or a review not
+        # yet reported and an open gate each give their own reading, and an unreadable contract hides none of them.
+        for acceptance in (contract(), contract(results=[evidence("AC-1", "failing")]),
+                           contract(results=[evidence("AC-9")])):
+            cases = [(facts(acceptance=acceptance, checks=with_check(0, "failure")), (), "check_failed"),
+                     (facts(acceptance=acceptance, checks=with_check(0, "pending")), (), "awaiting_checks"),
+                     (facts(acceptance=acceptance), (), "awaiting_review"),
+                     (facts(acceptance=acceptance, threads=[thread()]), REVIEWED, "findings_open"),
+                     (facts(acceptance=acceptance, label_events=[labelled("factory:hold")]), REVIEWED, "human_hold")]
+            for f, runs, reason in cases:
+                self.assertEqual(go(f, runs)["reason"], reason, (acceptance, reason))
+        # And before the Hold for an approver who is the author: that Hold is about the approval, which is issued only
+        # on what has converged.
+        d = go(facts(acceptance=contract(), last_pusher=CONFIG["approver"]), REVIEWED)
+        self.assertEqual(d["reason"], "acceptance_evidence_missing")
+        d = go(facts(acceptance=contract(results=self.BOTH), last_pusher=CONFIG["approver"]), REVIEWED)
+        self.assertEqual(d["reason"], "approver_is_author_or_last_pusher")
+
+    def test_unreadable_acceptance_never_converges(self):  # I-13, I-31
+        # A contract, or a result on this content, that the Kernel cannot read could hide a criterion with no passing
+        # evidence: it defers, for the Maintainer, since a port that misreads does not mend itself. A fact read from
+        # outside is never given a default, so facts that say nothing of a contract are not "no contract".
+        def bad(**over):
+            return dict(contract(results=self.BOTH), **over)
+
+        unreadable = {
+            "missing": "missing", "not an object": ["AC-1"], "an empty object": {},
+            "with no results": {"criteria": ["AC-1", "AC-2"]},
+            "no criteria": bad(criteria=[], results=[]), "criteria that are no list": bad(criteria="AC-1"),
+            "a criterion named twice": bad(criteria=["AC-1", "AC-2", "AC-1"]),
+            # Each with AC-1 passing alone, so that nothing but the criterion's id is unreadable.
+            "a criterion that is no name": bad(criteria=["AC-1", None], results=[evidence("AC-1")]),
+            "an empty name": bad(criteria=["AC-1", ""], results=[evidence("AC-1")]),
+            "a criterion in another form": bad(criteria=["AC-1", "ac-2"], results=[evidence("AC-1")]),
+            "a criterion with no number": bad(criteria=["AC-1", "AC-"], results=[evidence("AC-1")]),
+            "a criterion's number in other digits": bad(criteria=["AC-1", "AC-2a"], results=[evidence("AC-1")]),
+            "results that are no list": bad(results=None),
+            "a result that is no object": bad(results=self.BOTH + ["AC-1"]),
+            "a result for a criterion the contract does not name": bad(results=self.BOTH + [evidence("AC-9")]),
+            "a result naming no criterion": bad(results=self.BOTH + [evidence(None)]),
+            "a result naming an empty criterion": bad(results=self.BOTH + [evidence("", content="sha256:0000")]),
+            "a result naming a criterion that is no name": bad(results=self.BOTH + [evidence(["AC-1"])]),
+            "a result in words": bad(results=self.BOTH + [evidence("AC-1", "skipped")]),
+            "a result in capitals": bad(results=[evidence("AC-1", "PASSING"), evidence("AC-2")]),
+            "no result": bad(results=self.BOTH + [{"criterion": "AC-1", "content_id": "sha256:aaaa"}]),
+            "no content": bad(results=self.BOTH + [{"criterion": "AC-1", "result": "passing"}]),
+            "content that is no hash": bad(results=self.BOTH + [evidence("AC-1", content=None)]),
+            # A content id in any other form than the schema's could be this content misread: it is no earlier one.
+            "an empty content id": bad(results=self.BOTH + [evidence("AC-1", "failing", content="")]),
+            "a content id with no hash": bad(results=self.BOTH + [evidence("AC-1", "failing", content="sha256:")]),
+            "a content id in capitals": bad(results=self.BOTH + [evidence("AC-1", "failing", content="sha256:AAAA")]),
+            "a content id of another kind": bad(results=self.BOTH + [evidence("AC-1", "failing", content="md5:aaaa")]),
+        }
+        for name, acceptance in unreadable.items():
+            for reviews in ([], APPROVED):
+                f = facts(acceptance=acceptance, reviews=reviews)
+                if acceptance == "missing":
+                    del f["acceptance"]
+                d = go(f, REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                                 (None, "acceptance_unreadable", "defer", "needs_you"), name)
+                self.assertNotIn("action", d)
+        # The other side: the same contract read whole converges.
+        self.assertEqual(go(facts(acceptance=bad()), REVIEWED)["reason"], "approval_due")
+
+    def test_only_this_contents_results_are_judged(self):  # I-31, the ruling on #17
+        # A result on earlier content is not read past its content and criterion ids: a criterion the contract no longer
+        # lists, as after a waiver or a revision, or a word the Kernel does not know, there makes nothing unreadable.
+        old = "sha256:0000"
+        for earlier in ([evidence("AC-2", "failing", old)], [evidence("AC-9", "passing", old)],
+                        [evidence("AC-1", "neutral", old)], [{"criterion": "AC-2", "content_id": old}]):
+            d = go(facts(acceptance=contract(["AC-1"], [evidence("AC-1")] + earlier)), REVIEWED)
+            self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"), earlier)
+        # The other side: the same result on this content makes the contract unreadable.
+        for now in ([evidence("AC-2", "failing")], [evidence("AC-9")], [evidence("AC-1", "neutral")]):
+            d = go(facts(acceptance=contract(["AC-1"], [evidence("AC-1")] + now)), REVIEWED)
+            self.assertEqual((d["state"], d["reason"]), (None, "acceptance_unreadable"), now)
+
+    def test_a_contract_read_short_is_incomplete(self):  # I-13, I-20, the ruling on #17
+        # Whether the contract, or that there is none, was read in full is `complete.acceptance`, read with the other
+        # flags: a read short defers as facts_incomplete, a wait that needs no person. No contract read short is not
+        # "no contract": it converges nothing. Only a full read confirms that there is none.
+        short = dict(facts()["complete"], acceptance=False)
+        for acceptance in (None, contract(), contract(results=self.BOTH)):
+            for reviews in ([], APPROVED):
+                d = go(facts(acceptance=acceptance, reviews=reviews, complete=short), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                 (None, "facts_incomplete", ["acceptance"], "defer", "none"), acceptance)
+        # The other side: read in full, no contract converges, and so does a contract with every criterion passing.
+        for acceptance in (None, contract(results=self.BOTH)):
+            self.assertEqual(go(facts(acceptance=acceptance), REVIEWED)["reason"], "approval_due")
+
+
 class Ceilings(unittest.TestCase):
     def test_one_writer_per_item(self):  # I-2
         for status in ("in_progress", "queued"):     # a Run waiting for a runner holds the item too
@@ -1620,6 +1781,27 @@ class Queue(unittest.TestCase):
             d = go(facts(queue=True, reviews=APPROVED, checks=entries + GREEN[1:]), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"), entries)
 
+    def test_a_queued_item_whose_evidence_goes_missing_or_unreadable_leaves_the_queue(self):  # I-31, I-13
+        # GitHub's merge queue knows nothing of an acceptance contract, so a queued item stays only while every
+        # criterion has passing evidence on its content. Evidence that is gone, as an artifact is after its retention,
+        # or is for other content, takes it out, and so does a failure or evidence that cannot be read.
+        both = [evidence("AC-1"), evidence("AC-2")]
+        cases = [(contract(), "verifying", "acceptance_evidence_missing", ["AC-1", "AC-2"]),
+                 (contract(results=[evidence("AC-1"), evidence("AC-2", content="sha256:0000")]), "verifying",
+                  "acceptance_evidence_missing", ["AC-2"]),
+                 (contract(results=[evidence("AC-1"), evidence("AC-2", "failing")]), "addressing",
+                  "acceptance_failed", ["AC-2"]),
+                 (contract(results=both + [evidence("AC-1", content="")]), None, "acceptance_unreadable", []),
+                 (contract(results=both + [evidence("AC-3")]), None, "acceptance_unreadable", [])]
+        for acceptance, state, reason, lacking in cases:
+            d = go(facts(queue=True, reviews=APPROVED, acceptance=acceptance), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
+                             (state, reason, lacking, "act", "dequeue"), reason)
+        # The other side: every criterion passing on this content, it stays; and so does an item with no contract.
+        for acceptance in (contract(results=both), None):
+            d = go(facts(queue=True, reviews=APPROVED, acceptance=acceptance), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"))
+
     def test_a_normal_wait_leaves_a_pull_request_in_the_queue(self):  # I-13
         # A wait ends on its own, so it takes nothing out. GitHub reports the merge state as unknown each time the base
         # moves, and the base moves each time the queue merges another item: a dequeue on it would empty the queue. A
@@ -1893,6 +2075,19 @@ class Staleness(unittest.TestCase):
             # The other side: once the deferral ends, a wait that is still silent goes stale as usual.
             d = go(facts(), runs, waiting, now=day_on)
             self.assertEqual((d["outcome"], d["attention"]), ("act" if runs else "admit", "stale"), reason)
+
+    def test_a_wait_for_acceptance_evidence_goes_stale(self):  # I-1, I-31
+        # Evidence that never comes is a wait in verifying, counted from when the item last moved: here the review Run
+        # at minute 10. Past the limit it is the Maintainer's to see, and nothing else changes.
+        f = facts(acceptance=contract(results=[evidence("AC-1")]))
+        limit = CONFIG["lifecycle"]["stale_after_minutes"]["verifying"]
+        before = go(f, REVIEWED, self.PASSING, now=later(at(10), limit))
+        self.assertEqual((before["reason"], before["attention"]), ("acceptance_evidence_missing", "review"))
+        past = go(f, REVIEWED, self.PASSING, now=later(at(10), limit + 1))
+        self.assertEqual((past["attention"], dict(past, attention="review")), ("stale", before))
+        # A contract that cannot be read already needs a person, and is never stale.
+        f = facts(acceptance=contract(results=[evidence("AC-9")]))
+        self.assertEqual(go(f, REVIEWED, self.PASSING, now="2026-10-12T13:00:00Z")["attention"], "needs_you")
 
     def test_needs_you_is_never_stale(self):  # I-1
         # A person is already called to an item that needs them, and a Run holds one that is working: neither is stale.

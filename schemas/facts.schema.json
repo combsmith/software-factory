@@ -23,6 +23,7 @@
     "checks",
     "queue",
     "acts_since_writer",
+    "acceptance",
     "complete",
     "read_at"
   ],
@@ -331,10 +332,62 @@
       "type": "integer",
       "minimum": 0
     },
+    "acceptance": {
+      "description": "The item's acceptance contract (design §3.13, §4.8), as the Kernel reads it for Convergence's fourth condition: null when the item has none, which only a full read (complete.acceptance) confirms. The contract is a file the pull request carries, and its criteria are given by id alone, never their statements, which are prose. Each result is one read for one criterion, from the check that gave it, with the content_id of the content it ran on; the port's contract is the latest result per criterion per check suite. Only this content's results are judged: evidence for other content does not count (I-31). Every criterion needs a passing result on this content; a failing one sends the content back to its author. A contract, or a result on this content, that the Kernel cannot read converges nothing",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "criteria",
+        "results"
+      ],
+      "properties": {
+        "criteria": {
+          "description": "The id of each criterion in the contract at the head, each once",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^AC-[0-9]+$"
+          },
+          "uniqueItems": true
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "criterion",
+              "content_id",
+              "result"
+            ],
+            "properties": {
+              "criterion": {
+                "type": "string",
+                "pattern": "^AC-[0-9]+$"
+              },
+              "content_id": {
+                "$ref": "#/$defs/content_id"
+              },
+              "result": {
+                "enum": [
+                  "passing",
+                  "failing"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "complete": {
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "acceptance",
         "reviews",
         "threads",
         "checks",
@@ -343,6 +396,10 @@
         "timeline"
       ],
       "properties": {
+        "acceptance": {
+          "description": "Whether the acceptance contract at the head, or that there is none, and every result for it were read in full",
+          "type": "boolean"
+        },
         "reviews": {
           "type": "boolean"
         },

@@ -166,6 +166,15 @@ class Validator(unittest.TestCase):
         schema = {"type": "object", "additionalProperties": False, "properties": {"a": {"type": "string"}}}
         self.assertEqual(validate({"a": "x", "b": 1}, schema), ["$: unexpected b"])
 
+    def test_an_item_given_twice_is_an_error_where_items_are_unique(self):
+        unique = {"type": "array", "uniqueItems": True}
+        self.assertEqual(validate(["AC-1", "AC-2"], unique), [])
+        self.assertEqual(validate(["AC-1", "AC-2", "AC-1"], unique), ["$: an item is given twice"])
+        self.assertEqual(validate([{"a": 1, "b": 2}, {"b": 2, "a": 1}], unique), ["$: an item is given twice"])
+        # The other side: without the keyword, or with it false, an item may come twice.
+        for schema in ({"type": "array"}, {"type": "array", "uniqueItems": False}):
+            self.assertEqual(validate(["AC-1", "AC-1"], schema), [])
+
     def test_a_code_that_ends_in_a_newline_is_not_a_code(self):
         code = {"type": "string", "pattern": "^[a-z_]+$"}
         self.assertEqual(validate("empty_diff", code), [])

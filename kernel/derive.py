@@ -392,6 +392,67 @@ def admitted(facts: dict, labels: dict) -> bool:
     return placed["at"] > facts["last_push_at"]
 
 
+def in_form(value, prefix: str, digits: str) -> bool:
+    """Whether `value` is a name in its one form: `prefix`, then at least one of `digits` and nothing else. A criterion's
+    id is `AC-` and decimal digits; a content id is `sha256:` and lower-case hexadecimal digits, as the schema says."""
+    return (isinstance(value, str) and value.startswith(prefix) and len(value) > len(prefix)
+            and all(c in digits for c in value[len(prefix):]))
+
+
+def readable_contract(contract, content: str) -> bool:
+    """Whether an acceptance contract, as the facts carry it, can be read whole: at least one criterion, each an id in
+    its form given once, and every result an object naming a criterion and a content in their forms. A result on
+    `content`, this content, must name a criterion the contract has and say a word the Kernel knows: otherwise it was
+    misread. Only this content's results are judged, so one on earlier content is not read further: a criterion the
+    contract no longer lists, as after a waiver or a revision, is no misreading there. Whether it was read in full is
+    `complete.acceptance`, read with the other flags."""
+    if not isinstance(contract, dict):
+        return False
+    criteria, results = contract.get("criteria"), contract.get("results")
+    if not (isinstance(criteria, list) and criteria and all(in_form(c, t.CRITERION_PREFIX, t.DIGITS) for c in criteria)):
+        return False
+    if len(set(criteria)) != len(criteria) or not isinstance(results, list):
+        return False
+    for ev in results:
+        if not isinstance(ev, dict):
+            return False
+        if not in_form(ev.get("content_id"), t.CONTENT_PREFIX, t.HEX_DIGITS):
+            return False
+        if not in_form(ev.get("criterion"), t.CRITERION_PREFIX, t.DIGITS):
+            return False
+        if ev["content_id"] != content:
+            continue
+        if ev["criterion"] not in criteria or ev.get("result") not in t.EVIDENCE_RESULTS:
+            return False
+    return True
+
+
+def acceptance_reading(facts: dict) -> tuple:
+    """What Convergence's fourth condition says (§4.2 item 4, §4.8, I-31), as (reading, criteria): 'none' where the item
+    has no acceptance contract, 'unreadable', 'failing' with the criteria that failed, 'missing' with those that have no
+    passing evidence, or 'passing'.
+
+    Only a result given on this content counts. A failure on it is read first, as a failed check is: any failing result
+    for a criterion fails it, whatever else was given for it. A fact read from outside is never given a default, so
+    facts with no `acceptance` at all are unreadable, never "no contract"."""
+    if "acceptance" not in facts:
+        return "unreadable", []
+    contract = facts["acceptance"]
+    if contract is None:
+        return "none", []
+    if not readable_contract(contract, facts["content_id"]):
+        return "unreadable", []
+    said = {c: {ev["result"] for ev in contract["results"] if ev["criterion"] == c
+                and ev["content_id"] == facts["content_id"]} for c in contract["criteria"]}
+    fails = [c for c in contract["criteria"] if "failing" in said[c]]
+    if fails:
+        return "failing", fails
+    lacking = [c for c in contract["criteria"] if "passing" not in said[c]]
+    if lacking:
+        return "missing", lacking
+    return "passing", []
+
+
 def standing_approval(facts: dict, config: dict):
     """The approver's undismissed approval of this content, if any.
 
@@ -530,6 +591,17 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
         if for_owner:
             return {"state": t.ADJUDICATING, "reason": "proposals_await_owner", "evidence": for_owner}
         return {"state": t.ADDRESSING, "reason": "awaiting_human", "evidence": sorted(turns)}
+
+    # Then the acceptance contract, where the item has one: every criterion has passing evidence on this content (I-31).
+    # Nothing read before it depends on it, so an unreadable contract hides no other reading; it only never converges.
+    # None of the three is a wait a queued item is read past: the merge queue knows nothing of the contract.
+    said, criteria = acceptance_reading(facts)
+    if said == "unreadable":
+        return {"state": None, "reason": "acceptance_unreadable", "evidence": []}
+    if said == "failing":
+        return {"state": t.ADDRESSING, "reason": "acceptance_failed", "evidence": criteria}
+    if said == "missing":
+        return {"state": t.VERIFYING, "reason": "acceptance_evidence_missing", "evidence": criteria}
 
     # GitHub does not count an approval by the author or the last pusher, so nothing may merge on one (I-26). It is
     # a Hold the facts establish, read here so that a queued item leaves the queue on it too.

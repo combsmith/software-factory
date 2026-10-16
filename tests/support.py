@@ -44,8 +44,8 @@ def facts(**over) -> dict:
         "diff": {"files": 2, "lines": 40, "truncated": False}, "label_events": [],
         "last_push_at": "2026-10-11T12:00:00Z",
         "last_writer_action_at": "2026-10-11T12:00:00Z", "reviews": [], "threads": [],
-        "checks": copy.deepcopy(GREEN), "queue": False, "acts_since_writer": 0,
-        "complete": {"reviews": True, "threads": True, "checks": True, "diff": True, "runs": True,
+        "checks": copy.deepcopy(GREEN), "queue": False, "acts_since_writer": 0, "acceptance": None,
+        "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True, "runs": True,
                      "timeline": True},
         "read_at": "2026-10-11T12:59:00Z",
     }
@@ -104,6 +104,18 @@ def review(state="approved", kind="machine_user", name="donpetry-bot", can_write
     """A review as GitHub holds it. By default, the approver's approval of this content: the machine user's."""
     return {"by": {"kind": kind, "name": name, "can_write": can_write}, "state": state, "commit": commit,
             "content_id": content, "submitted_at": at, "dismissed_by": dismissed_by, "dismissed_from": dismissed_from}
+
+
+def contract(criteria=("AC-1", "AC-2"), results=()) -> dict:
+    """An item's acceptance contract as the facts carry it: its criteria by id, never their statements, and each result
+    read for one, with the content it was given on. By default, two criteria and no results yet. Whether it was read in
+    full is `complete.acceptance`."""
+    return {"criteria": list(criteria), "results": [dict(e) for e in results]}
+
+
+def evidence(criterion="AC-1", result="passing", content="sha256:aaaa") -> dict:
+    """One result for one criterion. By default, AC-1 passing on this content."""
+    return {"criterion": criterion, "content_id": content, "result": result}
 
 
 def config(**over) -> dict:

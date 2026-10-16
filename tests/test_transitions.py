@@ -28,7 +28,8 @@ import unittest
 
 from kernel import terms as t
 from kernel.decide import decide
-from tests.support import CONFIG, GREEN, MAINTAINER, OTHER_APP, ROOT, context, facts, labelled, review, run, thread
+from tests.support import (CONFIG, GREEN, MAINTAINER, OTHER_APP, ROOT, context, contract, evidence, facts, labelled,
+                           review, run, thread)
 from tools import check_lifecycle
 from tools.jsonschema_lite import validate
 
@@ -80,6 +81,8 @@ def base(runs=(), **over) -> dict:
 
 PERSONS_THREAD = thread(kind="human", name=MAINTAINER["name"], severity=None)
 APPROVED = [review()]
+# Evidence that every criterion of the default contract passes on the default content.
+ACCEPTED = [evidence("AC-1"), evidence("AC-2")]
 # Facts for every State and reason the Kernel gives with a State, and for the classes of pull request.
 BASES = {
     "awaiting_checks": base(checks=PENDING),
@@ -178,6 +181,15 @@ BASES = {
     "base_not_protected, a draft": base(targets_protected=False, is_draft=True),
     "merged": base(state="merged"),
     "closed": base(state="closed"),
+    # An item with an acceptance contract: its evidence not yet given, a criterion failing, and every one passing.
+    "acceptance_evidence_missing": base([reviewed()], acceptance=contract()),
+    "acceptance_evidence_missing, an agent's": base([reviewed()], acceptance=contract(), **AGENT),
+    "acceptance_failed": base([reviewed()], acceptance=contract(results=[evidence("AC-1", "failing")])),
+    "acceptance_failed, with a fix Run": base([reviewed(), fix(status="in_progress")],
+                                              acceptance=contract(results=[evidence("AC-1", "failing")])),
+    "approval_due, with a contract": base([reviewed()], acceptance=contract(results=ACCEPTED)),
+    "in_merge_queue, with a contract": base([reviewed()], reviews=APPROVED, queue=True, acts_since_writer=2,
+                                            acceptance=contract(results=ACCEPTED)),
 }
 
 
@@ -200,6 +212,8 @@ STILL = {
     "concurrency": dict(base(), context={"active_runs": CONFIG["limits"]["org_max_active_runs"]}),
     # A count the facts schema refuses, which the Kernel still reads as unreadable.
     "acts_unreadable": base([reviewed()], acts_since_writer=None),
+    # A result on this content for a criterion the contract does not name: no State, so nothing to explore from.
+    "acceptance_unreadable": base([reviewed()], acceptance=contract(results=ACCEPTED + [evidence("AC-9")])),
 }
 
 
@@ -393,6 +407,42 @@ def acts(pr: dict, lands: bool = True) -> dict:
     return pr
 
 
+def reports(pr: dict, result: str) -> dict:
+    """A Lens reports a result for the first criterion of the contract with none on this content: or None."""
+    f = pr["facts"]
+    if f["acceptance"] is None:
+        return None
+    given = {ev["criterion"] for ev in f["acceptance"]["results"] if ev["content_id"] == f["content_id"]}
+    lacking = [c for c in f["acceptance"]["criteria"] if c not in given]
+    if not lacking:
+        return None
+    f["acceptance"]["results"].append(evidence(lacking[0], result, f["content_id"]))
+    return pr
+
+
+def reports_again(pr: dict) -> dict:
+    """A Lens gives a second result, failing, for the first criterion with a passing one on this content: another check
+    suite's run of the same check, which the port reports beside the first. Or None."""
+    f = pr["facts"]
+    if f["acceptance"] is None:
+        return None
+    passed = [ev["criterion"] for ev in f["acceptance"]["results"]
+              if ev["content_id"] == f["content_id"] and ev["result"] == "passing"]
+    if not passed:
+        return None
+    f["acceptance"]["results"].append(evidence(passed[0], "failing", f["content_id"]))
+    return pr
+
+
+def expires(pr: dict) -> dict:
+    """The oldest result is gone, as an artifact is past its retention: or None when there is none."""
+    f = pr["facts"]
+    if f["acceptance"] is None or not f["acceptance"]["results"]:
+        return None
+    del f["acceptance"]["results"][0]
+    return pr
+
+
 def queue_merges(pr: dict) -> dict:
     if not pr["facts"]["queue"]:
         return None
@@ -505,6 +555,10 @@ MOVES = [
     Move("a Lens's review passes", "lens", lambda pr: review_ends(pr, False), when=running),
     Move("a Lens's review opens a Finding", "lens", lambda pr: review_ends(pr, True), when=running),
     Move("a Lens's App dismisses a person's review", "lens", lambda pr: dismiss(pr, REVIEWER_APP, COLLEAGUE["name"])),
+    # A Lens gives the result for a criterion of the acceptance contract, from the check that ran it, on this content.
+    *[Move("a Lens reports a criterion %s" % said, "lens", (lambda said: lambda pr: reports(pr, said))(said))
+      for said in ("passing", "failing")],
+    Move("a Lens gives a criterion a second result, failing", "lens", reports_again),
     # Any App with write access can dismiss a review and place or remove a label (`an_app_can_dismiss_a_review`,
     # `an_app_can_label`), a Lens's among them.
     Move("a Lens's App marks its threads unresolved", "lens", lambda pr: reopen(pr, REVIEWER_APP), when=resolved),
@@ -562,6 +616,8 @@ MOVES = [
          lambda pr: set_fact(mergeable=False, queue=False)(pr) if pr["facts"]["mergeable"] is None else None),
     Move("GitHub retargets it at the default branch", "platform", set_fact(targets_protected=True)),
     Move("a dependency bot rebases it", "platform", rebase),
+    # A result is kept as long as the artifact it was read from: GitHub deletes it past its retention, whoever asks.
+    Move("a result expires", "platform", expires),
 ]
 
 

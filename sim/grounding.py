@@ -63,6 +63,15 @@ RULES = (
     ("a_superseded_run_fails", "A Run whose apply refuses, or that never starts, concludes failure", ("P-17",), None),
     ("a_short_diff_says_so", "A diff read short says so, and is not mistaken for the whole", ("P-29",), None),
     ("a_short_list_says_so", "A list of reviews, threads, checks or timeline events read short says so", (), None),
+    ("an_acceptance_result_names_its_content", "Each result for a criterion of an item's acceptance contract is read "
+     "from the check that gave it, with the content it ran on, and stays when the content changes", (), None),
+    ("a_short_acceptance_read_says_so", "An acceptance contract and its results read short say so", (), None),
+    ("a_result_can_name_a_criterion_the_contract_does_not", "A check can give a result for a criterion the contract at "
+     "the head does not name", (), None),
+    ("a_result_expires_with_its_artifact", "A result for a criterion is gone once the artifact it was read from is "
+     "past its retention", (), None),
+    ("a_criterion_can_have_a_result_from_each_check_suite", "A criterion can have a result from each check suite that "
+     "ran its check on one content, and they can disagree", (), None),
     ("a_read_can_be_stale", "A read can return what an earlier read did", (), None),
     ("a_tick_can_be_lost", "A scheduled tick can fail to arrive", ("P-8",), None),
     ("anyone_can_comment", "On a public repo anyone can submit a review that only comments", (), None),
