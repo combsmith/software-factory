@@ -3,6 +3,8 @@
 Three things are (§5.1, §9.12): an edit to a protected path, one of the Factory's own rules or a
 hook that holds them; a merge that bypasses the queue, or a push to the default branch; and a write
 to a ruleset or to the repo's settings. For each the hook answers "ask", and the person answers.
+Under bypassPermissions it asks nothing and tells the session its reasons instead (decision 0019):
+the Maintainer runs such a session on autopilot, and the boundary is where it was.
 That the Maintainer asked is never inferred from the conversation. An enqueue is not asked about:
 the Maintainer's standing approval covers it. The hook allows nothing and refuses nothing: what it
 does not ask about goes through the session's own permissions. The paths, the commands, the
@@ -56,6 +58,7 @@ NAME = 255              # characters of one name in a path
 MATCHES = 2000          # paths one wildcard may match
 FILE_TOOLS = {"Edit": "file_path", "Write": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path"}
 SHOWN = 6               # reasons put in front of the person
+BYPASS = "bypassPermissions"   # the one permission mode under which the hook asks nothing
 GLOB = re.compile(r"[*?\[]")
 VARIABLE = re.compile(r"\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))")
 ASSIGNMENT = identity.ASSIGNMENT
@@ -1547,25 +1550,31 @@ def check(payload: dict, env: dict, data: dict = None, source: pathlib.Path = RO
             return [("command_unreadable", "the Bash call carries no command")]
         return list(dict.fromkeys(Command(command, payload.get("cwd"), rules, data, env).read()))
     except Spent:
-        return [("budget_spent", "the hook ran out of its %d seconds reading this, so it asks" % seconds)]
+        return [("budget_spent", "the hook ran out of its %d seconds reading this, so it cannot clear it" % seconds)]
 
 
 def respond(payload: dict, env: dict) -> str:
-    """What the hook prints: a decision to ask, with its reasons, or nothing."""
+    """What the hook prints: a decision to ask, with its reasons, or nothing. Under bypassPermissions, exactly so
+    spelled, the reasons are told to the session and nothing is asked."""
     try:
         found = check(payload, env)
     except Exception as err:    # what the hook cannot read, it asks about
-        found = [("hook_failed", "the hook could not finish (%s), so it asks" % type(err).__name__)]
+        found = [("hook_failed", "the hook could not finish (%s), so it cannot clear it" % type(err).__name__)]
     if not found:
         return ""
     # A sentence holds codes, text from config/hooks.json and the hook's own words: never a word of the command.
     reasons = ["%s: %s." % (code, sentence) for code, sentence in found[:SHOWN]]
     if len(found) > SHOWN:
         reasons.append("and %d more." % (len(found) - SHOWN))
-    reason = ("Asked by tools/hooks/protected.py. This is the Maintainer's to decide (config/hooks.json): "
-              + " ".join(reasons))
+    said = "This is the Maintainer's to decide (config/hooks.json): " + " ".join(reasons)
+    if payload.get("permission_mode") == BYPASS:
+        # The Maintainer runs the session on autopilot (decision 0019): the session is told, and nothing is asked.
+        return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext":
+                                                  "Not asked, under bypassPermissions, by tools/hooks/protected.py. "
+                                                  + said}}) + "\n"
     return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask",
-                                              "permissionDecisionReason": reason}}) + "\n"
+                                              "permissionDecisionReason": "Asked by tools/hooks/protected.py. "
+                                              + said}}) + "\n"
 
 
 def main() -> int:
