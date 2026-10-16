@@ -54,7 +54,7 @@ FILE_TOOLS = {"Edit": "file_path", "Write": "file_path", "MultiEdit": "file_path
 SHOWN = 6               # reasons put in front of the person
 GLOB = re.compile(r"[*?\[]")
 VARIABLE = re.compile(r"\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))")
-ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
+ASSIGNMENT = identity.ASSIGNMENT
 # Words that come before the program and change nothing about what it does.
 PREFIXES = {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "}", "time", "command", "builtin", "exec",
             "nohup"}
@@ -137,6 +137,13 @@ REMOTE_REF = "refs/remotes/"
 LOCAL_REF = "refs/heads/"
 # Configuration that holds the refspecs a fetch with none of its own follows.
 FETCH_KEYS = re.compile(r"^remote\..+\.fetch$", re.I | re.S)
+# fetch's and pull's options that take the next word as their value, long and short; and the shortest prefixes of
+# --refmap and --stdin that no other of their options shares (--ref is also --refetch, --st also --stat).
+FETCH_VALUED = ("--depth", "--deepen", "--shallow-since", "--shallow-exclude", "--server-option", "--upload-pack",
+                "--jobs", "--negotiation-tip", "--filter", "--submodule-prefix", "--strategy", "--strategy-option",
+                "--exec")
+FETCH_SHORT_VALUED = "ojsX"
+FETCH_REFMAP, FETCH_STDIN = "--refm", "--std"
 GH_VALUED = {"-R", "--repo", "--hostname"}
 GH_COMMANDS = {"accessibility", "agent-task", "alias", "api", "attestation", "auth", "browse", "cache", "co",
                "codespace", "completion", "config", "copilot", "extension", "ext", "gist", "gpg-key", "help", "issue",
@@ -514,7 +521,7 @@ class Command:
             args = _without_script(program, args)
         if program != "git" and any(os.path.basename(w) == "git" for w in args) and self._git_environment(self.here):
             return      # a wrapper's git writes where the environment says, too
-        handler =getattr(self, "_" + program.replace("-", "_"), None) if program in HANDLED else None
+        handler = getattr(self, "_" + program.replace("-", "_"), None) if program in HANDLED else None
         if handler:
             handler(program, args)
         elif program in UNPACKERS:
@@ -896,7 +903,7 @@ class Command:
             self.ask("command_unreadable", "git is given a command the hook does not know; it may be an alias")
             return
         if sub in ("fetch", "pull"):
-            fetched += self._refspecs(rest, names)
+            fetched += self._refspecs(rest)
         if any(spec is None or _moves_local_branch(spec) for spec in fetched):
             self.ask("local_branch", "git fetch moves a local branch, or reads where it goes from where the hook "
                                      "cannot, and it may be %s" % branch)
@@ -934,21 +941,34 @@ class Command:
                     self.ask("merge", "git config writes where a push goes, which may be %s" % branch)
 
     @staticmethod
-    def _refspecs(rest: list, names: list) -> list:
-        """The refspecs a fetch or a pull is given, after the repository: in its words, and by --refmap, spelt whole
-        or by a prefix. None for those read from stdin. A URL is the repository, not a refspec."""
-        found, k = [], 0
-        while k < len(rest) and rest[k] != "--":
-            option, given, value = rest[k].partition("=")
-            if rest[k][:2] == "--" and _spelt(option, "--refmap"):
-                if not given:
-                    k += 1
-                    value = rest[k] if k < len(rest) else ""
-                found.append(value)
-            elif rest[k][:2] == "--" and _spelt(option, "--stdin"):
-                found.append(None)
+    def _refspecs(rest: list) -> list:
+        """The refspecs a fetch or a pull is given: each word after the repository that is neither an option nor an
+        option's value, and --refmap's, spelt whole or by a prefix no other option shares. None for those read from
+        stdin."""
+        found, positional, k = [], [], 0
+        while k < len(rest):
+            word = rest[k]
+            option, given, value = word.partition("=")
+            if word == "--":
+                positional += rest[k + 1:]
+                break
+            if word[:2] == "--":
+                if _spelt(option, "--refmap") and len(option) >= len(FETCH_REFMAP):
+                    if not given:
+                        k += 1
+                        value = rest[k] if k < len(rest) else ""
+                    found.append(value)
+                elif _spelt(option, "--stdin") and len(option) >= len(FETCH_STDIN):
+                    found.append(None)
+                elif not given and any(_spelt(option, name) for name in FETCH_VALUED):
+                    k += 1      # its value: --shallow-since "2024-01-01 10:00"
+            elif word[:1] == "-" and len(word) > 1:
+                at = next((i for i, c in enumerate(word[1:], 1) if c in FETCH_SHORT_VALUED), None)
+                k += at == len(word) - 1        # -o a:b: the value is the next word; -oa:b holds it
+            else:
+                positional.append(word)
             k += 1
-        return found + [n for n in names[1:] if not identity.URLISH.search(n)]
+        return found + positional[1:]
 
     def _configures_helper(self, setting: str, unread: bool, named: set) -> bool:
         """Whether `key=value` given to git -c names a helper: one that loads code from a place, or a program that is
