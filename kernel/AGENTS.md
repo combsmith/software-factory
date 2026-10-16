@@ -36,5 +36,5 @@ Then, only if your rule needs it:
 - It reads a new fact: add the field to `schemas/facts.schema.json`, `examples/facts.json`,
   `facts()` in `tests/support.py` and `sim/world.py`, together; a flag in `complete`, to `terms.py` too.
 - It reads a new limit: add it to `config/defaults.json` and `schemas/config.schema.json`. A staleness limit stays in `lifecycle/`.
-- It makes a new transition between States: declare it in `lifecycle/pull_request.json`.
+- It makes a new transition between States: declare it in `lifecycle/pull_request.json`, with who makes it. A new reason needs facts in `BASES` in `tests/test_transitions.py`, which asks for them.
 - It is a boundary of a record in `docs/decisions/`: add a row there naming your test.

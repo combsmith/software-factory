@@ -11,6 +11,9 @@ SCHEMA = ROOT / "schemas" / "lifecycle.schema.json"
 # The limits the Kernel counts for one Work item, and so the only ones that can bound its cycles.
 # A limit on size or on the whole org is not among them. A new counter in the Kernel is added here.
 PER_ITEM = ("max_runs_per_item", "max_attempts", "max_rounds", "max_acts_per_item", "max_unmerged_closes")
+# The bound that is no counter: only a person ends what the transition starts. A Hold a label holds stands until a
+# person removes it, whoever placed it, so a transition into `held` that no person makes may name it, and nothing else.
+PERSON = "person"
 
 
 def load(name: str = "pull_request") -> dict:
@@ -84,7 +87,11 @@ def check(lc: dict, limits: dict = None, schema: dict = None) -> list:
         if tr["from"] in gated and tr["by"] != "human":
             problems.append("%s is left by %s; only a person takes a Work item out of %s"
                             % (tr["from"], tr["by"], tr["from"]))
-        if tr["bound"] is not None and tr["bound"] not in PER_ITEM:
+        if tr["bound"] == PERSON:
+            if tr["to"] != "held" or tr["by"] == "human":
+                problems.append("the bound person is only for a Hold that no person makes, not %s -> %s by %s"
+                                % (tr["from"], tr["to"], tr["by"]))
+        elif tr["bound"] is not None and tr["bound"] not in PER_ITEM:
             problems.append("the bound %s is not a limit the Kernel counts for each item; a bound is one of %s"
                             % (tr["bound"], ", ".join(PER_ITEM)))
         elif limits is not None and tr["bound"] is not None and tr["bound"] not in limits:
@@ -157,4 +164,10 @@ def run(root: pathlib.Path = ROOT) -> list:
 
 
 def declared(lifecycle: dict) -> set:
-    return {(tr["from"], tr["to"]) for tr in lifecycle["transitions"]}
+    """Every transition `lifecycle` declares, as (from, to, by)."""
+    return {(tr["from"], tr["to"], tr["by"]) for tr in lifecycle["transitions"]}
+
+
+def undeclared(lifecycle: dict, made) -> list:
+    """Each transition in `made`, as (from, to, by), that `lifecycle` does not declare. Any Lifecycle."""
+    return sorted(set(made) - declared(lifecycle))

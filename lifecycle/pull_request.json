@@ -169,277 +169,775 @@
       "from": "converged",
       "to": "verifying",
       "by": "platform",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "queued",
+      "to": "closed",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "merged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "draft",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "verifying",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "closed",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "merged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "draft",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "verifying",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "verifying",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "addressing",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "adjudicating",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "converged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "addressing",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "adjudicating",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "converged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "queued",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "verifying",
+      "to": "addressing",
+      "by": "lens",
+      "bound": null
+    },
+    {
+      "from": "verifying",
+      "to": "converged",
+      "by": "lens",
+      "bound": null
+    },
+    {
+      "from": "verifying",
+      "to": "adjudicating",
+      "by": "lens",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "adjudicating",
+      "by": "factory",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "addressing",
+      "to": "converged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "addressing",
+      "by": "factory",
+      "bound": "max_rounds"
+    },
+    {
+      "from": "adjudicating",
+      "to": "converged",
+      "by": "factory",
+      "bound": "max_rounds"
+    },
+    {
+      "from": "converged",
+      "to": "addressing",
+      "by": "lens",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "converged",
+      "to": "queued",
+      "by": "factory",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "queued",
+      "to": "converged",
+      "by": "factory",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "converged",
+      "to": "adjudicating",
+      "by": "lens",
       "bound": "max_runs_per_item"
     },
     {
       "from": "queued",
-      "to": "closed",
+      "to": "converged",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "addressing",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "verifying",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "not_served",
       "by": "human",
       "bound": null
     },
     {
       "from": "queued",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "not_served",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "verifying",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "draft",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "closed",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "adjudicating",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "held",
+      "by": "factory",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "addressing",
       "to": "merged",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "queued",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "addressing",
+      "to": "verifying",
+      "by": "factory",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "addressing",
+      "to": "verifying",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "addressing",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "addressing",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "converged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "adjudicating",
+      "to": "verifying",
+      "by": "factory",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "adjudicating",
+      "to": "verifying",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "addressing",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "addressing",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "held",
+      "by": "factory",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "converged",
+      "to": "held",
+      "by": "platform",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "converged",
+      "to": "merged",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "converged",
+      "to": "verifying",
+      "by": "factory",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "converged",
+      "to": "verifying",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "verifying",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "addressing",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "held",
+      "to": "merged",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "addressing",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "addressing",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "adjudicating",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "adjudicating",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "converged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "converged",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "draft",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "held",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "held",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "merged",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "not_served",
+      "to": "verifying",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "addressing",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "converged",
       "by": "human",
       "bound": null
     },
     {
       "from": "queued",
       "to": "held",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "queued",
-      "to": "draft",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "queued",
-      "to": "verifying",
       "by": "platform",
-      "bound": null
+      "bound": "max_acts_per_item"
     },
     {
-      "from": "held",
-      "to": "closed",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "held",
+      "from": "queued",
       "to": "merged",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "held",
-      "to": "draft",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "held",
-      "to": "verifying",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "held",
-      "to": "verifying",
       "by": "platform",
       "bound": null
     },
     {
-      "from": "draft",
-      "to": "addressing",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "draft",
-      "to": "adjudicating",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "draft",
-      "to": "converged",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "draft",
-      "to": "queued",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "held",
-      "to": "addressing",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "held",
-      "to": "adjudicating",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "held",
-      "to": "converged",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "held",
-      "to": "queued",
+      "from": "queued",
+      "to": "verifying",
       "by": "human",
       "bound": null
     },
     {
       "from": "verifying",
       "to": "addressing",
-      "by": "lens",
+      "by": "platform",
       "bound": null
     },
     {
       "from": "verifying",
-      "to": "converged",
+      "to": "held",
       "by": "lens",
-      "bound": null
+      "bound": "max_runs_per_item"
     },
     {
       "from": "verifying",
-      "to": "adjudicating",
-      "by": "lens",
+      "to": "held",
+      "by": "platform",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "verifying",
+      "to": "merged",
+      "by": "platform",
       "bound": null
     },
     {
       "from": "addressing",
+      "to": "held",
+      "by": "factory",
+      "bound": "person"
+    },
+    {
+      "from": "addressing",
+      "to": "held",
+      "by": "lens",
+      "bound": "person"
+    },
+    {
+      "from": "addressing",
+      "to": "held",
+      "by": "platform",
+      "bound": "person"
+    },
+    {
+      "from": "adjudicating",
+      "to": "held",
+      "by": "factory",
+      "bound": "person"
+    },
+    {
+      "from": "adjudicating",
+      "to": "held",
+      "by": "lens",
+      "bound": "person"
+    },
+    {
+      "from": "adjudicating",
+      "to": "held",
+      "by": "platform",
+      "bound": "person"
+    },
+    {
+      "from": "converged",
+      "to": "held",
+      "by": "factory",
+      "bound": "person"
+    },
+    {
+      "from": "converged",
+      "to": "held",
+      "by": "lens",
+      "bound": "person"
+    },
+    {
+      "from": "converged",
+      "to": "held",
+      "by": "platform",
+      "bound": "person"
+    },
+    {
+      "from": "queued",
+      "to": "held",
+      "by": "factory",
+      "bound": "person"
+    },
+    {
+      "from": "queued",
+      "to": "held",
+      "by": "lens",
+      "bound": "person"
+    },
+    {
+      "from": "queued",
+      "to": "held",
+      "by": "platform",
+      "bound": "person"
+    },
+    {
+      "from": "verifying",
+      "to": "held",
+      "by": "factory",
+      "bound": "person"
+    },
+    {
+      "from": "verifying",
+      "to": "held",
+      "by": "lens",
+      "bound": "person"
+    },
+    {
+      "from": "verifying",
+      "to": "held",
+      "by": "platform",
+      "bound": "person"
+    },
+    {
+      "from": "addressing",
+      "to": "adjudicating",
+      "by": "lens",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "converged",
+      "to": "adjudicating",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "queued",
+      "to": "converged",
+      "by": "lens",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "adjudicating",
+      "to": "held",
+      "by": "factory",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "verifying",
+      "to": "held",
+      "by": "factory",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "draft",
+      "to": "addressing",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "addressing",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "draft",
       "to": "adjudicating",
       "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "adjudicating",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "converged",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "converged",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "held",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "held",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "draft",
+      "to": "verifying",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "verifying",
+      "to": "held",
+      "by": "lens",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "addressing",
+      "to": "adjudicating",
+      "by": "platform",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "addressing",
+      "to": "converged",
+      "by": "platform",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "addressing",
+      "to": "held",
+      "by": "platform",
+      "bound": "max_acts_per_item"
+    },
+    {
+      "from": "addressing",
+      "to": "held",
+      "by": "platform",
       "bound": "max_attempts"
     },
     {
       "from": "addressing",
-      "to": "converged",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "adjudicating",
-      "to": "addressing",
-      "by": "factory",
+      "to": "held",
+      "by": "platform",
       "bound": "max_rounds"
     },
     {
+      "from": "addressing",
+      "to": "held",
+      "by": "platform",
+      "bound": "max_runs_per_item"
+    },
+    {
       "from": "adjudicating",
-      "to": "converged",
-      "by": "factory",
-      "bound": "max_rounds"
-    },
-    {
-      "from": "converged",
-      "to": "addressing",
-      "by": "lens",
-      "bound": null
-    },
-    {
-      "from": "converged",
-      "to": "queued",
-      "by": "factory",
-      "bound": "max_acts_per_item"
-    },
-    {
-      "from": "queued",
-      "to": "converged",
-      "by": "factory",
-      "bound": "max_acts_per_item"
-    },
-    {
-      "from": "queued",
-      "to": "addressing",
-      "by": "factory",
-      "bound": "max_acts_per_item"
-    },
-    {
-      "from": "queued",
-      "to": "verifying",
-      "by": "factory",
-      "bound": "max_acts_per_item"
-    },
-    {
-      "from": "queued",
-      "to": "adjudicating",
-      "by": "factory",
-      "bound": "max_acts_per_item"
-    },
-    {
-      "from": "queued",
       "to": "held",
       "by": "factory",
       "bound": "max_acts_per_item"
     },
     {
-      "from": "converged",
-      "to": "adjudicating",
-      "by": "lens",
-      "bound": null
-    },
-    {
-      "from": "queued",
-      "to": "converged",
-      "by": "platform",
-      "bound": null
-    },
-    {
-      "from": "queued",
+      "from": "held",
       "to": "addressing",
-      "by": "platform",
-      "bound": null
-    },
-    {
-      "from": "draft",
-      "to": "not_served",
-      "by": "human",
-      "bound": null
+      "by": "lens",
+      "bound": "max_runs_per_item"
     },
     {
       "from": "verifying",
-      "to": "not_served",
+      "to": "addressing",
       "by": "human",
       "bound": null
     },
     {
       "from": "addressing",
-      "to": "not_served",
-      "by": "human",
-      "bound": null
+      "to": "held",
+      "by": "lens",
+      "bound": "max_acts_per_item"
     },
     {
       "from": "adjudicating",
-      "to": "not_served",
-      "by": "human",
-      "bound": null
+      "to": "held",
+      "by": "lens",
+      "bound": "max_acts_per_item"
     },
     {
       "from": "converged",
-      "to": "not_served",
-      "by": "human",
-      "bound": null
+      "to": "held",
+      "by": "factory",
+      "bound": "max_runs_per_item"
     },
     {
-      "from": "queued",
-      "to": "not_served",
-      "by": "human",
-      "bound": null
+      "from": "converged",
+      "to": "held",
+      "by": "lens",
+      "bound": "max_rounds"
+    },
+    {
+      "from": "addressing",
+      "to": "converged",
+      "by": "lens",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "adjudicating",
+      "to": "addressing",
+      "by": "lens",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "adjudicating",
+      "to": "converged",
+      "by": "lens",
+      "bound": "max_runs_per_item"
     },
     {
       "from": "held",
-      "to": "not_served",
-      "by": "human",
-      "bound": null
-    },
-    {
-      "from": "not_served",
-      "to": "verifying",
-      "by": "platform",
-      "bound": null
-    },
-    {
-      "from": "not_served",
-      "to": "draft",
-      "by": "platform",
-      "bound": null
-    },
-    {
-      "from": "not_served",
-      "to": "closed",
-      "by": "human",
-      "bound": null
+      "to": "converged",
+      "by": "lens",
+      "bound": "max_runs_per_item"
     }
   ]
 }

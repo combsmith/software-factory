@@ -26,7 +26,7 @@ def _attention(state, reason, working: bool) -> str:
         return t.WORKING
     if reason in NEEDS_YOU_REASONS:
         return t.NEEDS_YOU
-    if state in t.TERMINAL or state == t.DRAFT or reason == "hands_off":
+    if state in t.ADMITS_NOTHING or state == t.DRAFT or reason == "hands_off":
         return t.NONE
     if state == t.ADDRESSING:
         return t.FAILED
@@ -49,11 +49,13 @@ def _decision(facts, state, reason, evidence, outcome, working=False, **extra) -
     return d
 
 
-def _pause(context: dict):
-    """Why a Pause stops this act, or None. It stops every act; one that cannot be read, too."""
+def _paused(facts, state, evidence, context: dict, **extra):
+    """The deferral a Pause makes of this act, or None. It stops every act; one that cannot be read, too."""
     if context.get("paused") is False:
         return None
-    return "paused" if context.get("paused") else "pause_unreadable"
+    if context.get("paused"):
+        return _decision(facts, state, "paused", evidence, t.DEFER, **extra)
+    return _decision(facts, state, "pause_unreadable", evidence, t.DEFER, **extra)
 
 
 def _wanted_run(state: str, reason: str, config: dict):
@@ -128,14 +130,14 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     # I-13). It is counted, never refused at the act ceiling, and not delayed by a Run in progress. Only a Pause
     # stops it, as it stops every act (decision 0003); then only the Maintainer can stop the merge.
     if d.get("dequeue"):
-        paused = _pause(context)
+        paused = _paused(facts, state, evidence, context, attention=t.NEEDS_YOU)
         if paused:
-            return _decision(facts, state, paused, evidence, t.DEFER, attention=t.NEEDS_YOU)
+            return paused
         return _decision(facts, state, reason, evidence, t.ACT, action="dequeue", content_id=facts["content_id"])
     # Fail to a deferral, never to an action.
     if state is None:
         return _decision(facts, None, reason, evidence, t.DEFER)
-    if state in t.TERMINAL or state in (t.DRAFT, t.QUEUED):
+    if state in t.ADMITS_NOTHING or state in (t.DRAFT, t.QUEUED):
         return _decision(facts, state, reason, evidence, t.NOTHING)
     if state == t.HELD:
         return _decision(facts, state, reason, evidence, t.HOLD)
@@ -146,9 +148,9 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
 
     if state == t.CONVERGED:
         # A Hold the facts establish, such as an approver who is the author, was read above; then the Pause.
-        pause = _pause(context)
+        pause = _paused(facts, state, evidence, context)
         if pause:
-            return _decision(facts, state, pause, evidence, t.DEFER)
+            return pause
         return _act(facts, state, reason, evidence, mine, config)
 
     # A required check that gave no verdict is unreadable: admit nothing, and wait for a person (I-13).
@@ -160,9 +162,9 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     role, intent = wanted
 
     # Brakes and ceilings on a Run, in one place. The Pause stops an approval above, too.
-    pause = _pause(context)
+    pause = _paused(facts, state, evidence, context)
     if pause:
-        return _decision(facts, state, pause, evidence, t.DEFER)
+        return pause
     limits = config["limits"]
     recent = since_writer(mine, facts)
     attempts = _attempts(recent, intent)

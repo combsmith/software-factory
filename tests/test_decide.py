@@ -883,6 +883,19 @@ class Classes(unittest.TestCase):
         d = go(facts(targets_protected=False))
         self.assertEqual((d["state"], d["outcome"]), ("not_served", "nothing"))
 
+    def test_a_state_that_admits_nothing_is_nobodys_to_see(self):
+        # Merged, closed and not served admit nothing, and are shown as nothing, a Run still in progress or not. Not
+        # served is no end of the Lifecycle: GitHub serves the item again when it retargets it.
+        for over in ({"state": "merged"}, {"state": "closed"}, {"targets_protected": False}):
+            for runs in ([], [run(status="in_progress")]):
+                d = go(facts(**over), runs)
+                self.assertEqual((d["outcome"], d["attention"]), ("nothing", "none"), (over, runs))
+        # The other side: on an item that is served, a Run in progress is shown as working, and with none it waits.
+        d = go(facts(), [run(status="in_progress")])
+        self.assertEqual((d["state"], d["outcome"], d["attention"]), ("verifying", "nothing", "working"))
+        d = go(facts(), [run()])
+        self.assertEqual((d["state"], d["attention"]), ("converged", "ready"))
+
     def test_a_dependency_update_needs_no_model_review(self):  # §4.2
         self.assertEqual(go(facts(**{"class": "dependency"}))["state"], "converged")
         d = go(facts(**DEPENDENCY))
@@ -952,6 +965,24 @@ class Classes(unittest.TestCase):
         for over, ctx, want in cases:
             d = go(facts(**DEPENDENCY, **over), ctx=ctx)
             self.assertEqual((d["state"], d["reason"], d["outcome"]), want, over)
+
+    def test_each_lap_of_a_dependency_rebase_spends_an_approval_act(self):  # decisions 0003, 0007; I-8
+        # The dependency bot rebases an approved update: new content, which the approval does not cover. Once the
+        # checks pass, the lap ends in an approval act, which the act ceiling counts. No Run is made, so the Run ceiling
+        # never bounds the lap; the act ceiling does.
+        limit = LIMITS["max_acts_per_item"]
+        approved = facts(**DEPENDENCY, reviews=[review()], acts_since_writer=limit - 1)
+        self.assertEqual((go(approved)["reason"], go(approved)["action"]), ("approved", "enqueue"))
+        rebased = dict(approved, content_id="sha256:bbbb", checks=[dict(c, conclusion="queued") for c in GREEN])
+        self.assertEqual((go(rebased)["state"], go(rebased)["outcome"]), ("verifying", "nothing"))
+        passed = dict(rebased, checks=GREEN)
+        d = go(passed)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]),
+                         ("converged", "approval_due", "act", "issue_approval"))
+        # At the ceiling the lap makes no act: the update is held, and what the bot does next is its own churn.
+        d = go(dict(passed, acts_since_writer=limit))
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "act_ceiling", "hold"))
+        self.assertEqual(go(dict(rebased, acts_since_writer=limit))["outcome"], "nothing")
 
 
 class Content(unittest.TestCase):

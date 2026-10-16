@@ -11,6 +11,7 @@ from kernel import terms
 from kernel.decide import decide
 from sim import world
 from sim.world import World
+from tests import test_transitions
 
 # Fixed seeds: the required check cannot fail at random. SIM_SEEDS shortens a local run.
 SEEDS = range(1, 1 + int(os.environ.get("SIM_SEEDS", "300")))
@@ -34,15 +35,75 @@ def queued() -> World:
                       "dismissed_by": None, "dismissed_from": None})
     w.queue, w.rng = True, Roll()
     w.minute += 1
+    w.starts()
     return w
 
 
 class Simulation(unittest.TestCase):
     def test_invariants_hold_under_faults(self):
+        made = set()
         for seed in SEEDS:
             world = World(seed)
             for _ in range(250):
                 world.step()
+            made |= world.made
+        # Each change of State the seeds make, and who made it, is one the exploration of every change finds too: what
+        # the world reaches and the exploration does not is a gap in the exploration.
+        # It holds at any number of seeds; that each of a person, a Lens, the Factory and the platform changes a State
+        # is held by the exploration, which needs no seeds.
+        found, _ = test_transitions.explored()
+        self.assertEqual(sorted(made - set(found)), [])
+
+    def test_a_change_of_state_in_the_first_step_is_checked(self):  # I-12
+        # The world starts from the State the Kernel gives it, so the first change is checked like any other.
+        w = World(1, faults=False, people=False)
+        self.assertEqual((w.true_state, w.made), ("verifying", set()))
+        w.label(terms.LABEL_HOLD, world.MAINTAINER)
+        w.caused("human")
+        self.assertEqual(w.made, {("verifying", "held", "human")})
+        w = World(1, faults=False, people=False)
+        w.label(terms.LABEL_HOLD, world.AUTHOR_APP)
+        with mock.patch.object(world, "DECLARED", world.DECLARED - {("verifying", "held", "factory")}):
+            self.assertRaises(world.Broken, w.caused, "factory")
+        w = World(1, faults=False, people=False)
+        w.pr_state = "closed"
+        w.caused("human")
+        self.assertEqual(w.made, {("verifying", "closed", "human")})
+
+    def test_each_act_that_settles_the_world_is_checked_on_its_own(self):  # I-12
+        # The Maintainer ends a Hold, then resolves their thread: two changes of State, each checked, not the one they
+        # make together.
+        w = queued()
+        w.queue = False
+        w.label(terms.LABEL_HOLD, world.MAINTAINER)
+        w.open_thread()
+        w.starts()
+        self.assertEqual(w.true_state, "held")
+        w.settle(steps=0)
+        self.assertEqual(w.made, {("held", "addressing", "human"), ("addressing", "converged", "human")})
+
+    def test_every_change_of_state_is_checked_with_who_made_it(self):  # I-12
+        # The queue merges an item: the world records the transition as the platform's, and checks it is declared so.
+        w = queued()
+        w.read = w.unstamped(w.facts())
+        w.caused("factory")
+        w.platform()
+        self.assertEqual((w.pr_state, w.made), ("merged", {("queued", "merged", "platform")}))
+        # Had the Lifecycle declared it as anyone else's, the invariant breaks.
+        w = queued()
+        w.read = w.unstamped(w.facts())
+        w.caused("factory")
+        with mock.patch.object(world, "DECLARED", world.DECLARED - {("queued", "merged", "platform")}):
+            self.assertRaises(world.Broken, w.platform)
+        # Someone with no write access is nobody the Lifecycle names: a comment of theirs changes nothing, and any
+        # change of State put down to them breaks the invariant.
+        w = queued()
+        w.caused("factory")
+        w.stranger_comments()
+        w.caused(w.by_of(world.STRANGER))
+        self.assertEqual((w.by_of(world.STRANGER), w.made), ("stranger", set()))
+        w.queue = False
+        self.assertRaises(world.Broken, w.caused, w.by_of(world.STRANGER))
 
     def test_the_seeds_serve_a_maintainers_and_an_agents_pull_request(self):
         # The Maintainer's own pull request, where their review is refused, and an agent's, which they review.
@@ -145,12 +206,16 @@ class Simulation(unittest.TestCase):
     def test_what_happens_while_queued_takes_the_item_out_before_it_merges(self):  # L-19
         # The Maintainer asks for changes, opens a thread, dismisses the approval or adds a Hold after the item
         # entered the queue. The queue waits for a pass, and the pass takes it out.
-        acts = {"changes": lambda w: w.review("changes_requested"), "thread": lambda w: w.while_queued("thread"),
-                "dismiss": lambda w: w.while_queued("dismiss"), "hold": lambda w: w.while_queued("hold"),
-                "check": lambda w: w.checks.update({sorted(w.checks)[0]: "failure"})}
+        # Each is made here by hand, so each says who made it. A check that passed fails on this content only on a run a
+        # person started again, so its verdict is that person's (the ruling on #38).
+        acts = {"changes": lambda w: w.review("changes_requested") or "human",
+                "thread": lambda w: w.while_queued("thread") or "human",
+                "dismiss": lambda w: w.while_queued("dismiss") or "human",
+                "hold": lambda w: w.while_queued("hold") or "human",
+                "check": lambda w: w.checks.update({sorted(w.checks)[0]: "failure"}) or "human"}
         for name, act in acts.items():
             w = queued()
-            act(w)
+            w.caused(act(w))
             w.platform()
             self.assertEqual((w.pr_state, w.queue), ("open", True), name)
             w.poll()
@@ -175,6 +240,7 @@ class Simulation(unittest.TestCase):
         w = queued()
         w.acts, w.last_act = ceiling, "enqueue"
         w.checks[sorted(w.checks)[0]] = "failure"
+        w.caused("human")     # on a run a person started again: a passing check fails on this content no other way
         w.poll()
         self.assertEqual((w.queue, w.acts, w.last_act), (False, ceiling + 1, "dequeue"))
         w.invariants()
@@ -256,12 +322,14 @@ class Simulation(unittest.TestCase):
             w.open_thread()
             w.threads[-1].update(resolved=True, resolved_by=dict(world.AUTHOR_APP))
 
-        acts = {"unhold": (unhold, "human_hold"),
-                "hands-off": (lambda w: w.label(terms.LABEL_HANDS_OFF, world.AUTHOR_APP), "human_hold"),
-                "resolve": (resolve, "gate_open")}
-        for name, (act, reason) in acts.items():
+        # Each says who made the change of State: the person's Hold or thread, or the App's hands-off.
+        acts = {"unhold": (unhold, "human_hold", "human"),
+                "hands-off": (lambda w: w.label(terms.LABEL_HANDS_OFF, world.AUTHOR_APP), "human_hold", "factory"),
+                "resolve": (resolve, "gate_open", "human")}
+        for name, (act, reason, by) in acts.items():
             w = queued()
             act(w)
+            w.caused(by)
             self.assertTrue(w.objections(), name)
             w.poll()
             self.assertEqual(w.queue, False, name)
