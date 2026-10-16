@@ -70,11 +70,7 @@
       "permission": "pull_requests",
       "level": "read"
     },
-    "read:facts.labels": {
-      "permission": "pull_requests",
-      "level": "read"
-    },
-    "read:facts.admitted_at": {
+    "read:facts.label_events": {
       "permission": "pull_requests",
       "level": "read"
     },
@@ -179,8 +175,7 @@
             "read:facts.author",
             "read:facts.last_pusher",
             "read:facts.mergeable",
-            "read:facts.labels",
-            "read:facts.admitted_at",
+            "read:facts.label_events",
             "read:facts.last_push_at",
             "read:facts.last_writer_action_at",
             "read:facts.reviews",
@@ -215,7 +210,7 @@
             "effect:resolve_thread",
             "effect:comment",
             "read:facts.state",
-            "read:facts.labels"
+            "read:facts.label_events"
           ]
         },
         "everything": {
@@ -277,8 +272,7 @@
             "read:facts.author",
             "read:facts.last_pusher",
             "read:facts.mergeable",
-            "read:facts.labels",
-            "read:facts.admitted_at",
+            "read:facts.label_events",
             "read:facts.last_push_at",
             "read:facts.last_writer_action_at",
             "read:facts.reviews",

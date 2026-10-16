@@ -133,6 +133,32 @@ def required_model_lenses(facts: dict, config: dict) -> list:
     return list(lenses["model"])
 
 
+def is_person(actor) -> bool:
+    """A person: an actor of kind `human` whose write access is exactly true. Nobody else is, whatever its access (I-28).
+
+    The port tells the kinds apart from GitHub's account type and the configuration, never from a name's spelling
+    (L-57), so an App, a Lens's App and the machine user are never a person.
+    """
+    return isinstance(actor, dict) and actor.get("kind") == "human" and actor.get("can_write") is True
+
+
+def closed(th: dict) -> bool:
+    """Whether a thread was resolved by someone who may close it (L-17).
+
+    A person's thread is closed only by that person. A Lens's is closed only by that Lens's own App or by a person: no
+    Role decides a Finding about its own work, so the author agent resolving the threads that hold it closes none.
+    Resolved by anyone else, a thread stays open. A thread that gates nothing is closed by whoever resolves it.
+    """
+    if not th["resolved"]:
+        return False
+    opener, by = th["opened_by"], th["resolved_by"]
+    if is_person(opener):
+        return is_person(by) and by["name"] == opener["name"]
+    if opener["kind"] == "lens":
+        return is_person(by) or (by["kind"] == "lens" and by["name"] == opener["name"])
+    return True
+
+
 def gating_threads(facts: dict, config: dict) -> list:
     """Open threads that hold the pull request.
 
@@ -142,14 +168,15 @@ def gating_threads(facts: dict, config: dict) -> list:
     an annotation on its Lens's check run, and closes when the Lens stops
     reporting it. A Finding a model Lens has raised gates whatever the class:
     a dependency update needs no review, and still answers one it was given.
+    A thread resolved by someone who may not close it is open (closed).
     """
     required = set(config["required_lenses"]["model"])
     out = []
     for th in facts["threads"]:
-        if th["resolved"]:
+        if closed(th):
             continue
         by = th["opened_by"]
-        if by["kind"] == "human" and by["can_write"]:
+        if is_person(by):
             out.append(th)
         elif by["kind"] == "lens" and by["name"] in required and (
                 th["category"] == t.SECURITY or th["severity"] in t.GATING_SEVERITIES):
@@ -157,18 +184,33 @@ def gating_threads(facts: dict, config: dict) -> list:
     return out
 
 
-def unreadable_threads(facts: dict, config: dict) -> list:
-    """The ids of open threads from a required Lens whose category or severity cannot be read.
+def unreadable_thread(th: dict, lenses: list, facts: dict, config: dict) -> bool:
+    """Whether a thread cannot be read whole: who opened it, whether it is resolved and by whom, or, on a required
+    Lens's open thread, its category or severity.
 
-    Whether such a thread gates is read from both, and a security Finding gates at any severity, so one that is
-    missing, null, or a word the Kernel does not know could hide a gate: nothing may converge on it (I-13). A Lens
-    that is not required gates nothing, and may write both only as prose. A person's thread gates whatever it says.
-    A model Lens's thread is read whatever the class, as it gates whatever the class (gating_threads).
+    Who opened and who resolved a thread decide whether it is closed (closed), so a thread with either unread could be
+    a person's left open. Who resolved a thread belongs to a resolved one alone, as who dismissed a review does.
+    """
+    if not readable_actor(th.get("opened_by"), facts, config) or type(th.get("resolved")) is not bool:
+        return True
+    if th["resolved"] and not readable_actor(th.get("resolved_by"), facts, config):
+        return True
+    if not th["resolved"] and th.get("resolved_by") is not None:
+        return True
+    return (not closed(th) and th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] in lenses
+            and (th.get("category") not in t.CATEGORIES or th.get("severity") not in t.SEVERITIES))
+
+
+def unreadable_threads(facts: dict, config: dict) -> list:
+    """The ids of threads that cannot be read whole (unreadable_thread).
+
+    Whether a required Lens's thread gates is read from its category and severity, and a security Finding gates at any
+    severity, so one that is missing, null, or a word the Kernel does not know could hide a gate: nothing may converge
+    on it (I-13). A Lens that is not required gates nothing, and may write both only as prose. A person's thread gates
+    whatever it says. A model Lens's thread is read whatever the class, as it gates whatever the class (gating_threads).
     """
     lenses = config["required_lenses"]["model"]
-    return [th["id"] for th in facts["threads"]
-            if not th["resolved"] and th["opened_by"]["kind"] == "lens" and th["opened_by"]["name"] in lenses
-            and (th.get("category") not in t.CATEGORIES or th.get("severity") not in t.SEVERITIES)]
+    return [th["id"] for th in facts["threads"] if unreadable_thread(th, lenses, facts, config)]
 
 
 def is_leap(year: int) -> bool:
@@ -211,18 +253,22 @@ def seconds(time: str) -> int:
 
 
 def moves(actor) -> bool:
-    """Whether what `actor` does moves an item: a person with write access, or a Lens's App. Never a stranger (I-28)."""
-    return isinstance(actor, dict) and (actor.get("kind") == "lens"
-                                        or (actor.get("kind") == "human" and actor.get("can_write") is True))
+    """Whether what `actor` does moves an item: a person, a Lens's App, or the machine user, the Factory's approver.
+
+    Never a stranger, nor any other App, which no configuration names: any App installed on the repo could keep a
+    stalled item from showing (I-28).
+    """
+    return isinstance(actor, dict) and (actor.get("kind") in ("lens", t.MACHINE_USER) or is_person(actor))
 
 
 def moved_at(facts: dict, runs: list, config: dict, now: str):
     """When the item last moved, or None if no time can be read.
 
     State is never stored (decision 0002), so the time an item entered its State is read as the newest time a writer,
-    a Lens or the Factory moved it: a push, a required check's completion, a review or a thread by a writer or a Lens's
-    App (a gating thread is always one), a writer's action and a Run on this item. A stranger's comment, or a check
-    that is not required, moves nothing, or anyone could keep a stalled item from showing; nor does a check under a
+    a Lens or the Factory moved it: a push, a required check's completion, a review or a thread by a writer, a Lens's
+    App or the machine user (a gating thread is always one; moves), a writer's action and a Run on this item. A
+    stranger's comment, another App's, or a check that is not required, moves nothing, or anyone could keep a stalled
+    item from showing; nor does a check under a
     required Lens's check name from any App but that Lens's own (reports_for). A time that is not a real
     moment no later than `now` is passed over, so the wait counts from earlier: that shows more, never less.
     """
@@ -252,14 +298,27 @@ def stale(lifecycle: dict, state: str, moved, passes_since, now: str) -> bool:
     return waited > lifecycle["stale_after_minutes"][state] * t.SECONDS_PER_MINUTE
 
 
-def readable_actor(actor) -> bool:
-    """Who acted, read whole: a kind the Kernel knows, a name, and write access exactly true or false."""
-    return (isinstance(actor, dict) and actor.get("kind") in t.ACTOR_KINDS
+def readable_actor(actor, facts: dict, config: dict) -> bool:
+    """Who acted, read whole: a kind the Kernel knows, a name, and write access exactly true or false.
+
+    The kind must agree with the configuration and the class (I-28): the machine user is the approver the
+    configuration names, and nobody else is; the author of an agent's or a dependency update's pull request is an App.
+    Facts that say otherwise were misread, as a port that took a name's spelling for a kind would (L-57).
+    """
+    if not (isinstance(actor, dict) and actor.get("kind") in t.ACTOR_KINDS
             and isinstance(actor.get("name"), str) and actor["name"] != ""
-            and type(actor.get("can_write")) is bool)
+            and type(actor.get("can_write")) is bool):
+        return False
+    if (actor["kind"] == t.MACHINE_USER) != (actor["name"] == config["approver"]):
+        return False
+    # GitHub gives no User a login with a bracket: a person named like an App's bot was misread. A name's spelling only
+    # ever refuses an actor here; it never makes one a person (L-57).
+    if actor["kind"] == "human" and actor["name"].endswith(t.BOT_SUFFIX):
+        return False
+    return not (facts["class"] in t.BOT_CLASSES and actor["name"] == facts["author"] and actor["kind"] != t.APP)
 
 
-def unreadable_reviews(facts: dict) -> bool:
+def unreadable_reviews(facts: dict, config: dict) -> bool:
     """Whether a review cannot be read whole: its author, state or time, or who dismissed it and what it was.
 
     Any of them could be a request for changes from a person with write access, so nothing
@@ -268,31 +327,18 @@ def unreadable_reviews(facts: dict) -> bool:
     for rv in facts["reviews"]:
         if not isinstance(rv, dict) or rv.get("state") not in t.REVIEW_STATES:
             return True
-        if not readable_actor(rv.get("by")):
+        if not readable_actor(rv.get("by"), facts, config):
             return True
         if not is_time(rv.get("submitted_at")):
             return True
         # Who dismissed a review, and what it was, belong to a dismissed review alone: the schema cannot say so.
         if rv["state"] != "dismissed" and (rv.get("dismissed_by") is not None or rv.get("dismissed_from") is not None):
             return True
-        if rv["state"] == "dismissed" and not readable_actor(rv.get("dismissed_by")):
+        if rv["state"] == "dismissed" and not readable_actor(rv.get("dismissed_by"), facts, config):
             return True
         if rv["state"] == "dismissed" and rv.get("dismissed_from") not in t.DISMISSED_FROM:
             return True
     return False
-
-
-def not_people(facts: dict, config: dict) -> list:
-    """Names that are never a person's, whatever kind the facts give them (I-28).
-
-    The machine user that approves, and the bot that opened an agent's or a dependency update's
-    pull request. Until the facts give an App and the machine user a kind of their own, this keeps
-    either from ending a person's request for changes.
-    """
-    names = [config["approver"]]
-    if facts["class"] in t.BOT_CLASSES:
-        names.append(facts["author"])
-    return names
 
 
 def verdict_order(rv: dict) -> tuple:
@@ -300,34 +346,29 @@ def verdict_order(rv: dict) -> tuple:
     return rv["submitted_at"], "changes_requested" in (rv["state"], rv.get("dismissed_from"))
 
 
-def standing_requests(facts: dict, config: dict) -> list:
+def standing_requests(facts: dict) -> list:
     """Requests for changes that hold the pull request, one for each person with write access.
 
     A person's latest verdict counts; a review that only comments is none, dismissed or not. A
     request stands across new content, as GitHub keeps it, until that person approves or a person
     with write access dismisses it. An approval answers it even once dismissed, as when an App's
-    push dismisses it as stale; it still approves no content. An App's dismissal of the request
-    does not clear it: the reviewer's App holds pull_requests: write, and no Role closes a
-    person's objection (L-17). Nor does a dismissal or an approval by the machine user or an
-    author bot. A request from a stranger or a Lens gates nothing.
+    push dismisses it as stale; it still approves no content. Only a person ends a request: a
+    dismissal by an App, a Lens's App, the machine user or a stranger does not clear it, as the
+    reviewer's App holds pull_requests: write, and no Role closes a person's objection (L-17); nor
+    does anyone's approval but that person's. A request from anyone but a person gates nothing.
     """
-    bots = not_people(facts, config)
     latest = {}
     for rv in sorted(facts["reviews"], key=verdict_order):
         if rv["state"] == "dismissed" and rv["dismissed_from"] == "commented":
             continue
-        approves = rv["state"] == "approved" or (rv["state"] == "dismissed" and rv["dismissed_from"] == "approved")
-        if approves and rv["by"]["name"] in bots:
-            continue
-        if rv["by"]["kind"] == "human" and rv["by"]["can_write"] and rv["state"] != "commented":
+        if is_person(rv["by"]) and rv["state"] != "commented":
             latest[rv["by"]["name"]] = rv
     out = []
     for name, rv in sorted(latest.items()):
         if rv["state"] == "dismissed":
             if rv["dismissed_from"] != "changes_requested":
                 continue
-            dismissed_by = rv["dismissed_by"]
-            if dismissed_by["kind"] == "human" and dismissed_by["can_write"] and dismissed_by["name"] not in bots:
+            if is_person(rv["dismissed_by"]):
                 continue
         elif rv["state"] != "changes_requested":
             continue
@@ -342,7 +383,7 @@ def gates(facts: dict, config: dict) -> list:
     that person's thread does (decision 0007).
     """
     threads = [{"id": th["id"], "by": th["opened_by"], "at": th["opened_at"]} for th in gating_threads(facts, config)]
-    return threads + standing_requests(facts, config)
+    return threads + standing_requests(facts)
 
 
 def whose_turn(gate: dict, runs: list, config: dict) -> str:
@@ -367,20 +408,96 @@ def whose_turn(gate: dict, runs: list, config: dict) -> str:
     return "author" if rulings else "owner"
 
 
-def admitted(facts: dict) -> bool:
-    """An outside item is admitted only after its author's latest push."""
+def unreadable_labels(facts: dict, config: dict) -> bool:
+    """Whether an event of a control label cannot be read whole: what was done to it, by whom, and when.
+
+    Each decides whether a Hold, hands-off or an admission binds, so nothing is decided on one (I-13). An event of
+    another label is not read, but its label must be: it could be a control label's.
+    """
+    for ev in facts["label_events"]:
+        if not isinstance(ev, dict) or not isinstance(ev.get("label"), str):
+            return True
+        if ev["label"] not in t.CONTROL_LABELS:
+            continue
+        if ev.get("action") not in t.LABEL_ACTIONS:
+            return True
+        if not is_time(ev.get("at")):
+            return True
+        if not readable_actor(ev.get("by"), facts, config):
+            return True
+    return False
+
+
+def label_order(ev: dict) -> tuple:
+    """When a label event happened. Which of two in the same second came first cannot be told, so each label is read
+    the way that stops work, as verdict_order reads a review: a Hold or hands-off is placed last, and stands; an
+    admission is placed first, and the removal ends it. Hands-off that stands on a tie is read as a Hold (tied)."""
+    placed_last = ev["label"] != t.LABEL_ADMIT
+    return ev["at"], (ev["action"] == "labeled") == placed_last
+
+
+def tied(placed: dict, facts: dict) -> bool:
+    """Whether a person's removal of the label `placed` placed came in the same second. Hands-off placed so is read as a
+    Hold: standing, it could leave a queued item to merge, and ended, it could let the Factory act on an item a person
+    marked, so either reading fails open somewhere. Anyone else's removal ends nothing, so it ties with nothing."""
+    return any(ev["label"] == placed["label"] and ev["action"] == "unlabeled" and ev["at"] == placed["at"]
+               and is_person(ev["by"]) for ev in facts["label_events"])
+
+
+def standing_labels(facts: dict) -> dict:
+    """Each control label that binds, with the event that placed it. The events must be readable (unreadable_labels).
+
+    The timeline's events are read in the order they happened. A label binds from when anyone adds it until a person
+    removes it: removed by anyone else, it binds as it was placed. What a person placed, only a person ends (L-17), and
+    an App cannot release a Hold (L-02). Nor does anyone else placing it again replace a person's placement, so an App
+    that takes a person's label off and puts it back changes nothing: who placed it, and when, is the person's.
+    """
+    out = {}
+    for ev in sorted([ev for ev in facts["label_events"] if ev["label"] in t.CONTROL_LABELS], key=label_order):
+        if ev["action"] == "labeled":
+            if not (ev["label"] in out and is_person(out[ev["label"]]["by"]) and not is_person(ev["by"])):
+                out[ev["label"]] = ev
+        elif is_person(ev["by"]):
+            out.pop(ev["label"], None)
+    return out
+
+
+def hands_off(facts: dict, config: dict) -> bool:
+    """Whether hands-off binds: a person placed it, and the Factory never acts on the item. Placed by anyone else, it
+    is read as a Hold, so an App cannot freeze an item in the merge queue, and so is one removed in the same second
+    (tied). It is read only from label events read in full and whole: the timeline is paged oldest first, so a read
+    cut short could drop a person's later removal.
+    """
+    if "timeline" in incomplete(facts) or unreadable_labels(facts, config):
+        return False
+    placed = standing_labels(facts).get(t.LABEL_HANDS_OFF)
+    return placed is not None and is_person(placed["by"]) and not tied(placed, facts)
+
+
+def admitted(facts: dict, labels: dict) -> bool:
+    """An outside item is admitted only by a person with write access, after its author's latest push (I-25, I-36).
+
+    `labels` are the control labels that bind (standing_labels). An admission anyone else placed admits nothing.
+    """
     if facts["class"] != "outside":
         return True
-    if t.LABEL_ADMIT not in facts["labels"] or facts["admitted_at"] is None:
+    placed = labels.get(t.LABEL_ADMIT)
+    if placed is None or not is_person(placed["by"]):
         return False
-    return facts["admitted_at"] > facts["last_push_at"]
+    return placed["at"] > facts["last_push_at"]
 
 
 def standing_approval(facts: dict, config: dict):
-    """The approver's undismissed approval of this content, if any."""
+    """The approver's undismissed approval of this content, if any.
+
+    Only the approver's approval stands: the machine user's, which readable_actor holds to the approver's name, while
+    it has write access, without which GitHub does not count it. A person's approval answers that person's request for
+    changes, and approves no content.
+    """
     for rv in facts["reviews"]:
         if (
-            rv["by"]["name"] == config["approver"]
+            rv["by"]["kind"] == t.MACHINE_USER
+            and rv["by"]["can_write"] is True
             and rv["state"] == "approved"
             and rv["content_id"] == facts["content_id"]
         ):
@@ -396,10 +513,10 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     state GitHub has not worked out, which it reports each time the base moves, a required check not reported yet,
     and a required Lens that has not reported on this content. Any other reading takes it out, with that reading's
     State and reason: a lost approval and an open gate get codes of their own. An item that is ended or not served
-    is left alone, and so is one marked hands-off, which the Factory never acts on.
+    is left alone, and so is one a person marked hands-off, which the Factory never acts on.
     """
     d = reading(facts, runs, config, ())
-    if d["state"] in t.TERMINAL or not facts["queue"] or t.LABEL_HANDS_OFF in facts["labels"]:
+    if d["state"] in t.TERMINAL or not facts["queue"] or hands_off(facts, config):
         return d
     d = reading(facts, runs, config, t.QUEUE_WAITS)
     if d["reason"] == "approved":
@@ -433,12 +550,17 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     if facts["is_draft"]:
         return {"state": t.DRAFT, "reason": "draft", "evidence": []}
 
-    labels = facts["labels"]
-    if t.LABEL_HANDS_OFF in labels:
+    # Who added or removed a control label decides whether it binds, so an event that cannot be read is read first.
+    if unreadable_labels(facts, config):
+        return {"state": None, "reason": "label_unreadable", "evidence": []}
+    labels = standing_labels(facts)
+    if hands_off(facts, config):
         return {"state": t.HELD, "reason": "hands_off", "evidence": [t.LABEL_HANDS_OFF]}
-    if t.LABEL_HOLD in labels:
-        return {"state": t.HELD, "reason": "human_hold", "evidence": [t.LABEL_HOLD]}
-    if not admitted(facts):
+    # A Hold, and hands-off that anyone but a person placed, which is read as one.
+    stops = [name for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF) if name in labels]
+    if stops:
+        return {"state": t.HELD, "reason": "human_hold", "evidence": stops}
+    if not admitted(facts, labels):
         return {"state": t.HELD, "reason": "outside_not_admitted", "evidence": []}
     if facts["diff"]["files"] == 0:
         return {"state": t.HELD, "reason": "empty_diff", "evidence": []}
@@ -446,7 +568,7 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
         return {"state": t.HELD, "reason": "too_large", "evidence": []}
     # A review that cannot be read could be a writer's request for changes. It is read before anything
     # admits a Run or converges: an unreadable fact never yields an action (I-13), only a stop.
-    if unreadable_reviews(facts):
+    if unreadable_reviews(facts, config):
         return {"state": None, "reason": "review_unreadable", "evidence": []}
     # So could a required Lens's thread whose category or severity cannot be read: a security Finding at any severity.
     unread = unreadable_threads(facts, config)

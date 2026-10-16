@@ -37,6 +37,10 @@ AUTHOR = "combsmith-sf-dev-lead[bot]"
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 # The reviewer's App holds pull_requests: write, and GitHub cannot grant it less.
 REVIEWER_APP = {"kind": "lens", "name": "pr-review", "can_write": True}
+# The author's App: it pushes the agent's fixes, and can label and resolve threads, as any App with write access can.
+AUTHOR_APP = {"kind": "app", "name": AUTHOR, "can_write": True}
+# The machine user, which only approves.
+MACHINE = {"kind": "machine_user", "name": CONFIG["approver"], "can_write": True}
 # Invariants of rules the Kernel does not hold yet, each named by its test in tests/test_decide.py, which is marked
 # @pending there. A breach of one is noted in `unheld`, not raised, until the mark comes off in both places.
 NOT_YET_HELD = ()
@@ -50,6 +54,8 @@ class World:
     def __init__(self, seed: int, faults: bool = True, people: bool = True,
                  approval_fails: str = None, queue_merges: bool = True):
         self.rng = random.Random(seed)
+        # What an App does out of turn draws from its own generator, so that the rest of a seed's world stays as it was.
+        self.meddler = random.Random(-seed)
         self.seed, self.faults, self.people = seed, faults, people
         # Worlds that never end on their own: an approval that never lands, failing every time with the
         # fault `approval_fails` names ("item" or "environment"), and a queue that ejects every time.
@@ -61,7 +67,11 @@ class World:
         self.author = self.last_pusher = AUTHOR if self.cls == "agent" else MAINTAINER["name"]
         self.asked = False         # the Maintainer's request for changes stands, as the world keeps it
         self.unheld = []           # breaches of invariants the Kernel does not hold yet (NOT_YET_HELD)
-        self.labels = set()
+        self.labels = set()        # the labels on the pull request, as GitHub shows them
+        self.events = []           # the timeline's labeled and unlabeled events
+        # What binds, in the world's own words: a Hold stands until a person removes it, whoever placed it or took the
+        # label off since; hands-off stands as it was placed, by a person or by an App, until a person removes it.
+        self.hold, self.hands_off = False, None
         self.threads, self.reviews, self.runs = [], [], []
         self.checks = dict.fromkeys(APPS, "pending")
         self.completed = dict.fromkeys(self.checks)   # when each check completed, or None
@@ -105,8 +115,9 @@ class World:
             "schema": "facts/1", "item": dict(ITEM), "state": self.pr_state, "is_draft": False,
             "class": self.cls, "author": self.author, "last_pusher": self.last_pusher,
             "targets_protected": True, "mergeable": True, "content_id": self.cid(),
-            "diff": {"files": 2, "lines": 40, "truncated": False}, "labels": sorted(self.labels),
-            "admitted_at": None, "last_push_at": self.last_push, "last_writer_action_at": self.last_writer,
+            "diff": {"files": 2, "lines": 40, "truncated": False}, "label_events": copy.deepcopy(self.events),
+            "last_push_at": self.last_push, "last_writer_action_at": self.last_writer,
+            # GitHub: an_actor_has_a_kind
             "reviews": copy.deepcopy(self.reviews), "threads": copy.deepcopy(self.threads),
             # GitHub: a_check_is_read_by_name_from_every_app
             "checks": [{"name": CHECKS[k], "app_id": APPS[k], "conclusion": v, "completed_at": self.completed.get(k)}
@@ -136,7 +147,51 @@ class World:
         self.moves()
 
     def held(self) -> bool:
-        return bool(self.labels & {t.LABEL_HOLD, t.LABEL_HANDS_OFF})
+        """A Hold stands, or hands-off, which stops work whoever placed it."""
+        return self.hold or self.hands_off is not None
+
+    def labelling(self, name: str, action: str, by: dict):
+        """Record a label event. Each takes its own minute, so the world never leans on how a tie is read."""
+        if self.events and self.events[-1]["at"] >= self.now():
+            self.minute += 1
+        # GitHub: a_label_event_names_its_actor
+        self.events.append({"label": name, "action": action, "by": dict(by), "at": self.now()})
+
+    @staticmethod
+    def is_person(by: dict) -> bool:
+        return by["kind"] == "human" and by["can_write"] is True
+
+    def label(self, name: str, by: dict):
+        """`by` adds the label. Anyone else adding hands-off again does not replace a person's: it stands as theirs."""
+        self.labels.add(name)
+        self.labelling(name, "labeled", by)
+        if name == t.LABEL_HOLD:
+            self.hold = True
+        elif name == t.LABEL_HANDS_OFF and not (self.hands_off == "person" and not self.is_person(by)):
+            self.hands_off = "person" if self.is_person(by) else "app"
+
+    def unlabel(self, name: str, by: dict):
+        """`by` removes the label. Only a person's removal ends what it held: anyone else's leaves it binding."""
+        self.labels.discard(name)
+        self.labelling(name, "unlabeled", by)
+        if self.is_person(by):
+            if name == t.LABEL_HOLD:
+                self.hold = False
+            elif name == t.LABEL_HANDS_OFF:
+                self.hands_off = None
+
+    def release(self):
+        """The Maintainer ends a Hold and hands-off. A label an App took off is put back to be taken off again."""
+        for name, binds in ((t.LABEL_HOLD, self.hold), (t.LABEL_HANDS_OFF, self.hands_off is not None)):
+            if binds:
+                if name not in self.labels:
+                    self.label(name, MAINTAINER)
+                self.unlabel(name, MAINTAINER)
+
+    @staticmethod
+    def open_for(th: dict) -> bool:
+        """A person's thread is open until that person resolves it, whoever else has (L-17)."""
+        return th["opened_by"]["kind"] == "human" and th["resolved_by"] != MAINTAINER
 
     @staticmethod
     def unstamped(facts: dict) -> dict:
@@ -153,9 +208,9 @@ class World:
             out.append("no standing approval")
         if self.asked:
             out.append("a writer's request for changes")
-        if any(not th["resolved"] and th["opened_by"]["kind"] == "human" for th in self.threads):
+        if any(self.open_for(th) for th in self.threads):
             out.append("a writer's open thread")
-        if t.LABEL_HOLD in self.labels:
+        if self.hold or self.hands_off == "app":
             out.append("a Hold")
         if any(v not in ("success", "pending") for v in self.checks.values()):
             out.append("a required check that failed or gave no verdict")
@@ -243,6 +298,10 @@ class World:
         self.check(not waits or d["attention"] == t.NEEDS_YOU,
                    "a check with no verdict is not shown as needing a person")
         if whole and current:
+            # A Hold that only a person may end, or hands-off, admits no Run and makes no act but a dequeue, whoever took
+            # the label off since (I-6, I-21).
+            self.check(not self.held() or d["outcome"] not in (t.ADMIT, t.ACT) or dequeue,
+                       "I-6 a held item moved on: %s %s" % (d["outcome"], d["reason"]))
             # A pass that reads a queued item whole, as it is now, takes it out if it may not merge (L-19).
             stop = self.queue and self.objections()
             self.check(not stop or (d["outcome"], d.get("action")) == (t.ACT, "dequeue"),
@@ -305,7 +364,7 @@ class World:
             self.note("run %s: the approval did not land" % run["run"])
             return
         # GitHub: the_machine_users_approval_counts
-        self.reviews.append({"by": {"kind": "lens", "name": CONFIG["approver"], "can_write": True}, "state": "approved",
+        self.reviews.append({"by": dict(MACHINE), "state": "approved",
                              "commit": "c%d" % self.content, "content_id": self.cid(), "submitted_at": self.now(),
                              "dismissed_by": None, "dismissed_from": None})
         self.acts += 1
@@ -377,7 +436,7 @@ class World:
             # GitHub: an_app_resolves_a_lens_thread
             for th in self.threads:
                 if not th["resolved"] and th["opened_by"]["kind"] == "lens" and self.rng.random() < 0.7:
-                    th.update(resolved=True, resolved_by="combsmith-sf-pr-review[bot]")
+                    th.update(resolved=True, resolved_by=dict(REVIEWER_APP))
         self.note("run %s: applied" % run["run"])
 
     # ---- the platform and the people
@@ -409,7 +468,36 @@ class World:
                              "dismissed_by": None, "dismissed_from": None})
         self.note("a stranger commented")
 
+    def an_app_meddles(self) -> bool:
+        """An App with write access does what only a person's act should: it takes a Hold off, adds hands-off, or
+        resolves a person's thread. None of it ends anything (L-17), and hands-off it placed stops work as a Hold."""
+        acts = []
+        if t.LABEL_HOLD in self.labels:
+            acts.append("unhold")
+        if t.LABEL_HANDS_OFF not in self.labels:
+            acts.append("hands-off")
+        if any(th["opened_by"]["kind"] == "human" and not th["resolved"] for th in self.threads):
+            acts.append("resolve")
+        if not acts:
+            return False
+        act = acts[int(self.meddler.random() * len(acts))]
+        if act == "resolve":
+            # GitHub: an_app_resolves_any_thread
+            th = next(th for th in self.threads if th["opened_by"]["kind"] == "human" and not th["resolved"])
+            th.update(resolved=True, resolved_by=dict(AUTHOR_APP))
+            self.note("an App resolved the Maintainer's thread %s" % th["id"])
+        elif act == "unhold":
+            # GitHub: an_app_can_label
+            self.unlabel(t.LABEL_HOLD, AUTHOR_APP)
+            self.note("an App took the Hold off")
+        else:
+            self.label(t.LABEL_HANDS_OFF, AUTHOR_APP)
+            self.note("an App added hands-off")
+        return True
+
     def platform(self):
+        if self.faults and self.meddler.random() < 0.03:
+            self.an_app_meddles()
         live = [rv for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"] and rv["state"] != "dismissed"]
         if self.faults and live and self.rng.random() < 0.1:
             # GitHub: an_app_can_dismiss_a_review
@@ -460,9 +548,13 @@ class World:
             return
         roll = self.rng.random()
         if roll < 0.25:
-            self.labels ^= {t.LABEL_HOLD}
+            # The Maintainer ends what holds the item, whoever took a label off since; or places a Hold.
+            if self.held():
+                self.release()
+            else:
+                self.label(t.LABEL_HOLD, MAINTAINER)
             self.writer_acted()
-            self.note("maintainer toggled hold -> %s" % sorted(self.labels))
+            self.note("maintainer toggled hold -> %s" % self.held())
         elif roll < 0.45:
             self.push("don-petry", writer=True)
         elif roll < (0.55 if reviews else 0.60):
@@ -470,9 +562,9 @@ class World:
         elif reviews and roll < 0.65:
             self.review(self.pick(["changes_requested", "commented", "approved"]))
         else:
-            mine = [th for th in self.threads if not th["resolved"] and th["opened_by"]["kind"] == "human"]
+            mine = [th for th in self.threads if self.open_for(th)]
             for th in mine:
-                th.update(resolved=True, resolved_by="don-petry")
+                th.update(resolved=True, resolved_by=dict(MAINTAINER))
             if mine:     # resolving nothing is no action, and renews nothing (I-28)
                 self.writer_acted()
                 self.note("maintainer resolved %d threads" % len(mine))
@@ -491,7 +583,9 @@ class World:
         if fault == "thread":
             self.open_thread()
         elif fault == "hold":
-            self.labels.add(t.LABEL_HOLD)
+            if t.LABEL_HOLD not in self.labels:
+                self.label(t.LABEL_HOLD, MAINTAINER)
+            self.hold = True
             self.writer_acted()
             self.note("maintainer added a hold while queued")
         else:
@@ -571,13 +665,14 @@ class World:
     def settle(self, steps: int = 400):
         """Stop the faults and the people, and let the Factory finish."""
         self.faults = self.people = False
-        self.labels.discard(t.LABEL_HOLD)
-        for th in self.threads:
-            if th["opened_by"]["kind"] == "human":
-                th.update(resolved=True, resolved_by="don-petry")
-        # The Maintainer approves what they asked to be changed, after the last step: a request and an approval in
-        # the same second leave the request standing.
+        # The Maintainer acts after the last step: a request and an approval in the same second leave the request
+        # standing, and so does a label placed and removed in the same second.
         self.minute += 1
+        self.release()
+        for th in self.threads:
+            if self.open_for(th):
+                th.update(resolved=True, resolved_by=dict(MAINTAINER))
+        # The Maintainer approves what they asked to be changed.
         if self.asked:
             self.review("approved")
         # The person runs again every check that did not pass, and the re-run replaces the run it repeats.

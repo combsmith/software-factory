@@ -13,6 +13,6 @@ The page `docs/standards/tests.md` shows each of these by example.
 | The simulation runs fixed seeds, and a seed replays exactly | `test_simulator.py::test_a_seed_replays_exactly` |
 
 Call the Kernel through `go()`, which validates every Decision against its schema. State only what
-differs: `facts(labels=["factory:hold"])`. A fact that lives inside a list gets
-a builder of its own in `support.py`, as `thread()` is, and a new fact gets a counter-example. A comment such as "I-24" on a test
+differs: `facts(is_draft=True)`. A fact that lives inside a list gets
+a builder of its own in `support.py`, as `thread()` and `labelled()` are, and a new fact gets a counter-example. A comment such as "I-24" on a test
 names an invariant in the design; the test's name is its sentence.

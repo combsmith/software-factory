@@ -18,14 +18,34 @@
     "lines": 120,
     "truncated": false
   },
-  "labels": [],
-  "admitted_at": null,
+  "label_events": [
+    {
+      "label": "factory:hold",
+      "action": "labeled",
+      "by": {
+        "kind": "human",
+        "name": "don-petry",
+        "can_write": true
+      },
+      "at": "2026-10-11T11:40:00Z"
+    },
+    {
+      "label": "factory:hold",
+      "action": "unlabeled",
+      "by": {
+        "kind": "human",
+        "name": "don-petry",
+        "can_write": true
+      },
+      "at": "2026-10-11T11:45:00Z"
+    }
+  ],
   "last_push_at": "2026-10-11T12:00:00Z",
   "last_writer_action_at": "2026-10-11T12:00:00Z",
   "reviews": [
     {
       "by": {
-        "kind": "lens",
+        "kind": "machine_user",
         "name": "donpetry-bot",
         "can_write": true
       },
@@ -80,6 +100,23 @@
       "severity": null,
       "resolved_by": null,
       "opened_at": "2026-10-11T12:15:00Z"
+    },
+    {
+      "id": "PRRT_kw3",
+      "resolved": true,
+      "opened_by": {
+        "kind": "human",
+        "name": "a-colleague",
+        "can_write": true
+      },
+      "category": "human",
+      "severity": null,
+      "resolved_by": {
+        "kind": "human",
+        "name": "a-colleague",
+        "can_write": true
+      },
+      "opened_at": "2026-10-11T12:16:00Z"
     }
   ],
   "checks": [

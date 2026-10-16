@@ -36,8 +36,7 @@
         "read:facts.author",
         "read:facts.last_pusher",
         "read:facts.mergeable",
-        "read:facts.labels",
-        "read:facts.admitted_at",
+        "read:facts.label_events",
         "read:facts.last_push_at",
         "read:facts.last_writer_action_at",
         "read:facts.reviews",
@@ -111,10 +110,7 @@
         "read:facts.mergeable": {
           "$ref": "#/$defs/mapping"
         },
-        "read:facts.labels": {
-          "$ref": "#/$defs/mapping"
-        },
-        "read:facts.admitted_at": {
+        "read:facts.label_events": {
           "$ref": "#/$defs/mapping"
         },
         "read:facts.last_push_at": {
@@ -303,8 +299,7 @@
               "read:facts.author",
               "read:facts.last_pusher",
               "read:facts.mergeable",
-              "read:facts.labels",
-              "read:facts.admitted_at",
+              "read:facts.label_events",
               "read:facts.last_push_at",
               "read:facts.last_writer_action_at",
               "read:facts.reviews",
