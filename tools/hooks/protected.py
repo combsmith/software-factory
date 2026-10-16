@@ -138,7 +138,6 @@ FETCH_KEYS = re.compile(r"^remote\..+\.fetch$", re.I | re.S)
 FETCH_VALUED = identity.FETCH_VALUED
 FETCH_SHORT_VALUED, FETCH_SHORT_OPTIONAL = identity.FETCH_SHORT_VALUED, identity.FETCH_SHORT_OPTIONAL
 FETCH_REFMAP, FETCH_STDIN = "--refm", "--std"
-FETCH_NO_REF = (("--dry-run", "--dr"), ("--prefetch", "--pre"))
 GH_VALUED = {"-R", "--repo", "--hostname"}
 GH_COMMANDS = {"accessibility", "agent-task", "alias", "api", "attestation", "auth", "browse", "cache", "co",
                "codespace", "completion", "config", "copilot", "extension", "ext", "gist", "gpg-key", "help", "issue",
@@ -437,6 +436,7 @@ class Command:
         if len(self.text) > LONGEST:
             self.ask("budget_spent", "the command is longer than the hook reads")
             return self.found
+        self._seed()
         if ">(" in self.text:
             self.ask("command_unreadable", "a process substitution writes where the hook cannot follow")
         try:
@@ -470,15 +470,29 @@ class Command:
             if found:
                 self.ask("protected_path", "output is sent to %s, which is %s" % found)
 
+    def _seed(self):
+        """Read what the command sets in the environment unconditionally at the top level, once, before any command
+        runs, so a later assignment or an `unset` in a subshell, a condition, a pipeline or a function is not trusted
+        to change it. A name set in a way the hook cannot read (held in a variable, or set more than one way) stays
+        named, with no value, so a path that uses it is asked about."""
+        for kind, name, value in shell.trusted_assignments(self.text):
+            if kind == "unset":
+                self.assigned.discard(name)
+                self.known.pop(name, None)
+            else:
+                self.assign("%s=%s" % (name, value))
+        off_limits = shell.touched(self.text)
+        for name in list(self.known):
+            if name not in ("HOME", "TMPDIR", "CLAUDE_PROJECT_DIR") and (name in off_limits or "*" in off_limits):
+                self.known.pop(name, None)      # set more than one way, or through eval: its value is not read
+
     def simple(self, words: list, redirections: list):
         at = 0
         while at < len(words) and (words[at] in PREFIXES or ASSIGNMENT.match(words[at])):
             at += 1
-        given = [w for w in words[:at] if ASSIGNMENT.match(w)]
         if at == len(words):
-            for word in given:      # alone, an assignment holds for every command after it
-                self.assign(word)
-            return
+            return      # only assignments: _seed has read the ones that run unconditionally at the top level
+        given = [w for w in words[:at] if ASSIGNMENT.match(w)]
         restore = self.assign_for(given)        # before a program, for that program alone
         try:
             self.program(os.path.basename(words[at]), words[at + 1:], redirections)
@@ -506,16 +520,8 @@ class Command:
         if program in ("cd", "pushd", "popd"):
             self.here = None if program == "popd" or (args and args[0] == "-") else self.cd(args[0] if args else "~")
             return
-        if program in ("export", "local", "declare", "readonly", "typeset"):
-            for word in args:
-                if ASSIGNMENT.match(word):
-                    self.assign(word)
-            return
-        if program == "unset":
-            for name in [] if "-f" in args else [w for w in args if not w.startswith("-")]:
-                self.assigned.discard(name)
-                self.known.pop(name, None)
-            return
+        if program in ("export", "local", "declare", "readonly", "typeset", "unset"):
+            return      # _seed has read the assignments and unsets that run unconditionally at the top level
         if program in READS:
             return
         if program in OUTPUTS:
@@ -1011,19 +1017,43 @@ class Command:
 
     @staticmethod
     def _writes_no_ref(rest: list) -> bool:
-        """Whether a fetch's options say it writes no ref (--dry-run), or none but under refs/prefetch/ (--prefetch),
-        spelt whole or by a prefix no other of its options shares."""
-        options = [w.partition("=")[0] for w in rest[:rest.index("--") if "--" in rest else len(rest)]]
-        return any(o[:2] == "--" and len(o) >= len(least) and _spelt(o, name)
-                   for o in options for name, least in FETCH_NO_REF)
+        """Whether a fetch's options say it writes no ref: --dry-run writes none, --prefetch none but under
+        refs/prefetch/. The last of --dry-run/--no-dry-run (and of --prefetch/--no-prefetch) wins, and a word that
+        is the value of an option (-o, --server-option, …) is not read as one, so the option parser skips it."""
+        dry = pre = False
+        k = 0
+        while k < len(rest) and rest[k] != "--":
+            word = rest[k]
+            option = word.partition("=")[0]
+            if word[:2] == "--":
+                if "=" not in word and any(_spelt(option, name) for name in FETCH_VALUED):
+                    k += 1      # its value is the next word, not an option: --server-option --dry-run
+                elif _spelt(option, "--dry-run") and len(option) >= len("--dr"):
+                    dry = True
+                elif _spelt(option, "--prefetch") and len(option) >= len("--pre"):
+                    pre = True
+                elif _spelt(option, "--no-dry-run"):
+                    dry = False
+                elif _spelt(option, "--no-prefetch"):
+                    pre = False
+            elif word[:1] == "-" and len(word) > 1:
+                k += identity.takes_next(word, FETCH_SHORT_VALUED, FETCH_SHORT_OPTIONAL)
+            k += 1
+        return dry or pre
 
     def _configures_helper(self, setting: str, unread: bool, named: set) -> bool:
         """Whether `key=value` given to git -c names a helper: one that loads code from a place, or a program that is
-        not a reader. With `unread`, the value is not in the command, and any program is a helper."""
-        key, _, value = setting.partition("=")
+        not a reader. submodule.*.update names one only for a !cmd value, and a key set to nothing names none. With
+        `unread`, the value is not in the command, and any helper key names a helper."""
+        key, eq, value = setting.partition("=")
         key = key.strip()
-        return bool(GIT_HELPER_LOADS.match(key)) or bool(GIT_HELPER_KEYS.match(key) and (
-            unread or not self._reads_only(value, named)))
+        if GIT_HELPER_LOADS.match(key):
+            return True
+        if not GIT_HELPER_KEYS.match(key):
+            return False
+        if unread:
+            return True
+        return identity.names_program(key, bool(eq), value) and not self._reads_only(value, named)
 
     def _reads_only(self, program: str, named: set = frozenset()) -> bool:
         """Whether a helper git is given only reads: none, or `cat` or `less`, by their bare names, with no redirection,
@@ -1077,13 +1107,14 @@ def _deletes_remote(rest: list) -> bool:
 
 def _destination(spec: str):
     """The ref a fetch refspec writes, named as git names it (`main` is refs/heads/main, `remotes/x` refs/remotes/x),
-    or None when it writes none. refs/, heads/, tags/ and remotes/ are read in any case: Refs/tags/v1 is a tag."""
+    or None when it writes none. git reads the refs/, heads/, tags/ and remotes/ prefixes case-sensitively, so
+    `main:Refs/tags/v1` makes the branch refs/heads/Refs/tags/v1."""
     if ":" not in spec or spec.startswith("^"):
         return None
     target = spec.lstrip("+").rsplit(":", 1)[1]
-    if not target or target.casefold().startswith("refs/"):
+    if not target or target.startswith("refs/"):
         return target or None
-    return "refs/" + target if target.casefold().startswith(("heads/", "tags/", "remotes/")) else LOCAL_REF + target
+    return "refs/" + target if target.startswith(("heads/", "tags/", "remotes/")) else LOCAL_REF + target
 
 
 def _moves_local_branch(spec: str) -> bool:

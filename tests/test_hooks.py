@@ -19,7 +19,7 @@ import tempfile
 import time
 import unittest
 
-from tools.hooks import after_edit, before_stop, identity, protected, rules_changed
+from tools.hooks import after_edit, before_stop, identity, protected, rules_changed, shell
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOOKS = ROOT / "tools" / "hooks"
@@ -386,6 +386,13 @@ class Identity(unittest.TestCase):
                         "X=side git push origin $X:refs/heads/x",      # the shell reads $X before a prefix sets it
                         "X=$(git rev-parse side); git push origin $X:refs/heads/x",
                         "X=side; unset X; git push origin $X:refs/heads/x", "git push origin 'refs/heads/s*:refs/heads/x'",
+                        "X=side; Y=$X; git push origin ${Y}:refs/heads/x",      # a value that is itself a variable
+                        "X=work; false && X=clean; git push origin $X", "true || X=clean; git push origin $X",
+                        "(X=clean); git push origin $X", "X=clean | true; git push origin $X",
+                        'echo "$(X=clean)"; git push origin $X', "X=clean; read X </dev/null; git push origin $X",
+                        "X=clean; for X in work; do :; done; git push origin $X",
+                        "f() { X=work; }; X=clean; f; git push origin $X", "X=clean; printf -v X work; git push origin $X",
+                        "clean=work; declare -n X=clean; git push origin $X", "A=(work); git push origin $A",
                         "git push origin 'sid?:refs/heads/x'"):
             self.assertIn("push_commits_unreadable", self.refused(command, side), command)
         # $(git branch --show-current) is HEAD only where the push runs: not for a push with -C elsewhere.
@@ -395,7 +402,7 @@ class Identity(unittest.TestCase):
     def test_a_push_refspec_in_a_variable_the_command_set_is_read(self):
         side = self.a_side_branch()
         for command in ("X=side; git push origin $X:refs/heads/x", 'export X=side; git push origin "$X":refs/heads/x',
-                        "X=side; Y=$X; git push origin ${Y}:refs/heads/x", "declare -x X=side && git push origin +$X"):
+                        "X=side; git push origin ${X}:refs/heads/x", "declare -x X=side && git push origin +$X"):
             said = self.refused(command, side)
             self.assertIn("push_carries_another_identity", said, command)
             self.assertNotIn("push_commits_unreadable", said, command)
@@ -449,6 +456,64 @@ class Identity(unittest.TestCase):
                         "unset X; export GIT_ALLOW_PROTOCOL=ext; git log"):
             self.assertIn("command_unreadable", self.refused(command), command)
             self.assertIn("command_unreadable", [c for c, _ in protected.check(bash(command, self.here), env)], command)
+
+    def test_a_prefix_assignment_before_a_special_builtin_persists(self):
+        # A POSIX special built-in (`:`, export, readonly, …) keeps a variable the prefix sets; an ordinary one does not.
+        env = environment(self.path, CLAUDE_PROJECT_DIR=str(self.here))
+        for command in ("GIT_EXEC_PATH=./evilbin :; git ls-remote https://github.com/o/r.git",
+                        "GIT_ALLOW_PROTOCOL=ext :; git fetch", "GIT_EXEC_PATH=/tmp/x readonly Y; git status"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+        self.assertIn("protected_path", [c for c, _ in protected.check(
+            bash("GIT_INDEX_FILE=lifecycle/x :; git add -A", self.here), env)])     # a write place behind `:`
+        for command in ("GIT_EXEC_PATH=/x true; git status", "GIT_ALLOW_PROTOCOL=ext echo; git fetch"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+
+    def test_a_c_setting_a_directory_or_an_option_held_in_an_unreadable_variable_is_refused(self):
+        for command in ("C=core.fsmonitor=./x.sh; false && C=color.ui=auto; git -c $C status",
+                        "D=/bad; false && D=origin; git -C $D commit -m x",
+                        "P=--exec-path=/x; false && P=--no-pager; git $P status", "git -c $UNSET status"):
+            self.assertTrue(self.refused(command), command)
+        self.assertEqual(self.codes("C=color.ui=auto; git -c $C log", folder(), programs()), "")
+
+    def test_a_substitution_assigned_to_a_variable_still_reads_the_push_inside(self):
+        # The wrapper out=$(...) is not read as a push, but the push inside it is read as its own command.
+        side = self.a_side_branch()
+        for command in ("out=$(git push origin side 2>&1); echo \"$out\"", "X=$(git push origin side:refs/heads/y)"):
+            self.assertIn("push_carries_another_identity", self.refused(command, side), command)
+        for command in ("out=$(git push origin HEAD 2>&1); echo \"$out\"", "X=$(git commit --allow-empty -m y)",
+                        "COMMIT=$(git rev-parse HEAD); echo $COMMIT"):
+            self.assertEqual(self.codes(command), "", command)
+
+    def test_a_branch_variable_from_a_substitution_is_read_as_head(self):
+        for command in ("BRANCH=$(git branch --show-current); git push -u origin \"$BRANCH\"",
+                        "BRANCH=$(git rev-parse --abbrev-ref HEAD) && git push origin $BRANCH"):
+            self.assertEqual(self.codes(command), "", command)
+
+    def test_a_command_that_names_git_and_cannot_be_split_is_refused(self):
+        for command in ('echo $(echo "it'"'"'s"); git -c core.fsmonitor=./x.sh status',
+                        "git commit -m 'never closed", 'gh pr merge "oops'):
+            self.assertIn("command_unreadable", self.refused(command), command)
+        self.assertEqual(self.codes("echo 'just an unclosed", folder(), programs()), "")
+
+    def test_a_push_refspec_names_no_word_of_the_command_when_it_cannot_be_read(self):
+        said = self.refused("git push origin 'refs/heads/s*:refs/heads/x'", self.a_side_branch())
+        self.assertIn("push_commits_unreadable", said)
+        self.assertIn("wildcard", said)
+        self.assertNotIn("refs/heads/s", said)      # the refusal names no word of the command
+
+    def test_a_matching_refspec_reads_every_branch_the_remote_shares(self):
+        # HEAD is the Maintainer's clean branch; a matching push reads every branch, so side's commit is still seen.
+        side = self.a_side_branch()
+        for command in ("git push origin :", "git push origin +:"):
+            self.assertIn("push_carries_another_identity", self.refused(command, side), command)
+        self.assertEqual(self.codes("git push origin :", self.here), "")
+
+    def test_a_current_branch_spoof_with_more_than_the_substitution_is_refused(self):
+        side = self.a_side_branch()
+        for command in ('git push origin "$(git branch --show-current)":side',
+                        "git push origin $(git branch --show-current)$(echo x)",
+                        'git push origin "$(git branch --show-current || echo side)"'):
+            self.assertIn("push_commits_unreadable", self.refused(command, side), command)
 
     def test_a_push_as_the_machine_user_or_anyone_else_is_refused(self):
         self.assertIn("account_is_machine_user", self.refused("git push", FAKE_GH_USER=MACHINE))
@@ -1320,19 +1385,34 @@ class MergesAndSettings(Asks):
                                                          "--dry-run origin"):
             self.assertEqual(self.run_(command), "", command)
         for command in ("git fetch --dry-running origin main:main", "git fetch --pr origin main:main",
-                        "git fetch origin main:main -- --dry-run", "git fetch --depth 1 origin main:main"):
+                        "git fetch origin main:main -- --dry-run", "git fetch --depth 1 origin main:main",
+                        # The last of --dry-run/--no-dry-run wins, and a word that is an option's value is not a flag.
+                        "git fetch --dry-run --no-dry-run origin main:main", "git fetch -o --dry-run origin main:main",
+                        "git fetch --server-option --dry-run origin main:main",
+                        "git fetch --prefetch --no-prefetch origin main:main", "git pull --dry-run --no-dry-run origin m:m"):
             self.asked(self.run_(command), "local_branch", command)
 
-    def test_a_destination_is_read_without_regard_to_case(self):
-        for command in ("git fetch origin v1:Refs/tags/v1", "git fetch origin v1:Tags/v1", "git fetch origin v1:REFS/TAGS/v1"):
+    def test_a_shared_helper_key_runs_a_program_only_when_its_value_does(self):
+        # submodule.*.update runs a program only for a !cmd value; a key set to nothing runs none.
+        for command in ("git -c submodule.lib.update='!./x' submodule update", "git -c core.pager=./p log",
+                        "git -c filter.lfs.clean=./c status"):
+            self.asked(self.run_(command), "command_unreadable", command)
+        for command in ("git -c submodule.lib.update=rebase submodule update", "git -c submodule.lib.update=none status",
+                        "git -c core.askpass= fetch origin", "git -c core.pager= log", "git -c filter.lfs.process= status",
+                        "git -c filter.lfs.required=true status"):
             self.assertEqual(self.run_(command), "", command)
-        for command in ("git fetch origin main:Refs/remotes/origin/x", "git fetch origin main:Remotes/origin/x"):
-            said = self.run_(command)
-            self.asked(said, "remote_ref", command)
-            self.assertNotIn("local_branch", said, command)
-        # The refs/heads/ comparison is without regard to case too.
-        for command in ("git fetch origin main:Refs/heads/main", "git fetch origin main:HEADS/main",
-                        "git fetch origin main:REFS/HEADS/main"):
+
+    def test_a_destinations_ref_prefix_is_read_as_git_reads_it_case_sensitively(self):
+        # git reads refs/, heads/, tags/ and remotes/ case-sensitively, so a capitalised one is a branch name:
+        # main:Refs/tags/v1 makes refs/heads/Refs/tags/v1, which moves a local branch.
+        for command in ("git fetch origin v1:Refs/tags/v1", "git fetch origin main:Tags/v1",
+                        "git fetch origin main:Refs/remotes/origin/x", "git fetch origin main:Remotes/origin/x"):
+            self.asked(self.run_(command), "local_branch", command)
+        for command in ("git fetch origin v1:refs/tags/v1", "git fetch origin main:refs/remotes/origin/x",
+                        "git fetch origin main:remotes/origin/x"):
+            self.assertNotIn("local_branch", self.run_(command), command)
+        # Only the refs/heads/ comparison is without regard to case, since macOS writes refs/Heads/zz to refs/heads/zz.
+        for command in ("git fetch origin main:refs/heads/main", "git fetch origin main:refs/Heads/zz"):
             self.asked(self.run_(command), "local_branch", command)
 
     def test_a_write_to_a_ruleset_or_the_repos_settings_asks(self):
@@ -1557,3 +1637,38 @@ class Settings(unittest.TestCase):
                                  "rules_changed": ("Stop", None)})
         entries = {p.stem for p in HOOKS.glob("*.py") if "\ndef main(" in p.read_text()}
         self.assertEqual(entries, set(wired))
+
+
+class ShellReading(unittest.TestCase):
+    """shell.py reads the command's structure: here-documents, top-level assignments, and plain values."""
+
+    def test_a_here_document_body_is_not_read_as_commands(self):
+        kept = shell.without_heredocs("git commit -F - <<'EOF'\nthen git push\nEOF\nls")
+        self.assertNotIn("then git push", shell.without_heredocs(kept))
+        self.assertIn("ls", kept)
+        with self.assertRaises(ValueError):
+            shell.without_heredocs("cat <<EOF\nnever ended")
+
+    def test_only_a_plain_value_is_read(self):
+        for value in ("side", "refs/heads/main", "", "a-b_c.1"):
+            self.assertTrue(shell._plain(value), value)
+        for value in ("$X", "$(cmd)", "`cmd`", "a b", "a*", "a?", "a[b]", "{a,b}", "a'b", 'a"b', "a\\b"):
+            self.assertFalse(shell._plain(value), value)
+
+    def test_only_an_unconditional_top_level_assignment_is_trusted(self):
+        def sets(text):
+            return shell.environment(text)[0]
+
+        self.assertEqual(sets("X=side; Y=main")["X"], "side")
+        self.assertEqual(sets("export GIT_PAGER=cat")["GIT_PAGER"], "cat")
+        self.assertEqual(sets("A=1 :; B=2")["A"], "1")        # a prefix before the special built-in `:` persists
+        for text in ("false && X=side", "true || X=side", "(X=side)", "X=side | cat", "X=side & wait",
+                     "X=1 echo", "X=a; X=b", "for X in a; do :; done", "f() { X=v; }"):
+            self.assertNotIn("X", sets(text) if "X=" in text else sets("X=keep; " + text), text)
+
+    def test_a_variable_the_command_sets_twice_or_reads_is_not_known(self):
+        self.assertEqual(shell.touched("X=a; X=b") & {"X"}, {"X"})
+        self.assertEqual(shell.touched("read X < f") & {"X"}, {"X"})
+        self.assertEqual(shell.touched("for Y in a b; do :; done") & {"Y"}, {"Y"})
+        self.assertIn("*", shell.touched("eval X=a"))
+        self.assertEqual(shell.touched("X=a; echo $X"), set())

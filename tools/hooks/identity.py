@@ -83,14 +83,16 @@ GIT_CONFIG_FILE = re.compile(r"(^|/)\.git/config$|\.gitconfig$|(^|/)git/config$"
 KEYS = re.compile(r"^(user|author|committer|credential|url|remote|include|includeif|core\.sshcommand|alias|http)\b",
                   re.I)
 # Set in the command, each of these names a program git runs, or where it finds one. One list for both hooks:
-# protected.py's GIT_HELPER_KEYS is this. Some are in KEYS too, and are refused for that as well.
+# protected.py's GIT_HELPER_KEYS is this. Some are in KEYS too, and are refused for that as well. submodule.*.update
+# runs a program only when its value is !cmd, and any of these set to nothing runs none: _names_program reads that.
 PROGRAM_KEYS = re.compile(
     r"^(merge\..+\.driver|core\.(pager|editor|fsmonitor|hookspath|attributesfile|gitproxy|sshcommand|askpass|"
     r"alternaterefscommand)|pager\..+|sequence\.editor|interactive\.difffilter|diff\.external|"
-    r"diff\..+\.(textconv|command)|filter\..+|gpg\.(.+\.)?program|gpg\.ssh\.defaultkeycommand|"
+    r"diff\..+\.(textconv|command)|filter\..+\.(clean|smudge|process)|gpg\.(.+\.)?program|gpg\.ssh\.defaultkeycommand|"
     r"trailer\..+\.(cmd|command)|tar\..+\.command|(difftool|mergetool|man|browser)\..+\.(cmd|path)|"
     r"submodule\..+\.update|remote\..+\.(vcs|uploadpack|receivepack)|sendemail\.sendmailcmd|init\.templatedir|"
     r"uploadpack\.packobjectshook|protocol\.(.+\.)?allow)$", re.I | re.S)
+SUBMODULE_UPDATE = re.compile(r"^submodule\..+\.update$", re.I | re.S)
 # protocol.ext.allow lets the ext:: transport run the command its URL names, and any command may run a transport: a
 # fetch, or, in a partial clone, a lazy fetch of a missing object by cat-file, log or checkout. ssh.variant names no
 # program, only how git calls ssh, and is not refused.
@@ -138,15 +140,12 @@ REMOTE_SHORT = {"fetch": (FETCH_SHORT_VALUED, FETCH_SHORT_OPTIONAL), "pull": (FE
                 "clone": ("bjouc", ""), "ls-remote": ("ou", "")}
 ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")      # a word that sets a variable; protected.py reads it too
 VARIABLE = re.compile(r"\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))")
-PLAIN = re.compile(r"^[^\s$`*?\[\]{}'\"\\]*$")       # a value the shell puts in a word as it stands
-# Programs whose assignment words set a variable for every command after them, also behind a prefix (command export);
-# and those whose assignment words set the environment of the program they run alone: env, sudo, and, before git, the
-# wrappers and prefixes that run it (nohup env X=1 git). `unset` ends a variable.
-SETTERS = {"export", "declare", "typeset", "local", "readonly"}
+VARIABLE_WHOLE = re.compile(r"^\$\{?([A-Za-z_]\w*)\}?$")     # a word that is one variable and nothing else
+# shell.environment reads the command's variables fail-closed: only an assignment that runs unconditionally at the
+# top level of a plain ;/newline sequence, once, its value a plain word. env and sudo set the environment of the
+# program they run; before git, so do the wrappers and prefixes that run it (nohup env X=1 git).
+SETS_LOCALLY = {"env", "sudo"}
 RUNS_GIT = shell.WRAPPERS | shell.PREFIXES
-# A command substitution that names the branch the shell is on: run where the push runs, it is HEAD.
-CURRENT_BRANCH = re.compile(r"^\$\(\s*git\s+(branch\s+--show-current|rev-parse\s+--abbrev-ref\s+HEAD|"
-                            r"symbolic-ref\s+((-q|--quiet)\s+)?--short\s+HEAD)\s*\)$")
 WILDCARD = re.compile(r"[*?\[]")
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 IDENT = re.compile(r"^(.*) <(.*)> \d+ [+-]\d{4}$")
@@ -224,8 +223,8 @@ def _calls(commands: list, cwd, text: str) -> tuple:
     that commits, pushes or writes: an identity set in the command itself.
     """
     here = pathlib.Path(cwd) if cwd else None
+    values, present, branches = shell.environment(text)     # what the command leaves in the environment, fail-closed
     calls, always, inline, blind = [], [], [], False
-    kept = {}       # what earlier commands set for every command after them: a name, and its value or None if unread
     for words, targets in commands:
         inline += [("identity_set_in_command", "%s is set in the command; the hook reads only what is configured"
                     % w.split("=")[0]) for w in words if ENVIRONMENT.match(w)]
@@ -234,13 +233,7 @@ def _calls(commands: list, cwd, text: str) -> tuple:
         if not words:
             continue
         at = next((i for i, w in enumerate(words) if os.path.basename(w) in ("git", "gh")), None)
-        local, given, ended = assigned(words, at)
-        for name in ended:
-            kept.pop(name, None)
-        for name, value in given.items():
-            value = expand(value, kept)
-            kept[name] = value if PLAIN.match(value) else None
-        named = set(kept) | local       # what the command sets in the environment, on git or earlier in the command
+        named = present | _local(words, at)     # the environment git runs with: persisted, and set for it alone
         if words[0] in ("cd", "pushd"):
             here = _join(here, words[1]) if len(words) > 1 and words[1] != "-" else None
             continue
@@ -248,12 +241,13 @@ def _calls(commands: list, cwd, text: str) -> tuple:
         blind = blind or (program in SHELLS_AND_SOURCE and not any(w.startswith("-") and not w.startswith("--")
                                                                    and "c" in w for w in words[1:]))
         if at is None:
-            if program not in TEXT_ONLY and WRITE_TEXT.search(" ".join(words)):
+            # A substitution is read as a command of its own below; its text is not the wrapper's to read as a push.
+            if program not in TEXT_ONLY and WRITE_TEXT.search(" ".join(_bare(w) for w in words)):
                 always.append(("command_unreadable", "`%s` looks like a commit or push the hook cannot read as one"
                                % program))
             continue
-        # A word is expanded from what earlier commands set: the shell expands it before a prefix's assignment holds.
-        tool, rest = os.path.basename(words[at]), [expand(w, kept) for w in words[at + 1:]]
+        # A word is read with what the command set unconditionally put in for each variable it holds.
+        tool, rest = os.path.basename(words[at]), [expand(w, values) for w in words[at + 1:]]
         where, i, settings = here, 0, []
         while i < len(rest) and rest[i].startswith("-"):
             option, given, value = rest[i].partition("=")
@@ -277,8 +271,8 @@ def _calls(commands: list, cwd, text: str) -> tuple:
         words = rest[i:]
         if tool == "git":
             sub = words[0] if words else ""
-            if sub == "push" and where == here:       # the branch the shell is on, where the push runs
-                words = [sub] + ["HEAD" if CURRENT_BRANCH.match(w) else w for w in words[1:]]
+            if sub == "push" and where == here:       # the branch the shell is on, where the push runs, is HEAD
+                words = [sub] + [_branch_word(w, values, branches) for w in words[1:]]
             for option, value in settings:
                 always += _setting(option, value)
             always += _programs(sub, words[1:])
@@ -303,35 +297,47 @@ def _calls(commands: list, cwd, text: str) -> tuple:
     return calls, always, inline
 
 
-def assigned(words: list, git=None) -> tuple:
-    """(local, kept, ended) of a simple command's words, git at index `git` when it runs git: the names they set for
-    the program they run alone, the names and values they set for every command after them too, and the names they
-    unset.
+def _local(words: list, git) -> set:
+    """The names this one command sets in the environment of the git or gh at index `git`: assignments before it, and
+    those given to env or sudo, or, before git, to a wrapper that runs it (command env, nohup env, nice env). These
+    are set for this command alone, so they are read here and not across the command; shell.environment reads the
+    rest."""
+    if git is None:
+        return set()
+    names, at = set(), 0
+    while at < git and ASSIGNMENT.match(words[at]):
+        names.add(words[at].split("=")[0])
+        at += 1
+    for i in range(at, git):
+        first = os.path.basename(words[i])
+        if first in SETS_LOCALLY or first in RUNS_GIT or first in shell.PREFIXES:
+            names |= {w.split("=")[0] for w in words[i + 1:git] if ASSIGNMENT.match(w)}
+            break
+        break
+    return names
 
-    Local are the assignments before a program, and those given to env or sudo, or, before git, to a wrapper that
-    runs it (command env, nohup env, nice env). Kept are assignments with no program after them, and those given to
-    export, declare and the like, behind a prefix too (command export). Any other word is an argument, whatever it
-    looks like."""
-    at, kept, ended = 0, {}, set()
-    while at < len(words) and ASSIGNMENT.match(words[at]):
-        at += 1
-    pairs = [w.split("=", 1) for w in words[:at]]
-    if at == len(words):
-        return set(), dict(pairs), ended
-    local = {name for name, _ in pairs}
-    words = words if git is None else words[:git]       # git's own words set nothing
-    while git is None and at < len(words) - 1 and words[at] in shell.PREFIXES:
-        at += 1
-    if at == len(words):
-        return local, kept, ended
-    first, args = os.path.basename(words[at]), words[at + 1:]
-    if first in SETTERS:
-        kept.update(w.split("=", 1) for w in args if ASSIGNMENT.match(w))
-    elif first == "unset" and "-f" not in args:
-        ended |= {w for w in args if not w.startswith("-")}
-    elif first in ("env", "sudo") or (git is not None and first in RUNS_GIT):
-        local |= {w.split("=")[0] for w in args if ASSIGNMENT.match(w)}
-    return local, kept, ended
+
+def _bare(word: str) -> str:
+    """`word` with each command substitution, $(...) or `...`, taken out: its text is read as a command of its own."""
+    out, i = [], 0
+    while i < len(word):
+        if word.startswith("$(", i):
+            i = shell._balanced(word, i + 2, ")")
+        elif word[i] == "`":
+            i = shell._balanced(word, i + 1, "`")
+        else:
+            out.append(word[i])
+            i += 1
+    return "".join(out)
+
+
+def _branch_word(word: str, values: dict, branches: set) -> str:
+    """A push refspec word that names the branch the shell is on, read as HEAD: the current-branch substitution, or a
+    variable the command set to it. Otherwise the word, variables it holds put in."""
+    whole = VARIABLE_WHOLE.match(word)
+    if shell.CURRENT_BRANCH.match(word) or (whole and whole.group(1) in branches):
+        return "HEAD"
+    return expand(word, values)
 
 
 def remote_helper(sub: str, words: list, given: list) -> bool:
@@ -342,13 +348,12 @@ def remote_helper(sub: str, words: list, given: list) -> bool:
     return sub in TAKES_REMOTE and any(REMOTE_HELPER.match(w.partition("=")[2] if w[:2] == "--" else w) for w in given)
 
 
-def expand(word: str, kept: dict) -> str:
-    """The word with each variable put in that an earlier command set to a plain value; as it is, when one is not."""
-    if not _expands(word):
+def expand(word: str, values: dict) -> str:
+    """The word with each variable the command set to a plain value put in; left as it is where a variable's value
+    is not read, so that a word that still expands is treated as one the hook cannot read."""
+    if "$" not in word:
         return word
-    out = VARIABLE.sub(lambda m: "\0" if kept.get(m.group(1) or m.group(2)) is None else kept[m.group(1) or m.group(2)],
-                       word)
-    return word if "\0" in out or _expands(out) else out
+    return VARIABLE.sub(lambda m: values.get(m.group(1) or m.group(2), m.group(0)), word)
 
 
 def remotes(sub: str, words: list) -> list:
@@ -435,7 +440,9 @@ def _quoted(text: str) -> str:
             if end is None:
                 return text
             inner = text[i + (1 if c == "`" else 2):end]
-            out.append("'$(%s)'" % inner if "'" not in inner else '"$(%s)"' % inner)
+            # One double-quoted word holding $(inner): inside it shlex reads only \ and ", so escaping those keeps
+            # inner's own quotes literal and the word intact, whatever inner holds.
+            out.append('"$(%s)"' % inner.replace("\\", "\\\\").replace('"', '\\"'))
             i = end + 1
             continue
         out.append(c)
@@ -468,17 +475,31 @@ def _closed(text: str, i: int, end: str):
     return None
 
 
+def names_program(key: str, valued: bool, value: str) -> bool:
+    """Whether a configuration key set to `value` (given at all, `valued`) names a program git runs: a helper key,
+    but submodule.*.update only for a !cmd value, and none when it is set to nothing."""
+    if not PROGRAM_KEYS.match(key):
+        return False
+    if valued and value == "":
+        return False        # core.askpass= and the like set no program
+    if SUBMODULE_UPDATE.match(key):
+        return value.startswith("!")        # a built-in checkout/rebase/merge/none runs nothing
+    return True
+
+
 def _setting(option: str, value: str, keys: bool = True) -> list:
-    """Why git's -c or --config-env `value` is refused: what the hook reads from configuration (with `keys`), or a
-    program git runs."""
+    """Why git's -c or --config-env `value` is refused: a variable the hook cannot read, what it reads from
+    configuration (with `keys`), or a program git runs."""
     problems = []
+    if "$" in value or "`" in value:
+        return [("command_unreadable", "git %s is set from a variable or a command the hook cannot read" % option)]
     if keys and KEYS.match(value):
         problems.append(("identity_set_in_command", "git %s %s sets in the command what the hook reads from "
                                                     "configuration" % (option, value.split("=")[0])))
     key, valued, setting = value.partition("=")
     plain = option == "-c" and ((setting in PAGERS and not LOAD_KEYS.match(key)) or (
         SWITCHES.match(key) is not None and (not valued or setting.lower() in BOOLEANS)))
-    if (PROGRAM_KEYS.match(key) and not plain) or LOAD_KEYS.match(key):
+    if (names_program(key, bool(valued), setting) and not plain) or LOAD_KEYS.match(key):
         problems.append(("command_unreadable", "git %s %s sets a program git runs, which the hook cannot read"
                          % (option, key)))
     return problems
@@ -633,8 +654,11 @@ def _remotes(reader: Reader, where, remote, who: dict, machine: str) -> list:
 def _commits(reader: Reader, where, args: list, refspecs: list, who: dict) -> list:
     """Every commit the push would send that no remote has yet is the Maintainer's, as author and as committer. A
     refspec held in a variable or a command, or with a wildcard, the hook cannot read; a mirror sends every ref."""
-    sources = []
+    sources, matching = [], False
     for spec in refspecs:
+        if spec in (":", "+:"):
+            matching = True     # a matching refspec pushes every branch the two share: read them all
+            continue
         source = (spec[1:] if spec.startswith("+") else spec).split(":")[0]
         if source.startswith("-"):      # never hand the hook's own git an option from the command
             raise Unreadable("the push names a refspec that starts with '-': %s" % spec)
@@ -644,13 +668,16 @@ def _commits(reader: Reader, where, args: list, refspecs: list, who: dict) -> li
             raise Unreadable("a refspec of the push has a wildcard, which the hook does not expand")
         if source:
             sources.append(source)
-    shas = [reader.run("git", ["rev-parse", "--verify", "--end-of-options", source + "^{commit}"], where).strip()
-            for source in sources or ["HEAD"]]
     options = [a.partition("=")[0] for a in args if a[:2] == "--"]
     given = [name for name in ("--mirror", "--all", "--branches", "--tags")
              if any(shell.spelt(option, name) for option in options)]
-    pseudo = ["--all"] if "--mirror" in given else ["--branches"] if {"--all", "--branches"} & set(given) else []
-    pseudo += ["--tags"] if "--tags" in given else []
+    if "--mirror" in given:     # every ref under refs/, refs/stash and refs/notes/* among them
+        pseudo = ["--all", "--glob=refs/stash", "--glob=refs/notes/*"]
+    else:
+        pseudo = ["--branches"] if (matching or {"--all", "--branches"} & set(given)) else []
+        pseudo += ["--tags"] if "--tags" in given else []
+    shas = [reader.run("git", ["rev-parse", "--verify", "--end-of-options", source + "^{commit}"], where).strip()
+            for source in sources or ([] if pseudo else ["HEAD"])]
     log = reader.run("git", ["log", "--format=%an%x00%ae%x00%cn%x00%ce"] + pseudo +
                      ["--not", "--remotes", "--not", "--end-of-options"] + shas, where)
     mine = [who["name"], who["email"], who["name"], who["email"]]
@@ -688,9 +715,10 @@ def check(payload: dict, env: dict, seconds: float = DEADLINE) -> list:
     try:
         commands = shell.simple_commands(_quoted(shell.without_heredocs(command)))
     except ValueError as err:
-        if WRITE_TEXT.search(command):
-            return [("command_unreadable", "the command cannot be split into words (%s), so who would commit or push "
-                                           "cannot be read. Write the message to a file and use git commit -F" % err)]
+        # The command cannot be split into words. If it names git or gh at all, what it does cannot be read.
+        if re.search(r"(?<![\w.-])(git|gh)(?![\w.-])", command):
+            return [("command_unreadable", "the command cannot be split into words (%s), so what git or gh would do "
+                                           "cannot be read. Write any message to a file and use git commit -F" % err)]
         return []
     calls, problems, inline = _calls(commands, payload.get("cwd"), command)
     writes = [c for c in calls if c[3]]
