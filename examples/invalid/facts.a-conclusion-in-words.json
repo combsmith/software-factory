@@ -72,6 +72,7 @@
   ],
   "queue": false,
   "acts_since_writer": 2,
+  "acceptance": null,
   "complete": {
     "reviews": true,
     "threads": true,

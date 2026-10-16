@@ -71,6 +71,7 @@
     }
   ],
   "queue": false,
+  "acceptance": null,
   "complete": {
     "reviews": true,
     "threads": true,

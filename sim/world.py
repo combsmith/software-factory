@@ -55,6 +55,9 @@ PAUSES = {0: True, 3: None}
 PAUSE_FOR = 80
 # The Holds the brakes place at a ceiling. Under a Pause they are not reached: the Pause defers first (decision 0003).
 CEILINGS = ("attempts_exhausted", "run_ceiling", "max_rounds", "act_ceiling")
+# On three seeds in seven the item has an acceptance contract (design §3.13), of this many criteria, by the seed alone.
+# Seeds 1 and 2, which the tests set worlds up from by hand, have none.
+CONTRACTS = {0: 3, 3: 1, 5: 2}
 
 
 class Broken(AssertionError):
@@ -108,6 +111,12 @@ class World:
         self.made = set()          # each transition a change made, as (from, to, by)
         self.trace = []
         self.model_runs = 0
+        # The acceptance contract's criteria, or None for an item with none, and every result a Lens has given for one,
+        # with the content it was given on. A result stays when the content changes: it is then evidence for other
+        # content. What concerns the contract draws from its own generator, so that a world with none stays as it was.
+        self.criteria = ["AC-%d" % (i + 1) for i in range(CONTRACTS.get(seed % 7, 0))] or None
+        self.evidence = []
+        self.judge = random.Random("acceptance %d" % seed)
         self.true_state = None     # the State the Kernel gives what GitHub holds now, after the last change
         self.starts()
 
@@ -151,6 +160,9 @@ class World:
             "queue": self.queue,
             # GitHub: the_timeline_shows_each_act
             "acts_since_writer": self.acts,
+            # GitHub: an_acceptance_result_names_its_content
+            "acceptance": None if self.criteria is None else {
+                "criteria": list(self.criteria), "evidence": copy.deepcopy(self.evidence), "complete": True},
             "complete": {"reviews": True, "threads": True, "checks": True, "diff": True, "runs": True,
                          "timeline": True},
             "read_at": self.now(),
@@ -256,7 +268,18 @@ class World:
             out.append("a required check that failed or gave no verdict")
         if self.impostors:
             out.append("another App's check under a required Lens's name")
+        if not self.accepted(self.criteria, self.evidence, self.cid()):
+            out.append("a criterion with no passing evidence on this content")
         return out
+
+    @staticmethod
+    def accepted(criteria, evidence: list, content: str) -> bool:
+        """Whether every criterion has a passing result on `content` and none failing, in the world's own words; an
+        item with no contract asks nothing (I-31)."""
+        if criteria is None:
+            return True
+        said = [(ev["criterion"], ev["result"]) for ev in evidence if ev["content_id"] == content]
+        return all((c, "passing") in said and (c, "failing") not in said for c in criteria)
 
     def note(self, what: str):
         self.trace.append("%s %s" % (self.now(), what))
@@ -324,6 +347,15 @@ class World:
             runs = runs[self.pick(range(1, len(runs) + 1)):]
             facts["complete"]["runs"] = False
         self.stale = (copy.deepcopy(facts), copy.deepcopy(runs))
+        if facts["acceptance"] is not None and self.faults and self.judge.random() < 0.15:
+            # The contract cannot be read: it was read short, or a result names a criterion it does not.
+            if self.judge.random() < 0.5:
+                # GitHub: a_short_acceptance_read_says_so
+                facts["acceptance"]["complete"] = False
+            else:
+                # GitHub: a_result_can_name_a_criterion_the_contract_does_not
+                facts["acceptance"]["evidence"].append({"criterion": "AC-%d" % (len(self.criteria) + 1),
+                                                        "content_id": facts["content_id"], "result": "passing"})
         wrong = validate(facts, FACTS_SCHEMA)
         self.check(not wrong, "facts are valid: %s" % "; ".join(wrong))
         d = decide(facts, runs, self.context(), CONFIG, self.now())
@@ -343,6 +375,18 @@ class World:
             self.check((d["attention"] == t.STALE) == (waited > limit),
                        "I-1 a %s item that waited %d minutes of %d shown as %s" % (d["state"], waited, limit,
                                                                                    d["attention"]))
+        acceptance = facts["acceptance"]
+        if acceptance is not None:
+            # An item with a contract converges, and stays in the queue, only with a passing result for every criterion
+            # on the content it was read at, read whole: evidence for other content counts for nothing, and a contract
+            # that cannot be read converges nothing, and is the Maintainer's to see (I-31, I-13).
+            readable = acceptance["complete"] and all(ev["criterion"] in acceptance["criteria"]
+                                                      for ev in acceptance["evidence"])
+            ok = readable and self.accepted(acceptance["criteria"], acceptance["evidence"], facts["content_id"])
+            self.check(ok or d["state"] not in (t.CONVERGED, t.QUEUED),
+                       "I-31 %s with a criterion lacking passing evidence" % d["state"])
+            self.check(d["reason"] != "acceptance_unreadable" or (not readable and d["attention"] == t.NEEDS_YOU),
+                       "unreadable acceptance evidence is not shown as needing a person")
         whole = all(facts["complete"].values())
         # A read that fails stops work: it defers, or takes a queued item out of the merge queue (I-13).
         dequeue = d["outcome"] == t.ACT and d["action"] == "dequeue"
@@ -588,7 +632,24 @@ class World:
             self.note("an App added hands-off")
         return True
 
+    def gives_evidence(self) -> bool:
+        """A Lens gives the result for a criterion of the contract that has none on this content yet: passing, or, while
+        faults are on, now and then failing, which sends the content back to its author. A result carries no time of its
+        own, so it moves nothing: a wait for evidence counts from the check or the Run before it."""
+        given = {ev["criterion"] for ev in self.evidence if ev["content_id"] == self.cid()}
+        lacking = [c for c in self.criteria if c not in given]
+        if not lacking:
+            return False
+        criterion = lacking[int(self.judge.random() * len(lacking))]
+        result = "failing" if self.faults and self.judge.random() < 0.15 else "passing"
+        self.evidence.append({"criterion": criterion, "content_id": self.cid(), "result": result})
+        self.note("evidence %s: %s on %s" % (criterion, result, self.cid()))
+        self.caused("lens")
+        return True
+
     def platform(self):
+        if self.criteria is not None and self.judge.random() < 0.2 and self.gives_evidence():
+            return
         if self.faults and self.meddler.random() < 0.03 and self.an_app_meddles():
             self.caused(self.by_of(AUTHOR_APP))
         live = [rv for rv in self.reviews if rv["by"]["name"] == MAINTAINER["name"] and rv["state"] != "dismissed"]
@@ -751,6 +812,8 @@ class World:
             ok = any(rv["by"]["name"] == CONFIG["approver"] and rv["state"] == "approved"
                      and rv["content_id"] == self.cid() for rv in self.reviews)
             self.check(ok, "NFR-4 merged without an approval of the merged content")
+            self.check(self.accepted(self.criteria, self.evidence, self.cid()),
+                       "I-31 merged with a criterion lacking passing evidence on the merged content")
         since = [r for r in self.runs if (self.last_writer is None or r["started_at"] > self.last_writer)
                  and r["outcome"] != "superseded"]
         # A landed approval is an act, counted below; every other Run, a failed approval among them, is spent.

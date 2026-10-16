@@ -72,5 +72,14 @@ the deterministic Lenses alone, they are its only judge.
 | Every category of Finding has exactly one owner | `tools/check_authority.py` |
 | A rubric is data with a schema | `schemas/rubric.schema.json`, `tools/check_examples.py` |
 | A reviewing Result reports on every criterion that applies | waiting on `harness/` |
-| With an acceptance contract, every criterion has passing evidence on the current content | waiting on `harness/` |
+| With an acceptance contract, every criterion has passing evidence on the current content | `tests/test_decide.py::test_with_a_contract_it_converges_only_when_every_criterion_has_passing_evidence` |
+| Evidence given on other content does not count, passing or failing | `tests/test_decide.py::test_evidence_for_other_content_does_not_count` |
+| A failing result for a criterion on this content goes back to the author, as a failed check does, and is read before a criterion still waiting for its evidence | `tests/test_decide.py::test_a_failing_criterion_goes_back_to_the_author` |
+| An item with no acceptance contract converges as it did before contracts were read | `tests/test_decide.py::test_an_item_with_no_contract_converges_as_it_did` |
+| A contract or a result that cannot be read, or that was read short, or facts that say nothing of a contract, never converge: the Kernel defers for the Maintainer | `tests/test_decide.py::test_unreadable_acceptance_never_converges`, `examples/invalid/facts.no-word-on-acceptance.json`, `examples/invalid/facts.no-completeness-for-acceptance.json`, `examples/invalid/facts.an-acceptance-result-in-words.json`, `examples/invalid/facts.acceptance-evidence-without-its-content.json`, `examples/invalid/facts.an-acceptance-contract-with-no-criteria.json` |
+| The facts carry a contract's criteria by id, never their statements | `examples/invalid/facts.acceptance-carries-prose.json` |
+| The contract is read after the other three conditions of Convergence and before the approval | `tests/test_decide.py::test_acceptance_is_read_after_every_other_condition_of_convergence` |
+| A queued item whose evidence is gone, is for other content, fails or cannot be read leaves the merge queue | `tests/test_decide.py::test_a_queued_item_whose_evidence_goes_missing_or_unreadable_leaves_the_queue`, `tests/test_simulator.py::test_a_queued_item_whose_evidence_is_gone_is_taken_out_before_it_merges` |
+| A wait for evidence is a wait in `verifying`, and goes stale past its limit | `tests/test_decide.py::test_a_wait_for_acceptance_evidence_goes_stale` |
+| The port reads the contract at the head, and each result for a criterion with the content it ran on, from the check that gave it | waiting on `adapters/` |
 | No manifest names another Role's output as a trigger | waiting on `roles/` |

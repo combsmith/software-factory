@@ -475,6 +475,62 @@ MUTANTS = [
      '    if config["approver"] in (facts["author"], facts["last_pusher"]):\n'
      '        return {"state": t.HELD, "reason": "approver_is_author_or_last_pusher", "evidence": []}\n'
      "    # Every gate before the approval: a standing approval never passes over a person's objection.\n"),
+    # Convergence's fourth condition: the acceptance contract (I-31).
+    ("a criterion with no passing evidence converges", "kernel/derive.py",
+     '    if said == "missing":\n', "    if False:\n"),
+    ("evidence for other content counts", "kernel/derive.py",
+     '\n                and ev["content_id"] == facts["content_id"]}', "}"),
+    ("a failing criterion converges", "kernel/derive.py",
+     '    if said == "failing":\n', "    if False:\n"),
+    ("a failing criterion is read as a wait for its evidence", "kernel/derive.py",
+     '    if fails:\n        return "failing", fails\n', ""),
+    ("a failure beside a pass on the same content is passed over", "kernel/derive.py",
+     'if "failing" in said[c]]', 'if said[c] == {"failing"}]'),
+    ("a criterion still waiting is read before a failing one", "kernel/derive.py",
+     '    if fails:\n        return "failing", fails\n',
+     '    if fails and len(fails) == len(contract["criteria"]):\n        return "failing", fails\n'),
+    ("a failed criterion admits no fix Run", "kernel/decide.py",
+     ',\n                                              "acceptance_failed")', ")"),
+    ("unreadable acceptance is trusted", "kernel/derive.py",
+     '    if said == "unreadable":\n', "    if False:\n"),
+    ("facts with no acceptance are read as no contract", "kernel/derive.py",
+     '    if "acceptance" not in facts:\n        return "unreadable", []\n',
+     '    if "acceptance" not in facts:\n        return "none", []\n'),
+    ("an acceptance contract read short is trusted", "kernel/derive.py",
+     '    if not isinstance(contract, dict) or contract.get("complete") is not True:\n',
+     "    if not isinstance(contract, dict):\n"),
+    ("a contract with no criteria converges", "kernel/derive.py",
+     "isinstance(criteria, list) and criteria and all(", "isinstance(criteria, list) and all("),
+    ("a criterion named twice is read", "kernel/derive.py",
+     "    if len(set(criteria)) != len(criteria) or not isinstance(results, list):\n",
+     "    if not isinstance(results, list):\n"),
+    ("a result for a criterion the contract does not name is passed over", "kernel/derive.py",
+     ' and ev["criterion"] in criteria\n', "\n"),
+    ("a result in a word the Kernel does not know is passed over", "kernel/derive.py",
+     ' and ev.get("result") in t.EVIDENCE_RESULTS for ev in results)', " for ev in results)"),
+    ("a result whose content cannot be read is passed over", "kernel/derive.py",
+     'and isinstance(ev.get("content_id"), str) and', "and"),
+    ("unreadable acceptance is not the Maintainer's to see", "kernel/decide.py",
+     '    "acceptance_unreadable",\n', ""),
+    ("a queued item waiting for its evidence stays in the queue", "kernel/derive.py",
+     '    if said == "missing":\n', '    if said == "missing" and "awaiting_review" not in past:\n'),
+    ("acceptance is read before the gates", "kernel/derive.py",
+     "    # Every gate before the approval: a standing approval never passes over a person's objection.\n",
+     "    said, criteria = acceptance_reading(facts)\n"
+     '    if said == "missing":\n'
+     '        return {"state": t.VERIFYING, "reason": "acceptance_evidence_missing", "evidence": criteria}\n'
+     "    # Every gate before the approval: a standing approval never passes over a person's objection.\n"),
+    ("acceptance is read before the checks", "kernel/derive.py",
+     "    # Deterministic Lenses first: a model's time is not spent on content they reject.\n",
+     "    said, criteria = acceptance_reading(facts)\n"
+     '    if said == "unreadable":\n'
+     '        return {"state": None, "reason": "acceptance_unreadable", "evidence": []}\n'
+     "    # Deterministic Lenses first: a model's time is not spent on content they reject.\n"),
+    ("acceptance is read after the approver Hold", "kernel/derive.py",
+     "    # Then the acceptance contract, where the item has one:",
+     '    if config["approver"] in (facts["author"], facts["last_pusher"]):\n'
+     '        return {"state": t.HELD, "reason": "approver_is_author_or_last_pusher", "evidence": []}\n'
+     "    # Then the acceptance contract, where the item has one:"),
     ("an unreadable pause is read as no pause", "kernel/brakes.py",
      'if context.get("paused") is False:', 'if not context.get("paused"):'),
     ("attempts are unlimited", "kernel/brakes.py",

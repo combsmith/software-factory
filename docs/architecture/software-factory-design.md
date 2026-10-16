@@ -327,6 +327,7 @@ for contract tests, so one schema has three uses.
 | `alerts` | Tool, rule, alert number, state, severity, path |
 | `queue` | Merge-queue membership |
 | `acts_since_writer` | Count of acts that landed since the last action by a person with write access, from GitHub's timeline: each approval, enqueue, dequeue and label a Factory identity made with no model Run |
+| `acceptance` | The acceptance contract of §3.13 that the head carries, or null where there is none: each criterion by id, never its statement; each result read for a criterion, `passing` or `failing`, with the `content_id` of the content its check ran on (§4.8); and whether all of it was read whole. Convergence's fourth condition is read from it (§4.2), and a contract that cannot be read converges nothing |
 | `read_at`, `quota_remaining` | When it was read, and what the installation has left |
 | `complete` | For each list above, whether every page was read; whether the diff behind `content_id` was whole; `runs`, whether the list of run records the pass read was whole; and `timeline`, whether the timeline behind `acts_since_writer` and `label_events` was read in full |
 

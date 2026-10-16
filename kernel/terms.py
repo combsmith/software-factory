@@ -64,6 +64,9 @@ BOT_SUFFIX = "[bot]"
 REVIEW_STATES = ("approved", "changes_requested", "commented", "dismissed")
 # What a dismissed review was before, as the timeline records it.
 DISMISSED_FROM = ("approved", "changes_requested", "commented")
+# What one result for a criterion of an acceptance contract says: schemas/facts.schema.json names them too. Any other
+# word, or none, cannot be read.
+EVIDENCE_RESULTS = ("passing", "failing")
 # Classes of pull request whose author is an App: an agent's, or a dependency update's.
 BOT_CLASSES = ("agent", "dependency")
 
