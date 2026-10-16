@@ -1,9 +1,10 @@
 # 0016. What the session hooks decide without reading
 
-Status: proposed. The Maintainer accepts it by merging it, or strikes a row. It settles three items of
-"Session hooks: git options that run a program, or move a local branch" (issue 90), under the
-working ruling on "Session hooks that refuse: protected paths, merging, and the repo's own rules"
-(issue 23): a hook guards against mistakes, and the Stop check and the rulesets are the boundary.
+Status: replaced by `docs/decisions/0017-the-session-hooks-read-every-commit-a-push-sends.md`, which holds the
+rule in force and its boundaries. It settled three items of "Session hooks: git options that run a
+program, or move a local branch" (issue 90), under the working ruling on "Session hooks that refuse:
+protected paths, merging, and the repo's own rules" (issue 23): a hook guards against mistakes, and
+the Stop check and the rulesets are the boundary.
 
 ## Decision
 

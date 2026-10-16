@@ -15,10 +15,14 @@ about, and one it misreads is caught by state: `rules_changed.py` lists, at ever
 protected path the branch has changed.
 
 A helper given to git in the command, a program it runs, is asked about unless it is cat or less
-read-only. One that runs a script (core.pager='sh x.sh') is decided (decision 0016): it is asked
+read-only. One that runs a script (core.pager='sh x.sh') is decided (decision 0017): it is asked
 about as any program is, since the hook reads words, never a file. A fetch whose refspec writes
-under refs/heads/ moves a local branch, and asks. GIT_OBJECT_DIRECTORY, GIT_ALTERNATE_OBJECT_DIRECTORIES and
-GIT_INDEX_FILE set in the command are places git writes, and are read as paths the command writes.
+under refs/heads/ moves a local branch, and asks, unless it writes no ref (--dry-run, --prefetch); a
+destination's refs/, heads/, tags/ and remotes/ are read in any case. GIT_OBJECT_DIRECTORY and
+GIT_INDEX_FILE set in the command, before git or given to a wrapper that runs it, are places git
+writes, read as paths the command writes from where git runs (its -C); an alternate's objects are
+read, never written. A variable set before a program is set for that program alone; one set alone,
+or by export and the like, holds for what follows until unset.
 
 A protected path is protected in the project and in each worktree under `.claude/worktrees/`, and,
 outside them, wherever a path's last parts are a protected path, since another clone's branch can
@@ -94,20 +98,15 @@ GIT_READS |= {"check-mailmap", "check-ref-format", "get-tar-commit-id", "merge-t
               "verify-pack"}    # plumbing that reads; and commit-graph when it verifies, in _git
 GIT_VALUED = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}
 # Environment that names a place git writes, for any command: True for a list of directories, False for a file.
-GIT_WRITE_ENVIRONMENT = {"GIT_OBJECT_DIRECTORY": True, "GIT_ALTERNATE_OBJECT_DIRECTORIES": True,
-                         "GIT_INDEX_FILE": False}
+# GIT_ALTERNATE_OBJECT_DIRECTORIES is not one: git reads an alternate's objects and never writes them.
+GIT_WRITE_ENVIRONMENT = {"GIT_OBJECT_DIRECTORY": True, "GIT_INDEX_FILE": False}
 # Every git command the hooks know: another is an alias, or an extension, which the hook cannot read.
 GIT_KNOWN = identity.WRITES | identity.RUNNERS | identity.OTHERS | GIT_READS | {"symbolic-ref", "update-ref"}
 PUSH_VALUED = {"-o", "--push-option", "--receive-pack", "--exec", "--repo"}
 # A helper given in the command: a program git runs, which the hook does not read. git configuration whose value is
-# the program; configuration that always asks, since it loads code from a place or names a program git finds
-# (credential.helper=cat runs git-credential-cat); options and environment that name the program.
-GIT_HELPER_KEYS = re.compile(
-    r"^(core\.(pager|editor|fsmonitor|sshcommand|askpass|gitproxy|alternaterefscommand)|pager\..+|sequence\.editor|"
-    r"interactive\.difffilter|diff\.external|diff\..+\.(command|textconv)|filter\..+\.(clean|smudge|process)|"
-    r"merge\..+\.driver|(difftool|mergetool|man|browser)\..+\.cmd|submodule\..+\.update|tar\..+\.command|"
-    r"remote\..+\.(uploadpack|receivepack)|gpg\.(.+\.)?program|gpg\.ssh\.defaultkeycommand|"
-    r"uploadpack\.packobjectshook|sendemail\.sendmailcmd|trailer\..+\.(cmd|command))$", re.I | re.S)
+# the program, one list with identity.py's; configuration that always asks, since it loads code from a place or
+# names a program git finds (credential.helper=cat runs git-credential-cat); options and environment that name it.
+GIT_HELPER_KEYS = identity.PROGRAM_KEYS
 GIT_HELPER_LOADS = identity.LOAD_KEYS
 # Options that name the program, or always ask, are identity.py's HELPER_OPTIONS, read by identity.programs_given.
 GIT_HELPER_ENV = re.compile(r"^(GIT_EXTERNAL_DIFF|GIT_PAGER|PAGER|GIT_EDITOR|GIT_SEQUENCE_EDITOR|EDITOR|VISUAL|GIT_SSH|"
@@ -132,12 +131,12 @@ REMOTE_REF = "refs/remotes/"
 LOCAL_REF = "refs/heads/"
 # Configuration that holds the refspecs a fetch with none of its own follows.
 FETCH_KEYS = re.compile(r"^remote\..+\.fetch$", re.I | re.S)
-# fetch's and pull's options that take the next word as their value, long and short; and the shortest prefixes of
-# --refmap and --stdin that no other of their options shares (--ref is also --refetch, --st also --stat).
-FETCH_VALUED = ("--depth", "--deepen", "--shallow-since", "--shallow-exclude", "--server-option", "--upload-pack",
-                "--jobs", "--negotiation-tip", "--filter", "--submodule-prefix", "--strategy", "--strategy-option",
-                "--exec")
-FETCH_SHORT_VALUED = "ojsX"
+# fetch's and pull's options that take the next word as their value, long and short, and the short ones whose value
+# is only what is attached (pull -rmerges, -Skeyid), as identity.py reads them; the shortest prefixes of --refmap and
+# --stdin that no other of their options shares (--ref is also --refetch, --st also --stat); and of the options with
+# which a fetch writes no ref, or none but under refs/prefetch/ (--d is also --depth, --pr also --prune).
+FETCH_VALUED = identity.FETCH_VALUED
+FETCH_SHORT_VALUED, FETCH_SHORT_OPTIONAL = identity.FETCH_SHORT_VALUED, identity.FETCH_SHORT_OPTIONAL
 FETCH_REFMAP, FETCH_STDIN = "--refm", "--std"
 GH_VALUED = {"-R", "--repo", "--hostname"}
 GH_COMMANDS = {"accessibility", "agent-task", "alias", "api", "attestation", "auth", "browse", "cache", "co",
@@ -437,6 +436,7 @@ class Command:
         if len(self.text) > LONGEST:
             self.ask("budget_spent", "the command is longer than the hook reads")
             return self.found
+        self._seed()
         if ">(" in self.text:
             self.ask("command_unreadable", "a process substitution writes where the hook cannot follow")
         try:
@@ -470,23 +470,65 @@ class Command:
             if found:
                 self.ask("protected_path", "output is sent to %s, which is %s" % found)
 
+    def _seed(self):
+        """Read what the command sets in the environment, once, before any command is read (shell.trusted_assignments):
+        a trusted assignment with its value; any other that may persist (in a condition, a body, a group) named with
+        no value; an unset only when it runs unconditionally at the top level before any git or gh, since one after
+        a git command came too late for it. A name set in a way the hook cannot read stays named, with no value, so a
+        path or a helper that uses it is asked about."""
+        for kind, name, value in shell.trusted_assignments(self.text):
+            if kind == "unset":
+                self.assigned.discard(name)
+                self.known.pop(name, None)
+            elif kind == "maybe":
+                self.assigned.add(name)
+                self.known.pop(name, None)
+            else:
+                self.assign("%s=%s" % (name, value))
+        for name in shell.assigned_elsewhere(self.text):      # ${X:=v}, $((X=1)), let X=1
+            self.assigned.add(name)
+            self.known.pop(name, None)
+        off_limits = shell.touched(self.text)
+        for name in list(self.known):
+            if name not in ("HOME", "TMPDIR", "CLAUDE_PROJECT_DIR") and (name in off_limits or "*" in off_limits):
+                self.known.pop(name, None)      # set more than one way, or through eval: its value is not read
+
     def simple(self, words: list, redirections: list):
         at = 0
         while at < len(words) and (words[at] in PREFIXES or ASSIGNMENT.match(words[at])):
-            if ASSIGNMENT.match(words[at]):
-                self.assign(words[at])
             at += 1
         if at == len(words):
-            return
-        program, args = os.path.basename(words[at]), words[at + 1:]
+            return      # only assignments: _seed has read the ones that run unconditionally at the top level
+        given = [w for w in words[:at] if ASSIGNMENT.match(w)]
+        restore = self.assign_for(given)        # before a program, for that program alone
+        try:
+            self.program(os.path.basename(words[at]), words[at + 1:], redirections)
+        finally:
+            restore()
+
+    def assign_for(self, words: list):
+        """Assign these words for one command; what is returned, called, puts back what was there before."""
+        names = [w.split("=", 1)[0] for w in words]
+        before = {name: (name in self.assigned, self.known.get(name), name in self.known) for name in names}
+        for word in words:
+            self.assign(word)
+
+        def restore():
+            for name, (was, value, known) in before.items():
+                if not was:
+                    self.assigned.discard(name)
+                if known:
+                    self.known[name] = value
+                else:
+                    self.known.pop(name, None)
+        return restore
+
+    def program(self, program: str, args: list, redirections: list):
         if program in ("cd", "pushd", "popd"):
             self.here = None if program == "popd" or (args and args[0] == "-") else self.cd(args[0] if args else "~")
             return
-        if program in ("export", "local", "declare", "readonly"):
-            for word in args:
-                if ASSIGNMENT.match(word):
-                    self.assign(word)
-            return
+        if program in ("export", "local", "declare", "readonly", "typeset", "unset"):
+            return      # _seed has read the assignments and unsets that run unconditionally at the top level
         if program in READS:
             return
         if program in OUTPUTS:
@@ -509,8 +551,17 @@ class Command:
                 self.reader(args[args.index("-m") + 2:], OUTPUTS.get(kind, set()), writes_from)
                 return
             args = _without_script(program, args)
-        if program != "git" and any(os.path.basename(w) == "git" for w in args) and self._git_environment(self.here):
-            return      # a wrapper's git writes where the environment says, too
+        tool = next((i for i, w in enumerate(args) if os.path.basename(w) == "git"), None)
+        if program != "git" and tool is not None:
+            # A wrapper's git writes where the environment says, too, the wrapper's own assignments among it (env
+            # GIT_INDEX_FILE=x git), read from where git runs.
+            restore = self.assign_for([w for w in args[:tool] if ASSIGNMENT.match(w)] if program in WRAPPERS else [])
+            try:
+                asked = self._git_environment(self._git_start(args[tool + 1:], self.here)[0])
+            finally:
+                restore()
+            if asked:
+                return
         handler = getattr(self, "_" + program.replace("-", "_"), None) if program in HANDLED else None
         if handler:
             handler(program, args)
@@ -639,8 +690,9 @@ class Command:
 
     _mv = _install = _cp
 
-    def _git(self, program: str, args: list):
-        here, i, tree_unknown = self.here, 0, False
+    def _git_start(self, args: list, here) -> tuple:
+        """(where git runs, by each -C, the index of its command in `args`, whether it is pointed at another tree)."""
+        i, tree_unknown = 0, False
         while i < len(args) and args[i].startswith("-"):
             option, given, value = args[i].partition("=")
             if option in GIT_VALUED and not given:
@@ -651,6 +703,10 @@ class Command:
             elif option in ("--git-dir", "--work-tree"):
                 tree_unknown = True
             i += 1
+        return here, i, tree_unknown
+
+    def _git(self, program: str, args: list):
+        here, i, tree_unknown = self._git_start(args, self.here)
         sub, rest = (args[i], args[i + 1:]) if i < len(args) else ("", [])
         if self._git_environment(here):
             return
@@ -890,12 +946,17 @@ class Command:
         if sub and sub not in GIT_KNOWN:
             self.ask("command_unreadable", "git is given a command the hook does not know; it may be an alias")
             return
-        # A remote helper's URL runs git-remote-<transport>, or for ext:: the command it names.
-        helper = helper or identity.remote_helper(sub, args, rest)
+        # A remote helper's URL runs git-remote-<transport>, or for ext:: the command it names. A word in a variable is
+        # read from what an earlier command set it to (URL=ext::x; git fetch "$URL").
+        helper = helper or identity.remote_helper(sub, [self.expand(w) or w for w in args],
+                                                  [self.expand(w) or w for w in rest])
         if sub in ("fetch", "pull"):
             # A refspec in a variable is read from what the command set it to; one the hook cannot read asks.
             fetched += [spec if spec is None or not ("$" in spec or "`" in spec) else self.expand(spec)
                         for spec in self._refspecs(rest)]
+        no_ref = sub in ("fetch", "pull") and self._writes_no_ref(rest)     # it writes no local or remote ref
+        if no_ref:
+            fetched = []
         if any(spec is None or _moves_local_branch(spec) for spec in fetched):
             self.ask("local_branch", "git fetch moves a local branch, or reads where it goes from where the hook "
                                      "cannot, and it may be %s" % branch)
@@ -910,7 +971,8 @@ class Command:
             self.ask("merge", "git remote changes where a push goes, which may be %s" % branch)
         if sub == "update-ref" and any(REMOTE_REF in w or w == "--stdin" for w in rest):
             self.ask("remote_ref", "git update-ref writes a ref under refs/remotes/, which a stop compares the branch with")
-        elif sub == "fetch" and len(names) > 1 and not all(_own_branch(names[0], spec) for spec in names[1:]):
+        elif sub == "fetch" and not no_ref and len(names) > 1 and not all(_own_branch(names[0], spec) for spec in [
+                self.expand(w) or w if ("$" in w or "`" in w) else w for w in names[1:]]):    # S=a:b; fetch o "$S"
             self.ask("remote_ref", "git fetch writes a ref under refs/remotes/ from what is not that remote's branch "
                                    "of the same name, and a stop compares the branch with it")
         elif sub == "branch" and _deletes_remote(rest) and any(n.casefold().startswith("origin/") for n in names):
@@ -955,20 +1017,52 @@ class Command:
                 elif not given and any(_spelt(option, name) for name in FETCH_VALUED):
                     k += 1      # its value: --shallow-since "2024-01-01 10:00"
             elif word[:1] == "-" and len(word) > 1:
-                at = next((i for i, c in enumerate(word[1:], 1) if c in FETCH_SHORT_VALUED), None)
-                k += at == len(word) - 1        # -o a:b: the value is the next word; -oa:b holds it
+                # -o a:b: the value is the next word; -oa:b holds it, and so does -rmerges, whatever letters follow.
+                k += identity.takes_next(word, FETCH_SHORT_VALUED, FETCH_SHORT_OPTIONAL)
             else:
                 positional.append(word)
             k += 1
         return found + positional[1:]
 
+    @staticmethod
+    def _writes_no_ref(rest: list) -> bool:
+        """Whether a fetch's options say it writes no ref: --dry-run writes none, --prefetch none but under
+        refs/prefetch/. The last of --dry-run/--no-dry-run (and of --prefetch/--no-prefetch) wins, and a word that
+        is the value of an option (-o, --server-option, …) is not read as one, so the option parser skips it."""
+        dry = pre = False
+        k = 0
+        while k < len(rest) and rest[k] != "--":
+            word = rest[k]
+            option = word.partition("=")[0]
+            if word[:2] == "--":
+                if "=" not in word and any(_spelt(option, name) for name in FETCH_VALUED):
+                    k += 1      # its value is the next word, not an option: --server-option --dry-run
+                elif _spelt(option, "--dry-run") and len(option) >= len("--dr"):
+                    dry = True
+                elif _spelt(option, "--prefetch") and len(option) >= len("--pre"):
+                    pre = True
+                elif _spelt(option, "--no-dry-run"):
+                    dry = False
+                elif _spelt(option, "--no-prefetch"):
+                    pre = False
+            elif word[:1] == "-" and len(word) > 1:
+                k += identity.takes_next(word, FETCH_SHORT_VALUED, FETCH_SHORT_OPTIONAL)
+            k += 1
+        return dry or pre
+
     def _configures_helper(self, setting: str, unread: bool, named: set) -> bool:
         """Whether `key=value` given to git -c names a helper: one that loads code from a place, or a program that is
-        not a reader. With `unread`, the value is not in the command, and any program is a helper."""
-        key, _, value = setting.partition("=")
+        not a reader. submodule.*.update names one only for a !cmd value, and a key set to nothing names none. With
+        `unread`, the value is not in the command, and any helper key names a helper."""
+        key, eq, value = setting.partition("=")
         key = key.strip()
-        return bool(GIT_HELPER_LOADS.match(key)) or bool(GIT_HELPER_KEYS.match(key) and (
-            unread or not self._reads_only(value, named)))
+        if GIT_HELPER_LOADS.match(key):
+            return True
+        if not GIT_HELPER_KEYS.match(key):
+            return False
+        if unread:
+            return True
+        return identity.names_program(key, bool(eq), value) and not self._reads_only(value, named)
 
     def _reads_only(self, program: str, named: set = frozenset()) -> bool:
         """Whether a helper git is given only reads: none, or `cat` or `less`, by their bare names, with no redirection,
@@ -1022,7 +1116,8 @@ def _deletes_remote(rest: list) -> bool:
 
 def _destination(spec: str):
     """The ref a fetch refspec writes, named as git names it (`main` is refs/heads/main, `remotes/x` refs/remotes/x),
-    or None when it writes none."""
+    or None when it writes none. git reads the refs/, heads/, tags/ and remotes/ prefixes case-sensitively, so
+    `main:Refs/tags/v1` makes the branch refs/heads/Refs/tags/v1."""
     if ":" not in spec or spec.startswith("^"):
         return None
     target = spec.lstrip("+").rsplit(":", 1)[1]
