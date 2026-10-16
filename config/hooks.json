@@ -22,7 +22,9 @@
     {"path": ".git/info/grafts", "is": "git's grafts, which change the history a stop compares the branch with"}
   ],
   "reported": [
-    {"path": "kernel/", "is": "the Kernel: the gate function, the severities that gate, and the brakes"}
+    {"path": "kernel/", "is": "the Kernel: the gate function, the severities that gate, and the brakes"},
+    {"path": "docs/decisions/", "is": "a decision record, which is never edited, only replaced"},
+    {"path": "tools/check_decisions.py", "is": "the check that holds a decision record to that"}
   ],
   "merging": {
     "branch": "main",

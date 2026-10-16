@@ -1,17 +1,21 @@
 """A decision record states what is decided now; to change one, add a record that replaces it.
 
-Each record in `docs/decisions/` that the base holds is compared with this working tree: its
-Decision and its Why, word for word but for where the lines break. A change to either is refused
-unless the same change sets that record's Status to name, as "replaced by" and a path in
-backticks, a later record that exists. A new record is always allowed, and so is any change to
-Boundaries: a row is added when the check for it is written, and that changes nothing decided.
+Each record in `docs/decisions/` that the base holds is compared with this working tree, all of it
+but two parts. Its Status may change once, in the change that replaces it, and only to "replaced
+by" and the path, in backticks, of the record that replaces it: a record new in that change, whose
+own Status says it replaces this one. After that the Status is fixed too. Its Boundaries may gain
+rows, and a row's Check cell may change, since a row is added when the check for it is written and
+that changes nothing decided; no row is taken away and no Boundary cell is changed. Everything
+else, the title, the Decision and the Why among it, stays line for line as it was. A new record is
+always allowed. In every record there is one `Status:` line, the first after the title, and no
+HTML comment, which hides text from a reader; and nothing in `docs/decisions/` is a link.
 
 The base is the merge base of HEAD and refs/remotes/origin/main, named in full, read as the Stop
 hook reads it (`tools/hooks/rules_changed.py`): git's replacement refs, grafts and commit graph off.
-CI checks out the whole history for it. With a `.git` here and no base to read, a shallow clone,
-no origin, no git, the check fails: it never passes what it could not compare. With no `.git` at
-all the tree is an export, which has no history, and the comparison is skipped; `verify` says so.
-CI's checkout always writes `.git`, so CI cannot skip it.
+CI checks out the whole history for it. With a `.git` here, a directory or a worktree's file, and no
+base to read, a shallow clone, no origin, no git, the check fails: it never passes what it could not
+compare. With no `.git` at all the tree is an export, which has no history, and the comparison is
+skipped; `verify` says so. In GitHub Actions a missing `.git` fails, so CI cannot skip it.
 """
 from __future__ import annotations
 
@@ -21,16 +25,20 @@ import re
 import shutil
 import subprocess
 
-from tools.check_context import _sections
+from tools.check_context import _cells
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASE = "refs/remotes/origin/main"
 NO_GRAFTS = "/dev/null/grafts"      # a path that cannot exist: below a file, not a directory
 SECONDS = 30                        # for each git command
 FOLDER = "docs/decisions"
-HELD = ("Decision", "Why")
-REPLACED = re.compile(r"replaced by `(%s/(\d{4})-[^`/]+\.md)`" % FOLDER)
+PATH = r"`(%s/(\d{4})-[^`/\s]+\.md)`" % FOLDER
+# How decision 0012 says it was replaced, from the start of its Status: the path, then a comma, a stop or the end.
+REPLACED = re.compile(r"^Status: replaced by %s(?=[,.]|$)" % PATH)
+# How decision 0015 says what it replaces: one record, or a list of them, straight after its own Status.
+REPLACES = re.compile(r"^Status: accepted\. Replaces (`[^`]+`(?:(?:, and |, | and )`[^`]+`)*)")
 NUMBER = re.compile(r"^(\d{4})-")
+BOUNDARIES = "## Boundaries"
 
 
 class Unreadable(Exception):
@@ -58,6 +66,8 @@ def _git(root: pathlib.Path, *args: str) -> str:
 def base(root: pathlib.Path = ROOT):
     """The commit the records are compared with; None in an export, which has no `.git`. Raises Unreadable."""
     if not os.path.lexists(str(root / ".git")):
+        if os.environ.get("GITHUB_ACTIONS"):
+            raise Unreadable("there is no .git, and in GitHub Actions the checkout always writes one")
         return None
     if _git(root, "rev-parse", "--is-shallow-repository").strip() != "false":
         raise Unreadable("this clone is shallow")
@@ -83,55 +93,121 @@ def _recorded(root: pathlib.Path, at: str) -> dict:
             for name in names if name.endswith(".md") and name.count("/") == FOLDER.count("/") + 1}
 
 
-def _words(text: str) -> str:
-    return " ".join(text.split())
+def _words(lines: list) -> str:
+    return " ".join(" ".join(lines).split())
 
 
-def _status(text: str) -> str:
-    """The Status paragraph: from the line that opens "Status:" to the first blank line."""
-    lines = text.splitlines()
-    start = next((i for i, line in enumerate(lines) if line.startswith("Status:")), None)
-    if start is None:
+def parse(text: str):
+    """(status, rest, rows) of a record, or a sentence saying why it cannot be read as one.
+
+    `status` is the Status paragraph, its words joined by single spaces. `rows` is the Boundary
+    cells, all but the Check, of each row of the first table under Boundaries. `rest` is every other
+    line, as it stands but for space at its end, with the blank lines at the end of the file left out.
+    """
+    lines = [line.rstrip() for line in text.splitlines()]
+    if "<!--" in text:
+        return "it holds an HTML comment, which hides text from a reader"
+    starts = [i for i, line in enumerate(lines) if line.startswith("Status:")]
+    first = next((i for i in range(1, len(lines)) if lines[i]), None)
+    if len(starts) != 1 or starts[0] != first:
+        return "it must have one line that opens 'Status:', the first after the title"
+    end = next((i for i in range(first, len(lines)) if not lines[i]), len(lines))
+    heads = [i for i, line in enumerate(lines) if line == BOUNDARIES]
+    if len(heads) != 1 or heads[0] < end:
+        return "it must have one line '%s', after its Status" % BOUNDARIES
+    region = lines[heads[0]:]
+    top = next((i for i, line in enumerate(region) if line.startswith("|")), len(region))
+    bottom = next((i for i in range(top, len(region)) if not region[i].startswith("|")), len(region))
+    body = range(top + 2, bottom)       # the first table's rows, below its header and the line under it
+    rows = [tuple(" ".join(cell.split()) for cell in _cells(region[i])[:-1]) for i in body]
+    rest = lines[:first] + lines[end:heads[0]] + [line for i, line in enumerate(region) if i not in body]
+    while rest and not rest[-1]:
+        rest.pop()
+    return _words(lines[first:end]), rest, rows
+
+
+def _status(rel: str, old: str, new: str, before: dict, root: pathlib.Path) -> str:
+    """Why the Status at `rel` may not change from `old` to `new`, or "" when it may."""
+    if new == old:
         return ""
-    end = next((i for i in range(start, len(lines)) if not lines[i].strip()), len(lines))
-    return _words("\n".join(lines[start:end]))
-
-
-def _not_replaced(rel: str, old: str, new: str, root: pathlib.Path) -> str:
-    """Why this change does not replace the record at `rel`, or "" when it does."""
-    if REPLACED.search(_status(old)):
-        return "its Status named the record that replaces it before this change, so it is the rule as it was"
-    named = REPLACED.search(_status(new))
+    if REPLACED.match(old):
+        return "its Status named the record that replaces it, and is fixed from then on"
+    named = REPLACED.match(new)
     if named is None:
-        return "its Status names no record that replaces it, as 'replaced by' and the path in backticks"
-    if not (root / named.group(1)).is_file():
-        return "its Status names %s, which does not exist" % named.group(1)
+        return ("its Status changes only to say what replaces it: 'Status: replaced by' and the path in backticks, "
+                "as decision 0012's does")
+    path, number = named.group(1), named.group(2)
     own = NUMBER.match(rel.rsplit("/", 1)[-1])
-    if own is None or named.group(2) <= own.group(1):
-        return "its Status names %s, which is not a later record" % named.group(1)
+    if path in before:
+        return "it names %s, which is not new in this change; the record that replaces it is" % path
+    target = root / path
+    if target.is_symlink() or not target.is_file():
+        return "it names %s, which does not exist" % path
+    if own is None or number <= own.group(1):
+        return "it names %s, which is not a later record" % path
+    said = parse(target.read_text(encoding="utf-8", errors="replace"))
+    listed = REPLACES.match(said[0]) if isinstance(said, tuple) else None
+    if listed is None or rel not in re.findall(r"`([^`]+)`", listed.group(1)):
+        return "%s's Status does not say it replaces this one: 'Status: accepted. Replaces' and its path" % path
     return ""
 
 
+def _boundaries(old: list, new: list) -> str:
+    """Why the Boundaries rows may not change from `old` to `new`, or "" when they may."""
+    left = list(new)
+    for row in old:
+        if row not in left:
+            return ("the row '%s' is gone or its Boundary changed; a row is only added, or its Check changed"
+                    % " | ".join(row))
+        left.remove(row)
+    return ""
+
+
+def _linked(root: pathlib.Path) -> list:
+    folder = root / FOLDER
+    if folder.is_symlink():
+        return ["%s: is a link; the records are files here, which this check reads" % FOLDER]
+    entries = sorted(folder.iterdir()) if folder.is_dir() else []
+    return ["%s: is a link; a record is a file, which this check reads where it stands" % p.relative_to(root).as_posix()
+            for p in entries if p.is_symlink()]
+
+
 def run(root: pathlib.Path = ROOT) -> list:
+    problems = _linked(root)
+    folder = root / FOLDER
+    current = {}
+    for path in sorted(folder.glob("*.md")) if folder.is_dir() and not folder.is_symlink() else []:
+        rel = path.relative_to(root).as_posix()
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            current[rel] = parse(path.read_text(encoding="utf-8"))
+        except UnicodeDecodeError:
+            current[rel] = "it is not UTF-8"
+        if isinstance(current[rel], str):
+            problems.append("%s: %s" % (rel, current[rel]))
     try:
         at = base(root)
         before = _recorded(root, at) if at else {}
     except Unreadable as err:
-        return ["the decision records cannot be compared with the merge base of HEAD and %s (%s); fetch main's "
-                "whole history (git fetch --unshallow origin, or git fetch origin main) and run again" % (BASE, err)]
-    problems = []
-    for rel, old in sorted(before.items()):
-        path = root / rel
-        if not path.is_file():
+        return problems + ["the decision records cannot be compared with the merge base of HEAD and %s (%s); fetch "
+                           "main's whole history (git fetch --unshallow origin, or git fetch origin main) and run "
+                           "again" % (BASE, err)]
+    for rel, text in sorted(before.items()):
+        old, new = parse(text), current.get(rel)
+        if new is None:
             problems.append("%s: is gone; a record is never removed or renamed, so restore it, and add a record "
                             "that replaces it" % rel)
             continue
-        new = path.read_text(errors="replace")
-        parts_old, parts_new = dict(_sections(old, "## ")), dict(_sections(new, "## "))
-        changed = [name for name in HELD if _words(parts_old.get(name, "")) != _words(parts_new.get(name, ""))]
-        why = _not_replaced(rel, old, new, root) if changed else ""
+        if isinstance(new, str):
+            continue        # said above
+        if isinstance(old, str):
+            problems.append("%s: the base's copy cannot be read as a record (%s), so it cannot be compared" % (rel, old))
+            continue
+        why = [w for w in (_status(rel, old[0], new[0], before, root),
+                           "its title, Decision or Why changed" if old[1] != new[1] else "",
+                           _boundaries(old[2], new[2])) if w]
         if why:
-            problems.append("%s: its %s changed, and %s; a record's Decision and Why are never edited, so restore "
-                            "them, and add a record that replaces it and name that record in this one's Status"
-                            % (rel, " and ".join(changed), why))
+            problems.append("%s: %s; a record is never edited, only replaced: restore it, add a record that replaces "
+                            "it, and set this one's Status to 'replaced by' and that record's path" % (rel, "; ".join(why)))
     return problems

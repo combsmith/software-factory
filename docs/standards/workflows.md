@@ -2,7 +2,8 @@
 
 Each rule shows its example first, then says what holds it. Every rule has workflows that break
 it, and only it, under `examples/workflows/invalid/`. A workflow is written in a narrow form the
-check can read: block style, bare keys, one key to a line. Any other spelling is refused. An org standard is cited from combsmith/.github at commit 9e2daad, by file and heading.
+check can read: block style, bare keys, one key to a line. Any other spelling is refused.
+An org standard is cited from combsmith/.github at commit 9e2daad, by file and heading.
 
 ## The whole of a good workflow
 
@@ -60,8 +61,7 @@ jobs:
       contents: read       # then only what this job needs
 ```
 
-No personal access token, and no `secrets: inherit`. Every checkout sets
-`persist-credentials: false`.
+No personal access token, no `secrets: inherit`; every checkout sets `persist-credentials: false`.
 
 Org standard: ci-standards.md, "Permissions Policy". Refusing a personal token and inherited secrets departs from github-settings.md, "Required secrets (all repos)": decision 0014.
 Held by: `examples/workflows/invalid/permissions.none-declared.yml`, `examples/workflows/invalid/token.a-persons-token.yml`, `examples/workflows/invalid/credentials.a-token-left-on-disk.yml`

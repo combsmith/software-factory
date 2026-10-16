@@ -11,7 +11,7 @@ Build from the sections the design's own section 1.2 calls rules, and never from
 | Every rule names its check. One whose check cannot exist yet says "waiting on" and a reserved directory in backticks | `tests/test_tools.py::test_a_rule_with_no_check_is_caught`, `tests/test_tools.py::test_a_rule_whose_wait_is_over_is_caught` |
 | `standards/`: one page each, at most 120 lines. Each section is an example in a code fence, then the rule, then a line starting "Held by:". No page for review | `tests/test_tools.py::test_a_standard_with_prose_and_no_example_is_caught` |
 | `decisions/`: one decision to a file, numbered from 0001 with no gap, with sections Decision, Why and Boundaries | `tests/test_tools.py::test_a_decision_with_no_boundary_is_caught` |
-| `decisions/`: a record's Decision and Why are never edited. Add a record that replaces it, and set the old one's Status to "replaced by" and the new one's path. A new record, or any change to Boundaries, is allowed | `tools/check_decisions.py` |
+| `decisions/`: a record is never edited. A new one replaces it, its Status saying so; the old Status then says "replaced by" and its path, and is fixed. Boundaries only gain rows or change a Check cell | `tools/check_decisions.py` |
 | `lessons.md`: a failure that happened, its rule, its check, on lines starting "**Failure.**", "**Rule.**" and "**Check.**" | `tests/test_tools.py::test_a_lesson_with_no_check_is_caught` |
 | An issue or pull request is given by its title in quotes, then its number in words | `tests/test_tools.py::test_a_number_without_its_title_is_caught` |
 | A secret is named, never written | `tools/check_repo.py` |
