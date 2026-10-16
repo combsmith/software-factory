@@ -254,8 +254,16 @@ def lens_workflows(root: pathlib.Path) -> list:
     config = root / "config" / "defaults.json"
     if not config.is_file():
         return []
+    try:
+        lenses = json.loads(config.read_text())["required_lenses"]["deterministic"]
+    except (OSError, ValueError, KeyError, TypeError) as err:
+        return ["config/defaults.json: required_lenses.deterministic cannot be read, so no Lens's workflow file can be "
+                "checked: %r" % err]
+    if not isinstance(lenses, list) or not all(isinstance(lens, dict) for lens in lenses):
+        return ["config/defaults.json: required_lenses.deterministic is not a list of Lenses, so no Lens's workflow "
+                "file can be checked"]
     problems = []
-    for lens in json.loads(config.read_text())["required_lenses"]["deterministic"]:
+    for lens in lenses:
         rel, where = lens.get("workflow"), "config/defaults.json: the Lens %s" % lens.get("lens")
         actions = lens.get("app_id") == ACTIONS_APP and type(lens.get("app_id")) is int
         if actions and not isinstance(rel, str):
@@ -268,6 +276,9 @@ def lens_workflows(root: pathlib.Path) -> list:
         path = root / rel
         if not path.is_file():
             problems.append("%s is read from %s, which does not exist" % (where, rel))
+            continue
+        if not isinstance(lens.get("check"), str):
+            problems.append("%s names no check, so its workflow file cannot be read for it" % where)
             continue
         problems += ["%s is read from %s, which %s" % (where, rel, why)
                      for why in lens_job_problems(path.read_text(errors="replace"), lens["check"])]

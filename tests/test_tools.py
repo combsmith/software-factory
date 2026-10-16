@@ -999,6 +999,18 @@ class Workflows(unittest.TestCase):
             root = clone({"config/defaults.json": json.dumps(cfg, indent=2) + "\n"})
             self.assertTrue(caught(check_workflows.run(root), said), lens["lens"])
 
+    def test_an_unreadable_lens_table_is_a_problem_and_the_check_goes_on(self):
+        # A check collects every problem: a broken config/defaults.json is reported, and the workflows are still read.
+        bad = (ROOT / "examples" / "workflows" / "invalid" / "pin.a-tag-can-move.yml").read_text()
+        for text, said in (("{", "cannot be read"), ("{}", "cannot be read"),
+                           ('{"required_lenses": {"deterministic": [1]}}', "is not a list of Lenses"),
+                           ('{"required_lenses": {"deterministic": [{"lens": "verify", "app_id": 15368, '
+                            '"workflow": ".github/workflows/verify.yml"}]}}', "names no check")):
+            problems = check_workflows.run(tree({"config/defaults.json": text, ".github/workflows/verify.yml": GOOD,
+                                                 ".github/workflows/x.yml": bad, "examples/workflows/verify.yml": GOOD}))
+            self.assertTrue(caught(problems, said), text)
+            self.assertTrue(caught(problems, ".github/workflows/x.yml: [pin]"), text)
+
     def test_a_live_workflow_is_held_to_the_rules(self):
         bad = (ROOT / "examples" / "workflows" / "invalid" / "pin.a-tag-can-move.yml").read_text()
         problems = check_workflows.run(tree({".github/workflows/x.yml": bad, "examples/workflows/verify.yml": GOOD}))
