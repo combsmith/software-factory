@@ -1098,7 +1098,7 @@ class TheList(unittest.TestCase):
                 for end in ("", "/a", "/a/b.json", "x", ".bak"):
                     for path in (stem.rstrip("/") + end, "x/" + stem.rstrip("/") + end):
                         corpus |= {path, path.upper(), path.title()}
-        corpus = sorted(p for p in corpus if derive.readable_paths([p], 1))
+        corpus = sorted(p for p in corpus if derive.readable_name(p))
         self.assertGreater(len(corpus), 1000)
         for pattern in patterns:
             whole = protected.entries([(pattern, "")])[0][3]

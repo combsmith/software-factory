@@ -9,8 +9,8 @@ import unittest
 
 from kernel import derive
 from kernel.decide import decide
-from tests.support import (CONFIG, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, ROOT, config, context,
-                           contract, evidence, facts, labelled, review, run, thread, unlabelled)
+from tests.support import (CONFIG, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, ROOT, changed, config,
+                           context, contract, evidence, facts, labelled, review, run, thread, unlabelled)
 from tools.jsonschema_lite import validate
 
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
@@ -85,8 +85,13 @@ def example(pattern: str) -> str:
 
 
 def changing(**over) -> dict:
-    """Facts for a pull request whose diff has one file: any readable list of the paths it changes names it."""
-    return facts(diff={"files": 1, "lines": 40, "truncated": False}, **over)
+    """Facts for a pull request that changes `changed_paths`, given as paths, a rename or a copy as (path, previous):
+    one file of the diff for each. Anything that is no list is given as it is, with one file in the diff."""
+    paths = over.pop("changed_paths")
+    if isinstance(paths, list):
+        paths = [changed(*p) if isinstance(p, tuple) else changed(p) for p in paths]
+    files = len(paths) if isinstance(paths, list) and paths else 1
+    return facts(changed_paths=paths, diff={"files": files, "lines": 40, "truncated": False}, **over)
 
 
 def later(time: str, minutes: int) -> str:
@@ -2340,11 +2345,25 @@ class TheFactorysOwnRules(unittest.TestCase):
         self.assertTrue(derive.matches("Makefile", "MAKEFILE"))
         self.assertFalse(derive.matches("config/rubric-*.json", "config/rubric-a/b.json"))
 
+    def test_a_pattern_of_several_stars_matches_each_piece_in_order_once(self):  # I-45
+        # Each piece between the stars is found in its order, no two overlap, and a star stands for nothing across a
+        # `/`, between pieces as at the ends.
+        cfg = config(protected_paths=["a*b*c", "x*x"])
+        for path in ("abc", "axbyc", "abbc", "xx", "xyx", "XAX"):
+            d = go(changing(**DEPENDENCY, changed_paths=[path]), cfg=cfg)
+            self.assertEqual(d["reason"], "awaiting_review", path)
+        for path in ("axc", "acb", "a/xbc", "ab/c", "x", "xa", "a"):
+            d = go(changing(**DEPENDENCY, changed_paths=[path]), cfg=cfg)
+            self.assertEqual(d["reason"], "approval_due", path)
+        self.assertFalse(derive.matches("a*a", "a"))
+        self.assertTrue(derive.matches("a*a", "aa"))
+
     def test_either_name_of_a_rename_counts(self):  # I-45
         # A rename or a copy gives both of its names: a file moved onto the list, or off it, changes the list.
-        for paths in (["docs/pin.yml", PIN], [PIN, "docs/pin.yml"]):
+        for paths in ([(PIN, "docs/pin.yml")], [("docs/pin.yml", PIN)], [("docs/a.md", None), ("docs/pin.yml", PIN)]):
             d = self.waits_for_review(paths)
             self.assertEqual(d["evidence"], ["pr-review", ".github/"], paths)
+        self.converges([("docs/new.md", "docs/old.md")])
 
     def test_a_dependency_update_to_a_workflow_pin_needs_the_model_review(self):  # I-45, decision 0018
         # The dependency bot edits the pin of an Action in the file the verify Lens is read from: the Lens it edits
@@ -2379,7 +2398,7 @@ class TheFactorysOwnRules(unittest.TestCase):
             self.assertEqual((d["reason"], d["admit"]), ("awaiting_review", dict(REVIEW_IT, content_id="sha256:bbbb")))
         # The other side: an item off the list, approved on this head, is read past a review not yet listed, as before.
         d = go(dict(f, **{"class": "maintainer", "author": "don-petry", "last_pusher": "don-petry"},
-                    changed_paths=["README.md"], content_id="sha256:bbbb",
+                    changed_paths=[changed("README.md")], content_id="sha256:bbbb",
                     reviews=[review(content="sha256:bbbb", commit="c2")]), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"))
 
@@ -2408,9 +2427,12 @@ class TheFactorysOwnRules(unittest.TestCase):
                 d = go(changing(**cls, changed_paths=["README.md", path]), REVIEWED)
                 self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
                                  (None, "paths_unreadable", [], "defer", "needs_you"), (path, cls["class"]))
-        # So is a list that is no list, or none.
-        for value in ("missing", None, "README.md", {"README.md": True}, 5):
-            f = facts(**DEPENDENCY)
+        # So is a list that is no list, or none, and a record that is not one file's: its path and its previous path,
+        # null or a path, each given.
+        for value in ("missing", None, "README.md", {"README.md": True}, 5, ["README.md"], [{"path": "README.md"}],
+                      [changed("README.md", "")], [changed("README.md", "../x")], [changed("README.md", 5)],
+                      [changed("README.md", "/x")]):
+            f = changing(**DEPENDENCY, changed_paths=["docs/a.md"])
             if value == "missing":
                 del f["changed_paths"]
             else:
@@ -2422,26 +2444,31 @@ class TheFactorysOwnRules(unittest.TestCase):
             d = go(dict(f, queue=True, reviews=APPROVED), REVIEWED)
             self.assertEqual((d["reason"], d["outcome"], d["action"]), ("paths_unreadable", "act", "dequeue"), value)
         # The other side: a name that only starts or ends with dots is a name.
-        for path in ("..lifecycle", "docs/...", "docs/a..b", ".github.md"):
+        for path in ("..lifecycle", "docs/...", "docs/a..b", ".github.md", ("docs/b.md", "..a")):
             self.converges([path])
         # It is read where an unreadable review is: after what needs no paths, a draft or a Hold.
         self.assertEqual(go(changing(changed_paths=None, is_draft=True))["reason"], "draft")
         d = go(changing(changed_paths=[""], label_events=[labelled("factory:hold")]))
         self.assertEqual((d["state"], d["reason"]), ("held", "human_hold"))
 
-    def test_a_list_of_paths_shorter_than_the_diff_defers_for_the_maintainer(self):  # I-13
-        # GitHub lists each file of the diff once by its own name, and a rename adds its other name: a list of fewer
-        # distinct paths, though said to be whole, left one out, which could be on the list.
+    def test_a_list_of_paths_with_a_record_for_each_file_and_no_other(self):  # I-13
+        # One record for each file of the diff, each by its own path once. A list of another length, though said to be
+        # whole, left a file out or misread one, which could be on the list: a short read that gives a rename's two
+        # names as two files, and leaves out the protected file beside it, among them.
         two = {"files": 2, "lines": 40, "truncated": False}
-        for paths in ([], ["README.md"], ["README.md", "README.md"]):
+        for paths in ([], [changed("README.md")], [changed("README.md"), changed("README.md")],
+                      [changed("docs/new.md", "docs/old.md")],
+                      [changed("a.md"), changed("b.md"), changed("c.md")]):
             f = facts(**DEPENDENCY, changed_paths=paths, diff=two)
             d = go(f)
             self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
                              (None, "paths_unreadable", "defer", "needs_you"), paths)
             d = go(dict(f, queue=True, reviews=APPROVED))
             self.assertEqual((d["reason"], d["outcome"], d["action"]), ("paths_unreadable", "act", "dequeue"), paths)
-        # The other side: one path for each file, or more for a rename, is whole.
-        for paths, files in ((["README.md", "docs/a.md"], 2), (["docs/old.md", "docs/new.md"], 1)):
+        # The other side: a record for each file, a rename's with the name it had before, is whole.
+        for paths, files in (([changed("README.md"), changed("docs/a.md")], 2),
+                             ([changed("docs/new.md", "docs/old.md")], 1),
+                             ([changed("docs/new.md", "docs/old.md"), changed("docs/old.md")], 2)):
             d = go(facts(**DEPENDENCY, changed_paths=paths, diff=dict(two, files=files)))
             self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"), paths)
 
@@ -2449,7 +2476,9 @@ class TheFactorysOwnRules(unittest.TestCase):
         # The list is the Kernel's configuration, built from the base branch's config/hooks.json. Empty or not read,
         # it would let a change to the rules pass as any other.
         f = changing(**DEPENDENCY, changed_paths=[PIN])
-        for rules in ("missing", [], None, ".github/", [""], [5]):
+        # A pattern that matches nothing is unreadable too: an empty, `.` or `..` name, or a leading separator.
+        for rules in ("missing", [], None, ".github/", [""], [5], ["/"], ["./.github/"], [".github//"], ["../.github/"],
+                      ["/.github/"], [".github/", "lifecycle/../x"]):
             cfg = config()
             if rules == "missing":
                 del cfg["protected_paths"]
@@ -2460,9 +2489,10 @@ class TheFactorysOwnRules(unittest.TestCase):
                              (None, "protected_paths_unreadable", "defer", "needs_you"), rules)
             d = go(dict(f, queue=True, reviews=APPROVED), REVIEWED, cfg=cfg)
             self.assertEqual((d["reason"], d["action"]), ("protected_paths_unreadable", "dequeue"), rules)
-        # The other side: one pattern is a list.
-        d = go(f, cfg=config(protected_paths=[".github/"]))
-        self.assertEqual((d["reason"], d["evidence"]), ("awaiting_review", ["pr-review", ".github/"]))
+        # The other side: one pattern is a list, and one named twice is named once.
+        for rules in ([".github/"], [".github/", ".github/"]):
+            d = go(f, cfg=config(protected_paths=rules))
+            self.assertEqual((d["reason"], d["evidence"]), ("awaiting_review", ["pr-review", ".github/"]), rules)
 
     def test_a_decision_names_the_pattern_never_the_path(self):  # I-45
         # A path is text from outside. The Decision names each pattern of the configuration that matched, once, in the

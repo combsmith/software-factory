@@ -198,7 +198,8 @@ class World:
             "targets_protected": True, "mergeable": True, "content_id": self.cid(),
             "diff": {"files": len(self.changed), "lines": 40, "truncated": False},
             # GitHub: a_pull_request_lists_the_paths_it_changes
-            "changed_paths": sorted(self.changed), "label_events": copy.deepcopy(self.events),
+            "changed_paths": [{"path": p, "previous": None} for p in sorted(self.changed)],
+            "label_events": copy.deepcopy(self.events),
             "last_push_at": self.last_push, "last_writer_action_at": self.last_writer,
             # GitHub: an_actor_has_a_kind
             "reviews": copy.deepcopy(self.reviews), "threads": copy.deepcopy(self.threads),
@@ -452,16 +453,22 @@ class World:
             self.check(d["reason"] != "acceptance_unreadable" or (not readable and d["attention"] == t.NEEDS_YOU),
                        "unreadable acceptance evidence is not shown as needing a person")
         # Nothing that changes the list is approved, enqueued or left in the queue without every model Lens's review
-        # of its head, whatever its class (I-45). A list read short is incomplete, and checked with the other flags.
+        # of its head, whatever its class (I-45). What it changes is the world's own: what it holds now, or for a
+        # stale read, what it held then, which a stale read holds whole. A list read short is incomplete, and checked
+        # with the other flags.
+        listed = self.on_the_list(self.changed) if current else self.on_the_list(p["path"] for p in facts["changed_paths"])
         moves_on = d["outcome"] == t.ACT and d["action"] in ("issue_approval", "enqueue")
-        self.check(not (self.on_the_list(facts["changed_paths"]) and (moves_on or d["state"] == t.QUEUED))
-                   or self.reviewed(runs, facts["content_id"]),
+        self.check(not (listed and (moves_on or d["state"] == t.QUEUED)) or self.reviewed(runs, facts["content_id"]),
                    "I-45 %s %s on a change to the list with no review of its head" % (d["state"], d["reason"]))
-        # A list of paths shorter than the diff admits nothing and acts on nothing but a dequeue, and is the
-        # Maintainer's to see (I-13).
-        short = len(set(facts["changed_paths"])) < facts["diff"]["files"]
+        # A list of files other than the diff's admits nothing and acts on nothing but a dequeue, and is the
+        # Maintainer's to see; read of an item queued now, as it is now, it takes the item out unless the Pause or the
+        # Maintainer's hands-off keeps it where it is (I-13).
+        short = len(facts["changed_paths"]) != facts["diff"]["files"]
         self.check(not short or not (d["outcome"] == t.ADMIT or (d["outcome"] == t.ACT and d["action"] != "dequeue")),
                    "I-13 %s %s on a list of paths shorter than the diff" % (d["outcome"], d["reason"]))
+        if short and current and self.queue and not self.pausing() and self.hands_off != "person":
+            self.check((d["outcome"], d.get("action")) == (t.ACT, "dequeue"),
+                       "a queued item stays in the queue on a list of paths shorter than the diff")
         self.check(d["reason"] != "paths_unreadable" or d["attention"] == t.NEEDS_YOU,
                    "unreadable paths are not shown as needing a person")
         whole = all(facts["complete"].values())

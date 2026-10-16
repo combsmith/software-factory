@@ -204,7 +204,8 @@ def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
     paths = protected + reported
     words = [p for p, _ in paths] + [branch] + [w for group in lists.values() for v in group.values() for w in v]
     words += [lens for lens, _, _ in inputs]
-    if not protected or not all(isinstance(w, str) and w for w in words) or any(".." in p.split("/") for p, _ in paths):
+    if not protected or not inputs or not all(isinstance(w, str) and w for w in words) or any(
+            ".." in p.split("/") for p, _ in paths):
         raise Unreadable("config/hooks.json does not have the shape the hook reads")
     return {"protected": protected, "reported": reported, "lens_inputs": inputs, "branch": branch, **lists}
 

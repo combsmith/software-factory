@@ -158,26 +158,52 @@ def lens_reading(checks: list, lens: dict, config: dict) -> str:
     return "passing"
 
 
-def readable_paths(paths, files: int) -> bool:
-    """Whether the paths the pull request changes can be read whole: a list of paths from the top of the repo, each
-    text whose every name is a name. None is empty, so no path is empty, starts or ends with the separator or doubles
-    it; and none is `.` or `..`. A path that cannot be read could be a protected one read as another (I-13).
-    GitHub lists each of the diff's `files` once by its own name, and a rename or a copy adds its other name, so a list
-    of fewer distinct paths left one out, though it says it was read in full: the one left out could be on the list.
-    Whether the list was read in full is `complete.changed_paths`, read with the other flags."""
-    if not (isinstance(paths, list) and all(
-            isinstance(path, str) and not any(name in t.NOT_A_NAME for name in path.split(t.SEPARATOR))
-            for path in paths)):
+def readable_name(path) -> bool:
+    """Whether `path` is a path from the top of the repo: text whose every name is a name. None is empty, so it is not
+    empty, does not start or end with the separator or double it; and none is `.` or `..`."""
+    return isinstance(path, str) and not any(name in t.NOT_A_NAME for name in path.split(t.SEPARATOR))
+
+
+def readable_file(entry) -> bool:
+    """One file the pull request changes, read whole: its `path`, and `previous`, the path it had before a rename or a
+    copy, null for any other change. Neither is given a default."""
+    return (isinstance(entry, dict) and readable_name(entry.get("path")) and "previous" in entry
+            and (entry["previous"] is None or readable_name(entry["previous"])))
+
+
+def readable_paths(changed, files: int) -> bool:
+    """Whether the files the pull request changes can be read whole: one record for each of the diff's `files`, no
+    more and no fewer, each by its own path once (readable_file). A path that cannot be read could be a protected one
+    read as another, and a list of another length left a file out or misread one, though it says it was read in full
+    (I-13). Whether it was read in full is `complete.changed_paths`, read with the other flags."""
+    if not (isinstance(changed, list) and all(readable_file(entry) for entry in changed)):
         return False
-    return len(set(paths)) >= files
+    paths = [entry["path"] for entry in changed]
+    return len(changed) == files and len(set(paths)) == len(paths)
+
+
+def names(changed: list) -> list:
+    """Every path the pull request changes, and every path a renamed or copied file had before: either may be on the
+    list, as a file moved onto it or off it changes it. The records must be readable (readable_paths)."""
+    return [entry["path"] for entry in changed] + [entry["previous"] for entry in changed if entry["previous"] is not None]
+
+
+def readable_pattern(pattern) -> bool:
+    """A protected path or a Lens's input in the shape config/hooks.json gives one: a path (readable_name), with a final
+    separator for a directory. One with an empty, `.` or `..` name, or that starts with the separator, matches nothing,
+    so read as a pattern it would let a change to the rules through."""
+    if not isinstance(pattern, str):
+        return False
+    return readable_name(pattern[:-1] if pattern.endswith(t.SEPARATOR) else pattern)
 
 
 def readable_rules(config: dict) -> bool:
     """Whether the protected paths and Lenses' inputs the Kernel is given can be read: a list of at least one pattern,
-    each text. The Controller builds it from the base branch's config/hooks.json, never the head's (decision 0020). A
-    list that is empty, or not there, would let a change to the Factory's own rules pass as any other (I-13)."""
+    each in its shape (readable_pattern). The Controller builds it from the base branch's config/hooks.json, never the
+    head's (decision 0020). A list that is empty, or not there, would let a change to the Factory's own rules pass as
+    any other (I-13)."""
     rules = config.get("protected_paths")
-    return isinstance(rules, list) and len(rules) > 0 and all(isinstance(p, str) and p != "" for p in rules)
+    return isinstance(rules, list) and len(rules) > 0 and all(readable_pattern(p) for p in rules)
 
 
 def within_a_name(text: str) -> bool:
@@ -218,10 +244,11 @@ def matches(pattern: str, path: str) -> bool:
 
 def touched(facts: dict, config: dict) -> list:
     """Each protected path and Lens's input the configuration names that a path this pull request changes is, as the
-    configuration gives it and in its order: the Factory's own rules, or what a Lens reads to judge the change. The
+    configuration gives it, once, in its order: the Factory's own rules, or what a Lens reads to judge the change. The
     paths must be readable (readable_paths). A Decision names the pattern, never the path, which is text from outside.
     """
-    return [p for p in config["protected_paths"] if any(matches(p, path) for path in facts["changed_paths"])]
+    changed = names(facts["changed_paths"])
+    return [p for p in dict.fromkeys(config["protected_paths"]) if any(matches(p, path) for path in changed)]
 
 
 def required_model_lenses(facts: dict, config: dict) -> list:

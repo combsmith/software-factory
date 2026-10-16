@@ -51,7 +51,8 @@ def facts(**over) -> dict:
         "schema": "facts/1", "item": dict(ITEM), "state": "open", "is_draft": False,
         "class": "maintainer", "author": "don-petry", "last_pusher": "don-petry",
         "targets_protected": True, "mergeable": True, "content_id": "sha256:aaaa",
-        "diff": {"files": 2, "lines": 40, "truncated": False}, "changed_paths": list(PATHS), "label_events": [],
+        "diff": {"files": 2, "lines": 40, "truncated": False}, "changed_paths": [changed(p) for p in PATHS],
+        "label_events": [],
         "last_push_at": "2026-10-11T12:00:00Z",
         "last_writer_action_at": "2026-10-11T12:00:00Z", "reviews": [], "threads": [],
         "checks": copy.deepcopy(GREEN), "queue": False, "acts_since_writer": 0, "acceptance": None,
@@ -61,6 +62,11 @@ def facts(**over) -> dict:
     }
     f.update(over)
     return f
+
+
+def changed(path, previous=None) -> dict:
+    """One file the pull request changes: its path, and the path it had before a rename or a copy, or null."""
+    return {"path": path, "previous": previous}
 
 
 def run(role="pr-review", intent="review-change", content="sha256:aaaa", status="completed",

@@ -96,12 +96,28 @@
       }
     },
     "changed_paths": {
-      "description": "Every path the pull request changes, each once, from the top of the repo: a rename or a copy gives its old path and its new, a deletion its old. A name is never empty, . or .., so no path starts or ends with / or holds //. The Kernel matches them against the configuration's protected paths and Lenses' inputs, and never shows one",
+      "description": "One record for each file the pull request changes, as many as the diff has files, each by its own path once, from the top of the repo: `previous` is the path a renamed or copied file had before, and null for any other change. A name is never empty, . or .., so no path starts or ends with / or holds //. The Kernel matches every path and every previous one against the configuration's protected paths and Lenses' inputs, and never shows one",
       "type": "array",
       "uniqueItems": true,
       "items": {
-        "type": "string",
-        "pattern": "^(?!(.*/)?\\.{1,2}(/|$))[^/]+(/[^/]+)*$"
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "previous"
+        ],
+        "properties": {
+          "path": {
+            "$ref": "#/$defs/changed_path"
+          },
+          "previous": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(?!([^/]*/)*\\.{1,2}(/|$))[^/]+(/[^/]+)*$"
+          }
+        }
       }
     },
     "label_events": {
@@ -514,6 +530,10 @@
     "content_id": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{4,64}$"
+    },
+    "changed_path": {
+      "type": "string",
+      "pattern": "^(?!([^/]*/)*\\.{1,2}(/|$))[^/]+(/[^/]+)*$"
     }
   }
 }

@@ -1654,6 +1654,12 @@ class RulesChanged(unittest.TestCase):
         for entry in inputs:
             self.assertIn("%s: %s" % (rel(entry), entry["is"]), said)
         self.assertEqual(protected.load()["lens_inputs"], [(e["lens"], e["path"], e["is"]) for e in inputs])
+        # A list of no Lens's inputs is not the shape the hooks read, as the schema says.
+        data = json.loads((ROOT / "config" / "hooks.json").read_text())
+        for value in ([], None):
+            broken = folder() / "hooks.json"
+            broken.write_text(json.dumps(dict(data, lens_inputs=value)))
+            self.assertRaises(protected.Unreadable, protected.load, broken)
 
     def test_every_protected_path_changed_is_listed(self):
         where = self.branch()

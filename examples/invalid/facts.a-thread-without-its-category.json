@@ -14,13 +14,19 @@
   "mergeable": true,
   "content_id": "sha256:5d0c",
   "diff": {
-    "files": 3,
+    "files": 2,
     "lines": 120,
     "truncated": false
   },
   "changed_paths": [
-    "kernel/derive.py",
-    "docs/glossary.md"
+    {
+      "path": "kernel/derive.py",
+      "previous": null
+    },
+    {
+      "path": "docs/glossary.md",
+      "previous": null
+    }
   ],
   "label_events": [],
   "last_push_at": "2026-10-11T12:00:00Z",

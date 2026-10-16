@@ -9,14 +9,15 @@ person is needed: every model Lens's review of the change's head is.
 
 ## Decision
 
-The facts carry `changed_paths`: every path the pull request changes, each once, from the top of the
-repo. A rename or a copy gives its old path and its new, a deletion its old. Whether the list was
+The facts carry `changed_paths`: one record for each file the pull request changes, each by its own
+path once, from the top of the repo, with `previous`, the path a renamed or copied file had before,
+or null. Every path and every previous one is matched against the list. Whether the list was
 read in full is `complete.changed_paths`, read with the other flags: a list read short defers as
 incomplete facts, and a queued item leaves the queue. A list read in full that is no list of text, or
 holds a path one of whose names is empty, `.` or `..`, is unreadable: the Kernel defers for the
 Maintainer, `paths_unreadable`, read where an unreadable review is, and a queued item leaves the
-queue. So is a list of fewer distinct paths than the diff has files: GitHub lists each file once by
-its own name, and a rename adds its other name, so such a list left a path out, whatever it says.
+queue. So is a record not in that shape, and a list of more or fewer records than the diff has
+files: such a list left a file out or misread one, whatever it says.
 
 The Factory's own rules and the inputs of each deterministic Lens are one list, in
 `config/hooks.json`: `protected`, which gains `config/apps.json`, and `lens_inputs`, each with the
@@ -31,7 +32,8 @@ below it, `*` any part of one name, and case is not compared, so the list holds 
 The list is the Kernel's configuration, never the change's: the Controller builds `protected_paths`
 from `config/hooks.json` as the base branch holds it, never as the pull request's head does, so a
 change cannot take itself off the list. A list the Kernel is given that is not a list of patterns,
-or is empty, defers for the Maintainer, `protected_paths_unreadable`, read before the paths it
+or is empty, or holds a pattern that could match nothing (an empty, `.` or `..` name, or a leading
+`/`), defers for the Maintainer, `protected_paths_unreadable`, read before the paths it
 judges, and a queued item leaves the queue.
 
 A pull request that changes a path on the list converges only once every model Lens has reviewed its
@@ -73,14 +75,14 @@ not weaken the Lens that judges it, and that story comes next.
 |---|---|
 | A dependency update that changes a protected path waits for every model Lens's review of its head, and converges once it has one; one that changes nothing on the list does not | `tests/test_decide.py::test_a_change_to_a_protected_path_needs_the_model_review` |
 | A Lens's input counts as a protected path does: below a directory however deep, and never a name that only starts with one | `tests/test_decide.py::test_a_lens_input_counts_like_a_protected_path` |
-| `*` stands for any part of one name, none included, never across a `/`; case is not compared | `tests/test_decide.py::test_a_pattern_matches_one_name_per_star_in_any_case` |
+| `*` stands for any part of one name, none included, never across a `/`; case is not compared; the pieces between stars are found in order and never overlap | `tests/test_decide.py::test_a_pattern_matches_one_name_per_star_in_any_case`, `tests/test_decide.py::test_a_pattern_of_several_stars_matches_each_piece_in_order_once` |
 | Either name of a rename or a copy counts | `tests/test_decide.py::test_either_name_of_a_rename_counts` |
 | A dependency bot's update to a workflow's pin is reviewed by the model Lens before the machine user approves it, and what that review raises gates it | `tests/test_decide.py::test_a_dependency_update_to_a_workflow_pin_needs_the_model_review` |
 | A queued change to the list whose head moved, or whose approval of this head came with no review of it, leaves the queue and waits for the review | `tests/test_decide.py::test_a_queued_change_to_the_list_whose_head_moves_leaves_the_queue` |
 | A list of paths read short defers as incomplete facts, and takes a queued item out | `tests/test_decide.py::test_changed_paths_read_short_defer`, `examples/invalid/facts.no-completeness-for-changed-paths.json` |
 | A list that is no list of text, or a path with an empty, `.` or `..` name, defers for the Maintainer, after what needs no paths, and takes a queued item out | `tests/test_decide.py::test_an_unreadable_changed_path_defers_for_the_maintainer` |
-| A list of fewer distinct paths than the diff has files defers for the Maintainer, and takes a queued item out; more, for a rename, is whole | `tests/test_decide.py::test_a_list_of_paths_shorter_than_the_diff_defers_for_the_maintainer` |
-| A list of protected paths that is empty, not there or not a list of patterns defers for the Maintainer, and takes a queued item out | `tests/test_decide.py::test_an_unreadable_list_of_protected_paths_defers_for_the_maintainer` |
+| A list of more or fewer records than the diff has files, or a path given twice, defers for the Maintainer, and takes a queued item out; a rename's record carries its previous path | `tests/test_decide.py::test_a_list_of_paths_with_a_record_for_each_file_and_no_other`, `examples/invalid/facts.a-changed-file-without-its-previous-path.json` |
+| A list of protected paths that is empty, not there, or holds a pattern that could match nothing defers for the Maintainer, and takes a queued item out; a pattern named twice is named once | `tests/test_decide.py::test_an_unreadable_list_of_protected_paths_defers_for_the_maintainer` |
 | The Controller builds `protected_paths` from the base branch's `config/hooks.json`, never the head's | waiting on `controller/` |
 | A Role's change to a Lens's own workflow file, a change under `.github/`, or anyone's change to a Lens's inputs needs no person: it converges once every model Lens has reviewed its head, and the machine user approves it (decision 0018's row, decided otherwise) | `tests/test_decide.py::test_a_lens_input_counts_like_a_protected_path`, `tests/test_decide.py::test_a_dependency_update_to_a_workflow_pin_needs_the_model_review` |
 | A Decision names each pattern of the configuration that matched, in its order, never a path | `tests/test_decide.py::test_a_decision_names_the_pattern_never_the_path` |

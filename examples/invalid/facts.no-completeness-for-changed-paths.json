@@ -19,9 +19,18 @@
     "truncated": false
   },
   "changed_paths": [
-    "kernel/derive.py",
-    "tests/test_decide.py",
-    "docs/glossary.md"
+    {
+      "path": "kernel/derive.py",
+      "previous": null
+    },
+    {
+      "path": "tests/test_decide.py",
+      "previous": null
+    },
+    {
+      "path": "docs/glossary.md",
+      "previous": null
+    }
   ],
   "label_events": [
     {

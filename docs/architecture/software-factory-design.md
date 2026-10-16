@@ -319,7 +319,7 @@ for contract tests, so one schema has three uses.
 | `diff_size` | Files and lines changed |
 | `head`, `base`, `merge_base` | Commit hashes |
 | `content_id` | Hash of the pull request's own diff against its merge base, computed by the port |
-| `changed_paths` | Every path in that diff, each once, from the top of the repo: a rename or a copy gives its old path and its new, a deletion its old. A list that is no list of text, or a path with an empty, `.` or `..` name, is unreadable, `paths_unreadable`, for the Maintainer. The Kernel matches each against the protected paths and the Lenses' inputs, and never shows one (§4.2, decision 0020) |
+| `changed_paths` | One record for each file in that diff, as many as `diff_size` counts files, each by its own path once, from the top of the repo, with `previous`, the path a renamed or copied file had before, null for any other change. A list of another length, a record not in that shape, or a path with an empty, `.` or `..` name, is unreadable, `paths_unreadable`, for the Maintainer. The Kernel matches each against the protected paths and the Lenses' inputs, and never shows one (§4.2, decision 0020) |
 | `label_events` | Every `labeled` and `unlabeled` event on the timeline: the label, who added or removed it (kind, name and write access), and when |
 | `reviews` | Who submitted it (`by`: kind, name and whether that actor has write access, as a thread's opening actor), state (`approved`, `changes_requested`, `commented` or `dismissed`, as GitHub holds it now), commit, `content_id`, `submitted_at`; and, from the timeline, `dismissed_by`: who dismissed it, of what kind and with what access, and `dismissed_from`: what it was before (`approved`, `changes_requested` or `commented`). Both are null unless it was dismissed |
 | `threads` | Thread id, path, line, when it was opened, resolved, outdated, opening actor and resolving actor, each with its kind and whether it has write access (the resolving actor null unless resolved); and the Finding's `category` and `severity`. For a required Lens's thread both come from that Lens's own Finding record, in its Run's `result.json` (§3.10), joined by `surface.key`, never from the comment text, which anyone with write access can edit. A person's thread is `human`, with no severity; an Advisory reviewer's, which no Finding record names, has neither |
@@ -1429,8 +1429,8 @@ and needs no Disposition before its item merges (§4.3, FR-33).
 Which Lenses are required is data. The starting set is the deterministic checks, `pr-review` and
 humans. A Lens joins it only with a measured contribution (ADR-0013, decision 12). A dependency
 update, a pull request of class `dependency` whose head was pushed by the identity that opened it,
-requires no model Lens: the deterministic checks and humans judge it, and no model review is
-admitted for it. A Finding a model Lens has already raised still gates it, whatever its class, so a
+requires no model Lens unless it changes a protected path or a Lens's input (below): the
+deterministic checks and humans judge it, and no model review is admitted for it. A Finding a model Lens has already raised still gates it, whatever its class, so a
 bot that recreates its branch does not drop one. Anyone else's push puts content of their own in it,
 and it needs `pr-review` again.
 
