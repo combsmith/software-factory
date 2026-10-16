@@ -18,6 +18,11 @@
     "lines": 120,
     "truncated": false
   },
+  "changed_paths": [
+    "kernel/derive.py",
+    "tests/test_decide.py",
+    "docs/glossary.md"
+  ],
   "label_events": [
     {
       "label": "factory:hold",
@@ -173,6 +178,7 @@
     "threads": true,
     "checks": true,
     "diff": true,
+    "changed_paths": true,
     "runs": true,
     "timeline": true
   },

@@ -20,9 +20,12 @@ import time
 import unittest
 from unittest import mock
 
-from kernel import terms
+from kernel import derive, terms
+from sim import world
+from tests import support
 from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_lifecycle,
                    check_purity, check_repo, check_trials, check_workflows, mutants, redact_trial, verify, walk)
+from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
@@ -1074,6 +1077,58 @@ class Workflows(unittest.TestCase):
         }
         for name, text in fine.items():
             self.assertEqual(rules(text), [], name)
+
+
+class TheList(unittest.TestCase):
+    """The protected paths and every Lens's input: one list, in config/hooks.json, that the session hooks read and the
+    Kernel is given as `protected_paths` (decision 0020)."""
+
+    HOOKS = json.loads((ROOT / "config" / "hooks.json").read_text())
+
+    def test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus(self):
+        # Only the two matchers can drift, so they are held to each other: on every file in the repo, and on paths made
+        # from each pattern, its wildcard standing for nothing, a letter or more than one name, in any case, below it,
+        # beside it and above it.
+        data = protected.load()
+        patterns = [p for p, _ in data["protected"] + data["reported"]] + ["a/*", "*.json", "x*y*z/", "a*/b*/", "*"]
+        corpus = {p.relative_to(ROOT).as_posix() for p in walk.files(ROOT)}
+        for pattern in patterns:
+            for star in ("", "x", "x/y", "a.b", "*"):
+                stem = pattern.replace("*", star)
+                for end in ("", "/a", "/a/b.json", "x", ".bak"):
+                    for path in (stem.rstrip("/") + end, "x/" + stem.rstrip("/") + end):
+                        corpus |= {path, path.upper(), path.title()}
+        corpus = sorted(p for p in corpus if derive.readable_paths([p]))
+        self.assertGreater(len(corpus), 1000)
+        for pattern in patterns:
+            whole = protected.entries([(pattern, "")])[0][3]
+            for path in corpus:
+                self.assertEqual(derive.matches(pattern, path), bool(whole.match(path.casefold())), (pattern, path))
+
+    def test_the_kernel_is_given_every_protected_path_and_lens_input(self):
+        want = [e["path"] for e in self.HOOKS["protected"]] + [e["path"] for e in self.HOOKS["lens_inputs"]]
+        self.assertEqual(protected.protected_paths(), want)
+        self.assertEqual(support.CONFIG["protected_paths"], want)
+        self.assertEqual(world.CONFIG["protected_paths"], want)
+        # What is only reported, such as a decision record, is listed at a stop and is not on the Kernel's list.
+        self.assertNotIn("docs/decisions/", want)
+
+    def test_each_lens_input_is_a_required_lens_and_verifys_cover_every_check(self):
+        lenses = {lens["lens"] for lens in support.CONFIG["required_lenses"]["deterministic"]}
+        inputs = {}
+        for entry in self.HOOKS["lens_inputs"]:
+            self.assertIn(entry["lens"], lenses, entry["path"])
+            inputs.setdefault(entry["lens"], []).append(entry["path"])
+        # verify runs the Makefile, and the Makefile every check and test where checks live.
+        for path in ["Makefile"] + ["%s/x.py" % where for where in check_context.CHECKS]:
+            self.assertTrue(any(derive.matches(p, path) for p in inputs["verify"]), path)
+        self.assertIn(".gitleaks.toml", inputs["secret-scan"])
+
+    def test_each_lens_workflow_file_is_protected(self):  # decision 0018
+        patterns = [e["path"] for e in self.HOOKS["protected"]]
+        for lens in support.CONFIG["required_lenses"]["deterministic"]:
+            if lens["workflow"] is not None:
+                self.assertTrue(any(derive.matches(p, lens["workflow"]) for p in patterns), lens["lens"])
 
 
 class Context(unittest.TestCase):

@@ -186,11 +186,15 @@ def _glob(pattern: str, segment: str, most: str = "*") -> str:
 
 
 def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
-    """The data the hook asks from. Raises Unreadable when it is missing or has not the shape the hook reads."""
+    """The data the hook asks from. Raises Unreadable when it is missing or has not the shape the hook reads.
+
+    A Lens's input is reported, as a stop lists it, and never asked about: `lens_inputs` keeps each with its Lens.
+    """
     try:
         data = json.loads(path.read_text())
         protected = [(e["path"], e["is"]) for e in data["protected"]]
-        reported = [(e["path"], e["is"]) for e in data["reported"]]
+        inputs = [(e["lens"], e["path"], e["is"]) for e in data["lens_inputs"]]
+        reported = [(e["path"], e["is"]) for e in data["reported"]] + [(p, what) for _, p, what in inputs]
         lists = {group: {key: list(data[group][key]) for key in ("commands", "mutations", "endpoints")}
                  for group in ("merging", "settings")}
         lists["settings"]["reads"] = list(data["settings"]["reads"])
@@ -199,9 +203,18 @@ def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
         raise Unreadable("config/hooks.json cannot be read (%s)" % type(err).__name__)
     paths = protected + reported
     words = [p for p, _ in paths] + [branch] + [w for group in lists.values() for v in group.values() for w in v]
+    words += [lens for lens, _, _ in inputs]
     if not protected or not all(isinstance(w, str) and w for w in words) or any(".." in p.split("/") for p, _ in paths):
         raise Unreadable("config/hooks.json does not have the shape the hook reads")
-    return {"protected": protected, "reported": reported, "branch": branch, **lists}
+    return {"protected": protected, "reported": reported, "lens_inputs": inputs, "branch": branch, **lists}
+
+
+def protected_paths(path: pathlib.Path = ROOT / "config" / "hooks.json") -> list:
+    """What the Kernel is given as `protected_paths`: every protected path, then every Lens's input, as patterns in the
+    one syntax of config/hooks.json, without what each is, which is prose. A pull request that changes one converges
+    only once every model Lens has reviewed it (decision 0020). Raises Unreadable as load() does."""
+    data = load(path)
+    return [p for p, _ in data["protected"]] + [p for _, p, _ in data["lens_inputs"]]
 
 
 def entries(listing: list) -> list:

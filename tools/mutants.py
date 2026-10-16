@@ -41,7 +41,9 @@ LABEL_GUARD = ("    if unreadable_labels(facts, config):\n"
 STOPS = "for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF) if name in labels]"
 THREAD_GUARD = ("    unread = unreadable_threads(facts, config)\n    if unread:\n"
                 '        return {"state": None, "reason": "thread_unreadable", "evidence": unread}\n')
-REVIEW_WAIT = '            return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens]}\n'
+REVIEW_WAIT = '            return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens] + rules}\n'
+PATHS_GUARD = ('    if not readable_paths(facts.get("changed_paths")):\n'
+               '        return {"state": None, "reason": "paths_unreadable", "evidence": []}\n')
 STAYS = '    if d["reason"] == "approved":\n'
 LEFT_ALONE = '    if d["state"] in t.ADMITS_NOTHING or not facts["queue"] or hands_off(facts, config):\n'
 DEQUEUE_IF = '    if d.get("dequeue"):\n'
@@ -369,7 +371,7 @@ MUTANTS = [
      "    if failed:\n"
      '        return {"state": t.ADDRESSING, "reason": "check_failed", "evidence": failed}\n'),
     ("a dependency bot's pull request someone else pushed to skips the model review", "kernel/derive.py",
-     ' and facts["last_pusher"] == facts["author"]:', ":"),
+     ' and facts["last_pusher"] == facts["author"]\n', "\n"),
     ("a class the configuration does not name skips the model review", "kernel/derive.py",
      'facts["class"] in lenses["model_not_required_for"]', "True"),
     ("a dependency update converges before its checks are read", "kernel/derive.py",
@@ -427,7 +429,7 @@ MUTANTS = [
     ("a required check not reported yet takes a queued pull request out", "kernel/derive.py",
      ' and "awaiting_checks" not in past', ""),
     ("a required Lens that has not reported takes a queued pull request out", "kernel/derive.py",
-     ' and "awaiting_review" not in past', ""),
+     ' and ("awaiting_review" not in past or rules):', ":"),
     ("a wait is read past on a pull request that is not queued", "kernel/derive.py",
      "    d = reading(facts, runs, config, ())\n", "    d = reading(facts, runs, config, t.QUEUE_WAITS)\n"),
     ("a draft stays in the merge queue", "kernel/derive.py",
@@ -598,7 +600,7 @@ MUTANTS = [
     ("a result on this content in a word the Kernel does not know is passed over", "kernel/derive.py",
      ' or ev.get("result") not in t.EVIDENCE_RESULTS:\n', ":\n"),
     ("unreadable acceptance is not the Maintainer's to see", "kernel/decide.py",
-     '    "acceptance_unreadable",\n', ""),
+     '    "acceptance_unreadable", "paths_unreadable",\n', '    "paths_unreadable",\n'),
     ("a queued item waiting for its evidence stays in the queue", "kernel/derive.py",
      '    if said == "missing":\n', '    if said == "missing" and "awaiting_review" not in past:\n'),
     ("acceptance is read before the gates", "kernel/derive.py",
@@ -618,6 +620,51 @@ MUTANTS = [
      '    if config["approver"] in (facts["author"], facts["last_pusher"]):\n'
      '        return {"state": t.HELD, "reason": "approver_is_author_or_last_pusher", "evidence": []}\n'
      "    # Then the acceptance contract, where the item has one:"),
+    # A change to the Factory's own rules or a Lens's input is reviewed by every model Lens (decision 0020, I-45).
+    ("the list is never read", "kernel/derive.py",
+     '    return [p for p in config["protected_paths"] if any(matches(p, path) for path in facts["changed_paths"])]\n',
+     "    return []\n"),
+    ("only the first path a pull request changes is read", "kernel/derive.py",
+     'for path in facts["changed_paths"])]', 'for path in facts["changed_paths"][:1])]'),
+    ("a dependency update is excused on the list", "kernel/derive.py",
+     "\n            and not touched(facts, config)):", "):"),
+    ("a final separator names only the directory", "kernel/derive.py",
+     "        path = t.SEPARATOR.join(path.split(t.SEPARATOR)[:whole.count(t.SEPARATOR) + 1])\n", "        pass\n"),
+    ("a wildcard crosses a separator", "kernel/derive.py",
+     "    return t.SEPARATOR not in text\n", "    return True\n"),
+    ("case is compared", "kernel/derive.py",
+     "    pattern, path = pattern.casefold(), path.casefold()\n", "    pattern, path = pattern, path\n"),
+    ("a list of paths read short is trusted", "kernel/derive.py",
+     "[name for name in t.READ_IN_FULL if flags.get(name) is not True]",
+     '[name for name in t.READ_IN_FULL if name != "changed_paths" and flags.get(name) is not True]'),
+    ("an unreadable path is read", "kernel/derive.py",
+     '    if not readable_paths(facts.get("changed_paths")):\n', "    if False:\n"),
+    ("a name `..` is read", "kernel/terms.py",
+     'NOT_A_NAME = ("", ".", "..")', 'NOT_A_NAME = ("", ".")'),
+    ("an empty name is read", "kernel/terms.py",
+     'NOT_A_NAME = ("", ".", "..")', 'NOT_A_NAME = (".", "..")'),
+    ("a list of paths that is no list is read", "kernel/derive.py",
+     "    return isinstance(paths, list) and all(\n", "    return all(\n"),
+    ("a path that is not text is read", "kernel/derive.py",
+     "isinstance(path, str) and not any(", "not any("),
+    ("unreadable paths are not the Maintainer's to see", "kernel/decide.py",
+     '    "acceptance_unreadable", "paths_unreadable",\n', '    "acceptance_unreadable",\n'),
+    ("unreadable paths are read before what needs no paths", "kernel/derive.py",
+     '    if facts["state"] == "merged":\n', PATHS_GUARD + '    if facts["state"] == "merged":\n'),
+    ("the evidence is the paths", "kernel/derive.py",
+     '"evidence": [lens] + rules}', '"evidence": [lens] + facts["changed_paths"]}'),
+    ("the wait names nothing on the list", "kernel/derive.py",
+     '"evidence": [lens] + rules}', '"evidence": [lens]}'),
+    ("a queued change to the list is read past its missing review", "kernel/derive.py",
+     '("awaiting_review" not in past or rules)', '"awaiting_review" not in past'),
+    ("the Kernel is not given the Lenses' inputs", "tools/hooks/protected.py",
+     ' + [p for _, p, _ in data["lens_inputs"]]', ""),
+    ("a Lens's input is not listed at a stop", "tools/hooks/protected.py",
+     ' + [(p, what) for _, p, what in inputs]', ""),
+    ("verify's inputs leave out a place where checks live", "config/hooks.json",
+     '    {"lens": "verify", "path": "sim/", "is": "the simulator verify runs"},\n', ""),
+    ("the Apps' permissions are not protected", "config/hooks.json",
+     '    {"path": "config/apps.json", "is": "each App\'s permissions and the repos it is installed on"},\n', ""),
     ("an unreadable pause is read as no pause", "kernel/brakes.py",
      'if context.get("paused") is False:', 'if not context.get("paused"):'),
     ("attempts are unlimited", "kernel/brakes.py",

@@ -7,10 +7,14 @@ import os
 import pathlib
 import unittest
 
+from tools.hooks import protected
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-# The configuration the Kernel is given: the defaults, and the Lifecycle whose staleness limits it reads.
+# The configuration the Kernel is given: the defaults, the Lifecycle whose staleness limits it reads, and the protected
+# paths and Lenses' inputs, from the one list the session hooks read too.
 CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()),
-              lifecycle=json.loads((ROOT / "lifecycle" / "pull_request.json").read_text()))
+              lifecycle=json.loads((ROOT / "lifecycle" / "pull_request.json").read_text()),
+              protected_paths=protected.protected_paths())
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 42}
 NOW = "2026-10-11T13:00:00Z"
 # Every required check passing, each under its check run's name as GitHub gives it, from its Lens's own App.
@@ -24,6 +28,8 @@ OTHER_APP = 1000001
 # A workflow file no required Lens is read from: GitHub Actions runs every job in the repo, under any name, one a pull
 # request adds on its own branch among them.
 OTHER_WORKFLOW = ".github/workflows/impostor.yml"
+# What a pull request changes by default: neither a protected path nor any Lens's input.
+PATHS = ("kernel/derive.py", "docs/glossary.md")
 # The Maintainer: a person, which is an actor of kind human with write access, and nobody else is.
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 
@@ -45,12 +51,12 @@ def facts(**over) -> dict:
         "schema": "facts/1", "item": dict(ITEM), "state": "open", "is_draft": False,
         "class": "maintainer", "author": "don-petry", "last_pusher": "don-petry",
         "targets_protected": True, "mergeable": True, "content_id": "sha256:aaaa",
-        "diff": {"files": 2, "lines": 40, "truncated": False}, "label_events": [],
+        "diff": {"files": 2, "lines": 40, "truncated": False}, "changed_paths": list(PATHS), "label_events": [],
         "last_push_at": "2026-10-11T12:00:00Z",
         "last_writer_action_at": "2026-10-11T12:00:00Z", "reviews": [], "threads": [],
         "checks": copy.deepcopy(GREEN), "queue": False, "acts_since_writer": 0, "acceptance": None,
-        "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True, "runs": True,
-                     "timeline": True},
+        "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True,
+                     "changed_paths": True, "runs": True, "timeline": True},
         "read_at": "2026-10-11T12:59:00Z",
     }
     f.update(over)

@@ -73,6 +73,13 @@ RULES = (
     ("a_superseded_run_fails", "A Run whose apply refuses, or that never starts, concludes failure", ("P-17",), None),
     ("a_short_diff_says_so", "A diff read short says so, and is not mistaken for the whole", ("P-29",), None),
     ("a_short_list_says_so", "A list of reviews, threads, checks or timeline events read short says so", (), None),
+    ("a_pull_request_lists_the_paths_it_changes", "Every path a pull request changes is read, each once, from the top "
+     "of the repo: a rename or a copy gives its old path and its new, a deletion its old", (), None),
+    ("a_short_path_list_says_so", "The list of paths a pull request changes, read short or cut off at its limit, says "
+     "so", (), None),
+    ("a_dependency_bot_updates_a_workflow_pin", "A dependency bot's update can change the pin of an Action in a "
+     "workflow file, a Lens's own among them; the bot opens it and pushes its head, and its class is dependency",
+     (), None),
     ("an_acceptance_result_names_its_content", "Each result for a criterion of an item's acceptance contract is read "
      "from the check that gave it, with the content it ran on, and stays when the content changes", (), None),
     ("a_short_acceptance_read_says_so", "An acceptance contract and its results read short say so", (), None),

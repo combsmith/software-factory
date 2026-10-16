@@ -18,6 +18,10 @@
     "lines": 120,
     "truncated": false
   },
+  "changed_paths": [
+    "kernel/derive.py",
+    "docs/glossary.md"
+  ],
   "label_events": [],
   "last_push_at": "2026-10-11T12:00:00Z",
   "last_writer_action_at": "2026-10-11T12:00:00Z",
@@ -81,6 +85,7 @@
     "threads": true,
     "checks": true,
     "diff": true,
+    "changed_paths": true,
     "runs": true,
     "timeline": true
   },

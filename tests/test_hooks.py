@@ -844,12 +844,13 @@ class ProtectedPaths(Asks):
                     self.asked(said, "protected_path", (entry["path"], str(top), tool))
                     self.assertIn(entry["is"], said)
         for rel in (".claude/settings.json", ".claude/settings.local.json", "lifecycle/new/deep.json",
-                    "tools/hooks/protected.py", "config/rubric-pr-review.json", ".github/workflows/verify.yml"):
+                    "tools/hooks/protected.py", "config/rubric-pr-review.json", ".github/workflows/verify.yml",
+                    "config/apps.json"):
             self.asked(self.edit(self.project / rel), "protected_path", rel)
 
     def test_an_edit_elsewhere_is_not_asked_about(self):
         for rel in ("docs/notes.md", "kernel/AGENTS.md", "kernel/__init__.py", "kernel/decide.py", "kernel/derive.py",
-                    "kernel/terms.py", "config/apps.json", "config/AGENTS.md",
+                    "kernel/terms.py", "config/AGENTS.md", "Makefile", ".gitleaks.toml",
                     "schemas/facts.schema.json", "tests/test_decide.py", "tests/test_hooks.py", "tools/check_repo.py",
                     "lifecycle.md", "docs/lifecycle/x.md", "tools/hooks.md", ".githubx/y", "config/rubric.md"):
             self.assertEqual(self.edit(self.project / rel), "", rel)
@@ -1640,6 +1641,18 @@ class RulesChanged(unittest.TestCase):
         for part in ("config/authority.json", ".github/workflows/x.yml", "kernel/brakes.py", "the brakes",
                      "kernel/gate.py", "the gate", "lifecycle/staged.json", "kernel/decide.py", "Admission"):
             self.assertIn(part, said)
+
+    def test_a_lens_input_changed_is_listed_as_reported(self):
+        # A Lens's input is listed with what it is, as a reported path is, and is never asked about before an edit.
+        where = self.branch()
+        inputs = json.loads((ROOT / "config" / "hooks.json").read_text())["lens_inputs"]
+        for entry in inputs:
+            self.write(where, entry["path"] + ("x.txt" if entry["path"].endswith("/") else ""))
+        said = self.told(where)
+        for entry in inputs:
+            self.assertIn("%s: %s" % (entry["path"] + ("x.txt" if entry["path"].endswith("/") else ""), entry["is"]),
+                          said)
+        self.assertEqual(protected.load()["lens_inputs"], [(e["lens"], e["path"], e["is"]) for e in inputs])
 
     def test_every_protected_path_changed_is_listed(self):
         where = self.branch()

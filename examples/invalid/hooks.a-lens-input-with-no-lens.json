@@ -1,0 +1,51 @@
+{
+  "maintainer": {
+    "login": "don-petry",
+    "name": "Don Petry",
+    "email": "36422719+don-petry@users.noreply.github.com"
+  },
+  "protected": [
+    {
+      "path": "lifecycle/",
+      "is": "the Lifecycle"
+    }
+  ],
+  "reported": [
+    {
+      "path": "kernel/",
+      "is": "the Kernel"
+    }
+  ],
+  "lens_inputs": [
+    {
+      "path": "Makefile",
+      "is": "how verify runs the checks and the tests"
+    }
+  ],
+  "merging": {
+    "branch": "main",
+    "commands": [
+      "pr merge --admin"
+    ],
+    "mutations": [
+      "mergePullRequest"
+    ],
+    "endpoints": [
+      "repos/*/*/pulls/*/merge"
+    ]
+  },
+  "settings": {
+    "commands": [
+      "ruleset"
+    ],
+    "reads": [
+      "ruleset list"
+    ],
+    "mutations": [
+      "*RepositoryRuleset"
+    ],
+    "endpoints": [
+      "repos/*/*/rulesets/**"
+    ]
+  }
+}

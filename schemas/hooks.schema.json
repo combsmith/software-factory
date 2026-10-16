@@ -7,6 +7,7 @@
     "maintainer",
     "protected",
     "reported",
+    "lens_inputs",
     "merging",
     "settings"
   ],
@@ -41,6 +42,33 @@
     "reported": {
       "description": "Paths a stop lists when the branch changes them, and an edit to which is not asked about.",
       "$ref": "#/$defs/paths"
+    },
+    "lens_inputs": {
+      "description": "Each file a required deterministic Lens reads to judge a change, by the Lens's name in config/defaults.json, in the syntax of the paths above. A stop lists them as it lists what is reported, and the Kernel is given them with the protected paths: a change to one converges only once every model Lens has reviewed it.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "lens",
+          "path",
+          "is"
+        ],
+        "properties": {
+          "lens": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "$ref": "#/$defs/path"
+          },
+          "is": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     },
     "merging": {
       "description": "What merges a pull request or adds one to the queue: a push to the branch, a gh command, a GraphQL mutation or a REST endpoint written to.",
@@ -95,6 +123,10 @@
     }
   },
   "$defs": {
+    "path": {
+      "type": "string",
+      "pattern": "^(?!.*(^|/)\\.{1,2}(/|$))[A-Za-z0-9_.*-]+(/[A-Za-z0-9_.*-]+)*/?$"
+    },
     "paths": {
       "type": "array",
       "minItems": 1,
@@ -107,8 +139,7 @@
         ],
         "properties": {
           "path": {
-            "type": "string",
-            "pattern": "^(?!.*(^|/)\\.{1,2}(/|$))[A-Za-z0-9_.*-]+(/[A-Za-z0-9_.*-]+)*/?$"
+            "$ref": "#/$defs/path"
           },
           "is": {
             "type": "string",

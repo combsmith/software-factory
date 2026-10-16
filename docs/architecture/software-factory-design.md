@@ -319,7 +319,7 @@ for contract tests, so one schema has three uses.
 | `diff_size` | Files and lines changed |
 | `head`, `base`, `merge_base` | Commit hashes |
 | `content_id` | Hash of the pull request's own diff against its merge base, computed by the port |
-| `changed_paths` | Paths in that diff |
+| `changed_paths` | Every path in that diff, each once, from the top of the repo: a rename or a copy gives its old path and its new, a deletion its old. A list that is no list of text, or a path with an empty, `.` or `..` name, is unreadable, `paths_unreadable`, for the Maintainer. The Kernel matches each against the protected paths and the Lenses' inputs, and never shows one (§4.2, decision 0020) |
 | `label_events` | Every `labeled` and `unlabeled` event on the timeline: the label, who added or removed it (kind, name and write access), and when |
 | `reviews` | Who submitted it (`by`: kind, name and whether that actor has write access, as a thread's opening actor), state (`approved`, `changes_requested`, `commented` or `dismissed`, as GitHub holds it now), commit, `content_id`, `submitted_at`; and, from the timeline, `dismissed_by`: who dismissed it, of what kind and with what access, and `dismissed_from`: what it was before (`approved`, `changes_requested` or `commented`). Both are null unless it was dismissed |
 | `threads` | Thread id, path, line, when it was opened, resolved, outdated, opening actor and resolving actor, each with its kind and whether it has write access (the resolving actor null unless resolved); and the Finding's `category` and `severity`. For a required Lens's thread both come from that Lens's own Finding record, in its Run's `result.json` (§3.10), joined by `surface.key`, never from the comment text, which anyone with write access can edit. A person's thread is `human`, with no severity; an Advisory reviewer's, which no Finding record names, has neither |
@@ -329,7 +329,7 @@ for contract tests, so one schema has three uses.
 | `acts_since_writer` | Count of acts that landed since the last action by a person with write access, from GitHub's timeline: each approval, enqueue, dequeue and label a Factory identity made with no model Run |
 | `acceptance` | The acceptance contract of §3.13 that the head carries, or null where there is none: each criterion by id, never its statement; and `results`, each result read for a criterion, `passing` or `failing`, with the `content_id` of the content its check ran on, the latest per criterion per check suite (§4.8). Convergence's fourth condition is read from it (§4.2). Only this content's results are judged; a contract, or a result on this content, that cannot be read converges nothing. `complete.acceptance` says whether it, or that there is none, was read in full |
 | `read_at`, `quota_remaining` | When it was read, and what the installation has left |
-| `complete` | For each list above, whether every page was read; whether the diff behind `content_id` was whole; `runs`, whether the list of run records the pass read was whole; and `timeline`, whether the timeline behind `acts_since_writer` and `label_events` was read in full |
+| `complete` | For each list above, whether every page was read; whether the diff behind `content_id` was whole; `changed_paths`, whether every path it changes was read; `runs`, whether the list of run records the pass read was whole; and `timeline`, whether the timeline behind `acts_since_writer` and `label_events` was read in full |
 
 An incomplete read is an unreadable one. A list cut off at a page limit must never be taken to mean
 "nothing more": the Kernel defers on any fact marked incomplete, and a truncated diff means a
@@ -1433,6 +1433,14 @@ admitted for it. A Finding a model Lens has already raised still gates it, whate
 bot that recreates its branch does not drop one. Anyone else's push puts content of their own in it,
 and it needs `pr-review` again.
 
+A change to the Factory's own rules or to a Lens's input needs every model Lens's review of its head,
+whatever its class, a dependency update's too (I-45, decision 0020). The list is one, in
+`config/hooks.json`: its protected paths and each deterministic Lens's inputs, which the Kernel is
+given as `protected_paths`. Otherwise the Lens a change edits, such as `verify` and its workflow file,
+would be its only judge. The machine user then approves it as it approves any item, and the wait for
+the review names the patterns the change matched. A queued item that changes the list is not read
+past a review of its head that it lacks.
+
 A Finding from a Lens that is not required is shown and measured. It is given to `pr-review` as
 input. If `pr-review` adopts it, it raises a Finding of its own (§3.7), and that one gates. An Advisory reviewer that posts twenty threads therefore costs the reviewer
 some reading and cannot hold a pull request by volume, which is how the POC's comment gate failed.
@@ -1552,6 +1560,7 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 | I-42 | No Run is admitted on an issue that is not accepted at that moment, and no investigating Run unless the content changed, a person with write access acted since the last, or the last ended without investigating and the attempt limit is not reached | FR-7, FR-63 |
 | I-43 | After a linked pull request closes unmerged, at most `max_unmerged_closes` further linked pull requests are opened before a person with write access acts | FR-18 |
 | I-44 | An issue's State is given by exactly one row of its derivation, and no issue admits two Runs at once | FR-16 |
+| I-45 | Nothing that changes a protected path or a Lens's input is approved, enqueued, left in the merge queue or merged without every model Lens's review of that head, whatever its class | §4.2, §5.1 |
 
 ### 4.5 The simulator
 

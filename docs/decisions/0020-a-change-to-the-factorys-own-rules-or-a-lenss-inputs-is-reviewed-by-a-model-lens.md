@@ -1,0 +1,80 @@
+# 0020. A change to the Factory's own rules or a Lens's inputs is reviewed by a model Lens
+
+Status: accepted. The working rulings on issue 113,
+"Kernel: a change to the Factory's own rules or a Lens's inputs needs a person",
+with rule 3 decided by the Maintainer on 2026-10-16: no person is needed, and no push of one's own is
+excused. It builds on decision 0018, whose row on a change to a Lens's own workflow file now names
+its check.
+
+## Decision
+
+The facts carry `changed_paths`: every path the pull request changes, each once, from the top of the
+repo. A rename or a copy gives its old path and its new, a deletion its old. Whether the list was
+read in full is `complete.changed_paths`, read with the other flags: a list read short defers as
+incomplete facts, and a queued item leaves the queue. A list read in full that is no list of text, or
+holds a path one of whose names is empty, `.` or `..`, is unreadable: the Kernel defers for the
+Maintainer, `paths_unreadable`, read where an unreadable review is, and a queued item leaves the
+queue.
+
+The Factory's own rules and the inputs of each deterministic Lens are one list, in
+`config/hooks.json`: `protected`, which gains `config/apps.json`, and `lens_inputs`, each with the
+Lens that reads it (verify reads the Makefile and every place checks live; the secret scan its
+`.gitleaks.toml`). The session hooks ask about a protected path, and report a Lens's input as they
+report what is listed at a stop. The Kernel is given the patterns of both as `protected_paths`, from
+one function beside the hooks' own reader, in one syntax: a final `/` names a directory and all
+below it, `*` any part of one name, and case is not compared, so the list holds more, never less.
+
+A pull request that changes a path on the list converges only once every model Lens has reviewed its
+current head, whatever its class. A dependency update is no exception: the class that otherwise needs
+no model review needs it here. The machine user then approves it, as it approves every item: a
+session pushing as the Maintainer never approves its own change, since the approval comes from
+another account, and the machine user never pushes. There is no new approval, no new Hold and no
+exception for a push of one's own. An item whose review of this head is missing waits for it as any
+item does, and the wait names each pattern on the list that the change matched, never a path. A
+queued item that changes the list is never read past a review of its head that it lacks.
+
+## Why
+
+The gap was a change judged by nothing but the Lens it edits. A dependency bot's security update
+edits the pins in workflow files, and as class `dependency` had no model review: the verify Lens it
+edits was its only judge, and GitHub runs the edited job from the path the Lens is pinned to
+(decision 0018). A same-repo pull request could do the same to the Makefile, the checks and the
+tests that verify runs. A review by another model, bound to the content, closes it without stopping
+each change for a person; the load is small, since every class but a dependency update already needs
+that review.
+
+One list, read by both, leaves only the two matchers to drift, and a test holds them to each other.
+A path is text from outside, so a Decision names the configuration's pattern instead. A queued item is
+read past a missing review because GitHub read nothing of it on the way in and it was approved only
+after one; a change to the list is not, so that an approval given before this rule, or before a path
+joined the list, does not merge an unreviewed change to the rules.
+
+What GitHub holds is still the Maintainer's: the `main` ruleset requires no review, so it accepts
+whatever the Kernel enqueues. Requiring the machine user's approval of the latest push for a change
+to a protected path is
+"Ruleset: a change to a protected path needs the machine user's approval of the latest push",
+with issue 62, "The Factory repo's rulesets hold the Release tags and each required check's App".
+A deterministic Lens still runs from the change's own inputs; run from the base's, a change could
+not weaken the Lens that judges it, and that story comes next.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| A dependency update that changes a protected path waits for every model Lens's review of its head, and converges once it has one; one that changes nothing on the list does not | `tests/test_decide.py::test_a_change_to_a_protected_path_needs_the_model_review` |
+| A Lens's input counts as a protected path does: below a directory however deep, and never a name that only starts with one | `tests/test_decide.py::test_a_lens_input_counts_like_a_protected_path` |
+| `*` stands for any part of one name, none included, never across a `/`; case is not compared | `tests/test_decide.py::test_a_pattern_matches_one_name_per_star_in_any_case` |
+| Either name of a rename or a copy counts | `tests/test_decide.py::test_either_name_of_a_rename_counts` |
+| A dependency bot's update to a workflow's pin is reviewed by the model Lens before the machine user approves it, and what that review raises gates it | `tests/test_decide.py::test_a_dependency_update_to_a_workflow_pin_needs_the_model_review` |
+| A queued change to the list whose head moved, or whose approval of this head came with no review of it, leaves the queue and waits for the review | `tests/test_decide.py::test_a_queued_change_to_the_list_whose_head_moves_leaves_the_queue` |
+| A list of paths read short defers as incomplete facts, and takes a queued item out | `tests/test_decide.py::test_changed_paths_read_short_defer`, `examples/invalid/facts.no-completeness-for-changed-paths.json` |
+| A list that is no list of text, or a path with an empty, `.` or `..` name, defers for the Maintainer, after what needs no paths, and takes a queued item out | `tests/test_decide.py::test_an_unreadable_changed_path_defers_for_the_maintainer` |
+| A Decision names each pattern of the configuration that matched, in its order, never a path | `tests/test_decide.py::test_a_decision_names_the_pattern_never_the_path` |
+| The Kernel's matcher and the session hooks' agree on every file in the repo and on paths made from each pattern | `tests/test_tools.py::test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus` |
+| The Kernel is given every protected path and every Lens's input, from `config/hooks.json`, in the tests and the simulator alike | `tests/test_tools.py::test_the_kernel_is_given_every_protected_path_and_lens_input` |
+| Each Lens's input names a required deterministic Lens, and verify's cover the Makefile and every place checks live | `tests/test_tools.py::test_each_lens_input_is_a_required_lens_and_verifys_cover_every_check`, `examples/invalid/hooks.a-lens-input-with-no-lens.json` |
+| The workflow file each Lens is read from is a protected path | `tests/test_tools.py::test_each_lens_workflow_file_is_protected` |
+| The session hooks ask about `config/apps.json`, and list a Lens's input at a stop without asking about it | `tests/test_hooks.py::test_an_edit_elsewhere_is_not_asked_about`, `tests/test_hooks.py::test_a_lens_input_changed_is_listed_as_reported` |
+| In the simulator a Role, the dependency bot and the Maintainer change the list, the list is read short, and nothing that changes it is approved, enqueued, left queued or merged without every model Lens's review of that head (I-45) | `tests/test_simulator.py::test_the_seeds_change_the_list_by_a_role_the_dependency_bot_and_the_maintainer` |
+| The port reads every path the pull request changes, both names of a rename among them, and says when the list was cut short. "Port: the paths a pull request changes, and both names of a rename" | waiting on `adapters/` |
+| `apply` refuses a Role's push to a protected path or a Lens's input that no model Lens has reviewed. "Harness: apply refuses a push to the list that no model Lens has reviewed" | waiting on `harness/` |

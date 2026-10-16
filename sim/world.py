@@ -15,11 +15,14 @@ import random
 from kernel import terms as t
 from kernel.decide import decide
 from tools import check_lifecycle
+from tools.hooks import protected
 from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-# The Kernel is given the defaults, and the Lifecycle whose staleness limits it reads.
-CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), lifecycle=check_lifecycle.load())
+# The Kernel is given the defaults, the Lifecycle whose staleness limits it reads, and the protected paths and Lenses'
+# inputs from config/hooks.json.
+CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), lifecycle=check_lifecycle.load(),
+              protected_paths=protected.protected_paths())
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
 FACTS_SCHEMA = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
 DECLARED = check_lifecycle.declared(check_lifecycle.load())
@@ -63,6 +66,16 @@ CEILINGS = ("attempts_exhausted", "run_ceiling", "max_rounds", "act_ceiling")
 # On three seeds in seven the item has an acceptance contract (design §3.13), of this many criteria, by the seed alone.
 # Seeds 1 and 2, which the tests set worlds up from by hand, have none.
 CONTRACTS = {0: 3, 3: 1, 5: 2}
+# On one seed in ten the item is a dependency bot's update, of class `dependency`, that the bot opened and pushed: on
+# every other such seed it edits the pin in the workflow file the verify Lens is read from. By the seed alone.
+DEPENDENCY_SEED = 4
+DEPENDABOT = "dependabot[bot]"
+# What each who changes the item may touch, in the world's own words: a path on the list, a protected path or a Lens's
+# input, or one on neither. A Role's fix Run touches the tests, the dependency bot a workflow's pin, the Maintainer the
+# brakes' limits. What a change touches draws from its own generator, so that the rest of each world stays as it was.
+ON_THE_LIST = {"role": "tests/test_decide.py", "dependency": ".github/workflows/verify.yml",
+               "maintainer": "config/defaults.json"}
+OFF_THE_LIST = {"role": "kernel/derive.py", "dependency": "docs/requirements.txt", "maintainer": "docs/glossary.md"}
 
 
 class Broken(AssertionError):
@@ -84,6 +97,16 @@ class World:
         self.pr_state = "open"
         self.cls = "maintainer" if seed % 2 else "agent"
         self.author = self.last_pusher = AUTHOR if self.cls == "agent" else MAINTAINER["name"]
+        # The paths the pull request changes, and who has touched one on the list (ON_THE_LIST), from its own generator.
+        self.paths = random.Random("paths %d" % seed)
+        self.listed_by = set()
+        if seed % 10 == DEPENDENCY_SEED:
+            # GitHub: a_dependency_bot_updates_a_workflow_pin
+            self.cls, self.author = "dependency", DEPENDABOT
+            self.last_pusher = self.author
+            self.changed = {self.touched_by("dependency", on=seed // 10 % 2 == 0)}
+        else:
+            self.changed = {self.touched_by("role" if self.cls == "agent" else "maintainer")}
         self.asked = False         # the Maintainer's request for changes stands, as the world keeps it
         self.unheld = []           # breaches of invariants the Kernel does not hold yet (NOT_YET_HELD)
         self.labels = set()        # the labels on the pull request, as GitHub shows them
@@ -130,6 +153,24 @@ class World:
         change is checked from it. A test that sets a world up by hand says so here."""
         self.true_state = decide(self.facts(), self.records(), self.unpaused(), CONFIG, self.now())["state"]
 
+    def touched_by(self, who: str, on=None) -> str:
+        """What a change `who` makes touches: on the list now and then, or as `on` says."""
+        if on is None:
+            on = self.paths.random() < 0.3
+        if on:
+            self.listed_by.add(who)
+        return (ON_THE_LIST if on else OFF_THE_LIST)[who]
+
+    def on_the_list(self, paths) -> bool:
+        """Whether a change to `paths` changes the Factory's own rules or a Lens's input, in the world's own words."""
+        return any(p in ON_THE_LIST.values() for p in paths)
+
+    def reviewed(self, runs: list, content: str) -> bool:
+        """Whether every model Lens has reviewed `content`, in the world's own words."""
+        return all(any(r["role"] == lens and r["intent"] == "review-change" and r["content_id"] == content
+                       and r["status"] == "completed" and r["conclusion"] == "success" for r in runs)
+                   for lens in CONFIG["required_lenses"]["model"])
+
     def pick(self, options):
         """Choose with random() only, whose sequence is the same on every Python version."""
         options = list(options)
@@ -155,7 +196,9 @@ class World:
             "schema": "facts/1", "item": dict(ITEM), "state": self.pr_state, "is_draft": False,
             "class": self.cls, "author": self.author, "last_pusher": self.last_pusher,
             "targets_protected": True, "mergeable": True, "content_id": self.cid(),
-            "diff": {"files": 2, "lines": 40, "truncated": False}, "label_events": copy.deepcopy(self.events),
+            "diff": {"files": 2, "lines": 40, "truncated": False},
+            # GitHub: a_pull_request_lists_the_paths_it_changes
+            "changed_paths": sorted(self.changed), "label_events": copy.deepcopy(self.events),
             "last_push_at": self.last_push, "last_writer_action_at": self.last_writer,
             # GitHub: an_actor_has_a_kind
             "reviews": copy.deepcopy(self.reviews), "threads": copy.deepcopy(self.threads),
@@ -170,8 +213,8 @@ class World:
             # GitHub: an_acceptance_result_names_its_content
             "acceptance": None if self.criteria is None else {
                 "criteria": list(self.criteria), "results": copy.deepcopy(self.results)},
-            "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True, "runs": True,
-                         "timeline": True},
+            "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True,
+                         "changed_paths": True, "runs": True, "timeline": True},
             "read_at": self.now(),
         }
 
@@ -344,7 +387,13 @@ class World:
         elif fault < 0.14:
             # GitHub: a_short_diff_says_so
             # GitHub: a_short_list_says_so
-            facts["complete"][self.pick(sorted(k for k in facts["complete"] if k not in ("runs", "acceptance")))] = False
+            facts["complete"][self.pick(sorted(k for k in facts["complete"]
+                                               if k not in ("runs", "acceptance", "changed_paths")))] = False
+            if self.paths.random() < 0.3:
+                # The list of paths is read short in the same pass, so the rest of the world stays as it was.
+                # GitHub: a_short_path_list_says_so
+                facts["complete"]["changed_paths"] = False
+                self.note("the paths were read short")
         elif fault < 0.20 and runs:
             # GitHub: a_new_run_is_listed_late
             runs = runs[:-1]
@@ -396,6 +445,12 @@ class World:
                        "I-31 %s with a criterion lacking passing evidence" % d["state"])
             self.check(d["reason"] != "acceptance_unreadable" or (not readable and d["attention"] == t.NEEDS_YOU),
                        "unreadable acceptance evidence is not shown as needing a person")
+        # Nothing that changes the list is approved, enqueued or left in the queue without every model Lens's review
+        # of its head, whatever its class (I-45). A list read short is incomplete, and checked with the other flags.
+        moves_on = d["outcome"] == t.ACT and d["action"] in ("issue_approval", "enqueue")
+        self.check(not (self.on_the_list(facts["changed_paths"]) and (moves_on or d["state"] == t.QUEUED))
+                   or self.reviewed(runs, facts["content_id"]),
+                   "I-45 %s %s on a change to the list with no review of its head" % (d["state"], d["reason"]))
         whole = all(facts["complete"].values())
         # A read that fails stops work: it defers, or takes a queued item out of the merge queue (I-13).
         dequeue = d["outcome"] == t.ACT and d["action"] == "dequeue"
@@ -478,6 +533,8 @@ class World:
         if d["action"] == "issue_approval":
             self.approve()
         elif d["action"] == "enqueue":
+            self.check(not self.on_the_list(self.changed) or self.reviewed(self.runs, self.cid()),
+                       "I-45 a change to the list enqueued with no review of its head")
             # GitHub: an_app_enters_the_queue
             self.queue = True
             self.acts += 1
@@ -487,6 +544,8 @@ class World:
     def approve(self):
         """A Run with no Engine: its `apply` alone holds the machine user's token, and its record counts attempts."""
         self.check(CONFIG["approver"] not in (self.author, self.last_pusher), "I-26 approver is author or last pusher")
+        self.check(not self.on_the_list(self.changed) or self.reviewed(self.runs, self.cid()),
+                   "I-45 a change to the list approved with no review of its head")
         self.moves()
         run = {"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": CONFIG["owner_role"],
                "intent": t.ISSUE_APPROVAL, "content_id": self.cid(), "status": "completed",
@@ -588,6 +647,7 @@ class World:
     def push(self, who: str, writer: bool):
         # GitHub: a_push_is_new_content
         self.content += 1
+        self.changed.add(self.touched_by("role" if who == AUTHOR else "maintainer"))
         # GitHub: the_pusher_is_the_last_pusher
         self.last_pusher, self.last_push = who, self.now()
         self.moves()
@@ -848,6 +908,8 @@ class World:
             self.check(ok, "NFR-4 merged without an approval of the merged content")
             self.check(self.accepted(self.criteria, self.results, self.cid()),
                        "I-31 merged with a criterion lacking passing evidence on the merged content")
+            self.check(not self.on_the_list(self.changed) or self.reviewed(self.runs, self.cid()),
+                       "I-45 a change to the list merged with no review of the merged content")
         since = [r for r in self.runs if (self.last_writer is None or r["started_at"] > self.last_writer)
                  and r["outcome"] != "superseded"]
         # A landed approval is an act, counted below; every other Run, a failed approval among them, is spent.
