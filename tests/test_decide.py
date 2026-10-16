@@ -654,6 +654,52 @@ class OnlyAPersonEnds(unittest.TestCase):
         self.assertEqual((d["reason"], d["outcome"]), ("hands_off", "hold"))
         self.assertNotIn("action", d)
 
+    def test_only_a_persons_removal_in_the_same_second_is_a_tie(self):  # L-17, I-6
+        # A removal by anyone but a person ends nothing, so in the same second it changes nothing either: a person's
+        # hands-off stays theirs, a Hold stands, and an admission stands.
+        outside = {"class": "outside", "author": "stranger", "last_pusher": "stranger", "last_push_at": at(0)}
+        for who in NOT_PEOPLE:
+            for order in ((0, 1), (1, 0)):
+                def tie(label):
+                    pair = [labelled(label, MAINTAINER, at=at(3)), unlabelled(label, who, at=at(3))]
+                    return [pair[i] for i in order]
+                d = go(facts(queue=True, reviews=[review()], label_events=tie("factory:hands-off")), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "hands_off", "hold"), (who, order))
+                self.assertNotIn("action", d)
+                d = go(facts(label_events=tie("factory:hold")), REVIEWED)
+                self.assertEqual(d["reason"], "human_hold", (who, order))
+                self.assertEqual(go(facts(**outside, label_events=tie("factory:admit")))["admit"]["intent"],
+                                 "review-change", (who, order))
+        # The other side: a person's removal in the same second is a tie, and hands-off is read as a Hold.
+        events = [labelled("factory:hands-off", at=at(3)), unlabelled("factory:hands-off", COLLEAGUE, at=at(3))]
+        self.assertEqual(go(facts(label_events=events), REVIEWED)["reason"], "human_hold")
+
+    def test_hands_off_ties_only_with_its_own_removal_in_that_second(self):  # I-6
+        # Another label removed in the same second, or hands-off removed at another time, is no tie.
+        events = [labelled("factory:hold"), unlabelled("factory:hold", at=at(3)), labelled("factory:hands-off", at=at(3))]
+        d = go(facts(queue=True, reviews=APPROVED, label_events=events), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"], d["outcome"]), ("hands_off", ["factory:hands-off"], "hold"))
+        self.assertNotIn("action", d)
+        events = [labelled("factory:hands-off"), unlabelled("factory:hands-off"), labelled("factory:hands-off", at=at(3))]
+        d = go(facts(queue=True, reviews=APPROVED, label_events=events), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"]), ("hands_off", "hold"))
+        self.assertNotIn("action", d)
+
+    def test_a_resolver_with_the_openers_name_who_is_not_a_person_closes_nothing(self):  # L-17, L-57
+        # A thread is closed by who resolved it, as the kind and access say, never by the name alone.
+        for who in ({"kind": "app", "name": "don-petry", "can_write": True},
+                    {"kind": "human", "name": "don-petry", "can_write": False},
+                    {"kind": "lens", "name": "don-petry", "can_write": True}):
+            th = thread(kind="human", name="don-petry", severity=None, resolved=True, resolved_by=who)
+            self.assertEqual(go(facts(threads=[th]), REVIEWED)["reason"], "human_finding", who)
+        for who in ({"kind": "app", "name": "pr-review", "can_write": True},
+                    {"kind": "human", "name": "pr-review", "can_write": False}):
+            th = thread(resolved=True, resolved_by=who)
+            self.assertEqual(go(facts(threads=[th]), REVIEWED)["reason"], "findings_open", who)
+        # The other side: the opener itself, read as what it is, closes it.
+        for th in (thread(kind="human", name="don-petry", severity=None, resolved=True), thread(resolved=True)):
+            self.assertEqual(go(facts(threads=[th]), REVIEWED)["action"], "issue_approval")
+
     def test_what_a_person_placed_is_not_replaced_by_anyone_else_placing_it(self):  # L-17, I-36
         # An App that takes a person's label off and puts it back has not placed it: it stands as the person placed it.
         outside = {"class": "outside", "author": "stranger", "last_pusher": "stranger"}

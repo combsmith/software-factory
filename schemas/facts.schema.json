@@ -94,7 +94,7 @@
       }
     },
     "label_events": {
-      "description": "Every labeled and unlabeled event on the pull request's timeline, with who added or removed the label and when, read with the timeline, so complete.timeline says whether they were read in full. The port's contract: it gives them as the timeline lists them. The Kernel reads them by time; in the same second it reads each label the way that stops work: a Hold stands, an admission does not, and hands-off is read as a Hold. A control label binds from when anyone adds it until a person removes it, and anyone else placing it again does not replace a person's placement; hands-off and an admission bind as a person's only when a person placed them",
+      "description": "Every labeled and unlabeled event on the pull request's timeline, with who added or removed the label and when, read with the timeline, so complete.timeline says whether they were read in full. The port's contract: it gives them as the timeline lists them. The Kernel reads them by time; in the same second it reads each label the way that stops work: a Hold stands, an admission does not, and hands-off a person removed in that second is read as a Hold; a removal by anyone else ends nothing, then or later. A control label binds from when anyone adds it until a person removes it, and anyone else placing it again does not replace a person's placement; hands-off and an admission bind as a person's only when a person placed them",
       "type": "array",
       "items": {
         "type": "object",

@@ -437,11 +437,11 @@ def label_order(ev: dict) -> tuple:
 
 
 def tied(placed: dict, facts: dict) -> bool:
-    """Whether a removal of the label `placed` placed came in the same second. Hands-off placed so is read as a Hold:
-    standing, it could leave a queued item to merge, and ended, it could let the Factory act on an item a person
-    marked, so either reading fails open somewhere."""
+    """Whether a person's removal of the label `placed` placed came in the same second. Hands-off placed so is read as a
+    Hold: standing, it could leave a queued item to merge, and ended, it could let the Factory act on an item a person
+    marked, so either reading fails open somewhere. Anyone else's removal ends nothing, so it ties with nothing."""
     return any(ev["label"] == placed["label"] and ev["action"] == "unlabeled" and ev["at"] == placed["at"]
-               for ev in facts["label_events"])
+               and is_person(ev["by"]) for ev in facts["label_events"])
 
 
 def standing_labels(facts: dict) -> dict:

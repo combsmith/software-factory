@@ -455,9 +455,10 @@ placed, only a person ends:
 - `label_events` carry who added and who removed each label, from the timeline. The port gives them
   as the timeline lists them, and the Kernel reads them by time. Which of two events in the same
   second came first cannot be told, so each label is read the way that stops work, as a review is:
-  a Hold stands; an admission does not; and hands-off is read as a Hold, reason `human_hold`, since
-  standing it could leave a queued item to merge and ended it could let the Factory act on an item
-  a person marked. They are read
+  a Hold stands; an admission does not; and hands-off that a person removed in the same second it
+  was placed is read as a Hold, reason `human_hold`, since standing it could leave a queued item to
+  merge and ended it could let the Factory act on an item a person marked. A removal by anyone but a
+  person ends nothing, so in the same second it ties with nothing. They are read
   with the timeline, so `complete.timeline` covers them: a read cut short, which GitHub pages
   oldest first, could drop a person's later removal, and the item defers. A control label binds
   from when anyone adds it until a person removes it: removed by anyone else, it binds as it was
