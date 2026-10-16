@@ -323,7 +323,7 @@ for contract tests, so one schema has three uses.
 | `label_events` | Every `labeled` and `unlabeled` event on the timeline: the label, who added or removed it (kind, name and write access), and when |
 | `reviews` | Who submitted it (`by`: kind, name and whether that actor has write access, as a thread's opening actor), state (`approved`, `changes_requested`, `commented` or `dismissed`, as GitHub holds it now), commit, `content_id`, `submitted_at`; and, from the timeline, `dismissed_by`: who dismissed it, of what kind and with what access, and `dismissed_from`: what it was before (`approved`, `changes_requested` or `commented`). Both are null unless it was dismissed |
 | `threads` | Thread id, path, line, when it was opened, resolved, outdated, opening actor and resolving actor, each with its kind and whether it has write access (the resolving actor null unless resolved); and the Finding's `category` and `severity`. For a required Lens's thread both come from that Lens's own Finding record, in its Run's `result.json` (§3.10), joined by `surface.key`, never from the comment text, which anyone with write access can edit. A person's thread is `human`, with no severity; an Advisory reviewer's, which no Finding record names, has neither |
-| `checks` | Name exactly as GitHub gives it, the id of the App that reported it (`app_id`, the check run's `app.id`), conclusion as GitHub gives it (or the check's status while it has not concluded), completion time, annotation count |
+| `checks` | Name exactly as GitHub gives it, the id of the App that reported it (`app_id`, the check run's `app.id`), the workflow file that ran it (`workflow`, the `path` of its check suite's workflow run, such as `.github/workflows/verify.yml`; null for a check no workflow ran), conclusion as GitHub gives it (or the check's status while it has not concluded), completion time, annotation count |
 | `alerts` | Tool, rule, alert number, state, severity, path |
 | `queue` | Merge-queue membership |
 | `acts_since_writer` | Count of acts that landed since the last action by a person with write access, from GitHub's timeline: each approval, enqueue, dequeue and label a Factory identity made with no model Run |
@@ -391,12 +391,49 @@ check suite replaces an earlier run: GitHub's `filter=latest` is per check suite
 runs on one commit both stay, and the Kernel reads both, which fails closed. Both rules wait on
 `adapters/`.
 
+GitHub Actions is one App, 15368, for every job in the repo, one a pull request adds in a workflow
+file of its own under a required Lens's check name among them. So a Lens that Actions runs is also
+pinned to its workflow file: the configuration's `workflow` names it, `.github/workflows/verify.yml`
+for `verify` and `.github/workflows/ci.yml` for `secret-scan`, the files whose jobs carry those
+names, and null for `code-scanning`, which no workflow runs. The port gives each check run the `path`
+of its check suite's workflow run as `workflow`, and null for a check no workflow ran (trial P-35).
+The Kernel matches the path exactly. A check under a Lens's check name from its own App and another
+path, or with no path read where the Lens names one, is read as one from another App is, with the
+evidence `<lens>:from_workflow:<path>`; and a check that names a path, where the Lens names none, is
+not that Lens's either. The evidence shows the path only in the form a Lens's workflow takes in the
+configuration, `.github/workflows/` and a name of ASCII letters, digits, `.`, `_` and `-` ending
+`.yml` or `.yaml`, no longer than `max_path_length`; any other, a `dynamic/` path, a look-alike or a
+control character among them, is shown `unreadable`, so text from outside never reaches a Decision.
+`tools/check_workflows.py` holds the configuration to the files: a Lens whose App is GitHub Actions
+names a file, no other Lens names one, and the file exists, runs on both `pull_request` and
+`merge_group`, and has a job whose own `name:`, or whose id where it has none, is the Lens's check,
+with no `strategy.matrix`, job-level `if:` or `uses:`, any of which would leave the Lens waiting.
+
+The pin is to the path, not to what the file says, nor to what it runs. A pull request from a
+branch of this repo can change the file at that path in place, and its check still reports from
+it; so can a dependency bot's security update, which edits the pins in workflow files and, as class
+`dependency`, skips the model review. `verify` runs the pull request's own Makefile, tools and
+tests, and the secret scan reads its own `.gitleaks.toml`. What holds `.github/` today is GitHub
+refusing an App's push there without the `workflows` permission, which no Factory App holds
+(`config/apps.json`, held by `tools/check_apps.py`); a person's admission of a fork's pull request
+after its last push (I-36); a Role's `apply`, which waits on `harness/`; and the session hooks,
+locally. The `main` ruleset requires no review and pins only `verify` to its App; pinning each
+required check is the Maintainer's, in the repo's settings, with
+"The Factory repo's rulesets hold the Release tags and each required check's App" (issue 62), and
+the Kernel's pin does not wait on it. That a change to a Lens's inputs needs a person is
+"Kernel: a change to the Factory's own rules or a Lens's inputs needs a person" (issue 113). A Lens
+no workflow runs has a gap of its own: whether an upload to code scanning under CodeQL's tool and
+category, by an identity holding `security_events: write`, can replace the CodeQL verdict is
+unverified (trial P-36). Such an upload would be reported by the Lens's own App under its own
+check, so the Kernel could not tell it from the Lens.
+
 A check under a required Lens's check name from any other App, or with an App id that is not a whole
 number, makes that Lens unreadable whatever it concludes, and whatever the Lens's own App says
 beside it. It is read before the failure of any Lens and before a conflict, as `review_unreadable`
 is, because a fix Run is an action: reason `check_unreadable`, for the Maintainer to see, since an
 App posting under a Lens's name is a person's to look into (I-13). Its evidence is
-`<lens>:from_app:<id>`, so it is not taken for a check that was cancelled. A check run cannot be
+`<lens>:from_app:<id>`, or `<lens>:from_workflow:<path>` for another workflow file of the Lens's own
+App, so it is not taken for a check that was cancelled. A check run cannot be
 deleted, so it stays on that head, and only a push clears it. Every check from the Lens's own App is
 read, never the last alone: any that fails fails the Lens; failing none, any that gave no verdict
 leaves it unreadable; then any still running is a wait. The Lens passes only when every one passes.
@@ -1000,7 +1037,7 @@ goes stale as usual.
 
 State is never stored (decision 0002), so the time an item entered its State is read as the newest
 time a writer, a Lens or the Factory moved it: its last push, a required check's completion
-(`completed_at`) as its Lens's own App reports it, a review or a thread by a person with write access or by a Lens's App (a gating
+(`completed_at`) as its Lens's own App and workflow file report it, a review or a thread by a person with write access or by a Lens's App (a gating
 thread is always one), a writer's action, or a Run on it. A stranger's comment and a check that is not
 required move nothing, as for attempts (I-28): otherwise anyone could keep a stalled item from showing
 by commenting. A time is read only when it is a real moment no later than now: the month 1 to 12, a
@@ -1029,7 +1066,7 @@ with its own reason: `human_hold`, `outside_not_admitted`, `too_large`, `empty_d
 `approver_is_author_or_last_pusher`, since GitHub does not count that approval (I-26). A Hold stops
 every Effect, and a merge is the last, so the dequeue is the one change the Factory makes to a held
 item (FR-23, I-21). So does a required check that now fails or gives no verdict, or one posted under a
-required Lens's name by another App, reason `check_failed` or `check_unreadable` (I-9, I-27), a conflict, and a draft. So does a read that fails:
+required Lens's name by another App or workflow file, reason `check_failed` or `check_unreadable` (I-9, I-27), a conflict, and a draft. So does a read that fails:
 `facts_incomplete` or `review_unreadable`. A dequeue is a stop, not
 work, so a fact that cannot be read takes the item out rather than leaving it to merge (I-13).
 
@@ -1572,7 +1609,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | The approver is the author or the last pusher | GitHub rejects or discards the approval. The Kernel reads `author` and `last_pusher`, attempts no approval, and holds the item with that reason (I-26). The machine user therefore never pushes (§5.1). The Hold is a reading: after a conflict, the Factory's fix Run pushes, the Role's App becomes the last pusher, and the Hold ends with no person, since GitHub would then count the approval (§4.1) |
 | A branch pushed every few minutes | Deterministic Lenses first; a model review starts only on content they have passed (I-27) |
 | A required check that concludes `neutral`, `skipped`, `cancelled` or `stale`, or with a word the Kernel does not know | It gave no verdict, so it has not passed. The Kernel defers, reason `check_unreadable`, admits no Run, and shows the item as needing the Maintainer until the check reports again (I-13, §3.3). A `timed_out` check is a failure, and goes back to the author. A failure beside it is read first, so `fail-fast`'s cancelled siblings and a skipped dependent job do not hold an ordinary failure |
-| A check under a required Lens's check name from another App, or two from the Lens's own App that disagree | The first leaves the Lens unreadable, reason `check_unreadable` with the evidence `<lens>:from_app:<id>`, for the Maintainer to see, whatever any Lens's own check says, a failure among them; it moves nothing either. A check run cannot be deleted, so it stays on that head for good, and only a push clears it. Of the second, every one is read: a failure fails the Lens, and it passes only when every one passes (§3.3) |
+| A check under a required Lens's check name from another App or another workflow file, or two from the Lens's own App and file that disagree | The first leaves the Lens unreadable, reason `check_unreadable` with the evidence `<lens>:from_app:<id>` or `<lens>:from_workflow:<path>`, for the Maintainer to see, whatever any Lens's own check says, a failure among them; it moves nothing either. A check run cannot be deleted, so it stays on that head for good, and only a push clears it. Of the second, every one is read: a failure fails the Lens, and it passes only when every one passes (§3.3) |
 | A Hold released, or a pull request reopened, after attempts ran out | Attempts count since the last action by a person with write access, which grants a fresh allowance. No agent's action does, and nor does a stranger's comment: on a public repo that would let anyone keep an agent running (I-28) |
 | An approval that does not land | The approval is a Run with no Engine. A failed one whose fault is the item's is an attempt, and at `max_attempts` the item is held. One that fails for any other fault, such as an expired token, counts toward the Run ceiling (§3.10) |
 | A merge queue that ejects the pull request every time | Each enqueue is an act. At `max_acts_per_item` acts since a person with write access acted, the item is held, reason `act_ceiling` (§3.3) |
@@ -1714,7 +1751,7 @@ room. That shapes every row.
 | Get a harmless fork commit admitted, then push the real one | Admission lapses on the next push (I-36) |
 | From a fork, open pull requests that say they close an issue, to park it, hold it or spend its one retry | Only a pull request opened by a Factory App or a person with write access, or one the Maintainer has admitted, is linked to an issue (I-39) |
 | Get a harmless issue admitted, then edit it; or write an issue that tells the model to call itself ready, perhaps in a comment the rendered page hides | An edit ends acceptance at the next pass (I-36, I-42), and `apply` refuses a Run admitted for other content (I-21, I-40). Admission never changes the class of the text: a Run that reads it has no shell and no network tool (I-35), and the Runs that have them are given the investigating Role's statement instead. What remains is an instruction that survives that restatement. Against it: the readiness Intent is promoted only on an eval set, the model holds no credential that can write, and no implementing Run starts before the Maintainer has approved the contract (I-29). The opening Run can still push a contract and open a draft |
-| With any App that can write checks, the Controller's among them, post a passing check under a required Lens's name, or a passing one after that Lens's failure | A required Lens is read only from its own App, by id, and every check it reports there is read: another App's check leaves the Lens unreadable, before any failure, and any failure fails it. The status on the item has one name, which can never be a Lens's or its check's (§3.3). The pin is to an App, so `verify` and `secret-scan` are bound to any GitHub Actions job, one a pull request adds with the same name among them. Reading every check from the Lens's App, all of which must pass, is what makes an extra passing one harmless; replacing the real job needs a change to `.github/`, a protected path that only the Maintainer authors (decisions 0004, 0005). A remaining risk, unverified: an upload to code scanning with CodeQL's tool and category, by anyone with `security_events: write`, might replace the CodeQL verdict. A follow-up story pins each Lens to its workflow file |
+| With any App that can write checks, the Controller's among them, post a passing check under a required Lens's name, or a passing one after that Lens's failure | A required Lens is read only from its own App, by id, and every check it reports there is read: another App's check leaves the Lens unreadable, before any failure, and any failure fails it. The status on the item has one name, which can never be a Lens's or its check's (§3.3). A Lens GitHub Actions runs is pinned to the path of its workflow file as well, since Actions is one App for every job: a job a pull request adds in a file of its own under `verify`'s or the secret scan's name leaves the Lens unreadable. The pin holds the path, not the file's content or what it runs: a pull request from a branch of this repo, or a dependency bot's security update, can change the file in place, or the Makefile, tools, tests and `.gitleaks.toml` the Lenses run, and nothing in the Kernel stops it yet: "Kernel: a change to the Factory's own rules or a Lens's inputs needs a person" (issue 113). No Factory App holds `workflows`, so none can push there. A remaining risk, unverified: an upload to code scanning with CodeQL's tool and category, by anyone with `security_events: write`, might replace the CodeQL verdict (P-36) |
 | Steal what the relay holds | It holds a webhook secret and nothing that can act on the Factory repo. The worst a thief can do is cause passes (§7.3) |
 | Forge a fault report from inside a Run, to pause the Factory | A pause needs agreeing faults from Runs on different items, and `apply` and the poller class the faults they see themselves. The worst case is delay, bounded by the probe Run |
 | Replace the commit bundle from inside `verify` | The bundle is taken by identifier and digest (§3.6) |
@@ -1906,6 +1943,8 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-32 | Can an issue's author's permission be read in the listing of open issues, and who added and who removed each label, with the time, in the full read? | Yes to both, within the budget P-8 measures |
 | P-34 | Can the time an issue's title or body last changed be read, apart from the time anything on it changed; and each reopening, with who did it? | Yes to both |
 | P-33 | Can the issue a pull request closes be read from a draft, an open, a merged and a closed-unmerged pull request alike, with its opening actor; and does a pull request to a branch that is not the default one carry it? Can who last changed the draft flag be read? | Yes to the first and last. If a closed pull request loses the reference, closes are counted by the work's branch name. If a non-default base carries none, the issue Lifecycle serves the default branch only. If who changed the draft flag cannot be read, a linked pull request that has once left draft and is a draft again is treated as taken in hand |
+| P-35 | Where does each check run's workflow file come from, and in what form? Can it be read as the `path` of the check run's check suite's workflow run, with the permissions the reader and the Controller hold, in the one read of the facts, and does that `path` ever carry a ref suffix or take a `dynamic/` form, which the port passes on verbatim, never as null? Does the check run `CodeQL` that GitHub Advanced Security reports have a workflow run at all? Where does a check run created through the API with `GITHUB_TOKEN` and `checks: write` land, in which check suite and under which workflow path, and can that token update a check run of another workflow's run? And does a job a pull request adds in a file of its own, under a required Lens's check name, report under GitHub Actions with that file's path? | Each answered and recorded; the path readable within the budget P-8 measures; CodeQL's check with no workflow run; a check created with `GITHUB_TOKEN` under its own workflow's path and unable to change another's |
+| P-36 | Can an upload to code scanning under CodeQL's tool and category, on a pull request's head, by an identity holding `security_events: write` but not CodeQL's own analysis, change the conclusion of the check run `CodeQL` that GitHub Advanced Security reports? | It cannot. If it can, no identity but CodeQL's own analysis may hold `security_events: write`: for the Factory's Apps `tools/check_apps.py` holds that, and for the live workflows the workflow lint, which refuses `security-events: write` on any job; for a third-party App installed on a served repo it waits on the readiness check (§3.12) |
 
 ### 6.1 The order to run them in
 
@@ -1914,7 +1953,7 @@ An assumption audit on 2026-10-10 ranked each trial by what breaks if its answer
 | Batch | Trials | If the answer is no |
 |---|---|---|
 | **1. Before any code** | P-13 (the model CLI returns structured output on a subscription); P-1, P-7, P-24 (the approval mechanics); P-17, P-22 (run records can be identified); P-3 (secrets are isolated by environment); P-28, P-29 (last pusher and content identity are readable); P-8 (a pass fits its budget) | The design does not work as written. Each of these is a foundation: no Run, no approval, no derived State, no credential boundary, or no poller |
-| **2. Before the first approval** | P-9, P-20 (chaining and the outside tick); P-5, P-23, P-25 (resolving others' threads); P-2 (an App in the merge queue); P-30 (cutting a Release); P-27, P-14, P-4 (forks, caches, narrowed tokens); P-26 (the sandbox) | One mechanism is replaced and the design stands. If threads cannot be resolved by an App, required thread resolution is dropped in repos the Factory serves |
+| **2. Before the first approval** | P-9, P-20 (chaining and the outside tick); P-5, P-23, P-25 (resolving others' threads); P-2 (an App in the merge queue); P-30 (cutting a Release); P-27, P-14, P-4 (forks, caches, narrowed tokens); P-26 (the sandbox); P-35, P-36 (what a Lens's check is read from) | One mechanism is replaced and the design stands. If threads cannot be resolved by an App, required thread resolution is dropped in repos the Factory serves |
 | **3. Before the control room** | P-11, P-19, P-21 (publishing the page); P-16, P-18 (retention and final steps) | The page is published another way, or history is shorter |
 | **4. As they come up** | P-6, P-10, P-12, P-15 | A detail changes |
 

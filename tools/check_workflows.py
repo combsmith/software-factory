@@ -7,10 +7,17 @@ named and refuse the rest: the events, the commands, the places an expression ma
 
 Each rule has at least one counter-example under examples/workflows/invalid/, named for the rule,
 that must be rejected for that rule and no other. A rule with no counter-example fails this check.
+
+It also holds the configuration's required Lenses to the workflows that run them (lens_workflows): a Lens whose App is
+GitHub Actions names its workflow file and no other Lens names one, and the file it names exists, runs on both
+pull_request and merge_group, and has a job whose own `name:`, or whose id where it has none, is the Lens's check,
+with no `strategy.matrix`, no job-level `if:` and no `uses:`. Only `jobs.<id>.name` is read: a workflow's or a step's
+`name:` names no check run.
 """
 from __future__ import annotations
 
 import hashlib
+import json
 import pathlib
 import re
 
@@ -22,7 +29,8 @@ RULES = {
            "reusable workflows, to its channel tag; nothing local but a reusable workflow",
     "target": "a workflow runs only on pull_request, merge_group, push, schedule, workflow_dispatch or "
               "workflow_call, and never on pull_request_target",
-    "permissions": "permissions are declared at the top and grant nothing that can write; never read-all or write-all",
+    "permissions": "permissions are declared at the top and grant nothing that can write; never read-all or write-all; "
+                   "and no job is granted security-events: write, with which an upload could stand for CodeQL's verdict",
     "expression": "an expression stands only as the whole of a value under env:, with: or secrets:, or in if:",
     "length": "a run: block is at most ten lines",
     "install": "a run: line is `make <target>` or `python3 -m <module>` and nothing else, so nothing is "
@@ -36,6 +44,8 @@ RULES = {
     "soft": "no step or job continues on error",
 }
 EVENTS = {"pull_request", "merge_group", "push", "schedule", "workflow_dispatch", "workflow_call"}
+# The id GitHub gives the App GitHub Actions: it reports every job in every workflow of the repo.
+ACTIONS_APP = 15368
 # A workflow the org requires as it wrote it. It is exempt from the rules named and from no other,
 # and it is held to its text by a hash taken with the pins left out: to change it, change this.
 EXEMPT = {
@@ -138,6 +148,9 @@ def lint(text: str) -> list:
             any(e["value"] not in ("read", "none") for e in granted) or \
             any(e["key"] == "permissions" and e["value"] not in ("", "{}") for e in entries):
         found.append(("permissions", "no top-level permissions, one that can write, or read-all or write-all"))
+    if any(e["path"][-1:] == ["permissions"] and e["key"] == "security-events" and e["value"] == "write"
+           for e in entries):
+        found.append(("permissions", "a job is granted security-events: write"))
 
     for e in entries:
         key, value = e["key"], e["value"]
@@ -192,8 +205,88 @@ def lint(text: str) -> list:
     return sorted(set(found))
 
 
-def run(root: pathlib.Path = ROOT) -> list:
+def lens_job_problems(text: str, check: str) -> list:
+    """Why a workflow holding `text` would never report the check run `check` on every head and in the merge queue.
+
+    GitHub names a job's check run by the job's own `name:`, or by its id where it has none; a workflow's or a step's
+    `name:` names none. A job with a `strategy.matrix` reports under its name and its values, one with a job-level
+    `if:` can be skipped, and one that calls a reusable workflow with `uses:` reports under the caller's and the
+    callee's names. A workflow that does not run on both pull_request and merge_group reports on no head, or not in
+    the queue. Each would leave the Lens waiting for ever.
+    """
+    entries, _ = read(text)
+    top = {e["key"]: e for e in entries if e["path"] == []}
+    events = {e["key"] for e in entries if e["path"] == ["on"]}
+    if top.get("on", {}).get("value"):
+        events.add(top["on"]["value"])
     problems = []
+    if not {"pull_request", "merge_group"} <= events:
+        problems.append("runs on %s, not on both pull_request and merge_group, so its check would not report on every "
+                        "head and in the queue" % (", ".join(sorted(events)) or "nothing"))
+    jobs = [e["key"] for e in entries if e["path"] == ["jobs"]]
+    named = []
+    for job in jobs:
+        inside = {e["key"]: e for e in entries if e["path"] == ["jobs", job]}
+        if inside.get("name", {}).get("value", job) == check:
+            named.append((job, inside))
+    if not named:
+        return problems + ["runs no job named %r: only a job's own name, or its id where it has none, names its check"
+                           % check]
+    for job, inside in named:
+        matrix = [e for e in entries if e["path"] == ["jobs", job, "strategy"] and e["key"] == "matrix"]
+        for there, said in ((matrix, "has a strategy.matrix"), ("if" in inside, "has a job-level if:"),
+                            ("uses" in inside, "calls a reusable workflow with uses:")):
+            if there:
+                problems.append("has the job %s, and it %s, so its check would never report under that name alone"
+                                % (job, said))
+    return problems
+
+
+def lens_workflows(root: pathlib.Path) -> list:
+    """Each required Lens names the workflow file it is read from exactly where GitHub Actions runs it, and that file
+    reports its check on every head and in the merge queue (lens_job_problems).
+
+    The Kernel reads a Lens whose App is GitHub Actions only from the file `config/defaults.json` names for it, and
+    reads a Lens no workflow runs only from a check that names none. A Lens of GitHub Actions with no file could be
+    passed by any job in the repo; another App's with one would never be read. A file gone, moved, or whose job would
+    never report under the Lens's check name, would leave the Lens unreadable or waiting on every pull request.
+    """
+    config = root / "config" / "defaults.json"
+    if not config.is_file():
+        return []
+    try:
+        lenses = json.loads(config.read_text())["required_lenses"]["deterministic"]
+    except (OSError, ValueError, KeyError, TypeError) as err:
+        return ["config/defaults.json: required_lenses.deterministic cannot be read, so no Lens's workflow file can be "
+                "checked: %r" % err]
+    if not isinstance(lenses, list) or not all(isinstance(lens, dict) for lens in lenses):
+        return ["config/defaults.json: required_lenses.deterministic is not a list of Lenses, so no Lens's workflow "
+                "file can be checked"]
+    problems = []
+    for lens in lenses:
+        rel, where = lens.get("workflow"), "config/defaults.json: the Lens %s" % lens.get("lens")
+        actions = lens.get("app_id") == ACTIONS_APP and type(lens.get("app_id")) is int
+        if actions and not isinstance(rel, str):
+            problems.append("%s is run by GitHub Actions and names no workflow file; name the file whose job runs it"
+                            % where)
+        if not actions and rel is not None:
+            problems.append("%s names the workflow file %s, and only GitHub Actions runs one; make it null" % (where, rel))
+        if not isinstance(rel, str):
+            continue
+        path = root / rel
+        if not path.is_file():
+            problems.append("%s is read from %s, which does not exist" % (where, rel))
+            continue
+        if not isinstance(lens.get("check"), str):
+            problems.append("%s names no check, so its workflow file cannot be read for it" % where)
+            continue
+        problems += ["%s is read from %s, which %s" % (where, rel, why)
+                     for why in lens_job_problems(path.read_text(errors="replace"), lens["check"])]
+    return problems
+
+
+def run(root: pathlib.Path = ROOT) -> list:
+    problems = lens_workflows(root)
     live = sorted((root / ".github" / "workflows").glob("*.y*ml"))
     example = root / "examples" / "workflows" / "verify.yml"
     for path in live + sorted((root / "examples" / "workflows").glob("*.y*ml")):

@@ -123,18 +123,21 @@
     {
       "name": "verify",
       "app_id": 15368,
+      "workflow": ".github/workflows/verify.yml",
       "conclusion": "success",
       "completed_at": "2026-10-11T12:06:00Z"
     },
     {
       "name": "Secret scan (gitleaks)",
       "app_id": 15368,
+      "workflow": ".github/workflows/ci.yml",
       "conclusion": "success",
       "completed_at": "2026-10-11T12:06:00Z"
     },
     {
       "name": "CodeQL",
       "app_id": 57789,
+      "workflow": null,
       "conclusion": "success",
       "completed_at": "2026-10-11T12:06:00Z"
     }

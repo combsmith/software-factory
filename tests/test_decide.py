@@ -4,12 +4,13 @@ from __future__ import annotations
 import datetime
 import json
 import random
+import re
 import unittest
 
 from kernel import derive
 from kernel.decide import decide
-from tests.support import (CONFIG, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, ROOT, config, context, contract,
-                           evidence, facts, labelled, review, run, thread, unlabelled)
+from tests.support import (CONFIG, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, ROOT, config, context,
+                           contract, evidence, facts, labelled, review, run, thread, unlabelled)
 from tools.jsonschema_lite import validate
 
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
@@ -52,6 +53,17 @@ def approvals(count, conclusion="failure", outcome="item", start=20):
 def dismissed(rv: dict, by, was: str = "changes_requested") -> dict:
     """`rv` once `by` has dismissed it. GitHub holds its state as dismissed; the timeline says what it was."""
     return dict(rv, state="dismissed", dismissed_by=dict(by) if isinstance(by, dict) else by, dismissed_from=was)
+
+
+# The one form in which a Decision's evidence shows a workflow file's path: the configuration's own, and no longer than
+# its limit. Any other text is shown as `unreadable`, so a path cannot carry a look-alike or a control character into it.
+WORKFLOW_FORM = re.compile(r"^\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$")
+
+
+def shown(path) -> str:
+    """How a Decision's evidence shows the workflow file a check names."""
+    ok = isinstance(path, str) and WORKFLOW_FORM.match(path) and not path.endswith("\n")
+    return path if ok and len(path) <= LIMITS["max_path_length"] else "unreadable"
 
 
 def with_check(i: int, conclusion: str) -> list:
@@ -1133,6 +1145,91 @@ class Content(unittest.TestCase):
         other = {"name": "template-drift", "app_id": OTHER_APP, "conclusion": "failure", "completed_at": None}
         self.assertEqual(go(facts(checks=GREEN + [other]), REVIEWED)["action"], "issue_approval")
 
+    def test_a_check_from_another_workflow_is_unreadable_for_its_lens(self):  # I-13, I-27
+        # GitHub Actions is one App for every job in the repo, one a pull request adds on its own branch among them, so a
+        # Lens it runs is read only from the workflow file the configuration names for it: a check under the Lens's
+        # check name from another file of its own App, or with no file read, leaves it unreadable, as one from another
+        # App does. A Lens no workflow runs names none, and so must its check. The evidence names the Lens and the file.
+        for i, check in enumerate(GREEN):
+            lens = CONFIG["required_lenses"]["deterministic"][i]
+            self.assertEqual(lens["check"], check["name"])
+            others = [OTHER_WORKFLOW] + sorted({c["workflow"] for c in GREEN if isinstance(c["workflow"], str)}
+                                               - {check["workflow"]})
+            if isinstance(check["workflow"], str):
+                # The same file in another case, or from another directory, is another file; and null is no file read.
+                others += [check["workflow"].upper(), "x/" + check["workflow"], None]
+            for path in others + ["absent"]:
+                said = "%s:from_workflow:%s" % (lens["lens"], shown(None if path == "absent" else path))
+                for conclusion in ("success", "failure"):
+                    impostor = dict(check, workflow=path, conclusion=conclusion)
+                    if path == "absent":
+                        del impostor["workflow"]
+                    for entries in ([impostor], [check, impostor], [impostor, check],
+                                    [dict(check, conclusion="failure"), impostor]):
+                        checks = GREEN[:i] + entries + GREEN[i + 1:]
+                        for runs, reviews in (((), []), (REVIEWED, []), (REVIEWED, APPROVED)):
+                            d = go(facts(checks=checks, reviews=reviews), runs)
+                            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                             ("verifying", "check_unreadable", [said], "defer", "needs_you"),
+                                             (lens["lens"], path, conclusion, len(checks)))
+                            self.assertNotIn("admit", d)
+                            self.assertNotIn("action", d)
+        # It is read before any Lens's failure, and before a conflict, as another App's check is.
+        actions = next(c for c in GREEN if isinstance(c["workflow"], str))
+        i = GREEN.index(actions)
+        impostor = dict(actions, workflow=OTHER_WORKFLOW)
+        said = ["%s:from_workflow:%s" % (LENS_OF[actions["name"]], OTHER_WORKFLOW)]
+        rest = GREEN[:i] + GREEN[i + 1:]
+        failing = [dict(rest[0], conclusion="failure")] + rest[1:]
+        for f in (facts(checks=[impostor] + failing), facts(checks=[impostor, actions] + failing),
+                  facts(checks=[impostor] + GREEN, mergeable=False)):
+            d = go(f, REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                             ("verifying", "check_unreadable", said, "defer", "needs_you"))
+        # From another App, it is shown as another App's, whatever file it names.
+        d = go(facts(checks=[dict(actions, app_id=OTHER_APP, workflow=OTHER_WORKFLOW)] + GREEN), REVIEWED)
+        self.assertEqual(d["evidence"], ["%s:from_app:%d" % (LENS_OF[actions["name"]], OTHER_APP)])
+        # A configuration that names another file reads none of these checks as its Lens's.
+        lenses = [dict(lens, workflow=OTHER_WORKFLOW) if lens["check"] == actions["name"] else lens
+                  for lens in CONFIG["required_lenses"]["deterministic"]]
+        cfg = config(required_lenses=dict(CONFIG["required_lenses"], deterministic=lenses))
+        d = go(facts(), REVIEWED, cfg=cfg)
+        self.assertEqual((d["reason"], d["evidence"]),
+                         ("check_unreadable", ["%s:from_workflow:%s" % (LENS_OF[actions["name"]], actions["workflow"])]))
+        # The other side: from its own App and its own file, the Lens is read, every one of its checks; and a job under a
+        # name no Lens has, from any file, is not read at all.
+        self.assertEqual(go(facts(), REVIEWED)["action"], "issue_approval")
+        self.assertEqual(go(facts(checks=[dict(actions)] + GREEN), REVIEWED)["action"], "issue_approval")
+        other = dict(actions, name="template-drift", workflow=OTHER_WORKFLOW, conclusion="failure")
+        self.assertEqual(go(facts(checks=GREEN + [other]), REVIEWED)["action"], "issue_approval")
+
+    def test_a_workflow_path_is_shown_only_in_its_form(self):  # I-13
+        # The evidence shows the path of another workflow file only in the form the configuration names one in, and no
+        # longer than the configuration's limit: anything else could carry text from outside into a Decision, a
+        # look-alike of a Lens's own file or a control character that turns the text round, and is shown `unreadable`.
+        # Whatever it shows, the check is not the Lens's.
+        actions = next(c for c in GREEN if isinstance(c["workflow"], str))
+        lens = LENS_OF[actions["name"]]
+        limit = LIMITS["max_path_length"]
+        longest = ".github/workflows/" + "a" * (limit - len(".github/workflows/.yml")) + ".yml"
+        self.assertEqual(len(longest), limit)
+        for path in (OTHER_WORKFLOW, ".github/workflows/x.yaml", ".github/workflows/a_b-c.1.yml", longest):
+            d = go(facts(checks=GREEN + [dict(actions, workflow=path)]), REVIEWED)
+            self.assertEqual((d["reason"], d["evidence"]), ("check_unreadable", ["%s:from_workflow:%s" % (lens, path)]),
+                             path)
+        unshown = ["", " ", ".github/workflows/verify .yml", ".github/workflows/v\u0435rify.yml",
+                   "\u202e.github/workflows/verify.yml", ".github/workflows/verify.yml\u200b",
+                   ".github/workflows/" + "a" * 5000 + ".yml", longest[:-4] + "a.yml",
+                   "dynamic/github-code-scanning/codeql", "dynamic/workflows/x.yml", ".github/workflows_a.yml",
+                   ".github/workflows/sub/x.yml", "../.github/workflows/x.yml",
+                   ".github/workflows/x.yml\n", ".github/workflows/.yml", ".github/workflows/x.YML",
+                   ".github/workflows/x.json", "x/" + actions["workflow"], actions["workflow"].upper(), 1, [], {}]
+        for path in unshown:
+            self.assertEqual(shown(path), "unreadable", path)
+            d = go(facts(checks=GREEN + [dict(actions, workflow=path)]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
+                             ("verifying", "check_unreadable", ["%s:from_workflow:unreadable" % lens], "defer"), path)
+
     def test_every_check_a_lens_reports_from_its_own_app_is_read(self):  # I-13, I-27
         # GitHub can hold several checks with one name from one App: two workflows with the same job name, say. Each
         # is read, never the last alone. Any that fails fails the Lens; failing none, any that gave no verdict leaves
@@ -1781,6 +1878,20 @@ class Queue(unittest.TestCase):
             d = go(facts(queue=True, reviews=APPROVED, checks=entries + GREEN[1:]), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"), entries)
 
+    def test_a_check_from_another_workflow_takes_it_out_of_the_queue(self):  # I-9, I-27
+        # A Lens GitHub Actions runs is read from its own workflow file alone, on a queued item too.
+        actions = next(c for c in GREEN if isinstance(c["workflow"], str))
+        lens = LENS_OF[actions["name"]]
+        for path, shown in ((OTHER_WORKFLOW, OTHER_WORKFLOW), (None, "unreadable")):
+            for entries in ([dict(actions, workflow=path)] + GREEN, GREEN + [dict(actions, workflow=path)]):
+                d = go(facts(queue=True, reviews=APPROVED, checks=entries), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["action"]),
+                                 ("verifying", "check_unreadable", ["%s:from_workflow:%s" % (lens, shown)], "act",
+                                  "dequeue"), path)
+        # The other side: two checks from its own file, both passing, take nothing out.
+        d = go(facts(queue=True, reviews=APPROVED, checks=GREEN + [dict(actions)]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"))
+
     def test_a_queued_item_whose_evidence_goes_missing_or_unreadable_leaves_the_queue(self):  # I-31, I-13
         # GitHub's merge queue knows nothing of an acceptance contract, so a queued item stays only while every
         # criterion has passing evidence on its content. Evidence that is gone, as an artifact is after its retention,
@@ -1981,6 +2092,26 @@ class Staleness(unittest.TestCase):
         missing = dict(own)
         del missing["app_id"]
         self.assertEqual(derive.moved_at(facts(checks=self.SILENT + [missing]), [], CONFIG, NOW), at(5))
+
+    def test_only_a_check_from_its_lens_workflow_moves_an_item(self):  # I-1, I-28
+        # GitHub Actions runs any job a pull request adds, under any name, so only the check from a Lens's own workflow
+        # file is its completion; a Lens no workflow runs is read only from a check that names none.
+        own = dict(GREEN[1], completed_at=at(20))
+        self.assertIsInstance(own["workflow"], str)
+        self.assertEqual(derive.moved_at(facts(checks=self.SILENT + [own]), [], CONFIG, NOW), at(20))
+        for path in (OTHER_WORKFLOW, GREEN[0]["workflow"], None, own["workflow"].upper(), "absent"):
+            impostor = dict(own, workflow=path)
+            if path == "absent":
+                del impostor["workflow"]
+            self.assertEqual(derive.moved_at(facts(checks=self.SILENT + [impostor]), [], CONFIG, NOW), at(5), path)
+        unrun = next(c for c in GREEN if c["workflow"] is None)
+        self.assertEqual(derive.moved_at(facts(checks=self.SILENT + [dict(unrun, completed_at=at(20))]), [], CONFIG,
+                                         NOW), at(20))
+        for path in (OTHER_WORKFLOW, "absent"):
+            impostor = dict(unrun, workflow=path, completed_at=at(20))
+            if path == "absent":
+                del impostor["workflow"]
+            self.assertEqual(derive.moved_at(facts(checks=self.SILENT + [impostor]), [], CONFIG, NOW), at(5), path)
 
     def test_a_time_that_is_no_moment_or_still_to_come_moves_nothing(self):  # I-1, I-13
         # A time is read only when it is a real moment no later than now. Any other is passed over, so a time in the

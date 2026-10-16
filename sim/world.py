@@ -28,8 +28,13 @@ ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 
 APPS = {lens["lens"]: lens["app_id"] for lens in CONFIG["required_lenses"]["deterministic"]}
 # The name GitHub gives each required check run, by its Lens's name.
 CHECKS = {lens["lens"]: lens["check"] for lens in CONFIG["required_lenses"]["deterministic"]}
+# The workflow file that runs each required check, by its Lens's name: null for a Lens no workflow runs.
+WORKFLOWS = {lens["lens"]: lens["workflow"] for lens in CONFIG["required_lenses"]["deterministic"]}
 # An App no Lens is read from, which can write checks: the Controller's own can post a check under any name.
 IMPOSTOR_APP = 1000001
+# A workflow file no Lens is read from: GitHub Actions, a Lens's own App, runs any job in the repo under any name, one a
+# pull request adds on its own branch among them.
+IMPOSTOR_WORKFLOW = ".github/workflows/impostor.yml"
 # Who posts it, in the Lifecycle's words: the facts give only its App's id, and no Run or act of the Factory's posts a
 # check under a Lens's name, so the change is the platform's (by_of).
 IMPOSTOR = {"kind": "app", "name": "another-app[bot]", "can_write": True}
@@ -155,7 +160,9 @@ class World:
             # GitHub: an_actor_has_a_kind
             "reviews": copy.deepcopy(self.reviews), "threads": copy.deepcopy(self.threads),
             # GitHub: a_check_is_read_by_name_from_every_app
-            "checks": [{"name": CHECKS[k], "app_id": APPS[k], "conclusion": v, "completed_at": self.completed.get(k)}
+            # GitHub: a_check_names_the_workflow_that_ran_it
+            "checks": [{"name": CHECKS[k], "app_id": APPS[k], "workflow": WORKFLOWS[k], "conclusion": v,
+                        "completed_at": self.completed.get(k)}
                        for k, v in sorted(self.checks.items())] + copy.deepcopy(self.impostors),
             "queue": self.queue,
             # GitHub: the_timeline_shows_each_act
@@ -400,12 +407,12 @@ class World:
         reviews = d["outcome"] == "admit" and d["admit"]["intent"] == "review-change"
         self.check(not no_verdict or not (reviews or (d["outcome"] == "act" and not dequeue)),
                    "I-13 a review or an act while a check has no verdict")
-        # Another App's check under a required Lens's name lets no Run start and no act be made but a dequeue, not
-        # even a fix for a check that failed.
-        apps = {CHECKS[lens]: app for lens, app in APPS.items()}
-        foreign = [c for c in facts["checks"] if c["app_id"] != apps[c["name"]]]
+        # Another App's check, or another workflow file's, under a required Lens's name lets no Run start and no act be
+        # made but a dequeue, not even a fix for a check that failed.
+        own = {CHECKS[lens]: (APPS[lens], WORKFLOWS[lens]) for lens in APPS}
+        foreign = [c for c in facts["checks"] if (c["app_id"], c["workflow"]) != own[c["name"]]]
         self.check(not foreign or not (d["outcome"] == t.ADMIT or (d["outcome"] == t.ACT and not dequeue)),
-                   "I-13 something done while another App's check stands under a Lens's name")
+                   "I-13 something done while another App's or workflow's check stands under a Lens's name")
         waits = d["reason"] == "check_unreadable" and d["outcome"] == t.DEFER
         self.check(not waits or d["attention"] == t.NEEDS_YOU,
                    "a check with no verdict is not shown as needing a person")
@@ -711,10 +718,20 @@ class World:
             self.caused("human" if lens in self.rerun else "lens")
             self.rerun.discard(lens)
             if self.faults and roll < 0.87 and self.checks[lens] == "failure":
-                # GitHub: any_app_posts_a_check_under_any_name
-                self.impostors.append({"name": CHECKS[lens], "app_id": IMPOSTOR_APP, "conclusion": "success",
-                                       "completed_at": self.now()})
-                self.note("check %s: failure, and another App posted a passing one under its name" % lens)
+                if WORKFLOWS[lens] is not None and roll < 0.86:
+                    # GitHub: actions_runs_a_job_under_any_name
+                    self.impostors.append({"name": CHECKS[lens], "app_id": APPS[lens], "workflow": IMPOSTOR_WORKFLOW,
+                                           "conclusion": "success", "completed_at": self.now()})
+                    self.note("check %s: failure, and another workflow posted a passing one under its name" % lens)
+                else:
+                    # GitHub: any_app_posts_a_check_under_any_name
+                    # Never one from the Lens's own App and file, which the Kernel could not tell from the Lens's: for
+                    # code scanning, that would be an upload under CodeQL's tool and category.
+                    # GitHub: only_codeql_gives_the_code_scanning_verdict
+                    self.impostors.append({"name": CHECKS[lens], "app_id": IMPOSTOR_APP, "workflow": None,
+                                           "conclusion": "success", "completed_at": self.now()})
+                    self.note("check %s: failure, and another App posted a passing one under its name" % lens)
+                # Neither is a Run or an act of the Factory's, nor the Lens's own: the change is the platform's.
                 self.caused(self.by_of(IMPOSTOR))
 
     def person(self):

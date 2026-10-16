@@ -1,0 +1,61 @@
+{
+  "approver": "donpetry-bot",
+  "author_role": "dev-lead",
+  "owner_role": "pr-review",
+  "required_lenses": {
+    "deterministic": [
+      {
+        "lens": "verify",
+        "check": "verify",
+        "app_id": 15368
+      },
+      {
+        "lens": "secret-scan",
+        "check": "Secret scan (gitleaks)",
+        "app_id": 15368,
+        "workflow": ".github/workflows/ci.yml"
+      },
+      {
+        "lens": "code-scanning",
+        "check": "CodeQL",
+        "app_id": 57789,
+        "workflow": null
+      }
+    ],
+    "model": [
+      "pr-review"
+    ],
+    "model_not_required_for": [
+      "dependency"
+    ]
+  },
+  "status_on_item": "factory",
+  "check_conclusions": {
+    "success": "passing",
+    "failure": "failing",
+    "timed_out": "failing",
+    "queued": "pending",
+    "in_progress": "pending",
+    "pending": "pending",
+    "waiting": "pending",
+    "requested": "pending",
+    "expected": "pending",
+    "neutral": "unreadable",
+    "skipped": "unreadable",
+    "cancelled": "unreadable",
+    "stale": "unreadable",
+    "action_required": "unreadable",
+    "startup_failure": "unreadable",
+    "error": "unreadable"
+  },
+  "limits": {
+    "max_attempts": 3,
+    "max_rounds": 3,
+    "max_runs_per_item": 10,
+    "max_unmerged_closes": 1,
+    "org_max_active_runs": 4,
+    "max_diff_lines": 4000,
+    "max_acts_per_item": 6,
+    "max_path_length": 255
+  }
+}

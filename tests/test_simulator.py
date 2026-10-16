@@ -285,16 +285,27 @@ class Simulation(unittest.TestCase):
 
     def test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause(self):
         # The faults while queued are reached: a dismissed approval, an open gate and a Hold each take one out.
-        # So is another App's passing check under the name of a Lens that failed, which no Run or act may follow.
-        causes, impostors = set(), 0
-        for seed in SEEDS:
-            w = World(seed)
-            for _ in range(250):
-                w.step()
-            causes |= {line.split("(")[-1].rstrip(")") for line in w.trace if "apply: dequeued" in line}
-            impostors += sum("another App posted" in line for line in w.trace)
+        # So is another App's passing check under the name of a Lens that failed, which no Run or act may follow, and
+        # one from another workflow file of the Lens's own App, which the Kernel shows as from that file.
+        causes, impostors, workflows, shown = set(), 0, 0, set()
+
+        def recording(f, r, c, cfg, now):
+            d = decide(f, r, c, cfg, now)
+            shown.update(e.split(":")[1] for e in d["evidence"] if e.count(":") >= 2)
+            return d
+
+        with mock.patch.object(world, "decide", recording):
+            for seed in SEEDS:
+                w = World(seed)
+                for _ in range(250):
+                    w.step()
+                causes |= {line.split("(")[-1].rstrip(")") for line in w.trace if "apply: dequeued" in line}
+                impostors += sum("another App posted" in line for line in w.trace)
+                workflows += sum("another workflow posted" in line for line in w.trace)
         self.assertLessEqual({"approval_lost", "gate_open", "human_hold"}, causes)
         self.assertTrue(impostors)
+        self.assertTrue(workflows)
+        self.assertLessEqual({"from_app", "from_workflow"}, shown)
 
     def test_the_seeds_serve_items_with_an_acceptance_contract_and_without(self):  # I-31
         # Some worlds carry a contract, and its evidence goes missing for a while, fails, is given twice and disagrees,

@@ -70,41 +70,80 @@ def named_for(check: dict, lens: dict) -> bool:
     return check.get("name") == lens["check"]
 
 
-def reports_for(check: dict, lens: dict) -> bool:
-    """Whether `check` reports for the required Lens `lens`: its check's name, from the App the configuration names.
+def from_its_app(check: dict, lens: dict) -> bool:
+    """Whether `check` was reported by the App the configuration names for the required Lens `lens`.
 
     An App is an id that is a whole number, in the facts and in the configuration: never true, nor 15368.0.
     """
     app = check.get("app_id")
-    return named_for(check, lens) and type(app) is int and type(lens["app_id"]) is int and app == lens["app_id"]
+    return type(app) is int and type(lens["app_id"]) is int and app == lens["app_id"]
+
+
+def from_its_workflow(check: dict, lens: dict) -> bool:
+    """Whether `check` ran from the workflow file the configuration names for the required Lens `lens`, exactly.
+
+    GitHub Actions is one App for every job in the repo, one a pull request adds on its own branch among them, so a
+    Lens it runs is read only from its own file. A Lens no workflow runs names none, and its check must name none
+    too. A check that carries no workflow at all was not read whole, and is never given one.
+    """
+    return "workflow" in check and check["workflow"] == lens["workflow"]
+
+
+def shown_path(path, config: dict) -> str:
+    """`path` as a Decision's evidence shows it: as it is only when it is in the form a Lens's workflow takes and no
+    longer than the configuration's limit, and otherwise `unreadable`. A path is text from outside, so a look-alike of
+    a Lens's own file, or a character that turns the text round, never reaches a Decision."""
+    if not (isinstance(path, str) and path.startswith(t.WORKFLOW_DIR)
+            and len(path) <= config["limits"]["max_path_length"]):
+        return "unreadable"
+    name = path[len(t.WORKFLOW_DIR):]
+    for ending in t.WORKFLOW_ENDINGS:
+        stem = name[:-len(ending)]
+        if name.endswith(ending) and stem != "" and all(c in t.FILE_NAME_CHARS for c in stem):
+            return path
+    return "unreadable"
+
+
+def reports_for(check: dict, lens: dict) -> bool:
+    """Whether `check` reports for the required Lens `lens`: its check's name, from the App and the workflow file the
+    configuration names."""
+    return named_for(check, lens) and from_its_app(check, lens) and from_its_workflow(check, lens)
 
 
 def foreign_checks(checks: list, config: dict) -> list:
-    """Each check under a required deterministic Lens's check name that the Lens's own App did not report, as evidence.
+    """Each check under a required deterministic Lens's check name that the Lens's own App, or its own workflow file,
+    did not report, as evidence.
 
-    Any App with checks: write can post a check under any name; the ruleset pins `verify` to its App, and the
-    Kernel pins every required Lens. Such a check makes its Lens unreadable whatever it, or the Lens's own checks,
-    conclude (I-13). Each is given as `<lens>:from_app:<id>`, the id `unreadable` when it is not a whole number,
-    so that the Maintainer can tell it from a check that gave no verdict.
+    Any App with checks: write can post a check under any name, and GitHub Actions runs any job a pull request adds; the
+    ruleset pins `verify` to its App, and the Kernel pins every required Lens to its App and its file. Such a check
+    makes its Lens unreadable whatever it, or the Lens's own checks, conclude (I-13). One from another App is given as
+    `<lens>:from_app:<id>`, the id `unreadable` when it is not a whole number; one from the Lens's App and another
+    file as `<lens>:from_workflow:<path>`, the path `unreadable` when no file was read or it is not in the form a
+    Lens's workflow takes (shown_path). So the Maintainer can tell it from a check that gave no verdict.
     """
     out = []
     for lens in config["required_lenses"]["deterministic"]:
         for c in checks:
-            if named_for(c, lens) and not reports_for(c, lens):
+            if not named_for(c, lens) or reports_for(c, lens):
+                continue
+            if not from_its_app(c, lens):
                 app = c.get("app_id")
                 said = "%s:from_app:%s" % (lens["lens"], app if type(app) is int else "unreadable")
-                if said not in out:
-                    out.append(said)
+            else:
+                said = "%s:from_workflow:%s" % (lens["lens"], shown_path(c.get("workflow"), config))
+            if said not in out:
+                out.append(said)
     return out
 
 
 def lens_reading(checks: list, lens: dict, config: dict) -> str:
-    """What a required deterministic Lens says, from every check its own App reports: as `check_reading` gives it.
+    """What a required deterministic Lens says, from every check its own App and workflow file report: as
+    `check_reading` gives it.
 
-    Another App's check under its check's name is read before any Lens (foreign_checks). Every check from its own App is
-    read, never the last alone: any failing one fails the Lens; then any with no verdict leaves it unreadable;
-    then any still running is a wait. It passes only when every one of them passes. A Lens that has not reported
-    is pending.
+    Another App's check, or another file's, under its check's name is read before any Lens (foreign_checks). Every check
+    from its own App and file is read, never the last alone: any failing one fails the Lens; then any with no verdict
+    leaves it unreadable; then any still running is a wait. It passes only when every one of them passes. A Lens that
+    has not reported is pending.
     """
     mine = [c for c in checks if reports_for(c, lens)]
     if not mine:
@@ -218,9 +257,9 @@ def moved_at(facts: dict, runs: list, config: dict, now: str):
     a Lens or the Factory moved it: a push, a required check's completion, a review or a thread by a writer, a Lens's
     App or the machine user (a gating thread is always one; moves), a writer's action and a Run on this item. A
     stranger's comment, another App's, or a check that is not required, moves nothing, or anyone could keep a stalled
-    item from showing; nor does a check under a
-    required Lens's check name from any App but that Lens's own (reports_for). A time that is not a real
-    moment no later than `now` is passed over, so the wait counts from earlier: that shows more, never less.
+    item from showing; nor does a check under a required Lens's check name from any App or workflow file but that
+    Lens's own (reports_for). A time that is not a real moment no later than `now` is passed over, so the wait counts
+    from earlier: that shows more, never less.
     """
     required = config["required_lenses"]["deterministic"]
     times = [facts["last_push_at"], facts.get("last_writer_action_at")]
@@ -540,8 +579,9 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     unread = unreadable_threads(facts, config)
     if unread:
         return {"state": None, "reason": "thread_unreadable", "evidence": unread}
-    # So could a check that another App posted under a required Lens's check name: it is read before any Lens's failure
-    # and before a conflict, as a fix Run is an action. It stays on this head, so only a push clears it.
+    # So could a check that another App, or another workflow file, posted under a required Lens's check name: it is read
+    # before any Lens's failure and before a conflict, as a fix Run is an action. It stays on this head, so only a push
+    # clears it.
     foreign = foreign_checks(facts["checks"], config)
     if foreign:
         return {"state": t.VERIFYING, "reason": "check_unreadable", "evidence": foreign}

@@ -296,6 +296,7 @@
         "required": [
           "name",
           "app_id",
+          "workflow",
           "conclusion",
           "completed_at"
         ],
@@ -308,6 +309,14 @@
             "description": "The id of the App that reported the check, as GitHub gives it: the check run's app.id. A required Lens is read only from the App the configuration names for it",
             "type": "integer",
             "minimum": 1
+          },
+          "workflow": {
+            "description": "The path of the workflow file that ran the check, as GitHub gives it for the workflow run of the check run's check suite (its `path`, such as .github/workflows/verify.yml), passed on verbatim, a dynamic/ one too; null only for a check no workflow ran, as one GitHub Advanced Security reports. GitHub Actions is one App for every job in the repo, so a required Lens that it runs is read only from the path the configuration names for it. The path is text from outside: a Decision shows it only in the configuration's form",
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
           },
           "conclusion": {
             "description": "GitHub's own conclusion, or the check's status while it has not concluded. The port maps nothing; config check_conclusions says what each means.",
