@@ -308,6 +308,41 @@ class Identity(unittest.TestCase):
             self.assertIn("command_unreadable", self.refused(command), command)
             self.assertIn("command_unreadable", [c for c, _ in protected.check(bash(command, self.here), env)], command)
 
+    def test_an_optional_value_is_only_what_is_attached(self):
+        # rebase -S[keyid] takes no next word, so the -x after it is an option, in either hook.
+        env = environment(self.path, CLAUDE_PROJECT_DIR=str(self.here))
+        for command in ("git rebase -S -x ./c HEAD~1", "git rebase -S -ix./c HEAD~1"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+            self.assertIn("command_unreadable", [c for c, _ in protected.check(bash(command, self.here), env)], command)
+        for command in ("git rebase -S main", "git rebase -Skeyx main"):
+            self.assertEqual(self.codes(command), "", command)
+
+    def test_a_readers_name_does_not_pass_where_the_value_is_a_place(self):
+        for command in ("git clone -c core.hooksPath=cat x y", "git clone -c init.templateDir=less x y",
+                        "git -c core.hooksPath=cat status", "git -c core.attributesFile=less log"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+        for command in ("git -c core.pager=cat log", "git clone -c core.pager=less x y"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+
+    def test_an_assignment_given_to_a_wrapper_that_runs_git_is_read(self):
+        for command in ("command env GIT_ALLOW_PROTOCOL=ext git status", "nohup env GIT_EXEC_PATH=/tmp/x git status",
+                        "nice env GIT_EXEC_PATH=/tmp/x git status", "timeout 5 env GIT_ALLOW_PROTOCOL=ext git log"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+        for command in ("nohup echo GIT_EXEC_PATH=/tmp/x && git status", "command grep 'GIT_EXEC_PATH=' x; git diff"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+
+    def test_a_remote_helper_s_url_is_refused_where_a_remote_is_given(self):
+        # <transport>::<address> runs git-remote-<transport>, or for ext:: and fd:: the command it names.
+        env = environment(self.path, CLAUDE_PROJECT_DIR=str(self.here))
+        for command in ("git ls-remote evil::payload", "git fetch evil::x", "git clone 'fd::3' d",
+                        "git archive --remote=evil::x HEAD", "git push evil::x HEAD:y", "git remote add o evil::x",
+                        "git ls-remote 'ext::sh -c x'", "git show 'ext::sh -c x'"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+            self.assertIn("command_unreadable", [c for c, _ in protected.check(bash(command, self.here), env)], command)
+        for command in ("git grep 'Foo::bar'", "git log --grep 'a::b'", "git show HEAD:a::b"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+        self.assertEqual(self.codes("git commit -m 'Foo::bar is fixed'"), "")
+
     def test_a_commit_on_no_branch_is_accepted_and_read_when_it_is_pushed(self):
         # Decided: notes and stash commit on no branch, and only a push takes such a commit out, which is read.
         self.assertEqual(identity.OFF_BRANCH, {"notes", "stash"})
@@ -1097,6 +1132,15 @@ class MergesAndSettings(Asks):
             self.asked(self.run_("git -c core.pager='less %s' log" % option), "command_unreadable", option)
         for option in ("-R", "-FRX", "--line-numbers", "--LINE-NUMBERS", "--quit-if-one-screen", "--RAW-CONTROL-CHARS"):
             self.assertEqual(self.run_("git -c core.pager='less %s' log" % option), "", option)
+
+    def test_a_fetch_refspec_in_a_variable_is_read_from_what_the_command_set_or_asks(self):
+        for command in ('export SPEC=main:main; git fetch origin "$SPEC"', "SPEC=a:b; git fetch . $SPEC",
+                        'git fetch origin "$UNSET"', "git fetch origin \"$(echo main:main)\"", 'git fetch . "`cat s`"',
+                        "git fetch origin $(echo main:main)"):
+            self.asked(self.run_(command), "local_branch", command)
+        for command in ('export SPEC=main; git fetch origin "$SPEC"',
+                        "SPEC=main:refs/remotes/origin/main; git fetch origin $SPEC"):
+            self.assertEqual(self.run_(command), "", command)
 
     def test_a_fetch_that_moves_a_local_branch_asks(self):
         for command in ("git fetch origin main:main", "git fetch . a:b", "git fetch origin +main:refs/heads/main",

@@ -55,9 +55,7 @@ SHOWN = 6               # reasons put in front of the person
 GLOB = re.compile(r"[*?\[]")
 VARIABLE = re.compile(r"\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))")
 ASSIGNMENT = identity.ASSIGNMENT
-# Words that come before the program and change nothing about what it does.
-PREFIXES = {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "}", "time", "command", "builtin", "exec",
-            "nohup"}
+PREFIXES, WRAPPERS = shell.PREFIXES, shell.WRAPPERS
 # Programs that read the paths they are named and write none of them. A redirection is read apart from them.
 READS = {"cat", "less", "more", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "ls", "stat", "file", "diff",
          "cmp", "readlink", "realpath", "basename", "dirname", "test", "[", "[[", "echo", "printf", "true", "false",
@@ -110,10 +108,7 @@ GIT_HELPER_KEYS = re.compile(
     r"merge\..+\.driver|(difftool|mergetool|man|browser)\..+\.cmd|submodule\..+\.update|tar\..+\.command|"
     r"remote\..+\.(uploadpack|receivepack)|gpg\.(.+\.)?program|gpg\.ssh\.defaultkeycommand|"
     r"uploadpack\.packobjectshook|sendemail\.sendmailcmd|trailer\..+\.(cmd|command))$", re.I | re.S)
-GIT_HELPER_LOADS = re.compile(
-    r"^(core\.hookspath|core\.attributesfile|include\.path|includeif\..+\.path|init\.templatedir|"
-    r"protocol\.(.+\.)?allow|(difftool|mergetool|man|browser)\..+\.path|remote\..+\.vcs|credential\.(.+\.)?helper)$",
-    re.I | re.S)
+GIT_HELPER_LOADS = identity.LOAD_KEYS
 # Options that name the program, or always ask, are identity.py's HELPER_OPTIONS, read by identity.programs_given.
 GIT_HELPER_ENV = re.compile(r"^(GIT_EXTERNAL_DIFF|GIT_PAGER|PAGER|GIT_EDITOR|GIT_SEQUENCE_EDITOR|EDITOR|VISUAL|GIT_SSH|"
                             r"GIT_SSH_COMMAND|GIT_ASKPASS|SSH_ASKPASS|GIT_PROXY_COMMAND)$")
@@ -153,11 +148,6 @@ GH_WRITES_FILES = (["run", "download"], ["release", "download"], ["repo", "clone
 API_VALUED = {"-X", "--method", "-H", "--header", "-f", "--raw-field", "-F", "--field", "--input", "-q", "--jq",
               "-t", "--template", "--cache", "-p", "--preview", "--hostname"}
 API_FLAGS = {"-i", "--include", "--paginate", "--slurp", "--silent", "--verbose"}
-# Programs that run the program their words name, git or gh among them, whatever options come first.
-WRAPPERS = {"env", "sudo", "doas", "xargs", "parallel", "timeout", "gtimeout", "nice", "ionice", "chrt",
-            "taskset", "numactl", "stdbuf", "gstdbuf", "caffeinate", "watch", "setsid", "flock", "chroot", "unshare",
-            "nsenter", "runuser", "chpst", "unbuffer", "chronic", "script", "arch", "xcrun", "sandbox-exec",
-            "systemd-run", "fakeroot", "strace", "ltrace", "dtruss", "gtime"}
 # Text that names a merge or GitHub's API in a program the hook cannot read as gh: gh, then one of these words.
 GH_WORD = re.compile(r"\bgh\b")
 GH_DOES = re.compile(r"\b(merge|api|ruleset|repo|secret|variable|workflow|alias)\b", re.I)
@@ -879,8 +869,6 @@ class Command:
         named = set(environ)
         helper = any(GIT_HELPER_ENV_LOADS.match(name) or (GIT_HELPER_ENV.match(name) and (
             value is None or not self._reads_only(value, named))) for name, value in environ.items())
-        # The ext:: transport runs the command its URL names.
-        helper = helper or any("ext::" in w.casefold() for w in args)
         while i < len(args) and args[i].startswith("-"):
             option, given, value = args[i].partition("=")
             if option in GIT_VALUED and not given:
@@ -902,8 +890,12 @@ class Command:
         if sub and sub not in GIT_KNOWN:
             self.ask("command_unreadable", "git is given a command the hook does not know; it may be an alias")
             return
+        # A remote helper's URL runs git-remote-<transport>, or for ext:: the command it names.
+        helper = helper or identity.remote_helper(sub, args, rest)
         if sub in ("fetch", "pull"):
-            fetched += self._refspecs(rest)
+            # A refspec in a variable is read from what the command set it to; one the hook cannot read asks.
+            fetched += [spec if spec is None or not ("$" in spec or "`" in spec) else self.expand(spec)
+                        for spec in self._refspecs(rest)]
         if any(spec is None or _moves_local_branch(spec) for spec in fetched):
             self.ask("local_branch", "git fetch moves a local branch, or reads where it goes from where the hook "
                                      "cannot, and it may be %s" % branch)
