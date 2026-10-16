@@ -14,6 +14,12 @@ cannot read within its budget (a length, and a deadline well inside the settings
 about, and one it misreads is caught by state: `rules_changed.py` lists, at every stop, each
 protected path the branch has changed.
 
+A helper given to git in the command, a program it runs, is asked about unless it is cat or less
+read-only. One that runs a script (core.pager='sh x.sh') is decided (decision 0016): it is asked
+about as any program is, since the hook reads words, never a file. A fetch whose refspec writes
+under refs/heads/ moves a local branch, and asks. GIT_OBJECT_DIRECTORY, GIT_ALTERNATE_OBJECT_DIRECTORIES and
+GIT_INDEX_FILE set in the command are places git writes, and are read as paths the command writes.
+
 A protected path is protected in the project and in each worktree under `.claude/worktrees/`, and,
 outside them, wherever a path's last parts are a protected path, since another clone's branch can
 merge here. A path is read as it is written, normalised, and as the file system resolves it,
@@ -89,6 +95,9 @@ GIT_READS = {"add", "annotate", "blame", "branch", "cat-file", "check-attr", "ch
 GIT_READS |= {"check-mailmap", "check-ref-format", "get-tar-commit-id", "merge-tree", "patch-id", "show-index",
               "verify-pack"}    # plumbing that reads; and commit-graph when it verifies, in _git
 GIT_VALUED = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}
+# Environment that names a place git writes, for any command: True for a list of directories, False for a file.
+GIT_WRITE_ENVIRONMENT = {"GIT_OBJECT_DIRECTORY": True, "GIT_ALTERNATE_OBJECT_DIRECTORIES": True,
+                         "GIT_INDEX_FILE": False}
 # Every git command the hooks know: another is an alias, or an extension, which the hook cannot read.
 GIT_KNOWN = identity.WRITES | identity.RUNNERS | identity.OTHERS | GIT_READS | {"symbolic-ref", "update-ref"}
 PUSH_VALUED = {"-o", "--push-option", "--receive-pack", "--exec", "--repo"}
@@ -105,21 +114,17 @@ GIT_HELPER_LOADS = re.compile(
     r"^(core\.hookspath|core\.attributesfile|include\.path|includeif\..+\.path|init\.templatedir|"
     r"protocol\.(.+\.)?allow|(difftool|mergetool|man|browser)\..+\.path|remote\..+\.vcs|credential\.(.+\.)?helper)$",
     re.I | re.S)
-# Options whose value is the program, and whether it may be the next word (False: only after `=`); options that
-# always ask, since the program or the place it is loaded from is not in the command; and short options, by command.
-GIT_HELPER_OPTIONS = {"--upload-pack": True, "--receive-pack": True, "--exec": True, "--extcmd": True,
-                      "--open-files-in-pager": False}
-GIT_HELPER_ALWAYS = {"--ext-diff": None, "--template": {"clone", "init"}}     # None: for every command
-GIT_HELPER_SHORT = {"grep": {"O": False}, "ls-remote": {"u": True}, "clone": {"u": True}, "difftool": {"x": True},
-                    "rebase": {"x": True}}
+# Options that name the program, or always ask, are identity.py's HELPER_OPTIONS, read by identity.programs_given.
 GIT_HELPER_ENV = re.compile(r"^(GIT_EXTERNAL_DIFF|GIT_PAGER|PAGER|GIT_EDITOR|GIT_SEQUENCE_EDITOR|EDITOR|VISUAL|GIT_SSH|"
                             r"GIT_SSH_COMMAND|GIT_ASKPASS|SSH_ASKPASS|GIT_PROXY_COMMAND)$")
 GIT_HELPER_ENV_LOADS = re.compile(r"^(GIT_ALLOW_PROTOCOL|GIT_CONFIG_PARAMETERS|GIT_CONFIG_COUNT|GIT_CONFIG_GLOBAL|"
                                   r"GIT_CONFIG_SYSTEM|GIT_CONFIG|GIT_EXEC_PATH|GIT_TEMPLATE_DIR)$")
 # A helper that only reads lets the hook pass it: these programs, by their bare name. less is one only without an
 # option that writes a file or runs or loads commands, and without its environment set in the command.
+# less takes a long option by any prefix, and in either case, since --LOG-FILE is -O as --log-file is -o.
 HELPER_READERS = {"cat", "less"}
-LESS_WRITES = re.compile(r"^(\+|-[^-]*[oOk]|--(log-file|lesskey))", re.I)
+LESS_WRITES = re.compile(r"^(\+|-[^-]*[oOk])")
+LESS_WRITES_LONG = ("--log-file", "--lesskey", "--lesskey-src", "--lesskey-content")
 # Where a push with no refspec goes is read exactly only under these; any other push.default may reach main.
 PUSH_DEFAULTS = {None, "simple", "current"}
 # git configuration that says where a push goes.
@@ -129,6 +134,9 @@ REF_READS = {"-l", "--list", "-a", "--all", "-r", "--remotes", "-d", "-D", "--de
              "--show-current", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "-n",
              "--sort", "--format", "--column", "--verify"}
 REMOTE_REF = "refs/remotes/"
+LOCAL_REF = "refs/heads/"
+# Configuration that holds the refspecs a fetch with none of its own follows.
+FETCH_KEYS = re.compile(r"^remote\..+\.fetch$", re.I | re.S)
 GH_VALUED = {"-R", "--repo", "--hostname"}
 GH_COMMANDS = {"accessibility", "agent-task", "alias", "api", "attestation", "auth", "browse", "cache", "co",
                "codespace", "completion", "config", "copilot", "extension", "ext", "gist", "gpg-key", "help", "issue",
@@ -504,7 +512,9 @@ class Command:
                 self.reader(args[args.index("-m") + 2:], OUTPUTS.get(kind, set()), writes_from)
                 return
             args = _without_script(program, args)
-        handler = getattr(self, "_" + program.replace("-", "_"), None) if program in HANDLED else None
+        if program != "git" and any(os.path.basename(w) == "git" for w in args) and self._git_environment(self.here):
+            return      # a wrapper's git writes where the environment says, too
+        handler =getattr(self, "_" + program.replace("-", "_"), None) if program in HANDLED else None
         if handler:
             handler(program, args)
         elif program in UNPACKERS:
@@ -645,6 +655,8 @@ class Command:
                 tree_unknown = True
             i += 1
         sub, rest = (args[i], args[i + 1:]) if i < len(args) else ("", [])
+        if self._git_environment(here):
+            return
         if sub in GIT_READS or (sub, rest[:1]) == ("commit-graph", ["verify"]):     # but --output writes a file
             outputs = [rest[j + 1] if w == "--output" and j + 1 < len(rest) else w[len("--output="):]
                        for j, w in enumerate(rest) if w == "--output" or w.startswith("--output=")]
@@ -664,6 +676,25 @@ class Command:
                    if GLOB.search(w) and not w.startswith("-")]
         if not self.check(globbed, here=here, text=False):
             self.check(rest, here=here, text=False)
+
+    def _git_environment(self, here) -> bool:
+        """Ask if the command sets, for git, a place it writes: its objects, an alternate's, or its index. Even a git
+        that reads writes them (commit-graph write, an index refreshed). A relative place is read from where git runs
+        and from each directory above, since git may move to the top of its tree first. Whether it asked."""
+        for name, directories in GIT_WRITE_ENVIRONMENT.items():
+            if name not in self.assigned:
+                continue
+            value = self.known.get(name)
+            if value is None:
+                self.ask("path_unreadable", "git is told to write its objects or its index where the hook cannot read")
+                return True
+            for path in value.split(os.pathsep) if directories else [value]:
+                starts = [None] if os.path.isabs(path) else [
+                    str(top) for start in dict.fromkeys((self.here, here)) if start
+                    for top in [pathlib.PurePath(start)] + list(pathlib.PurePath(start).parents)] or [None]
+                if path and any(self.check([path], holds=directories, here=start) for start in starts):
+                    return True
+        return False
 
     def cd_from(self, word: str, here):
         try:
@@ -834,7 +865,7 @@ class Command:
     def _refs(self, args: list, assigned: list = ()):
         """Ask about git that writes a ref under refs/remotes/, or the configuration that says where a push goes, and
         about git given a helper in the command, a program it runs that the hook does not read."""
-        i, branch = 0, self.data["branch"]
+        i, branch, fetched = 0, self.data["branch"], []     # fetched: refspecs given in the command, None if unread
         # The environment the command sets: on git itself, or earlier in the command (`export GIT_PAGER=...; git log`).
         environ = dict(w.split("=", 1) for w in assigned)
         environ.update({name: self.known.get(name) for name in self.assigned if name not in environ})
@@ -854,6 +885,9 @@ class Command:
                 self.ask("command_unreadable", "git -c defines an alias, a command the hook cannot read")
             if option in ("-c", "--config-env"):     # --config-env's setting is in the environment, unread
                 helper = helper or self._configures_helper(value, option == "--config-env", named)
+                key, _, setting = value.partition("=")
+                if FETCH_KEYS.match(key.strip()):
+                    fetched.append(setting if option == "-c" else None)
             helper = helper or (option == "--exec-path" and bool(given))
             i += 1
         sub, rest = (args[i], args[i + 1:]) if i < len(args) else ("", [])
@@ -861,33 +895,15 @@ class Command:
         if sub and sub not in GIT_KNOWN:
             self.ask("command_unreadable", "git is given a command the hook does not know; it may be an alias")
             return
-        shorts, j = GIT_HELPER_SHORT.get(sub, {}), 0
-        while j < len(rest) and rest[j] != "--":
-            word, after = rest[j], rest[j + 1] if j + 1 < len(rest) else None
-            option, given, value = word.partition("=")
-            letter = next((c for c in word[1:] if c in shorts), None) if word[:1] == "-" != word[1:2] else None
-            # clone's -c, alone, bundled or with its setting attached (-ccore.hooksPath=...), before any value
-            config = sub == "clone" and word[:1] == "-" != word[1:2] and "c" in word and (
-                letter is None or word.index("c") < word.index(letter))
-            letter = None if config else letter
-            long = next((o for o in GIT_HELPER_OPTIONS if _spelt(option, o)), None) if word[:2] == "--" else None
-            if letter:          # -Oless, -nO./p: the value is what follows the letter in the bundle
-                value, takes = word[word.index(letter) + 1:], shorts[letter]
-                given = value
-            elif long:
-                takes = GIT_HELPER_OPTIONS[long]
-            if letter or long:
-                if takes and not given and after is not None:
-                    j += 1
-                    given = value = after
-                helper = helper or not given or not self._reads_only(value, named)
-            helper = helper or any(_spelt(option, o) and (subs is None or sub in subs)
-                                   for o, subs in GIT_HELPER_ALWAYS.items() if word[:2] == "--")
-            if config or (sub == "clone" and word[:2] == "--" and _spelt(option, "--config")):
-                attached = word[word.index("c") + 1:] if config else value if given else ""
-                helper = helper or self._configures_helper(attached or after or "", False, named)
-                j += not attached
-            j += 1
+        if sub in ("fetch", "pull"):
+            fetched += self._refspecs(rest, names)
+        if any(spec is None or _moves_local_branch(spec) for spec in fetched):
+            self.ask("local_branch", "git fetch moves a local branch, or reads where it goes from where the hook "
+                                     "cannot, and it may be %s" % branch)
+        for kind, value in identity.programs_given(sub, rest):
+            helper = helper or kind == "always" or (kind == "program" and (
+                value is None or not self._reads_only(value, named))) or (
+                kind == "config" and self._configures_helper(value, False, named))
         if helper:
             self.ask("command_unreadable", "git is given a helper in the command, a program it runs that the hook "
                                            "does not read")
@@ -917,6 +933,23 @@ class Command:
                        for n in names if n not in ("set", "unset")):
                     self.ask("merge", "git config writes where a push goes, which may be %s" % branch)
 
+    @staticmethod
+    def _refspecs(rest: list, names: list) -> list:
+        """The refspecs a fetch or a pull is given, after the repository: in its words, and by --refmap, spelt whole
+        or by a prefix. None for those read from stdin. A URL is the repository, not a refspec."""
+        found, k = [], 0
+        while k < len(rest) and rest[k] != "--":
+            option, given, value = rest[k].partition("=")
+            if rest[k][:2] == "--" and _spelt(option, "--refmap"):
+                if not given:
+                    k += 1
+                    value = rest[k] if k < len(rest) else ""
+                found.append(value)
+            elif rest[k][:2] == "--" and _spelt(option, "--stdin"):
+                found.append(None)
+            k += 1
+        return found + [n for n in names[1:] if not identity.URLISH.search(n)]
+
     def _configures_helper(self, setting: str, unread: bool, named: set) -> bool:
         """Whether `key=value` given to git -c names a helper: one that loads code from a place, or a program that is
         not a reader. With `unread`, the value is not in the command, and any program is a helper."""
@@ -937,9 +970,17 @@ class Command:
             if targets or not words or words[0] not in HELPER_READERS:
                 return False
             if "PATH" in named or words[0] == "less" and (any(n.startswith("LESS") for n in named)
-                                                           or any(LESS_WRITES.match(w) for w in words[1:])):
+                                                           or any(_less_writes(w) for w in words[1:])):
                 return False
         return True
+
+
+def _less_writes(word: str) -> bool:
+    """Whether a word given to less makes it write a file or run or load commands: +, -o, -O or -k, alone or
+    bundled, or a long option that writes a log or loads keys, by any prefix and in either case."""
+    option = word.partition("=")[0].casefold()
+    return bool(LESS_WRITES.match(word)) or option.startswith("--lesskey") or (
+        word[:2] == "--" and any(_spelt(option, name) for name in LESS_WRITES_LONG))
 
 
 # git branch's options that take the next word as their value.
@@ -967,13 +1008,29 @@ def _deletes_remote(rest: list) -> bool:
             and ("d" in shorts or "D" in shorts or any(_spelt(w, "--delete") for w in longs)))
 
 
+def _destination(spec: str):
+    """The ref a fetch refspec writes, named as git names it (`main` is refs/heads/main, `remotes/x` refs/remotes/x),
+    or None when it writes none."""
+    if ":" not in spec or spec.startswith("^"):
+        return None
+    target = spec.lstrip("+").rsplit(":", 1)[1]
+    if not target or target.startswith("refs/"):
+        return target or None
+    return "refs/" + target if target.startswith(("heads/", "tags/", "remotes/")) else LOCAL_REF + target
+
+
+def _moves_local_branch(spec: str) -> bool:
+    """Whether a fetch refspec writes a ref under refs/heads/, which moves a local branch."""
+    target = _destination(spec)
+    return target is not None and target.casefold().startswith(LOCAL_REF)
+
+
 def _own_branch(repository: str, spec: str) -> bool:
     """Whether a fetch refspec writes, under refs/remotes/, only a named remote's own branch, by the same name."""
-    if ":" not in spec:
+    target = _destination(spec)
+    if target is None or not target.casefold().startswith(REMOTE_REF):
         return True
-    source, target = spec.lstrip("+").rsplit(":", 1)
-    if not target.startswith(REMOTE_REF):
-        return True
+    source = spec.lstrip("+").rsplit(":", 1)[0]
     named = repository not in (".", "") and "/" not in repository and ":" not in repository
     return named and target == REMOTE_REF + repository + "/" + re.sub(r"^refs/heads/", "", source)
 

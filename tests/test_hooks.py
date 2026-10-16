@@ -247,6 +247,53 @@ class Identity(unittest.TestCase):
                         "git -c pretty.foo='format:git commit %H' log --pretty=foo -1"):
             self.assertEqual(self.codes(command, folder(), programs()), "", command)
 
+    def test_an_option_or_environment_that_gives_git_a_program_to_run_is_refused(self):
+        # Spelt whole, abbreviated, bundled, attached, or set in the environment earlier in the command.
+        for command in ("git fetch --upload-pack=./u .", "git fetch --upload-pa=./u .", "git ls-remote --upload-p ./u .",
+                        "git push --receive-pack ./r . HEAD:x", "git push --receive-p=./r . HEAD:x",
+                        "git archive --exec=./x --remote=y HEAD", "git archive --exe ./x --remote=y HEAD",
+                        "git grep -O./p x", "git grep -nO./p x", "git grep -O x", "git grep --open-files-in-pager=./p x",
+                        "git grep --open x", "git rebase -x ./c HEAD~1", "git rebase -ix./c HEAD~1",
+                        "git rebase --exec ./c HEAD~1", "git rebase --ex=./c HEAD~1", "git clone -u ./u x y",
+                        "git clone -qu./u x y", "git clone --upload-pack ./u x y", "git difftool -x ./d",
+                        "git difftool -yx./d", "git difftool --extcmd=./d", "git diff --ext-diff", "git log -p --ext-dif",
+                        "git --exec-path=/tmp/x status", "GIT_EXEC_PATH=/tmp/x git status",
+                        "export GIT_EXEC_PATH=/tmp/x; git status", "env GIT_EXEC_PATH=/tmp/x git log",
+                        "GIT_ALLOW_PROTOCOL=ext git ls-remote x", "export GIT_ALLOW_PROTOCOL=ext && git fetch x",
+                        "git ls-remote 'ext::sh -c x'", "git fetch 'EXT::sh -c x'", "git clone -c core.hooksPath=/tmp/h x y",
+                        "git clone --config core.pager=./p x y", "git init --template=/tmp/t", "setsid git diff --ext-diff",
+                        "bash -c 'git grep -O./p x'"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+        for command in ("git grep -n x", "git grep -Oless x", "git diff --no-ext-diff", "git log -- --ext-diff",
+                        "git --exec-path", "git log", "git diff", "git fetch origin", "git -c color.ui=always log",
+                        "git ls-remote --heads origin", "git clone --depth 1 x y", "git difftool -y",
+                        "git archive --format=tar HEAD", "git log --grep ext::"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+        for command in ("git rebase -i HEAD~2", "git rebase -Xours main"):
+            self.assertEqual(self.codes(command), "", command)
+
+    def test_a_protocol_or_ssh_s_variant_is_refused_only_where_a_transport_may_run(self):
+        for command in ("git -c protocol.file.allow=always status", "git -c ssh.variant=ssh status",
+                        "git -c protocol.ext.allow=always log", "git -c protocol.allow=always diff",
+                        "GIT_ALLOW_PROTOCOL=ext git status"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+        for command in ("git -c protocol.ext.allow=always fetch origin", "git -c protocol.allow=always ls-remote x",
+                        "git -c ssh.variant=simple pull", "git -c PROTOCOL.EXT.ALLOW=always clone x y",
+                        "git --config-env=ssh.variant=V fetch", "git -c protocol.ext.allow=always submodule update",
+                        "git -c protocol.ext.allow=always remote update", "git -c ssh.variant=ssh push",
+                        "git -c protocol.ext.allow=always archive --remote=x HEAD"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+
+    def test_a_commit_on_no_branch_is_accepted_and_read_when_it_is_pushed(self):
+        # Decided: notes and stash commit on no branch, and only a push takes such a commit out, which is read.
+        self.assertEqual(identity.OFF_BRANCH, {"notes", "stash"})
+        self.assertLessEqual(identity.OFF_BRANCH, identity.OTHERS)
+        for command in ("git stash", "git stash push -m x", "git notes add -m x HEAD", "git notes append -m y"):
+            self.assertEqual(self.codes(command, self.bad), "", command)
+        noted = repo(fresh=True)
+        git(noted, "notes", "add", "-m", "theirs", "HEAD", GIT_COMMITTER_NAME="Someone Else")
+        self.assertIn("push_carries_another_identity", self.refused("git push origin refs/notes/commits", noted))
+
     def test_a_push_as_the_machine_user_or_anyone_else_is_refused(self):
         self.assertIn("account_is_machine_user", self.refused("git push", FAKE_GH_USER=MACHINE))
         self.assertIn("account_not_maintainer", self.refused("git push", FAKE_GH_USER="someone-else"))
@@ -1008,6 +1055,55 @@ class MergesAndSettings(Asks):
                         "git -c diff.external=cat diff", "git grep -n x", "export GIT_PAGER=cat; git log",
                         "git -c core.pager='less -FRX' log", "git ls-remote origin", "git fetch origin",
                         "git commit -m x --template=t", "git --exec-path", "git diff --exit-code"):
+            self.assertEqual(self.run_(command), "", command)
+
+    def test_a_helper_that_runs_a_script_is_a_helper_in_both_hooks(self):
+        # Decided: a hook reads words, never a file, so a script a helper runs is not read, in either hook.
+        for command in ("git -c core.pager='sh x.sh' log", "git -c core.pager='bash ./x.sh' log",
+                        "git -c core.pager=./x.sh log", "git -c diff.external='sh -c ./x.sh' diff",
+                        "git -c core.pager='sh -c cat' log", "git grep -O'sh x.sh' x", "git difftool -x 'sh x.sh'"):
+            self.asked(self.run_(command), "command_unreadable", command)
+            refused = [code for code, _ in identity.check(bash(command, self.project), self.env)]
+            self.assertIn("command_unreadable", refused, command)
+
+    def test_less_that_writes_a_log_or_loads_keys_is_no_reader_however_it_is_spelt(self):
+        # less takes a long option by any prefix, and --LOG-FILE is -O as --log-file is -o.
+        for option in ("--LOG-FILE=/tmp/x", "--LOG-FILE /tmp/x", "--LOG-F=/tmp/x", "--log-f=/tmp/x", "--Log-File=/tmp/x",
+                       "--lesskey-s=/tmp/k", "--les=/tmp/k", "-O/tmp/x", "-RO /tmp/x", "-o /tmp/x"):
+            self.asked(self.run_("git -c core.pager='less %s' log" % option), "command_unreadable", option)
+        for option in ("-R", "-FRX", "--line-numbers", "--LINE-NUMBERS", "--quit-if-one-screen", "--RAW-CONTROL-CHARS"):
+            self.assertEqual(self.run_("git -c core.pager='less %s' log" % option), "", option)
+
+    def test_a_fetch_that_moves_a_local_branch_asks(self):
+        for command in ("git fetch origin main:main", "git fetch . a:b", "git fetch origin +main:refs/heads/main",
+                        "git fetch origin 'refs/heads/*:refs/heads/*'", "git fetch origin main:heads/main",
+                        "git fetch -q origin main:main", "git pull origin main:main", "git -C . fetch origin x:x",
+                        "git fetch --refmap='+refs/heads/*:refs/heads/*' origin main",
+                        "git fetch --refm '+refs/heads/*:refs/heads/*' origin main",
+                        "git -c 'remote.origin.fetch=+refs/heads/*:refs/heads/*' fetch origin",
+                        "git --config-env=remote.origin.fetch=R fetch origin", "git fetch --stdin origin",
+                        "setsid git fetch . HEAD:main", "git fetch origin main:Refs/heads/main"):
+            self.asked(self.run_(command), "local_branch", command)
+        # A ref named as git names it: remotes/x is refs/remotes/x, and a ref's case is the file system's.
+        self.asked(self.run_("git fetch origin main:refs/Remotes/origin/main"), "remote_ref", "a remote ref in capitals")
+        for command in ("git fetch origin", "git fetch origin main", "git fetch origin main:refs/remotes/origin/main",
+                        "git fetch origin main:remotes/origin/main", "git fetch origin v1:refs/tags/v1",
+                        "git fetch --depth 1 git@github.com:o/r.git main", "git fetch --all", "git pull",
+                        "git pull --rebase origin main", "git fetch origin main:"):
+            self.assertEqual(self.run_(command), "", command)
+
+    def test_git_told_in_the_command_where_to_write_its_objects_or_index_asks(self):
+        # commit-graph write, or any git that refreshes its index, writes where these say.
+        for command in ("GIT_INDEX_FILE=lifecycle/x git add .", "GIT_INDEX_FILE=lifecycle/x git status",
+                        "GIT_OBJECT_DIRECTORY=lifecycle git commit-graph write --reachable",
+                        "GIT_ALTERNATE_OBJECT_DIRECTORIES=/tmp/a:lifecycle git commit-graph write --reachable",
+                        "export GIT_OBJECT_DIRECTORY=.git/refs/remotes; git commit-graph write",
+                        "GIT_INDEX_FILE=../.git/packed-refs git -C docs status",
+                        "cd docs && GIT_OBJECT_DIRECTORY=. git commit-graph write", "GIT_INDEX_FILE=lifecycle/x nice git status"):
+            self.asked(self.run_(command), "protected_path", command)
+        self.asked(self.run_('GIT_INDEX_FILE="$X" git status'), "path_unreadable", "an index in a variable")
+        for command in ("GIT_INDEX_FILE=/tmp/i git add .", "GIT_OBJECT_DIRECTORY=/tmp/o git commit-graph write --reachable",
+                        "GIT_INDEX_FILE=.git/index.tmp git add -u", "git commit-graph write --reachable"):
             self.assertEqual(self.run_(command), "", command)
 
     def test_a_write_to_a_ruleset_or_the_repos_settings_asks(self):
