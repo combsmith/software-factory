@@ -11,6 +11,7 @@ that must be rejected for that rule and no other. A rule with no counter-example
 from __future__ import annotations
 
 import hashlib
+import json
 import pathlib
 import re
 
@@ -192,8 +193,34 @@ def lint(text: str) -> list:
     return sorted(set(found))
 
 
-def run(root: pathlib.Path = ROOT) -> list:
+def lens_workflows(root: pathlib.Path) -> list:
+    """Each required Lens GitHub Actions runs names a workflow file that exists and runs a job under its check's name.
+
+    The Kernel reads such a Lens only from that file (`config/defaults.json`). Gone, moved, or with the job renamed,
+    every pull request's check would be another file's or none, and the Lens unreadable on all of them.
+    """
+    config = root / "config" / "defaults.json"
+    if not config.is_file():
+        return []
     problems = []
+    for lens in json.loads(config.read_text())["required_lenses"]["deterministic"]:
+        rel = lens.get("workflow")
+        if not isinstance(rel, str):
+            continue
+        path = root / rel
+        if not path.is_file():
+            problems.append("config/defaults.json: the Lens %s is read from %s, which does not exist" % (lens["lens"], rel))
+            continue
+        entries, _ = read(path.read_text(errors="replace"))
+        names = [e["value"] for e in entries if e["key"] == "name" and len(e["path"]) == 2 and e["path"][0] == "jobs"]
+        if lens["check"] not in names:
+            problems.append("config/defaults.json: the Lens %s is read from %s, which runs no job named %r"
+                            % (lens["lens"], rel, lens["check"]))
+    return problems
+
+
+def run(root: pathlib.Path = ROOT) -> list:
+    problems = lens_workflows(root)
     live = sorted((root / ".github" / "workflows").glob("*.y*ml"))
     example = root / "examples" / "workflows" / "verify.yml"
     for path in live + sorted((root / "examples" / "workflows").glob("*.y*ml")):

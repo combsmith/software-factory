@@ -44,7 +44,8 @@
             "required": [
               "lens",
               "check",
-              "app_id"
+              "app_id",
+              "workflow"
             ],
             "properties": {
               "lens": {
@@ -59,6 +60,14 @@
               "app_id": {
                 "type": "integer",
                 "minimum": 1
+              },
+              "workflow": {
+                "description": "For a Lens GitHub Actions runs, the path of its workflow file, which only the Maintainer changes; null for a Lens no workflow runs. GitHub Actions is one App for every job in the repo, one a pull request adds among them, so a check under the Lens's name from any other file is not the Lens's",
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^\\.github/workflows/[^/]+\\.ya?ml$"
               }
             }
           }

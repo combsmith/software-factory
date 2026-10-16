@@ -912,6 +912,29 @@ class Workflows(unittest.TestCase):
         root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": bumped})
         self.assertFalse(caught(check_workflows.run(root), "change both together"))
 
+    def test_a_lens_read_from_a_workflow_that_does_not_run_its_check_is_caught(self):
+        # Each required Lens GitHub Actions runs is read only from the workflow file the configuration names for it. A
+        # file that is gone, or that runs no job under the Lens's check name, would leave every pull request's check
+        # another file's, and the Lens unreadable on all of them.
+        defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
+        lenses = defaults["required_lenses"]["deterministic"]
+        run_by_actions = [lens for lens in lenses if isinstance(lens["workflow"], str)]
+        self.assertTrue(run_by_actions)
+        for lens in run_by_actions:
+            other = next(x["workflow"] for x in run_by_actions if x["workflow"] != lens["workflow"])
+            for path, said in ((".github/workflows/gone.yml", "which does not exist"),
+                               (other, "runs no job named %r" % lens["check"])):
+                moved = [dict(x, workflow=path) if x is lens else x for x in lenses]
+                cfg = dict(defaults, required_lenses=dict(defaults["required_lenses"], deterministic=moved))
+                root = clone({"config/defaults.json": json.dumps(cfg, indent=2) + "\n"})
+                self.assertTrue(caught(check_workflows.run(root), said), (lens["lens"], path))
+            # The job renamed in its own file.
+            text = (ROOT / lens["workflow"]).read_text()
+            renamed = text.replace("    name: %s\n" % lens["check"], "    name: %s-renamed\n" % lens["check"])
+            self.assertNotEqual(renamed, text, lens["lens"])
+            root = clone({lens["workflow"]: renamed})
+            self.assertTrue(caught(check_workflows.run(root), "runs no job named %r" % lens["check"]), lens["lens"])
+
     def test_a_live_workflow_is_held_to_the_rules(self):
         bad = (ROOT / "examples" / "workflows" / "invalid" / "pin.a-tag-can-move.yml").read_text()
         problems = check_workflows.run(tree({".github/workflows/x.yml": bad, "examples/workflows/verify.yml": GOOD}))

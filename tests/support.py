@@ -14,12 +14,16 @@ CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()),
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 42}
 NOW = "2026-10-11T13:00:00Z"
 # Every required check passing, each under its check run's name as GitHub gives it, from its Lens's own App.
-GREEN = [{"name": lens["check"], "app_id": lens["app_id"], "conclusion": "success",
+# A check GitHub Actions runs carries the workflow file that ran it; one no workflow ran carries null.
+GREEN = [{"name": lens["check"], "app_id": lens["app_id"], "workflow": lens["workflow"], "conclusion": "success",
           "completed_at": "2026-10-11T12:05:00Z"} for lens in CONFIG["required_lenses"]["deterministic"]]
 # The Lens each required check reports for, by the check run's name: the name a Decision gives as evidence.
 LENS_OF = {lens["check"]: lens["lens"] for lens in CONFIG["required_lenses"]["deterministic"]}
 # An App no required Lens is read from: any App with checks: write, the Controller's among them, can post a check.
 OTHER_APP = 1000001
+# A workflow file no required Lens is read from: GitHub Actions runs every job in the repo, under any name, one a pull
+# request adds on its own branch among them.
+OTHER_WORKFLOW = ".github/workflows/impostor.yml"
 # The Maintainer: a person, which is an actor of kind human with write access, and nobody else is.
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 

@@ -1,10 +1,7 @@
 # 0015. A Lens is read from its own App, and only what gates holds a merge
 
-Status: accepted. Replaces `docs/decisions/0012-lenses-report-findings-and-the-kernel-decides-convergence.md`,
-and keeps all of it. It adds the Maintainer's ruling of 2026-10-14 on a Finding that does not gate
-("Kernel: what happens to a Finding that does not gate", issue 55), and the ruling on
-"The Apps' permissions as data, before any is registered" (issue 20) that a Lens is read only from
-the App that reports it ("Kernel: a Lens is read only from the App that reports it", issue 60).
+Status: replaced by `docs/decisions/0017-a-lens-is-read-from-its-own-app-and-workflow-and-only-what-gates-holds-a-merge.md`,
+which holds the rule in force and its boundaries.
 
 ## Decision
 

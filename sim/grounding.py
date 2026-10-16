@@ -27,6 +27,15 @@ RULES = (
      "check run: filter=latest is per check suite, so two workflow runs on one commit both stay", (), None),
     ("any_app_posts_a_check_under_any_name", "Any App with checks: write can post a check run under any name, a "
      "required Lens's too, and it stays on that head: a check run cannot be deleted", (), None),
+    ("a_check_names_the_workflow_that_ran_it", "Every check run GitHub Actions reports is read with the path of the "
+     "workflow file that ran it, the path of its check suite's workflow run, with the permissions the reader and the "
+     "Controller hold; a check run no workflow ran, as GitHub Advanced Security's, is read with none", ("P-35",), None),
+    ("actions_runs_a_job_under_any_name", "GitHub Actions reports every job in the repo as one App, 15368, one a pull "
+     "request adds in a workflow file of its own under a required Lens's check name among them, and its check run "
+     "names that file", ("P-35",), None),
+    ("only_codeql_gives_the_code_scanning_verdict", "Only CodeQL's own analysis gives the conclusion of the check run "
+     "CodeQL that GitHub Advanced Security, 57789, reports: an upload to code scanning under CodeQL's tool and category, "
+     "by an identity holding security_events: write, cannot replace that verdict on the head", ("P-36",), None),
     ("a_push_leaves_the_queue", "A push takes the pull request out of the merge queue", (), None),
     ("an_app_enters_the_queue", "An App can put an approved pull request in the merge queue", ("P-2",), None),
     ("the_queue_merges", "A pull request in the merge queue merges, unless a push takes it out first", (), None),

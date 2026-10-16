@@ -7,16 +7,19 @@
       {
         "lens": "verify",
         "check": "verify",
-        "app_id": 15368
+        "app_id": 15368,
+        "workflow": ".github/workflows/verify.yml"
       },
       {
         "lens": "secret-scan",
         "check": "Secret scan (gitleaks)",
-        "app_id": 15368
+        "app_id": 15368,
+        "workflow": ".github/workflows/ci.yml"
       },
       {
         "lens": "code-scanning",
-        "check": "CodeQL"
+        "check": "CodeQL",
+        "workflow": null
       }
     ],
     "model": [
