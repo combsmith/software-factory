@@ -938,6 +938,18 @@
       "to": "converged",
       "by": "lens",
       "bound": "max_runs_per_item"
+    },
+    {
+      "from": "queued",
+      "to": "addressing",
+      "by": "lens",
+      "bound": "max_runs_per_item"
+    },
+    {
+      "from": "verifying",
+      "to": "queued",
+      "by": "lens",
+      "bound": "max_runs_per_item"
     }
   ]
 }

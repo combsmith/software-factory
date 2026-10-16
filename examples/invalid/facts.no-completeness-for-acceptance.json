@@ -146,7 +146,7 @@
       "AC-1",
       "AC-2"
     ],
-    "evidence": [
+    "results": [
       {
         "criterion": "AC-1",
         "content_id": "sha256:4b1a",

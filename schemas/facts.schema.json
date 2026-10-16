@@ -333,7 +333,7 @@
       "minimum": 0
     },
     "acceptance": {
-      "description": "The item's acceptance contract (design §3.13, §4.8), as the Kernel reads it for Convergence's fourth condition: null when the item has none. The contract is a file the pull request carries, and its criteria are given by id alone, never their statements, which are prose. Each result is one read for one criterion, from the check that ran it, with the content_id of the content it ran on: evidence for other content does not count (I-31). Every criterion needs a passing result on this content; a failing one sends the content back to its author. A contract or a result the Kernel cannot read, or one the port did not read whole, is unreadable, and nothing converges on it",
+      "description": "The item's acceptance contract (design §3.13, §4.8), as the Kernel reads it for Convergence's fourth condition: null when the item has none, which only a full read (complete.acceptance) confirms. The contract is a file the pull request carries, and its criteria are given by id alone, never their statements, which are prose. Each result is one read for one criterion, from the check that gave it, with the content_id of the content it ran on; the port's contract is the latest result per criterion per check suite. Only this content's results are judged: evidence for other content does not count (I-31). Every criterion needs a passing result on this content; a failing one sends the content back to its author. A contract, or a result on this content, that the Kernel cannot read converges nothing",
       "type": [
         "object",
         "null"
@@ -341,8 +341,7 @@
       "additionalProperties": false,
       "required": [
         "criteria",
-        "evidence",
-        "complete"
+        "results"
       ],
       "properties": {
         "criteria": {
@@ -352,9 +351,10 @@
           "items": {
             "type": "string",
             "pattern": "^AC-[0-9]+$"
-          }
+          },
+          "uniqueItems": true
         },
-        "evidence": {
+        "results": {
           "type": "array",
           "items": {
             "type": "object",
@@ -380,10 +380,6 @@
               }
             }
           }
-        },
-        "complete": {
-          "description": "Whether the contract and every result for it were read whole",
-          "type": "boolean"
         }
       }
     },
@@ -391,6 +387,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "acceptance",
         "reviews",
         "threads",
         "checks",
@@ -399,6 +396,10 @@
         "timeline"
       ],
       "properties": {
+        "acceptance": {
+          "description": "Whether the acceptance contract at the head, or that there is none, and every result for it were read in full",
+          "type": "boolean"
+        },
         "reviews": {
           "type": "boolean"
         },

@@ -45,7 +45,7 @@ def facts(**over) -> dict:
         "last_push_at": "2026-10-11T12:00:00Z",
         "last_writer_action_at": "2026-10-11T12:00:00Z", "reviews": [], "threads": [],
         "checks": copy.deepcopy(GREEN), "queue": False, "acts_since_writer": 0, "acceptance": None,
-        "complete": {"reviews": True, "threads": True, "checks": True, "diff": True, "runs": True,
+        "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True, "runs": True,
                      "timeline": True},
         "read_at": "2026-10-11T12:59:00Z",
     }
@@ -106,10 +106,11 @@ def review(state="approved", kind="machine_user", name="donpetry-bot", can_write
             "content_id": content, "submitted_at": at, "dismissed_by": dismissed_by, "dismissed_from": dismissed_from}
 
 
-def contract(criteria=("AC-1", "AC-2"), evidence=(), complete=True) -> dict:
+def contract(criteria=("AC-1", "AC-2"), results=()) -> dict:
     """An item's acceptance contract as the facts carry it: its criteria by id, never their statements, and each result
-    read for one, with the content it was given on. By default, two criteria and no evidence yet."""
-    return {"criteria": list(criteria), "evidence": [dict(e) for e in evidence], "complete": complete}
+    read for one, with the content it was given on. By default, two criteria and no results yet. Whether it was read in
+    full is `complete.acceptance`."""
+    return {"criteria": list(criteria), "results": [dict(e) for e in results]}
 
 
 def evidence(criterion="AC-1", result="passing", content="sha256:aaaa") -> dict:

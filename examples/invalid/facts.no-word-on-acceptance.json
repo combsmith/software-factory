@@ -142,6 +142,7 @@
   "queue": false,
   "acts_since_writer": 2,
   "complete": {
+    "acceptance": true,
     "reviews": true,
     "threads": true,
     "checks": true,

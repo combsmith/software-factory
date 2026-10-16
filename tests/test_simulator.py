@@ -297,9 +297,10 @@ class Simulation(unittest.TestCase):
         self.assertTrue(impostors)
 
     def test_the_seeds_serve_items_with_an_acceptance_contract_and_without(self):  # I-31
-        # Some worlds carry a contract, and its evidence goes missing for a while, fails, is read unreadable and is left
-        # behind on content that changed; with every invariant holding, some still merge. The others carry none.
-        reasons, contracts, behind, merged = set(), set(), False, False
+        # Some worlds carry a contract, and its evidence goes missing for a while, fails, is given twice and disagrees,
+        # expires, is read short or unreadable and is left behind on content that changed; with every invariant holding,
+        # some merge once the faults stop. The others carry none.
+        reasons, contracts, notes, behind, merged = set(), set(), set(), False, False
         for seed in SEEDS:
             w = World(seed)
             for _ in range(250):
@@ -307,10 +308,14 @@ class Simulation(unittest.TestCase):
             contracts.add(w.criteria is not None)
             reasons |= {r for line in w.trace if "pass: " in line
                         for r in ("acceptance_evidence_missing", "acceptance_failed", "acceptance_unreadable") if r in line}
-            behind = behind or any(ev["content_id"] != w.cid() for ev in w.evidence)
-            merged = merged or (w.criteria is not None and w.pr_state == "merged")
+            notes |= {n for line in w.trace for n in ("expired", "a second result") if n in line}
+            behind = behind or any(ev["content_id"] != w.cid() for ev in w.results)
+            if w.criteria is not None and not merged:
+                w.settle()
+                merged = w.pr_state == "merged"
         self.assertEqual(contracts, {True, False})
         self.assertEqual(reasons, {"acceptance_evidence_missing", "acceptance_failed", "acceptance_unreadable"})
+        self.assertEqual(notes, {"expired", "a second result"})
         self.assertTrue(behind and merged)
 
     def test_a_queued_item_whose_evidence_is_gone_is_taken_out_before_it_merges(self):  # I-31
@@ -321,7 +326,7 @@ class Simulation(unittest.TestCase):
                 return 0.99
 
         def gone(w):
-            w.criteria, w.evidence, w.judge = ["AC-1"], [], Never()
+            w.criteria, w.results, w.judge = ["AC-1"], [], Never()
 
         w = queued()
         gone(w)
@@ -339,7 +344,7 @@ class Simulation(unittest.TestCase):
         # The other side: with the evidence there, on this content, the queue merges once a pass has read it.
         w = queued()
         gone(w)
-        w.evidence = [{"criterion": "AC-1", "content_id": w.cid(), "result": "passing"}]
+        w.results = [{"criterion": "AC-1", "content_id": w.cid(), "result": "passing"}]
         w.poll()
         w.platform()
         self.assertEqual(w.pr_state, "merged")

@@ -392,19 +392,39 @@ def admitted(facts: dict, labels: dict) -> bool:
     return placed["at"] > facts["last_push_at"]
 
 
-def readable_contract(contract) -> bool:
-    """Whether an acceptance contract, as the facts carry it, can be read whole: read in full, at least one criterion,
-    each a name given once, and every result an object naming one of them, the content it was given on, and a word the
-    Kernel knows. A result for a criterion the contract does not name was misread, whatever content it is for."""
-    if not isinstance(contract, dict) or contract.get("complete") is not True:
+def in_form(value, prefix: str, digits: str) -> bool:
+    """Whether `value` is a name in its one form: `prefix`, then at least one of `digits` and nothing else. A criterion's
+    id is `AC-` and decimal digits; a content id is `sha256:` and lower-case hexadecimal digits, as the schema says."""
+    return (isinstance(value, str) and value.startswith(prefix) and len(value) > len(prefix)
+            and all(c in digits for c in value[len(prefix):]))
+
+
+def readable_contract(contract, content: str) -> bool:
+    """Whether an acceptance contract, as the facts carry it, can be read whole: at least one criterion, each an id in
+    its form given once, and every result an object naming a criterion and a content in their forms. A result on
+    `content`, this content, must name a criterion the contract has and say a word the Kernel knows: otherwise it was
+    misread. Only this content's results are judged, so one on earlier content is not read further: a criterion the
+    contract no longer lists, as after a waiver or a revision, is no misreading there. Whether it was read in full is
+    `complete.acceptance`, read with the other flags."""
+    if not isinstance(contract, dict):
         return False
-    criteria, results = contract.get("criteria"), contract.get("evidence")
-    if not (isinstance(criteria, list) and criteria and all(isinstance(c, str) and c != "" for c in criteria)):
+    criteria, results = contract.get("criteria"), contract.get("results")
+    if not (isinstance(criteria, list) and criteria and all(in_form(c, t.CRITERION_PREFIX, t.DIGITS) for c in criteria)):
         return False
     if len(set(criteria)) != len(criteria) or not isinstance(results, list):
         return False
-    return all(isinstance(ev, dict) and isinstance(ev.get("criterion"), str) and ev["criterion"] in criteria
-               and isinstance(ev.get("content_id"), str) and ev.get("result") in t.EVIDENCE_RESULTS for ev in results)
+    for ev in results:
+        if not isinstance(ev, dict):
+            return False
+        if not in_form(ev.get("content_id"), t.CONTENT_PREFIX, t.HEX_DIGITS):
+            return False
+        if not in_form(ev.get("criterion"), t.CRITERION_PREFIX, t.DIGITS):
+            return False
+        if ev["content_id"] != content:
+            continue
+        if ev["criterion"] not in criteria or ev.get("result") not in t.EVIDENCE_RESULTS:
+            return False
+    return True
 
 
 def acceptance_reading(facts: dict) -> tuple:
@@ -420,9 +440,9 @@ def acceptance_reading(facts: dict) -> tuple:
     contract = facts["acceptance"]
     if contract is None:
         return "none", []
-    if not readable_contract(contract):
+    if not readable_contract(contract, facts["content_id"]):
         return "unreadable", []
-    said = {c: {ev["result"] for ev in contract["evidence"] if ev["criterion"] == c
+    said = {c: {ev["result"] for ev in contract["results"] if ev["criterion"] == c
                 and ev["content_id"] == facts["content_id"]} for c in contract["criteria"]}
     fails = [c for c in contract["criteria"] if "failing" in said[c]]
     if fails:

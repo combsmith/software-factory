@@ -144,9 +144,10 @@
   "acceptance": {
     "criteria": [
       "AC-1",
-      "AC-2"
+      "AC-2",
+      "AC-1"
     ],
-    "evidence": [
+    "results": [
       {
         "criterion": "AC-1",
         "content_id": "sha256:4b1a",
@@ -154,6 +155,7 @@
       },
       {
         "criterion": "AC-1",
+        "content_id": "sha256:5d0c",
         "result": "passing"
       },
       {
@@ -161,10 +163,10 @@
         "content_id": "sha256:5d0c",
         "result": "passing"
       }
-    ],
-    "complete": true
+    ]
   },
   "complete": {
+    "acceptance": true,
     "reviews": true,
     "threads": true,
     "checks": true,
