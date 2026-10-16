@@ -1,6 +1,6 @@
 # 0015. A Lens is read from its own App, and only what gates holds a merge
 
-Status: replaced by `docs/decisions/0017-a-lens-is-read-from-its-own-app-and-workflow-and-only-what-gates-holds-a-merge.md`,
+Status: replaced by `docs/decisions/0018-a-lens-is-read-from-its-own-app-and-workflow-and-only-what-gates-holds-a-merge.md`,
 which holds the rule in force and its boundaries.
 
 ## Decision

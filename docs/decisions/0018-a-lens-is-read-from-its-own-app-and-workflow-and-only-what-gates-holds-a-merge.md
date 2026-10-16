@@ -1,4 +1,4 @@
-# 0017. A Lens is read from its own App and its own workflow file, and only what gates holds a merge
+# 0018. A Lens is read from its own App and its own workflow file, and only what gates holds a merge
 
 Status: accepted. Replaces `docs/decisions/0015-a-lens-is-read-from-its-own-app-and-only-what-gates-holds-a-merge.md`,
 and keeps all of it: the Maintainer's ruling of 2026-10-14 on a Finding that does not gate
