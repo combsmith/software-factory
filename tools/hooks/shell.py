@@ -17,6 +17,14 @@ SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
 STRINGS = {"flock", "script", "runuser", "su"}
 STRING_OPTIONS = ("--command", "--session-command")
 ENV_VALUED = {"-u", "--unset", "-C", "--chdir", "-P"}
+# Words that come before the program and change nothing about what it does.
+PREFIXES = {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "}", "time", "command", "builtin", "exec",
+            "nohup"}
+# Programs that run the program their words name, git or gh among them, whatever options come first.
+WRAPPERS = {"env", "sudo", "doas", "xargs", "parallel", "timeout", "gtimeout", "nice", "ionice", "chrt",
+            "taskset", "numactl", "stdbuf", "gstdbuf", "caffeinate", "watch", "setsid", "flock", "chroot", "unshare",
+            "nsenter", "runuser", "chpst", "unbuffer", "chronic", "script", "arch", "xcrun", "sandbox-exec",
+            "systemd-run", "fakeroot", "strace", "ltrace", "dtruss", "gtime"}
 HEREDOC = re.compile(r"<<(-?)[ \t]*\\?(['\"]?)([A-Za-z_][\w.-]*)\2")
 
 

@@ -5,7 +5,20 @@ from git's configuration in each clone, and the account that pushes or writes to
 from gh. The Maintainer is in `config/hooks.json`; the machine user is the approver in
 `config/defaults.json`, which approves and does nothing else (decision 0005). The hook reads what is
 configured, so an identity set inside the command is refused, and what it cannot read it refuses.
-Run as `python3 -I` on this file; see after_edit.py.
+
+A program the command gives git to run is one it cannot read, so it is refused whatever git does: an
+option that names one (--upload-pack, grep -O, rebase -x and the rest, by any spelling git takes), a
+helper set by -c, and GIT_EXEC_PATH set in the command. Only cat and less, by their bare names, pass.
+A protocol allowed (protocol.*.allow, GIT_ALLOW_PROTOCOL) or an ext:: URL is refused for every
+command, since any may run a transport, by a lazy fetch in a partial clone, and so is any other
+remote helper's URL (x::address) given to a command that takes a remote; ssh.variant names no
+program and passes. Two things are decided rather than read (decision 0016). A helper that runs a
+script (core.pager='sh x.sh'), given by -c or an option, is a program like any other and is
+refused: the hook reads words, never a file, and the script may be written in the same command.
+Notes and stash make commits on no branch, which are accepted without reading who makes them: no
+pull request carries one, and only a push takes one out of the clone, whose plain refspecs this
+hook reads commit by commit. This guards against mistakes; the Stop check and the rulesets are the
+boundary. Run as `python3 -I` on this file; see after_edit.py.
 """
 from __future__ import annotations
 
@@ -27,20 +40,24 @@ WRITES = {"am", "cherry-pick", "commit", "commit-tree", "filter-branch", "merge"
 # Known, and not a commit. These run commands of their own, so their text is read for a commit or push.
 RUNNERS = {"bisect", "difftool", "mergetool", "submodule"}
 # Known, and not themselves a commit or a push: mostly they read, so a write verb in their name or their words is
-# only text. The split from the rest of OTHERS is documentary; every command in OTHERS is treated alike. Options
-# that make one of these run a program (--upload-pack, --exec, grep -O) or move a branch (git fetch . main:side)
-# are not read here; that is an open issue of its own.
+# only text. The split from the rest of OTHERS is documentary; every command in OTHERS is treated alike. An option
+# that makes one of these run a program (--upload-pack, --exec, grep -O) is refused, by HELPER_OPTIONS below; a
+# fetch that moves a local branch (git fetch . main:side) commits nothing, and protected.py asks about it.
 READS = {"annotate", "archive", "blame", "cat-file", "check-attr", "check-ignore", "check-mailmap",
          "check-ref-format", "cherry", "commit-graph", "count-objects", "describe", "diff", "diff-files", "diff-index",
          "diff-tree", "fetch", "for-each-ref", "fsck", "get-tar-commit-id", "grep", "help", "log", "ls-files",
          "ls-remote", "ls-tree", "merge-base", "merge-tree", "name-rev", "patch-id", "range-diff", "rev-list",
          "rev-parse", "shortlog", "show", "show-branch", "show-index", "show-ref", "status", "var", "verify-commit",
          "verify-pack", "verify-tag", "version", "whatchanged"}
-# Known, and not a commit: READS, and these, which change the repo, its index or its working tree.
+# Known, and not a commit: READS, and these, which change the repo, its index or its working tree. Of them, notes and
+# stash make commits, but on no branch: OFF_BRANCH says why they are not read as one.
 OTHERS = READS | {"add", "apply", "branch", "bundle", "checkout", "clean", "clone", "config", "format-patch", "gc",
-                  "hash-object", "init", "maintenance", "mv", "notes", "prune", "reflog", "remote", "repack", "reset",
-                  "restore", "rm", "sparse-checkout", "stash", "switch", "symbolic-ref", "tag", "update-index",
-                  "update-ref", "worktree", "write-tree"}
+                   "hash-object", "init", "maintenance", "mv", "notes", "prune", "reflog", "remote", "repack", "reset",
+                   "restore", "rm", "sparse-checkout", "stash", "switch", "symbolic-ref", "tag", "update-index",
+                   "update-ref", "worktree", "write-tree"}
+# The commands that make a commit on no branch (refs/notes/*, refs/stash), accepted without reading who makes it
+# (decision 0016). This records the decision and drives no code: being in OTHERS is what lets them pass.
+OFF_BRANCH = {"notes", "stash"}
 GIT_FLAGS = {"-p", "--paginate", "-P", "--no-pager", "--bare", "--no-replace-objects", "--literal-pathspecs",
              "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs", "--no-optional-locks", "--no-lazy-fetch",
              "--no-advice", "--version", "-v", "--help", "-h", "--html-path", "--man-path", "--info-path",
@@ -64,11 +81,47 @@ PROGRAM_KEYS = re.compile(r"^(merge\..+\.driver|core\.pager|pager\..+|core\.edit
                           r"core\.hookspath|core\.attributesfile|diff\.external|diff\..+\.(textconv|command)|"
                           r"filter\..+|gpg\.program|gpg\..+\.program|gpg\.ssh\.defaultkeycommand|trailer\..+\.cmd|"
                           r"tar\..+\.command|(difftool|mergetool|man|browser)\..+\.(cmd|path)|sendemail\.sendmailcmd|"
-                          r"remote\..+\.vcs|protocol\..+\.allow|init\.templatedir|core\.gitproxy|ssh\.variant|"
-                          r"uploadpack\.packobjectshook)$", re.I)
+                          r"remote\..+\.vcs|init\.templatedir|core\.gitproxy|uploadpack\.packobjectshook|"
+                          r"protocol\.(.+\.)?allow)$", re.I)
+# protocol.ext.allow lets the ext:: transport run the command its URL names, and any command may run a transport: a
+# fetch, or, in a partial clone, a lazy fetch of a missing object by cat-file, log or checkout. ssh.variant names no
+# program, only how git calls ssh, and is not refused.
+# Configuration that loads code from a place, or names a program git finds: a reader's name is no exemption here
+# (core.hooksPath=cat is a directory). protected.py asks of the same.
+LOAD_KEYS = re.compile(
+    r"^(core\.hookspath|core\.attributesfile|include\.path|includeif\..+\.path|init\.templatedir|"
+    r"protocol\.(.+\.)?allow|(difftool|mergetool|man|browser)\..+\.path|remote\..+\.vcs|credential\.(.+\.)?helper)$",
+    re.I | re.S)
 SWITCHES = re.compile(r"^(pager\..+|core\.fsmonitor)$", re.I)    # of these, a boolean runs nothing
 BOOLEANS = {"true", "false", "yes", "no", "on", "off", "1", "0"}
+# A helper is a program, and one that runs a script (core.pager='sh x.sh') is a helper like any other: the hook reads
+# words, never a file, and the script may be written in the same command. Only these, by their bare names, pass.
 PAGERS = {"cat", "less"}    # a bare program git may run, which runs nothing of its own
+# Options whose value is a program git runs, and whether it may be the next word (False: only after `=`); options
+# that run a program the command does not name, for every command (None) or for these; and short options, by
+# command. This hook refuses each one, but a bare name of PAGERS; protected.py asks of the same.
+HELPER_OPTIONS = {"--upload-pack": True, "--receive-pack": True, "--exec": True, "--extcmd": True,
+                  "--open-files-in-pager": False}
+HELPER_ALWAYS = {"--ext-diff": None, "--template": {"clone", "init"}}
+HELPER_SHORT = {"grep": {"O": False}, "ls-remote": {"u": True}, "clone": {"u": True}, "difftool": {"x": True},
+                "rebase": {"x": True}}
+# The short options of these commands that take a value, which ends a bundle: what follows the letter is the value,
+# never another option (-Xsubtree=lex, -eOwner, -bfix-ui). Alone, a required one takes the next word; an optional
+# one (rebase -S[keyid]) takes only what is attached, and never the next word.
+SHORT_VALUED = {"grep": "efABCm", "ls-remote": "ou", "clone": "bjou", "difftool": "tx", "rebase": "CXsx"}
+SHORT_OPTIONAL = {"rebase": "S"}
+# Set in the command, these say where git finds the programs it runs, or let a transport run one (ext::), for any
+# command, since any may run a transport.
+PROGRAM_ENVIRONMENT = {"GIT_EXEC_PATH", "GIT_ALLOW_PROTOCOL"}
+# A remote helper's URL, <transport>::<address>: git runs git-remote-<transport>, or for ext:: and fd:: the command
+# the address names. Each is refused in a word a command that takes a remote is given; ext:: in any word.
+REMOTE_HELPER = re.compile(r"^\+?[A-Za-z0-9][A-Za-z0-9+.-]*::")
+TAKES_REMOTE = {"archive", "clone", "fetch", "ls-remote", "pull", "push", "remote", "submodule"}
+ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")      # a word that sets a variable; protected.py reads it too
+# Programs whose assignment words set the environment of what follows; and, before git, the wrappers and prefixes
+# that run it (nohup env X=1 git), whose words up to git are read for assignments too.
+SETTERS = {"export", "declare", "typeset", "local", "readonly", "env", "sudo"}
+RUNS_GIT = shell.WRAPPERS | shell.PREFIXES
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 IDENT = re.compile(r"^(.*) <(.*)> \d+ [+-]\d{4}$")
 GITHUB = re.compile(r"^https://(?:([^@/]+)@)?github\.com/")
@@ -146,6 +199,7 @@ def _calls(commands: list, cwd, text: str) -> tuple:
     """
     here = pathlib.Path(cwd) if cwd else None
     calls, always, inline, blind = [], [], [], False
+    named = set()       # what the command sets in the environment, on git or earlier in the command
     for words, targets in commands:
         inline += [("identity_set_in_command", "%s is set in the command; the hook reads only what is configured"
                     % w.split("=")[0]) for w in words if ENVIRONMENT.match(w)]
@@ -153,20 +207,21 @@ def _calls(commands: list, cwd, text: str) -> tuple:
                                                "of its own" % w) for w in words + targets if GIT_CONFIG_FILE.search(w)]
         if not words:
             continue
+        at = next((i for i, w in enumerate(words) if os.path.basename(w) in ("git", "gh")), None)
+        named |= assigned(words[:at], at is not None)
         if words[0] in ("cd", "pushd"):
             here = _join(here, words[1]) if len(words) > 1 and words[1] != "-" else None
             continue
         program = os.path.basename(words[0])
         blind = blind or (program in SHELLS_AND_SOURCE and not any(w.startswith("-") and not w.startswith("--")
                                                                    and "c" in w for w in words[1:]))
-        at = next((i for i, w in enumerate(words) if os.path.basename(w) in ("git", "gh")), None)
         if at is None:
             if program not in TEXT_ONLY and WRITE_TEXT.search(" ".join(words)):
                 always.append(("command_unreadable", "`%s` looks like a commit or push the hook cannot read as one"
                                % program))
             continue
         tool, rest = os.path.basename(words[at]), words[at + 1:]
-        where, i = here, 0
+        where, i, settings = here, 0, []
         while i < len(rest) and rest[i].startswith("-"):
             option, given, value = rest[i].partition("=")
             if option in (GIT_VALUED if tool == "git" else GH_VALUED) and not given:
@@ -178,22 +233,23 @@ def _calls(commands: list, cwd, text: str) -> tuple:
             if option == "-C":
                 where = _join(where, value)
             elif option in ("-c", "--config-env"):
-                if KEYS.match(value):
-                    always.append(("identity_set_in_command", "git %s %s sets in the command what the hook reads "
-                                                              "from configuration" % (option, value.split("=")[0])))
-                key, valued, setting = value.partition("=")
-                plain = option == "-c" and (setting in PAGERS or (SWITCHES.match(key) is not None and (
-                    not valued or setting.lower() in BOOLEANS)))
-                if PROGRAM_KEYS.match(key) and not plain:
-                    always.append(("command_unreadable", "git %s %s sets a program git runs, which the hook cannot "
-                                                         "read" % (option, key)))
+                settings.append((option, value))
             elif option in ("--git-dir", "--work-tree"):
                 always.append(("identity_set_in_command", "%s points git at a repo the hook does not read" % option))
+            elif option == "--exec-path" and given:
+                always.append(("command_unreadable", "git is told where to find the programs it runs, which the hook "
+                                                     "cannot read"))
             elif option not in GIT_FLAGS:
                 always.append(("git_option_unknown", "git %s is an option the hook does not know" % option))
         words = rest[i:]
         if tool == "git":
             sub = words[0] if words else ""
+            for option, value in settings:
+                always += _setting(option, value)
+            always += _programs(sub, words[1:])
+            if PROGRAM_ENVIRONMENT & named or remote_helper(sub, rest, words[1:]):
+                always.append(("command_unreadable", "the command sets where git finds a program it runs, or lets a "
+                                                     "transport run one, which the hook cannot read"))
             kind = ("push" if sub == "push" else "commit") if sub in WRITES else ""
             if sub and sub not in WRITES | RUNNERS | OTHERS:
                 always.append(("git_command_unknown", "git %s is not a command the hook knows; it may be an alias, "
@@ -208,6 +264,100 @@ def _calls(commands: list, cwd, text: str) -> tuple:
                                              "commit or push"))
     return calls, always, inline
 
+
+def assigned(words: list, before_git: bool = False) -> set:
+    """The names words set in the environment of what they run: assignments before the program, and those given to
+    export, declare, env and the like, or, when the words come before git, to a wrapper that runs it (command env,
+    nohup env, nice env). Any other word is an argument, whatever it looks like."""
+    names, at = set(), 0
+    while at < len(words) and ASSIGNMENT.match(words[at]):
+        names.add(words[at].split("=")[0])
+        at += 1
+    first = os.path.basename(words[at]) if at < len(words) else ""
+    if first in SETTERS or (before_git and first in RUNS_GIT):
+        names |= {w.split("=")[0] for w in words[at + 1:] if ASSIGNMENT.match(w)}
+    return names
+
+
+def remote_helper(sub: str, words: list, given: list) -> bool:
+    """Whether git is given a remote helper's URL: ext:: in any of its `words`, or <transport>::<address> in a word,
+    or an option's value, that `given` to a command that takes a remote. A commit message or a pattern is not one."""
+    if any("ext::" in w.casefold() for w in words):
+        return True
+    return sub in TAKES_REMOTE and any(REMOTE_HELPER.match(w.partition("=")[2] if w[:2] == "--" else w) for w in given)
+
+
+def _setting(option: str, value: str, keys: bool = True) -> list:
+    """Why git's -c or --config-env `value` is refused: what the hook reads from configuration (with `keys`), or a
+    program git runs."""
+    problems = []
+    if keys and KEYS.match(value):
+        problems.append(("identity_set_in_command", "git %s %s sets in the command what the hook reads from "
+                                                    "configuration" % (option, value.split("=")[0])))
+    key, valued, setting = value.partition("=")
+    plain = option == "-c" and ((setting in PAGERS and not LOAD_KEYS.match(key)) or (
+        SWITCHES.match(key) is not None and (not valued or setting.lower() in BOOLEANS)))
+    if (PROGRAM_KEYS.match(key) and not plain) or LOAD_KEYS.match(key):
+        problems.append(("command_unreadable", "git %s %s sets a program git runs, which the hook cannot read"
+                         % (option, key)))
+    return problems
+
+
+def _programs(sub: str, words: list) -> list:
+    """Why the options of git's command `sub` are refused: a program they give git to run, but a bare reader."""
+    problems = []
+    for kind, value in programs_given(sub, words):
+        if kind == "config":
+            problems += _setting("-c", value, keys=False)
+        elif kind == "always" or value not in PAGERS:
+            problems.append(("command_unreadable", "git is given a program to run in the command, which the hook "
+                                                   "cannot read"))
+    return problems
+
+
+def programs_given(sub: str, words: list) -> list:
+    """What the options of git's command `sub` give it to run, as (kind, value), read as git reads them: a long option
+    by any prefix, a short one alone, bundled (-nO./p) or with its value attached. ("program", the program, or None
+    when the command does not name it); ("always", None) for an option that runs a program the command does not
+    name; ("config", a setting) for clone's -c, which may name one. A bundle ends at its first letter that takes a
+    value (SHORT_VALUED): what follows is that value. protected.py reads them too."""
+    shorts, valued, optional = HELPER_SHORT.get(sub, {}), SHORT_VALUED.get(sub, ""), SHORT_OPTIONAL.get(sub, "")
+    out, j = [], 0
+    while j < len(words) and words[j] != "--":
+        word, after = words[j], words[j + 1] if j + 1 < len(words) else None
+        option, given, value = word.partition("=")
+        letter, config = None, False
+        if word[:1] == "-" != word[1:2]:
+            for at, c in enumerate(word[1:], 1):
+                if c in shorts:
+                    letter = c
+                elif sub == "clone" and c == "c":
+                    config = True       # clone's -c, alone, bundled or with its setting attached (-ccore.x=y)
+                elif c in valued and at == len(word) - 1:
+                    j += 1              # its value is the next word, which is not an option: -e -Ox
+                if c in shorts or (sub == "clone" and c == "c") or c in valued or c in optional:
+                    break               # an optional value is only what is attached: -S -x ./c
+        long = next((o for o in HELPER_OPTIONS if shell.spelt(option, o)), None) if word[:2] == "--" else None
+        takes = False
+        if letter:          # -Oless, -nO./p: the value is what follows the letter in the bundle
+            value = given = word[word.index(letter) + 1:]
+            takes = shorts[letter]
+        elif long:
+            takes = HELPER_OPTIONS[long]
+        if letter or long:
+            if takes and not given and after is not None:
+                j += 1
+                given = value = after
+            out.append(("program", value if given else None))
+        if word[:2] == "--" and any(shell.spelt(option, o) and (subs is None or sub in subs)
+                                    for o, subs in HELPER_ALWAYS.items()):
+            out.append(("always", None))
+        if config or (sub == "clone" and word[:2] == "--" and shell.spelt(option, "--config")):
+            attached = word[word.index("c") + 1:] if config else value if given else ""
+            out.append(("config", attached or after or ""))
+            j += not attached
+        j += 1
+    return out
 
 
 def _people() -> tuple:

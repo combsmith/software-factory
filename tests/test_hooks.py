@@ -247,6 +247,112 @@ class Identity(unittest.TestCase):
                         "git -c pretty.foo='format:git commit %H' log --pretty=foo -1"):
             self.assertEqual(self.codes(command, folder(), programs()), "", command)
 
+    def test_an_option_or_environment_that_gives_git_a_program_to_run_is_refused(self):
+        # Spelt whole, abbreviated, bundled, attached, or set in the environment earlier in the command.
+        for command in ("git fetch --upload-pack=./u .", "git fetch --upload-pa=./u .", "git ls-remote --upload-p ./u .",
+                        "git push --receive-pack ./r . HEAD:x", "git push --receive-p=./r . HEAD:x",
+                        "git archive --exec=./x --remote=y HEAD", "git archive --exe ./x --remote=y HEAD",
+                        "git grep -O./p x", "git grep -nO./p x", "git grep -O x", "git grep --open-files-in-pager=./p x",
+                        "git grep --open x", "git rebase -x ./c HEAD~1", "git rebase -ix./c HEAD~1",
+                        "git rebase --exec ./c HEAD~1", "git rebase --ex=./c HEAD~1", "git clone -u ./u x y",
+                        "git clone -qu./u x y", "git clone --upload-pack ./u x y", "git difftool -x ./d",
+                        "git difftool -yx./d", "git difftool --extcmd=./d", "git diff --ext-diff", "git log -p --ext-dif",
+                        "git --exec-path=/tmp/x status", "GIT_EXEC_PATH=/tmp/x git status",
+                        "export GIT_EXEC_PATH=/tmp/x; git status", "env GIT_EXEC_PATH=/tmp/x git log",
+                        "GIT_ALLOW_PROTOCOL=ext git ls-remote x", "export GIT_ALLOW_PROTOCOL=ext && git fetch x",
+                        "git ls-remote 'ext::sh -c x'", "git fetch 'EXT::sh -c x'", "git clone -c core.hooksPath=/tmp/h x y",
+                        "git clone --config core.pager=./p x y", "git init --template=/tmp/t", "setsid git diff --ext-diff",
+                        "bash -c 'git grep -O./p x'"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+        for command in ("git grep -n x", "git grep -Oless x", "git diff --no-ext-diff", "git log -- --ext-diff",
+                        "git --exec-path", "git log", "git diff", "git fetch origin", "git -c color.ui=always log",
+                        "git ls-remote --heads origin", "git clone --depth 1 x y", "git difftool -y",
+                        "git archive --format=tar HEAD"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+        for command in ("git rebase -i HEAD~2", "git rebase -Xours main"):
+            self.assertEqual(self.codes(command), "", command)
+
+    def test_a_protocol_allowed_is_refused_for_every_command_and_ssh_s_variant_for_none(self):
+        # In a partial clone any command may fetch a missing object, through the transport an ext:: URL runs.
+        for command in ("git -c protocol.ext.allow=always cat-file -p 1234abcd", "git -c PROTOCOL.EXT.ALLOW=always log",
+                        "git --config-env=protocol.ext.allow=V show", "git -C . -c protocol.allow=always diff",
+                        "env -S 'git -c protocol.ext.allow=always checkout x'", "git -c protocol.file.allow=always status",
+                        "GIT_ALLOW_PROTOCOL=ext git status", "git show 'ext::sh -c x'",
+                        "git -c protocol.ext.allow=always fetch origin", "git -c protocol.allow=always ls-remote x"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+        # ssh.variant says how git calls ssh, and names no program.
+        for command in ("git -c ssh.variant=ssh status", "git -c ssh.variant=simple fetch origin",
+                        "git --config-env=ssh.variant=V ls-remote origin"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+        self.assertEqual(self.codes("git -c ssh.variant=ssh push"), "")
+
+    def test_a_word_that_only_looks_like_an_assignment_sets_nothing(self):
+        # Only words before the program, or given to export, declare, env or sudo, set the environment.
+        for command in ("grep -n 'GIT_EXEC_PATH=' tools/hooks/identity.py && git diff",
+                        "rg 'GIT_ALLOW_PROTOCOL=' tools && git fetch origin", "echo GIT_ALLOW_PROTOCOL=ext; git fetch origin"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+        for command in ("sudo GIT_EXEC_PATH=/tmp/x git log", "declare -x GIT_EXEC_PATH=/tmp/x; git log",
+                        "X=1 GIT_ALLOW_PROTOCOL=ext git status"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+
+    def test_a_short_option_s_value_is_not_read_as_another_option_in_either_hook(self):
+        # A bundle ends at its first letter that takes a value: the rest is that value, never a helper's letter.
+        env = environment(self.path, CLAUDE_PROJECT_DIR=str(self.here))
+        for command in ("git rebase -Xsubtree=lex main", "git rebase -Skeyx main", "git grep -eOwner x",
+                        "git grep -fOPTIONS.txt x", "git clone -oupstream URL d", "git clone -bfix-ui URL d",
+                        "git difftool -txxdiff", "git grep -e -Ox x", "git rebase -X subtree=x main"):
+            self.assertEqual(self.codes(command), "", command)
+            self.assertEqual(protected.check(bash(command, self.here), env), [], command)
+        for command in ("git rebase -ix./c HEAD~1", "git grep -nO./p x", "git clone -qu./u x y", "git difftool -yx./d",
+                        "git clone -qccore.hooksPath=/tmp/h x y"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+            self.assertIn("command_unreadable", [c for c, _ in protected.check(bash(command, self.here), env)], command)
+
+    def test_an_optional_value_is_only_what_is_attached(self):
+        # rebase -S[keyid] takes no next word, so the -x after it is an option, in either hook.
+        env = environment(self.path, CLAUDE_PROJECT_DIR=str(self.here))
+        for command in ("git rebase -S -x ./c HEAD~1", "git rebase -S -ix./c HEAD~1"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+            self.assertIn("command_unreadable", [c for c, _ in protected.check(bash(command, self.here), env)], command)
+        for command in ("git rebase -S main", "git rebase -Skeyx main"):
+            self.assertEqual(self.codes(command), "", command)
+
+    def test_a_readers_name_does_not_pass_where_the_value_is_a_place(self):
+        for command in ("git clone -c core.hooksPath=cat x y", "git clone -c init.templateDir=less x y",
+                        "git -c core.hooksPath=cat status", "git -c core.attributesFile=less log"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+        for command in ("git -c core.pager=cat log", "git clone -c core.pager=less x y"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+
+    def test_an_assignment_given_to_a_wrapper_that_runs_git_is_read(self):
+        for command in ("command env GIT_ALLOW_PROTOCOL=ext git status", "nohup env GIT_EXEC_PATH=/tmp/x git status",
+                        "nice env GIT_EXEC_PATH=/tmp/x git status", "timeout 5 env GIT_ALLOW_PROTOCOL=ext git log"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+        for command in ("nohup echo GIT_EXEC_PATH=/tmp/x && git status", "command grep 'GIT_EXEC_PATH=' x; git diff"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+
+    def test_a_remote_helper_s_url_is_refused_where_a_remote_is_given(self):
+        # <transport>::<address> runs git-remote-<transport>, or for ext:: and fd:: the command it names.
+        env = environment(self.path, CLAUDE_PROJECT_DIR=str(self.here))
+        for command in ("git ls-remote evil::payload", "git fetch evil::x", "git clone 'fd::3' d",
+                        "git archive --remote=evil::x HEAD", "git push evil::x HEAD:y", "git remote add o evil::x",
+                        "git ls-remote 'ext::sh -c x'", "git show 'ext::sh -c x'"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+            self.assertIn("command_unreadable", [c for c, _ in protected.check(bash(command, self.here), env)], command)
+        for command in ("git grep 'Foo::bar'", "git log --grep 'a::b'", "git show HEAD:a::b"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+        self.assertEqual(self.codes("git commit -m 'Foo::bar is fixed'"), "")
+
+    def test_a_commit_on_no_branch_is_accepted_and_read_when_it_is_pushed(self):
+        # Decided: notes and stash commit on no branch, and only a push takes such a commit out, which is read.
+        self.assertEqual(identity.OFF_BRANCH, {"notes", "stash"})
+        self.assertLessEqual(identity.OFF_BRANCH, identity.OTHERS)
+        for command in ("git stash", "git stash push -m x", "git notes add -m x HEAD", "git notes append -m y"):
+            self.assertEqual(self.codes(command, self.bad), "", command)
+        noted = repo(fresh=True)
+        git(noted, "notes", "add", "-m", "theirs", "HEAD", GIT_COMMITTER_NAME="Someone Else")
+        self.assertIn("push_carries_another_identity", self.refused("git push origin refs/notes/commits", noted))
+
     def test_a_push_as_the_machine_user_or_anyone_else_is_refused(self):
         self.assertIn("account_is_machine_user", self.refused("git push", FAKE_GH_USER=MACHINE))
         self.assertIn("account_not_maintainer", self.refused("git push", FAKE_GH_USER="someone-else"))
@@ -1008,6 +1114,72 @@ class MergesAndSettings(Asks):
                         "git -c diff.external=cat diff", "git grep -n x", "export GIT_PAGER=cat; git log",
                         "git -c core.pager='less -FRX' log", "git ls-remote origin", "git fetch origin",
                         "git commit -m x --template=t", "git --exec-path", "git diff --exit-code"):
+            self.assertEqual(self.run_(command), "", command)
+
+    def test_a_helper_that_runs_a_script_is_a_helper_in_both_hooks(self):
+        # Decided: a hook reads words, never a file, so a script a helper runs is not read, in either hook.
+        for command in ("git -c core.pager='sh x.sh' log", "git -c core.pager='bash ./x.sh' log",
+                        "git -c core.pager=./x.sh log", "git -c diff.external='sh -c ./x.sh' diff",
+                        "git -c core.pager='sh -c cat' log", "git grep -O'sh x.sh' x", "git difftool -x 'sh x.sh'"):
+            self.asked(self.run_(command), "command_unreadable", command)
+            refused = [code for code, _ in identity.check(bash(command, self.project), self.env)]
+            self.assertIn("command_unreadable", refused, command)
+
+    def test_less_that_writes_a_log_or_loads_keys_is_no_reader_however_it_is_spelt(self):
+        # less takes a long option by any prefix, and --LOG-FILE is -O as --log-file is -o.
+        for option in ("--LOG-FILE=/tmp/x", "--LOG-FILE /tmp/x", "--LOG-F=/tmp/x", "--log-f=/tmp/x", "--Log-File=/tmp/x",
+                       "--lesskey-s=/tmp/k", "--les=/tmp/k", "-O/tmp/x", "-RO /tmp/x", "-o /tmp/x"):
+            self.asked(self.run_("git -c core.pager='less %s' log" % option), "command_unreadable", option)
+        for option in ("-R", "-FRX", "--line-numbers", "--LINE-NUMBERS", "--quit-if-one-screen", "--RAW-CONTROL-CHARS"):
+            self.assertEqual(self.run_("git -c core.pager='less %s' log" % option), "", option)
+
+    def test_a_fetch_refspec_in_a_variable_is_read_from_what_the_command_set_or_asks(self):
+        for command in ('export SPEC=main:main; git fetch origin "$SPEC"', "SPEC=a:b; git fetch . $SPEC",
+                        'git fetch origin "$UNSET"', "git fetch origin \"$(echo main:main)\"", 'git fetch . "`cat s`"',
+                        "git fetch origin $(echo main:main)"):
+            self.asked(self.run_(command), "local_branch", command)
+        for command in ('export SPEC=main; git fetch origin "$SPEC"',
+                        "SPEC=main:refs/remotes/origin/main; git fetch origin $SPEC"):
+            self.assertEqual(self.run_(command), "", command)
+
+    def test_a_fetch_that_moves_a_local_branch_asks(self):
+        for command in ("git fetch origin main:main", "git fetch . a:b", "git fetch origin +main:refs/heads/main",
+                        "git fetch origin 'refs/heads/*:refs/heads/*'", "git fetch origin main:heads/main",
+                        "git fetch -q origin main:main", "git pull origin main:main", "git -C . fetch origin x:x",
+                        "git fetch --refmap='+refs/heads/*:refs/heads/*' origin main",
+                        "git fetch --refm '+refs/heads/*:refs/heads/*' origin main",
+                        "git -c 'remote.origin.fetch=+refs/heads/*:refs/heads/*' fetch origin",
+                        "git --config-env=remote.origin.fetch=R fetch origin", "git fetch --stdin origin",
+                        "setsid git fetch . HEAD:main", "git fetch origin main:Refs/heads/main",
+                        # A refspec whose source holds @ is a refspec, not a URL; option values are skipped.
+                        "git fetch origin 'x@y:main'", "git fetch . '+x@y:main'", "git fetch . 'x@y:refs/heads/main'",
+                        "git fetch --depth 1 origin main:main", "git fetch -o x origin main:main",
+                        "git pull -s ours origin main:main", "git fetch --shallow-since '2024-01-01 10:00' . a:b"):
+            self.asked(self.run_(command), "local_branch", command)
+        # A ref named as git names it: remotes/x is refs/remotes/x, and a ref's case is the file system's.
+        self.asked(self.run_("git fetch origin main:refs/Remotes/origin/main"), "remote_ref", "a remote ref in capitals")
+        for command in ("git fetch origin", "git fetch origin main", "git fetch origin main:refs/remotes/origin/main",
+                        "git fetch origin main:remotes/origin/main", "git fetch origin v1:refs/tags/v1",
+                        "git fetch --depth 1 git@github.com:o/r.git main", "git fetch --all", "git pull",
+                        "git pull --rebase origin main", "git fetch origin main:",
+                        "git fetch origin --shallow-since '2024-01-01 10:00'", "git fetch origin -o a:b",
+                        "git fetch origin -oa:b", "git fetch --ref=x:main origin"):
+            self.assertEqual(self.run_(command), "", command)
+        # --re is --refmap, --refetch or --receive-pack: a helper's prefix, so asked about, but as no refspec.
+        self.assertNotIn("local_branch", self.run_("git fetch --re=x:main origin"))
+
+    def test_git_told_in_the_command_where_to_write_its_objects_or_index_asks(self):
+        # commit-graph write, or any git that refreshes its index, writes where these say.
+        for command in ("GIT_INDEX_FILE=lifecycle/x git add .", "GIT_INDEX_FILE=lifecycle/x git status",
+                        "GIT_OBJECT_DIRECTORY=lifecycle git commit-graph write --reachable",
+                        "GIT_ALTERNATE_OBJECT_DIRECTORIES=/tmp/a:lifecycle git commit-graph write --reachable",
+                        "export GIT_OBJECT_DIRECTORY=.git/refs/remotes; git commit-graph write",
+                        "GIT_INDEX_FILE=../.git/packed-refs git -C docs status",
+                        "cd docs && GIT_OBJECT_DIRECTORY=. git commit-graph write", "GIT_INDEX_FILE=lifecycle/x nice git status"):
+            self.asked(self.run_(command), "protected_path", command)
+        self.asked(self.run_('GIT_INDEX_FILE="$X" git status'), "path_unreadable", "an index in a variable")
+        for command in ("GIT_INDEX_FILE=/tmp/i git add .", "GIT_OBJECT_DIRECTORY=/tmp/o git commit-graph write --reachable",
+                        "GIT_INDEX_FILE=.git/index.tmp git add -u", "git commit-graph write --reachable"):
             self.assertEqual(self.run_(command), "", command)
 
     def test_a_write_to_a_ruleset_or_the_repos_settings_asks(self):
