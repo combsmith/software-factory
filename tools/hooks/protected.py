@@ -471,16 +471,23 @@ class Command:
                 self.ask("protected_path", "output is sent to %s, which is %s" % found)
 
     def _seed(self):
-        """Read what the command sets in the environment unconditionally at the top level, once, before any command
-        runs, so a later assignment or an `unset` in a subshell, a condition, a pipeline or a function is not trusted
-        to change it. A name set in a way the hook cannot read (held in a variable, or set more than one way) stays
-        named, with no value, so a path that uses it is asked about."""
+        """Read what the command sets in the environment, once, before any command is read (shell.trusted_assignments):
+        a trusted assignment with its value; any other that may persist (in a condition, a body, a group) named with
+        no value; an unset only when it runs unconditionally at the top level before any git or gh, since one after
+        a git command came too late for it. A name set in a way the hook cannot read stays named, with no value, so a
+        path or a helper that uses it is asked about."""
         for kind, name, value in shell.trusted_assignments(self.text):
             if kind == "unset":
                 self.assigned.discard(name)
                 self.known.pop(name, None)
+            elif kind == "maybe":
+                self.assigned.add(name)
+                self.known.pop(name, None)
             else:
                 self.assign("%s=%s" % (name, value))
+        for name in shell.assigned_elsewhere(self.text):      # ${X:=v}, $((X=1)), let X=1
+            self.assigned.add(name)
+            self.known.pop(name, None)
         off_limits = shell.touched(self.text)
         for name in list(self.known):
             if name not in ("HOME", "TMPDIR", "CLAUDE_PROJECT_DIR") and (name in off_limits or "*" in off_limits):
@@ -947,7 +954,8 @@ class Command:
             # A refspec in a variable is read from what the command set it to; one the hook cannot read asks.
             fetched += [spec if spec is None or not ("$" in spec or "`" in spec) else self.expand(spec)
                         for spec in self._refspecs(rest)]
-        if sub in ("fetch", "pull") and self._writes_no_ref(rest):
+        no_ref = sub in ("fetch", "pull") and self._writes_no_ref(rest)     # it writes no local or remote ref
+        if no_ref:
             fetched = []
         if any(spec is None or _moves_local_branch(spec) for spec in fetched):
             self.ask("local_branch", "git fetch moves a local branch, or reads where it goes from where the hook "
@@ -963,7 +971,8 @@ class Command:
             self.ask("merge", "git remote changes where a push goes, which may be %s" % branch)
         if sub == "update-ref" and any(REMOTE_REF in w or w == "--stdin" for w in rest):
             self.ask("remote_ref", "git update-ref writes a ref under refs/remotes/, which a stop compares the branch with")
-        elif sub == "fetch" and len(names) > 1 and not all(_own_branch(names[0], spec) for spec in names[1:]):
+        elif sub == "fetch" and not no_ref and len(names) > 1 and not all(_own_branch(names[0], spec) for spec in [
+                self.expand(w) or w if ("$" in w or "`" in w) else w for w in names[1:]]):    # S=a:b; fetch o "$S"
             self.ask("remote_ref", "git fetch writes a ref under refs/remotes/ from what is not that remote's branch "
                                    "of the same name, and a stop compares the branch with it")
         elif sub == "branch" and _deletes_remote(rest) and any(n.casefold().startswith("origin/") for n in names):

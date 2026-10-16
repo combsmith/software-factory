@@ -458,15 +458,80 @@ class Identity(unittest.TestCase):
             self.assertIn("command_unreadable", [c for c, _ in protected.check(bash(command, self.here), env)], command)
 
     def test_a_prefix_assignment_before_a_special_builtin_persists(self):
-        # A POSIX special built-in (`:`, export, readonly, …) keeps a variable the prefix sets; an ordinary one does not.
+        # POSIX sh keeps a variable a prefix sets before a special built-in (`:`, export, readonly, …) or a function;
+        # bash and zsh do not. So the name is set, its value unread: refused or asked about, never trusted.
         env = environment(self.path, CLAUDE_PROJECT_DIR=str(self.here))
         for command in ("GIT_EXEC_PATH=./evilbin :; git ls-remote https://github.com/o/r.git",
-                        "GIT_ALLOW_PROTOCOL=ext :; git fetch", "GIT_EXEC_PATH=/tmp/x readonly Y; git status"):
+                        "GIT_ALLOW_PROTOCOL=ext :; git fetch", "GIT_EXEC_PATH=/tmp/x readonly Y; git status",
+                        "f() { :; }; GIT_EXEC_PATH=/tmp/x f; git status"):
             self.assertIn("command_unreadable", self.refused(command), command)
-        self.assertIn("protected_path", [c for c, _ in protected.check(
-            bash("GIT_INDEX_FILE=lifecycle/x :; git add -A", self.here), env)])     # a write place behind `:`
+        self.assertTrue(protected.check(bash("GIT_INDEX_FILE=lifecycle/x :; git add -A", self.here), env))
+        side = self.a_side_branch()
+        for command in ("X=HEAD :; git push origin $X", "local X=HEAD; git push origin $X"):     # value never read
+            self.assertIn("push_commits_unreadable", self.refused(command, side), command)
         for command in ("GIT_EXEC_PATH=/x true; git status", "GIT_ALLOW_PROTOCOL=ext echo; git fetch"):
             self.assertEqual(self.codes(command, folder(), programs()), "", command)
+
+    def test_a_here_document_body_is_data_to_the_variable_reader(self):
+        side = self.a_side_branch()
+        env = environment(self.path, CLAUDE_PROJECT_DIR=str(self.here))
+        # An unset or an assignment inside a body runs nothing: the value set before it is what the push reads.
+        self.assertIn("push_carries_another_identity",
+                      self.refused("B=side; cat <<EOF\nunset B\nB=HEAD\nEOF\ngit push origin $B", side))
+        self.assertEqual(self.codes("B=HEAD; cat <<'EOF'\nB=side\nEOF\ngit push origin $B", side), "")
+        self.assertIn("command_unreadable",
+                      self.refused("export GIT_EXEC_PATH=/tmp/x; cat <<-EOF\n\tunset GIT_EXEC_PATH\n\tEOF\ngit status"))
+        self.assertIn("protected_path", [c for c, _ in protected.check(bash(
+            "export GIT_INDEX_FILE=lifecycle/x; cat <<EOF\nunset GIT_INDEX_FILE\nEOF\ngit add -A", self.here), env)])
+        self.assertEqual(protected.check(bash('cat <<"EOF"\nGIT_INDEX_FILE=lifecycle/x\nEOF\ngit add -A', self.here),
+                                         env), [])
+
+    def test_a_default_value_expansion_assigns_its_variable(self):
+        side = self.a_side_branch()
+        for command in ("B=; : ${B:=side}; git push origin $B", "B=; : ${B=side}; git push origin $B",
+                        'echo "${B:=side}"; git push origin $B', 'echo "$(: ${B:=side})"; git push origin $B',
+                        "unset B; : ${B:=side}; git push origin $B"):
+            self.assertIn("push_commits_unreadable", self.refused(command, side), command)
+        self.assertIn("command_unreadable", self.refused(": ${GIT_EXEC_PATH:=/tmp/x}; git status"))
+
+    def test_nothing_in_a_compound_body_is_trusted(self):
+        side = self.a_side_branch()
+        for command in ("if false; then :; X=HEAD; fi; git push origin $X", "if false\nthen\n:\nX=HEAD\nfi\ngit push origin $X",
+                        "while false; do :; X=HEAD; done; git push origin $X", "f() { :; X=HEAD; }; git push origin $X",
+                        "{ :; X=HEAD; }; git push origin $X", "case a in a) :; X=HEAD;; esac; git push origin $X",
+                        "if true; then X=HEAD; git push origin $X"):
+            self.assertIn("push_commits_unreadable", self.refused(command, side), command)
+        said = self.refused("if false; then :; D=%s; fi; git -C $D commit -m x" % side)
+        self.assertIn("directory_unreadable", said)
+
+    def test_a_name_exported_in_a_condition_or_a_body_is_still_set(self):
+        for command in ("true && export GIT_EXEC_PATH=/tmp/x; git status",
+                        "if true; then export GIT_ALLOW_PROTOCOL=ext; fi; git fetch",
+                        "{ export GIT_EXEC_PATH=/tmp/x; }; git status", "export GIT_EXEC_PATH=/tmp/x; git status; "
+                                                                       "unset GIT_EXEC_PATH"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+        side = self.a_side_branch()
+        self.assertIn("push_commits_unreadable", self.refused("git push origin $X; X=HEAD", side))
+
+    def test_a_variable_is_read_in_the_order_the_shell_runs_it(self):
+        # Inherited BRANCH=side: the push runs before BRANCH=HEAD, so it pushes side, which the hook cannot read.
+        side = self.a_side_branch()
+        for command in ("git push origin $BRANCH; BRANCH=HEAD", "git push origin ${X}; X=HEAD; git push origin $X"):
+            self.assertIn("push_commits_unreadable", self.refused(command, side, BRANCH="side", X="side"), command)
+        self.assertIn("push_commits_unreadable",
+                      self.refused("if false; then\n X=HEAD\nfi\ngit push origin $X", side, X="side"))
+        self.assertIn("push_commits_unreadable",
+                      self.refused("cat <<EOF\nX=HEAD\nEOF\ngit push origin $X", side, X="side"))
+
+    def test_a_write_to_a_variable_named_at_run_time_makes_every_variable_unknown(self):
+        side = self.a_side_branch()
+        for command in ('X=HEAD; N=X; printf -v "$N" side; git push origin $X',
+                        'X=HEAD; N=X; declare "$N=side"; git push origin $X', "X=HEAD; N=X; read $N < f; git push origin $X",
+                        'X=HEAD; N=X; let "$N=1"; git push origin $X', "X=HEAD; declare -n R=X; R=side; git push origin $X",
+                        "X=HEAD; N=X; export $N=side; git push origin $X", "X=HEAD; N=X; : ${!N:=side}; git push origin $X",
+                        "X=HEAD; N=X; (( $N = 1 )); git push origin $X", "X=HEAD; N=X; mapfile $N < f; git push origin $X"):
+            self.assertIn("push_commits_unreadable", self.refused(command, side), command)
+        self.assertEqual(self.codes('X=HEAD; printf -v Y "%s" a; git push origin $X', side), "")
 
     def test_a_c_setting_a_directory_or_an_option_held_in_an_unreadable_variable_is_refused(self):
         for command in ("C=core.fsmonitor=./x.sh; false && C=color.ui=auto; git -c $C status",
@@ -1392,6 +1457,23 @@ class MergesAndSettings(Asks):
                         "git fetch --prefetch --no-prefetch origin main:main", "git pull --dry-run --no-dry-run origin m:m"):
             self.asked(self.run_(command), "local_branch", command)
 
+    def test_an_unset_after_a_git_command_does_not_take_back_what_it_ran_with(self):
+        # The git command ran with the index set; the unset after it changes nothing it did, so it is asked about.
+        said = self.run_("GIT_INDEX_FILE=lifecycle/x; git status; unset GIT_INDEX_FILE")
+        self.assertTrue(said.startswith(("protected_path:", "path_unreadable:")), said)
+        self.assertEqual(self.run_("GIT_INDEX_FILE=lifecycle/x; unset GIT_INDEX_FILE; git status"), "")
+
+    def test_a_fetch_that_writes_no_ref_writes_no_remote_ref_either(self):
+        for command in ("git fetch --dry-run origin main:refs/remotes/other/main",
+                        "git fetch --prefetch origin main:refs/remotes/other/main"):
+            self.assertEqual(self.run_(command), "", command)
+        self.asked(self.run_("git fetch origin main:refs/remotes/other/main"), "remote_ref", "a real write")
+
+    def test_a_fetch_refspec_in_a_variable_is_read_for_a_remote_ref_too(self):
+        for command in ('S=main:refs/remotes/other/x; git fetch origin "$S"', "export S=main:refs/remotes/o/x; git fetch . $S"):
+            self.asked(self.run_(command), "remote_ref", command)
+        self.assertEqual(self.run_('S=main:refs/remotes/origin/main; git fetch origin "$S"'), "")
+
     def test_a_shared_helper_key_runs_a_program_only_when_its_value_does(self):
         # submodule.*.update runs a program only for a !cmd value; a key set to nothing runs none.
         for command in ("git -c submodule.lib.update='!./x' submodule update", "git -c core.pager=./p log",
@@ -1655,20 +1737,52 @@ class ShellReading(unittest.TestCase):
         for value in ("$X", "$(cmd)", "`cmd`", "a b", "a*", "a?", "a[b]", "{a,b}", "a'b", 'a"b', "a\\b"):
             self.assertFalse(shell._plain(value), value)
 
-    def test_only_an_unconditional_top_level_assignment_is_trusted(self):
-        def sets(text):
-            return shell.environment(text)[0]
+    def read(self, text):
+        """(X's value as read, or None; whether X may be set)."""
+        values, present, _ = shell.environment(text)
+        return values.get("X"), "X" in present
 
-        self.assertEqual(sets("X=side; Y=main")["X"], "side")
-        self.assertEqual(sets("export GIT_PAGER=cat")["GIT_PAGER"], "cat")
-        self.assertEqual(sets("A=1 :; B=2")["A"], "1")        # a prefix before the special built-in `:` persists
-        for text in ("false && X=side", "true || X=side", "(X=side)", "X=side | cat", "X=side & wait",
-                     "X=1 echo", "X=a; X=b", "for X in a; do :; done", "f() { X=v; }"):
-            self.assertNotIn("X", sets(text) if "X=" in text else sets("X=keep; " + text), text)
+    def test_only_an_unconditional_top_level_assignment_is_trusted(self):
+        for text in ("X=v", "X=v; Y=w", "export X=v", "declare X=v", "typeset X=v", "readonly X=v",
+                     "X=v # ; unset X", "X=\\\nv", "if true; then :; fi; X=v", "{ :; }; X=v", "f() { :; }; X=v",
+                     'echo "a; b"; X=v', "while false; do :; done\nX=v", "case a in a) :;; esac; X=v",
+                     "X=v; cat <<EOF\nX=w\nunset X\nEOF", "X=v; cat <<'EOF'\nunset X\nEOF",
+                     'X=v; cat <<"EOF"\nX=w\nEOF', "X=v; cat <<-EOF\n\tunset X\n\tEOF", "X=v; cat <<< 'unset X'",
+                     "export X=v; export -n X"):
+            self.assertEqual(self.read(text), ("v", True), text)
+        # Run conditionally, in a pipeline, a background, a body or a group, or not run at all: set, value unread.
+        for text in ("false && X=v", "true || X=v", "false &&\nX=v", "false && \\\nX=v", "X=v &", "X=v | cat",
+                     "X=v |& cat", "[[ -n a ]] && X=v", "! X=v", "{ X=v; }", "{\nX=v\n}", "if false; then :; X=v; fi",
+                     "if false\nthen\n:\nX=v\nfi", "if X=v; then :; fi", "while false; do :; X=v; done",
+                     "until true; do X=v; done", "for i in a; do X=v; done", "case a in a) X=v;; esac",
+                     "case a in\na) :\nX=v;;\nesac", "f() { :; X=v; }", "function f { X=v; }", "f()\n{\nX=v\n}",
+                     "local X=v", "X=v :", "f() { :; }; X=v f", "if true; then X=v", "X=v; fi", "coproc X=v"):
+            self.assertEqual(self.read(text), (None, True), text)
+        # A word that only looks like an assignment, or one in a subshell, sets nothing.
+        for text in ("echo 'a; X=v'", "echo a\\; X=v", "echo $'\\'; X=v; echo \\''", "(X=v)", "echo \"$(X=v)\"",
+                     "X=v echo", "alias X=v", "cat <<EOF\nX=v\nEOF"):
+            self.assertEqual(self.read(text), (None, False), text)
 
     def test_a_variable_the_command_sets_twice_or_reads_is_not_known(self):
-        self.assertEqual(shell.touched("X=a; X=b") & {"X"}, {"X"})
-        self.assertEqual(shell.touched("read X < f") & {"X"}, {"X"})
-        self.assertEqual(shell.touched("for Y in a b; do :; done") & {"Y"}, {"Y"})
-        self.assertIn("*", shell.touched("eval X=a"))
-        self.assertEqual(shell.touched("X=a; echo $X"), set())
+        for text in ("X=v; X=w", "X=v; X+=w", "readonly X=v; X=w", "X=v; export \"X=w\"", "X=v; read X",
+                     "X=v; read -r Y X", "X=v; mapfile X < f", "X=v; printf -v X w", "X=v; declare -n X=Y",
+                     "X=v; getopts ab X", "X=v; select X in a; do :; done", "X=v; for X in a; do :; done",
+                     "X=v; X[0]=w", "X=v; ((X++))", "X=v; : $((X=2))", "X=v; let X=2", "X=v; let 'X+=1'",
+                     "X=v; : ${X:=w}", "X=v; : ${X=w}", 'X=v; echo "${X:=w}"', 'X=v; echo "$(: ${X:=w})"',
+                     "X=v; cat <<EOF\n${X:=w}\nEOF", "X=v; { unset X; }", "X=v; eval :", "X=v; . ./f",
+                     "X=v; source f", "X=v; command . ./f", "git push origin $X; X=v"):
+            self.assertIsNone(self.read(text)[0], text)
+
+    def test_an_unset_ends_a_variable_only_when_it_surely_runs_first(self):
+        for text in ("export X=v; unset X", "export X=v; unset X; git status", "export X=v; unset -v X"):
+            self.assertEqual(self.read(text), (None, False), text)
+        for text in ("export X=v; { unset X; }", "export X=v; if true; then unset X; fi", "export X=v; false && unset X",
+                     "export X=v; (unset X)", "export X=v; f() { unset X; }", "export X=v; unset X &",
+                     "export X=v; cat <<EOF\nunset X\nEOF", "export X=v; git status; unset X", "export X=v; unset -f X",
+                     "export X=v; case a in a) unset X;; esac", "export X=v; echo | unset X"):
+            self.assertTrue(self.read(text)[1], text)
+
+    def test_a_name_set_anywhere_it_may_persist_is_present(self):
+        for text in ("true && export X=v", "if true; then export X=v; fi", "{ export X=v; }", ": ${X:=v}",
+                     ": $((X=1))", "for i in a; do X=v; done", "if true; then X=v"):
+            self.assertTrue(self.read(text)[1], text)

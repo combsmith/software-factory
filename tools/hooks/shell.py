@@ -233,14 +233,18 @@ def _balanced(text: str, i: int, close: str) -> int:
 
 
 def segments(text: str) -> list:
-    """`text` split into its top-level segments, each (words, before, after): the connectors that bound it.
+    """`text` split into its top-level segments, each (words, before, after, start): the connectors that bound it
+    and where it starts in `without_heredocs(text)`. Raises ValueError when a here-document is never ended.
 
-    A segment is the run between top-level `;`, newline, `&&`, `||`, `|` and `&`. Quotes, `( )`, `$( )`, `${ }`
-    and backticks are opaque, so a separator inside one does not split. Each segment's words are built as the shell
-    would: quotes are removed, but a command substitution, a parameter expansion or a subshell inside a word is
-    kept whole, so an assignment's value can be told apart from a command it runs.
+    A here-document's body is data and is left out first. A segment is the run between top-level `;`, newline,
+    `&&`, `||`, `|` and `&`; a newline right after `&&`, `||` or `|` continues the list, as the shell reads it.
+    Quotes (`$'...'` with its escapes too), `( )`, `$( )`, `${ }` and backticks are opaque, so a separator inside
+    one does not split, and a backslash before a newline joins the lines. Each segment's words are built as the
+    shell would: quotes are removed, but a command substitution, a parameter expansion or a subshell inside a word
+    is kept whole, so an assignment's value can be told apart from a command it runs.
     """
-    out, words, word, started, before, i, quote = [], [], [], False, "", 0, None
+    text = without_heredocs(text)
+    out, words, word, started, before, i, quote, start = [], [], [], False, "", 0, None, 0
 
     def end_word():
         nonlocal word, started
@@ -251,17 +255,19 @@ def segments(text: str) -> list:
     def flush(after: str):
         nonlocal words, before
         end_word()
+        if not words and before in ("&&", "||", "|") and after == "\n":
+            return      # the list goes on past the newline: what follows is still reached through `before`
         if words or out or after:
-            out.append((words, before, after))
+            out.append((words, before, after, start))
         words, before = [], after
 
     while i < len(text):
         c = text[i]
         if quote:
             started = True
-            if c == quote:
+            if c == ("'" if quote == "ansi" else quote):
                 quote = None
-            elif c == "\\" and quote == '"' and i + 1 < len(text):
+            elif c == "\\" and quote in ('"', "ansi") and i + 1 < len(text):
                 word.append(text[i + 1])
                 i += 2
                 continue
@@ -269,9 +275,16 @@ def segments(text: str) -> list:
                 word.append(c)
             i += 1
             continue
+        if c == "\\" and text.startswith("\n", i + 1):
+            i += 2      # a line continuation: the two lines are one
+            continue
         if c == "\\":
             word.append(text[i + 1] if i + 1 < len(text) else c)
             started = True
+            i += 2
+            continue
+        if text.startswith("$'", i):
+            quote, started = "ansi", True       # $'...': a backslash escapes, \' among them
             i += 2
             continue
         if c in "'\"":
@@ -299,6 +312,7 @@ def segments(text: str) -> list:
         if found:
             flush(found.group(0))
             i += len(found.group(0))
+            start = i
             continue
         word.append(c)
         started = True
@@ -307,22 +321,81 @@ def segments(text: str) -> list:
     return out
 
 
+NAME = r"[A-Za-z_]\w*"
+# ${X:=v} and ${X=v} assign X wherever they are expanded, inside quotes, a substitution or a here-document too.
+DEFAULT_ASSIGN = re.compile(r"\$\{(%s):?=" % NAME)
+# Arithmetic assigns too: $((X=1)), ((X++)), let X=1.
+ARITHMETIC = re.compile(r"\(\((.*?)\)\)", re.S)
+ARITH_ASSIGN = re.compile(r"(%s)\s*(?:\+\+|--|(?:[-+*/%%&|^]|<<|>>)?=(?!=))|(?:\+\+|--)\s*(%s)" % (NAME, NAME))
+
+
+# Built-ins that write the variables their words name.
+WRITERS = {"printf", "declare", "typeset", "local", "export", "readonly", "read", "mapfile", "readarray", "let",
+           "unset"}
+
+
+def _indirect(words: list) -> bool:
+    """Whether a writer (words[0]) is given a target it computes at run time, or a name reference: printf -v "$N",
+    declare "$N=v", read $N, let "$N=1", declare -n, and the like. Only a literal identifier can be read."""
+    writer, args = words[0], words[1:]
+    if writer in ("declare", "typeset", "local") and any(re.match(r"^-\w*n", a) for a in args):
+        return True     # a name reference: a write to it writes another variable
+    if writer == "printf":
+        targets = [args[i + 1] for i, a in enumerate(args[:-1]) if a == "-v"]
+        targets += [a[2:] for a in args if a.startswith("-v") and a != "-v"]
+    else:
+        targets = [a.split("=", 1)[0] for a in args if not a.startswith(("-", "+"))]
+    return any("$" in t or "`" in t for t in targets)
+
+
+def assigned_elsewhere(text: str) -> set:
+    """Names the command may assign in the current shell where no assignment word shows it: a default-value
+    expansion (${X:=v}, ${X=v}) or arithmetic ($((X=1)), ((X++)), let X=1), anywhere in the text."""
+    names = set(DEFAULT_ASSIGN.findall(text))
+    for body in ARITHMETIC.findall(text) + re.findall(r"\blet\b([^\n;&|]*)", text):
+        names |= {a or b for a, b in ARITH_ASSIGN.findall(body)}
+    return names
+
+
 def touched(text: str) -> set:
     """Variable names the command changes in a way that leaves their value beyond reading: assigned more than
-    once anywhere, used as a `for` variable, or touched by read, printf -v, declare/typeset -n, mapfile/readarray,
-    an array assignment, or any of them reachable through eval. The empty set's complement is read, not these."""
-    seen, bad = {}, set()
-    for name in re.findall(r"(?:^|[\s;&|(){}`])([A-Za-z_]\w*)\+?=", text):
+    once anywhere (in any context, quoted or not), unset anywhere, used as a for/select/getopts variable, touched by
+    read, printf -v, declare/typeset -n, mapfile/readarray, an array assignment, a default-value expansion or
+    arithmetic. eval, source and `.` may set anything, and "*" then marks every name unknown, as does a
+    here-document that is never ended."""
+    try:
+        stripped, segs = without_heredocs(text), segments(text)
+    except ValueError:
+        return {"*"}
+    seen, quoted = {}, {}
+    for name in re.findall(r"(?:^|[\s;&|(){}`])(%s)\+?=" % NAME, stripped):
         seen[name] = seen.get(name, 0) + 1
-    bad |= {name for name, n in seen.items() if n > 1}
-    bad |= set(re.findall(r"(?:^|[\s;&|(){}`])([A-Za-z_]\w*)\[", text))      # X[0]=, an array
-    bad |= set(re.findall(r"\bfor\s+(?:\(\(\s*)?([A-Za-z_]\w*)", text))
-    for m in re.finditer(r"\b(read|mapfile|readarray)\b([^\n;&|]*)", text):
-        bad |= set(re.findall(r"(?<![-\w])([A-Za-z_]\w*)(?![\w=])", m.group(2)))
-    bad |= set(re.findall(r"\bprintf\b[^\n;&|]*?-v\s+([A-Za-z_]\w*)", text))
-    bad |= set(re.findall(r"\b(?:declare|typeset|local)\b[^\n;&|]*?-\w*n\w*\s+([A-Za-z_]\w*)", text))
-    if re.search(r"(?:^|[\s;&|(){}`])eval(?:[\s;&|]|$)", text):
-        return set(seen) | bad | {"*"}      # eval may set anything; "*" marks every name unknown
+    bad = set()
+    for words, _, _, _ in segs:     # words with their quotes removed: export "X=v" assigns X too
+        for at, word in enumerate(words):
+            found = re.match(r"^(%s)\+?=" % NAME, word)
+            if found:
+                quoted[found.group(1)] = quoted.get(found.group(1), 0) + 1
+            if word in ("read", "mapfile", "readarray", "unset"):      # whatever position: then, &&, a loop
+                bad |= {w for w in words[at + 1:] if re.fullmatch(NAME, w)}
+            if word in WRITERS and _indirect(words[at:]):
+                return {"*"}        # it writes a variable whose name the command computes: any may change
+        _, command, _ = _leading(_commands_of(words))
+        if command in ("source", ".", "eval"):
+            return {"*"}
+    if re.search(r"\$\{!%s:?=" % NAME, text) or any("$" in body and re.search(r"(?<![=!<>])=(?!=)", body)
+                                                       for body in ARITHMETIC.findall(text)):
+        return {"*"}        # ${!N:=v}, (( $N = 1 )): an assignment to a variable named at run time
+    counts = {name: max(seen.get(name, 0), quoted.get(name, 0)) for name in set(seen) | set(quoted)}
+    bad |= {name for name, n in counts.items() if n > 1}
+    bad |= set(re.findall(r"(?:^|[\s;&|(){}`])(%s)\[" % NAME, stripped))      # X[0]=, an array
+    bad |= set(re.findall(r"\b(?:for|select)\s+(?:\(\(\s*)?(%s)" % NAME, stripped))
+    bad |= set(re.findall(r"\bgetopts\s+\S+\s+(%s)" % NAME, stripped))
+    bad |= set(re.findall(r"\bprintf\b[^\n;&|]*?-v\s+(%s)" % NAME, stripped))
+    bad |= set(re.findall(r"\b(?:declare|typeset|local)\b[^\n;&|]*?-\w*n\w*\s+(%s)" % NAME, stripped))
+    bad |= assigned_elsewhere(text)     # the raw text: an unquoted here-document's body is expanded too
+    if re.search(r"(?:^|[\s;&|(){}`])eval(?:[\s;&|]|$)", stripped):
+        return set(counts) | bad | {"*"}
     return bad
 
 
@@ -340,61 +413,143 @@ def _leading(words: list) -> tuple:
     return leading, os.path.basename(words[start]), words[start + 1:]
 
 
-def trusted_assignments(text: str) -> list:
-    """The assignments and unsets the shell runs unconditionally at the top level of a plain `;`/newline sequence,
-    in order, each ("set", name, value) or ("unset", name, None). An assignment counts when it leads a bare
-    statement, is given to export/readonly/declare/typeset/local, or stands before a POSIX special built-in; it
-    does not when it is reached through `&&` or `||`, runs in a pipeline or background subshell, or is a prefix
-    before an ordinary command (there it is for that command alone). Anything in a subshell, a function or a loop
-    is not read. The values are as written; a caller decides which it can read.
-    """
-    events = []
-    try:
-        segs = segments(text)
-    except ValueError:
-        return events
-    for words, before, after in segs:
-        if words is None or not words:
+# Reserved words at command position: these open and close a compound command's body.
+OPENERS = {"if", "while", "until", "for", "select", "case", "{"}
+CLOSERS = {"fi", "done", "esac", "}"}
+NEUTRAL = {"then", "do", "else", "elif", "!", "time", "coproc"}
+DECLARERS = ("export", "readonly", "declare", "typeset", "local")
+GIT_OR_GH = re.compile(r"(?<![\w.-])(git|gh)(?![\w.-])")
+
+
+def _commands_of(words: list) -> list:
+    """A segment's words from its command on: leading reserved words, a `case WORD in` and its pattern, and a
+    function definition's head (`name() {`, `function name {`) stepped over. Empty when the segment runs no simple
+    command: a `for`/`select` head, or a function whose body is a ( ) subshell."""
+    at = 0
+    while at < len(words) and words[at] in OPENERS | CLOSERS | NEUTRAL | {"function"}:
+        if words[at] in ("for", "select"):
+            return []
+        if words[at] == "case":
+            at = words.index("in", at) + 1 if "in" in words[at:] else len(words)
             continue
-        if before not in ("", ";", "\n") or after in ("|", "&"):
-            continue        # reached through && or ||, or run in a pipeline or background subshell: not trusted
-        if words[0] in COMPOUND or (len(words) > 1 and words[1] == "(" and "=" not in words[0]):
-            continue        # a compound command or a function definition, not a simple one
-        leading, command, args = _leading(words)
-        if command == "unset" and "-f" not in args:
-            events += [("unset", name, None) for name in args if not name.startswith("-")]
-        elif command is None or command in ("export", "readonly", "declare", "typeset", "local"):
-            events += [("set",) + tuple(w.split("=", 1)) for w in leading + [w for w in args if ASSIGNMENT.match(w)]]
-        elif command in SPECIAL:
-            events += [("set",) + tuple(w.split("=", 1)) for w in leading]      # a prefix before a special built-in
+        if words[at] == "function":
+            at += 2 + (words[at + 2:at + 3] == ["()"])
+            continue
+        at += 1
+    rest = words[at:]
+    if rest and (rest[0].endswith("()") or rest[1:2] == ["()"]):
+        rest = rest[1:] if rest[0].endswith("()") else rest[2:]
+        if rest and rest[0].startswith("("):
+            return []       # the body is a subshell: nothing in it persists
+        rest = rest[1:] if rest[:1] == ["{"] else rest
+    while rest and rest[0] in OPENERS | CLOSERS | NEUTRAL:
+        rest = rest[1:]
+    if rest and rest[0].endswith(")") and not rest[0].startswith("(") and not ASSIGNMENT.match(rest[0]):
+        rest = rest[1:]     # a case pattern: a)
+    return rest
+
+
+def _persisting(words: list, functions: set) -> tuple:
+    """(assignments that persist with their value, assignments that may persist, names unset) of a simple command.
+
+    A bare assignment, or one given to export, readonly, declare or typeset, persists in every shell. These may
+    persist, depending on the shell, and so are set with their value unread: a prefix before a special built-in
+    (POSIX sh keeps it; bash and zsh do not) or before a function the command defines (POSIX sh keeps it), and
+    `local` outside a function (zsh sets it; bash refuses). A prefix before any other command is for it alone."""
+    leading, command, args = _leading(words)
+    given = [w for w in args if ASSIGNMENT.match(w)]
+    if command == "unset":
+        return [], [], ([] if "-f" in args else [w for w in args if not w.startswith("-")])
+    if command is None:
+        return leading, [], []
+    if command in ("export", "readonly", "declare", "typeset"):
+        return given, leading, []
+    if command == "local":
+        return [], leading + given, []
+    if command in SPECIAL or command in functions:
+        return [], leading, []
+    return [], [], []
+
+
+def trusted_assignments(text: str) -> list:
+    """What the command assigns and unsets in the shell, in order, as ("set", name, value), ("unset", name, None)
+    and ("maybe", name, None).
+
+    "set" and "unset" are what runs unconditionally at the top level of a plain `;`/newline sequence: not reached
+    through `&&` or `||`, not in a pipeline or background subshell, and not inside any compound command's body
+    (if, while, until, for, select, case, a `{ }` group, a function), tracked by its reserved words at command
+    position. An assignment persists when it is bare, given to export/readonly/declare/typeset/local, or a prefix
+    before a POSIX special built-in. Order matters: an unset after any git or gh is not trusted (that command ran
+    with the name set), and an assignment is "maybe" when the name is used before it. Every other persisting
+    assignment, wherever it stands, is "maybe": set, its value unread. If the reserved words do not balance,
+    nothing is trusted and every assignment is "maybe". A here-document's body is left out.
+    """
+    try:
+        stripped, segs = without_heredocs(text), segments(text)
+    except ValueError:
+        return []
+    events, depth, balanced = [], 0, True
+    functions = {a or b for a, b in re.findall(
+        r"(?:^|[\s;&|(){}])(?:function\s+(%s)|(%s)\s*\(\s*\))" % (NAME, NAME), stripped)}
+    for words, before, after, start in segs:
+        if not words:
+            continue
+        outer = depth
+        for word in words:
+            if word in OPENERS:
+                depth += 1
+            elif word in CLOSERS:
+                depth -= 1
+                balanced = balanced and depth >= 0
+            elif word not in NEUTRAL:
+                break
+            if word in ("for", "select", "case"):
+                break
+        if words[0] == "function" or (words[0].endswith("()") or words[1:2] == ["()"]):
+            depth += "{" in words       # the body's `{` on the same line opens it; on the next line it opens itself
+        commands = _commands_of(words)
+        given, maybe, unset = _persisting(commands, functions) if commands else ([], [], [])
+        trusted = (outer == 0 and commands == words and before in ("", ";", "\n") and after not in ("|", "&")
+                   and not words[0].startswith("("))
+        for word in given:
+            name, _, value = word.partition("=")
+            used = re.search(r"\$\{?%s(?!\w)" % re.escape(name), stripped[:start])
+            events.append(("set", name, value) if trusted and not used else ("maybe", name, None))
+        events += [("maybe", word.split("=", 1)[0], None) for word in maybe]
+        if trusted and not GIT_OR_GH.search(stripped[:start]):
+            events += [("unset", name, None) for name in unset]
+    if depth != 0 or not balanced:
+        return [("maybe", name, None) for kind, name, _ in events if kind != "unset"]
     return events
 
 
 def environment(text: str) -> tuple:
     """(values, present, branches): what the command leaves in the environment for the git or gh it runs, read
-    fail-closed, from the assignments shell runs unconditionally at the top level (trusted_assignments).
+    fail-closed from trusted_assignments.
 
-    `values` maps a name to the plain string it is set to, when that name is set exactly once and its value is a word
-    the shell would use as it stands (no expansion or substitution). `branches` are the names so set to a command
-    substitution that names the branch the shell is on, which where it runs is HEAD. `present` is every name set in
-    the environment, its value readable or not; `unset` takes a name out of all three.
+    `values` maps a name to the plain string it is set to, when a trusted assignment sets it, nothing else touches
+    it, and its value is a word the shell would use as it stands. `branches` are the names so set to a command
+    substitution that names the branch the shell is on, which where it runs is HEAD. `present` is every name that
+    may be set, its value readable or not: a trusted unset takes a name out; nothing else does.
     """
     off_limits, values, present, branches = touched(text), {}, set(), set()
     for kind, name, value in trusted_assignments(text):
-        if kind == "unset":
-            values.pop(name, None)
-            present.discard(name)
-            branches.discard(name)
-            continue
         values.pop(name, None)
         branches.discard(name)
+        if kind == "unset":
+            present.discard(name)
+            continue
         present.add(name)
-        if name in off_limits or "*" in off_limits:
+        if kind == "maybe" or name in off_limits or "*" in off_limits:
             pass
         elif _plain(value):
             values[name] = value
         elif CURRENT_BRANCH.match(value):
             branches.add(name)
+    for name in assigned_elsewhere(text):
+        present.add(name)
+        values.pop(name, None)
+        branches.discard(name)
     return values, present, branches
 
 
