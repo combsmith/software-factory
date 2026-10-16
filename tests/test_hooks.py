@@ -807,6 +807,35 @@ class ProtectedPaths(Asks):
             self.assertEqual(done.returncode, 0, unreadable)
             self.assertEqual(json.loads(done.stdout)["hookSpecificOutput"]["permissionDecision"], "ask", unreadable)
 
+    def test_under_bypass_permissions_the_hook_tells_the_session_and_asks_nothing(self):
+        # The Maintainer runs sessions on autopilot (decision 0019): only bypassPermissions, spelled exactly, is told.
+        payload = {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": str(self.project),
+                   "tool_input": {"file_path": str(self.project / "lifecycle" / "issue.json"), "content": "{}"}}
+        for mode in ("default", "acceptEdits", "plan", "auto", "BypassPermissions", "bypassPermissions ", None, 1):
+            done = hook("protected", dict(payload, permission_mode=mode), programs(),
+                        CLAUDE_PROJECT_DIR=str(self.project))
+            self.assertEqual(json.loads(done.stdout)["hookSpecificOutput"]["permissionDecision"], "ask", mode)
+        for case in (payload, bash("git push origin HEAD:main", self.project)):
+            done = hook("protected", dict(case, permission_mode="bypassPermissions"), programs("git"),
+                        CLAUDE_PROJECT_DIR=str(self.project))
+            self.assertEqual((done.returncode, done.stderr), (0, ""))
+            said = json.loads(done.stdout)["hookSpecificOutput"]
+            self.assertNotIn("permissionDecision", said)
+            self.assertEqual(said["hookEventName"], "PreToolUse")
+            self.assertTrue(said["additionalContext"].startswith("Not asked, under bypassPermissions, by "
+                                                                 "tools/hooks/protected.py. This is the Maintainer's"),
+                            said)
+        for unreadable in ({"tool_name": "Bash"}, {"tool_name": "Edit", "tool_input": "x"}):
+            done = hook("protected", json.dumps(dict(unreadable, permission_mode="bypassPermissions")), programs(),
+                        CLAUDE_PROJECT_DIR=str(self.project))
+            said = json.loads(done.stdout)["hookSpecificOutput"]
+            self.assertNotIn("permissionDecision", said, unreadable)
+            self.assertIn("Not asked, under bypassPermissions", said["additionalContext"], unreadable)
+        clean = dict(payload, permission_mode="bypassPermissions",
+                     tool_input={"file_path": str(self.project / "docs" / "notes.md"), "content": "{}"})
+        done = hook("protected", clean, programs(), CLAUDE_PROJECT_DIR=str(self.project))
+        self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))
+
     def test_every_protected_path_asks_for_every_edit_tool_in_every_tree(self):
         for entry in RULES["protected"]:
             for top in (self.project, self.project / ".claude" / "worktrees" / "w"):
