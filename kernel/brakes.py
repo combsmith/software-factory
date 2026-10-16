@@ -1,8 +1,10 @@
-"""The brakes (design §2.2): the human Pause, the Run ceiling and the loop counts, in one module.
+"""The Kernel's half of the brakes (decision 0003): Admission refuses at a ceiling or under a Pause.
 
-Admission evaluates them here and nowhere else (decision 0003). Each brake is given `_decision`, Admission's maker of
-a Decision, and gives the deferral or the Hold it makes, or None when it lets the act or the Run through. A brake
-works out no State and imports nothing of the Kernel but its codes. Every limit is read from `config`.
+The human Pause, the Run ceiling and the loop counts are evaluated here and nowhere else, and decide.py asks them before
+every act and Run. Design §2.2's Brakes, outside `kernel/` and holding when Factory code is broken, wait on
+`controller/`. Each brake is given `_decision`, Admission's maker of a Decision, and gives the deferral or the Hold it
+makes, or None when it lets the act or the Run through. A brake works out no State and imports nothing of the Kernel
+but its codes (tools/check_purity.py). Every limit is read from `config`.
 """
 from __future__ import annotations
 

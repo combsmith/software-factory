@@ -2,7 +2,8 @@
 
 A Finding gates when it sends the Work item back to its author. A person's thread or request for changes always
 gates; a required model Lens's Finding gates at a severity in GATING_SEVERITIES, or of category SECURITY at any.
-derive() reads the gate to work out the State; nothing here works out a State. It imports nothing of the Kernel.
+derive() reads the gate to work out the State; nothing here works out a State. It imports nothing of the Kernel
+(tools/check_purity.py).
 """
 from __future__ import annotations
 

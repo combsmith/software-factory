@@ -1,7 +1,9 @@
 """The Kernel does no I/O and keeps nothing between calls. Asserted from its syntax tree, not from trust.
 
 It is strict by allowing little: a Kernel module holds a docstring, imports, constants and
-functions, and nothing else. That is narrower than Python, on purpose.
+functions, and nothing else. That is narrower than Python, on purpose. It assigns no attribute, so
+no module changes another's names. The brakes and the gate, each a protected path alone, import
+only what CONFINED allows, and no other module defines a name either of them defines.
 """
 from __future__ import annotations
 
@@ -21,6 +23,9 @@ CONSTANT_CALLS = {"frozenset"}
 CALENDAR = {"SECONDS_PER_MINUTE": 60, "MINUTES_PER_HOUR": 60, "HOURS_PER_DAY": 24, "DAYS_PER_YEAR": 365,
             "LEAP_YEARS": (4, 100, 400), "FEBRUARY": 2,
             "DAYS_BEFORE_MONTH": (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)}
+# The modules protected alone (config/hooks.json), and the Kernel modules each may import: the gate none, the brakes
+# the codes alone. What they decide cannot then be changed from a module that is not protected.
+CONFINED = {"gate.py": frozenset(), "brakes.py": frozenset({"kernel.terms"})}
 
 
 def _constant(node) -> bool:
@@ -67,18 +72,83 @@ def _calendar(name: str, tree) -> tuple:
     return out, problems
 
 
+def _kernel_imports(node) -> list:
+    """The Kernel modules an import names, as `kernel.<module>`; a relative import is named as written."""
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names if alias.name.split(".")[0] == "kernel"]
+    if node.level:
+        return ["." * node.level + (node.module or "")]
+    if node.module == "kernel":
+        return ["kernel." + alias.name for alias in node.names]
+    return [node.module] if (node.module or "").split(".")[0] == "kernel" else []
+
+
+def _defined(tree) -> set:
+    """The names a module defines at its top level: its functions and its constants."""
+    out = set()
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef):
+            out.add(node.name)
+        for target in node.targets if isinstance(node, ast.Assign) else \
+                [node.target] if isinstance(node, ast.AnnAssign) else []:
+            out |= {n.id for n in ast.walk(target) if isinstance(n, ast.Name)}
+    return out
+
+
+def _confined(name: str, tree, owned: dict) -> list:
+    """What a module does that could change the brakes or the gate from outside them."""
+    problems = []
+    if name in CONFINED:
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                for mod in _kernel_imports(node):
+                    if mod not in CONFINED[name]:
+                        problems.append("%s:%d imports %s; %s imports %s of the Kernel" % (
+                            name, node.lineno, mod, name, " and ".join(sorted(CONFINED[name])) or "nothing"))
+        return problems
+    top = [node for node in tree.body if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign))]
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound = [node.name]
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            bound = [alias.asname or alias.name.split(".")[0] for alias in node.names
+                     if not _brought(node, alias, owned)]
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and node in top:
+            bound = [n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)]
+        else:
+            continue
+        for word in bound:
+            for owner, names in sorted(owned.items()):
+                if word in names:
+                    problems.append("%s:%d defines %s, which %s defines; use that one, so that what %s decides "
+                                    "is changed only there" % (name, node.lineno, word, owner, owner))
+    return problems
+
+
+def _brought(node, alias, owned: dict) -> bool:
+    """Whether an import brings a name of the brakes or the gate from its own module, as it is: `from kernel.gate
+    import gates`. Any other binding of that name stands in for it."""
+    if not isinstance(node, ast.ImportFrom) or node.level or not (node.module or "").startswith("kernel."):
+        return False
+    owner = node.module[len("kernel."):] + ".py"
+    return alias.asname is None and alias.name in owned.get(owner, ())
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     problems = []
     files = [p for p in walk.files(root, "kernel") if p.suffix == ".py"]
     if not files:
         return ["there is no kernel/ to check"]
+    trees = {}
     for path in files:
         name = path.relative_to(root / "kernel").as_posix()
         try:
-            tree = ast.parse(path.read_text(errors="replace"), str(path))
+            trees[name] = ast.parse(path.read_text(errors="replace"), str(path))
         except (SyntaxError, ValueError) as err:
             problems.append("%s cannot be read as Python: %s" % (name, err))
-            continue
+    owned = {name: _defined(tree) for name, tree in trees.items() if name in CONFINED}
+    for name, tree in trees.items():
+        problems += _confined(name, tree, owned)
         calendar, wrong = _calendar(name, tree)
         problems += wrong
         for node in ast.walk(tree):
@@ -106,6 +176,9 @@ def run(root: pathlib.Path = ROOT) -> list:
                                     % (name, line))
             if isinstance(node, ast.ClassDef):
                 problems.append("%s:%d defines a class; the Kernel is functions and constants" % (name, line))
+            if isinstance(node, ast.Attribute) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                problems.append("%s:%d assigns an attribute, %s; the Kernel changes no module's names and no object "
+                                "it did not make" % (name, line, node.attr))
         # State is derived at every call and never stored: a module holds constants only.
         for i, node in enumerate(tree.body):
             docstring = i == 0 and isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)

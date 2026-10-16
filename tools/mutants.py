@@ -219,7 +219,9 @@ MUTANTS = [
      '    for lens in config["required_lenses"]["model"]:\n'),
     ("a model Lens's thread does not gate a dependency update", "kernel/gate.py",
      '    required = set(config["required_lenses"]["model"])\n',
-     "    required = set(required_model_lenses(facts, config))\n"),
+     '    lenses = config["required_lenses"]\n'
+     '    required = set() if facts["class"] in lenses["model_not_required_for"] and facts["last_pusher"] == '
+     'facts["author"] else set(lenses["model"])\n'),
     ("a neutral check is read as passing", "config/defaults.json",
      '"neutral": "unreadable"', '"neutral": "passing"'),
     ("a neutral check is read as failing", "config/defaults.json",
@@ -496,6 +498,8 @@ MUTANTS = [
      '        if len(_spent(since)) >= limits["max_runs_per_item"]:\n', "        if False:\n"),
     ("an approval that does not land is issued for ever", "kernel/brakes.py",
      '        if len(failed) >= limits["max_attempts"]:\n', "        if False:\n"),
+    ("with no writer's action, no Run counts toward a ceiling", "kernel/derive.py",
+     "    if mark is None:\n        return runs\n", "    if mark is None:\n        return []\n"),
     ("a writer's action does not renew an approval's allowance", "kernel/decide.py",
      "    since = since_writer(mine, facts)\n", "    since = mine\n"),
     ("a failed model Run counts as an approval attempt", "kernel/brakes.py",

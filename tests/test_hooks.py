@@ -1279,7 +1279,7 @@ class RulesChanged(unittest.TestCase):
                        check=True)
         self.assertIn("lifecycle/b.json", self.told(where))
 
-    def test_the_index_the_working_tree_the_commits_the_brakes_and_the_gate_are_listed(self):
+    def test_the_index_the_working_tree_the_commits_and_the_kernel_are_listed(self):
         where = self.branch()
         self.write(where, "config/authority.json")
         git(where, "add", "-A")
@@ -1294,10 +1294,8 @@ class RulesChanged(unittest.TestCase):
         (where / "lifecycle" / "staged.json").unlink()      # in the index alone
         said = self.told(where)
         for part in ("config/authority.json", ".github/workflows/x.yml", "kernel/brakes.py", "the brakes",
-                     "kernel/gate.py", "the gate", "lifecycle/staged.json"):
+                     "kernel/gate.py", "the gate", "lifecycle/staged.json", "kernel/decide.py", "Admission"):
             self.assertIn(part, said)
-        # The rest of the Kernel is not one of the Factory's own rules, and is not listed.
-        self.assertNotIn("kernel/decide.py", said)
 
     def test_every_protected_path_changed_is_listed(self):
         where = self.branch()

@@ -603,6 +603,48 @@ class Purity(unittest.TestCase):
         for name, text in hidden.items():
             self.assertTrue(check_purity.run(tree({"kernel/x.py": text})), name)
 
+    def test_an_attribute_assigned_is_caught(self):
+        # A module that assigns another's names changes what that module decides from outside it: the gate's
+        # severities from derive.py, or a code from terms.py, at import or in a call.
+        for text in ("from kernel import gate as _gate\n\n_gate.SECURITY = 'none'\n",
+                     "from kernel import terms as t\nt.HELD = 'x'\n",
+                     "from kernel import gate\n\n\ndef f():\n    gate.GATING_SEVERITIES = frozenset()\n",
+                     "from kernel import terms as t\n\n\ndef f():\n    del t.HELD\n",
+                     "from kernel import terms as t\n\n\ndef f():\n    t.HELD, x = 'a', 1\n    return x\n",
+                     "def f():\n    f.seen = 1\n"):
+            self.assertTrue(caught(check_purity.run(tree({"kernel/x.py": text})), "assigns an attribute"), text)
+        self.assertEqual(check_purity.run(tree({"kernel/x.py": "from kernel import terms as t\n\n\ndef f():\n"
+                                                "    return t.HELD\n"})), [])
+
+    def test_the_brakes_and_the_gate_stand_apart(self):
+        # Each is a protected path alone. The gate imports nothing of the Kernel and the brakes only its codes, so no
+        # module that is not protected can change what they decide, and no other module stands in for one of theirs.
+        gate = "SECURITY = 'security'\n\n\ndef gates(facts, config):\n    return []\n"
+        brakes = "from kernel import terms as t\nfrom kernel.terms import HELD\n\n\ndef paused(_decision, facts):\n" \
+                 "    return None\n"
+        derive = "from kernel import gate\nfrom kernel.gate import gates\n\n\ndef derive(facts):\n    return gates(facts, {})\n"
+        clean = {"kernel/gate.py": gate, "kernel/brakes.py": brakes, "kernel/derive.py": derive}
+        self.assertEqual(check_purity.run(tree(clean)), [])
+        for text, owner in (("def gates(facts, config):\n    return []\n", "gate.py"),
+                            ("def f(facts):\n    def gates(a, b):\n        return []\n    return gates(facts, 0)\n",
+                             "gate.py"),
+                            ("SECURITY = 'none'\n", "gate.py"),
+                            ("from kernel.terms import NONE as gates\n", "gate.py"),
+                            ("from kernel.gate import SECURITY as gates\n", "gate.py"),
+                            ("from kernel.brakes import paused as on_act\nfrom kernel.terms import HELD as paused\n",
+                             "brakes.py")):
+            said = check_purity.run(tree(dict(clean, **{"kernel/derive.py": text})))
+            self.assertTrue(caught(said, "which %s defines" % owner), (text, said))
+        for rel, text, words in (("kernel/gate.py", "from kernel import terms as t\n" + gate, "imports kernel.terms"),
+                                 ("kernel/gate.py", "import kernel.derive\n" + gate, "imports kernel.derive"),
+                                 ("kernel/gate.py", "from . import terms\n" + gate, "imports ."),
+                                 ("kernel/brakes.py", "from kernel.derive import since_writer\n" + brakes,
+                                  "imports kernel.derive"),
+                                 ("kernel/brakes.py", "from kernel import terms, decide\n" + brakes,
+                                  "imports kernel.decide")):
+            said = check_purity.run(tree(dict(clean, **{rel: text})))
+            self.assertTrue(caught(said, words), (rel, text, said))
+
     def test_a_way_round_the_names_is_caught(self):
         root = tree({"kernel/x.py": "def f():\n    return __builtins__['open'], getattr(f, 'x')\n"})
         problems = check_purity.run(root)

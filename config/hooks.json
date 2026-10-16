@@ -25,7 +25,12 @@
   ],
   "reported": [
     {"path": "docs/decisions/", "is": "a decision record, which is never edited, only replaced"},
-    {"path": "tools/check_decisions.py", "is": "the check that holds a decision record to that"}
+    {"path": "tools/check_decisions.py", "is": "the check that holds a decision record to that"},
+    {"path": "kernel/decide.py", "is": "Admission, which asks the brakes before every act and Run"},
+    {"path": "kernel/derive.py", "is": "the State, which reads the gate"},
+    {"path": "kernel/terms.py", "is": "the Kernel's codes"},
+    {"path": "tests/test_decide.py", "is": "the boundary cases"},
+    {"path": "tools/mutants.py", "is": "the deliberate breaks that show each rule is tested"}
   ],
   "merging": {
     "branch": "main",

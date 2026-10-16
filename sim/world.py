@@ -49,6 +49,12 @@ MACHINE = {"kind": "machine_user", "name": CONFIG["approver"], "can_write": True
 # Invariants of rules the Kernel does not hold yet, each named by its test in tests/test_decide.py, which is marked
 # @pending there. A breach of one is noted in `unheld`, not raised, until the mark comes off in both places.
 NOT_YET_HELD = ()
+# A Pause, on a span of minutes, on one seed in five; on another in five the Pause cannot be read for that span. Drawn
+# from the seed alone, so the rest of each world stays as it was.
+PAUSES = {0: True, 3: None}
+PAUSE_FOR = 80
+# The Holds the brakes place at a ceiling. Under a Pause they are not reached: the Pause defers first (decision 0003).
+CEILINGS = ("attempts_exhausted", "run_ceiling", "max_rounds", "act_ceiling")
 
 
 class Broken(AssertionError):
@@ -83,7 +89,14 @@ class World:
         self.impostors = []        # checks another App posted under a required Lens's name, on this head
         self.rerun = set()         # the checks a person ran again on this head, whose verdicts are that person's
         self.queue = False
-        self.last_push = self.last_writer = self.now()
+        self.last_push = self.now()
+        # On one seed in three no person with write access has acted on the item yet: GitHub gives no time for it.
+        self.last_writer = None if seed % 3 == 0 else self.now()
+        # The Pause: on some seeds, from a minute the seed gives, for PAUSE_FOR minutes; True, or None if unreadable.
+        self.pause_from = 10 + seed * 37 % 200 if seed % 5 in PAUSES else None
+        self.pause_reading = PAUSES.get(seed % 5)
+        self.paused_passes = 0     # passes made while paused, or while the Pause could not be read
+        self.stopped = []          # what each of those passes would have done with no Pause, when it was to act
         # The world's own clock for staleness, in minutes, kept apart from the facts the Kernel reads: when a writer,
         # a Lens or the Factory last moved the item, and when the current unbroken chain of passes began.
         self.moved = self.chain = self.minute
@@ -101,7 +114,7 @@ class World:
     def starts(self):
         """The world as it stands is where it starts: the State the Kernel gives it is no transition, and the next
         change is checked from it. A test that sets a world up by hand says so here."""
-        self.true_state = decide(self.facts(), self.records(), self.context(), CONFIG, self.now())["state"]
+        self.true_state = decide(self.facts(), self.records(), self.unpaused(), CONFIG, self.now())["state"]
 
     def pick(self, options):
         """Choose with random() only, whose sequence is the same on every Python version."""
@@ -148,10 +161,24 @@ class World:
         # GitHub: a_queued_run_is_listed
         return [copy.deepcopy(r) for r in self.runs]
 
+    def pausing(self) -> bool:
+        """The Pause stands now, or cannot be read."""
+        return self.pause_from is not None and self.pause_from <= self.minute < self.pause_from + PAUSE_FOR
+
     def context(self) -> dict:
         active = len([r for r in self.runs if r["status"] != "completed"])
-        return {"paused": False, "active_runs": active, "model_deferred_until": None,
-                "passes_since": self.at(self.chain)}
+        ctx = {"paused": False, "active_runs": active, "model_deferred_until": None,
+               "passes_since": self.at(self.chain)}
+        if self.pausing():
+            if self.pause_reading is None:
+                del ctx["paused"]       # the Controller could not read whether Admission is paused
+            else:
+                ctx["paused"] = self.pause_reading
+        return ctx
+
+    def unpaused(self) -> dict:
+        """The context with no Pause. The State is the item's, and a Pause is the Controller's, not the item's."""
+        return dict(self.context(), paused=False)
 
     def writer_acted(self):
         """A person with write access acted: a fresh allowance of attempts, and of acts (I-28)."""
@@ -263,7 +290,7 @@ class World:
     def caused(self, by: str):
         """A change was just made by `by`. If it changed the State the Kernel gives what GitHub holds, the Lifecycle
         declares that transition, made by `by` (I-12)."""
-        state = decide(self.facts(), self.records(), self.context(), CONFIG, self.now())["state"]
+        state = decide(self.facts(), self.records(), self.unpaused(), CONFIG, self.now())["state"]
         if state is None:
             return
         if state != self.true_state:
@@ -341,11 +368,15 @@ class World:
             # the label off since (I-6, I-21).
             self.check(not self.held() or d["outcome"] not in (t.ADMIT, t.ACT) or dequeue,
                        "I-6 a held item moved on: %s %s" % (d["outcome"], d["reason"]))
-            # A pass that reads a queued item whole, as it is now, takes it out if it may not merge (L-19).
+            # A pass that reads a queued item whole, as it is now, takes it out if it may not merge (L-19). Under a Pause
+            # it may not: the dequeue defers (paused), and such a pass reads nothing the queue may merge on.
             stop = self.queue and self.objections()
-            self.check(not stop or (d["outcome"], d.get("action")) == (t.ACT, "dequeue"),
-                       "a pass leaves a queued item in the queue over %s" % ", ".join(stop or []))
-            self.read = self.unstamped(facts)
+            if not self.pausing():
+                self.check(not stop or (d["outcome"], d.get("action")) == (t.ACT, "dequeue"),
+                           "a pass leaves a queued item in the queue over %s" % ", ".join(stop or []))
+                self.read = self.unstamped(facts)
+        if self.pausing():
+            self.paused(facts, runs, d)
         if d["outcome"] == "admit":
             self.moves()
             self.runs.append({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"],
@@ -355,6 +386,23 @@ class World:
         elif d["outcome"] == "act":
             self.apply_action(d)
             self.caused("factory")
+
+    def paused(self, facts: dict, runs: list, d: dict):
+        """Under a Pause, or one that cannot be read, nothing is admitted and nothing acts, not even a dequeue. A Hold
+        the facts establish shows first; anything else that would go ahead defers for the Pause, and a dequeue so
+        deferred is the Maintainer's to see (decision 0003)."""
+        self.paused_passes += 1
+        self.check(d["outcome"] not in (t.ADMIT, t.ACT), "a Pause let through %s %s" % (d["outcome"], d["reason"]))
+        free = decide(facts, runs, dict(self.context(), paused=False), CONFIG, self.now())
+        why = "paused" if self.pause_reading else "pause_unreadable"
+        if free["outcome"] in (t.ADMIT, t.ACT) or (free["outcome"] == t.HOLD and free["reason"] in CEILINGS):
+            self.stopped.append(free.get("action") or free["outcome"])
+            self.check((d["outcome"], d["reason"]) == (t.DEFER, why),
+                       "a Pause did not defer %s %s" % (free["outcome"], free["reason"]))
+        if free.get("action") == "dequeue":
+            self.check(d["attention"] == t.NEEDS_YOU, "a dequeue deferred by a Pause is not the Maintainer's to see")
+        if free["outcome"] == t.HOLD and free["reason"] not in CEILINGS:
+            self.check(d == free, "a Hold the facts establish is hidden by a Pause")
 
     # ---- an act: a change that needs no model
     def apply_action(self, d: dict):
@@ -703,7 +751,8 @@ class World:
             ok = any(rv["by"]["name"] == CONFIG["approver"] and rv["state"] == "approved"
                      and rv["content_id"] == self.cid() for rv in self.reviews)
             self.check(ok, "NFR-4 merged without an approval of the merged content")
-        since = [r for r in self.runs if r["started_at"] > self.last_writer and r["outcome"] != "superseded"]
+        since = [r for r in self.runs if (self.last_writer is None or r["started_at"] > self.last_writer)
+                 and r["outcome"] != "superseded"]
         # A landed approval is an act, counted below; every other Run, a failed approval among them, is spent.
         landed = [r for r in since if r["intent"] == t.ISSUE_APPROVAL and r["conclusion"] == "success"]
         spent = [r for r in since if r not in landed]
