@@ -453,8 +453,11 @@ placed, only a person ends:
   threads that hold it closes none. A thread that gates nothing is closed by whoever resolves it.
 - Only the approver's approval stands, and only a person ends a request for changes.
 - `label_events` carry who added and who removed each label, from the timeline. The port gives them
-  as the timeline lists them, and the Kernel reads them by time; in the same second it reads a
-  removal before a placement, so the label stands (fail closed, as for a review). They are read
+  as the timeline lists them, and the Kernel reads them by time. Which of two events in the same
+  second came first cannot be told, so each label is read the way that stops work, as a review is:
+  a Hold stands; an admission does not; and hands-off is read as a Hold, reason `human_hold`, since
+  standing it could leave a queued item to merge and ended it could let the Factory act on an item
+  a person marked. They are read
   with the timeline, so `complete.timeline` covers them: a read cut short, which GitHub pages
   oldest first, could drop a person's later removal, and the item defers. A control label binds
   from when anyone adds it until a person removes it: removed by anyone else, it binds as it was

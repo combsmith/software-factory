@@ -429,9 +429,19 @@ def unreadable_labels(facts: dict, config: dict) -> bool:
 
 
 def label_order(ev: dict) -> tuple:
-    """When a label event happened. In the same second a removal is read before a placement, so the label stands: fail
-    closed, as verdict_order does."""
-    return ev["at"], ev["action"] == "labeled"
+    """When a label event happened. Which of two in the same second came first cannot be told, so each label is read
+    the way that stops work, as verdict_order reads a review: a Hold or hands-off is placed last, and stands; an
+    admission is placed first, and the removal ends it. Hands-off that stands on a tie is read as a Hold (tied)."""
+    placed_last = ev["label"] != t.LABEL_ADMIT
+    return ev["at"], (ev["action"] == "labeled") == placed_last
+
+
+def tied(placed: dict, facts: dict) -> bool:
+    """Whether a removal of the label `placed` placed came in the same second. Hands-off placed so is read as a Hold:
+    standing, it could leave a queued item to merge, and ended, it could let the Factory act on an item a person
+    marked, so either reading fails open somewhere."""
+    return any(ev["label"] == placed["label"] and ev["action"] == "unlabeled" and ev["at"] == placed["at"]
+               for ev in facts["label_events"])
 
 
 def standing_labels(facts: dict) -> dict:
@@ -454,13 +464,14 @@ def standing_labels(facts: dict) -> dict:
 
 def hands_off(facts: dict, config: dict) -> bool:
     """Whether hands-off binds: a person placed it, and the Factory never acts on the item. Placed by anyone else, it
-    is read as a Hold, so an App cannot freeze an item in the merge queue. It is read only from label events read in
-    full and whole: the timeline is paged oldest first, so a read cut short could drop a person's later removal.
+    is read as a Hold, so an App cannot freeze an item in the merge queue, and so is one removed in the same second
+    (tied). It is read only from label events read in full and whole: the timeline is paged oldest first, so a read
+    cut short could drop a person's later removal.
     """
     if "timeline" in incomplete(facts) or unreadable_labels(facts, config):
         return False
     placed = standing_labels(facts).get(t.LABEL_HANDS_OFF)
-    return placed is not None and is_person(placed["by"])
+    return placed is not None and is_person(placed["by"]) and not tied(placed, facts)
 
 
 def admitted(facts: dict, labels: dict) -> bool:

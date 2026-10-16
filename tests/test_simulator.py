@@ -202,6 +202,49 @@ class Simulation(unittest.TestCase):
         self.assertLessEqual({"approval_lost", "gate_open", "human_hold"}, causes)
         self.assertTrue(impostors)
 
+    def test_every_label_act_in_the_world_takes_its_own_minute(self):  # I-6
+        # The world never leans on how a tie is read: a label placed and released in one step, or put back and taken
+        # off again, gives each event its own time, and the Kernel reads what the world holds.
+        def kernel(w):
+            return decide(w.facts(), w.records(), w.context(), world.CONFIG, w.now())
+
+        for name in (terms.LABEL_HOLD, terms.LABEL_HANDS_OFF):
+            w = queued()
+            w.label(name, world.MAINTAINER)
+            w.release()
+            self.assertFalse(w.held(), name)
+            self.assertNotEqual(kernel(w)["state"], "held", name)
+            w.label(name, world.MAINTAINER)
+            w.unlabel(name, world.AUTHOR_APP)
+            w.release()
+            self.assertFalse(w.held(), name)
+            self.assertNotEqual(kernel(w)["state"], "held", name)
+        for seed in SEEDS:
+            w = World(seed)
+            for _ in range(250):
+                w.step()
+            w.settle(steps=0)
+            times = [ev["at"] for ev in w.events]
+            self.assertEqual(times, sorted(set(times)), seed)
+
+    def test_anyone_else_putting_back_a_persons_hands_off_leaves_it_theirs(self):  # L-17
+        # The Maintainer marks the item hands-off; an App takes the label off and adds it again. In the world's words
+        # and the Kernel's, it is still the Maintainer's hands-off: the item stays where it is.
+        w = queued()
+        w.label(terms.LABEL_HANDS_OFF, world.MAINTAINER)
+        w.unlabel(terms.LABEL_HANDS_OFF, world.AUTHOR_APP)
+        w.label(terms.LABEL_HANDS_OFF, world.AUTHOR_APP)
+        self.assertEqual(w.hands_off, "person")
+        self.assertEqual(w.objections(), [])
+        w.poll()
+        self.assertEqual((w.queue, w.trace[-1].split()[-3:]), (True, ["hands_off", "->", "hold"]))
+        # The other side: once a person has removed it, an App's is the App's, and read as a Hold.
+        w.release()
+        w.label(terms.LABEL_HANDS_OFF, world.AUTHOR_APP)
+        self.assertEqual(w.hands_off, "app")
+        w.poll()
+        self.assertIn("apply: dequeued (human_hold)", w.trace[-1])
+
     def test_what_an_app_does_in_a_persons_place_ends_nothing(self):  # L-17, I-6
         # An App takes the Maintainer's Hold off, adds hands-off, or resolves the Maintainer's thread. On a queued item,
         # each takes it out of the queue; and the seeds reach each, with every invariant holding.

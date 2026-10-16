@@ -619,17 +619,40 @@ class OnlyAPersonEnds(unittest.TestCase):
         for events in ([added, removed], [removed, added]):
             self.assertEqual(go(facts(label_events=events), REVIEWED)["reason"], "human_hold")
 
-    def test_in_the_same_second_a_label_stands(self):  # I-6, I-13
-        # Which came first cannot be told, so a removal is read before a placement: the label stands, as a request for
-        # changes stands beside an approval in the same second.
-        for label, reason in (("factory:hold", "human_hold"), ("factory:hands-off", "hands_off")):
-            added, removed = labelled(label, at=at(3)), unlabelled(label, at=at(3))
-            for events in ([added, removed], [removed, added]):
-                d = go(facts(label_events=events), REVIEWED)
-                self.assertEqual((d["state"], d["reason"]), ("held", reason), (label, [e["action"] for e in events]))
-        # The other side: a second apart, the removal that comes later ends it.
-        events = [labelled("factory:hold", at=at(3)), unlabelled("factory:hold", at="2026-10-11T12:03:01Z")]
+    def test_in_the_same_second_each_label_fails_closed(self):  # I-6, I-13, I-25
+        # Which came first cannot be told, so each label is read the way that stops work, as a request for changes
+        # stands beside an approval in the same second. A Hold stands. An admission does not. Hands-off is read as a
+        # Hold, since either reading of it fails open somewhere: standing, it would leave a queued item to merge; ended,
+        # it would let the Factory act on an item a person marked.
+        outside = {"class": "outside", "author": "stranger", "last_pusher": "stranger", "last_push_at": at(0)}
+        for order in ((0, 1), (1, 0)):
+            def tie(label):
+                pair = [labelled(label, at=at(3)), unlabelled(label, at=at(3))]
+                return [pair[i] for i in order]
+            d = go(facts(label_events=tie("factory:hold")), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "human_hold", ["factory:hold"]), order)
+            d = go(facts(**outside, label_events=tie("factory:admit")))
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "outside_not_admitted", "hold"), order)
+            d = go(facts(label_events=tie("factory:hands-off")), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["attention"]),
+                             ("held", "human_hold", ["factory:hands-off"], "needs_you"), order)
+            d = go(facts(queue=True, reviews=APPROVED, checks=with_check(0, "failure"),
+                         label_events=tie("factory:hands-off")), REVIEWED)
+            self.assertEqual((d["reason"], d["outcome"], d.get("action")), ("human_hold", "act", "dequeue"), order)
+        # An admission an App removed in the same second still stands: an App's removal ends nothing.
+        d = go(facts(**outside, label_events=[unlabelled("factory:admit", AUTHOR_APP, at=at(3)),
+                                              labelled("factory:admit", at=at(3))]))
+        self.assertEqual(d["admit"]["intent"], "review-change")
+        # The other side: a second apart, the later event decides.
+        later_ = "2026-10-11T12:03:01Z"
+        events = [labelled("factory:hold", at=at(3)), unlabelled("factory:hold", at=later_)]
         self.assertEqual(go(facts(label_events=events), REVIEWED)["action"], "issue_approval")
+        events = [unlabelled("factory:admit", at=at(3)), labelled("factory:admit", at=later_)]
+        self.assertEqual(go(facts(**outside, label_events=events))["admit"]["intent"], "review-change")
+        events = [unlabelled("factory:hands-off", at=at(3)), labelled("factory:hands-off", at=later_)]
+        d = go(facts(queue=True, reviews=APPROVED, checks=with_check(0, "failure"), label_events=events), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"]), ("hands_off", "hold"))
+        self.assertNotIn("action", d)
 
     def test_what_a_person_placed_is_not_replaced_by_anyone_else_placing_it(self):  # L-17, I-36
         # An App that takes a person's label off and puts it back has not placed it: it stands as the person placed it.

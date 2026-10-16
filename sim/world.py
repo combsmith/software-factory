@@ -150,37 +150,43 @@ class World:
         """A Hold stands, or hands-off, which stops work whoever placed it."""
         return self.hold or self.hands_off is not None
 
-    def label(self, name: str, by: dict):
+    def labelling(self, name: str, action: str, by: dict):
+        """Record a label event. Each takes its own minute, so the world never leans on how a tie is read."""
+        if self.events and self.events[-1]["at"] >= self.now():
+            self.minute += 1
         # GitHub: a_label_event_names_its_actor
+        self.events.append({"label": name, "action": action, "by": dict(by), "at": self.now()})
+
+    @staticmethod
+    def is_person(by: dict) -> bool:
+        return by["kind"] == "human" and by["can_write"] is True
+
+    def label(self, name: str, by: dict):
+        """`by` adds the label. Anyone else adding hands-off again does not replace a person's: it stands as theirs."""
         self.labels.add(name)
-        self.events.append({"label": name, "action": "labeled", "by": dict(by), "at": self.now()})
+        self.labelling(name, "labeled", by)
         if name == t.LABEL_HOLD:
             self.hold = True
-        elif name == t.LABEL_HANDS_OFF:
-            self.hands_off = "person" if by["kind"] == "human" and by["can_write"] else "app"
+        elif name == t.LABEL_HANDS_OFF and not (self.hands_off == "person" and not self.is_person(by)):
+            self.hands_off = "person" if self.is_person(by) else "app"
 
     def unlabel(self, name: str, by: dict):
         """`by` removes the label. Only a person's removal ends what it held: anyone else's leaves it binding."""
         self.labels.discard(name)
-        self.events.append({"label": name, "action": "unlabeled", "by": dict(by), "at": self.now()})
-        if by["kind"] == "human" and by["can_write"]:
+        self.labelling(name, "unlabeled", by)
+        if self.is_person(by):
             if name == t.LABEL_HOLD:
                 self.hold = False
             elif name == t.LABEL_HANDS_OFF:
                 self.hands_off = None
 
     def release(self):
-        """The Maintainer ends a Hold and hands-off. A label an App took off is put back, and taken off a minute later:
-        in the same second a removal is read before a placement, and the label would stand."""
-        binding = [name for name, binds in ((t.LABEL_HOLD, self.hold), (t.LABEL_HANDS_OFF, self.hands_off is not None))
-                   if binds]
-        if any(name not in self.labels for name in binding):
-            for name in binding:
+        """The Maintainer ends a Hold and hands-off. A label an App took off is put back to be taken off again."""
+        for name, binds in ((t.LABEL_HOLD, self.hold), (t.LABEL_HANDS_OFF, self.hands_off is not None)):
+            if binds:
                 if name not in self.labels:
                     self.label(name, MAINTAINER)
-            self.minute += 1
-        for name in binding:
-            self.unlabel(name, MAINTAINER)
+                self.unlabel(name, MAINTAINER)
 
     @staticmethod
     def open_for(th: dict) -> bool:
