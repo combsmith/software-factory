@@ -1159,6 +1159,41 @@ class Decisions(unittest.TestCase):
                 self.assertTrue(refused({FIRST: REPLACED.replace(status, again), third: REPLACING.replace("0002", "0003")},
                                         "is fixed from then on", base={FIRST: REPLACED, LATER: REPLACING}))
 
+    def test_a_new_record_that_replaces_one_sets_that_ones_status(self):
+        # A new record that says it replaces another is held to it: that record is on main, earlier, and in this
+        # change says it is replaced by this one.
+        third = "docs/decisions/0003-three.md"
+        cases = {
+            "the record it replaces left as it was": ({LATER: REPLACING}, None, "whose Status does not say"),
+            "a record that does not exist": ({LATER: REPLACING.replace(FIRST, "docs/decisions/0000-none.md")}, None,
+                                             "0000-none.md, which is not a record main holds"),
+            "a record new in this change": ({LATER: REPLACING.replace(FIRST, third), third: RECORD}, None,
+                                            "0003-three.md, which is not a record main holds"),
+            "a later record": ({LATER: REPLACING.replace(FIRST, third),
+                                third: RECORD.replace("Status: accepted.", "Status: replaced by `%s`." % LATER)},
+                               {third: RECORD}, "0003-three.md, which is not an earlier record"),
+            "a record another one replaces": ({FIRST: REPLACED.replace(LATER, third), LATER: REPLACING,
+                                               third: REPLACING.replace("0002", "0003")}, None,
+                                              "0002-two-things.md: it replaces docs/decisions/0001-one-thing.md, whose"),
+            # Every record it names is replaced: one more, left as it was or not there at all, is refused.
+            "one more, unchanged": ({FIRST: REPLACED, LATER: REPLACING.replace(
+                "`%s`" % FIRST, "`%s` and `%s`" % (FIRST, third))}, {third: RECORD},
+                "0003-three.md, which is not an earlier record"),
+            "one more, earlier and unchanged": ({FIRST: REPLACED, LATER: REPLACING.replace(
+                "`%s`" % FIRST, "`%s`, `docs/decisions/0000-zero.md`" % FIRST)}, {"docs/decisions/0000-zero.md": RECORD},
+                "0000-zero.md, whose Status does not say"),
+            "one more that is not there": ({FIRST: REPLACED, LATER: REPLACING.replace(
+                "`%s`" % FIRST, "`%s` and `docs/decisions/0000-none.md`" % FIRST)}, None,
+                "0000-none.md, which is not a record main holds"),
+            "said another way": ({FIRST: REPLACED, LATER: REPLACING.replace("accepted. Replaces", "proposed. Replaces")},
+                                 None, "only as 'Status: accepted. Replaces'"),
+            "the path without backticks": ({LATER: REPLACING.replace("`%s`" % FIRST, FIRST)}, None,
+                                           "only as 'Status: accepted. Replaces'"),
+        }
+        for name, (files, base, words) in cases.items():
+            with self.subTest(name):
+                self.assertTrue(refused(files, words, base=base), name)
+
     def test_a_boundary_row_added_is_allowed(self):
         added = RECORD + "| Another thing | `tests/test_x.py::test_y` |\n"
         moved = added.replace("`tools/check_x.py`", "`tools/check_y.py`")
@@ -1188,6 +1223,8 @@ class Decisions(unittest.TestCase):
             "a line before the Status": RECORD.replace("Status:", "Note.\n\nStatus:"),
             "a hidden comment": RECORD.replace("And only that.", "And only that.<!-- and two -->"),
             "a second Boundaries": RECORD + "\n## Boundaries\n\n| B | C |\n|---|---|\n",
+            "no title": RECORD.replace("# 0001. One thing\n", ""),
+            "a title that is not a heading": RECORD.replace("# 0001.", "0001."),
         }
         for name, text in ways.items():
             for rel in (FIRST, LATER):      # a record in the base, or a new one

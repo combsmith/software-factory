@@ -7,8 +7,9 @@ own Status says it replaces this one. After that the Status is fixed too. Its Bo
 rows, and a row's Check cell may change, since a row is added when the check for it is written and
 that changes nothing decided; no row is taken away and no Boundary cell is changed. Everything
 else, the title, the Decision and the Why among it, stays line for line as it was. A new record is
-always allowed. In every record there is one `Status:` line, the first after the title, and no
-HTML comment, which hides text from a reader; and nothing in `docs/decisions/` is a link.
+always allowed, but one whose Status says it replaces records replaces each of them, as above. In
+every record a title comes first, then one `Status:` line; there is no HTML comment, which hides
+text from a reader; and nothing in `docs/decisions/` is a link.
 
 The base is the merge base of HEAD and refs/remotes/origin/main, named in full, read as the Stop
 hook reads it (`tools/hooks/rules_changed.py`): git's replacement refs, grafts and commit graph off.
@@ -107,6 +108,8 @@ def parse(text: str):
     lines = [line.rstrip() for line in text.splitlines()]
     if "<!--" in text:
         return "it holds an HTML comment, which hides text from a reader"
+    if not lines or not lines[0].startswith("# "):
+        return "it must open with its title, on a line that opens '# '"
     starts = [i for i, line in enumerate(lines) if line.startswith("Status:")]
     first = next((i for i in range(1, len(lines)) if lines[i]), None)
     if len(starts) != 1 or starts[0] != first:
@@ -146,10 +149,37 @@ def _status(rel: str, old: str, new: str, before: dict, root: pathlib.Path) -> s
     if own is None or number <= own.group(1):
         return "it names %s, which is not a later record" % path
     said = parse(target.read_text(encoding="utf-8", errors="replace"))
-    listed = REPLACES.match(said[0]) if isinstance(said, tuple) else None
-    if listed is None or rel not in re.findall(r"`([^`]+)`", listed.group(1)):
+    if rel not in (_replaces(said[0]) if isinstance(said, tuple) else []):
         return "%s's Status does not say it replaces this one: 'Status: accepted. Replaces' and its path" % path
     return ""
+
+
+def _replaces(status: str) -> list:
+    """The paths a Status names, in decision 0015's words, as the records it replaces."""
+    listed = REPLACES.match(status)
+    return re.findall(r"`([^`]+)`", listed.group(1)) if listed else []
+
+
+def _replacing(rel: str, status: str, before: dict, current: dict) -> list:
+    """Why the new record at `rel` does not replace what its Status says it does: each record it names is in the
+    base, earlier, and in this change has its Status set to 'replaced by' this one."""
+    if "replace" not in status.lower():
+        return []
+    names = _replaces(status)
+    if not names:
+        return ["its Status says what it replaces only as 'Status: accepted. Replaces' and each path in backticks"]
+    own, why = NUMBER.match(rel.rsplit("/", 1)[-1]), []
+    for name in names:
+        number = NUMBER.match(name.rsplit("/", 1)[-1]) if re.fullmatch(PATH, "`%s`" % name) else None
+        now = current.get(name)
+        said = REPLACED.match(now[0]) if isinstance(now, tuple) else None
+        if name not in before or number is None or now is None:
+            why.append("it replaces %s, which is not a record main holds" % name)
+        elif own is None or number.group(1) >= own.group(1):
+            why.append("it replaces %s, which is not an earlier record" % name)
+        elif said is None or said.group(1) != rel:
+            why.append("it replaces %s, whose Status does not say 'replaced by' and this record's path" % name)
+    return why
 
 
 def _boundaries(old: list, new: list) -> str:
@@ -193,6 +223,9 @@ def run(root: pathlib.Path = ROOT) -> list:
         return problems + ["the decision records cannot be compared with the merge base of HEAD and %s (%s); fetch "
                            "main's whole history (git fetch --unshallow origin, or git fetch origin main) and run "
                            "again" % (BASE, err)]
+    for rel, new in sorted(current.items()):
+        if at and rel not in before and isinstance(new, tuple):     # with no base, nothing is known to be new
+            problems += ["%s: %s" % (rel, why) for why in _replacing(rel, new[0], before, current)]
     for rel, text in sorted(before.items()):
         old, new = parse(text), current.get(rel)
         if new is None:
