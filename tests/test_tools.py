@@ -21,8 +21,8 @@ import unittest
 from unittest import mock
 
 from kernel import terms
-from tools import (check_apps, check_authority, check_context, check_examples, check_lifecycle, check_purity,
-                   check_repo, check_trials, check_workflows, mutants, redact_trial, verify, walk)
+from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_lifecycle,
+                   check_purity, check_repo, check_trials, check_workflows, mutants, redact_trial, verify, walk)
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
@@ -1065,6 +1065,258 @@ class Context(unittest.TestCase):
             self.assertTrue(caught(problems, words), words)
 
 
+RECORD = ("# 0001. One thing\n\nStatus: accepted.\n\n## Decision\n\nWe do one thing.\nAnd only that.\n\n"
+          "## Why\n\nTwo things split the work.\n\n## Boundaries\n\n| Boundary | Check |\n|---|---|\n"
+          "| One thing | `tools/check_x.py` |\n")
+FIRST = "docs/decisions/0001-one-thing.md"
+LATER = "docs/decisions/0002-two-things.md"
+REPLACED = RECORD.replace("Status: accepted.", "Status: replaced by `%s`, which holds\nthe rule in force." % LATER)
+REPLACING = RECORD.replace("# 0001. One thing", "# 0002. Two things").replace(
+    "Status: accepted.", "Status: accepted. Replaces `%s`,\nand keeps all of it." % FIRST)
+EDITED = "title, Decision or Why changed"
+
+
+def history(files: dict = None) -> pathlib.Path:
+    """A repo whose main, on origin, holds decision 0001 and `files`; the working tree is main, unchanged."""
+    root = tree(dict({FIRST: RECORD}, **(files or {})))
+    git(root, "init", "-q", "-b", "main")
+    committed(root, "main")
+    return root
+
+
+def committed(root: pathlib.Path, message: str) -> None:
+    """Commit all of `root` on its branch, and when that is main, move origin's main to it."""
+    git(root, "add", "-f", ".")
+    git(root, "-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", message)
+    if git(root, "branch", "--show-current").strip() == "main":
+        git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+
+def edited(root: pathlib.Path, files: dict, commit: bool = False) -> pathlib.Path:
+    """`root` with `files` written over it, and committed on a branch when `commit`."""
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    if commit:
+        git(root, "checkout", "-q", "-b", "change")
+        committed(root, "change")
+    return root
+
+
+def refused(files: dict, words: str, base: dict = None) -> bool:
+    """Does the check refuse `files` written over main, as `base` has it, saying `words`?"""
+    return caught(check_decisions.run(edited(history(base), files)), words)
+
+
+@contextlib.contextmanager
+def outside_actions():
+    """Run as anywhere but GitHub Actions, where a tree with no .git is an export and is skipped."""
+    with mock.patch.dict(os.environ):
+        os.environ.pop("GITHUB_ACTIONS", None)
+        yield
+
+
+class Decisions(unittest.TestCase):
+    def test_an_edit_to_a_decision_is_refused(self):
+        for commit in (False, True):     # in the working tree, or committed on the branch
+            with self.subTest(commit=commit):
+                root = edited(history(), {FIRST: RECORD.replace("one thing.", "two things.")}, commit)
+                self.assertTrue(caught(check_decisions.run(root), "0001-one-thing.md: its " + EDITED))
+        # The whole record is compared but its Status and Boundaries, so no heading or line break gets round it.
+        ways = {
+            "a second Decision, the original last": RECORD.replace("one thing.", "two things.")
+            + "\n## Decision\n\nWe do one thing.\nAnd only that.\n",
+            "an amendment as a heading of its own": RECORD.replace("only that.\n", "only that.\n\n# Amendment\n\nTwo.\n"),
+            "a section of its own": RECORD.replace("## Boundaries", "## Amendment\n\nTwo things now.\n\n## Boundaries"),
+            "a line before the Decision": RECORD.replace("Status: accepted.\n", "Status: accepted.\n\nIt no longer holds.\n"),
+            "a fence around the original": RECORD.replace("And only that.", "Two.\n```\n## Decision\nAnd only that.\n```"),
+            "the lines broken elsewhere": RECORD.replace("one thing.\nAnd only", "one thing. And\nonly"),
+            "the title": RECORD.replace("# 0001. One thing", "# 0001. Two things"),
+            "text after the table": RECORD + "\nAnd we now do two things.\n",
+            "a second table": RECORD + "\n| Decision |\n|---|\n| We do two things |\n",
+        }
+        for name, text in ways.items():
+            with self.subTest(name):
+                self.assertTrue(refused({FIRST: text}, EDITED))
+
+    def test_an_edit_to_why_is_refused(self):
+        self.assertTrue(refused({FIRST: RECORD.replace("split the work", "share the work")}, "its " + EDITED))
+        gone = RECORD.replace("## Why\n\nTwo things split the work.\n\n", "")
+        self.assertTrue(refused({FIRST: gone}, EDITED))
+
+    def test_an_edit_with_status_naming_the_record_that_replaces_it_is_allowed(self):
+        for commit in (False, True):
+            with self.subTest(commit=commit):
+                root = edited(history(), {FIRST: REPLACED, LATER: REPLACING}, commit)
+                self.assertEqual(check_decisions.run(root), [])
+        # The Status is all that changes: the Decision and Why stay as they were.
+        self.assertTrue(refused({FIRST: REPLACED.replace("one thing.", "two."), LATER: REPLACING}, EDITED))
+        # The record named is new in this change, exists, comes later, and says in its own Status that it replaces this.
+        self.assertTrue(refused({FIRST: REPLACED}, "not new in this change", base={LATER: REPLACING}))
+        self.assertTrue(refused({FIRST: REPLACED}, "which does not exist"))
+        earlier = REPLACED.replace("0002-two-things", "0000-nothing")
+        self.assertTrue(refused({FIRST: earlier, "docs/decisions/0000-nothing.md": REPLACING}, "not a later record"))
+        for status in ("Status: accepted.", "Status: accepted. Replaces `docs/decisions/0009-x.md`.",
+                       "Status: accepted. It does not replace `%s`." % FIRST):
+            with self.subTest(status):
+                self.assertTrue(refused({FIRST: REPLACED, LATER: RECORD.replace("Status: accepted.", status)},
+                                        "does not say it replaces this one"))
+        # "replaced by" opens the Status, in decision 0012's words; it is not a phrase found anywhere in it.
+        for status in ("Status: accepted, not replaced by `%s`." % LATER, "Status: accepted. Replaced by `%s`." % LATER,
+                       "Status: replaced by `%s`" % LATER.replace(".md", ".mdx"), "Status: superseded.",
+                       "Status: replaced by %s." % LATER):
+            with self.subTest(status):
+                self.assertTrue(refused({FIRST: RECORD.replace("Status: accepted.", status), LATER: REPLACING},
+                                        "its Status changes only to say what replaces it"))
+        # Once replaced, the Status is fixed: not changed back, nor pointed at another record.
+        third = "docs/decisions/0003-three.md"
+        status = REPLACED.split("\n\n")[1]
+        for again in ("Status: accepted.", "Status: replaced by `%s`." % third):
+            with self.subTest(again):
+                self.assertTrue(refused({FIRST: REPLACED.replace(status, again), third: REPLACING.replace("0002", "0003")},
+                                        "is fixed from then on", base={FIRST: REPLACED, LATER: REPLACING}))
+
+    def test_a_new_record_that_replaces_one_sets_that_ones_status(self):
+        # A new record that says it replaces another is held to it: that record is on main, earlier, and in this
+        # change says it is replaced by this one.
+        third = "docs/decisions/0003-three.md"
+        cases = {
+            "the record it replaces left as it was": ({LATER: REPLACING}, None, "whose Status does not say"),
+            "a record that does not exist": ({LATER: REPLACING.replace(FIRST, "docs/decisions/0000-none.md")}, None,
+                                             "0000-none.md, which is not a record main holds"),
+            "a record new in this change": ({LATER: REPLACING.replace(FIRST, third), third: RECORD}, None,
+                                            "0003-three.md, which is not a record main holds"),
+            "a later record": ({LATER: REPLACING.replace(FIRST, third),
+                                third: RECORD.replace("Status: accepted.", "Status: replaced by `%s`." % LATER)},
+                               {third: RECORD}, "0003-three.md, which is not an earlier record"),
+            "a record another one replaces": ({FIRST: REPLACED.replace(LATER, third), LATER: REPLACING,
+                                               third: REPLACING.replace("0002", "0003")}, None,
+                                              "0002-two-things.md: it replaces docs/decisions/0001-one-thing.md, whose"),
+            # Every record it names is replaced: one more, left as it was or not there at all, is refused.
+            "one more, unchanged": ({FIRST: REPLACED, LATER: REPLACING.replace(
+                "`%s`" % FIRST, "`%s` and `%s`" % (FIRST, third))}, {third: RECORD},
+                "0003-three.md, which is not an earlier record"),
+            "one more, earlier and unchanged": ({FIRST: REPLACED, LATER: REPLACING.replace(
+                "`%s`" % FIRST, "`%s`, `docs/decisions/0000-zero.md`" % FIRST)}, {"docs/decisions/0000-zero.md": RECORD},
+                "0000-zero.md, whose Status does not say"),
+            "one more that is not there": ({FIRST: REPLACED, LATER: REPLACING.replace(
+                "`%s`" % FIRST, "`%s` and `docs/decisions/0000-none.md`" % FIRST)}, None,
+                "0000-none.md, which is not a record main holds"),
+            "said another way": ({FIRST: REPLACED, LATER: REPLACING.replace("accepted. Replaces", "proposed. Replaces")},
+                                 None, "only as 'Status: accepted. Replaces'"),
+            "the path without backticks": ({LATER: REPLACING.replace("`%s`" % FIRST, FIRST)}, None,
+                                           "only as 'Status: accepted. Replaces'"),
+        }
+        # The whole declaration is read: past it, no word of replacing and no record's path, in either record.
+        missing = "docs/decisions/0000-missing.md"
+        for status in ("Status: accepted. Replaces `%s`. It also replaces `%s`." % (FIRST, missing),
+                       "Status: accepted. Replaces `%s`, and SUPERSEDES `%s`." % (FIRST, missing),
+                       "Status: accepted. Replaces `%s`, and keeps all of `%s`." % (FIRST, missing),
+                       "Status: accepted. Replaces `%s`; and `%s`." % (FIRST, missing),
+                       "Status: accepted. Replaces `%s` in part." % FIRST):
+            cases[status] = ({FIRST: REPLACED, LATER: REPLACING.replace(REPLACING.split("\n\n")[1], status)}, None,
+                             "0002-two-things.md: its Status says what it replaces only as")
+        for status in ("Status: replaced by `%s`. It is also replaced by `%s`." % (LATER, third),
+                       "Status: replaced by `%s`, with `%s`." % (LATER, third)):
+            cases[status] = ({FIRST: RECORD.replace("Status: accepted.", status), LATER: REPLACING}, None,
+                             "0001-one-thing.md: its Status changes only to say what replaces it")
+        for name, (files, base, words) in cases.items():
+            with self.subTest(name):
+                self.assertTrue(refused(files, words, base=base), name)
+
+    def test_a_boundary_row_added_is_allowed(self):
+        added = RECORD + "| Another thing | `tests/test_x.py::test_y` |\n"
+        moved = added.replace("`tools/check_x.py`", "`tools/check_y.py`")
+        for text in (added, moved, added.replace("| One thing |", "|  One  thing |")):
+            with self.subTest(text=text):
+                self.assertEqual(check_decisions.run(edited(history(), {FIRST: text}, commit=True)), [])
+        # A row is not taken away, and its Boundary does not change.
+        for text in (RECORD.replace("| One thing | `tools/check_x.py` |\n", ""),
+                     RECORD.replace("| One thing |", "| Two things |"),
+                     RECORD.replace("| One thing | `tools/check_x.py` |", "| One thing | or two | `tools/check_x.py` |")):
+            with self.subTest(text=text):
+                self.assertTrue(refused({FIRST: text}, "the row 'One thing"))
+
+    def test_a_new_record_is_allowed(self):
+        self.assertEqual(check_decisions.run(edited(history(), {LATER: REPLACING.replace("Replaces", "Adds to")},
+                                                    commit=True)), [])
+        self.assertEqual(check_decisions.run(history()), [])
+        # A record taken away, or renamed, is not a new one.
+        root = history()
+        (root / FIRST).rename(root / "docs/decisions/0001-another-name.md")
+        self.assertTrue(caught(check_decisions.run(root), "0001-one-thing.md: is gone"))
+
+    def test_a_record_has_one_status_first_no_comment_and_is_no_link(self):
+        ways = {
+            "a second Status": RECORD.replace("## Why", "Status: replaced by `%s`.\n\n## Why" % LATER),
+            "a Status below the Decision": RECORD.replace("Status: accepted.\n\n", "") + "\nStatus: accepted.\n",
+            "a line before the Status": RECORD.replace("Status:", "Note.\n\nStatus:"),
+            "a hidden comment": RECORD.replace("And only that.", "And only that.<!-- and two -->"),
+            "a second Boundaries": RECORD + "\n## Boundaries\n\n| B | C |\n|---|---|\n",
+            "no title": RECORD.replace("# 0001. One thing\n", ""),
+            "a title that is not a heading": RECORD.replace("# 0001.", "0001."),
+        }
+        for name, text in ways.items():
+            for rel in (FIRST, LATER):      # a record in the base, or a new one
+                with self.subTest(name, rel=rel):
+                    self.assertTrue(refused({rel: text}, "%s: it " % rel))
+        root = history()
+        os.symlink(str(root / FIRST), str(root / LATER))
+        self.assertTrue(caught(check_decisions.run(root), "0002-two-things.md: is a link"))
+        root = history()
+        git(root, "mv", "docs/decisions", "elsewhere")
+        os.symlink("../elsewhere", str(root / "docs" / "decisions"))
+        self.assertTrue(caught(check_decisions.run(root), "docs/decisions: is a link"))
+        self.assertTrue(caught(check_decisions.run(root), "0001-one-thing.md: is gone"))
+
+    def test_a_worktree_is_compared_with_where_its_branch_left_main(self):
+        # A worktree's .git is a file, and the check compares there as in any clone.
+        root = history()
+        other = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "worktree"
+        git(root, "worktree", "add", "-q", "-b", "change", str(other))
+        self.assertTrue((other / ".git").is_file())
+        self.assertEqual(check_decisions.run(other), [])
+        edited(other, {FIRST: RECORD.replace("one thing.", "two things.")})
+        self.assertTrue(caught(check_decisions.run(other), "0001-one-thing.md: its " + EDITED))
+        # Main moves on after the branch left it, and adds a record the branch has not got: that is not gone.
+        root = history()
+        git(root, "branch", "change")
+        committed(edited(root, {LATER: REPLACING.replace("Replaces", "Adds to")}), "later")
+        git(root, "checkout", "-q", "change")
+        self.assertFalse((root / LATER).exists())
+        self.assertEqual(check_decisions.run(root), [])
+
+    def test_a_base_that_cannot_be_read_fails_and_only_an_export_is_skipped(self):
+        # With a .git and no base to read the check fails, and never passes.
+        bare = tree({FIRST: RECORD})
+        git(bare, "init", "-q")
+        shallow = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "shallow"
+        git(SCRATCH.name, "clone", "-q", "--depth", "1", (history() / ".git").as_uri(), str(shallow))
+        no_origin = history()
+        git(no_origin, "update-ref", "-d", "refs/remotes/origin/main")
+        for name, root, words in (("no commit", bare, "failed"), ("shallow", shallow, "shallow"),
+                                  ("no origin", no_origin, "git rev-parse failed")):
+            with self.subTest(name):
+                self.assertTrue(caught(check_decisions.run(root), "cannot be compared"))
+                self.assertIn(words, check_decisions.described(root))
+        with mock.patch("shutil.which", return_value=None):
+            self.assertTrue(caught(check_decisions.run(history()), "git is not on PATH"))
+        # A replacement ref is not read: the base is main as it was committed, not as a replace says.
+        root = edited(history(), {FIRST: RECORD.replace("one thing.", "two things.")}, commit=True)
+        git(root, "replace", git(root, "rev-parse", "main").strip(), "HEAD")
+        self.assertTrue(caught(check_decisions.run(root), "its " + EDITED))
+        # An export has no .git, and so no history: the comparison is skipped, and verify says so; but not in CI.
+        export = tree({FIRST: RECORD.replace("one thing.", "two things.")})
+        with outside_actions():
+            self.assertEqual(check_decisions.run(export), [])
+            self.assertIn("skipped", check_decisions.described(export))
+        with mock.patch.dict(os.environ, GITHUB_ACTIONS="true"):
+            self.assertTrue(caught(check_decisions.run(export), "in GitHub Actions the checkout always writes one"))
+        # A record's form needs no base, and is held in an export too.
+        with outside_actions():
+            self.assertTrue(caught(check_decisions.run(tree({FIRST: RECORD + "<!-- -->\n"})), "an HTML comment"))
+
+
 def fixture(**fields) -> str:
     """The example fixture, as text, with `fields` written over it."""
     data = json.loads((ROOT / "examples" / "trial.json").read_text())
@@ -1319,6 +1571,7 @@ FAILS = {
     "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("30", "45")})),
     "check_context": lambda: check_context.run(clone({"docs/lessons.md": "# Lessons\n"})),
     "check_trials": lambda: check_trials.run(clone({"trials/notes.txt": "x\n"})),
+    "check_decisions": lambda: check_decisions.run(edited(history(), {FIRST: RECORD.replace("one thing.", "x.")})),
 }
 
 
@@ -1332,8 +1585,10 @@ class Verify(unittest.TestCase):
         self.assertEqual(set(FAILS), {p.stem for p in (ROOT / "tools").glob("check_*.py")})
         for name, planted in sorted(FAILS.items()):
             self.assertTrue(planted(), "%s finds nothing wrong with a planted fault" % name)
-        for name, check in verify.CHECKS:
-            self.assertEqual(check(), [], "%s finds fault with this repo" % name)
+        # In CI this repo is a checkout, and compared with main; the copy `mutants.py` runs this in is an export.
+        with outside_actions():
+            for name, check in verify.CHECKS:
+                self.assertEqual(check(), [], "%s finds fault with this repo" % name)
 
     def test_another_working_tree_inside_this_one_is_not_read(self):
         # A session's git worktree sits in the main checkout, a whole copy of the repo with a .git
@@ -1352,7 +1607,7 @@ class Verify(unittest.TestCase):
                    if "root" in check.__code__.co_varnames[:check.__code__.co_argcount]]
         self.assertGreaterEqual(len(walking), 5)
         for name, check in walking:
-            with self.subTest(check=name):
+            with self.subTest(check=name), outside_actions():      # the copy is an export, with no .git
                 self.assertEqual(check(root), [], "%s reads another working tree as this one" % name)
 
     def test_a_copy_of_the_repo_leaves_out_another_working_tree(self):

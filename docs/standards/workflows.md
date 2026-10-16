@@ -8,7 +8,7 @@ An org standard is cited from combsmith/.github at commit 9e2daad, by file and h
 ## The whole of a good workflow
 
 ```yaml
-# The required check, `factory / verify`: `make verify` and the mutation check, on the commit and nothing else.
+# The required check, `factory / verify`: `make verify` and the mutation check, on the commit, with the history tools/check_decisions.py compares it with.
 name: factory
 on:
   pull_request:
@@ -25,6 +25,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - run: make verify
       - run: python3 -m tools.mutants
 ```
@@ -60,8 +61,7 @@ jobs:
       contents: read       # then only what this job needs
 ```
 
-No personal access token, and no `secrets: inherit`. Every checkout sets
-`persist-credentials: false`.
+No personal access token, no `secrets: inherit`; every checkout sets `persist-credentials: false`.
 
 Org standard: ci-standards.md, "Permissions Policy". Refusing a personal token and inherited secrets departs from github-settings.md, "Required secrets (all repos)": decision 0014.
 Held by: `examples/workflows/invalid/permissions.none-declared.yml`, `examples/workflows/invalid/token.a-persons-token.yml`, `examples/workflows/invalid/credentials.a-token-left-on-disk.yml`
