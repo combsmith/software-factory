@@ -40,6 +40,7 @@
     {"lens": "verify", "path": "*.so", "is": "an extension module at the top of the repo, which verify imports before the standard library"},
     {"lens": "verify", "path": "*/__init__.*", "is": "a package at the top of the repo, which verify imports before the standard library"},
     {"lens": "verify", "path": "__pycache__/", "is": "the compiled modules at the top of the repo"},
+    {"lens": "verify", "path": "*/__pycache__/", "is": "the compiled modules of a package at the top of the repo"},
     {"lens": "verify", "path": "kernel/", "is": "the Kernel, which the tests verify runs import"},
     {"lens": "verify", "path": "tools/", "is": "the checks verify runs"},
     {"lens": "verify", "path": "tests/", "is": "the tests verify runs"},

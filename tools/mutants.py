@@ -706,6 +706,9 @@ MUTANTS = [
     ("verify's inputs leave out an extension module at the top of the repo", "config/hooks.json",
      '    {"lens": "verify", "path": "*.so", "is": "an extension module at the top of the repo, which verify imports '
      'before the standard library"},\n', ""),
+    ("verify's inputs leave out a package's compiled modules", "config/hooks.json",
+     '    {"lens": "verify", "path": "*/__pycache__/", "is": "the compiled modules of a package at the top of the '
+     'repo"},\n', ""),
     ("verify's inputs leave out the compiled modules at the top of the repo", "config/hooks.json",
      '    {"lens": "verify", "path": "__pycache__/", "is": "the compiled modules at the top of the repo"},\n', ""),
     ("verify's inputs leave out a compiled module at the top of the repo", "config/hooks.json",

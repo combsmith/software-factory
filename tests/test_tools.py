@@ -1138,6 +1138,17 @@ class TheList(unittest.TestCase):
                      + ["__pycache__/json.cpython-39.pyc"]):
             self.assertTrue(any(derive.matches(p, path) for p in inputs["verify"]), path)
 
+    def test_every_package_at_the_top_of_the_repo_is_a_lens_input_whole(self):
+        # verify imports every regular package at the top of the repo, through any of its modules or the bytecode
+        # cached for them. A package added without its own entry fails here.
+        verify = [e["path"] for e in self.HOOKS["lens_inputs"] if e["lens"] == "verify"]
+        packages = sorted({p.relative_to(ROOT).parts[0] for p in walk.files(ROOT)
+                           if len(p.relative_to(ROOT).parts) == 2 and p.name.startswith("__init__.")})
+        self.assertLessEqual({"kernel", "sim", "tests", "tools"}, set(packages))
+        for package in packages:
+            for path in ("%s/x.py" % package, "%s/a/b.py" % package, "%s/__pycache__/x.cpython-39.pyc" % package):
+                self.assertTrue(any(derive.matches(p, path) for p in verify), path)
+
     def test_each_lens_workflow_file_is_protected(self):  # decision 0018
         patterns = [e["path"] for e in self.HOOKS["protected"]]
         for lens in support.CONFIG["required_lenses"]["deterministic"]:

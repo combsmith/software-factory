@@ -2341,8 +2341,18 @@ class TheFactorysOwnRules(unittest.TestCase):
             self.waits_for_review([path])
         # The other side: a directory with no __init__ is a namespace package, which shadows no module; nor does a
         # package below the top.
-        for path in ("unittest/AGENTS.md", "docs/unittest/__init__.py", "docs/__pycache__/x.pyc"):
+        for path in ("unittest/AGENTS.md", "docs/unittest/__init__.py", "docs/a/__pycache__/x.pyc"):
             self.converges([path])
+
+    def test_a_module_of_a_package_at_the_top_of_the_repo_counts_as_a_lens_input(self):  # I-45
+        # A package verify imports changes what it does through any of its modules, or the bytecode cached beside them,
+        # without its __init__: every package at the top of the repo is listed whole.
+        for path in ("sim/whatever.py", "sim/__pycache__/world.cpython-39.pyc", "kernel/__pycache__/x.pyc",
+                     "newpkg/__pycache__/__init__.cpython-39.pyc"):
+            self.waits_for_review([path])
+        d = go(changing(**DEPENDENCY, changed_paths=["sim/whatever.py"]))
+        self.assertEqual((d["reason"], d["evidence"], d["admit"]), ("awaiting_review", ["pr-review", "sim/"],
+                                                                    dict(REVIEW_IT, content_id="sha256:aaaa")))
 
     def test_a_pattern_matches_one_name_per_star_in_any_case(self):  # I-45
         # `*` stands for any part of one name, none included, and never for a `/`.
