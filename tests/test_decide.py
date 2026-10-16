@@ -1319,6 +1319,23 @@ class Ceilings(unittest.TestCase):
         d = go(facts(last_writer_action_at="2026-10-11T12:30:00Z"), failures)
         self.assertEqual(d["outcome"], "admit")
 
+    def test_with_no_writers_action_every_run_counts(self):  # I-8, I-28
+        # No person with write access has acted on the item yet: no allowance was renewed, so every Run on it counts
+        # toward its attempts and the Run ceiling, and none is passed over.
+        none = facts(last_writer_action_at=None)
+        d = go(none, REVIEWED + approvals(LIMITS["max_runs_per_item"] + 5, outcome="environment"))
+        self.assertEqual((d["state"], d["outcome"], d["reason"]), ("held", "hold", "run_ceiling"))
+        d = go(none, REVIEWED + approvals(LIMITS["max_attempts"]))
+        self.assertEqual((d["outcome"], d["reason"]), ("hold", "attempts_exhausted"))
+        failures = [run(conclusion="failure", outcome="item", at=at(10 + i), name="f%d" % i)
+                    for i in range(LIMITS["max_attempts"])]
+        d = go(none, failures)
+        self.assertEqual((d["outcome"], d["reason"]), ("hold", "attempts_exhausted"))
+        # Below each ceiling, the next Run or approval goes ahead.
+        self.assertEqual(go(none, failures[1:])["outcome"], "admit")
+        d = go(none, REVIEWED + approvals(LIMITS["max_attempts"] - 1))
+        self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
+
     def test_an_approval_that_does_not_land_is_bounded(self):  # I-8, I-28
         failed = approvals(LIMITS["max_attempts"])
         d = go(facts(), REVIEWED + failed)

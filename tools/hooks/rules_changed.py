@@ -1,4 +1,4 @@
-"""Stop: list for the person every protected path and Kernel module the branch changes.
+"""Stop: list for the person every protected or reported path the branch changes.
 
 The hook that asks before an edit (protected.py) reads a command's words, and a command can be
 spelt so that it does not see the path it writes. This hook reads the state instead: what differs

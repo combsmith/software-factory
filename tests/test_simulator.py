@@ -41,12 +41,21 @@ def queued() -> World:
 
 class Simulation(unittest.TestCase):
     def test_invariants_hold_under_faults(self):
-        made = set()
+        made, stopped, readings, writers = set(), set(), set(), set()
         for seed in SEEDS:
             world = World(seed)
+            writers.add(world.last_writer is None)
             for _ in range(250):
                 world.step()
             made |= world.made
+            stopped |= set(world.stopped)
+            if world.paused_passes:
+                readings.add(world.pause_reading)
+        # Some worlds start with no writer's action, and some pause for a span, or cannot read the Pause for one: in
+        # those passes a Run and an approval were each held back (decision 0003).
+        self.assertEqual(writers, {True, False})
+        self.assertEqual(readings, {True, None})
+        self.assertLessEqual({"admit", "issue_approval"}, stopped)
         # Each change of State the seeds make, and who made it, is one the exploration of every change finds too: what
         # the world reaches and the exploration does not is a gap in the exploration.
         # It holds at any number of seeds; that each of a person, a Lens, the Factory and the platform changes a State
@@ -232,6 +241,25 @@ class Simulation(unittest.TestCase):
         w.poll()
         w.platform()
         self.assertEqual(w.pr_state, "merged")
+
+    def test_a_pause_admits_nothing_and_stops_every_act(self):  # decision 0003
+        # A Hold added to a queued item would take it out. Under a Pause, or one that cannot be read, the dequeue defers
+        # and the item is the Maintainer's to see; the first pass after the Pause takes it out.
+        for reading in (True, None):
+            w = queued()
+            w.pause_from, w.pause_reading = w.minute, reading
+            w.caused(w.while_queued("hold") or "human")
+            w.poll()
+            self.assertEqual((w.queue, w.paused_passes, w.stopped), (True, 1, ["dequeue"]), reading)
+            w.minute = w.pause_from + world.PAUSE_FOR
+            w.poll()
+            self.assertFalse(w.queue, reading)
+        # A Kernel that let the dequeue through under the Pause breaks the invariant.
+        w = queued()
+        w.pause_from, w.pause_reading = w.minute, True
+        w.caused(w.while_queued("hold") or "human")
+        with mock.patch.object(world, "decide", lambda f, r, c, cfg, now: decide(f, r, dict(c, paused=False), cfg, now)):
+            self.assertRaises(world.Broken, w.poll)
 
     def test_a_dequeue_at_the_act_ceiling_is_the_one_act_past_it(self):  # I-8
         # A required check fails after the item entered the queue, with the acts since a writer at the ceiling. The

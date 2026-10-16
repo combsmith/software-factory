@@ -23,7 +23,7 @@ single decider has no race to lose and one place for every brake.
 | The admission function takes no event payload | `tests/test_decide.py::test_admission_is_given_facts_and_never_an_event` |
 | At most one Run is active per Work item, counting one still waiting for a runner | `tests/test_decide.py::test_one_writer_per_item`, `tests/test_simulator.py::test_invariants_hold_under_faults` |
 | An outside item gets no Run until the Maintainer admits it, and admission lapses on the next push | `tests/test_decide.py::test_outside_item_gets_no_run_until_admitted`, `tests/test_decide.py::test_admission_lapses_on_the_next_push` |
-| Attempts are counted since the last action by a person with write access | `tests/test_decide.py::test_a_writers_action_grants_a_fresh_allowance` |
+| Attempts are counted since the last action by a person with write access | `tests/test_decide.py::test_a_writers_action_grants_a_fresh_allowance`, `tests/test_decide.py::test_with_no_writers_action_every_run_counts`, `tests/test_simulator.py::test_an_approval_that_never_lands_is_bounded` |
 | A fault of capacity or of the environment is not an attempt | `tests/test_decide.py::test_capacity_and_environment_faults_are_not_attempts`, `tests/test_decide.py::test_an_approval_that_fails_for_capacity_or_environment_is_not_an_attempt` |
 | An approval is a Run with no Engine. One that does not land is bounded by its attempts, and a writer's action renews them | `tests/test_decide.py::test_an_approval_that_does_not_land_is_bounded`, `tests/test_decide.py::test_an_approval_that_landed_is_enqueued_whatever_failed_before`, `tests/test_simulator.py::test_an_approval_that_never_lands_is_bounded` |
 | An approval that lands is an act, and does not count toward the Run ceiling, which is the cost ceiling | `tests/test_decide.py::test_an_approval_run_does_not_count_toward_the_run_ceiling` |
@@ -42,8 +42,8 @@ single decider has no race to lose and one place for every brake.
 | Hands-off is never read from a timeline read short: a queued item it would leave alone is taken out | `tests/test_decide.py::test_hands_off_is_not_read_from_a_timeline_read_short` |
 | A missing or unreadable Pause or capacity reading admits nothing | `tests/test_decide.py::test_unreadable_pause_defers`, `tests/test_decide.py::test_an_unreadable_pause_stops_approvals_and_merges`, `tests/test_decide.py::test_unreadable_capacity_defers` |
 | Each brake is a rule a test would miss if it were removed | `tools/mutants.py` |
-| A Pause stops approvals and merges as well as Runs | `tests/test_decide.py::test_a_pause_stops_approvals_and_merges_too` |
-| Under a Pause, or one that cannot be read, a dequeue defers, as every act does, and the item is the Maintainer's to see | `tests/test_decide.py::test_under_a_pause_a_dequeue_defers_for_the_maintainer` |
+| A Pause stops approvals and merges as well as Runs | `tests/test_decide.py::test_a_pause_stops_approvals_and_merges_too`, `tests/test_simulator.py::test_invariants_hold_under_faults` |
+| Under a Pause, or one that cannot be read, a dequeue defers, as every act does, and the item is the Maintainer's to see | `tests/test_decide.py::test_under_a_pause_a_dequeue_defers_for_the_maintainer`, `tests/test_simulator.py::test_a_pause_admits_nothing_and_stops_every_act` |
 | Under a Pause, a Hold the facts establish is shown first: the approver may not be the author or last pusher | `tests/test_decide.py::test_under_a_pause_a_hold_the_facts_establish_shows_first` |
 | A Run's lane is one concurrency group for each Work item, declared on the job, and never cancels what is running | waiting on `harness/` |
 | Work is never lost once faults stop | `tests/test_simulator.py::test_work_is_never_lost_once_faults_stop` |

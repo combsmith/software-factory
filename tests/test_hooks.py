@@ -1286,13 +1286,15 @@ class RulesChanged(unittest.TestCase):
         git(where, "commit", "-q", "-m", "committed")
         self.write(where, ".github/workflows/x.yml")
         git(where, "add", ".github")
+        self.write(where, "kernel/brakes.py")
+        self.write(where, "kernel/gate.py")
         self.write(where, "kernel/decide.py")
         self.write(where, "lifecycle/staged.json")
         git(where, "add", "lifecycle/staged.json")
         (where / "lifecycle" / "staged.json").unlink()      # in the index alone
         said = self.told(where)
-        for part in ("config/authority.json", ".github/workflows/x.yml", "kernel/decide.py", "the Kernel",
-                     "lifecycle/staged.json"):
+        for part in ("config/authority.json", ".github/workflows/x.yml", "kernel/brakes.py", "the brakes",
+                     "kernel/gate.py", "the gate", "lifecycle/staged.json", "kernel/decide.py", "Admission"):
             self.assertIn(part, said)
 
     def test_every_protected_path_changed_is_listed(self):
