@@ -1190,6 +1190,19 @@ class Decisions(unittest.TestCase):
             "the path without backticks": ({LATER: REPLACING.replace("`%s`" % FIRST, FIRST)}, None,
                                            "only as 'Status: accepted. Replaces'"),
         }
+        # The whole declaration is read: past it, no word of replacing and no record's path, in either record.
+        missing = "docs/decisions/0000-missing.md"
+        for status in ("Status: accepted. Replaces `%s`. It also replaces `%s`." % (FIRST, missing),
+                       "Status: accepted. Replaces `%s`, and SUPERSEDES `%s`." % (FIRST, missing),
+                       "Status: accepted. Replaces `%s`, and keeps all of `%s`." % (FIRST, missing),
+                       "Status: accepted. Replaces `%s`; and `%s`." % (FIRST, missing),
+                       "Status: accepted. Replaces `%s` in part." % FIRST):
+            cases[status] = ({FIRST: REPLACED, LATER: REPLACING.replace(REPLACING.split("\n\n")[1], status)}, None,
+                             "0002-two-things.md: its Status says what it replaces only as")
+        for status in ("Status: replaced by `%s`. It is also replaced by `%s`." % (LATER, third),
+                       "Status: replaced by `%s`, with `%s`." % (LATER, third)):
+            cases[status] = ({FIRST: RECORD.replace("Status: accepted.", status), LATER: REPLACING}, None,
+                             "0001-one-thing.md: its Status changes only to say what replaces it")
         for name, (files, base, words) in cases.items():
             with self.subTest(name):
                 self.assertTrue(refused(files, words, base=base), name)

@@ -37,7 +37,9 @@ PATH = r"`(%s/(\d{4})-[^`/\s]+\.md)`" % FOLDER
 # How decision 0012 says it was replaced, from the start of its Status: the path, then a comma, a stop or the end.
 REPLACED = re.compile(r"^Status: replaced by %s(?=[,.]|$)" % PATH)
 # How decision 0015 says what it replaces: one record, or a list of them, straight after its own Status.
-REPLACES = re.compile(r"^Status: accepted\. Replaces (`[^`]+`(?:(?:, and |, | and )`[^`]+`)*)")
+REPLACES = re.compile(r"^Status: accepted\. Replaces (`[^`]+`(?:(?:, and |, | and )`[^`]+`)*)(?=[,.]|$)")
+# Words that claim a replacement. Past the one declaration a Status makes, none of them, and no record's path, stands.
+CLAIM = re.compile(r"replace|supersede", re.I)
 NUMBER = re.compile(r"^(\d{4})-")
 BOUNDARIES = "## Boundaries"
 
@@ -129,16 +131,25 @@ def parse(text: str):
     return _words(lines[first:end]), rest, rows
 
 
+def _declared(pattern, status: str):
+    """`pattern` matched at the start of `status`, or None when it is not, or when what follows it claims more."""
+    found = pattern.match(status)
+    rest = status[found.end():] if found else ""
+    if found is None or CLAIM.search(rest) or FOLDER + "/" in rest:
+        return None
+    return found
+
+
 def _status(rel: str, old: str, new: str, before: dict, root: pathlib.Path) -> str:
     """Why the Status at `rel` may not change from `old` to `new`, or "" when it may."""
     if new == old:
         return ""
     if REPLACED.match(old):
         return "its Status named the record that replaces it, and is fixed from then on"
-    named = REPLACED.match(new)
+    named = _declared(REPLACED, new)
     if named is None:
         return ("its Status changes only to say what replaces it: 'Status: replaced by' and the path in backticks, "
-                "as decision 0012's does")
+                "as decision 0012's does, and nothing more of replacing or of another record")
     path, number = named.group(1), named.group(2)
     own = NUMBER.match(rel.rsplit("/", 1)[-1])
     if path in before:
@@ -156,23 +167,24 @@ def _status(rel: str, old: str, new: str, before: dict, root: pathlib.Path) -> s
 
 def _replaces(status: str) -> list:
     """The paths a Status names, in decision 0015's words, as the records it replaces."""
-    listed = REPLACES.match(status)
+    listed = _declared(REPLACES, status)
     return re.findall(r"`([^`]+)`", listed.group(1)) if listed else []
 
 
 def _replacing(rel: str, status: str, before: dict, current: dict) -> list:
     """Why the new record at `rel` does not replace what its Status says it does: each record it names is in the
     base, earlier, and in this change has its Status set to 'replaced by' this one."""
-    if "replace" not in status.lower():
+    if not CLAIM.search(status):
         return []
     names = _replaces(status)
     if not names:
-        return ["its Status says what it replaces only as 'Status: accepted. Replaces' and each path in backticks"]
+        return ["its Status says what it replaces only as 'Status: accepted. Replaces' and each path in backticks, "
+                "and nothing more of replacing or of another record"]
     own, why = NUMBER.match(rel.rsplit("/", 1)[-1]), []
     for name in names:
         number = NUMBER.match(name.rsplit("/", 1)[-1]) if re.fullmatch(PATH, "`%s`" % name) else None
         now = current.get(name)
-        said = REPLACED.match(now[0]) if isinstance(now, tuple) else None
+        said = _declared(REPLACED, now[0]) if isinstance(now, tuple) else None
         if name not in before or number is None or now is None:
             why.append("it replaces %s, which is not a record main holds" % name)
         elif own is None or number.group(1) >= own.group(1):
