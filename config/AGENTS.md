@@ -7,7 +7,8 @@ may be judged without a model Lens) and for the one name of the status on the it
 `authority.json` for who owns each category of Finding, `rubric-pr-review.json` for what a review
 must look at, `apps.json` for each GitHub App's permissions and the repos it is installed on, which the
 Maintainer registers each App from, `hooks.json` for the Maintainer, whose name every commit and push here carries,
-and for what the session hooks ask the person about (the protected paths, merging, the repo's settings) or list at a stop.
+and for what the session hooks ask the person about (the protected paths, merging, the repo's settings,
+a session started with no one asked) or list at a stop.
 Its protected paths and each Lens's inputs are also the Kernel's `protected_paths`: a change to one is reviewed by every model Lens.
 
 | Rule | Held by |

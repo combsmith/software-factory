@@ -879,6 +879,16 @@ MUTANTS = [
      "    if not lines or not lines[0].startswith(\"# \"):\n", "    if False:\n"),
     ("a link in docs/decisions/ is read as a record", "tools/check_decisions.py",
      'for p in entries if p.is_symlink()]', 'for p in entries if False]'),
+    ("under bypassPermissions the session is not told the reasons", "tools/hooks/protected.py",
+     '"Not asked, under bypassPermissions, by tools/hooks/protected.py. "\n'
+     '                                                  + said}})',
+     '"Not asked, under bypassPermissions, by tools/hooks/protected.py. "\n'
+     '                                                  + said[:said.index(":") + 2]}})'),
+    ("under bypassPermissions a config that cannot be read is still asked about", "tools/hooks/protected.py",
+     '    if payload.get("permission_mode") == BYPASS:\n',
+     '    if payload.get("permission_mode") == BYPASS and found[0][0] != "config_unreadable":\n'),
+    ("a command that starts Claude Code with no one asked is not asked about", "tools/hooks/protected.py",
+     "                self.session(words, redirections)\n", ""),
 ]
 
 

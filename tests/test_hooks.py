@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from tools.hooks import after_edit, before_stop, identity, protected, rules_changed, shell
 
@@ -835,6 +836,72 @@ class ProtectedPaths(Asks):
                      tool_input={"file_path": str(self.project / "docs" / "notes.md"), "content": "{}"})
         done = hook("protected", clean, programs(), CLAUDE_PROJECT_DIR=str(self.project))
         self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))
+
+    def test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked(self):
+        # Decision 0019: the session is told every code and sentence the person would have been asked with.
+        write = {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": str(self.project),
+                 "tool_input": {"file_path": str(self.project / "lifecycle" / "issue.json"), "content": "{}"}}
+        missing, load = folder() / "hooks.json", protected.load
+        cases = (
+            (write, "protected_path: lifecycle/ is the Lifecycle."),
+            (bash("git push origin HEAD:main", self.project), "merge: "),
+            (bash("claude --dangerously-skip-permissions -p x", self.project),
+             "unasked_session: the command names --dangerously-skip-permissions, which starts Claude Code with no "
+             "one asked."),
+            (bash("ls", self.project), "config_unreadable: config/hooks.json cannot be read (FileNotFoundError), so "
+                                       "the hook cannot clear any edit or command."),
+            (bash("echo %s" % ("x" * protected.LONGEST), self.project),
+             "budget_spent: the command is longer than the hook reads."),
+            ({"tool_name": "Edit", "tool_input": "x"},
+             "hook_failed: the hook could not finish (AttributeError), so it cannot clear it."),
+        )
+        for case, reason in cases:
+            said = {}
+            for mode in ("default", "bypassPermissions"):
+                unreadable = reason.startswith("config_unreadable")
+                with mock.patch.object(protected, "load", lambda source=None: load(missing if unreadable else source)):
+                    said[mode] = json.loads(protected.respond(dict(case, permission_mode=mode), self.env))
+            asked, told = said["default"]["hookSpecificOutput"], said["bypassPermissions"]["hookSpecificOutput"]
+            self.assertEqual(asked["permissionDecision"], "ask", reason)
+            self.assertNotIn("permissionDecision", told, reason)
+            self.assertIn(reason, told["additionalContext"])
+            self.assertEqual(told["additionalContext"].replace("Not asked, under bypassPermissions, by ", "Asked by ", 1),
+                             asked["permissionDecisionReason"])
+
+    def test_a_command_that_starts_claude_code_with_no_one_asked_asks(self):
+        # Decision 0019: a session under bypassPermissions is one only the Maintainer set.
+        for command in (
+                "claude --dangerously-skip-permissions -p 'do the next task'", "claude --DANGEROUSLY-skip-permissions",
+                "claude --allow-dangerously-skip-permissions -p x", "claude --permission-mode bypassPermissions -p x",
+                "claude --permission-mode=bypassPermissions -p x",
+                "claude --settings '{\"permissions\": {\"defaultMode\": \"bypassPermissions\"}}' -p x",
+                "env claude --dangerously-skip-permissions", "timeout 60 claude --dangerously-skip-permissions",
+                "cd /tmp && nohup claude --dangerously-skip-permissions &",
+                "npx @anthropic-ai/claude-code --dangerously-skip-permissions",
+                "O=--dangerously-skip-permissions; claude $O -p x", "export O=--dangerously-skip-permissions",
+                "printf -v O %s --dangerously-skip-permissions", "echo --dangerously-skip-permissions | xargs claude",
+                "C=claude; $C --dangerously-skip-p'ermissions' -p x", "D=dangerously; claude --$D-skip-permissions",
+                "sh -c 'claude --dangerously-skip-permissions -p x'", "bash -lc 'claude --permission-mode bypassPermissions'",
+                "python3 -c 'import os; os.system(\"claude --dangerously-skip-permissions\")'",
+                "python3 <<'EOF'\nimport os\nos.system('claude --dangerously-skip-permissions')\nEOF"):
+            self.asked(self.run_(command), "unasked_session", command)
+        for word in RULES["sessions"]["words"]:
+            self.asked(self.run_("claude %s -p x" % word), "unasked_session", word)
+        for command in ("claude -p 'do the next task'", "claude --permission-mode acceptEdits -p x",
+                        "grep -rn -- --dangerously-skip-permissions tools", "rg bypassPermissions docs",
+                        "claude --dangerously-skip-permissions-not -p x"):
+            self.assertEqual(self.run_(command), "", command)
+        data = protected.load()
+        data["sessions"] = dict(data["sessions"], words=["--yolo"])
+        self.assertEqual(self.run_("claude --dangerously-skip-permissions", data=data), "")
+        self.asked(self.run_("claude --yolo", data=data), "unasked_session", "--yolo as data")
+
+    def test_claude_code_given_a_word_the_hook_cannot_read_asks(self):
+        for command in ('claude -p "$(cat prompt.md)"', "claude $FLAGS -p x", 'env claude "$@"',
+                        "npx @anthropic-ai/claude-code $X", 'P=$(cat p.md); claude -p "$P"', "claude-code -p `cat p`"):
+            self.asked(self.run_(command), "command_unreadable", command)
+        for command in ('claude -p "hi"', 'P=hello; claude -p "$P"', 'git commit -m claude -m "$(date)"'):
+            self.assertNotIn("Claude Code is given", self.run_(command), command)
 
     def test_every_protected_path_asks_for_every_edit_tool_in_every_tree(self):
         for entry in RULES["protected"]:

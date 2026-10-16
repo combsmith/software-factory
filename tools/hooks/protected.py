@@ -4,11 +4,13 @@ Three things are (§5.1, §9.12): an edit to a protected path, one of the Factor
 hook that holds them; a merge that bypasses the queue, or a push to the default branch; and a write
 to a ruleset or to the repo's settings. For each the hook answers "ask", and the person answers.
 Under bypassPermissions it asks nothing and tells the session its reasons instead (decision 0019):
-the Maintainer runs such a session on autopilot, and the boundary is where it was.
+the Maintainer runs such a session on autopilot, and the boundary is where it was. So that only the
+Maintainer sets one, a command that may start Claude Code with no one asked is asked about too: a
+word that turns its permissions off, read as text anywhere in the command.
 That the Maintainer asked is never inferred from the conversation. An enqueue is not asked about:
 the Maintainer's standing approval covers it. The hook allows nothing and refuses nothing: what it
 does not ask about goes through the session's own permissions. The paths, the commands, the
-mutations and the endpoints are data, in `config/hooks.json`.
+mutations, the endpoints and the words that start a session are data, in `config/hooks.json`.
 
 This hook guards against mistakes; it is not the boundary, which is the rulesets and the
 Maintainer's reading of each pull request. It reads plain spellings of a command. A spelling it
@@ -71,7 +73,11 @@ READS = {"cat", "less", "more", "head", "tail", "wc", "grep", "egrep", "fgrep", 
          "local", "declare", "readonly", "read", "shift", "exit", "return", "wait", "case", "esac", "fi", "done",
          "cd", "pushd", "popd"}
 # Programs that read the paths they are named, and write the value of these options.
-OUTPUTS = {"sort": {"-o", "--output"},
+# Of those, the ones that set no variable and print nothing a later command may run: a word in them starts nothing.
+SHOWS = READS - {"export", "unset", "set", "local", "declare", "readonly", "read", "shift", "echo", "printf"}
+# Programs that fetch and run the package their words name, as npx @anthropic-ai/claude-code does.
+RUNNERS = {"npx", "bunx", "pnpx"}
+OUTPUTS = {"sort":{"-o", "--output"},
            "pytest": {"--junitxml", "--junit-xml", "--basetemp", "--result-log", "--report-log", "--html"},
            "py.test": {"--junitxml", "--junit-xml", "--basetemp", "--result-log", "--report-log", "--html"}}
 # Modules `python -m` runs that read the paths they are named: the program whose outputs they share, and the
@@ -199,15 +205,17 @@ def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
                  for group in ("merging", "settings")}
         lists["settings"]["reads"] = list(data["settings"]["reads"])
         branch = data["merging"]["branch"]
+        sessions = {key: list(data["sessions"][key]) for key in ("programs", "words")}
     except (OSError, ValueError, KeyError, TypeError) as err:
         raise Unreadable("config/hooks.json cannot be read (%s)" % type(err).__name__)
     paths = protected + reported
     words = [p for p, _ in paths] + [branch] + [w for group in lists.values() for v in group.values() for w in v]
-    words += [lens for lens, _, _ in inputs]
-    if not protected or not inputs or not all(isinstance(w, str) and w for w in words) or any(
-            ".." in p.split("/") for p, _ in paths):
+    words += [lens for lens, _, _ in inputs] + [w for v in sessions.values() for w in v]
+    if not protected or not inputs or not all(sessions.values()) or not all(
+            isinstance(w, str) and w for w in words) or any(".." in p.split("/") for p, _ in paths):
         raise Unreadable("config/hooks.json does not have the shape the hook reads")
-    return {"protected": protected, "reported": reported, "lens_inputs": inputs, "branch": branch, **lists}
+    return {"protected": protected, "reported": reported, "lens_inputs": inputs, "branch": branch, "sessions": sessions,
+            **lists}
 
 
 def protected_paths(path: pathlib.Path = ROOT / "config" / "hooks.json") -> list:
@@ -353,6 +361,9 @@ class Command:
         self.known = {k: env[k] for k in ("HOME", "TMPDIR", "CLAUDE_PROJECT_DIR") if env.get(k)}
         self.assigned = set()       # the names the command itself sets
         self.found = []
+        # A word that starts Claude Code with no one asked, as text: not part of a longer option or name.
+        self.unasked = [(word, re.compile(r"(?<![\w-])%s(?![\w-])" % re.escape(word), re.I))
+                        for word in data["sessions"]["words"]]
 
     def ask(self, code: str, sentence: str):
         self.found.append((code, sentence))
@@ -472,6 +483,7 @@ class Command:
             self.redirections(redirections)
             if words:
                 self.github(words, redirections)
+                self.session(words, redirections)
                 self.simple(words, redirections)
         return self.found
 
@@ -856,6 +868,33 @@ class Command:
                 if _is_command(entry, positional, args) and not any(
                         _is_command(read, positional, args) for read in self.data[group].get("reads", [])):
                     self.ask(code, "gh %s %s" % (entry, does))
+
+    # -- a session that asks nobody
+
+    def session(self, words: list, redirections: list):
+        """Ask about what may start Claude Code with no one asked (decision 0019): a word config/hooks.json lists, read
+        as text in any word, an assignment's or a script's among them, or with what the hook knows put in for each
+        variable; in a here-document fed to the command, too. Only a program that reads or prints, and sets nothing,
+        may name one. Claude Code given a word the hook cannot read is asked about: it may be one of them."""
+        at = 0
+        while at < len(words) and (words[at] in PREFIXES or ASSIGNMENT.match(words[at])):
+            at += 1
+        program = os.path.basename(self.expand(words[at]) or words[at]) if at < len(words) else None
+        heredoc = any("<<" in op and "<<<" not in op for op, _ in redirections)
+        if program in SHOWS and not heredoc:
+            return
+        texts = [value for word in words for value in (word, self.expand(word)) if value is not None]
+        for word, named in self.unasked:
+            if any(named.search(text) for text in texts + ([self.text] if heredoc else [])):
+                self.ask("unasked_session", "the command names %s, which starts Claude Code with no one asked" % word)
+                return
+        programs = self.data["sessions"]["programs"]
+        runs = next((i for i in range(at, len(words)) if os.path.basename(self.expand(words[i]) or "") in programs
+                     and (i == at or program in WRAPPERS or program in RUNNERS)), None)
+        # An unquoted `...` is split out of the words it stands in, so one anywhere in the command may be Claude Code's.
+        if runs is not None and ("`" in self.text or any(self.expand(word) is None for word in words[runs:])):
+            self.ask("command_unreadable", "Claude Code is given a word the hook cannot read, which may start it with "
+                                           "no one asked")
 
     def _push(self, args: list, assigned: list = ()):
         here, i, elsewhere = self.here, 0, False
@@ -1554,7 +1593,7 @@ def check(payload: dict, env: dict, data: dict = None, source: pathlib.Path = RO
     try:
         data = data or load(source)
     except Unreadable as err:
-        return [("config_unreadable", "%s, so every edit and command is asked about" % err)]
+        return [("config_unreadable", "%s, so the hook cannot clear any edit or command" % err)]
     try:
         rules = Rules(data, env, Budget(seconds))
         if tool in FILE_TOOLS:

@@ -9,6 +9,7 @@
     "reported",
     "lens_inputs",
     "merging",
+    "sessions",
     "settings"
   ],
   "properties": {
@@ -93,6 +94,33 @@
         },
         "endpoints": {
           "$ref": "#/$defs/endpoints"
+        }
+      }
+    },
+    "sessions": {
+      "description": "What starts Claude Code with no one asked (decision 0019): a word that turns its permissions off, read as text anywhere in a command, and the programs that are Claude Code, a word given to which the hook cannot read is asked about.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "programs",
+        "words"
+      ],
+      "properties": {
+        "programs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          }
+        },
+        "words": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^(--)?[A-Za-z][A-Za-z-]*$"
+          }
         }
       }
     },
