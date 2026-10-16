@@ -3,7 +3,7 @@
 It is strict by allowing little: a Kernel module holds a docstring, imports, constants and
 functions, and nothing else. That is narrower than Python, on purpose. It assigns no attribute, so
 no module changes another's names. The brakes and the gate, each a protected path alone, import
-only what CONFINED allows, and no other module defines a name either of them defines.
+only what CONFINED allows, and no module binds a name either of them owns but as its own.
 """
 from __future__ import annotations
 
@@ -83,9 +83,9 @@ def _kernel_imports(node) -> list:
     return [node.module] if (node.module or "").split(".")[0] == "kernel" else []
 
 
-def _defined(tree) -> set:
-    """The names a module defines at its top level: its functions and its constants."""
-    out = set()
+def _defined(name: str, tree) -> set:
+    """The names a confined module owns: its own name, and the functions and constants it defines at its top level."""
+    out = {name[:-len(".py")]}
     for node in tree.body:
         if isinstance(node, ast.FunctionDef):
             out.add(node.name)
@@ -95,8 +95,46 @@ def _defined(tree) -> set:
     return out
 
 
+def _bindings(tree) -> list:
+    """(line, name, (import, alias) or None) for every name a module binds, at any depth: a definition, a parameter, an
+    assignment or any other target, a name an exception or a pattern is caught as, and an import."""
+    out = []
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.append((line, node.name, None))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            given = node.args
+            out += [(line, arg.arg, None) for arg in given.posonlyargs + given.args + given.kwonlyargs +
+                    [a for a in (given.vararg, given.kwarg) if a is not None]]
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            out.append((line, node.id, None))
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            out += [(line, alias.asname or alias.name.split(".")[0], (node, alias)) for alias in node.names]
+        elif isinstance(node, ast.ExceptHandler) or type(node).__name__.startswith("Match"):
+            out += [(line, getattr(node, field), None) for field in ("name", "rest")
+                    if isinstance(getattr(node, field, None), str)]
+    return out
+
+
+def _brought(imported: tuple, word: str, owner: str) -> bool:
+    """Whether an import binds `word` to the owner's own: `from kernel.gate import gates`, `from kernel import gate`,
+    or `import kernel.gate as gate`. Any other binding of that name stands in for it."""
+    node, alias = imported
+    stem = owner[:-len(".py")]
+    if isinstance(node, ast.Import):
+        return alias.name == "kernel." + stem and alias.asname == stem == word
+    if node.level:
+        return False
+    if node.module == "kernel":
+        return alias.name == stem == word and alias.asname in (None, stem)
+    return node.module == "kernel." + stem and alias.asname is None and alias.name == word
+
+
 def _confined(name: str, tree, owned: dict) -> list:
-    """What a module does that could change the brakes or the gate from outside them."""
+    """What a module does that could change the brakes or the gate from outside them: in either of them, an import of
+    the Kernel beyond what CONFINED allows; in any module, a binding of a name either owns, but its own definitions in
+    the module that owns it, and an import of the owner's own from another."""
     problems = []
     if name in CONFINED:
         for node in ast.walk(tree):
@@ -105,33 +143,15 @@ def _confined(name: str, tree, owned: dict) -> list:
                     if mod not in CONFINED[name]:
                         problems.append("%s:%d imports %s; %s imports %s of the Kernel" % (
                             name, node.lineno, mod, name, " and ".join(sorted(CONFINED[name])) or "nothing"))
-        return problems
-    top = [node for node in tree.body if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign))]
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            bound = [node.name]
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            bound = [alias.asname or alias.name.split(".")[0] for alias in node.names
-                     if not _brought(node, alias, owned)]
-        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and node in top:
-            bound = [n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)]
-        else:
-            continue
-        for word in bound:
-            for owner, names in sorted(owned.items()):
-                if word in names:
-                    problems.append("%s:%d defines %s, which %s defines; use that one, so that what %s decides "
-                                    "is changed only there" % (name, node.lineno, word, owner, owner))
+    for line, word, imported in _bindings(tree):
+        for owner, names in sorted(owned.items()):
+            if word not in names:
+                continue
+            if (owner == name and imported is None) or (owner != name and imported and _brought(imported, word, owner)):
+                continue
+            problems.append("%s:%d binds %s, which %s owns; use that one, so that what %s decides is changed only "
+                            "there" % (name, line, word, owner, owner))
     return problems
-
-
-def _brought(node, alias, owned: dict) -> bool:
-    """Whether an import brings a name of the brakes or the gate from its own module, as it is: `from kernel.gate
-    import gates`. Any other binding of that name stands in for it."""
-    if not isinstance(node, ast.ImportFrom) or node.level or not (node.module or "").startswith("kernel."):
-        return False
-    owner = node.module[len("kernel."):] + ".py"
-    return alias.asname is None and alias.name in owned.get(owner, ())
 
 
 def run(root: pathlib.Path = ROOT) -> list:
@@ -146,7 +166,7 @@ def run(root: pathlib.Path = ROOT) -> list:
             trees[name] = ast.parse(path.read_text(errors="replace"), str(path))
         except (SyntaxError, ValueError) as err:
             problems.append("%s cannot be read as Python: %s" % (name, err))
-    owned = {name: _defined(tree) for name, tree in trees.items() if name in CONFINED}
+    owned = {name: _defined(name, tree) for name, tree in trees.items() if name in CONFINED}
     for name, tree in trees.items():
         problems += _confined(name, tree, owned)
         calendar, wrong = _calendar(name, tree)

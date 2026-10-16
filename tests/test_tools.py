@@ -622,19 +622,41 @@ class Purity(unittest.TestCase):
         gate = "SECURITY = 'security'\n\n\ndef gates(facts, config):\n    return []\n"
         brakes = "from kernel import terms as t\nfrom kernel.terms import HELD\n\n\ndef paused(_decision, facts):\n" \
                  "    return None\n"
-        derive = "from kernel import gate\nfrom kernel.gate import gates\n\n\ndef derive(facts):\n    return gates(facts, {})\n"
+        derive = "from kernel import brakes, gate\nfrom kernel.gate import gates\nimport kernel.gate as gate\n\n\n" \
+                 "def derive(facts):\n    pause = brakes.paused(None, facts)\n    return pause or gates(facts, {})\n"
         clean = {"kernel/gate.py": gate, "kernel/brakes.py": brakes, "kernel/derive.py": derive}
         self.assertEqual(check_purity.run(tree(clean)), [])
-        for text, owner in (("def gates(facts, config):\n    return []\n", "gate.py"),
-                            ("def f(facts):\n    def gates(a, b):\n        return []\n    return gates(facts, 0)\n",
-                             "gate.py"),
-                            ("SECURITY = 'none'\n", "gate.py"),
-                            ("from kernel.terms import NONE as gates\n", "gate.py"),
-                            ("from kernel.gate import SECURITY as gates\n", "gate.py"),
-                            ("from kernel.brakes import paused as on_act\nfrom kernel.terms import HELD as paused\n",
-                             "brakes.py")):
-            said = check_purity.run(tree(dict(clean, **{"kernel/derive.py": text})))
-            self.assertTrue(caught(said, "which %s defines" % owner), (text, said))
+        # Any binding of a name either owns stands in for theirs, at any depth and in any form, and so does a binding
+        # of either module's own name to anything but that module. Each also binds no name of the other's.
+        d, g, b = "kernel/derive.py", "kernel/gate.py", "kernel/brakes.py"
+        for rel, text, word, owner in (
+                (d, "def gates(facts, config):\n    return []\n", "gates", "gate.py"),
+                (d, "def f(facts):\n    def gates(a, b):\n        return []\n    return gates(facts, 0)\n", "gates",
+                 "gate.py"),
+                (d, "SECURITY = 'none'\n", "SECURITY", "gate.py"),
+                (d, "def f(facts):\n    gates = facts\n    return gates\n", "gates", "gate.py"),
+                (d, "def derive(facts, gates=None):\n    return gates\n", "gates", "gate.py"),
+                (d, "def f(xs):\n    return (lambda gates: gates)(xs)\n", "gates", "gate.py"),
+                (d, "def f(xs):\n    return [gates for gates in xs]\n", "gates", "gate.py"),
+                (d, "def f(xs):\n    for paused in xs:\n        return paused\n", "paused", "brakes.py"),
+                (d, "def f(x):\n    with x as paused:\n        return paused\n", "paused", "brakes.py"),
+                (d, "def f(x):\n    try:\n        return x\n    except ValueError as gates:\n        return gates\n",
+                 "gates", "gate.py"),
+                (d, "def f(x):\n    if (gates := x):\n        return gates\n", "gates", "gate.py"),
+                (d, "from kernel.terms import NONE as gates\n", "gates", "gate.py"),
+                (d, "from kernel.gate import SECURITY as gates\n", "gates", "gate.py"),
+                (d, "from kernel.brakes import paused as on_act\nfrom kernel.terms import HELD as paused\n", "paused",
+                 "brakes.py"),
+                (d, "from kernel import terms as gate\n", "gate", "gate.py"),
+                (d, "import kernel.terms as gate\n", "gate", "gate.py"),
+                (d, "from kernel import derive as brakes\n", "brakes", "brakes.py"),
+                (d, "def brakes(x):\n    return x\n", "brakes", "brakes.py"),
+                (b, "from kernel.terms import HELD as gates\n" + brakes, "gates", "gate.py"),
+                (b, "from kernel.terms import HELD as paused\n" + brakes, "paused", "brakes.py"),
+                (g, gate + "\n\ndef paused(x):\n    return x\n", "paused", "brakes.py"),
+                (g, gate + "\n\ndef f(brakes):\n    return brakes\n", "brakes", "brakes.py")):
+            said = check_purity.run(tree(dict(clean, **{rel: text})))
+            self.assertTrue(caught(said, "binds %s, which %s owns" % (word, owner)), (rel, text, said))
         for rel, text, words in (("kernel/gate.py", "from kernel import terms as t\n" + gate, "imports kernel.terms"),
                                  ("kernel/gate.py", "import kernel.derive\n" + gate, "imports kernel.derive"),
                                  ("kernel/gate.py", "from . import terms\n" + gate, "imports ."),

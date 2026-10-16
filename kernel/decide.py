@@ -92,9 +92,9 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     # I-13). It is counted, never refused at the act ceiling, and not delayed by a Run in progress. Only a Pause
     # stops it, as it stops every act (decision 0003); then only the Maintainer can stop the merge.
     if d.get("dequeue"):
-        paused = brakes.paused(_decision, facts, state, evidence, context, attention=t.NEEDS_YOU)
-        if paused:
-            return paused
+        pause = brakes.paused(_decision, facts, state, evidence, context, attention=t.NEEDS_YOU)
+        if pause:
+            return pause
         return _decision(facts, state, reason, evidence, t.ACT, action="dequeue", content_id=facts["content_id"])
     # Fail to a deferral, never to an action.
     if state is None:

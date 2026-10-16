@@ -291,8 +291,8 @@ def unreadable_reviews(facts: dict, config: dict) -> bool:
     return False
 
 
-def whose_turn(gate: dict, runs: list, config: dict) -> str:
-    """Who must act on an open gate, a thread or a request for changes: 'author', 'owner' or 'human'.
+def whose_turn(held: dict, runs: list, config: dict) -> str:
+    """Who must act on `held`, an open gate: a thread or a request for changes. 'author', 'owner' or 'human'.
 
     The author answers a gate with a Run after it was opened. The answer may
     be new content, so this cannot be read from "the last Run on this content".
@@ -302,10 +302,10 @@ def whose_turn(gate: dict, runs: list, config: dict) -> str:
     """
     answers = [r["started_at"] for r in runs
                if r["role"] == config["author_role"] and r["status"] == "completed"
-               and r["conclusion"] == "success" and r["started_at"] > gate["at"]]
+               and r["conclusion"] == "success" and r["started_at"] > held["at"]]
     if not answers:
         return "author"
-    if gate["by"]["kind"] == "human":
+    if held["by"]["kind"] == "human":
         return "human"
     rulings = [r["started_at"] for r in runs
                if r["intent"] == "adjudicate-findings" and r["status"] == "completed"

@@ -398,7 +398,7 @@ MUTANTS = [
     ("the States that admit nothing are only the ends", "kernel/terms.py",
      "ADMITS_NOTHING = frozenset({MERGED, CLOSED, NOT_SERVED})", "ADMITS_NOTHING = frozenset({MERGED, CLOSED})"),
     ("a pause lets a dequeue through", "kernel/decide.py",
-     "        if paused:\n", "        if False:\n"),
+     "        if pause:\n", "        if False:\n"),
     ("a deferred dequeue is not the Maintainer's to see", "kernel/decide.py",
      ", attention=t.NEEDS_YOU)", ")"),
     ("a dequeue is held to the act ceiling", "kernel/decide.py",

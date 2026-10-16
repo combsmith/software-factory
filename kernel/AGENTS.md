@@ -13,7 +13,7 @@ Design §2.2's Brakes, outside `kernel/` and holding when Factory code is broken
 | No text from outside: no function takes a comment body or a title | `examples/invalid/facts.carries-prose.json` |
 | A reason is a code that matches `^[a-z_]+$`, never a sentence | `examples/invalid/decision.sentence-as-reason.json` |
 | Fail to a deferral or a Hold. A fact read from outside is never given a default | `tests/test_decide.py::test_unreadable_capacity_defers` |
-| The gate imports none of the Kernel, the brakes only its codes. No other module redefines their names; none assigns an attribute | `tests/test_tools.py::test_the_brakes_and_the_gate_stand_apart`, `tests/test_tools.py::test_an_attribute_assigned_is_caught` |
+| The gate imports no Kernel code, the brakes only its codes. Nothing else binds their names or their own; no attribute is assigned | `tests/test_tools.py::test_the_brakes_and_the_gate_stand_apart`, `tests/test_tools.py::test_an_attribute_assigned_is_caught` |
 | No number but 0 and 1, but the calendar's that `tools/check_purity.py` pins. A limit is read from `config` | `tests/test_tools.py::test_a_limit_written_into_the_kernel_is_caught`, `tests/test_tools.py::test_only_the_calendar_may_write_a_number` |
 
 ## Adding a rule: copy this one
