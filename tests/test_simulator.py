@@ -390,7 +390,10 @@ class Simulation(unittest.TestCase):
 
         def gone(w):
             w.criteria, w.kinds, w.results, w.judge, w.head = ["AC-1"], {"AC-1": "test"}, [], Never(), w.digest()
-            w.approve_contract(world.COLLEAGUE)
+            w.reviews.append({"by": dict(world.COLLEAGUE), "state": "approved", "commit": "c0",
+                              "content_id": "sha256:c0c0", "submitted_at": w.at(-1), "dismissed_by": None,
+                              "dismissed_from": None})
+            w.approve_contract(world.COLLEAGUE, "c0")
 
         w = queued()
         gone(w)

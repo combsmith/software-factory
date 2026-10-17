@@ -75,6 +75,9 @@ HUMAN_KIND = "human"
 CRITERION_PREFIX = "AC-"
 CONTENT_PREFIX = "sha256:"
 HEX_DIGITS = "0123456789abcdef"
+# The one form of an acceptance contract's digest: the prefix, then a whole SHA-256 in lower-case hexadecimal, one
+# character for each digit. Shorter or longer, it is no digest (schemas/facts.schema.json).
+DIGEST_SHAPE = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 # The one form in which a Decision's evidence shows a workflow file's path, the form a Lens's workflow takes in
 # schemas/config.schema.json: this directory, a name of these characters alone, and one of these endings.
 WORKFLOW_DIR = ".github/workflows/"

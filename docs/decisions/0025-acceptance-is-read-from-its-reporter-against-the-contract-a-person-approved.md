@@ -3,7 +3,7 @@
 Status: accepted. The working rulings on "Kernel: acceptance evidence from the right reporter, against the
 approved contract" (issue 108), by the Solution Architect, delegated, with the Maintainer's three
 decisions of 2026-10-17. It builds on the ruling on "Kernel: acceptance evidence in Convergence"
-(issue 17) and on decision 0022, whose acceptance rows it gives their checks.
+(issue 17) and on decision 0026, whose acceptance rows name its checks.
 
 ## Decision
 
@@ -35,8 +35,14 @@ no person has dismissed confirms every such criterion there. A check's result fo
 whatever the configuration names. It never fails; a person objects with a request for changes, which
 gates. That review approves no content.
 
-A contract that cannot be read, an approver `readable_actor` refuses, an unknown kind or a criterion
-named twice among it, defers for the Maintainer, read with the Holds, and admits nothing.
+The approval is held to a review GitHub holds: the contract a person approved names the commit it was
+approved at, and `reviews` must hold that person's approving review on that commit, which no person has
+dismissed; otherwise it is `contract_not_approved`. A digest is `sha256:` and a whole SHA-256. A
+contract that cannot be read, an approver `readable_actor` refuses, an unknown kind, a criterion named
+twice or a digest cut short among it, defers for the Maintainer, read with the Holds, and admits
+nothing; so does a configuration whose `acceptance_reporters` cannot be read, as
+`acceptance_reporters_unreadable`. Every field of a review the Kernel reads, its commit, content and
+dismissal among them, is read whole, or the review is unreadable.
 
 ## Why
 
@@ -50,7 +56,7 @@ evidence is read, so the contract's identity is read before all of them.
 Any App with `checks: write` can report a passing result, the implementing Role's own among them, and
 GitHub Actions runs any job a pull request adds: no Role judges its own work (I-10, FR-30). A result
 already names the check that gave it, so it is read with `reports_for`, the one matcher a Lens's check
-is read with (decision 0022), and the same threat has one mechanism. The digest and decision 0020
+is read with (decision 0026), and the same threat has one mechanism. The digest and decision 0020
 keep the named tests and `verify`'s inputs from changing unseen.
 
 A dismissal by an App ends nothing a person did (L-17): it ends no request for changes, and it leaves
@@ -71,6 +77,10 @@ P-37 was taken by decision 0023.
 | A result for a kind no Lens reports is unreadable, from any check; once the configuration names a Lens, its check's result counts | `tests/test_decide.py::test_a_kind_with_no_reporter_cannot_pass` |
 | A `human` criterion is passed only by a person's approving review of this content that no person dismissed; never by the machine user, an App, a stranger, other content or a check, whatever the configuration says, and it never fails | `tests/test_decide.py::test_a_human_criterion_is_passed_only_by_a_persons_approval_of_this_content` |
 | An approval or criterion that cannot be read defers for the Maintainer and admits no Run; each Hold is the Maintainer's to see and never stale | `tests/test_decide.py::test_an_unreadable_contract_admits_nothing`, `tests/test_decide.py::test_unreadable_acceptance_never_converges` |
+| The approval of the contract is a review GitHub holds: by that person, with write access, approving, on the commit the approval names, and not dismissed by a person; an App's dismissal leaves it standing | `tests/test_decide.py::test_an_approval_of_the_contract_is_a_review_github_holds`, `examples/invalid/facts.an-acceptance-contract-approved-on-no-commit.json` |
+| A digest, approved or at the head, is `sha256:` and exactly 64 lower-case hexadecimal digits | `tests/test_decide.py::test_a_digest_is_a_whole_sha256`, `examples/invalid/facts.an-acceptance-digest-cut-short.json` |
+| Every field of a review the Kernel reads is there and in its form, a person's comment too, or the review is unreadable | `tests/test_decide.py::test_every_field_of_a_review_the_kernel_reads_is_read_whole` |
+| A configuration whose `acceptance_reporters` is missing or of another shape defers an item with a contract for the Maintainer | `tests/test_decide.py::test_a_contract_whose_reporters_cannot_be_read_defers` |
 | The facts carry the approved contract, its digest at the head and each result's check, and refuse any of them missing or a kind the Kernel does not know | `examples/invalid/facts.an-acceptance-contract-without-its-head.json`, `examples/invalid/facts.an-acceptance-contract-approved-by-a-name-alone.json`, `examples/invalid/facts.an-acceptance-criterion-of-a-kind-the-kernel-does-not-know.json`, `examples/invalid/facts.an-acceptance-result-without-its-check.json` |
 | Under faults, nothing is admitted, converges, queues or merges unless a person approved the contract and the head still carries it, and every criterion passes from its kind's reporter | `tests/test_simulator.py::test_the_seeds_serve_items_with_an_acceptance_contract_and_without`, `tests/test_simulator.py::test_invariants_hold_under_faults` |
 | The port reads whether a contract exists from the issue the pull request closes, never the head; the approved contract at the commit of the newest approving review by a person; the digest over the contract and every path it protects; and each result's check | waiting on `adapters/` |
