@@ -28,7 +28,7 @@ import unittest
 
 from kernel import terms as t
 from kernel.decide import decide
-from tests.support import (CONFIG, GREEN, MAINTAINER, OTHER_APP, ROOT, context, contract, evidence, facts,
+from tests.support import (CONFIG, GREEN, MAINTAINER, OTHER_APP, REPORTER, ROOT, context, contract, evidence, facts,
                            labelled, review, run, thread)
 from tests.support import changed as a_file
 from tools import check_lifecycle
@@ -199,6 +199,15 @@ BASES = {
     "approval_due, with a contract": base([reviewed()], acceptance=contract(results=ACCEPTED)),
     "in_merge_queue, with a contract": base([reviewed()], reviews=APPROVED, queue=True, acts_since_writer=2,
                                             acceptance=contract(results=ACCEPTED)),
+    # A contract no person approved, and one changed since a person did: each a Hold before anything admits a Run.
+    "contract_not_approved": base([reviewed()], acceptance=contract(results=ACCEPTED, by=None)),
+    "contract_not_approved, an agent's": base(acceptance=contract(by=None), **AGENT),
+    "contract_changed": base([reviewed()], acceptance=contract(results=ACCEPTED, head="sha256:" + "0" * 64)),
+    "contract_changed, queued": base([reviewed()], reviews=APPROVED, queue=True, acts_since_writer=2,
+                                     acceptance=contract(results=ACCEPTED, head=None)),
+    # A criterion only a person passes, by approving this content, on an agent's pull request.
+    "acceptance_evidence_missing, for a person": base([reviewed()], acceptance=contract([("AC-1", "human"), "AC-2"],
+                                                                                      [evidence("AC-2")]), **AGENT),
 }
 
 
@@ -419,17 +428,66 @@ def acts(pr: dict, lands: bool = True) -> dict:
     return pr
 
 
-def reports(pr: dict, result: str) -> dict:
-    """A Lens reports a result for the first criterion of the contract with none on this content: or None."""
+def criteria(f: dict, kind: str = "test") -> list:
+    """The ids of the approved contract's criteria of `kind`, or none where there is no contract or no approval."""
+    approved = f["acceptance"] and f["acceptance"]["approved"]
+    return [c["id"] for c in approved["criteria"] if c["kind"] == kind] if approved else []
+
+
+def reports(pr: dict, result: str, check=None, kind: str = "test") -> dict:
+    """A check reports a result for the first criterion of `kind` with none on this content: by default the check of
+    the Lens that reports a criterion of kind test. Or None."""
     f = pr["facts"]
-    if f["acceptance"] is None:
-        return None
-    given = {ev["criterion"] for ev in f["acceptance"]["results"] if ev["content_id"] == f["content_id"]}
-    lacking = [c for c in f["acceptance"]["criteria"] if c not in given]
+    given = {ev["criterion"] for ev in f["acceptance"]["results"] if ev["content_id"] == f["content_id"]} \
+        if f["acceptance"] else set()
+    lacking = [c for c in criteria(f, kind) if c not in given]
     if not lacking:
         return None
-    f["acceptance"]["results"].append(evidence(lacking[0], result, f["content_id"]))
+    f["acceptance"]["results"].append(evidence(lacking[0], result, f["content_id"], check))
     return pr
+
+
+def edits_the_contract(pr: dict, head) -> dict:
+    """A push that changes what the contract's digest covers, the contract or a test it names, to `head`; or deletes
+    the contract, `head` None. Or None, where there is no contract or the head already says so."""
+    f = pr["facts"]
+    if f["acceptance"] is None or f["acceptance"]["head"] == head:
+        return None
+    f["acceptance"]["head"] = head
+    return pr
+
+
+def approves_the_contract(pr: dict) -> dict:
+    """A person approves the contract at the head, with its criteria as they stand. Or None, where there is none to
+    approve, or a person already approved this one."""
+    f = pr["facts"]
+    contract_now = f["acceptance"]
+    if contract_now is None or contract_now["head"] is None:
+        return None
+    approved = contract_now["approved"]
+    if approved is not None and approved["digest"] == contract_now["head"] and approved["by"] == MAINTAINER:
+        return None
+    listed = approved["criteria"] if approved else contract()["approved"]["criteria"]
+    commit = "c%d" % pr["minute"]
+    f["reviews"].append(review(content=f["content_id"], commit=commit, at=now(pr), **MAINTAINER))
+    contract_now["approved"] = {"digest": contract_now["head"], "commit": commit, "by": dict(MAINTAINER),
+                                "criteria": listed}
+    return writer_acted(pr)
+
+
+def fix_edits_the_contract(pr: dict) -> dict:
+    """A fix Run pushes, and its push edits the contract or a test it names. Or None."""
+    out = fix_ends(pr)
+    return None if out is None else edits_the_contract(out, "sha256:%064x" % out["minute"])
+
+
+def withdraws_the_approval(pr: dict) -> dict:
+    """A person withdraws the contract's approval: no person's approval of it stands. Or None, where none does."""
+    f = pr["facts"]
+    if f["acceptance"] is None or f["acceptance"]["approved"] is None:
+        return None
+    f["acceptance"]["approved"] = None
+    return writer_acted(pr)
 
 
 def reports_again(pr: dict) -> dict:
@@ -439,7 +497,7 @@ def reports_again(pr: dict) -> dict:
     if f["acceptance"] is None:
         return None
     passed = [ev["criterion"] for ev in f["acceptance"]["results"]
-              if ev["content_id"] == f["content_id"] and ev["result"] == "passing"]
+              if ev["content_id"] == f["content_id"] and ev["result"] == "passing" and ev["criterion"] in criteria(f)]
     if not passed:
         return None
     f["acceptance"]["results"].append(evidence(passed[0], "failing", f["content_id"]))
@@ -558,6 +616,12 @@ MOVES = [
     Move("a person approves", "human", lambda pr: person_review(pr, "approved")),
     Move("a person dismisses the approver's approval", "human", lambda pr: dismiss(pr, MAINTAINER, CONFIG["approver"])),
     Move("a person dismisses a request for changes", "human", lambda pr: dismiss(pr, MAINTAINER, COLLEAGUE["name"])),
+    Move("a person approves the contract", "human", approves_the_contract),
+    Move("a person withdraws the contract's approval", "human", withdraws_the_approval),
+    Move("a person pushes an edit to a test the contract names", "human",
+         lambda pr: edits_the_contract(push(pr, MAINTAINER["name"], True), "sha256:%064x" % pr["minute"])),
+    Move("a person pushes a deletion of the contract", "human",
+         lambda pr: edits_the_contract(push(pr, MAINTAINER["name"], True), None)),
     Move("a person runs the checks again", "human", lambda pr: ran_again(pr, lambda c: c["conclusion"] != "success")),
     Move("a person runs a passing check again", "human",
          lambda pr: ran_again(pr, lambda c: c["conclusion"] == "success")),
@@ -583,6 +647,8 @@ MOVES = [
     *[Move("a Lens reports a criterion %s" % said, "lens", (lambda said: lambda pr: reports(pr, said))(said))
       for said in ("passing", "failing")],
     Move("a Lens gives a criterion a second result, failing", "lens", reports_again),
+    Move("a Lens's check reports a criterion only a person passes", "lens",
+         lambda pr: reports(pr, "passing", kind="human")),
     # Any App with write access can dismiss a review and place or remove a label (`an_app_can_dismiss_a_review`,
     # `an_app_can_label`), a Lens's among them.
     Move("a Lens's App marks its threads unresolved", "lens", lambda pr: reopen(pr, REVIEWER_APP), when=resolved),
@@ -599,6 +665,9 @@ MOVES = [
     Move("the Controller makes an act", "factory", acts, whole=True),
     Move("an approval does not land", "factory", lambda pr: acts(pr, lands=False), whole=True),
     Move("a fix Run pushes", "factory", fix_ends, when=running),
+    # The implementing Role's edit to the contract or a test it names: `apply` refusing it waits on harness/ (I-30).
+    Move("a fix Run pushes an edit to a test the contract names", "factory",
+         fix_edits_the_contract, when=running),
     Move("a fix Run answers with no push", "factory", lambda pr: applies(pr, "fix-findings"), when=running),
     Move("a ruling Run accepts", "factory", lambda pr: ruling_ends(pr, True), when=running),
     Move("a ruling Run rejects", "factory", lambda pr: ruling_ends(pr, False), when=running),
@@ -620,6 +689,8 @@ MOVES = [
     # GitHub itself, and any App that is not the one a Lens is read from: the Kernel cannot tell which.
     Move("another App posts a check under a Lens's name", "platform", lambda pr: (pr["facts"]["checks"].append(
         dict(GREEN[0], app_id=OTHER_APP, completed_at=now(pr))) or pr)),
+    Move("another App reports a criterion passing", "platform",
+         lambda pr: reports(pr, "passing", dict(REPORTER, app_id=OTHER_APP))),
     Move("the queue merges it", "platform", queue_merges),
     Move("the queue ejects it", "platform", queue_ejects),
     Move("another App adds a Hold", "platform", lambda pr: label(pr, t.LABEL_HOLD, ANOTHER_APP)),
@@ -786,10 +857,12 @@ def explored():
 # writer's action renews; or, for a label, a person, since only a person ends what a label holds, whoever placed it.
 # The Hold of I-26 ends only by a push: a person's, or a fix Run's, after which the Role's App is the last pusher. On a
 # lap through it that a Lens or the platform makes, the only work the Factory does is that Run, which the Run ceiling
-# counts, so it is bound as the at-ceiling laps are: by the counter of the Factory's own work on the lap.
+# counts, so it is bound as the at-ceiling laps are: by the counter of the Factory's own work on the lap. A contract no
+# person approved, or one changed since, holds until a person approves it at the head (I-29).
 HOLD_BOUNDS = {"run_ceiling": "max_runs_per_item", "attempts_exhausted": "max_attempts", "max_rounds": "max_rounds",
                "act_ceiling": "max_acts_per_item", "human_hold": check_lifecycle.PERSON,
-               "hands_off": check_lifecycle.PERSON, "approver_is_author_or_last_pusher": "max_runs_per_item"}
+               "hands_off": check_lifecycle.PERSON, "approver_is_author_or_last_pusher": "max_runs_per_item",
+               "contract_not_approved": check_lifecycle.PERSON, "contract_changed": check_lifecycle.PERSON}
 # What a label holds.
 LABEL_HOLDS = ("human_hold", "hands_off")
 # Transitions the Lifecycle declares that nothing here makes, each with why it is kept.
