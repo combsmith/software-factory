@@ -93,10 +93,12 @@ runs-on: ubuntu-latest     # no
 ```
 
 A tag can be moved; a commit hash cannot. Look the hash up from the release, and never guess one:
-a made-up hash passes until the job first runs.
+a made-up hash passes until the job first runs. Every `actions/checkout` is the one `CHECKOUT` in
+`tools/check_workflows.py` lists, hash and version: a text compared word for word takes any pin as
+equal, so nothing else says which checkout reads `ref:` and `path:`. A bump of it edits that entry too.
 
-Org standard: ci-standards.md, "Action Pinning Policy", "Looking Up the Correct SHA" and "Exception: Internal Reusable Workflow References". Stricter here: a tag never stands in for a hash, and the runner is named by version.
-Held by: `examples/workflows/invalid/pin.a-tag-can-move.yml`, `examples/workflows/invalid/runner.an-image-that-changes.yml`
+Org standard: ci-standards.md, "Action Pinning Policy", "Looking Up the Correct SHA" and "Exception: Internal Reusable Workflow References". Stricter here: a tag never stands in for a hash, the runner is named by version, and the checkout is one listed version.
+Held by: `examples/workflows/invalid/pin.a-tag-can-move.yml`, `examples/workflows/invalid/pin.a-checkout-not-the-listed-one.yml`, `examples/workflows/invalid/runner.an-image-that-changes.yml`, `tests/test_tools.py::test_every_checkout_is_the_listed_one`
 
 ## Nothing is granted that is not named
 

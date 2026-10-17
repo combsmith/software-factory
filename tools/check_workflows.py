@@ -17,7 +17,8 @@ of the base, never the head. Only `jobs.<id>.name` is read: a workflow's or a st
 
 The secret scan, the exempt `ci.yml`, reads its rules from the base (scan_problems): `.gitleaks.toml` and
 `.gitleaksignore` from a checkout of the base under `base/`, with the head's `.gitleaksignore` deleted first, since
-gitleaks also reads the one at the top of what it scans.
+gitleaks also reads the one at the top of what it scans. Its install is held word for word, its version and checksum
+free only within their shapes; and every checkout in every workflow is the one CHECKOUT lists.
 """
 from __future__ import annotations
 
@@ -71,6 +72,11 @@ WHOLE = re.compile(r"^\$\{\{ [^{}]+ \}\}$")
 SECRET = re.compile(r"\bsecrets\b(\.(\w+)|\[\s*['\"](\w+)['\"]\s*\])?")
 PERSONAL = re.compile(r"(?:^|_)PAT(?:_|$)", re.I)
 PIN = re.compile(r"@[0-9a-f]{40} # v[\w.]+")
+# The one actions/checkout every workflow uses, and its version. PIN makes any two pins equal where a text is compared
+# word for word, so this is what holds the checkout to a version that has `ref:` and `path:` (decision 0023). A bump of
+# actions/checkout changes it here too, so a bot's bump cannot merge on its own.
+CHECKOUT = ("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "# v7.0.1")
+CHECKOUT_USE = re.compile(r"^actions/checkout[@/]", re.I)
 # What a Lens's job that needs others has: the one job-level if: that cannot skip it, the step that judges what it
 # needs, and the results that step reads.
 ALWAYS = "always()"
@@ -93,7 +99,17 @@ SCAN_CHECKOUTS = [{"fetch-depth": "0", "persist-credentials": "false"},
 # What the secret scan's workflow and its one job may hold, and what its install may be given.
 SCAN_TOP = {"name", "on", "permissions", "jobs"}
 SCAN_JOB = {"name", "runs-on", "timeout-minutes", "permissions", "steps"}
-SCAN_ENV = ("GITLEAKS_VERSION", "GITLEAKS_CHECKSUM")
+# The install's whole block. It reads the version and the checksum from its env, so they alone are free, each held to its
+# shape and quoted: the version goes into the URL's path, where curl folds `/../`, and the checksum can only accept what
+# a gitleaks release serves. A gitleaks without a flag of SCAN_RUN exits non-zero, so the scan fails closed.
+INSTALL_RUN = ['tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"',
+               'url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"',
+               "curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/gitleaks.tar.gz \"${url}\"",
+               'echo "${GITLEAKS_CHECKSUM}  /tmp/gitleaks.tar.gz" | sha256sum -c',
+               "tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks",
+               "sudo mv /tmp/gitleaks /usr/local/bin"]
+SCAN_ENV = {"GITLEAKS_VERSION": re.compile(r'"[0-9]+\.[0-9]+\.[0-9]+"'),
+            "GITLEAKS_CHECKSUM": re.compile(r'"[0-9a-f]{64}"')}
 # The only events a workflow with a judging job runs on: on any other there is no base, and its checkout would be the head.
 JUDGED = {"pull_request", "merge_group"}
 JOB = re.compile(r"^[A-Za-z_][\w-]*$")
@@ -193,6 +209,8 @@ def lint(text: str) -> list:
                 found.append(("pin", "%s is not pinned to a commit" % value))
             elif not VERSION.match(e["comment"]):
                 found.append(("pin", "%s has no version beside its hash" % value.split("@")[0]))
+            elif CHECKOUT_USE.match(value) and (value, e["comment"]) != CHECKOUT:
+                found.append(("pin", "%s %s is not the listed checkout, %s %s" % ((value, e["comment"]) + CHECKOUT)))
         if key == "runs-on" and not RUNNER.match(value):
             found.append(("runner", "runs on '%s'" % value))
         if key in ("image", "container") and (value or key == "image") and \
@@ -280,10 +298,10 @@ def scan_problems(text: str) -> list:
     """Why the secret scan in `text` could be passed by the head it scans: its rules not read from the base.
 
     Its one job runs four steps, in this order and nothing else: the head's checkout, with its history; the base's,
-    under `base/`, at the base's commit; the install, which names no `base`; and the scan, whose whole block is
-    SCAN_RUN, telling gitleaks the base's `.gitleaks.toml` and `.gitleaksignore` on the line after the
-    head's `.gitleaksignore` is deleted. Nothing sets an environment, a directory or a container that the scan could
-    run in instead.
+    under `base/`, at the base's commit; the install, whose whole block is INSTALL_RUN, given a version and a checksum
+    of their shapes; and the scan, whose whole block is SCAN_RUN, telling gitleaks the base's `.gitleaks.toml` and
+    `.gitleaksignore` on the line after the head's `.gitleaksignore` is deleted. Nothing sets an environment, a
+    directory or a container that the scan could run in instead.
     """
     entries, _ = read(text)
     problems = []
@@ -301,12 +319,21 @@ def scan_problems(text: str) -> list:
               and all(set(step) <= {"name", "uses", "with"} and _checkout(step.get("uses", {"key": ""}))
                       for step in steps[:2])
               and set(install) <= {"name", "env", "run"} and given == ({*SCAN_ENV} if "env" in install else set())
-              and not any("base" in line for line in _lines(install.get("run")))
               and set(steps[3]) <= {"name", "run"})
     if not shaped:
         problems.append("%s does not run, in this order and nothing else, the head's checkout, the base's, the "
-                        "install, which names no base, and the scan, with no environment, directory or container of "
-                        "its own: a step could change base/ or what the scan reads" % SCAN)
+                        "install and the scan, with no environment, directory or container of its own: a step could "
+                        "change base/ or what the scan reads" % SCAN)
+    if _lines(install.get("run")) != INSTALL_RUN:
+        problems.append("%s does not install gitleaks by INSTALL_RUN, word for word, as its third step's whole block: "
+                        "another install could put another program where the scan runs gitleaks" % SCAN)
+    lines = text.split("\n")
+    for key, shape in SCAN_ENV.items():
+        values = [lines[e["line"] - 1].strip()[len(key) + 2:] for e in entries if e["key"] == key and install.get("env")
+                  and e["step"] == install["env"]["step"] and e["path"] == install["env"]["path"] + ["env"]]
+        if len(values) != 1 or not shape.fullmatch(values[0]):
+            problems.append("%s does not give the install %s once, as %s: a value of another shape could change what "
+                            "the install fetches" % (SCAN, key, shape.pattern))
     if _lines(steps[-1].get("run") if steps else None) != SCAN_RUN:
         problems.append("%s does not run, as its last step's whole block, `%s` on the line after `%s`: it could read "
                         "the head's .gitleaks.toml or .gitleaksignore, and a change could widen the allowlist it needs"
