@@ -336,7 +336,8 @@ class Simulation(unittest.TestCase):
 
         def recording(f, r, c, cfg, now):
             d = decide(f, r, c, cfg, now)
-            shown.update(e.split(":")[1] for e in d["evidence"] if e.count(":") >= 2)
+            if d["reason"] == "check_unreadable":
+                shown.update(e.split(":")[1] for e in d["evidence"] if e.count(":") >= 2)
             return d
 
         with mock.patch.object(world, "decide", recording):
