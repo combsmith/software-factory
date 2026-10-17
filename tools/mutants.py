@@ -718,9 +718,12 @@ MUTANTS = [
      '        return {"state": t.HELD, "reason": "approver_is_author_or_last_pusher", "evidence": []}\n'
      "    # Then the acceptance contract's evidence, where the item has one:"),
     # The contract a person approved, and the reporter its kind names (issue 108, decision 0025).
+    # A missing approval read as one that passes, and so converges: a wrong Decision, not None passed on to a crash.
     ("nobody's approval is read as an approval", "kernel/derive.py",
      '    if approved is None or not is_person(approved["by"]):\n',
-     '    if approved is not None and not is_person(approved["by"]):\n'),
+     "    if approved is None:\n"
+     '        return {"state": t.CONVERGED, "reason": "approval_due", "evidence": []}\n'
+     '    if not is_person(approved["by"]):\n'),
     ("an approval by anyone is read as a person's", "kernel/derive.py",
      ' or not is_person(approved["by"]):\n', ":\n"),
     ("a contract changed since its approval is read as unchanged", "kernel/derive.py",
