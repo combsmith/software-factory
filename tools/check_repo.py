@@ -24,6 +24,8 @@ STDLIB = STDLIB | {"urllib"}
 STDLIB = STDLIB | {"concurrent", "signal"}
 # marshal: tests/test_transitions.py copies plain facts many thousand times, faster than copy or json can.
 STDLIB = STDLIB | {"marshal"}
+# importlib: tests/test_tools.py reads the import system's own suffixes, so that a Lens's inputs keep up with Python's.
+STDLIB = STDLIB | {"importlib"}
 MANIFESTS = {"pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "Pipfile.lock", "poetry.lock", "uv.lock",
              "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "environment.yml", "go.mod",
              "Cargo.toml", "Gemfile"}

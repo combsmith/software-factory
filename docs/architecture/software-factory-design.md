@@ -319,7 +319,7 @@ for contract tests, so one schema has three uses.
 | `diff_size` | Files and lines changed |
 | `head`, `base`, `merge_base` | Commit hashes |
 | `content_id` | Hash of the pull request's own diff against its merge base, computed by the port |
-| `changed_paths` | Paths in that diff |
+| `changed_paths` | One record for each file in that diff, as many as `diff_size` counts files, each by its own path once, from the top of the repo, with `previous`, the path a renamed or copied file had before, null for any other change. A list of another length, a record not in that shape, or a path with an empty, `.` or `..` name, is unreadable, `paths_unreadable`, for the Maintainer. The Kernel matches each against the protected paths and the Lenses' inputs, and never shows one (§4.2, decision 0020) |
 | `label_events` | Every `labeled` and `unlabeled` event on the timeline: the label, who added or removed it (kind, name and write access), and when |
 | `reviews` | Who submitted it (`by`: kind, name and whether that actor has write access, as a thread's opening actor), state (`approved`, `changes_requested`, `commented` or `dismissed`, as GitHub holds it now), commit, `content_id`, `submitted_at`; and, from the timeline, `dismissed_by`: who dismissed it, of what kind and with what access, and `dismissed_from`: what it was before (`approved`, `changes_requested` or `commented`). Both are null unless it was dismissed |
 | `threads` | Thread id, path, line, when it was opened, resolved, outdated, opening actor and resolving actor, each with its kind and whether it has write access (the resolving actor null unless resolved); and the Finding's `category` and `severity`. For a required Lens's thread both come from that Lens's own Finding record, in its Run's `result.json` (§3.10), joined by `surface.key`, never from the comment text, which anyone with write access can edit. A person's thread is `human`, with no severity; an Advisory reviewer's, which no Finding record names, has neither |
@@ -329,7 +329,7 @@ for contract tests, so one schema has three uses.
 | `acts_since_writer` | Count of acts that landed since the last action by a person with write access, from GitHub's timeline: each approval, enqueue, dequeue and label a Factory identity made with no model Run |
 | `acceptance` | The acceptance contract of §3.13 that the head carries, or null where there is none: each criterion by id, never its statement; and `results`, each result read for a criterion, `passing` or `failing`, with the `content_id` of the content its check ran on, the latest per criterion per check suite (§4.8). Convergence's fourth condition is read from it (§4.2). Only this content's results are judged; a contract, or a result on this content, that cannot be read converges nothing. `complete.acceptance` says whether it, or that there is none, was read in full |
 | `read_at`, `quota_remaining` | When it was read, and what the installation has left |
-| `complete` | For each list above, whether every page was read; whether the diff behind `content_id` was whole; `runs`, whether the list of run records the pass read was whole; and `timeline`, whether the timeline behind `acts_since_writer` and `label_events` was read in full |
+| `complete` | For each list above, whether every page was read; whether the diff behind `content_id` was whole; `changed_paths`, whether every path it changes was read; `runs`, whether the list of run records the pass read was whole; and `timeline`, whether the timeline behind `acts_since_writer` and `label_events` was read in full |
 
 An incomplete read is an unreadable one. A list cut off at a page limit must never be taken to mean
 "nothing more": the Kernel defers on any fact marked incomplete, and a truncated diff means a
@@ -411,17 +411,18 @@ with no `strategy.matrix`, job-level `if:` or `uses:`, any of which would leave 
 
 The pin is to the path, not to what the file says, nor to what it runs. A pull request from a
 branch of this repo can change the file at that path in place, and its check still reports from
-it; so can a dependency bot's security update, which edits the pins in workflow files and, as class
-`dependency`, skips the model review. `verify` runs the pull request's own Makefile, tools and
-tests, and the secret scan reads its own `.gitleaks.toml`. What holds `.github/` today is GitHub
+it; so can a dependency bot's security update, which edits the pins in workflow files. `verify`
+runs the pull request's own Makefile, tools and tests, and the secret scan reads its own
+`.gitleaks.toml`. A change to such a file, or to any of the Factory's own rules, converges only
+once every model Lens has reviewed its head, a dependency update's too, and the machine user then
+approves it (§4.2, I-45, decision 0020). What holds `.github/` today is GitHub
 refusing an App's push there without the `workflows` permission, which no Factory App holds
 (`config/apps.json`, held by `tools/check_apps.py`); a person's admission of a fork's pull request
 after its last push (I-36); a Role's `apply`, which waits on `harness/`; and the session hooks,
 locally. The `main` ruleset requires no review and pins only `verify` to its App; pinning each
 required check is the Maintainer's, in the repo's settings, with
 "The Factory repo's rulesets hold the Release tags and each required check's App" (issue 62), and
-the Kernel's pin does not wait on it. That a change to a Lens's inputs needs a person is
-"Kernel: a change to the Factory's own rules or a Lens's inputs needs a person" (issue 113). A Lens
+the Kernel's pin does not wait on it. A Lens
 no workflow runs has a gap of its own: whether an upload to code scanning under CodeQL's tool and
 category, by an identity holding `security_events: write`, can replace the CodeQL verdict is
 unverified (trial P-36). Such an upload would be reported by the Lens's own App under its own
@@ -1428,10 +1429,18 @@ and needs no Disposition before its item merges (§4.3, FR-33).
 Which Lenses are required is data. The starting set is the deterministic checks, `pr-review` and
 humans. A Lens joins it only with a measured contribution (ADR-0013, decision 12). A dependency
 update, a pull request of class `dependency` whose head was pushed by the identity that opened it,
-requires no model Lens: the deterministic checks and humans judge it, and no model review is
-admitted for it. A Finding a model Lens has already raised still gates it, whatever its class, so a
+requires no model Lens unless it changes a protected path or a Lens's input (below): the
+deterministic checks and humans judge it, and no model review is admitted for it. A Finding a model Lens has already raised still gates it, whatever its class, so a
 bot that recreates its branch does not drop one. Anyone else's push puts content of their own in it,
 and it needs `pr-review` again.
+
+A change to the Factory's own rules or to a Lens's input needs every model Lens's review of its head,
+whatever its class, a dependency update's too (I-45, decision 0020). The list is one, in
+`config/hooks.json`: its protected paths and each deterministic Lens's inputs, which the Kernel is
+given as `protected_paths`. Otherwise the Lens a change edits, such as `verify` and its workflow file,
+would be its only judge. The machine user then approves it as it approves any item, and the wait for
+the review names the patterns the change matched. A queued item that changes the list is not read
+past a review of its head that it lacks.
 
 A Finding from a Lens that is not required is shown and measured. It is given to `pr-review` as
 input. If `pr-review` adopts it, it raises a Finding of its own (§3.7), and that one gates. An Advisory reviewer that posts twenty threads therefore costs the reviewer
@@ -1552,6 +1561,7 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 | I-42 | No Run is admitted on an issue that is not accepted at that moment, and no investigating Run unless the content changed, a person with write access acted since the last, or the last ended without investigating and the attempt limit is not reached | FR-7, FR-63 |
 | I-43 | After a linked pull request closes unmerged, at most `max_unmerged_closes` further linked pull requests are opened before a person with write access acts | FR-18 |
 | I-44 | An issue's State is given by exactly one row of its derivation, and no issue admits two Runs at once | FR-16 |
+| I-45 | Nothing that changes a protected path or a Lens's input is approved, enqueued, left in the merge queue or merged without every model Lens's review of that head, whatever its class | §4.2, §5.1 |
 
 ### 4.5 The simulator
 
@@ -1605,7 +1615,7 @@ A sweep on 2026-10-10 ran the Lifecycle against awkward inputs. Each case below 
 | Case | Rule |
 |---|---|
 | A pull request from a fork, or from someone who is not a collaborator | Its class is `outside`. It gets no Run, because a Run holds the model credential. It is held as "needs you" until the Maintainer admits it or closes it (I-25). Its status is written for a stranger: what is happening, and that a maintainer has to admit it. Admission lapses when the author pushes again, so a harmless commit cannot be admitted and then replaced (I-36) |
-| A dependency update | Its class is `dependency`, and the bot that opened it pushed its head. Its required Lenses are deterministic ones, and a person's thread, or a model Lens's Finding already raised, still gates it. Once the author Role or a person pushes to it, it needs a model review like any change (§4.2). On a Consumer the POC's automerge serves it until that Intent is cut over. In the Factory's own repo no line serves it: nothing is installed there, so every update changes `.github/`, and the Maintainer reads and merges it (§5.1) |
+| A dependency update | Its class is `dependency`, and the bot that opened it pushed its head. Its required Lenses are deterministic ones, unless it changes a protected path or a Lens's input, and a person's thread, or a model Lens's Finding already raised, still gates it. Once the author Role or a person pushes to it, it needs a model review like any change (§4.2). On a Consumer the POC's automerge serves it until that Intent is cut over. In the Factory's own repo nothing is installed, so every update changes `.github/`: every model Lens reviews its head, and the machine user approves it as any item (I-45) |
 | The approver is the author or the last pusher | GitHub rejects or discards the approval. The Kernel reads `author` and `last_pusher`, attempts no approval, and holds the item with that reason (I-26). The machine user therefore never pushes (§5.1). The Hold is a reading: after a conflict, the Factory's fix Run pushes, the Role's App becomes the last pusher, and the Hold ends with no person, since GitHub would then count the approval (§4.1) |
 | A branch pushed every few minutes | Deterministic Lenses first; a model review starts only on content they have passed (I-27) |
 | A required check that concludes `neutral`, `skipped`, `cancelled` or `stale`, or with a word the Kernel does not know | It gave no verdict, so it has not passed. The Kernel defers, reason `check_unreadable`, admits no Run, and shows the item as needing the Maintainer until the check reports again (I-13, §3.3). A `timed_out` check is a failure, and goes back to the author. A failure beside it is read first, so `fail-fast`'s cancelled siblings and a skipped dependent job do not hold an ordinary failure |
@@ -1751,7 +1761,7 @@ room. That shapes every row.
 | Get a harmless fork commit admitted, then push the real one | Admission lapses on the next push (I-36) |
 | From a fork, open pull requests that say they close an issue, to park it, hold it or spend its one retry | Only a pull request opened by a Factory App or a person with write access, or one the Maintainer has admitted, is linked to an issue (I-39) |
 | Get a harmless issue admitted, then edit it; or write an issue that tells the model to call itself ready, perhaps in a comment the rendered page hides | An edit ends acceptance at the next pass (I-36, I-42), and `apply` refuses a Run admitted for other content (I-21, I-40). Admission never changes the class of the text: a Run that reads it has no shell and no network tool (I-35), and the Runs that have them are given the investigating Role's statement instead. What remains is an instruction that survives that restatement. Against it: the readiness Intent is promoted only on an eval set, the model holds no credential that can write, and no implementing Run starts before the Maintainer has approved the contract (I-29). The opening Run can still push a contract and open a draft |
-| With any App that can write checks, the Controller's among them, post a passing check under a required Lens's name, or a passing one after that Lens's failure | A required Lens is read only from its own App, by id, and every check it reports there is read: another App's check leaves the Lens unreadable, before any failure, and any failure fails it. The status on the item has one name, which can never be a Lens's or its check's (§3.3). A Lens GitHub Actions runs is pinned to the path of its workflow file as well, since Actions is one App for every job: a job a pull request adds in a file of its own under `verify`'s or the secret scan's name leaves the Lens unreadable. The pin holds the path, not the file's content or what it runs: a pull request from a branch of this repo, or a dependency bot's security update, can change the file in place, or the Makefile, tools, tests and `.gitleaks.toml` the Lenses run, and nothing in the Kernel stops it yet: "Kernel: a change to the Factory's own rules or a Lens's inputs needs a person" (issue 113). No Factory App holds `workflows`, so none can push there. A remaining risk, unverified: an upload to code scanning with CodeQL's tool and category, by anyone with `security_events: write`, might replace the CodeQL verdict (P-36) |
+| With any App that can write checks, the Controller's among them, post a passing check under a required Lens's name, or a passing one after that Lens's failure | A required Lens is read only from its own App, by id, and every check it reports there is read: another App's check leaves the Lens unreadable, before any failure, and any failure fails it. The status on the item has one name, which can never be a Lens's or its check's (§3.3). A Lens GitHub Actions runs is pinned to the path of its workflow file as well, since Actions is one App for every job: a job a pull request adds in a file of its own under `verify`'s or the secret scan's name leaves the Lens unreadable. The pin holds the path, not the file's content or what it runs: a pull request from a branch of this repo, or a dependency bot's security update, can change the file in place, or the Makefile, tools, tests and `.gitleaks.toml` the Lenses run. Such a change converges only once every model Lens has reviewed its head, whatever its class, and the list it is matched against is built from the base branch, never the head (I-45, decision 0020). No Factory App holds `workflows`, so none can push there. A remaining risk, unverified: an upload to code scanning with CodeQL's tool and category, by anyone with `security_events: write`, might replace the CodeQL verdict (P-36) |
 | Steal what the relay holds | It holds a webhook secret and nothing that can act on the Factory repo. The worst a thief can do is cause passes (§7.3) |
 | Forge a fault report from inside a Run, to pause the Factory | A pause needs agreeing faults from Runs on different items, and `apply` and the poller class the faults they see themselves. The worst case is delay, bounded by the probe Run |
 | Replace the commit bundle from inside `verify` | The bundle is taken by identifier and digest (§3.6) |

@@ -158,17 +158,113 @@ def lens_reading(checks: list, lens: dict, config: dict) -> str:
     return "passing"
 
 
+def readable_name(path) -> bool:
+    """Whether `path` is a path from the top of the repo: text whose every name is a name. None is empty, so it is not
+    empty, does not start or end with the separator or double it; and none is `.` or `..`."""
+    return isinstance(path, str) and not any(name in t.NOT_A_NAME for name in path.split(t.SEPARATOR))
+
+
+def readable_file(entry) -> bool:
+    """One file the pull request changes, read whole: its `path`, and `previous`, the path it had before a rename or a
+    copy, null for any other change. Neither is given a default."""
+    return (isinstance(entry, dict) and readable_name(entry.get("path")) and "previous" in entry
+            and (entry["previous"] is None or readable_name(entry["previous"])))
+
+
+def readable_paths(changed, files: int) -> bool:
+    """Whether the files the pull request changes can be read whole: one record for each of the diff's `files`, no
+    more and no fewer, each by its own path once (readable_file). A path that cannot be read could be a protected one
+    read as another, and a list of another length left a file out or misread one, though it says it was read in full
+    (I-13). Whether it was read in full is `complete.changed_paths`, read with the other flags."""
+    if not (isinstance(changed, list) and all(readable_file(entry) for entry in changed)):
+        return False
+    paths = [entry["path"] for entry in changed]
+    return len(changed) == files and len(set(paths)) == len(paths)
+
+
+def names(changed: list) -> list:
+    """Every path the pull request changes, and every path a renamed or copied file had before: either may be on the
+    list, as a file moved onto it or off it changes it. The records must be readable (readable_paths)."""
+    return [entry["path"] for entry in changed] + [entry["previous"] for entry in changed if entry["previous"] is not None]
+
+
+def readable_pattern(pattern) -> bool:
+    """A protected path or a Lens's input in the shape config/hooks.json gives one: a path (readable_name), with a final
+    separator for a directory. One with an empty, `.` or `..` name, or that starts with the separator, matches nothing,
+    so read as a pattern it would let a change to the rules through."""
+    if not isinstance(pattern, str):
+        return False
+    return readable_name(pattern[:-1] if pattern.endswith(t.SEPARATOR) else pattern)
+
+
+def readable_rules(config: dict) -> bool:
+    """Whether the protected paths and Lenses' inputs the Kernel is given can be read: a list of at least one pattern,
+    each in its shape (readable_pattern). The Controller builds it from the base branch's config/hooks.json, never the
+    head's (decision 0020). A list that is empty, or not there, would let a change to the Factory's own rules pass as
+    any other (I-13)."""
+    rules = config.get("protected_paths")
+    return isinstance(rules, list) and len(rules) > 0 and all(readable_pattern(p) for p in rules)
+
+
+def within_a_name(text: str) -> bool:
+    """Whether `text`, what a wildcard stood for, lies within one name."""
+    return t.SEPARATOR not in text
+
+
+def fits(pattern: str, path: str) -> bool:
+    """Whether `path` fits `pattern` whole, in any case: each wildcard stands for any run of characters within one
+    name, none included, and every other character for itself."""
+    pattern, path = pattern.casefold(), path.casefold()
+    pieces = pattern.split(t.WILDCARD)
+    if len(pieces) == 1:
+        return path == pattern
+    if not path.startswith(pieces[0]):
+        return False
+    at = len(pieces[0])
+    # The leftmost place for each piece between two wildcards leaves the most for the rest, and the least for a
+    # wildcard to stand for.
+    for piece in pieces[1:-1]:
+        found = path.find(piece, at)
+        if found < 0 or not within_a_name(path[at:found]):
+            return False
+        at = found + len(piece)
+    end = len(path) - len(pieces[-1])
+    return end >= at and path.endswith(pieces[-1]) and within_a_name(path[at:end])
+
+
+def matches(pattern: str, path: str) -> bool:
+    """Whether `path`, one the pull request changes, is what `pattern` names: a protected path or a Lens's input, in
+    the one syntax of config/hooks.json, as the session hooks read it (tools/hooks/protected.py, entries). A final
+    separator names the directory and everything below it."""
+    whole = pattern.rstrip(t.SEPARATOR)
+    if whole != pattern:
+        path = t.SEPARATOR.join(path.split(t.SEPARATOR)[:whole.count(t.SEPARATOR) + 1])
+    return fits(whole, path)
+
+
+def touched(facts: dict, config: dict) -> list:
+    """Each protected path and Lens's input the configuration names that a path this pull request changes is, as the
+    configuration gives it, once, in its order: the Factory's own rules, or what a Lens reads to judge the change. The
+    paths must be readable (readable_paths). A Decision names the pattern, never the path, which is text from outside.
+    """
+    changed = names(facts["changed_paths"])
+    return [p for p in dict.fromkeys(config["protected_paths"]) if any(matches(p, path) for path in changed)]
+
+
 def required_model_lenses(facts: dict, config: dict) -> list:
     """The model Lenses whose review this pull request needs.
 
     A dependency update is judged by the deterministic Lenses alone. It is a
     pull request of a class the configuration names, whose head was pushed
-    by the identity that opened it. The class is worked out from who opened
-    it; anyone else's push puts content of their own in it, and that is
-    reviewed as any change is.
+    by the identity that opened it, and that changes nothing on the list:
+    no protected path and no Lens's input (touched). A Lens is never the only
+    judge of a change to what it reads. The class is worked out from who
+    opened it; anyone else's push puts content of their own in it, and that
+    is reviewed as any change is.
     """
     lenses = config["required_lenses"]
-    if facts["class"] in lenses["model_not_required_for"] and facts["last_pusher"] == facts["author"]:
+    if (facts["class"] in lenses["model_not_required_for"] and facts["last_pusher"] == facts["author"]
+            and not touched(facts, config)):
         return []
     return list(lenses["model"])
 
@@ -575,6 +671,12 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # admits a Run or converges: an unreadable fact never yields an action (I-13), only a stop.
     if unreadable_reviews(facts, config):
         return {"state": None, "reason": "review_unreadable", "evidence": []}
+    # So could a path the pull request changes: a protected one, or a Lens's input, whose change no model Lens reviewed.
+    # The list they are matched against is the configuration's; read before them, it says what a path is.
+    if not readable_rules(config):
+        return {"state": None, "reason": "protected_paths_unreadable", "evidence": []}
+    if not readable_paths(facts.get("changed_paths"), facts["diff"]["files"]):
+        return {"state": None, "reason": "paths_unreadable", "evidence": []}
     # So could a required Lens's thread whose category or severity cannot be read: a security Finding at any severity.
     unread = unreadable_threads(facts, config)
     if unread:
@@ -612,11 +714,15 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     if waiting and "awaiting_checks" not in past:
         return {"state": t.VERIFYING, "reason": "awaiting_checks", "evidence": waiting}
 
-    # Then the model Lenses this item needs: a dependency update needs none, and skips nothing else.
+    # Then the model Lenses this item needs: a dependency update needs none, and skips nothing else, unless it changes
+    # the list. The wait names what on the list it changes. A queued item that changes the list is never read past a
+    # review of its head that it lacks: an approval given before the rule, or before a path it changes joined the list,
+    # never merges a change to the rules that no model Lens has reviewed (I-45).
     mine = runs_on(runs, facts)
+    rules = touched(facts, config)
     for lens in required_model_lenses(facts, config):
-        if not reviewed_clean_or_not(mine, facts, lens) and "awaiting_review" not in past:
-            return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens]}
+        if not reviewed_clean_or_not(mine, facts, lens) and ("awaiting_review" not in past or rules):
+            return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens] + rules}
 
     # Every gate before the approval: a standing approval never passes over a person's objection.
     open_gates = gates(facts, config)

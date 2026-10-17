@@ -28,8 +28,9 @@ import unittest
 
 from kernel import terms as t
 from kernel.decide import decide
-from tests.support import (CONFIG, GREEN, MAINTAINER, OTHER_APP, ROOT, context, contract, evidence, facts, labelled,
-                           review, run, thread)
+from tests.support import (CONFIG, GREEN, MAINTAINER, OTHER_APP, ROOT, context, contract, evidence, facts,
+                           labelled, review, run, thread)
+from tests.support import changed as a_file
 from tools import check_lifecycle
 from tools.jsonschema_lite import validate
 
@@ -51,6 +52,8 @@ AGENT = {"class": "agent", "author": AUTHOR_APP["name"], "last_pusher": AUTHOR_A
 DEPENDENCY = {"class": "dependency", "author": "dependabot[bot]", "last_pusher": "dependabot[bot]"}
 OUTSIDE = {"class": "outside", "author": "a-stranger", "last_pusher": "a-stranger"}
 PENDING = [dict(c, conclusion="queued", completed_at=None) for c in GREEN]
+# A dependency bot's pin of an Action, in the workflow file a Lens is read from: a change to a protected path.
+PIN = ".github/workflows/verify.yml"
 
 
 def at(minute: int) -> str:
@@ -92,6 +95,12 @@ BASES = {
     "awaiting_review of the author's answer": base([reviewed(), fix()], content_id="sha256:bbbb", threads=[thread()]),
     "a dependency update awaiting its checks": base(checks=PENDING, **DEPENDENCY),
     "a dependency update, approved": base(reviews=APPROVED, **DEPENDENCY),
+    # One that changes a workflow's pin: it waits for the model review, and is queued only once reviewed.
+    "a dependency update to a workflow's pin, awaiting its review": base(
+        changed_paths=[a_file(PIN), a_file("docs/notes.md")], **DEPENDENCY),
+    "a dependency update to a workflow's pin, queued": base(
+        [reviewed()], reviews=APPROVED, queue=True, acts_since_writer=2,
+        changed_paths=[a_file(PIN), a_file("docs/notes.md")], **DEPENDENCY),
     # A dependency bot's rebase at the act ceiling: held, then rebased, then its last check passes, and held again.
     "a dependency update held at the act ceiling": base(content_id="sha256:bbbb", reviews=APPROVED,
                                                         acts_since_writer=LIMITS["max_acts_per_item"], **DEPENDENCY),
@@ -214,6 +223,9 @@ STILL = {
     "acts_unreadable": base([reviewed()], acts_since_writer=None),
     # A result on this content for a criterion the contract does not name: no State, so nothing to explore from.
     "acceptance_unreadable": base([reviewed()], acceptance=contract(results=ACCEPTED + [evidence("AC-9")])),
+    # A path the schema refuses, which the Kernel still reads as unreadable.
+    "paths_unreadable": base([reviewed()], changed_paths=[a_file("docs/../lifecycle/issue.json"),
+                                                           a_file("docs/notes.md")]),
 }
 
 
@@ -465,6 +477,18 @@ def rebase(pr: dict) -> dict:
     return push(pr, f["author"], writer=False, diff=f["diff"])
 
 
+def pins(pr: dict) -> dict:
+    """A dependency bot rebases its own pull request onto a new pin of an Action, in a Lens's workflow file."""
+    f = pr["facts"]
+    if any(entry["path"] == PIN for entry in f["changed_paths"]):
+        return None
+    out = rebase(pr)
+    if out is not None:
+        out["facts"]["changed_paths"] = f["changed_paths"] + [a_file(PIN)]
+        out["facts"]["diff"] = dict(f["diff"], files=len(out["facts"]["changed_paths"]))
+    return out
+
+
 def set_fact(**values):
     def change(pr):
         f = pr["facts"]
@@ -616,6 +640,7 @@ MOVES = [
          lambda pr: set_fact(mergeable=False, queue=False)(pr) if pr["facts"]["mergeable"] is None else None),
     Move("GitHub retargets it at the default branch", "platform", set_fact(targets_protected=True)),
     Move("a dependency bot rebases it", "platform", rebase),
+    Move("a dependency bot rebases it onto a workflow's pin", "platform", pins),
     # A result is kept as long as the artifact it was read from: GitHub deletes it past its retention, whoever asks.
     Move("a result expires", "platform", expires),
 ]

@@ -8,6 +8,7 @@ may be judged without a model Lens) and for the one name of the status on the it
 must look at, `apps.json` for each GitHub App's permissions and the repos it is installed on, which the
 Maintainer registers each App from, `hooks.json` for the Maintainer, whose name every commit and push here carries,
 and for what the session hooks ask the person about (the protected paths, merging, the repo's settings) or list at a stop.
+Its protected paths and each Lens's inputs are also the Kernel's `protected_paths`: a change to one is reviewed by every model Lens.
 
 | Rule | Held by |
 |---|---|
@@ -20,4 +21,5 @@ and for what the session hooks ask the person about (the protected paths, mergin
 | Every need in `apps.json` maps to one permission and level, or says what it waits on. An App holds a permission only for a need mapped to it, never for a waiting one; a write need has one App; the reader writes nothing | `tools/check_apps.py` |
 | A value held in two files agrees | `tests/test_tools.py::test_a_value_held_twice_must_agree` |
 | The rubric is the review standard. Add a criterion there; no document describes the review | `tests/test_tools.py::test_a_second_copy_of_the_review_standard_is_caught` |
+| The protected paths and each Lens's inputs are one list, in `hooks.json`, the Kernel's too, matched as the hooks match | `tests/test_tools.py::test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus` |
 | JSON, with each key written once | `tests/test_tools.py::test_a_key_written_twice_is_refused` |

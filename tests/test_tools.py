@@ -10,6 +10,7 @@ import base64
 import contextlib
 import copy
 import hashlib
+import importlib.machinery
 import io
 import json
 import os
@@ -20,9 +21,12 @@ import time
 import unittest
 from unittest import mock
 
-from kernel import terms
+from kernel import derive, terms
+from sim import world
+from tests import support
 from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_lifecycle,
                    check_purity, check_repo, check_trials, check_workflows, mutants, redact_trial, verify, walk)
+from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
@@ -1074,6 +1078,82 @@ class Workflows(unittest.TestCase):
         }
         for name, text in fine.items():
             self.assertEqual(rules(text), [], name)
+
+
+class TheList(unittest.TestCase):
+    """The protected paths and every Lens's input: one list, in config/hooks.json, that the session hooks read and the
+    Kernel is given as `protected_paths` (decision 0020)."""
+
+    HOOKS = json.loads((ROOT / "config" / "hooks.json").read_text())
+
+    def test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus(self):
+        # Only the two matchers can drift, so they are held to each other: on every file in the repo, and on paths made
+        # from each pattern, its wildcard standing for nothing, a letter or more than one name, in any case, below it,
+        # beside it and above it.
+        data = protected.load()
+        patterns = [p for p, _ in data["protected"] + data["reported"]] + ["a/*", "*.json", "x*y*z/", "a*/b*/", "*"]
+        corpus = {p.relative_to(ROOT).as_posix() for p in walk.files(ROOT)}
+        for pattern in patterns:
+            for star in ("", "x", "x/y", "a.b", "*"):
+                stem = pattern.replace("*", star)
+                for end in ("", "/a", "/a/b.json", "x", ".bak"):
+                    for path in (stem.rstrip("/") + end, "x/" + stem.rstrip("/") + end):
+                        corpus |= {path, path.upper(), path.title()}
+        corpus = sorted(p for p in corpus if derive.readable_name(p))
+        self.assertGreater(len(corpus), 1000)
+        for pattern in patterns:
+            whole = protected.entries([(pattern, "")])[0][3]
+            for path in corpus:
+                self.assertEqual(derive.matches(pattern, path), bool(whole.match(path.casefold())), (pattern, path))
+
+    def test_the_kernel_is_given_every_protected_path_and_lens_input(self):
+        want = [e["path"] for e in self.HOOKS["protected"]] + [e["path"] for e in self.HOOKS["lens_inputs"]]
+        self.assertEqual(protected.protected_paths(), want)
+        self.assertEqual(support.CONFIG["protected_paths"], want)
+        self.assertEqual(world.CONFIG["protected_paths"], want)
+        # What is only reported, such as a decision record, is listed at a stop and is not on the Kernel's list.
+        self.assertNotIn("docs/decisions/", want)
+
+    def test_each_lens_input_is_a_required_lens_and_verifys_cover_every_check(self):
+        lenses = {lens["lens"] for lens in support.CONFIG["required_lenses"]["deterministic"]}
+        inputs = {}
+        for entry in self.HOOKS["lens_inputs"]:
+            self.assertIn(entry["lens"], lenses, entry["path"])
+            inputs.setdefault(entry["lens"], []).append(entry["path"])
+        # verify runs make, which reads GNUmakefile, makefile or Makefile, and every check and test where checks live;
+        # `python3 -m` puts the top of the repo first on the path, so a module there shadows the standard library; and
+        # the tests import the Kernel. The secret scan reads its configuration and the findings it is told to pass over.
+        for path in ["Makefile", "makefile", "GNUmakefile", "json.py", "kernel/derive.py"] + [
+                "%s/x.py" % where for where in check_context.CHECKS]:
+            self.assertTrue(any(derive.matches(p, path) for p in inputs["verify"]), path)
+        for path in (".gitleaks.toml", ".gitleaksignore"):
+            self.assertTrue(any(derive.matches(p, path) for p in inputs["secret-scan"]), path)
+        # Whatever the import system loads from the top of the repo ahead of the standard library, by every suffix it
+        # knows here and Windows's: a module, a regular package's __init__, and the compiled modules. A directory with
+        # no __init__ is a namespace package, which a module found later on the path wins over, so it shadows nothing.
+        machinery = importlib.machinery
+        suffixes = (machinery.SOURCE_SUFFIXES + machinery.BYTECODE_SUFFIXES + machinery.EXTENSION_SUFFIXES
+                    + [".pyw", ".pyd", ".cp312-win_amd64.pyd", ".cpython-312-x86_64-linux-gnu.so", ".abi3.so"])
+        for path in (["json" + s for s in suffixes] + ["unittest/__init__" + s for s in suffixes]
+                     + ["__pycache__/json.cpython-39.pyc"]):
+            self.assertTrue(any(derive.matches(p, path) for p in inputs["verify"]), path)
+
+    def test_every_package_at_the_top_of_the_repo_is_a_lens_input_whole(self):
+        # verify imports every regular package at the top of the repo, through any of its modules or the bytecode
+        # cached for them. A package added without its own entry fails here.
+        verify = [e["path"] for e in self.HOOKS["lens_inputs"] if e["lens"] == "verify"]
+        packages = sorted({p.relative_to(ROOT).parts[0] for p in walk.files(ROOT)
+                           if len(p.relative_to(ROOT).parts) == 2 and p.name.startswith("__init__.")})
+        self.assertLessEqual({"kernel", "sim", "tests", "tools"}, set(packages))
+        for package in packages:
+            for path in ("%s/x.py" % package, "%s/a/b.py" % package, "%s/__pycache__/x.cpython-39.pyc" % package):
+                self.assertTrue(any(derive.matches(p, path) for p in verify), path)
+
+    def test_each_lens_workflow_file_is_protected(self):  # decision 0018
+        patterns = [e["path"] for e in self.HOOKS["protected"]]
+        for lens in support.CONFIG["required_lenses"]["deterministic"]:
+            if lens["workflow"] is not None:
+                self.assertTrue(any(derive.matches(p, lens["workflow"]) for p in patterns), lens["lens"])
 
 
 class Context(unittest.TestCase):

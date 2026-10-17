@@ -12,9 +12,12 @@ from kernel.decide import decide
 from sim import world
 from sim.world import World
 from tests import test_transitions
+from tools.hooks import protected
 
 # Fixed seeds: the required check cannot fail at random. SIM_SEEDS shortens a local run.
 SEEDS = range(1, 1 + int(os.environ.get("SIM_SEEDS", "300")))
+# Seeds on which the item is a dependency update with no acceptance contract: to a workflow's pin, and to neither list.
+DEPENDENCY_ON_THE_LIST, DEPENDENCY_OFF_THE_LIST = 4, 34
 
 
 class Roll:
@@ -115,9 +118,51 @@ class Simulation(unittest.TestCase):
         self.assertRaises(world.Broken, w.caused, w.by_of(world.STRANGER))
 
     def test_the_seeds_serve_a_maintainers_and_an_agents_pull_request(self):
-        # The Maintainer's own pull request, where their review is refused, and an agent's, which they review.
+        # The Maintainer's own pull request, where their review is refused, an agent's, which they review, and a
+        # dependency bot's update.
         classes = {World(seed).facts()["class"] for seed in SEEDS}
-        self.assertEqual(classes, {"maintainer", "agent"})
+        self.assertEqual(classes, {"maintainer", "agent", "dependency"})
+
+    def test_the_seeds_change_the_list_by_a_role_the_dependency_bot_and_the_maintainer(self):  # I-45
+        # A Role's fix Run touches a Lens's input, the dependency bot a workflow's pin, the Maintainer the brakes'
+        # limits; and the list is read short now and then, or, said to be whole, leaves a path out, which the
+        # Maintainer is shown. Every invariant holds, I-45 among them.
+        by, short, left = set(), False, False
+        for seed in SEEDS:
+            w = World(seed)
+            for _ in range(250):
+                w.step()
+            by |= w.listed_by
+            short = short or any("the paths were read short" in line for line in w.trace)
+            left = left or any("pass: None paths_unreadable -> defer" in line for line in w.trace)
+        self.assertEqual(by, {"role", "dependency", "maintainer"})
+        self.assertTrue(short and left)
+        # The dependency bot's update to a workflow's pin, its checks passed, is reviewed before the machine user
+        # approves it; the same update to a path on neither list is approved with no review.
+        for seed, listed in ((DEPENDENCY_ON_THE_LIST, True), (DEPENDENCY_OFF_THE_LIST, False)):
+            w = World(seed, faults=False, people=False)
+            self.assertEqual((w.cls, w.on_the_list(w.changed)), ("dependency", listed), seed)
+            w.checks = dict.fromkeys(w.checks, "success")
+            w.starts()
+            w.poll()
+            self.assertEqual([r["intent"] for r in w.runs], ["review-change"] if listed else ["issue-approval"], seed)
+            if listed:
+                w.runs[-1].update(status="completed", conclusion="success")
+                w.caused("lens")
+                w.poll()
+            self.assertEqual([rv["by"]["kind"] for rv in w.reviews], ["machine_user"], seed)
+        # The world's paths on the list are the hooks' too, and those off it are on neither list.
+        self.assertEqual([p for p, _ in protected.listed(protected.load(), list(world.ON_THE_LIST.values()))],
+                         list(world.ON_THE_LIST.values()))
+        for path in world.OFF_THE_LIST.values():
+            self.assertFalse(any(protected.entries([(p, "")])[0][3].match(path) for p in world.CONFIG["protected_paths"]),
+                             path)
+        # Had the Kernel let a dependency update to a workflow pin converge with no review, the invariant breaks.
+        w = World(DEPENDENCY_ON_THE_LIST, faults=False, people=False)
+        w.checks = dict.fromkeys(w.checks, "success")
+        w.starts()
+        with mock.patch.dict(world.CONFIG, protected_paths=["lifecycle/"]):
+            self.assertRaises(world.Broken, w.poll)
 
     def test_a_seed_replays_exactly(self):
         traces = []

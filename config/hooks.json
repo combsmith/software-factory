@@ -7,6 +7,7 @@
   "protected": [
     {"path": "lifecycle/", "is": "the Lifecycle"},
     {"path": "config/authority.json", "is": "the authority table"},
+    {"path": "config/apps.json", "is": "each App's permissions and the repos it is installed on"},
     {"path": "config/rubric-*.json", "is": "a rubric"},
     {"path": "config/defaults.json", "is": "the brakes' limits, the required Lenses and the approver"},
     {"path": "kernel/brakes.py", "is": "the brakes: the Pause, the Run ceiling and the loop counts"},
@@ -31,6 +32,22 @@
     {"path": "kernel/terms.py", "is": "the Kernel's codes"},
     {"path": "tests/test_decide.py", "is": "the boundary cases"},
     {"path": "tools/mutants.py", "is": "the deliberate breaks that show each rule is tested"}
+  ],
+  "lens_inputs": [
+    {"lens": "verify", "path": "Makefile", "is": "how verify runs the checks and the tests"},
+    {"lens": "verify", "path": "GNUmakefile", "is": "the file make reads before the Makefile"},
+    {"lens": "verify", "path": "*/__init__.*", "is": "a package at the top of the repo, which verify imports before the standard library"},
+    {"lens": "verify", "path": "__pycache__/", "is": "the compiled modules at the top of the repo"},
+    {"lens": "verify", "path": "*/__pycache__/", "is": "the compiled modules of a package at the top of the repo"},
+    {"lens": "verify", "path": "kernel/", "is": "the Kernel, which the tests verify runs import"},
+    {"lens": "verify", "path": "tools/", "is": "the checks verify runs"},
+    {"lens": "verify", "path": "tests/", "is": "the tests verify runs"},
+    {"lens": "verify", "path": "examples/", "is": "the examples and counter-examples verify holds the schemas to"},
+    {"lens": "verify", "path": "schemas/", "is": "the schemas verify holds every message and data file to"},
+    {"lens": "verify", "path": "sim/", "is": "the simulator verify runs"},
+    {"lens": "secret-scan", "path": ".gitleaks.toml", "is": "what the secret scan looks for, and what it lets pass"},
+    {"lens": "secret-scan", "path": ".gitleaksignore", "is": "the findings the secret scan is told to pass over"},
+    {"lens": "verify", "path": "*", "is": "a file or a link at the top of the repo, which verify may import before the standard library"}
   ],
   "merging": {
     "branch": "main",

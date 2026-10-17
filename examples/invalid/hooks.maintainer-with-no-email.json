@@ -15,6 +15,13 @@
       "is": "the Kernel"
     }
   ],
+  "lens_inputs": [
+    {
+      "lens": "verify",
+      "path": "Makefile",
+      "is": "how verify runs the checks and the tests"
+    }
+  ],
   "merging": {
     "branch": "main",
     "commands": [

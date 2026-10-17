@@ -94,7 +94,14 @@ DAYS_BEFORE_MONTH = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
 FEBRUARY = 2
 
 # What the facts say was read in full: the flags `complete` requires in schemas/facts.schema.json.
-READ_IN_FULL = ("acceptance", "checks", "diff", "reviews", "runs", "threads", "timeline")
+READ_IN_FULL = ("acceptance", "changed_paths", "checks", "diff", "reviews", "runs", "threads", "timeline")
+
+# A path the pull request changes, and a protected path or Lens's input in config/hooks.json, are names joined by this.
+# In a pattern, the wildcard stands for any part of one name, and a final separator for everything below it. A name
+# that is one of these cannot be read: it would make a path empty, start or end it with the separator, or climb.
+SEPARATOR = "/"
+WILDCARD = "*"
+NOT_A_NAME = ("", ".", "..")
 
 # Labels: the human's input vocabulary.
 LABEL_HOLD = "factory:hold"
