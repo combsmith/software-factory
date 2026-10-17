@@ -1152,32 +1152,30 @@ class Workflows(unittest.TestCase):
         start = scan.index("      - name: Checkout the base")
         step = scan[start:scan.index("      - name: Install gitleaks")]
         head = scan[scan.index("      - name: Checkout (full history)"):start]
+        install = scan[scan.index("      - name: Install gitleaks"):scan.index("      - name: Run gitleaks")]
         self.assertIn(rm + line, scan)
         self.assertIn(ref, step)
-        ran, checkout = "runs gitleaks other than as", "does not check out the head and then the base"
+        ran, checkout = "does not run, as its last step's whole block", "does not check out the head and then the base"
         shape = "does not run, in this order and nothing else"
         cases = [(scan.replace("--config base/.gitleaks.toml", "--config .gitleaks.toml"), ran),
                  (scan.replace("--gitleaks-ignore-path base/.gitleaksignore", "--gitleaks-ignore-path ."), ran),
                  (scan.replace(" --gitleaks-ignore-path base/.gitleaksignore", ""), ran),
                  (scan.replace(rm, ""), ran),
                  (scan.replace(rm + line, line + rm), ran),
-                 (scan.replace(line, line + "          gitleaks -c .gitleaks.toml detect --source .\n"), ran),
-                 (scan.replace(line, line + "          /usr/local/bin/gitleaks detect --source .\n"), ran),
                  (scan.replace(rm + line, "          gitleaks dir .\n"), ran),
-                 (scan.replace(line, line + "          bash -c \"gitleaks detect --source .\"\n"), ran),
-                 (scan.replace(line, line + "          sh -c 'exec gitleaks git .'\n"), ran),
                  # A head's .gitattributes marks a file -diff, and git log -p shows it as binary: --text reads it.
                  (scan.replace(" --text\"", "\""), ran),
                  (scan.replace(" --log-opts=\"--full-history --all --diff-filter=tuxdb --text\"", ""), ran),
                  (scan.replace("--full-history --all ", ""), ran),
                  # An inline gitleaks:allow is the head's own content, and passes over nothing.
                  (scan.replace(" --ignore-gitleaks-allow", ""), ran),
-                 (scan.replace(rm + line, "          make verify\n"), "runs no gitleaks"),
+                 (scan.replace(rm + line, "          make verify\n"), ran),
                  # The scan's whole block is SCAN_RUN: a line before the rm, or after the scan, is refused.
                  (scan.replace(rm, "          cp .gitleaks.toml base/.gitleaks.toml\n" + rm), ran),
                  (scan.replace(line, line + "          true\n"), ran),
-                 # A scan on one line is read as a scan, not as no scan at all.
                  (scan.replace("        run: |\n" + rm + line, "        run: gitleaks detect --source .\n"), ran),
+                 # An install on one line is read: it may not name base/ either.
+                 (scan.replace(install, "      - name: Install gitleaks\n        run: cp .gitleaks.toml base/\n"), shape),
                  # The steps are the head's checkout, the base's, the install and the scan, in that order alone.
                  (scan.replace(step, "").replace(rm + line, rm + line + step),
                   shape),
@@ -1210,7 +1208,7 @@ class Workflows(unittest.TestCase):
         base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
         widened = scan.replace("--config base/.gitleaks.toml", "--config .gitleaks.toml")
         self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": widened}))),
-                               ".github/workflows/ci.yml: ci.yml runs gitleaks other than as"))
+                               ".github/workflows/ci.yml: ci.yml " + ran))
         self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": scan}))), "ci.yml"))
 
     def test_a_rule_is_not_dodged_by_writing_the_workflow_another_way(self):

@@ -90,14 +90,10 @@ SCAN_RUN = ["rm -f .gitleaksignore",
             "--redact --verbose --exit-code 1"]
 SCAN_CHECKOUTS = [{"fetch-depth": "0", "persist-credentials": "false"},
                   {"path": "base", "ref": SCAN_BASE, "persist-credentials": "false"}]
-# What gitleaks runs as: any of these after its name, or an option, which may come before one.
-SUBCOMMANDS = {"detect", "protect", "git", "dir", "directory", "stdin", "help"}
 # What the secret scan's workflow and its one job may hold, and what its install may be given.
 SCAN_TOP = {"name", "on", "permissions", "jobs"}
 SCAN_JOB = {"name", "runs-on", "timeout-minutes", "permissions", "steps"}
 SCAN_ENV = ("GITLEAKS_VERSION", "GITLEAKS_CHECKSUM")
-# What may wrap a word that names gitleaks in a command string, as in bash -c "gitleaks ...".
-QUOTES = "'\"`$();"
 # The only events a workflow with a judging job runs on: on any other there is no base, and its checkout would be the head.
 JUDGED = {"pull_request", "merge_group"}
 JOB = re.compile(r"^[A-Za-z_][\w-]*$")
@@ -280,19 +276,12 @@ def _lines(entry) -> list:
     return (entry["body"] or [entry["value"]]) if entry and entry["key"] == "run" else []
 
 
-def _runs_gitleaks(line: str) -> bool:
-    """Whether `line` runs gitleaks: its name, by any path or inside quotes, then a subcommand or an option."""
-    words = [w.strip(QUOTES) for w in line.split()]
-    return any(w.rsplit("/", 1)[-1] == "gitleaks" and (after[:1] == "-" or after in SUBCOMMANDS)
-               for w, after in zip(words, words[1:]))
-
-
 def scan_problems(text: str) -> list:
     """Why the secret scan in `text` could be passed by the head it scans: its rules not read from the base.
 
     Its one job runs four steps, in this order and nothing else: the head's checkout, with its history; the base's,
-    under `base/`, at the base's commit; the install, which names no `base` and runs no gitleaks; and the scan, whose
-    whole block is SCAN_RUN, telling gitleaks the base's `.gitleaks.toml` and `.gitleaksignore` on the line after the
+    under `base/`, at the base's commit; the install, which names no `base`; and the scan, whose whole block is
+    SCAN_RUN, telling gitleaks the base's `.gitleaks.toml` and `.gitleaksignore` on the line after the
     head's `.gitleaksignore` is deleted. Nothing sets an environment, a directory or a container that the scan could
     run in instead.
     """
@@ -312,19 +301,16 @@ def scan_problems(text: str) -> list:
               and all(set(step) <= {"name", "uses", "with"} and _checkout(step.get("uses", {"key": ""}))
                       for step in steps[:2])
               and set(install) <= {"name", "env", "run"} and given == ({*SCAN_ENV} if "env" in install else set())
-              and not any("base" in line or _runs_gitleaks(line) for line in _lines(install.get("run")))
+              and not any("base" in line for line in _lines(install.get("run")))
               and set(steps[3]) <= {"name", "run"})
     if not shaped:
         problems.append("%s does not run, in this order and nothing else, the head's checkout, the base's, the "
                         "install, which names no base, and the scan, with no environment, directory or container of "
                         "its own: a step could change base/ or what the scan reads" % SCAN)
-    scans = [line for e in entries for line in _lines(e) if _runs_gitleaks(line)]
-    if not scans:
-        problems.append("%s runs no gitleaks, so nothing is scanned" % SCAN)
-    elif scans != SCAN_RUN[1:] or not steps or _lines(steps[-1].get("run")) != SCAN_RUN:
-        problems.append("%s runs gitleaks other than as its last step's whole block, `%s` on the line after `%s`: it "
-                        "could read the head's .gitleaks.toml or .gitleaksignore, and a change could widen the "
-                        "allowlist it needs" % (SCAN, SCAN_RUN[1], SCAN_RUN[0]))
+    if _lines(steps[-1].get("run") if steps else None) != SCAN_RUN:
+        problems.append("%s does not run, as its last step's whole block, `%s` on the line after `%s`: it could read "
+                        "the head's .gitleaks.toml or .gitleaksignore, and a change could widen the allowlist it needs"
+                        % (SCAN, SCAN_RUN[1], SCAN_RUN[0]))
     return problems
 
 
