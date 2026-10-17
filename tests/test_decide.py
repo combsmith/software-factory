@@ -9,7 +9,7 @@ import unittest
 
 from kernel import derive
 from kernel.decide import decide
-from tests.support import (CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, REPORTER, ROOT,
+from tests.support import (COMMIT, CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, REPORTER, ROOT,
                            changed, config, context, contract, evidence, facts, labelled, review, run, thread,
                            unlabelled)
 from tools.jsonschema_lite import validate
@@ -1554,7 +1554,12 @@ class Acceptance(unittest.TestCase):
                                                                                             "kind": "test"}]},
                                            "head": DIGEST, "results": []},
             "an empty digest": approval(digest=""), "a digest with no hash": approval(digest="sha256:"),
-            "a digest in capitals": approval(digest="sha256:C0DE"), "a digest of another kind": approval(digest="md5:c0de"),
+            "a digest in capitals": approval(digest=DIGEST.upper().replace("SHA256", "sha256")),
+            "a digest of another kind": approval(digest="md5:" + DIGEST[len("sha256:"):]),
+            "a digest cut short": approval(digest=DIGEST[:-1]), "a digest of a few digits": approval(digest="sha256:c0de"),
+            "a digest padded": approval(digest=DIGEST + "0"),
+            "an approval with no commit": bad(approved={k: v for k, v in contract()["approved"].items() if k != "commit"}),
+            "an approval on an empty commit": approval(commit=""), "an approval on no commit": approval(commit=None),
             "a digest that is no text": approval(digest=None),
             "an approval by a name alone": approval(by=MAINTAINER["name"]),
             "an approval by nobody": approval(by=None),
@@ -1563,7 +1568,9 @@ class Acceptance(unittest.TestCase):
             "an approval by the machine user under another name": by(kind="machine_user"),
             "an approval whose access is not true or false": by(can_write="yes"),
             "an empty head": bad(head=""), "a head with no hash": bad(head="sha256:"),
-            "a head in capitals": bad(head="sha256:C0DE"), "a head that is no text": bad(head=1),
+            "a head in capitals": bad(head=DIGEST.upper().replace("SHA256", "sha256")),
+            "a head that is no text": bad(head=1), "a head cut short": bad(head=DIGEST[:-1]),
+            "a head of a few digits": bad(head="sha256:c0de"), "a head padded": bad(head=DIGEST + "0"),
             "results that are no list": bad(results=None),
             "a result that is no object": bad(results=self.BOTH + ["AC-1"]),
             "a result for a criterion the contract does not name": bad(results=self.BOTH + [evidence("AC-9")]),
@@ -1641,6 +1648,11 @@ class Acceptance(unittest.TestCase):
             d = go(facts(acceptance=contract(results=self.BOTH, by=by), queue=True, reviews=APPROVED), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]),
                              ("held", "contract_not_approved", "act", "dequeue"), by)
+        # Nor does a person's review under the same name: the approval is read as the approver's, of the kind it names.
+        for by in (REVIEWER_APP, ADVISORY, STRANGER):
+            namesake = review(kind="human", name=by["name"], content="sha256:c0c0", commit=COMMIT)
+            d = go(facts(acceptance=contract(results=self.BOTH, by=by), reviews=[namesake], armed=False), REVIEWED)
+            self.assertEqual((d["state"], d["reason"]), ("held", "contract_not_approved"), by)
         # The other side: a person approved it, the Maintainer or a colleague, and it converges, then stays queued.
         for by in (MAINTAINER, COLLEAGUE):
             self.assertEqual(go(facts(acceptance=contract(results=self.BOTH, by=by)), REVIEWED)["reason"],
@@ -1652,7 +1664,7 @@ class Acceptance(unittest.TestCase):
         # A digest covers the contract and every path it protects, so a push that edits a test the contract names changes
         # it. A head whose digest differs from the one approved is a Hold until a person approves again, and so is a head
         # with no contract at all: a deleted contract is a change, never "no contract".
-        for head in ("sha256:0000", DIGEST + "0", None):
+        for head in ("sha256:" + "0" * 64, DIGEST[:-1] + "f", None):
             for given in ([], self.BOTH, [evidence("AC-1", "failing")]):
                 d = go(facts(acceptance=contract(results=given, head=head)), REVIEWED)
                 self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
@@ -1690,7 +1702,7 @@ class Acceptance(unittest.TestCase):
         failing = [evidence("AC-1", "failing")]
         d = go(facts(acceptance=contract(results=failing)), REVIEWED)
         self.assertEqual((d["reason"], d["admit"]["intent"]), ("acceptance_failed", "fix-findings"))
-        for acceptance in (contract(results=failing, by=None), contract(results=failing, head="sha256:0000")):
+        for acceptance in (contract(results=failing, by=None), contract(results=failing, head="sha256:" + "0" * 64)):
             self.assertEqual(go(facts(acceptance=acceptance), REVIEWED)["outcome"], "hold")
         # A check another App posted under a Lens's name is read first: it admits nothing either, and only a push clears it.
         d = go(facts(acceptance=contract(by=None), checks=GREEN + [dict(GREEN[0], app_id=OTHER_APP)]))
@@ -1839,6 +1851,86 @@ class Acceptance(unittest.TestCase):
         # The other side: read whole, the same contract admits the Run each case asks for.
         for over, runs in cases[:3]:
             self.assertEqual(go(facts(acceptance=contract(), **over), runs)["outcome"], "admit", over)
+
+    def test_an_approval_of_the_contract_is_a_review_github_holds(self):  # I-29, decision 0007
+        # The facts' word that a person approved the contract is held to a review GitHub holds: by that person, with
+        # write access, approving, on the commit the contract was approved at, and not dismissed by a person. Without
+        # one, no person approved anything, and the contract is not approved.
+        approval = review(kind="human", name=MAINTAINER["name"], content="sha256:c0c0", commit=COMMIT)
+        unheld = {"no review at all": [],
+                  "a review on another commit": [dict(approval, commit="c9")],
+                  "a review by another person": [dict(approval, by=dict(COLLEAGUE))],
+                  "a review that only comments": [dict(approval, state="commented")],
+                  "a request for changes": [dict(approval, state="changes_requested")],
+                  "a review a person dismissed": [dismissed(approval, MAINTAINER, "approved")],
+                  "a review a colleague dismissed": [dismissed(approval, COLLEAGUE, "approved")],
+                  "a review its author can no longer write as": [dict(approval, by=dict(MAINTAINER, can_write=False))],
+                  "the machine user's approval on that commit": [review(commit=COMMIT)]}
+        for name, reviews in unheld.items():
+            for given in ([], self.BOTH):
+                d = go(facts(acceptance=contract(results=given), reviews=reviews, armed=False), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                                 ("held", "contract_not_approved", "hold", "needs_you"), name)
+        # The other side: that review, standing or dismissed by an App, as GitHub dismisses one as stale on a push.
+        for reviews in ([approval], [dismissed(approval, REVIEWER_APP, "approved")],
+                        [dismissed(approval, AUTHOR_APP, "approved")], [dict(approval, state="commented"), approval]):
+            d = go(facts(acceptance=contract(results=self.BOTH), reviews=reviews, armed=False), REVIEWED)
+            self.assertEqual(d["reason"], "approval_due", reviews)
+
+    def test_every_field_of_a_review_the_kernel_reads_is_read_whole(self):  # I-13
+        # The commit and content a review was given on, and who dismissed it and what it was, are read for the gate, for
+        # a person's approval of the contract and for a human criterion. A review missing any of them, a person's or
+        # anyone's, dismissed or not, defers for the Maintainer: never a crash, and never read as absent.
+        person = review(kind="human", name=COLLEAGUE["name"])
+        for rv in (person, review("commented", kind="human", name=COLLEAGUE["name"]), review()):
+            for field in ("commit", "content_id", "dismissed_by", "dismissed_from"):
+                broken = {k: v for k, v in rv.items() if k != field}
+                for acceptance in (None, contract(results=self.BOTH),
+                                   contract([("AC-1", "human"), "AC-2"], [evidence("AC-2")])):
+                    d = go(facts(acceptance=acceptance, reviews=[broken], **AGENT), REVIEWED)
+                    self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                                     (None, "review_unreadable", "defer", "needs_you"), (rv["state"], field))
+            for field, value in (("commit", ""), ("commit", None), ("content_id", "sha256:"), ("content_id", None)):
+                d = go(facts(reviews=[dict(rv, **{field: value})], **AGENT), REVIEWED)
+                self.assertEqual(d["reason"], "review_unreadable", (field, value))
+        # The other side: read whole, each is read as it always was.
+        self.assertEqual(go(facts(reviews=[person], **AGENT), REVIEWED)["reason"], "approval_due")
+
+    def test_a_contract_whose_reporters_cannot_be_read_defers(self):  # I-13
+        # Which Lens reports each kind is read from the configuration: missing, or of another shape, it could make a
+        # result count from anyone, so an item with a contract defers for the Maintainer. One with none needs none.
+        for reporters in ("missing", None, [], "verify", {"test": 1}, {"test": ["verify"]}):
+            cfg = config()
+            if reporters == "missing":
+                del cfg["acceptance_reporters"]
+            else:
+                cfg["acceptance_reporters"] = reporters
+            for over, runs in ((dict(mergeable=False), REVIEWED), ({}, REVIEWED), ({}, ())):
+                d = go(facts(acceptance=contract(results=self.BOTH), **over), runs, cfg=cfg)
+                self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                                 (None, "acceptance_reporters_unreadable", "defer", "needs_you"), reporters)
+            # The other side: an item with no contract reads no reporter.
+            self.assertEqual(go(facts(acceptance=None), REVIEWED, cfg=cfg)["reason"], "approval_due", reporters)
+        # A kind the configuration leaves out has no reporter.
+        cfg = config(acceptance_reporters={})
+        d = go(facts(acceptance=contract(results=self.BOTH)), REVIEWED, cfg=cfg)
+        self.assertEqual((d["reason"], d["evidence"]), ("acceptance_unreadable", ["AC-1:no_reporter", "AC-2:no_reporter"]))
+
+    def test_a_digest_is_a_whole_sha256(self):  # I-29, I-30
+        # A digest of the approved contract, or of the head's, is `sha256:` and 64 lower-case hexadecimal digits. Cut
+        # short, padded or in capitals, either could pass for the one approved, so the contract cannot be read.
+        for digest in (DIGEST[:-1], DIGEST + "c", "sha256:c0de", DIGEST.replace("c", "C"), DIGEST[:-1] + "g"):
+            for acceptance in (contract(results=self.BOTH, head=digest),
+                               dict(contract(results=self.BOTH, head=digest),
+                                    approved=dict(contract()["approved"], digest=digest))):
+                d = go(facts(acceptance=acceptance), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["outcome"]), (None, "acceptance_unreadable", "defer"),
+                                 digest)
+        # The other side: a whole one is read, and compared whole.
+        self.assertEqual(go(facts(acceptance=contract(results=self.BOTH)), REVIEWED)["reason"], "approval_due")
+        other = DIGEST[:-1] + "f"
+        self.assertEqual(go(facts(acceptance=contract(results=self.BOTH, head=other)), REVIEWED)["reason"],
+                         "contract_changed")
 
 
 class Ceilings(unittest.TestCase):

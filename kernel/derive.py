@@ -404,10 +404,12 @@ def readable_actor(actor, facts: dict, config: dict) -> bool:
 
 
 def unreadable_reviews(facts: dict, config: dict) -> bool:
-    """Whether a review cannot be read whole: its author, state or time, or who dismissed it and what it was.
+    """Whether a review cannot be read whole: its author, state or time, the commit and content it was given on, or
+    who dismissed it and what it was, each of which is there even where it is null.
 
-    Any of them could be a request for changes from a person with write access, so nothing
-    may converge on it; a missing fact is never given a default (I-13).
+    Any of them could be a request for changes from a person with write access, or a person's approval of the
+    acceptance contract or of this content, so nothing may converge on it; a missing fact is never given a default
+    (I-13).
     """
     for rv in facts["reviews"]:
         if not isinstance(rv, dict) or rv.get("state") not in t.REVIEW_STATES:
@@ -415,6 +417,12 @@ def unreadable_reviews(facts: dict, config: dict) -> bool:
         if not readable_actor(rv.get("by"), facts, config):
             return True
         if not is_time(rv.get("submitted_at")):
+            return True
+        if not (isinstance(rv.get("commit"), str) and rv["commit"] != ""):
+            return True
+        if not in_form(rv.get("content_id"), t.CONTENT_PREFIX, t.HEX_DIGITS):
+            return True
+        if "dismissed_by" not in rv or "dismissed_from" not in rv:
             return True
         # Who dismissed a review, and what it was, belong to a dismissed review alone: the schema cannot say so.
         if rv["state"] != "dismissed" and (rv.get("dismissed_by") is not None or rv.get("dismissed_from") is not None):
@@ -545,12 +553,20 @@ def readable_criteria(criteria) -> bool:
     return all(c.get("kind") in t.CRITERION_KINDS for c in criteria)
 
 
+def is_digest(value) -> bool:
+    """Whether `value` is an acceptance contract's digest in its one form: `sha256:` and a whole SHA-256, in lower-case
+    hexadecimal (t.DIGEST_SHAPE). A digest cut short, or padded, could be read as the one approved."""
+    return in_form(value, t.CONTENT_PREFIX, t.HEX_DIGITS) and len(value) == len(t.DIGEST_SHAPE)
+
+
 def readable_approval(approved, facts: dict, config: dict) -> bool:
-    """Whether the contract a person approved can be read whole: None, where nobody has approved one; or its digest in
-    a content id's form, who approved it (readable_actor), and its criteria (readable_criteria)."""
+    """Whether the contract a person approved can be read whole: None, where nobody has approved one; or its digest
+    (is_digest), the commit the approving review was given on, who approved it (readable_actor), and its criteria
+    (readable_criteria)."""
     if approved is None:
         return True
-    return (isinstance(approved, dict) and in_form(approved.get("digest"), t.CONTENT_PREFIX, t.HEX_DIGITS)
+    return (isinstance(approved, dict) and is_digest(approved.get("digest"))
+            and isinstance(approved.get("commit"), str) and approved["commit"] != ""
             and readable_actor(approved.get("by"), facts, config) and readable_criteria(approved.get("criteria")))
 
 
@@ -566,7 +582,7 @@ def readable_contract(contract, facts: dict, config: dict) -> bool:
     if not readable_approval(contract["approved"], facts, config):
         return False
     head, results = contract["head"], contract["results"]
-    if not (head is None or in_form(head, t.CONTENT_PREFIX, t.HEX_DIGITS)) or not isinstance(results, list):
+    if not (head is None or is_digest(head)) or not isinstance(results, list):
         return False
     for ev in results:
         if not isinstance(ev, dict):
@@ -592,6 +608,14 @@ def misread_results(contract: dict, content: str) -> bool:
         if not isinstance(ev.get("check"), dict):
             return True
     return False
+
+
+def readable_reporters(config: dict) -> bool:
+    """Whether the configuration's `acceptance_reporters` can be read: a map from a kind of criterion to the name of a
+    Lens, or to None. Missing, or of any other shape, it could make a kind reported by anyone, or by nobody it names
+    (I-13). A kind it leaves out has no reporter (reporter)."""
+    reporters = config.get("acceptance_reporters")
+    return isinstance(reporters, dict) and all(name is None or isinstance(name, str) for name in reporters.values())
 
 
 def reporter(kind: str, config: dict):
@@ -652,10 +676,14 @@ def contract_reading(facts: dict, config: dict):
     contract = facts["acceptance"]
     if contract is None:
         return None
+    if not readable_reporters(config):
+        return {"state": None, "reason": "acceptance_reporters_unreadable", "evidence": []}
     if not readable_contract(contract, facts, config):
         return unreadable
     approved = contract["approved"]
     if approved is None or not is_person(approved["by"]):
+        return {"state": t.HELD, "reason": "contract_not_approved", "evidence": []}
+    if not approval_stands(approved, facts):
         return {"state": t.HELD, "reason": "contract_not_approved", "evidence": []}
     if contract["head"] != approved["digest"]:
         return {"state": t.HELD, "reason": "contract_changed", "evidence": []}
@@ -665,6 +693,19 @@ def contract_reading(facts: dict, config: dict):
     if impostors:
         return {"state": None, "reason": "acceptance_unreadable", "evidence": impostors}
     return None
+
+
+def approval_stands(approved: dict, facts: dict) -> bool:
+    """Whether the approval the facts say a person gave the contract is a review GitHub holds: by that person, with
+    write access, approving, on the commit the contract was approved at, and not dismissed by a person. An App's
+    dismissal, a stale one among them, ends nothing a person did (L-17). The reviews must be readable
+    (unreadable_reviews). Otherwise the approval is the port's word alone, and no person approved anything."""
+    for rv in facts["reviews"]:
+        theirs = is_person(rv["by"]) and rv["by"]["name"] == approved["by"]["name"]
+        if theirs and rv["commit"] == approved["commit"] and (
+                rv["state"] == "approved" or (rv["dismissed_from"] == "approved" and not is_person(rv["dismissed_by"]))):
+            return True
+    return False
 
 
 def confirmed_by_a_person(facts: dict) -> bool:

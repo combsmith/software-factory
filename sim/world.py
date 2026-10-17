@@ -162,7 +162,11 @@ class World:
         self.contract_person = MAINTAINER if self.cls == "agent" else COLLEAGUE
         self.approved = None
         if self.criteria and self.judge.random() >= 0.3:
-            self.approve_contract(self.contract_person)
+            # The person approved the contract at the work's first commit, before the head was pushed (§4.8).
+            self.reviews.append({"by": dict(self.contract_person), "state": "approved", "commit": "c0",
+                                 "content_id": "sha256:c0c0", "submitted_at": self.at(-1), "dismissed_by": None,
+                                 "dismissed_from": None})
+            self.approve_contract(self.contract_person, "c0")
         self.true_state = None     # the State the Kernel gives what GitHub holds now, after the last change
         self.starts()
 
@@ -240,7 +244,7 @@ class World:
 
     def digest(self) -> str:
         """The digest of the contract and every path it protects, at its current revision."""
-        return "sha256:c%03x" % self.revision
+        return "sha256:%064x" % (0xc0de0000 + self.revision)
 
     def acceptance(self):
         """The acceptance contract as the facts carry it, or None for an item whose issue asks for none."""
@@ -248,13 +252,13 @@ class World:
             return None
         return {"approved": copy.deepcopy(self.approved), "head": self.head, "results": copy.deepcopy(self.results)}
 
-    def approve_contract(self, by: dict):
+    def approve_contract(self, by: dict, commit: str = None):
         """`by`, a person, approves the contract at the head with an approving review of the content, which also
         confirms every criterion of kind human there (the Maintainer's ruling of 2026-10-17). None to approve once the
         head carries none."""
         if self.criteria is None or self.head is None:
             return
-        self.approved = {"digest": self.head, "by": dict(by),
+        self.approved = {"digest": self.head, "commit": commit or "c%d" % self.content, "by": dict(by),
                          "criteria": [{"id": c, "kind": self.kinds[c]} for c in self.criteria]}
 
     def agreed(self) -> bool:

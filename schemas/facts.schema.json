@@ -389,12 +389,18 @@
           "additionalProperties": false,
           "required": [
             "digest",
+            "commit",
             "by",
             "criteria"
           ],
           "properties": {
             "digest": {
-              "$ref": "#/$defs/content_id"
+              "$ref": "#/$defs/digest"
+            },
+            "commit": {
+              "description": "The commit the approving review was given on, as the review gives it: the Kernel holds the approval to a review in `reviews` by that person, on that commit, approving, and not dismissed by a person",
+              "type": "string",
+              "minLength": 1
             },
             "by": {
               "$ref": "#/$defs/actor"
@@ -437,7 +443,7 @@
             "string",
             "null"
           ],
-          "pattern": "^sha256:[0-9a-f]{4,64}$"
+          "pattern": "^sha256:[0-9a-f]{64}$"
         },
         "results": {
           "type": "array",
@@ -611,6 +617,11 @@
     "changed_path": {
       "type": "string",
       "pattern": "^(?!([^/]*/)*\\.{1,2}(/|$))[^/]+(/[^/]+)*$"
+    },
+    "digest": {
+      "description": "An acceptance contract's digest, over the contract and every path it protects: sha256: and a whole SHA-256 in lower-case hexadecimal, never cut short",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
     }
   }
 }

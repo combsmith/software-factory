@@ -156,7 +156,8 @@
   "acts_since_writer": 2,
   "acceptance": {
     "approved": {
-      "digest": "sha256:c0de",
+      "digest": "sha256:c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de",
+      "commit": "1a2b3c4",
       "by": {
         "kind": "human",
         "name": "a-colleague",
@@ -173,7 +174,7 @@
         }
       ]
     },
-    "head": "sha256:c0de",
+    "head": "sha256:c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de",
     "results": [
       {
         "criterion": "AC-1",

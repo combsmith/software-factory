@@ -202,7 +202,7 @@ BASES = {
     # A contract no person approved, and one changed since a person did: each a Hold before anything admits a Run.
     "contract_not_approved": base([reviewed()], acceptance=contract(results=ACCEPTED, by=None)),
     "contract_not_approved, an agent's": base(acceptance=contract(by=None), **AGENT),
-    "contract_changed": base([reviewed()], acceptance=contract(results=ACCEPTED, head="sha256:0000")),
+    "contract_changed": base([reviewed()], acceptance=contract(results=ACCEPTED, head="sha256:" + "0" * 64)),
     "contract_changed, queued": base([reviewed()], reviews=APPROVED, queue=True, acts_since_writer=2,
                                      acceptance=contract(results=ACCEPTED, head=None)),
     # A criterion only a person passes, by approving this content, on an agent's pull request.
@@ -468,14 +468,17 @@ def approves_the_contract(pr: dict) -> dict:
     if approved is not None and approved["digest"] == contract_now["head"] and approved["by"] == MAINTAINER:
         return None
     listed = approved["criteria"] if approved else contract()["approved"]["criteria"]
-    contract_now["approved"] = {"digest": contract_now["head"], "by": dict(MAINTAINER), "criteria": listed}
+    commit = "c%d" % pr["minute"]
+    f["reviews"].append(review(content=f["content_id"], commit=commit, at=now(pr), **MAINTAINER))
+    contract_now["approved"] = {"digest": contract_now["head"], "commit": commit, "by": dict(MAINTAINER),
+                                "criteria": listed}
     return writer_acted(pr)
 
 
 def fix_edits_the_contract(pr: dict) -> dict:
     """A fix Run pushes, and its push edits the contract or a test it names. Or None."""
     out = fix_ends(pr)
-    return None if out is None else edits_the_contract(out, "sha256:c%03x" % out["minute"])
+    return None if out is None else edits_the_contract(out, "sha256:%064x" % out["minute"])
 
 
 def withdraws_the_approval(pr: dict) -> dict:
@@ -616,7 +619,7 @@ MOVES = [
     Move("a person approves the contract", "human", approves_the_contract),
     Move("a person withdraws the contract's approval", "human", withdraws_the_approval),
     Move("a person pushes an edit to a test the contract names", "human",
-         lambda pr: edits_the_contract(push(pr, MAINTAINER["name"], True), "sha256:c%03x" % pr["minute"])),
+         lambda pr: edits_the_contract(push(pr, MAINTAINER["name"], True), "sha256:%064x" % pr["minute"])),
     Move("a person pushes a deletion of the contract", "human",
          lambda pr: edits_the_contract(push(pr, MAINTAINER["name"], True), None)),
     Move("a person runs the checks again", "human", lambda pr: ran_again(pr, lambda c: c["conclusion"] != "success")),
