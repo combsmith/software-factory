@@ -50,6 +50,13 @@ DEQUEUE_IF = '    if d.get("dequeue"):\n'
 DEQUEUE = ('        return _decision(facts, state, reason, evidence, t.ACT, action="dequeue",'
            ' content_id=facts["content_id"])\n')
 
+# The tests a hook mutant is run against first, so that it fails in seconds; the whole suite runs only if they pass.
+# A mutant may name them as a fifth part.
+HOOK_TESTS = "tests.test_hooks.ProtectedPaths."
+BYPASS_TESTS = (HOOK_TESTS + "test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked",)
+SESSION_TESTS = (HOOK_TESTS + "test_a_command_that_runs_claude_code_with_no_one_asked_asks",
+                 HOOK_TESTS + "test_claude_code_given_what_the_hook_cannot_read_asks")
+
 MUTANTS = [
     ("incomplete facts are trusted", "kernel/derive.py",
      "    gaps = incomplete(facts)\n", "    gaps = []\n"),
@@ -883,12 +890,15 @@ MUTANTS = [
      '"Not asked, under bypassPermissions, by tools/hooks/protected.py. "\n'
      '                                                  + said}})',
      '"Not asked, under bypassPermissions, by tools/hooks/protected.py. "\n'
-     '                                                  + said[:said.index(":") + 2]}})'),
+     '                                                  + said[:said.index(":") + 2]}})', BYPASS_TESTS),
     ("under bypassPermissions a config that cannot be read is still asked about", "tools/hooks/protected.py",
      '    if payload.get("permission_mode") == BYPASS:\n',
-     '    if payload.get("permission_mode") == BYPASS and found[0][0] != "config_unreadable":\n'),
-    ("a command that starts Claude Code with no one asked is not asked about", "tools/hooks/protected.py",
-     "                self.session(words, redirections)\n", ""),
+     '    if payload.get("permission_mode") == BYPASS and found[0][0] != "config_unreadable":\n', BYPASS_TESTS),
+    ("a command that runs Claude Code with no one asked is not asked about", "tools/hooks/protected.py",
+     "        self.sessions(commands)\n", "", SESSION_TESTS),
+    ("Claude Code given what the hook cannot read is not asked about", "tools/hooks/protected.py",
+     '        if fed or "`" in self.text or any(self.expand(word) is None for word in args):\n', "        if False:\n",
+     SESSION_TESTS),
 ]
 
 
@@ -901,10 +911,23 @@ UNIMPORTABLE = "unittest.loader._FailedTest"
 AGAIN = "; fix the copy or run named here, then run python3 -m tools.mutants again"
 
 
-def suite(cwd: pathlib.Path, timeout: float = TIMEOUT) -> tuple:
-    """Run the tests in `cwd` to the first failure: (exit status, output), the status None if it timed out."""
+def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = ()) -> tuple:
+    """Run the tests in `cwd` to the first failure: (exit status, output), the status None if it timed out.
+
+    The tests named in `first` run on their own before the rest: when they pass, or none is named, the whole suite
+    runs, so a mutant they miss is still read by every test.
+    """
+    if first:
+        status, output = _unittest(cwd, timeout, ["-q", "-f", *first])
+        if status != 0:
+            return status, output
+    return _unittest(cwd, timeout, ["discover", "-q", "-f", "tests"])
+
+
+def _unittest(cwd: pathlib.Path, timeout: float, args: list) -> tuple:
+    """(exit status, output) of one run of unittest in `cwd`, the status None if it timed out."""
     env = dict(os.environ, SIM_SEEDS="40", MUTATING="1")
-    with subprocess.Popen([sys.executable, "-m", "unittest", "discover", "-q", "-f", "tests"], cwd=str(cwd),
+    with subprocess.Popen([sys.executable, "-m", "unittest"] + args, cwd=str(cwd),
                           env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           start_new_session=True) as run:
         try:
@@ -931,7 +954,7 @@ def verdict(status, output: str) -> tuple:
 
 def attempt(mutant: tuple, root: pathlib.Path, run) -> tuple:
     """Break one rule in a fresh copy of `root` and run the tests there: (outcome, why)."""
-    name, rel, old, new = mutant
+    name, rel, old, new, *first = mutant
     with tempfile.TemporaryDirectory() as tmp:
         work = pathlib.Path(tmp) / "repo"
         walk.copy(root, work)
@@ -940,7 +963,7 @@ def attempt(mutant: tuple, root: pathlib.Path, run) -> tuple:
         if text.count(old) != 1:
             return "STALE", "the code it mutates has changed"
         target.write_text(text.replace(old, new))
-        return verdict(*run(work))
+        return verdict(*(run(work, first=first[0]) if first else run(work)))
 
 
 def guarded(mutant: tuple, root: pathlib.Path, run) -> tuple:

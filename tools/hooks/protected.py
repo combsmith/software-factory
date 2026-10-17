@@ -5,8 +5,9 @@ hook that holds them; a merge that bypasses the queue, or a push to the default 
 to a ruleset or to the repo's settings. For each the hook answers "ask", and the person answers.
 Under bypassPermissions it asks nothing and tells the session its reasons instead (decision 0019):
 the Maintainer runs such a session on autopilot, and the boundary is where it was. So that only the
-Maintainer sets one, a command that may start Claude Code with no one asked is asked about too: a
-word that turns its permissions off, read as text anywhere in the command.
+Maintainer sets one, a command that runs Claude Code with no one asked is asked about too (decision
+0021): given a word that turns its permissions off, or one the hook cannot read. To any other
+program, such a word is data.
 That the Maintainer asked is never inferred from the conversation. An enqueue is not asked about:
 the Maintainer's standing approval covers it. The hook allows nothing and refuses nothing: what it
 does not ask about goes through the session's own permissions. The paths, the commands, the
@@ -72,12 +73,20 @@ READS = {"cat", "less", "more", "head", "tail", "wc", "grep", "egrep", "fgrep", 
          "tr", "comm", "paste", "column", "fold", "strings", "which", "type", "pwd", "sleep", "export", "unset", "set",
          "local", "declare", "readonly", "read", "shift", "exit", "return", "wait", "case", "esac", "fi", "done",
          "cd", "pushd", "popd"}
-# Programs that read the paths they are named, and write the value of these options.
-# Of those, the ones that set no variable and print nothing a later command may run: a word in them starts nothing.
-SHOWS = READS - {"export", "unset", "set", "local", "declare", "readonly", "read", "shift", "echo", "printf"}
-# Programs that fetch and run the package their words name, as npx @anthropic-ai/claude-code does.
+# Programs that fetch and run the package their words name, as npx @anthropic-ai/claude-code does, alone or as
+# the first word of a command of theirs.
 RUNNERS = {"npx", "bunx", "pnpx"}
-OUTPUTS = {"sort":{"-o", "--output"},
+RUNNER_COMMANDS = {("pnpm", "dlx"), ("yarn", "dlx"), ("npm", "exec"), ("bun", "x")}
+# A command substitution that names a program's path: $(which claude), $(command -v claude) and their like.
+WHICH = re.compile(r"^(?:\$\(|`)\s*(?:which|command\s+-v|type\s+-p|whence\s+-p)\s+(\S+?)\s*(?:\)|`)$", re.S)
+# A variable set to one: C=$(which claude).
+WHICH_INTO = re.compile(r"([A-Za-z_]\w*)=[\"']?(?:\$\(|`)\s*(?:which|command\s+-v|type\s+-p|whence\s+-p)\s+"
+                        r"([^\s)`'\"]+)")
+# A function the command defines: f() { ...; } or function f { ...; }.
+DEFINES = re.compile(r"(?:^|[\s;&|(){}])function\s+([A-Za-z_][\w.-]*)|"
+                     r"(?:^|[\s;&|(){}])([A-Za-z_][\w.-]*)\s*\(\s*\)")
+# Programs that read the paths they are named, and write the value of these options.
+OUTPUTS = {"sort": {"-o", "--output"},
            "pytest": {"--junitxml", "--junit-xml", "--basetemp", "--result-log", "--report-log", "--html"},
            "py.test": {"--junitxml", "--junit-xml", "--basetemp", "--result-log", "--report-log", "--html"}}
 # Modules `python -m` runs that read the paths they are named: the program whose outputs they share, and the
@@ -475,6 +484,7 @@ class Command:
         except (ValueError, RecursionError):
             self.ask("command_unreadable", "the command cannot be split into words")
             return self.found
+        self.sessions(commands)
         for at, (words, redirections) in enumerate(commands):
             self.spend()
             if words and words[-1].endswith("=$") and at + 1 < len(commands):
@@ -483,7 +493,6 @@ class Command:
             self.redirections(redirections)
             if words:
                 self.github(words, redirections)
-                self.session(words, redirections)
                 self.simple(words, redirections)
         return self.found
 
@@ -871,28 +880,108 @@ class Command:
 
     # -- a session that asks nobody
 
-    def session(self, words: list, redirections: list):
-        """Ask about what may start Claude Code with no one asked (decision 0019): a word config/hooks.json lists, read
-        as text in any word, an assignment's or a script's among them, or with what the hook knows put in for each
-        variable; in a here-document fed to the command, too. Only a program that reads or prints, and sets nothing,
-        may name one. Claude Code given a word the hook cannot read is asked about: it may be one of them."""
+    def sessions(self, commands: list):
+        """Ask about each command that runs Claude Code with no one asked (decision 0021).
+
+        Claude Code runs when the program is one config/hooks.json names, by its name or its path, with what the hook
+        knows put in for a variable; when a wrapper, xargs, or npx and its like run it; as $(which claude); or as an
+        alias or a function the command defines that runs it. It is asked about when it is given a word config/hooks.json
+        lists, read as text in any of its words; a word the hook cannot read; a settings file, which the hook does not
+        read (settings written inline are read as text); or CLAUDE_CONFIG_DIR, set in the command. A word given to any
+        other program, a here-document's body among them, is data.
+        """
+        claude = set(self.data["sessions"]["programs"])
+        listed, aliases = [words for words, _ in commands if words], []
+        for words in list(listed):          # an alias's value is code: the commands it holds are read as commands
+            for word in words[1:] if words[0] == "alias" else []:
+                name, given, value = word.partition("=")
+                try:
+                    body = [w for w, _ in shell.commands(value, self.spend) if w] if given else []
+                except (ValueError, RecursionError):
+                    self.ask("command_unreadable", "an alias the command defines cannot be split into words")
+                    return
+                aliases.append((name, body))
+                listed += body
+        functions = {a or b for a, b in DEFINES.findall(self.text)}
+        while True:     # a name that runs Claude Code may be run by another: read until no more are found
+            before = len(claude)
+            claude |= {name for name, body in aliases if any(self._claude_at(w, claude) for w in body)}
+            if any(self._claude_at(w, claude) for w in listed):
+                claude |= functions     # which function runs it the hook does not tell: each may
+            if len(claude) == before:
+                break
+        for name, found in WHICH_INTO.findall(self.text):     # C=$(which claude); $C ...
+            if self._claude(found, claude):
+                claude |= {"$" + name, "${%s}" % name}
+        skip = set()
+        for i, words in enumerate(listed):
+            self.spend()
+            if i in skip:
+                continue
+            before = listed[i - 1] if i else [""]
+            if self._which(words, claude) and (before[-1].endswith("$") or "`" in self.text):
+                # Unquoted, $(which claude) -p x is read as a lone $, the command inside, and then the words it is
+                # given; `which claude` -p x as the command inside and the words.
+                words = (before[:-1] if before[-1].endswith("$") else []) + [words[-1]] + (
+                    listed[i + 1] if i + 1 < len(listed) else [])
+                skip.add(i + 1)
+            runs = self._claude_at(words, claude)
+            if runs:
+                self._session(words, *runs)
+
+    def _which(self, words: list, claude: set) -> bool:
+        """Whether the command names the path of Claude Code: which claude, command -v claude and their like."""
+        return (words[0] in ("which", "type", "whence") or words[:2] == ["command", "-v"]) and self._claude(
+            words[-1], claude)
+
+    def _claude(self, word: str, claude: set) -> bool:
+        """Whether a word is Claude Code: a name in `claude`, by its path, its package (@scope/name@version) or
+        $(which ...)."""
+        found = WHICH.match(word)
+        value = found.group(1) if found else (self.expand(word) or word)
+        name = os.path.basename(value)
+        return (name.split("@")[0] if "@" in name[1:] else name) in claude
+
+    def _claude_at(self, words: list, claude: set):
+        """(where Claude Code is in the words, whether a feeder gives it words from its input), when they run it."""
         at = 0
-        while at < len(words) and (words[at] in PREFIXES or ASSIGNMENT.match(words[at])):
-            at += 1
-        program = os.path.basename(self.expand(words[at]) or words[at]) if at < len(words) else None
-        heredoc = any("<<" in op and "<<<" not in op for op, _ in redirections)
-        if program in SHOWS and not heredoc:
-            return
-        texts = [value for word in words for value in (word, self.expand(word)) if value is not None]
+        while at < len(words):
+            if words[at] in PREFIXES or ASSIGNMENT.match(words[at]):
+                at += 1
+            elif words[at] == "function":
+                at += 2
+            else:
+                break
+        if at >= len(words):
+            return None
+        if self._claude(words[at], claude):
+            return at, False
+        program = os.path.basename(self.expand(words[at]) or words[at])
+        then = os.path.basename(words[at + 1]) if at + 1 < len(words) else None
+        if program in WRAPPERS or program in RUNNERS or (program, then) in RUNNER_COMMANDS:
+            runs = next((i for i in range(at + 1, len(words)) if self._claude(words[i], claude)), None)
+            return None if runs is None else (runs, program in FEEDERS)
+        return None
+
+    def _session(self, words: list, runs: int, fed: bool):
+        """Ask about one command that runs Claude Code at `runs`, if it may start with no one asked."""
+        args = words[runs + 1:]
+        texts = [value for word in args for value in (word, self.expand(word)) if value is not None]
         for word, named in self.unasked:
-            if any(named.search(text) for text in texts + ([self.text] if heredoc else [])):
-                self.ask("unasked_session", "the command names %s, which starts Claude Code with no one asked" % word)
+            if any(named.search(text) for text in texts):
+                self.ask("unasked_session", "Claude Code is given %s, which starts it with no one asked" % word)
                 return
-        programs = self.data["sessions"]["programs"]
-        runs = next((i for i in range(at, len(words)) if os.path.basename(self.expand(words[i]) or "") in programs
-                     and (i == at or program in WRAPPERS or program in RUNNERS)), None)
+        settings = [arg[len("--settings="):] if arg.startswith("--settings=") else args[i + 1] if i + 1 < len(args)
+                    else "" for i, arg in enumerate(args) if arg == "--settings" or arg.startswith("--settings=")]
+        if any(not (self.expand(value) or "").lstrip().startswith("{") for value in settings):
+            self.ask("command_unreadable", "Claude Code is given a settings file, which the hook does not read")
+            return
+        if "CLAUDE_CONFIG_DIR" in self.assigned or any(w.startswith("CLAUDE_CONFIG_DIR=") for w in words[:runs]):
+            self.ask("command_unreadable", "Claude Code runs with CLAUDE_CONFIG_DIR set in the command, whose "
+                                           "settings the hook does not read")
+            return
         # An unquoted `...` is split out of the words it stands in, so one anywhere in the command may be Claude Code's.
-        if runs is not None and ("`" in self.text or any(self.expand(word) is None for word in words[runs:])):
+        if fed or "`" in self.text or any(self.expand(word) is None for word in args):
             self.ask("command_unreadable", "Claude Code is given a word the hook cannot read, which may start it with "
                                            "no one asked")
 

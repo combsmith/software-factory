@@ -1,0 +1,44 @@
+# 0021. Only the Maintainer starts a session with no one asked
+
+Status: accepted. Decided after a review of pull request 115,
+"Session hooks: under bypassPermissions, the protected hook tells and asks nothing", found that a
+session the Maintainer did not set to bypassPermissions could start one that is, by a command the
+protected hook did not ask about.
+
+## Decision
+
+`tools/hooks/protected.py` asks about a command that runs Claude Code with no one asked. Claude Code
+runs when the program is one that `config/hooks.json` names under `sessions`, by its name or its
+path, with what the hook knows put in for a variable; when a wrapper, xargs, or npx and its like run
+it; when a shell's `-c` script runs it; as `$(which claude)`; or as an alias or a function the command
+defines that runs it. Such a command is asked about when Claude Code is given:
+
+- a word `config/hooks.json` lists under `sessions` (`--dangerously-skip-permissions`,
+  `--allow-dangerously-skip-permissions`, `bypassPermissions`), read as text in each word it is
+  given, so `--permission-mode` and settings written inline are read;
+- a word the hook cannot read;
+- a settings file, which the hook does not read;
+- or CLAUDE_CONFIG_DIR, set in the command, whose settings it does not read either.
+
+A word given to any other program is data, a here-document's body among them: a commit message, a
+search, a pull request's body or a test's name that names one of these words starts nothing. Under
+bypassPermissions this reason, like every other, is told and not asked (decision 0019).
+
+## Why
+
+Decision 0019 tells rather than asks only because a session under bypassPermissions is one the
+Maintainer set to run without them. A session in any other mode could start one that is, and that
+session's edits to the Maintainer's paths and its pushes would be told to nobody who reads them.
+Asking about the start keeps that choice the Maintainer's. Asking about every command that only
+names a word, as the first reading of this did, asked about commit messages and searches; reading
+only what Claude Code is given asks about the start and nothing else. What the hook cannot read,
+a word, a file or a configuration directory, it asks about, as it does everywhere.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| Claude Code given a listed word asks, however it is run: by name or path, a wrapper, npx and its like, a shell's script, `$(which claude)`, an alias or a function, the word in a variable or inline settings | `tests/test_hooks.py::test_a_command_that_runs_claude_code_with_no_one_asked_asks` |
+| Claude Code given a word the hook cannot read, a settings file or CLAUDE_CONFIG_DIR asks | `tests/test_hooks.py::test_claude_code_given_what_the_hook_cannot_read_asks` |
+| A word given to any other program, a here-document's body among them, is not asked about | `tests/test_hooks.py::test_a_word_given_to_any_other_program_is_data` |
+| Under bypassPermissions it is told with the code and sentence it would be asked with | `tests/test_hooks.py::test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked` |

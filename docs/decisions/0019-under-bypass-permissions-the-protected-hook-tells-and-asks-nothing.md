@@ -38,5 +38,3 @@ session that disarms a hook still cannot pass CI, which checks out afresh, or th
 |---|---|
 | Under bypassPermissions, spelled exactly, a protected write is told to the session and not asked; under any other mode, or none, it is asked | `tests/test_hooks.py::test_under_bypass_permissions_the_hook_tells_the_session_and_asks_nothing` |
 | Every reason, a reading the hook could not finish among them, is told and not asked under bypassPermissions | `tests/test_hooks.py::test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked` |
-| Only the Maintainer sets a session to bypassPermissions: a command that may start Claude Code with no one asked is asked about, by a word `config/hooks.json` lists under `sessions` read as text, in an option, a settings value, a variable, a wrapper, a script or a here-document; a command that only reads or prints one is not | `tests/test_hooks.py::test_a_command_that_starts_claude_code_with_no_one_asked_asks` |
-| Claude Code given a word the hook cannot read is asked about, since it may turn the permissions off | `tests/test_hooks.py::test_claude_code_given_a_word_the_hook_cannot_read_asks` |

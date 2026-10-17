@@ -98,7 +98,7 @@
       }
     },
     "sessions": {
-      "description": "What starts Claude Code with no one asked (decision 0019): a word that turns its permissions off, read as text anywhere in a command, and the programs that are Claude Code, a word given to which the hook cannot read is asked about.",
+      "description": "What starts Claude Code with no one asked (decision 0021): the programs that are Claude Code, and the words that turn its permissions off when it is given one, read as text in each word it is given. A word given to any other program is data.",
       "type": "object",
       "additionalProperties": false,
       "required": [
