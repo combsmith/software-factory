@@ -1,13 +1,12 @@
 # tools/
 
-The checks, `verify.py` which runs them all, `mutants.py` which breaks the Kernel on purpose, a shard to a job in CI, and `needs_passed.py`, which fails the required check unless every job it needs passed.
-`walk.py` lists this working tree's files, and nothing in another nested inside it, for all of them.
-It skips local output, Python's caches and the corpus, only while git's index does not hold it, and
-reads the index as a file, so no git is needed. CI checks out the commit afresh, so there all else
-is committed; an export, with no `.git`, cannot tell, and skips it all.
-`make_corpus.py` records every decision the Kernel makes, under a directory git ignores, to hold
-another implementation to this one; the required check does not depend on it. `hooks/` holds the
-session hooks `.claude/settings.json` runs; `hooks/shell.py` reads a shell command as words for any of them.
+The checks, `verify.py` which runs them all, `mutants.py` which breaks the Kernel on purpose, a shard to a job in CI, and
+`needs_passed.py`, which fails the required check unless every job it needs passed. `walk.py` lists this working tree's files, and
+nothing in another nested inside it, for all of them. It skips local output, Python's caches and the corpus, only while git's
+index does not hold it, and reads the index as a file, so no git is needed. CI checks out the commit afresh, so there all else is
+committed; an export, with no `.git`, cannot tell, and skips it all. `make_corpus.py` records every decision the Kernel makes,
+under a directory git ignores, to hold another implementation to this one; the required check does not depend on it. `hooks/`
+holds the session hooks `.claude/settings.json` runs; `hooks/shell.py` reads a shell command as words for any of them.
 
 | Rule | Held by |
 |---|---|
@@ -37,4 +36,5 @@ session hooks `.claude/settings.json` runs; `hooks/shell.py` reads a shell comma
 A check collects every problem and does not stop at the first. Its message says what is wrong and
 what to do, in one sentence, because an author will read it with nothing else to go on.
 
-What the hooks decide without reading is `docs/decisions/0017-the-session-hooks-read-every-commit-a-push-sends.md`.
+What the hooks decide without reading is `docs/decisions/0017-the-session-hooks-read-every-commit-a-push-sends.md`, and what
+the identity hook reads of git's configuration is `docs/decisions/0024-the-identity-hook-reads-where-a-push-goes-from-gits-configuration-and-refuses-a-git-the-command-may-redefine.md`.

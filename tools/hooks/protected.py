@@ -73,9 +73,6 @@ READS = {"cat", "less", "more", "head", "tail", "wc", "grep", "egrep", "fgrep", 
          "tr", "comm", "paste", "column", "fold", "strings", "which", "type", "pwd", "sleep", "export", "unset", "set",
          "local", "declare", "readonly", "read", "shift", "exit", "return", "wait", "case", "esac", "fi", "done",
          "cd", "pushd", "popd"}
-# A function the command defines: f() { ...; } or function f { ...; }.
-DEFINES = re.compile(r"(?:^|[\s;&|(){}])function\s+([A-Za-z_][\w.-]*)|"
-                     r"(?:^|[\s;&|(){}])([A-Za-z_][\w.-]*)\s*\(\s*\)")
 # Programs that read the paths they are named, and write the value of these options.
 OUTPUTS = {"sort": {"-o", "--output"},
            "pytest": {"--junitxml", "--junit-xml", "--basetemp", "--result-log", "--report-log", "--html"},
@@ -89,59 +86,15 @@ INTERPRETERS = re.compile(r"^(python[\d.]*|node|nodejs|deno|bun|perl|ruby|php|lu
                           r"mawk|nawk|bash|sh|zsh|dash|ksh|fish|source|\.)$")
 # Programs that write the paths of a list they read on stdin, or into the directory they run in.
 FEEDERS = {"xargs", "parallel"}
-FEED_VALUED = {"-I", "-L", "-n", "-P", "-s", "-d", "-E", "-a", "--max-args", "--max-procs", "--delimiter",
-               "--arg-file", "--max-lines", "--replace", "--eof", "-j", "--jobs"}
-# Words before a program that change nothing about what runs, and the options of theirs that take the next word.
-PREFIXED = {"exec": {"-a"}, "time": {"-f", "--format", "-o", "--output"}, "command": set(), "builtin": set(),
-            "nohup": set()}
-# What runs the program its words name, after its own: for each, its options that take the next word as their value,
-# and how many words that are not options come before the program (timeout's duration, chroot's new root). The first
-# word past them is the program; what follows is that program's, and data to any other.
-NPX_VALUED = {"-p", "--package", "--cache", "--userconfig", "--registry", "-w", "--workspace"}
-WRAPPED = {
-    "env": ({"-u", "--unset", "-C", "--chdir", "-P"}, 0),
-    "sudo": ({"-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-D",
-              "--chdir", "-R", "--chroot", "-r", "--role", "-t", "--type", "-T", "--command-timeout", "-U",
-              "--other-user"}, 0),
-    "doas": ({"-u", "-C"}, 0),
-    "xargs": (FEED_VALUED, 0), "parallel": (FEED_VALUED, 0),
-    "timeout": ({"-s", "--signal", "-k", "--kill-after"}, 1), "gtimeout": ({"-s", "--signal", "-k", "--kill-after"}, 1),
-    "nice": ({"-n", "--adjustment"}, 0),
-    "ionice": ({"-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid"}, 0),
-    "chrt": (set(), 1), "taskset": (set(), 1),
-    "numactl": ({"-N", "--cpunodebind", "-m", "--membind", "-C", "--physcpubind", "-p", "--preferred", "-i",
-                 "--interleave"}, 0),
-    "stdbuf": ({"-i", "-o", "-e", "--input", "--output", "--error"}, 0),
-    "gstdbuf": ({"-i", "-o", "-e", "--input", "--output", "--error"}, 0),
-    "caffeinate": ({"-t", "-w"}, 0), "watch": ({"-n", "--interval"}, 0), "setsid": (set(), 0),
-    "flock": ({"-w", "--wait", "--timeout", "-E", "--conflict-exit-code"}, 1),
-    "chroot": ({"--userspec", "--groups"}, 1),
-    "unshare": ({"-S", "--setuid", "-G", "--setgid", "-R", "--root", "-w", "--wd"}, 0),
-    "nsenter": ({"-t", "--target", "-S", "--setuid", "-G", "--setgid"}, 0),
-    "runuser": ({"-u", "--user", "-g", "--group", "-G", "--supp-group", "-s", "--shell"}, 0),
-    "chpst": ({"-u", "-U", "-e", "-/", "-n", "-l", "-L", "-m", "-d", "-o", "-p", "-f", "-c"}, 0),
-    "unbuffer": (set(), 0), "chronic": (set(), 0), "arch": (set(), 0), "corepack": (set(), 0),
-    "script": ({"-t", "--timing", "-T", "-I", "-O", "-B", "--log-in", "--log-out", "--log-io", "-E", "-o"}, 1),
-    "xcrun": ({"--sdk", "--toolchain", "-sdk", "-toolchain"}, 0),
-    "sandbox-exec": ({"-f", "-n", "-p", "-D"}, 0),
-    "systemd-run": ({"-p", "--property", "-u", "--unit", "-E", "--setenv", "--uid", "--gid", "-M", "--machine",
-                     "--description", "--slice", "--working-directory", "-H", "--host", "--nice"}, 0),
-    "fakeroot": ({"-l", "--lib", "--faked", "-s", "-i", "-b"}, 0),
-    "strace": ({"-o", "-e", "-p", "-s", "-u", "-E", "-P", "-I", "-a", "-b", "-S", "-O", "-X"}, 0),
-    "ltrace": ({"-o", "-e", "-p", "-s", "-u", "-n", "-a", "-A", "-l", "-x", "-F"}, 0),
-    "dtruss": ({"-p", "-n", "-t", "-W"}, 0), "gtime": ({"-f", "--format", "-o", "--output"}, 0),
-    "npx": (NPX_VALUED, 0), "pnpx": (NPX_VALUED, 0), "bunx": (NPX_VALUED, 0),
-}
+FEED_VALUED = shell.FEED_VALUED
+# Prefixes and wrappers, and the options of theirs that take the next word, are read as shell.py reads them, for
+# both hooks (shell.past_prefixes, shell.past_wrapper).
+WRAPPED = shell.WRAPPED
 # A package manager's command that fetches and runs a package, as npx does: pnpm dlx, npm exec and their like.
 RUNNER_COMMANDS = {("pnpm", "dlx"), ("pnpm", "exec"), ("yarn", "dlx"), ("npm", "exec"), ("npm", "x"), ("bun", "x")}
 # The options whose value is a command of its own: env -S splits it into words, npx -c runs it.
 COMMAND_STRINGS = {"env": {"-S", "--split-string"}, "npx": {"-c", "--call"}, "pnpx": {"-c", "--call"},
                    "npm": {"-c", "--call"}}
-# A command substitution that names a program's path: $(which claude), `command -v claude` and their like.
-WHICH = re.compile(r"(?:\$\(|`)\s*(?:which|command\s+-v|type\s+-p|whence\s+-p)\s+([^\s)`'\"]+)\s*(?:\)|`)")
-# A variable set to one: C=$(which claude).
-WHICH_INTO = re.compile(r"([A-Za-z_]\w*)=[\"']?(?:\$\(|`)\s*(?:which|command\s+-v|type\s+-p|whence\s+-p)\s+"
-                        r"([^\s)`'\"]+)")
 # Options after which an interpreter's next word is code or a module, not a script file it reads.
 CODE_FOLLOWS = {"-c", "-e", "-E", "--eval", "-p", "--print", "-m", "-r", "--require"}
 UNPACKERS = {"tar", "unzip", "cpio", "patch", "bsdtar", "7z", "ditto"}
@@ -181,8 +134,8 @@ LESS_WRITES = re.compile(r"^(\+|-[^-]*[oOk])")
 LESS_WRITES_LONG = ("--log-file", "--lesskey", "--lesskey-src", "--lesskey-content")
 # Where a push with no refspec goes is read exactly only under these; any other push.default may reach main.
 PUSH_DEFAULTS = {None, "simple", "current"}
-# git configuration that says where a push goes.
-PUSH_KEYS = re.compile(r"^(push\.|remote\..*\.push$|branch\..*\.(merge|remote)$)", re.I | re.S)
+# git configuration that says where a push goes: one list with identity.py's.
+PUSH_KEYS = identity.PUSH_KEYS
 # What branch and tag do when given these: list, show or delete, and write no new name.
 REF_READS = {"-l", "--list", "-a", "--all", "-r", "--remotes", "-d", "-D", "--delete", "-v", "-vv", "--verbose",
              "--show-current", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "-n",
@@ -934,33 +887,32 @@ class Command:
         is data.
         """
         claude = set(self.data["sessions"]["programs"])
-        for name, found in WHICH_INTO.findall(self.text):     # C=$(which claude); $C ...
+        for name, found in shell.WHICH_INTO.findall(self.text):     # C=$(which claude); $C ...
             if self._claude(found, claude):
                 claude |= {"$" + name, "${%s}" % name}
         # $(which claude) and `which claude` stand for Claude Code's path: read each as the name it looks up.
-        text = WHICH.sub(lambda m: m.group(1) if self._claude(m.group(1), claude) else m.group(0), self.text)
+        text = shell.WHICH.sub(lambda m: m.group(1) if self._claude(m.group(1), claude) else m.group(0), self.text)
         try:
             listed = [self._expanded(words) for words, _ in (_split(text, self.spend) if text != self.text
                                                               else commands) if words]
+            functions = shell.functions(text, self.spend)     # in each script it runs, too
         except (ValueError, RecursionError):
             self.ask("command_unreadable", "the command cannot be split into words")
             return
         aliases = []
         for words in list(listed):          # an alias's value, and eval's words, are code: read as commands
-            body = words[1:] if words[0] == "alias" else [" ".join(words[1:])] if words[0] == "eval" else []
-            for word in body:
-                name, given, value = word.partition("=") if words[0] == "alias" else ("", "=", word)
-                if words[0] == "eval" and self.expand(value) is None:
+            bodies = shell.aliases(words) + ([("", " ".join(words[1:]))] if words[0] == "eval" else [])
+            for name, value in bodies:
+                if not name and self.expand(value) is None:
                     listed.append(["$eval"])        # what it runs the hook cannot read
                     continue
                 try:
-                    inner = [self._expanded(w) for w, _ in shell.commands(value, self.spend) if w] if given else []
+                    inner = [self._expanded(w) for w, _ in shell.commands(value, self.spend) if w]
                 except (ValueError, RecursionError):
                     self.ask("command_unreadable", "an alias or an eval the command holds cannot be split into words")
                     return
                 aliases += [(name, inner)] if name else []
                 listed += inner
-        functions = {a or b for a, b in DEFINES.findall(text)}
         while True:     # a name that runs Claude Code may be run by another: read until no more are found
             before = len(claude)
             claude |= {name for name, body in aliases if any(self._runs(w, claude) not in (None, "unknown")
@@ -997,25 +949,8 @@ class Command:
     def _runs(self, words: list, claude: set, fed: bool = False):
         """(the words, where Claude Code is in them, whether a feeder gives it words) when they run it; "unknown" when
         the program they run is a word the hook cannot read; None when they run another program."""
-        at = 0
-        while at < len(words):
-            word = words[at]
-            if word in PREFIXES:
-                at += 1
-                while word in PREFIXED and at < len(words) and words[at].startswith("-") and words[at] != "-":
-                    if words[at] == "--":
-                        at += 1
-                        break
-                    if word == "command" and re.match(r"^-[pP]*[vV]", words[at]):
-                        return None         # command -v names a program and runs none
-                    at += 2 if words[at] in PREFIXED[word] else 1
-            elif ASSIGNMENT.match(word):
-                at += 1
-            elif word == "function":
-                at += 2
-            else:
-                break
-        if at >= len(words):
+        at = shell.past_prefixes(words)[0]
+        if at is None or at >= len(words):
             return None
         if self._claude(words[at], claude):
             return words, at, fed
@@ -1028,31 +963,17 @@ class Command:
             program = "npx"
         if program not in WRAPPED:
             return None
-        valued, positional = WRAPPED[program]
         fed = fed or program in FEEDERS
-        at += 1
-        while at < len(words):
-            option, given, value = words[at].partition("=")
-            if words[at] == "--":
-                at += 1
-                break
-            if ASSIGNMENT.match(words[at]):
-                at += 1
-            elif words[at].startswith("-") and words[at] != "-":
-                if option in COMMAND_STRINGS.get(program, ()):
-                    value = value if given else (words[at + 1] if at + 1 < len(words) else "")
-                    try:
-                        inner = [w for w, _ in shell.commands(value, self.spend) if w]
-                    except (ValueError, RecursionError):
-                        return "unknown"
-                    rest = words[at + (1 if given else 2):]
-                    return self._runs(self._expanded(inner[0]) + rest, claude, fed) if inner else None
-                at += 2 if option in valued and not given else 1
-            elif positional:
-                positional -= 1
-                at += 1
-            else:
-                break
+        at, string = shell.past_wrapper(words, at, program, COMMAND_STRINGS.get(program, ()))
+        if string is not None:
+            _, given, value = words[at].partition("=")
+            value = value if given else (words[at + 1] if at + 1 < len(words) else "")
+            try:
+                inner = [w for w, _ in shell.commands(value, self.spend) if w]
+            except (ValueError, RecursionError):
+                return "unknown"
+            rest = words[at + (1 if given else 2):]
+            return self._runs(self._expanded(inner[0]) + rest, claude, fed) if inner else None
         return self._runs(words[at:], claude, fed) if at < len(words) else None
 
     def _session(self, words: list, runs: int, fed: bool, text: str):
@@ -1075,9 +996,8 @@ class Command:
             self.ask("command_unreadable", "Claude Code is given a settings file, which the hook does not read")
             return
         for name in self.data["sessions"]["environment"]:
-            if name in self.assigned or any(w.startswith(name + "=") for w in words[:runs]) or re.search(
-                    r"(?<![\w-])%s\+?:?=|\b(?:read|printf|getopts|mapfile|readarray|declare|typeset|local|export|"
-                    r"readonly|let)\b[^;&|\n]*(?<![\w-])%s(?![\w-])" % (name, name), text):
+            if name in self.assigned or any(w.startswith(name + "=") for w in words[:runs]) or shell.set_anywhere(
+                    name, text):
                 self.ask("command_unreadable", "Claude Code runs with %s set in the command, and the settings that "
                                                "names the hook does not read" % name)
                 return
@@ -1146,16 +1066,13 @@ class Command:
         branch = self.data["branch"]
         try:
             inside = self.rules.inside(here)      # git is run only in the project
-            default = _git_config(inside, self.env, ["--get", "push.default"], self.spend)
-            refspecs = _git_config(inside, self.env, ["--get-regexp", r"^remote\..*\.push$"], self.spend)
-            mirrors = _git_config(inside, self.env, ["--type=bool", "--get-regexp", r"^remote\..*\.mirror$"],
-                                  self.spend)
-        except Unreadable:
+            read = identity.push_configuration(lambda args: _git_config(inside, self.env, args, self.spend))
+        except (Unreadable, identity.Unreadable):
             self.ask("merge", "a push that names no branch goes where git's configuration says, which the hook cannot "
                               "read, and it may be %s" % branch)
             return False
-        if (default.strip().casefold() or None) not in PUSH_DEFAULTS or refspecs.strip() or any(
-                line.endswith(" true") for line in mirrors.splitlines()):
+        default = None if read["default"] is None else read["default"].casefold()   # set to "", it is no default
+        if default not in PUSH_DEFAULTS or read["refspecs"] or read["mirror"]:
             self.ask("merge", "a push that names no branch goes where push.default, remote.*.push or remote.*.mirror "
                               "says, which may be %s" % branch)
             return False
