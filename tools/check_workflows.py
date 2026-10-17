@@ -12,8 +12,12 @@ It also holds the configuration's required Lenses to the workflows that run them
 GitHub Actions names its workflow file and no other Lens names one, and the file it names exists, runs on both
 pull_request and merge_group, and has a job whose own `name:`, or whose id where it has none, is the Lens's check,
 with no `strategy.matrix` and no `uses:`. Its one job-level `if:` is exactly `always()`, beside a `needs:` that names
-every other job in its file, and then it judges them with `tools/needs_passed.py`. Only `jobs.<id>.name` is read: a
-workflow's or a step's `name:` names no check run.
+every other job in its file, and then it judges them with `tools/needs_passed.py`, the base's: its one checkout is
+of the base, never the head. Only `jobs.<id>.name` is read: a workflow's or a step's `name:` names no check run.
+
+The secret scan, the exempt `ci.yml`, reads its rules from the base (scan_problems): `.gitleaks.toml` and
+`.gitleaksignore` from a checkout of the base under `base/`, with the head's `.gitleaksignore` deleted first, since
+gitleaks also reads the one at the top of what it scans.
 """
 from __future__ import annotations
 
@@ -50,7 +54,7 @@ ACTIONS_APP = 15368
 # A workflow the org requires as it wrote it. It is exempt from the rules named and from no other,
 # and it is held to its text by a hash taken with the pins left out: to change it, change this.
 EXEMPT = {
-    "ci.yml": (("install",), "d28a26f9ef5f8349ccaf555c47fcc3e855fed9b92e5188c5a86e47ee7a5980e8"),    # the org's secret scan downloads gitleaks
+    "ci.yml": (("install",), "d926b2135508f3799b02cfc2741d6017435399f8ec054c3f171dcd79236ba627"),    # the org's secret scan downloads gitleaks
 }
 MAX_RUN_LINES = 10
 ENTRY = re.compile(r"^( *)(- )?([A-Za-z_][\w-]*):(?: (.*))?$")
@@ -72,6 +76,26 @@ PIN = re.compile(r"@[0-9a-f]{40} # v[\w.]+")
 ALWAYS = "always()"
 JUDGE = "python3 -m tools.needs_passed"
 NEEDS = "${{ toJSON(needs) }}"
+# The commit a pull request, or a merge-queue entry, is judged against (decision 0023). A judging job checks out this and
+# nothing else; the secret scan, which also runs on a push to main, falls back to the commit pushed.
+BASE = "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}"
+SCAN = "ci.yml"
+SCAN_BASE = "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}"
+# gitleaks 8.30.1 reads the ignore file named by --gitleaks-ignore-path and also the one at the top of --source, so the
+# head's is deleted on the line before. Its own log options are kept, and --text added, so a head's .gitattributes cannot
+# mark a file binary and hide it; and an inline gitleaks:allow, which the head writes, passes over nothing.
+SCAN_RUN = ["rm -f .gitleaksignore",
+            "gitleaks detect --source . --config base/.gitleaks.toml --gitleaks-ignore-path base/.gitleaksignore "
+            "--ignore-gitleaks-allow --log-opts=\"--full-history --all --diff-filter=tuxdb --text\" "
+            "--redact --verbose --exit-code 1"]
+SCAN_CHECKOUTS = [{"fetch-depth": "0", "persist-credentials": "false"},
+                  {"path": "base", "ref": SCAN_BASE, "persist-credentials": "false"}]
+# What the secret scan's workflow and its one job may hold, and what its install may be given.
+SCAN_TOP = {"name", "on", "permissions", "jobs"}
+SCAN_JOB = {"name", "runs-on", "timeout-minutes", "permissions", "steps"}
+SCAN_ENV = ("GITLEAKS_VERSION", "GITLEAKS_CHECKSUM")
+# The only events a workflow with a judging job runs on: on any other there is no base, and its checkout would be the head.
+JUDGED = {"pull_request", "merge_group"}
 JOB = re.compile(r"^[A-Za-z_][\w-]*$")
 
 
@@ -228,6 +252,68 @@ def _listed(text: str, entry: dict):
     return values if values and all(JOB.match(v) for v in values) else None
 
 
+def _checkout(entry: dict) -> bool:
+    return entry["key"] == "uses" and entry["value"].lower().startswith("actions/checkout@")
+
+
+def _with(entries: list, step: dict) -> dict:
+    """{key: value} under the `with:` of the step that `step`, one of its entries, belongs to."""
+    return {e["key"]: e["value"] for e in entries
+            if e["step"] == step["step"] and e["path"] == step["path"] + ["with"]}
+
+
+def _steps(entries: list, job: str) -> list:
+    """The steps of `job`, in order: for each, {key: entry} of its own keys."""
+    steps = {}
+    for e in entries:
+        if e["path"] == ["jobs", job, "steps"]:
+            steps.setdefault(e["step"], {})[e["key"]] = e
+    return [steps[number] for number in sorted(steps)]
+
+
+def _lines(entry) -> list:
+    """The command lines of a `run:` entry: its block, or its one line; none for anything else."""
+    return (entry["body"] or [entry["value"]]) if entry and entry["key"] == "run" else []
+
+
+def scan_problems(text: str) -> list:
+    """Why the secret scan in `text` could be passed by the head it scans: its rules not read from the base.
+
+    Its one job runs four steps, in this order and nothing else: the head's checkout, with its history; the base's,
+    under `base/`, at the base's commit; the install, which names no `base`; and the scan, whose whole block is
+    SCAN_RUN, telling gitleaks the base's `.gitleaks.toml` and `.gitleaksignore` on the line after the
+    head's `.gitleaksignore` is deleted. Nothing sets an environment, a directory or a container that the scan could
+    run in instead.
+    """
+    entries, _ = read(text)
+    problems = []
+    jobs = [e["key"] for e in entries if e["path"] == ["jobs"]]
+    steps = _steps(entries, jobs[0]) if len(jobs) == 1 else []
+    if [_with(entries, e) for e in entries if _checkout(e)] != SCAN_CHECKOUTS:
+        problems.append("%s does not check out the head and then the base, under base/ at `ref: %s`, and nothing "
+                        "else, so the scan's rules may not be the base's" % (SCAN, SCAN_BASE))
+    install = steps[2] if len(steps) == 4 else {}
+    given = {e["key"] for e in entries if install.get("env") and e["step"] == install["env"]["step"]
+             and e["path"] == install["env"]["path"] + ["env"]}
+    shaped = (len(jobs) == 1 and len(steps) == 4
+              and {e["key"] for e in entries if e["path"] == []} <= SCAN_TOP
+              and {e["key"] for e in entries if e["path"] == ["jobs", jobs[0]]} <= SCAN_JOB
+              and all(set(step) <= {"name", "uses", "with"} and _checkout(step.get("uses", {"key": ""}))
+                      for step in steps[:2])
+              and set(install) <= {"name", "env", "run"} and given == ({*SCAN_ENV} if "env" in install else set())
+              and not any("base" in line for line in _lines(install.get("run")))
+              and set(steps[3]) <= {"name", "run"})
+    if not shaped:
+        problems.append("%s does not run, in this order and nothing else, the head's checkout, the base's, the "
+                        "install, which names no base, and the scan, with no environment, directory or container of "
+                        "its own: a step could change base/ or what the scan reads" % SCAN)
+    if _lines(steps[-1].get("run") if steps else None) != SCAN_RUN:
+        problems.append("%s does not run, as its last step's whole block, `%s` on the line after `%s`: it could read "
+                        "the head's .gitleaks.toml or .gitleaksignore, and a change could widen the allowlist it needs"
+                        % (SCAN, SCAN_RUN[1], SCAN_RUN[0]))
+    return problems
+
+
 def _judging(text: str, entries: list, job: str, jobs: list) -> list:
     """Why the job `job`, which has `needs:` or shares its file with other jobs, would pass, or never report, when one
     of them did not pass.
@@ -262,6 +348,15 @@ def _judging(text: str, entries: list, job: str, jobs: list) -> list:
         whys.append("an if: can skip its step `%s`" % JUDGE)
     if len(runs) > 1 or any(e["key"] == "uses" and not e["value"].startswith("actions/checkout@") for e in steps):
         whys.append("its steps are more than a checkout and `%s`, and another could act for it" % JUDGE)
+    events = {e["key"] for e in entries if e["path"] == ["on"]}
+    events |= {e["value"] for e in entries if e["path"] == [] and e["key"] == "on" and e["value"]}
+    if events - JUDGED:
+        whys.append("its workflow runs on %s, where there is no base to check out, so `ref: %s` would come out empty "
+                    "and the checkout would be the head's: run it on pull_request and merge_group alone"
+                    % (", ".join(sorted(events - JUDGED)), BASE))
+    if [_with(entries, c) for c in steps if _checkout(c)] != [{"persist-credentials": "false", "ref": BASE}]:
+        whys.append("its one checkout is not of the base alone, `ref: %s` and persist-credentials: false and nothing "
+                    "else, so the head's own tools/needs_passed.py could give its verdict" % BASE)
     if [(e["path"], e["value"]) for e in mine if e["key"] == "NEEDS"] != [(["jobs", job, "env"], NEEDS)]:
         whys.append("it does not give NEEDS: %s once, in its own env:, so what it needs cannot be read" % NEEDS)
     return whys
@@ -360,6 +455,8 @@ def run(root: pathlib.Path = ROOT) -> list:
     for path in live + sorted((root / "examples" / "workflows").glob("*.y*ml")):
         text = path.read_text(errors="replace")
         spared, held = EXEMPT.get(path.name, ((), None)) if path in live else ((), None)
+        if path in live and path.name == SCAN:
+            problems += ["%s: %s" % (path.relative_to(root), p) for p in scan_problems(text)]
         if held and hashlib.sha256(PIN.sub("@PIN", text).encode()).hexdigest() != held:
             problems.append("%s is exempt from a rule, so it is held word for word, and it has changed; "
                             "if the change is meant, record its new hash in EXEMPT" % path.relative_to(root))

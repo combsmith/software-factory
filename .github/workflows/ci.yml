@@ -1,7 +1,10 @@
 # The org's secret scan: combsmith/.github, push-protection.md, "Required CI job". It is the one
 # workflow here that downloads a program. tools/check_workflows.py exempts it from that rule alone,
 # by name, and holds it to this text by its hash: to change it, change the entry there too.
-# One line differs from the org's: the download is by curl held to HTTPS, redirects included.
+# Two things differ from the org's: the download is by curl held to HTTPS, redirects included; and the
+# scan reads its rules, .gitleaks.toml and .gitleaksignore, from the base, never from the head it scans,
+# so a change cannot widen the allowlist it needs; and it reads every file as text and passes over no
+# inline gitleaks:allow, which the head could write (decision 0023).
 name: ci
 on:
   pull_request:
@@ -23,6 +26,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Checkout the base, for the scan's rules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: base
+          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
+          persist-credentials: false
       - name: Install gitleaks
         env:
           GITLEAKS_VERSION: "8.30.1"
@@ -35,4 +44,6 @@ jobs:
           tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
           sudo mv /tmp/gitleaks /usr/local/bin
       - name: Run gitleaks
-        run: gitleaks detect --source . --config .gitleaks.toml --redact --verbose --exit-code 1
+        run: |
+          rm -f .gitleaksignore
+          gitleaks detect --source . --config base/.gitleaks.toml --gitleaks-ignore-path base/.gitleaksignore --ignore-gitleaks-allow --log-opts="--full-history --all --diff-filter=tuxdb --text" --redact --verbose --exit-code 1
