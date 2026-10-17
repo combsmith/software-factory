@@ -1058,6 +1058,11 @@ class Workflows(unittest.TestCase):
             text = GOOD.replace("  merge_group:\n", "  merge_group:\n" + event)
             self.assertNotEqual(text, GOOD)
             self.assertTrue(caught(self.lens_problems(text), empty), event)
+        for event in ("push", "workflow_dispatch"):
+            text = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on: %s\n" % event)
+            self.assertNotEqual(text, GOOD)
+            self.assertTrue(caught(self.lens_problems(text), "its workflow runs on %s, where there is no base" % event),
+                            event)
         self.assertFalse(caught(self.lens_problems(GOOD), empty))
 
     def test_the_required_check_fails_unless_every_job_it_needs_passed(self):
@@ -1150,6 +1155,7 @@ class Workflows(unittest.TestCase):
         self.assertIn(rm + line, scan)
         self.assertIn(ref, step)
         ran, checkout = "runs gitleaks other than as", "does not check out the head and then the base"
+        shape = "does not run, in this order and nothing else"
         cases = [(scan.replace("--config base/.gitleaks.toml", "--config .gitleaks.toml"), ran),
                  (scan.replace("--gitleaks-ignore-path base/.gitleaksignore", "--gitleaks-ignore-path ."), ran),
                  (scan.replace(" --gitleaks-ignore-path base/.gitleaksignore", ""), ran),
@@ -1167,6 +1173,26 @@ class Workflows(unittest.TestCase):
                  # An inline gitleaks:allow is the head's own content, and passes over nothing.
                  (scan.replace(" --ignore-gitleaks-allow", ""), ran),
                  (scan.replace(rm + line, "          make verify\n"), "runs no gitleaks"),
+                 # The scan's whole block is SCAN_RUN: a line before the rm, or after the scan, is refused.
+                 (scan.replace(rm, "          cp .gitleaks.toml base/.gitleaks.toml\n" + rm), ran),
+                 (scan.replace(line, line + "          true\n"), ran),
+                 # A scan on one line is read as a scan, not as no scan at all.
+                 (scan.replace("        run: |\n" + rm + line, "        run: gitleaks detect --source .\n"), ran),
+                 # The steps are the head's checkout, the base's, the install and the scan, in that order alone.
+                 (scan.replace(step, "").replace(rm + line, rm + line + step),
+                  shape),
+                 (scan.replace(step, step + "      - run: cp .gitleaks.toml base/.gitleaks.toml\n"), shape),
+                 (scan.replace("          sudo mv /tmp/gitleaks /usr/local/bin\n",
+                               "          sudo mv /tmp/gitleaks /usr/local/bin\n          cp .gitleaks.toml base/\n"),
+                  shape),
+                 (scan.replace("    permissions:\n      contents: read\n",
+                               "    permissions:\n      contents: read\n    env:\n      GIT_DIR: base/.git\n"), shape),
+                 (scan.replace("permissions: {}\n", "permissions: {}\ndefaults:\n  run:\n    working-directory: base\n"),
+                  shape),
+                 (scan.replace("      - name: Run gitleaks\n", "      - name: Run gitleaks\n        working-directory: base\n"),
+                  shape),
+                 (scan.replace("          GITLEAKS_VERSION:", "          GIT_DIR: base/.git\n          GITLEAKS_VERSION:"),
+                  shape),
                  (scan.replace(ref, ref.replace(" || github.sha", "")), checkout),
                  (scan.replace(ref, ref.replace(" || github.event.merge_group.base_sha", "")), checkout),
                  (scan.replace(ref, ref.replace("github.event.pull_request.base.sha || ", "")), checkout),
