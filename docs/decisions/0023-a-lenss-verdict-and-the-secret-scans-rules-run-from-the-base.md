@@ -15,15 +15,19 @@ action, and no git in a `run:` line. A commit that cannot be fetched fails the c
 
 - The secret scan reads its rules, `.gitleaks.toml` and `.gitleaksignore`, from a second checkout,
   of the base into the directory base, through `--config base/.gitleaks.toml` and
-  `--gitleaks-ignore-path base/.gitleaksignore`. gitleaks 8.30.1 also reads the `.gitleaksignore` at the top of `--source`,
-  whatever the flag names, so the step deletes the head's copy on the line before. The history it
-  scans is still the head's.
+  `--gitleaks-ignore-path base/.gitleaksignore`. gitleaks 8.30.1 also reads the `.gitleaksignore`
+  at the top of `--source`, whatever the flag names, so the step deletes the head's copy on the line
+  before. The history it scans is still the head's, with two things the head writes taken from it:
+  `--log-opts` keeps gitleaks' own log options and adds `--text`, so a file the head's
+  `.gitattributes` marks `-diff` is read and not passed over as binary; and
+  `--ignore-gitleaks-allow` makes an inline `gitleaks:allow` in the content pass over nothing.
 - `verify`, the job that judges the jobs it needs, checks out the base and nothing else, and runs
-  the base's `tools/needs_passed.py`. The checks, the tests and the mutants, in the jobs `checks` and
-  `mutants`, still run from the head.
+  the base's `tools/needs_passed.py`. A workflow with such a job runs on `pull_request` and
+  `merge_group` alone, the only events that give a base. The checks, the tests and the mutants, in
+  the jobs `checks` and `mutants`, still run from the head.
 
 `.github/workflows/ci.yml` now differs from the org's text in a second thing besides the download held
-to HTTPS: the checkout of the base, the deleted ignore file and the two flags. It is held to its new
+to HTTPS: the checkout of the base, the deleted ignore file and the four flags. It is held to its new
 text by its hash, and `tools/check_workflows.py` holds it to reading its rules from the base.
 
 No entry comes off `lens_inputs` in `config/hooks.json`. A change to a Lens's inputs still converges
@@ -31,10 +35,15 @@ only once every model Lens has reviewed its head (decision 0020).
 
 ## Why
 
-What a read from the base buys is a verdict the change cannot forge. A head that adds a secret and an
-ignore entry for it, or widens the allowlist, was caught only by a model's reading; the scan now
-catches it. A head that made `tools/needs_passed.py` exit 0 would pass `verify` with every shard
-failing; the verdict is now the base's.
+What a read from the base buys is a verdict the change cannot forge. Whatever rules the base's
+configuration holds, a head can no longer loosen them for itself: an ignore entry, an allowlist
+widened, an inline `gitleaks:allow` or a `.gitattributes` that hides a file counts for nothing until
+it is merged, and judged as a change of its own. A head that made `tools/needs_passed.py` exit 0
+would pass `verify` with every shard failing; the verdict is now the base's.
+
+A judging workflow is held to its two events, rather than given a fallback that fails the job, because
+the check reads the triggers from the text and refuses the workflow before it runs; on any other
+event `ref:` comes out empty, and `actions/checkout` then checks out the head without a word.
 
 Nothing comes off the list because here nothing would save a review. The list matters only for a
 dependency update its bot pushed, the one class that otherwise needs no model review, and in this
@@ -64,7 +73,7 @@ platform fact, unverified until trial P-37 grounds it.
 
 | Boundary | Check |
 |---|---|
-| The secret scan checks out the head and then the base into the directory base, at the base on a pull request, in the merge queue and on a push, and nothing else; every gitleaks it runs is told the base's `.gitleaks.toml` and `.gitleaksignore`, on the line after the head's `.gitleaksignore` is deleted | `tests/test_tools.py::test_the_secret_scan_reads_the_bases_configuration` |
+| The secret scan checks out the head and then the base into the directory base, at the base on a pull request, in the merge queue and on a push, and nothing else; every gitleaks it runs, in a command string too, is told the base's `.gitleaks.toml` and `.gitleaksignore`, on the line after the head's `.gitleaksignore` is deleted, reads every file as text with gitleaks' own log options, and ignores an inline `gitleaks:allow` | `tests/test_tools.py::test_the_secret_scan_reads_the_bases_configuration` |
 | `.github/workflows/ci.yml` is held to its text by its hash, and exempt from the rule on installs alone | `tests/test_tools.py::test_an_exempt_workflow_is_held_word_for_word` |
-| A Lens's job that judges what it needs checks out the base, on a pull request and in the merge queue, with `persist-credentials: false` and nothing else, as its one checkout | `tests/test_tools.py::test_a_lens_job_that_judges_its_needs_runs_from_the_base` |
+| A Lens's job that judges what it needs checks out the base, on a pull request and in the merge queue, with `persist-credentials: false` and nothing else, as its one checkout; its workflow runs on no other event | `tests/test_tools.py::test_a_lens_job_that_judges_its_needs_runs_from_the_base` |
 | Every Lens input stays on the list, the secret scan's rules and the inputs of `verify` among them | `tests/test_tools.py::test_each_lens_input_is_a_required_lens_and_verifys_cover_every_check` |

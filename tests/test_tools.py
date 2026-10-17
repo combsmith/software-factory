@@ -1052,6 +1052,13 @@ class Workflows(unittest.TestCase):
             self.assertNotEqual(text, GOOD)
             self.assertTrue(caught(self.lens_problems(text), said), text)
         self.assertFalse(caught(self.lens_problems(GOOD), said))
+        # On any other event there is no base: `ref:` would come out empty, and the checkout would be the head's.
+        empty = "where there is no base to check out"
+        for event in ("  push:\n", "  workflow_dispatch:\n", "  schedule:\n    - cron: '17 3 * * *'\n"):
+            text = GOOD.replace("  merge_group:\n", "  merge_group:\n" + event)
+            self.assertNotEqual(text, GOOD)
+            self.assertTrue(caught(self.lens_problems(text), empty), event)
+        self.assertFalse(caught(self.lens_problems(GOOD), empty))
 
     def test_the_required_check_fails_unless_every_job_it_needs_passed(self):
         # `verify` runs under always(), so it reports whatever the jobs it needs did, and only every one's success
@@ -1151,6 +1158,14 @@ class Workflows(unittest.TestCase):
                  (scan.replace(line, line + "          gitleaks -c .gitleaks.toml detect --source .\n"), ran),
                  (scan.replace(line, line + "          /usr/local/bin/gitleaks detect --source .\n"), ran),
                  (scan.replace(rm + line, "          gitleaks dir .\n"), ran),
+                 (scan.replace(line, line + "          bash -c \"gitleaks detect --source .\"\n"), ran),
+                 (scan.replace(line, line + "          sh -c 'exec gitleaks git .'\n"), ran),
+                 # A head's .gitattributes marks a file -diff, and git log -p shows it as binary: --text reads it.
+                 (scan.replace(" --text\"", "\""), ran),
+                 (scan.replace(" --log-opts=\"--full-history --all --diff-filter=tuxdb --text\"", ""), ran),
+                 (scan.replace("--full-history --all ", ""), ran),
+                 # An inline gitleaks:allow is the head's own content, and passes over nothing.
+                 (scan.replace(" --ignore-gitleaks-allow", ""), ran),
                  (scan.replace(rm + line, "          make verify\n"), "runs no gitleaks"),
                  (scan.replace(ref, ref.replace(" || github.sha", "")), checkout),
                  (scan.replace(ref, ref.replace(" || github.event.merge_group.base_sha", "")), checkout),

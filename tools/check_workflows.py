@@ -54,7 +54,7 @@ ACTIONS_APP = 15368
 # A workflow the org requires as it wrote it. It is exempt from the rules named and from no other,
 # and it is held to its text by a hash taken with the pins left out: to change it, change this.
 EXEMPT = {
-    "ci.yml": (("install",), "f42e08e77805b67d9dc6e11997b950f85b40b43d683effae6809523cfc61fba5"),    # the org's secret scan downloads gitleaks
+    "ci.yml": (("install",), "d926b2135508f3799b02cfc2741d6017435399f8ec054c3f171dcd79236ba627"),    # the org's secret scan downloads gitleaks
 }
 MAX_RUN_LINES = 10
 ENTRY = re.compile(r"^( *)(- )?([A-Za-z_][\w-]*):(?: (.*))?$")
@@ -82,14 +82,20 @@ BASE = "${{ github.event.pull_request.base.sha || github.event.merge_group.base_
 SCAN = "ci.yml"
 SCAN_BASE = "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}"
 # gitleaks 8.30.1 reads the ignore file named by --gitleaks-ignore-path and also the one at the top of --source, so the
-# head's is deleted on the line before.
+# head's is deleted on the line before. Its own log options are kept, and --text added, so a head's .gitattributes cannot
+# mark a file binary and hide it; and an inline gitleaks:allow, which the head writes, passes over nothing.
 SCAN_RUN = ["rm -f .gitleaksignore",
             "gitleaks detect --source . --config base/.gitleaks.toml --gitleaks-ignore-path base/.gitleaksignore "
+            "--ignore-gitleaks-allow --log-opts=\"--full-history --all --diff-filter=tuxdb --text\" "
             "--redact --verbose --exit-code 1"]
 SCAN_CHECKOUTS = [{"fetch-depth": "0", "persist-credentials": "false"},
                   {"path": "base", "ref": SCAN_BASE, "persist-credentials": "false"}]
 # What gitleaks runs as: any of these after its name, or an option, which may come before one.
 SUBCOMMANDS = {"detect", "protect", "git", "dir", "directory", "stdin", "help"}
+# What may wrap a word that names gitleaks in a command string, as in bash -c "gitleaks ...".
+QUOTES = "'\"`$();"
+# The only events a workflow with a judging job runs on: on any other there is no base, and its checkout would be the head.
+JUDGED = {"pull_request", "merge_group"}
 JOB = re.compile(r"^[A-Za-z_][\w-]*$")
 
 
@@ -273,6 +279,7 @@ def scan_problems(text: str) -> list:
         lines = (e["body"] or [e["value"]]) if e["key"] == "run" else []
         for i, line in enumerate(lines):
             words = line.split()
+            words = [w.strip(QUOTES) for w in words]
             if any(w.rsplit("/", 1)[-1] == "gitleaks" and (after[:1] == "-" or after in SUBCOMMANDS)
                    for w, after in zip(words, words[1:])):
                 scans.append(lines[i - 1:i + 1] if i else [line])
@@ -320,6 +327,12 @@ def _judging(text: str, entries: list, job: str, jobs: list) -> list:
         whys.append("an if: can skip its step `%s`" % JUDGE)
     if len(runs) > 1 or any(e["key"] == "uses" and not e["value"].startswith("actions/checkout@") for e in steps):
         whys.append("its steps are more than a checkout and `%s`, and another could act for it" % JUDGE)
+    events = {e["key"] for e in entries if e["path"] == ["on"]} | {e["value"] for e in entries
+                                                                   if e["path"] == [] and e["key"] == "on" and e["value"]}
+    if events - JUDGED:
+        whys.append("its workflow runs on %s, where there is no base to check out, so `ref: %s` would come out empty "
+                    "and the checkout would be the head's: run it on pull_request and merge_group alone"
+                    % (", ".join(sorted(events - JUDGED)), BASE))
     if [_with(entries, c) for c in steps if _checkout(c)] != [{"persist-credentials": "false", "ref": BASE}]:
         whys.append("its one checkout is not of the base alone, `ref: %s` and persist-credentials: false and nothing "
                     "else, so the head's own tools/needs_passed.py could give its verdict" % BASE)

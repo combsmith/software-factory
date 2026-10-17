@@ -3,7 +3,8 @@
 # by name, and holds it to this text by its hash: to change it, change the entry there too.
 # Two things differ from the org's: the download is by curl held to HTTPS, redirects included; and the
 # scan reads its rules, .gitleaks.toml and .gitleaksignore, from the base, never from the head it scans,
-# so a change cannot widen the allowlist it needs (decision 0023).
+# so a change cannot widen the allowlist it needs; and it reads every file as text and passes over no
+# inline gitleaks:allow, which the head could write (decision 0023).
 name: ci
 on:
   pull_request:
@@ -45,4 +46,4 @@ jobs:
       - name: Run gitleaks
         run: |
           rm -f .gitleaksignore
-          gitleaks detect --source . --config base/.gitleaks.toml --gitleaks-ignore-path base/.gitleaksignore --redact --verbose --exit-code 1
+          gitleaks detect --source . --config base/.gitleaks.toml --gitleaks-ignore-path base/.gitleaksignore --ignore-gitleaks-allow --log-opts="--full-history --all --diff-filter=tuxdb --text" --redact --verbose --exit-code 1

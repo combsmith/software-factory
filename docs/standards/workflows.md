@@ -77,7 +77,8 @@ name and the job's name: `factory / verify`. Renaming either silently stops it b
 `verify` needs every other job and has `if: always()`, the one job-level `if:` a Lens's job may have:
 GitHub passes a required check that is skipped, so `tools/needs_passed.py` fails it unless each passed.
 Its one checkout is of the base, never the head: the verdict is the base's `tools/needs_passed.py`, so a change
-cannot make its own pass (decision 0023). The checks and tests in `checks` and `mutants` are the head's.
+cannot make its own pass (decision 0023). It runs on no event without a base. The checks and tests in `checks` and
+`mutants` are the head's.
 
 Org standard: ci-standards.md, "Permissions Policy", "Action Pinning Policy" and "CI Job Naming Convention". Its name, triggers and stages depart from "1. CI Pipeline (ci.yml)": `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md`.
 Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`, `tests/test_tools.py::test_a_lens_job_that_would_never_report_under_its_name_is_caught`, `tests/test_tools.py::test_the_required_check_fails_unless_every_job_it_needs_passed`, `tests/test_tools.py::test_a_lens_job_that_judges_its_needs_runs_from_the_base`
@@ -139,7 +140,8 @@ A `run:` line is `make` and a target, or `python3 -m` and a module of this repo,
 else: no install, download, condition or swallowed failure. One workflow is exempt, by name and
 held by its hash: the org's secret scan, which downloads gitleaks. It differs from the org's text in
 two things: the download is held to HTTPS, and it reads its rules, `.gitleaks.toml` and
-`.gitleaksignore`, from a checkout of the base, never from the head it scans (decision 0023).
+`.gitleaksignore`, from a checkout of the base, never from the head it scans, which can neither hide
+a file with `.gitattributes` nor pass over one with `gitleaks:allow` (decision 0023).
 
 Org standard: the org's AGENTS.md, "Decision Logic Lives in a Pure, Tested Script". Stricter here: a limit of ten lines, and nothing fetched but by push-protection.md, "Required CI job", which runs as the org wrote it.
 Held by: `examples/workflows/invalid/length.logic-in-a-workflow.yml`, `examples/workflows/invalid/install.fetched-at-run-time.yml`, `examples/workflows/invalid/install.a-decision-in-shell.yml`, `tests/test_tools.py::test_an_exempt_workflow_is_held_word_for_word`, `tests/test_tools.py::test_the_secret_scan_reads_the_bases_configuration`
