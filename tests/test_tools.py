@@ -1005,7 +1005,16 @@ class Workflows(unittest.TestCase):
                  (GOOD.replace("toJSON(needs)", "toJSON(needs.checks)"), "it does not give NEEDS"),
                  (GOOD.replace(judge, judge + "        env:\n          NEEDS: '{}'\n"), "it does not give NEEDS"),
                  (GOOD.replace(needs, "").replace("    if: always()\n", "").replace(given, "")
-                  .replace(judge, "      - run: make verify\n"), "it has no needs:, so the other jobs in its file")]
+                  .replace(judge, "      - run: make verify\n"), "it has no needs:, so the other jobs in its file"),
+                 (GOOD.split("  checks:\n")[0] + "  verify:\n" + GOOD.split("  verify:\n")[1],
+                  "it needs checks, mutants, not every other job in its file, none"),
+                 (GOOD.replace(judge, "      - run: |\n          make fast\n          python3 -m tools.needs_passed\n"),
+                  "it runs no step `python3 -m tools.needs_passed`, on a line of its own"),
+                 (GOOD.replace(judge, "      - run: >\n          python3 -m tools.verify\n          python3 -m tools.needs_passed\n"),
+                  "it runs no step `python3 -m tools.needs_passed`, on a line of its own"),
+                 (GOOD.replace(judge, judge + "      - run: make verify\n"), "its steps are more than a checkout"),
+                 (GOOD.replace(judge, "      - uses: actions/github-script@" + "a" * 40 + " # v7\n" + judge),
+                  "its steps are more than a checkout")]
         for text, said in cases:
             self.assertNotEqual(text, GOOD, said)
             self.assertTrue(caught(self.lens_problems(text), said), said)

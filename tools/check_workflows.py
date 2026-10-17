@@ -234,7 +234,7 @@ def _judging(text: str, entries: list, job: str, jobs: list) -> list:
 
     A job it does not need is a check nobody requires. With a plain `needs:` it is skipped when one fails, and GitHub
     passes a required check that is skipped. Under `if: always()` it runs whatever they did, so it must judge them: run
-    tools.needs_passed on `needs` given whole, and need every other job.
+    tools.needs_passed on `needs` given whole, as its one step but a checkout, and need every other job.
     """
     mine = [e for e in entries if e["path"][:2] == ["jobs", job]]
     inside = {e["key"]: e for e in mine if e["path"] == ["jobs", job]}
@@ -253,11 +253,15 @@ def _judging(text: str, entries: list, job: str, jobs: list) -> list:
         whys.append("it needs %s, not every other job in its file, %s: a job it does not need is a check nobody "
                     "requires" % (", ".join(needs), ", ".join(others) or "none"))
     steps = [e for e in mine if e["path"] == ["jobs", job, "steps"]]
-    judged = [e for e in steps if e["key"] == "run" and JUDGE in (e["body"] or [e["value"]])]
+    runs = [e for e in steps if e["key"] == "run"]
+    # One line, no block: in a block an earlier line can exit first, and `>` folds the lines into one command.
+    judged = [e for e in runs if e["value"] == JUDGE and not e["body"]]
     if not judged:
-        whys.append("it runs no step `%s` to fail it when one of them did not pass" % JUDGE)
+        whys.append("it runs no step `%s`, on a line of its own, to fail it when one of them did not pass" % JUDGE)
     elif any(e["key"] == "if" and e["step"] == j["step"] for e in steps for j in judged):
         whys.append("an if: can skip its step `%s`" % JUDGE)
+    if len(runs) > 1 or any(e["key"] == "uses" and not e["value"].startswith("actions/checkout@") for e in steps):
+        whys.append("its steps are more than a checkout and `%s`, and another could act for it" % JUDGE)
     if [(e["path"], e["value"]) for e in mine if e["key"] == "NEEDS"] != [(["jobs", job, "env"], NEEDS)]:
         whys.append("it does not give NEEDS: %s once, in its own env:, so what it needs cannot be read" % NEEDS)
     return whys
