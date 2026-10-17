@@ -16,6 +16,7 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -25,7 +26,8 @@ from kernel import derive, terms
 from sim import world
 from tests import support
 from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_lifecycle,
-                   check_purity, check_repo, check_trials, check_workflows, mutants, redact_trial, verify, walk)
+                   check_purity, check_repo, check_trials, check_workflows, mutants, needs_passed, redact_trial, verify,
+                   walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
 
@@ -909,7 +911,7 @@ class Workflows(unittest.TestCase):
         self.assertEqual(len(problems), len(check_workflows.RULES))
 
     def test_a_counter_example_must_break_its_rule_and_no_other(self):
-        both = GOOD.replace("ubuntu-24.04", "ubuntu-latest").replace("    timeout-minutes: 40\n", "")
+        both = GOOD.replace("ubuntu-24.04", "ubuntu-latest").replace("    timeout-minutes: 15\n", "")
         root = clone({"examples/workflows/invalid/runner.two-faults.yml": both,
                       "examples/workflows/invalid/soft.no-fault.yml": GOOD})
         problems = check_workflows.run(root)
@@ -918,11 +920,11 @@ class Workflows(unittest.TestCase):
 
     def test_an_example_in_the_standard_that_has_drifted_is_caught(self):
         root = tree({"examples/workflows/verify.yml": GOOD,
-                     "docs/standards/workflows.md": "```yaml\n" + GOOD.replace("minutes: 40", "minutes: 90") + "```\n"})
+                     "docs/standards/workflows.md": "```yaml\n" + GOOD.replace("minutes: 15", "minutes: 90") + "```\n"})
         self.assertTrue(caught(check_workflows.run(root), "word for word"))
 
     def test_the_required_check_that_has_drifted_from_its_example_is_caught(self):
-        root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD.replace("minutes: 40", "minutes: 45")})
+        root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD.replace("minutes: 15", "minutes: 45")})
         self.assertTrue(caught(check_workflows.run(root), "change both together"))
         bumped = GOOD.replace("3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", "a" * 40 + " # v8.0.0")
         root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": bumped})
@@ -976,19 +978,70 @@ class Workflows(unittest.TestCase):
         # A matrix names each of its check runs after the job and its values; a job-level if: can skip the job; a job
         # that calls a reusable workflow reports under the caller's and the callee's names; and a workflow that does not
         # run on both pull_request and merge_group reports on no head, or not in the merge queue. Each leaves the Lens
-        # waiting for ever.
-        matrix = GOOD.replace("    timeout-minutes: 40\n",
-                              "    timeout-minutes: 40\n    strategy:\n      matrix:\n        python:\n          - 3.9\n")
-        skipped = GOOD.replace("    timeout-minutes: 40\n",
-                               "    timeout-minutes: 40\n    if: github.event_name == 'pull_request'\n")
-        called = "\n".join(GOOD.split("\n")[:9]) + "\n    uses: combsmith/factory/.github/workflows/v.yml@v1-stable\n"
-        cases = [(matrix, "has a strategy.matrix"), (skipped, "has a job-level if:"),
+        # waiting for ever. The one if: allowed is always(), beside needs:, and a job that needs others is skipped when
+        # one fails, which passes a required check, unless it runs under always() and judges every other job.
+        needs = "    needs:\n      - checks\n      - mutants\n"
+        judge = "      - run: python3 -m tools.needs_passed\n"
+        given = "    env:\n      NEEDS: ${{ toJSON(needs) }}\n"
+        matrix = GOOD.replace("    timeout-minutes: 10\n",
+                              "    timeout-minutes: 10\n    strategy:\n      matrix:\n        python:\n          - 3.9\n")
+        called = GOOD.split(needs)[0] + "    uses: combsmith/factory/.github/workflows/v.yml@v1-stable\n"
+        other_if = "has a job-level if: other than always() beside needs:"
+        cases = [(matrix, "has a strategy.matrix"),
+                 (GOOD.replace("    if: always()\n", "    if: github.event_name == 'pull_request'\n"), other_if),
+                 (GOOD.replace("    if: always()\n", "    if: ${{ always() }}\n"), other_if),
+                 (GOOD.replace(needs, ""), other_if),
                  (called, "calls a reusable workflow with uses:"),
                  (GOOD.replace("  merge_group:\n", ""), "not on both pull_request and merge_group"),
-                 (GOOD.replace("  pull_request:\n", ""), "not on both pull_request and merge_group")]
+                 (GOOD.replace("  pull_request:\n", ""), "not on both pull_request and merge_group"),
+                 (GOOD.replace("    if: always()\n", ""), "it has no job-level if: always()"),
+                 (GOOD.replace("      - mutants\n", ""), "it needs checks, not every other job in its file"),
+                 (GOOD.replace(needs, "    needs: checks\n"), "it needs checks, not every other job in its file"),
+                 (GOOD.replace("      - mutants\n", "      - mutants\n      - deploy\n"), "not every other job in its file"),
+                 (GOOD.replace(needs, "    needs: [checks, mutants]\n"), "its needs: cannot be read as a list of jobs"),
+                 (GOOD.replace(judge, "      - run: make verify\n"), "it runs no step `python3 -m tools.needs_passed`"),
+                 (GOOD.replace(judge, judge + "        if: false\n"), "an if: can skip its step"),
+                 (GOOD.replace(given, ""), "it does not give NEEDS"),
+                 (GOOD.replace("toJSON(needs)", "toJSON(needs.checks)"), "it does not give NEEDS"),
+                 (GOOD.replace(judge, judge + "        env:\n          NEEDS: '{}'\n"), "it does not give NEEDS"),
+                 (GOOD.replace(needs, "").replace("    if: always()\n", "").replace(given, "")
+                  .replace(judge, "      - run: make verify\n"), "it has no needs:, so the other jobs in its file"),
+                 (GOOD.split("  checks:\n")[0] + "  verify:\n" + GOOD.split("  verify:\n")[1],
+                  "it needs checks, mutants, not every other job in its file, none"),
+                 (GOOD.replace(judge, "      - run: |\n          make fast\n          python3 -m tools.needs_passed\n"),
+                  "it runs no step `python3 -m tools.needs_passed`, on a line of its own"),
+                 (GOOD.replace(judge, "      - run: >\n          python3 -m tools.verify\n          python3 -m tools.needs_passed\n"),
+                  "it runs no step `python3 -m tools.needs_passed`, on a line of its own"),
+                 (GOOD.replace(judge, judge + "      - run: make verify\n"), "its steps are more than a checkout"),
+                 (GOOD.replace(judge, "      - uses: actions/github-script@" + "a" * 40 + " # v7\n" + judge),
+                  "its steps are more than a checkout")]
         for text, said in cases:
             self.assertNotEqual(text, GOOD, said)
             self.assertTrue(caught(self.lens_problems(text), said), said)
+        # The list of what it needs may stand at the indent of its key, as YAML allows.
+        level = GOOD.replace(needs, "    needs:\n    - mutants\n    - checks\n")
+        spaced = GOOD.replace(needs, "    needs:\n      - checks\n\n      # the shards\n      - mutants\n")
+        for text in (level, spaced):
+            self.assertNotEqual(text, GOOD)
+            self.assertEqual(self.lens_problems(text), [])
+
+    def test_the_required_check_fails_unless_every_job_it_needs_passed(self):
+        # `verify` runs under always(), so it reports whatever the jobs it needs did, and only every one's success
+        # passes it. Needs it cannot read, or that name no job, fail it too.
+        passed = {"checks": {"result": "success", "outputs": {}}, "mutants": {"result": "success", "outputs": {}}}
+        self.assertEqual(needs_passed.problems(json.dumps(passed)), [])
+        for result in ("failure", "cancelled", "skipped", "Success", None, True):
+            said = needs_passed.problems(json.dumps(dict(passed, mutants={"result": result, "outputs": {}})))
+            self.assertTrue(caught(said, "the job mutants ended"), result)
+        self.assertTrue(caught(needs_passed.problems(json.dumps({"checks": "success"})), "the job checks ended"))
+        for text in (None, "", "{", "null", "[]", '"success"'):
+            self.assertTrue(caught(needs_passed.problems(text), "cannot be read") or
+                            caught(needs_passed.problems(text), "names no job"), text)
+        self.assertTrue(caught(needs_passed.problems("{}"), "names no job"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(needs_passed.main({"NEEDS": json.dumps(passed)}), 0)
+            self.assertEqual(needs_passed.main({"NEEDS": "{}"}), 1)
+            self.assertEqual(needs_passed.main({}), 1)
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
@@ -1060,7 +1113,7 @@ class Workflows(unittest.TestCase):
             "a branch filter": (GOOD.replace("  pull_request:\n", "  pull_request:\n    branches:\n      - release\n"), "queue"),
             "an expression in a script": (GOOD.replace(STEP, "      - uses: actions/github-script@" + "a" * 40 + " # v7\n        with:\n          script: ${{ github.event.comment.body }}\n"), "expression"),
             "a checkout in quotes": (GOOD.replace("actions/checkout@", '"actions/checkout@').replace(" # v7.0.1\n        with:\n          persist-credentials: false", '" # v7.0.1'), "credentials"),
-            "a limit named in a comment": (GOOD.replace("    timeout-minutes: 40\n", "").replace("ubuntu-24.04\n", "ubuntu-24.04 # timeout-minutes: later\n"), "timeout"),
+            "a limit named in a comment": (GOOD.replace("    timeout-minutes: 15\n", "").replace("ubuntu-24.04\n", "ubuntu-24.04 # timeout-minutes: later\n"), "timeout"),
             "windows line ends": (GOOD.replace("\n", "\r\n"), "form"),
             "nothing at all": ("", "form"),
         }
@@ -1259,6 +1312,17 @@ class Context(unittest.TestCase):
     def test_a_standard_with_prose_and_no_example_is_caught(self):
         root = tree({"docs/standards/code.md": "# Code\n\n## Be careful\n\nPlease.\n\nHeld by: `tools/`\n", "tools/x.py": ""})
         self.assertTrue(caught(check_context._standards(root), "the example comes before the prose"))
+
+    def test_a_standard_over_one_page_is_caught(self):
+        # A standard is one page. The workflows page also shows the required check's workflow, its first yaml block,
+        # word for word as check_workflows holds it, so that block is not counted there, and nothing else is.
+        page = "# %s\n\n## Be careful\n\n```yaml\n%s```\n\n%sOrg standard: none. This repo's own.\nHeld by: `tools/`\n"
+        block, prose = "x: 1\n" * 130, "Words.\n" * 130
+        for name, text, over in (("code", page % ("Code", block, ""), True),
+                                 ("workflows", page % ("Workflows", block, ""), False),
+                                 ("workflows", page % ("Workflows", "x: 1\n", prose), True)):
+            problems = check_context._standards(tree({"docs/standards/%s.md" % name: text, "tools/x.py": ""}))
+            self.assertEqual(caught(problems, "%s.md is over one page" % name), over, name)
 
     def test_a_standard_that_cites_no_org_standard_is_caught(self):
         page = "# Code\n\n## Be careful\n\n```\nx\n```\n\n%sHeld by: `tools/`\n"
@@ -1820,7 +1884,7 @@ FAILS = {
                                                          author_role="pr-review")),
     "check_purity": lambda: check_purity.run(clone({"kernel/clock.py": "import time\n"})),
     "check_repo": lambda: check_repo.run(clone({"requirements.txt": "requests\n"})),
-    "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("minutes: 40", "minutes: 45")})),
+    "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("minutes: 15", "minutes: 45")})),
     "check_context": lambda: check_context.run(clone({"docs/lessons.md": "# Lessons\n"})),
     "check_trials": lambda: check_trials.run(clone({"trials/notes.txt": "x\n"})),
     "check_decisions": lambda: check_decisions.run(edited(history(), {FIRST: RECORD.replace("one thing.", "x.")})),
@@ -2147,6 +2211,35 @@ class Mutants(unittest.TestCase):
         self.assertEqual(lines, ["killed    before", "ERROR     raises (the run failed with OSError: disk full%s)" % AGAIN,
                                  "killed    after", "2 of 3 mutants killed"])
         self.assertEqual(code, 1)
+
+    def test_every_mutant_is_in_exactly_one_shard(self):
+        # CI runs the mutants in shards, one job each. A mutant in no shard is a rule nobody checks; one in two is run
+        # twice. Each is told apart by its name, so no name is used twice.
+        names = [mutant[0] for mutant in mutants.MUTANTS]
+        self.assertEqual(len(names), len(set(names)))
+        for count in range(1, 13):
+            placed = [mutant[0] for index in range(count) for mutant in mutants.shard(mutants.MUTANTS, index, count)]
+            self.assertEqual(sorted(placed), sorted(names), count)
+
+    def test_a_shard_is_read_from_the_matrix_or_the_run_stops(self):
+        every = len(mutants.MUTANTS)
+        self.assertEqual(mutants.selected({}), (mutants.MUTANTS, ""))
+        chosen, where = mutants.selected({"MUTANTS_SHARD": "2", "MUTANTS_SHARDS": "6"})
+        self.assertEqual((chosen, where), (mutants.shard(mutants.MUTANTS, 2, 6), ", in shard 2 of 6 counted from 0"))
+        for shard, count, said in (("1", None, "set both"), (None, "6", "set both"), ("", "6", "set both"),
+                                   ("one", "6", "set both"), ("-1", "6", "set both"), ("1.0", "6", "set both"),
+                                   ("6", "6", "below the count"), ("0", "0", "below the count"),
+                                   (str(every), str(every + 1), "holds no mutant")):
+            given = {k: v for k, v in (("MUTANTS_SHARD", shard), ("MUTANTS_SHARDS", count)) if v is not None}
+            with self.assertRaises(ValueError, msg=given) as raised:
+                mutants.selected(given)
+            self.assertIn(said, str(raised.exception), given)
+        # From the front door, a shard it cannot read stops the run before any test runs.
+        env = dict(os.environ, MUTANTS_SHARD="0", MUTANTS_SHARDS="0")
+        done = subprocess.run([sys.executable, "-m", "tools.mutants"], cwd=str(ROOT), env=env, capture_output=True,
+                              text=True, timeout=60)
+        self.assertEqual((done.returncode, done.stdout.strip()), (1, "MUTANTS_SHARD is 0 and MUTANTS_SHARDS is 0; the "
+                                                                     "shard is counted from 0, below the count"))
 
     def test_tests_that_fail_unbroken_stop_the_check_before_any_mutant(self):
         calls = []

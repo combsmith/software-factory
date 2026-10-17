@@ -18,6 +18,9 @@ ROOT_LINES = 60     # the root AGENTS.md is read in full on every task
 LOCAL_LINES = 40    # a directory's AGENTS.md carries that directory's rules only
 WIDTH = 260         # and a line is not a way round the limit
 PAGE_LINES = 120    # a standard is one page
+# The workflows page shows the required check's workflow word for word, its first yaml block, as
+# tools/check_workflows.py holds it, however long that grows. The page's own words are held to one page.
+COPIED = re.compile(r"```yaml\n.*?```", re.S)
 STANDARDS = ("code", "tests", "workflows", "security-boundaries")
 # The design, brought in as it was written. It cites the proof of concept as evidence, by that
 # repo's paths and numbers, so it is read and not held to the rules below. Nothing else is exempt.
@@ -361,7 +364,8 @@ def _standards(root: pathlib.Path) -> list:
             problems.append("docs/standards/%s.md is missing" % name)
             continue
         text = _text(path)
-        if len(text.splitlines()) > PAGE_LINES:
+        copied = COPIED.search(text) if name == "workflows" else None
+        if len(text.splitlines()) - (len(copied.group(0).splitlines()) if copied else 0) > PAGE_LINES:
             problems.append("docs/standards/%s.md is over one page (%d lines)" % (name, PAGE_LINES))
         sections = _sections(text, "## ")
         if not sections:
