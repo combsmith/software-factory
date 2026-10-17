@@ -22,8 +22,14 @@ value is read as that value; $(git branch --show-current) and its like, where th
 HEAD; any other variable or command substitution, and a wildcard, it cannot read, and refuses. A
 mirror push is read ref by ref, refs/notes and refs/stash among them. A remote held in a variable is
 read the same way, or refused. A variable set before a program is set for that program alone; one
-set alone, or by export and the like, holds for what follows until unset. This guards against
-mistakes; the Stop check and the rulesets are the boundary. Run as `python3 -I` on this file; see
+set alone, or by export and the like, holds for what follows until unset. A push that names no
+refspec, or no remote, is read from git's configuration, once, by push_configuration, which
+protected.py calls too: a mirror, every remote's remote.*.push and push.default, and where a push
+that names no remote goes; a push setting given in the command is refused (decision 0024). So is a
+git the command may redefine, in a command that commits or pushes: a function or an alias for git,
+gh or what runs them, PATH set, git named by a path to another file, or git run under a prefix or a
+wrapper not on shell.AS_IS (decision 0024). This guards against mistakes; the Stop check and the
+rulesets are the boundary. Run as `python3 -I` on this file; see
 after_edit.py.
 """
 from __future__ import annotations
@@ -82,6 +88,20 @@ ENVIRONMENT = re.compile(r"^(GIT_AUTHOR_\w*|GIT_COMMITTER_\w*|GIT_CONFIG\w*|GIT_
 GIT_CONFIG_FILE = re.compile(r"(^|/)\.git/config$|\.gitconfig$|(^|/)git/config$")
 KEYS = re.compile(r"^(user|author|committer|credential|url|remote|include|includeif|core\.sshcommand|alias|http)\b",
                   re.I)
+# git configuration that says where a push goes, or what a push that names no refspec sends: every key push_configuration
+# reads, and branch.*.merge. One list for both hooks: given in a command that commits or pushes, this hook refuses it,
+# and protected.py asks.
+PUSH_KEYS = re.compile(r"^(push\..*|remote\.pushdefault|remote\..*\.(push|mirror)|branch\..*\.(merge|remote|pushremote))$",
+                       re.I | re.S)
+# What push_configuration reads, in one call: what a push that names no refspec sends, where one that names no remote
+# goes, and which remotes are configured.
+PUSH_READ = r"^(push\.default|remote\.pushdefault|remote\..+\.(push|mirror|url|pushurl)|branch\..+\.(pushremote|remote))$"
+# What a push that names no refspec sends under each push.default git takes: matching, every branch the remote shares;
+# the rest, the branch the shell is on (nothing sends none, and is read as HEAD all the same). Any other value refuses.
+DEFAULT_SENDS = {None: "HEAD", "simple": "HEAD", "current": "HEAD", "upstream": "HEAD", "tracking": "HEAD",
+                 "nothing": "HEAD", "matching": ":"}
+TRUE, FALSE = {"true", "yes", "on"}, {"false", "no", "off", ""}
+LOCAL = "."     # a remote that is this repository: a push to it writes nothing to GitHub
 # Set in the command, each of these names a program git runs, or where it finds one. One list for both hooks:
 # protected.py's GIT_HELPER_KEYS is this. Some are in KEYS too, and are refused for that as well. submodule.*.update
 # runs a program only when its value is !cmd, and any of these set to nothing runs none: _names_program reads that.
@@ -145,6 +165,11 @@ VARIABLE_WHOLE = re.compile(r"^\$\{?([A-Za-z_]\w*)\}?$")     # a word that is on
 # top level of a plain ;/newline sequence, once, its value a plain word. env and sudo set the environment of the
 # program they run; before git, so do the wrappers and prefixes that run it (nohup env X=1 git).
 SETS_LOCALLY = {"env", "sudo"}
+# A name the command may define so that it runs in place of git or gh: they, and the words that run them as they are.
+# $(which git) is read as the git on PATH, so which, type and whence, which say where it is, are among them.
+REDEFINABLE = {"git", "gh", "builtin", "which", "type", "whence"} | shell.AS_IS
+# gh's commands that write, as WRITE_TEXT names them, given to a program the hook cannot read.
+GH_WRITES = {"pr", "release", "api"}
 RUNS_GIT = shell.WRAPPERS | shell.PREFIXES
 WILDCARD = re.compile(r"[*?\[]")
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
@@ -166,7 +191,7 @@ class Reader:
     def __init__(self, env: dict, seconds: float):
         self.env, self.until = env, time.monotonic() + seconds
 
-    def run(self, program: str, args: list, where) -> str:
+    def run(self, program: str, args: list, where, allowed=()) -> str:
         left = self.until - time.monotonic()
         if left <= 0:
             raise Unreadable("the identity check ran out of time before `%s %s`" % (program, args[0]))
@@ -178,10 +203,14 @@ class Reader:
                                   timeout=left)
         except subprocess.TimeoutExpired:
             raise Unreadable("`%s %s` did not finish before the identity check's deadline" % (program, args[0]))
-        if done.returncode != 0:
+        if done.returncode not in (0,) + tuple(allowed):
             first = (done.stderr.strip().splitlines() or ["exit %d" % done.returncode])[0]
             raise Unreadable("`%s %s` failed in %s: %s" % (program, args[0], where, first))
         return done.stdout
+
+    def config(self, where, args: list) -> str:
+        """What `git config` says in `where`: "" when nothing is set. Raises Unreadable when git cannot say."""
+        return self.run("git", ["config"] + args, where, allowed=(1,))
 
 
 def _join(here, path: str):
@@ -216,38 +245,51 @@ def _gh_kind(words: list) -> str:
     return "account" if method in ("POST", "PUT", "PATCH", "DELETE") else ""
 
 
-def _calls(commands: list, cwd, text: str) -> tuple:
+def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
     """(calls, always, inline). A call is (tool, directory, words after the tool's options, kind).
 
     `always` refuses whatever the command does: what cannot be read. `inline` refuses only a command
-    that commits, pushes or writes: an identity set in the command itself.
+    that commits, pushes or writes: an identity set in the command itself. `text` is the command as the
+    shell reads it, and `env` the hook's own environment, whose PATH names the git and gh it reads.
     """
     here = pathlib.Path(cwd) if cwd else None
     values, present, branches = shell.environment(text)     # what the command leaves in the environment, fail-closed
-    calls, always, inline, blind = [], [], [], False
-    for words, targets in commands:
+    calls, always, inline = [], [], []
+    blind = _redefined(text)        # a git the command may redefine is one the hook cannot read (decision 0024)
+    for raw, targets in commands:
+        # A word is read with what the command set unconditionally put in for each variable it holds.
+        words, targets = [expand(w, values) for w in raw], [expand(t, values) for t in targets]
         inline += [("identity_set_in_command", "%s is set in the command; the hook reads only what is configured"
                     % w.split("=")[0]) for w in words if ENVIRONMENT.match(w)]
         inline += [("identity_set_in_command", "the command touches git's configuration (%s); change it in a command "
                                                "of its own" % w) for w in words + targets if GIT_CONFIG_FILE.search(w)]
         if not words:
             continue
-        at = next((i for i, w in enumerate(words) if os.path.basename(w) in ("git", "gh")), None)
-        named = present | _local(words, at)     # the environment git runs with: persisted, and set for it alone
-        if words[0] in ("cd", "pushd"):
-            here = _join(here, words[1]) if len(words) > 1 and words[1] != "-" else None
+        if raw[0] in ("cd", "pushd"):
+            here = _join(here, raw[1]) if len(raw) > 1 and raw[1] != "-" else None
             continue
-        program = os.path.basename(words[0])
-        blind = blind or (program in SHELLS_AND_SOURCE and not any(w.startswith("-") and not w.startswith("--")
-                                                                   and "c" in w for w in words[1:]))
+        runs = _program(words)      # past reserved words, prefixes and wrappers: time bash, if sh, nice sh
+        at = runs if runs is not None and os.path.basename(words[runs]) in ("git", "gh") else None
+        local = _local(words, at)
+        named = present | local     # the environment git runs with: persisted, and set for it alone
+        if local & {"PATH", "path"}:
+            blind.append("the command sets PATH, so git or gh may be another program")
+        start = runs if runs is not None else 0
+        program = os.path.basename(words[start])
+        if program in SHELLS_AND_SOURCE and not _given_c(words[start + 1:]):
+            blind.append("a shell reads a script the hook cannot see")
+        runner = _runner(words, at, here, env or {})
+        if runner:
+            blind.append(runner)
+            if at is None and set(words[1:]) & (WRITES | GH_WRITES):
+                always.append(("command_unreadable", "%s, and it is given a commit or a push" % runner))
         if at is None:
             # A substitution is read as a command of its own below; its text is not the wrapper's to read as a push.
             if program not in TEXT_ONLY and WRITE_TEXT.search(" ".join(_bare(w) for w in words)):
                 always.append(("command_unreadable", "`%s` looks like a commit or push the hook cannot read as one"
                                % program))
             continue
-        # A word is read with what the command set unconditionally put in for each variable it holds.
-        tool, rest = os.path.basename(words[at]), [expand(w, values) for w in words[at + 1:]]
+        tool, rest = os.path.basename(words[at]), words[at + 1:]
         where, i, settings = here, 0, []
         while i < len(rest) and rest[i].startswith("-"):
             option, given, value = rest[i].partition("=")
@@ -275,6 +317,10 @@ def _calls(commands: list, cwd, text: str) -> tuple:
                 words = [sub] + [_branch_word(w, values, branches) for w in words[1:]]
             for option, value in settings:
                 always += _setting(option, value)
+                if PUSH_KEYS.match(value.partition("=")[0].strip()):     # read from configuration, never the command
+                    inline.append(("identity_set_in_command", "git %s %s sets in the command where a push goes or what "
+                                                              "it sends; set it in a command of its own"
+                                   % (option, value.partition("=")[0])))
             always += _programs(sub, words[1:])
             if PROGRAM_ENVIRONMENT & named or remote_helper(sub, rest, words[1:]):
                 always.append(("command_unreadable", "the command sets where git finds a program it runs, or lets a "
@@ -291,10 +337,94 @@ def _calls(commands: list, cwd, text: str) -> tuple:
         else:
             kind = _gh_kind(words)
         calls.append((tool, where, words, kind))
-    if blind and WRITE_TEXT.search(text):
-        always.append(("command_unreadable", "a shell reads a script the hook cannot see, in a command that names a "
-                                             "commit or push"))
+    if blind and (WRITE_TEXT.search(text) or any(kind for _, _, _, kind in calls)):
+        always += [("command_unreadable", "%s, in a command that names a commit or push" % why)
+                   for why in dict.fromkeys(blind)]
     return calls, always, inline
+
+
+def _redefined(text: str) -> list:
+    """Why git or gh, as the command runs it, may not be the program on the hook's PATH (decision 0024): the command
+    defines a function or an alias (or hashes a path) for git, gh or a word that runs them, in its text or in a script
+    it runs; or it sets PATH, anywhere, or for git alone. Each is a reason; none is an empty list."""
+    reasons, quoted = [], _quoted(shell.without_heredocs(text))
+    if shell.defined(quoted) & REDEFINABLE:
+        reasons.append("the command defines a function or an alias for git, gh or what runs them")
+    if shell.sets("PATH", quoted) or shell.sets("path", quoted):
+        reasons.append("the command sets PATH, so git or gh may be another program")
+    if "*" in shell.touched(text):
+        reasons.append("the command writes a variable it names at run time, or evals or sources, which may set PATH")
+    return reasons
+
+
+def _given_c(args: list) -> bool:
+    """Whether a shell's own options, the words before its first operand, hold -c: alone or bundled (-lc, -ec). A word
+    past them is the script or its arguments (bash x.sh -c), and -o and +o take the next word as their value."""
+    i = 0
+    while i < len(args) and args[i][:1] in ("-", "+") and args[i] not in ("-", "--"):
+        if args[i][:1] == "-" and args[i][1:2] != "-" and "c" in args[i]:
+            return True
+        i += 2 if args[i] in ("-o", "+o", "-O", "+O") else 1
+    return False
+
+
+def _program(words: list):
+    """The index of the program a simple command runs: past its assignments, prefixes and the wrappers of
+    shell.WRAPPED, as shell.py reads them for both hooks. Any other program runs itself, whatever its words say: git
+    given to gitleaks is a word. None when it runs none (command -v)."""
+    at, _ = shell.past_prefixes(words)
+    while at is not None and at < len(words) and os.path.basename(words[at]) in shell.WRAPPED:
+        at, _ = shell.past_prefixes(words, shell.past_wrapper(words, at, os.path.basename(words[at]))[0])
+    return at if at is not None and at < len(words) else None
+
+
+def _runner(words: list, at, here, env: dict) -> str:
+    """Why what runs the git or gh at index `at` (None: the command runs neither) cannot be read, or "" when it can.
+
+    Past reserved words and assignments, only the prefixes and wrappers of shell.AS_IS may run it: env with assignments
+    only, command with no option. A program held in a variable or a command the hook cannot read may be git, and git or
+    gh named by a path is read only when it is the file on the hook's PATH. Any other program runs itself: git given to
+    it as a word is data."""
+    if at is None:
+        program = _program(words)
+        return ("a program is held in a variable or a command the hook cannot read"
+                if program is not None and _expands(words[program]) else "")
+    at_, passed = shell.past_prefixes(words)
+    while at_ is not None:
+        for name, options in passed:
+            if name not in shell.RESERVED and (name not in shell.AS_IS or (name == "command" and options)):
+                return "git or gh may run under %s, which the hook does not read" % (
+                    name if name in shell.PREFIXED else "a prefix")
+        if at_ >= len(words):
+            return ""
+        word = words[at_]
+        if at_ == at:
+            return "" if "/" not in word or _on_path(word, here, env) else (
+                "git or gh is named by a path to another file than the one on the hook's PATH")
+        name = os.path.basename(word)
+        if name not in shell.AS_IS:     # a wrapper _program stepped past to reach git
+            return "git or gh may run under a program the hook does not read as a wrapper"
+        if "/" in word and not _on_path(word, here, env):
+            return "git or gh runs under a wrapper named by a path to another file than the one on the hook's PATH"
+        past, _ = shell.past_wrapper(words, at_, name)
+        if name == "env" and not all(ASSIGNMENT.match(w) or w == "--" for w in words[at_ + 1:past]):
+            return "git or gh may run under env given more than assignments, which the hook does not read"
+        at_, passed = shell.past_prefixes(words, past)
+    return ""       # command -v names a program and runs none
+
+
+def _on_path(word: str, here, env: dict) -> bool:
+    """Whether a path names the file the hook's PATH finds by its name: the git or gh the hook reads."""
+    found = shutil.which(os.path.basename(word), path=env.get("PATH", os.defpath))
+    path = os.path.expanduser(word)
+    if not os.path.isabs(path):
+        if here is None:
+            return False
+        path = os.path.join(str(here), path)
+    try:
+        return found is not None and os.path.samefile(path, found)
+    except OSError:
+        return False
 
 
 def _local(words: list, git) -> set:
@@ -651,7 +781,76 @@ def _remotes(reader: Reader, where, remote, who: dict, machine: str) -> list:
     return problems
 
 
-def _commits(reader: Reader, where, args: list, refspecs: list, who: dict) -> list:
+def push_configuration(config) -> dict:
+    """What git's configuration says of a push that names no refspec, or no remote, read in one call to `config`, which
+    runs `git config` with the arguments it is given, as the hook that calls it runs git, and gives what it prints (""
+    when nothing is set). git's own answer covers includes, scopes and worktrees. Every remote's keys are read, not only
+    those of the remote git would pick:
+
+    {"default": push.default, or None; "refspecs": each remote.*.push; "mirror": whether any remote.*.mirror is true;
+     "remotes": the remotes configured, by a url or a pushurl; "pushdefault": each remote.pushDefault; "branches":
+     {branch: {"pushremote": [...], "remote": [...]}}, which say where a push that names no remote goes}
+
+    Raises Unreadable when a value is not one git takes."""
+    read = {"default": None, "refspecs": [], "mirror": False, "remotes": set(), "pushdefault": [], "branches": {}}
+    for entry in config(["-z", "--get-regexp", PUSH_READ]).split("\0"):
+        if not entry:
+            continue
+        key, valued, value = entry.partition("\n")
+        section, _, rest = key.partition(".")
+        name, _, variable = rest.rpartition(".")
+        if not valued and variable != "mirror":
+            raise Unreadable("git's configuration sets %s with no value, which git does not take" % key)
+        if key == "push.default":
+            read["default"] = value     # the last one set is the one git reads
+        elif key == "remote.pushdefault":
+            read["pushdefault"].append(value)
+        elif section == "branch" and variable in ("pushremote", "remote"):
+            read["branches"].setdefault(name, {}).setdefault(variable, []).append(value)
+        elif variable == "push":
+            read["refspecs"].append(value)
+        elif variable == "mirror":
+            read["mirror"] = read["mirror"] or _boolean(value if valued else None, key)
+        else:
+            read["remotes"].add(name)
+    return read
+
+
+def _boolean(value, key: str) -> bool:
+    """A boolean as git reads it: with no value, true; an integer, true unless zero. Raises Unreadable for any other."""
+    if value is None or value.lower() in TRUE:
+        return True
+    if value.lower() in FALSE:
+        return False
+    if re.fullmatch(r"[+-]?\d+", value):
+        return int(value) != 0
+    raise Unreadable("git's configuration sets %s to a value that is not a boolean" % key)
+
+
+def _destination(read: dict, branch: str) -> str:
+    """Where a push that names no remote goes, as git picks it from push_configuration's `read`: the branch's
+    pushRemote, then remote.pushDefault, then the branch's remote, then origin; the last of each that is set. `branch`
+    is the branch the push is made from, "" when HEAD is detached. "." is this repository. A value that is neither it
+    nor a configured remote raises Unreadable."""
+    own = read["branches"].get(branch, {}) if branch else {}
+    named = next((values[-1] for values in (own.get("pushremote"), read["pushdefault"], own.get("remote")) if values),
+                 None)
+    if named is not None and named != LOCAL and named not in read["remotes"]:
+        raise Unreadable("git's configuration sends a push that names no remote where no configured remote is")
+    return "origin" if named is None else named
+
+
+def _configured(read: dict) -> tuple:
+    """(the refspecs a push that names none sends, whether it is a mirror), from push_configuration's `read`: each
+    remote.*.push, of every remote, and what push.default sends, since a remote with none follows it. They are read as
+    a refspec the command gives is, so one with a wildcard, or a negative one, refuses. A push.default git does not
+    take raises Unreadable."""
+    if read["default"] not in DEFAULT_SENDS:
+        raise Unreadable("push.default is set to a value git does not take, so what the push sends cannot be read")
+    return read["refspecs"] + [DEFAULT_SENDS[read["default"]]], read["mirror"]
+
+
+def _commits(reader: Reader, where, args: list, refspecs: list, who: dict, mirror: bool = False) -> list:
     """Every commit the push would send that no remote has yet is the Maintainer's, as author and as committer. A
     refspec held in a variable or a command, or with a wildcard, the hook cannot read; a mirror sends every ref."""
     sources, matching = [], False
@@ -662,6 +861,8 @@ def _commits(reader: Reader, where, args: list, refspecs: list, who: dict) -> li
         source = (spec[1:] if spec.startswith("+") else spec).split(":")[0]
         if source.startswith("-"):      # never hand the hook's own git an option from the command
             raise Unreadable("the push names a refspec that starts with '-': %s" % spec)
+        if source.startswith("^"):
+            raise Unreadable("a refspec of the push is a negative one, which the hook does not read")
         if _expands(source):
             raise Unreadable("a refspec of the push is held in a variable or a command the hook cannot read")
         if WILDCARD.search(source):
@@ -670,7 +871,7 @@ def _commits(reader: Reader, where, args: list, refspecs: list, who: dict) -> li
             sources.append(source)
     options = [a.partition("=")[0] for a in args if a[:2] == "--"]
     given = [name for name in ("--mirror", "--all", "--branches", "--tags")
-             if any(shell.spelt(option, name) for option in options)]
+             if any(shell.spelt(option, name) for option in options)] + (["--mirror"] if mirror else [])
     if "--mirror" in given:     # every ref under refs/, refs/stash and refs/notes/* among them
         pseudo = ["--all", "--glob=refs/stash", "--glob=refs/notes/*"]
     else:
@@ -693,15 +894,28 @@ def _push(reader: Reader, where, args: list, who: dict, machine: str) -> list:
     remote, refspecs = (targets[0], targets[1:]) if targets else (None, [])
     if remote and remote.startswith("-"):
         return [("push_commits_unreadable", "the push names a remote that starts with '-'")]
+    try:
+        # What it sends, and where it goes, git's configuration says when the command does not: read once.
+        read = push_configuration(lambda given: reader.config(where, given)) if remote is None or not refspecs else None
+        if remote is None:
+            branch = reader.run("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], where, allowed=(1,)).strip()
+            remote = _destination(read, branch)
+    except Unreadable as err:
+        return [("push_commits_unreadable", str(err))]
+    if remote == LOCAL:
+        return []       # this repository: nothing goes to GitHub
     problems = []
     try:
-        problems += _remotes(reader, where, None if remote and _expands(remote) else remote, who, machine)
+        problems += _remotes(reader, where, None if _expands(remote) else remote, who, machine)
     except Unreadable as err:
         problems.append(("account_unreadable", str(err)))
     if deleting:
         return problems
     try:
-        problems += _commits(reader, where, args, refspecs, who)
+        mirror = False
+        if not refspecs:
+            refspecs, mirror = _configured(read)
+        problems += _commits(reader, where, args, refspecs, who, mirror)
     except Unreadable as err:
         problems.append(("push_commits_unreadable", str(err)))
     return problems
@@ -712,15 +926,18 @@ def check(payload: dict, env: dict, seconds: float = DEADLINE) -> list:
     if payload.get("tool_name") != "Bash":
         return []
     command = payload["tool_input"]["command"]
+    # $(which git) and `command -v gh` stand for the git or gh on PATH, which a PATH set in the command would change.
+    read = shell.WHICH.sub(lambda m: m.group(1) if os.path.basename(m.group(1)) in ("git", "gh") else m.group(0),
+                           command)
     try:
-        commands = shell.simple_commands(_quoted(shell.without_heredocs(command)))
+        commands = shell.simple_commands(_quoted(shell.without_heredocs(read)))
     except ValueError as err:
         # The command cannot be split into words. If it names git or gh at all, what it does cannot be read.
         if re.search(r"(?<![\w.-])(git|gh)(?![\w.-])", command):
             return [("command_unreadable", "the command cannot be split into words (%s), so what git or gh would do "
                                            "cannot be read. Write any message to a file and use git commit -F" % err)]
         return []
-    calls, problems, inline = _calls(commands, payload.get("cwd"), command)
+    calls, problems, inline = _calls(commands, payload.get("cwd"), read, env)
     writes = [c for c in calls if c[3]]
     if writes:
         problems += inline
