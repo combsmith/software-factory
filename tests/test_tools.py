@@ -1075,6 +1075,16 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(problems, "holds workflows and not verify.yml"))
         self.assertTrue(caught(check_workflows.run(tree({".github/actions/setup/action.yml": "x"})), "a local action"))
 
+    def test_the_secret_scan_has_rules(self):
+        # gitleaks adds its default rules to a config file only when told to; without them it finds nothing.
+        config = (ROOT / ".gitleaks.toml").read_text()
+        self.assertRegex(config, r"(?m)^\[extend\]\s*\nuseDefault = true$", "the secret scan would run with no rules")
+        self.assertNotRegex(config, r"(?m)^\s*disabledRules\s*=", "a default rule is switched off")
+        # What is ignored is ignored one finding at a time, by its exact fingerprint: a commit, a file, a rule, a line.
+        for line in (ROOT / ".gitleaksignore").read_text().splitlines():
+            if line and not line.startswith("#"):
+                self.assertRegex(line, r"^[0-9a-f]{40}:[^:]+:[a-z0-9-]+:[0-9]+$", line)
+
     def test_an_exempt_workflow_is_held_word_for_word(self):
         scan = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
         base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
