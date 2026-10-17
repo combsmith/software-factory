@@ -67,6 +67,10 @@ DISMISSED_FROM = ("approved", "changes_requested", "commented")
 # What one result for a criterion of an acceptance contract says: schemas/facts.schema.json names them too. Any other
 # word, or none, cannot be read.
 EVIDENCE_RESULTS = ("passing", "failing")
+# The kinds of a criterion's check, as schemas/acceptance.schema.json names them, and the one only a person passes, by
+# an approving review of the content: no check reports it. Any other word, or none, cannot be read.
+CRITERION_KINDS = ("test", "scenario", "mutation", "static", "role", "human")
+HUMAN_KIND = "human"
 # The forms of a criterion's id and of a content id, as schemas/facts.schema.json gives them: a prefix, then digits.
 CRITERION_PREFIX = "AC-"
 CONTENT_PREFIX = "sha256:"

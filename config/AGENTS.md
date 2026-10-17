@@ -3,7 +3,8 @@
 The Factory's settings, as data: `defaults.json` for the Kernel's limits and required Lenses (a
 deterministic Lens, `verify`, `secret-scan` or `code-scanning`, names the exact name of the check run
 GitHub reports for it and the id of the one App whose check it is read from; only a dependency update
-may be judged without a model Lens) and for the one name of the status on the item,
+may be judged without a model Lens), for the Lens whose check alone reports each kind of acceptance criterion,
+and for the one name of the status on the item,
 `authority.json` for who owns each category of Finding, `rubric-pr-review.json` for what a review
 must look at, `apps.json` for each GitHub App's permissions and the repos it is installed on, which the
 Maintainer registers each App from, `hooks.json` for the Maintainer, whose name every commit and push here carries,

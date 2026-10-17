@@ -10,6 +10,7 @@
     "required_lenses",
     "status_on_item",
     "check_conclusions",
+    "acceptance_reporters",
     "limits"
   ],
   "properties": {
@@ -111,6 +112,55 @@
           "pending",
           "unreadable"
         ]
+      }
+    },
+    "acceptance_reporters": {
+      "description": "For each kind of criterion a check reports, the required deterministic Lens whose check alone may report its result, by the Lens's name, or null where no check may yet: a result for a criterion of that kind is then unreadable. A criterion of kind human is passed by a person's approval alone, and is not named here",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "test",
+        "scenario",
+        "mutation",
+        "static",
+        "role"
+      ],
+      "properties": {
+        "test": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "scenario": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "mutation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "static": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "role": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
       }
     },
     "limits": {

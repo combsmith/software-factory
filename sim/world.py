@@ -64,8 +64,14 @@ PAUSE_FOR = 80
 # The Holds the brakes place at a ceiling. Under a Pause they are not reached: the Pause defers first (decision 0003).
 CEILINGS = ("attempts_exhausted", "run_ceiling", "max_rounds", "act_ceiling")
 # On three seeds in seven the item has an acceptance contract (design §3.13), of this many criteria, by the seed alone.
-# Seeds 1 and 2, which the tests set worlds up from by hand, have none.
+# Seeds 1 and 2, which the tests set worlds up from by hand, have none. On an agent's pull request the last of two or
+# more is of kind human, which only a person passes, by approving the content; every other is of kind test.
 CONTRACTS = {0: 3, 3: 1, 5: 2}
+# The check that alone reports a criterion of kind test, by the Lens the configuration names for it, and the person who
+# approves the contract on the Maintainer's own pull request, which GitHub refuses them a review of.
+REPORTER = {"name": CHECKS[CONFIG["acceptance_reporters"]["test"]], "app_id": APPS[CONFIG["acceptance_reporters"]["test"]],
+            "workflow": WORKFLOWS[CONFIG["acceptance_reporters"]["test"]]}
+COLLEAGUE = {"kind": "human", "name": "a-colleague", "can_write": True}
 # On one seed in ten the item is a dependency bot's update, of class `dependency`, that the bot opened and pushed: on
 # every other such seed it edits the pin in the workflow file the verify Lens is read from. By the seed alone.
 DEPENDENCY_SEED = 4
@@ -143,8 +149,20 @@ class World:
         # with the content it was given on. A result stays when the content changes: it is then evidence for other
         # content. What concerns the contract draws from its own generator, so that a world with none stays as it was.
         self.criteria = ["AC-%d" % (i + 1) for i in range(CONTRACTS.get(seed % 7, 0))] or None
+        self.kinds = {c: "test" for c in self.criteria or []}
+        if self.cls == "agent" and len(self.kinds) > 1:
+            self.kinds[self.criteria[-1]] = t.HUMAN_KIND
         self.results = []
         self.judge = random.Random("acceptance %d" % seed)
+        # The contract's digest at the head, which a push that edits it or a test it names changes, None once deleted;
+        # and the contract a person approved, at the head, or on one seed in three not yet (I-29). Whether there is a
+        # contract at all is the linked issue's, and never changes here.
+        self.revision = 1
+        self.head = self.digest() if self.criteria else None
+        self.contract_person = MAINTAINER if self.cls == "agent" else COLLEAGUE
+        self.approved = None
+        if self.criteria and self.judge.random() >= 0.3:
+            self.approve_contract(self.contract_person)
         self.true_state = None     # the State the Kernel gives what GitHub holds now, after the last change
         self.starts()
 
@@ -212,12 +230,38 @@ class World:
             # GitHub: the_timeline_shows_each_act
             "acts_since_writer": self.acts,
             # GitHub: an_acceptance_result_names_its_content
-            "acceptance": None if self.criteria is None else {
-                "criteria": list(self.criteria), "results": copy.deepcopy(self.results)},
+            # GitHub: an_acceptance_result_names_its_reporter
+            # GitHub: a_contract_approval_stays_on_its_commit
+            "acceptance": self.acceptance(),
             "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True,
                          "changed_paths": True, "runs": True, "timeline": True},
             "read_at": self.now(),
         }
+
+    def digest(self) -> str:
+        """The digest of the contract and every path it protects, at its current revision."""
+        return "sha256:c%03x" % self.revision
+
+    def acceptance(self):
+        """The acceptance contract as the facts carry it, or None for an item whose issue asks for none."""
+        if self.criteria is None:
+            return None
+        return {"approved": copy.deepcopy(self.approved), "head": self.head, "results": copy.deepcopy(self.results)}
+
+    def approve_contract(self, by: dict):
+        """`by`, a person, approves the contract at the head with an approving review of the content, which also
+        confirms every criterion of kind human there (the Maintainer's ruling of 2026-10-17). None to approve once the
+        head carries none."""
+        if self.criteria is None or self.head is None:
+            return
+        self.approved = {"digest": self.head, "by": dict(by),
+                         "criteria": [{"id": c, "kind": self.kinds[c]} for c in self.criteria]}
+
+    def agreed(self) -> bool:
+        """Whether a person approved the contract, and the head still carries what they approved, in the world's own
+        words. An item with no contract asks nothing."""
+        return self.criteria is None or (self.approved is not None and self.is_person(self.approved["by"])
+                                         and self.head == self.approved["digest"])
 
     def records(self) -> list:
         """What the records port lists: every Run, including one still waiting for a runner."""
@@ -319,18 +363,39 @@ class World:
             out.append("a required check that failed or gave no verdict")
         if self.impostors:
             out.append("another App's check under a required Lens's name")
-        if not self.accepted(self.criteria, self.results, self.cid()):
-            out.append("a criterion with no passing evidence on this content")
+        if not self.agreed():
+            out.append("a contract no person approved, or one changed since")
+        if not self.accepted(self.acceptance(), self.reviews, self.cid()):
+            out.append("a criterion with no passing evidence on this content from its reporter")
         return out
 
-    @staticmethod
-    def accepted(criteria, results: list, content: str) -> bool:
-        """Whether every criterion has a passing result on `content` and none failing, in the world's own words; an
-        item with no contract asks nothing (I-31)."""
-        if criteria is None:
+    @classmethod
+    def accepted(cls, acceptance, reviews: list, content: str) -> bool:
+        """Whether a contract counts and every criterion passes on `content`, in the world's own words; an item with no
+        contract asks nothing. A person approved the contract, and the head carries what they approved (I-29); each
+        result on `content` is for a criterion of kind test, from the reporter's own check, and each such criterion
+        has a passing one and none failing (I-10, I-31); and a person's approving review of `content` stands, unless a
+        person dismissed it, for each criterion of kind human."""
+        if acceptance is None:
             return True
-        said = [(ev["criterion"], ev["result"]) for ev in results if ev["content_id"] == content]
-        return all((c, "passing") in said and (c, "failing") not in said for c in criteria)
+        approved = acceptance["approved"]
+        if approved is None or not cls.is_person(approved["by"]) or acceptance["head"] != approved["digest"]:
+            return False
+        kinds = {c["id"]: c["kind"] for c in approved["criteria"]}
+        mine = [ev for ev in acceptance["results"] if ev["content_id"] == content]
+        if any(kinds.get(ev["criterion"]) != "test" or ev["check"] != REPORTER for ev in mine):
+            return False
+        person = cls.confirmed(reviews, content)
+        return all(person if kind == t.HUMAN_KIND else {ev["result"] for ev in mine if ev["criterion"] == c} == {"passing"}
+                   for c, kind in kinds.items())
+
+    @classmethod
+    def confirmed(cls, reviews: list, content: str) -> bool:
+        """Whether a person's approving review of `content` stands, unless a person dismissed it, in the world's words."""
+        return any(cls.is_person(rv["by"]) and rv["content_id"] == content
+                   and (rv["state"] == "approved" or (rv["dismissed_from"] == "approved"
+                                                      and not cls.is_person(rv["dismissed_by"])))
+                   for rv in reviews)
 
     def note(self, what: str):
         self.trace.append("%s %s" % (self.now(), what))
@@ -418,7 +483,8 @@ class World:
             else:
                 # GitHub: a_result_can_name_a_criterion_the_contract_does_not
                 facts["acceptance"]["results"].append({"criterion": "AC-%d" % (len(self.criteria) + 1),
-                                                        "content_id": facts["content_id"], "result": "passing"})
+                                                        "content_id": facts["content_id"], "result": "passing",
+                                                        "check": dict(REPORTER)})
         wrong = validate(facts, FACTS_SCHEMA)
         self.check(not wrong, "facts are valid: %s" % "; ".join(wrong))
         d = decide(facts, runs, self.context(), CONFIG, self.now())
@@ -440,18 +506,22 @@ class World:
                                                                                    d["attention"]))
         acceptance = facts["acceptance"]
         if acceptance is not None:
-            # An item with a contract converges, and stays in the queue, only with a passing result for every criterion
-            # on the content it was read at, read in full: evidence for other content counts for nothing, and a result
-            # on this content for a criterion the contract does not name makes it unreadable, which converges nothing
-            # and is the Maintainer's to see (I-31, I-13). A read short is incomplete, and checked with the other flags.
-            readable = all(ev["criterion"] in acceptance["criteria"] for ev in acceptance["results"]
-                           if ev["content_id"] == facts["content_id"])
-            ok = (readable and facts["complete"]["acceptance"]
-                  and self.accepted(acceptance["criteria"], acceptance["results"], facts["content_id"]))
+            # No Run is admitted, and nothing converges or stays in the queue, unless a person approved the contract and
+            # the head still carries what they approved (I-29). An item with a contract converges, and stays in the
+            # queue, only with every criterion passing on the content it was read at, read in full: from its kind's
+            # reporter alone, a person's approval for a criterion of kind human (I-10, I-31). Evidence for other content
+            # counts for nothing. A result on this content for a criterion the contract does not name, or from anyone but
+            # its reporter, makes it unreadable, which admits nothing and is the Maintainer's to see, as each Hold is
+            # (I-13). A read short is incomplete, and checked with the other flags.
+            approved = acceptance["approved"]
+            agreed = approved is not None and self.is_person(approved["by"]) and acceptance["head"] == approved["digest"]
+            self.check(agreed or d["outcome"] != t.ADMIT,
+                       "I-29 a Run admitted on a contract no person approved, or one changed since")
+            ok = facts["complete"]["acceptance"] and self.accepted(acceptance, facts["reviews"], facts["content_id"])
             self.check(ok or d["state"] not in (t.CONVERGED, t.QUEUED),
-                       "I-31 %s with a criterion lacking passing evidence" % d["state"])
-            self.check(d["reason"] != "acceptance_unreadable" or (not readable and d["attention"] == t.NEEDS_YOU),
-                       "unreadable acceptance evidence is not shown as needing a person")
+                       "I-31 %s with a criterion lacking passing evidence from its reporter" % d["state"])
+            self.check(d["reason"] not in ("acceptance_unreadable", "contract_not_approved", "contract_changed")
+                       or d["attention"] == t.NEEDS_YOU, "%s is not shown as needing a person" % d["reason"])
         # Nothing that changes the list is approved, enqueued or left in the queue without every model Lens's review
         # of its head, whatever its class (I-45). What it changes is the world's own: what it holds now, or for a
         # stale read, what it held then, which a stale read holds whole. A list read short is incomplete, and checked
@@ -633,7 +703,7 @@ class World:
             run.update(conclusion="timed_out", outcome=self.pick(["item", "capacity", "environment"]))
             self.note("run %s: killed (%s)" % (run["run"], run["outcome"]))
             return
-        if self.held() or run["content_id"] != self.cid() or self.pr_state != "open":
+        if self.held() or not self.agreed() or run["content_id"] != self.cid() or self.pr_state != "open":
             # GitHub: a_superseded_run_fails
             run.update(conclusion="failure", outcome="superseded")   # apply read the item again
             self.note("run %s: apply refused, the item changed" % run["run"])
@@ -681,6 +751,17 @@ class World:
         self.rerun = set()
         # GitHub: a_push_leaves_the_queue
         self.queue = False
+        if self.head is not None and self.faults and self.judge.random() < 0.15:
+            # A push edits the contract or a test it names, or deletes the contract: its digest changes, and a person
+            # must approve it again. That `apply` refuses the implementing Role's edit waits on harness/ (I-30).
+            # GitHub: a_push_can_change_the_contract
+            if self.judge.random() < 0.2:
+                self.head = None
+                self.note("the push deleted the contract")
+            else:
+                self.revision += 1
+                self.head = self.digest()
+                self.note("the push changed the contract -> %s" % self.head)
         # GitHub: an_approval_survives_a_push
         # GitHub: a_request_for_changes_survives_a_push
         self.note("push by %s -> %s" % (who, self.cid()))
@@ -733,23 +814,85 @@ class World:
             self.note("evidence %s on %s expired" % (gone["criterion"], gone["content_id"]))
             self.caused("platform")
             return True
+        tested = [c for c in self.criteria if self.kinds[c] == "test"]
+        human = [c for c in self.criteria if self.kinds[c] == t.HUMAN_KIND]
+        if self.faults and self.judge.random() < (0.15 if human else 0.06):
+            # Another App, or another workflow file of the reporter's own App, gives a passing result for a criterion;
+            # or the reporter's check gives one for a criterion only a person passes, as if confirming it.
+            # GitHub: any_app_gives_a_result_for_any_criterion
+            roll = self.judge.random()
+            criterion = human[0] if human and roll < 0.5 else self.criteria[int(roll * len(self.criteria))]
+            if self.kinds[criterion] == t.HUMAN_KIND:
+                check, who, by = dict(REPORTER), "the reporter's check", "lens"
+            elif self.judge.random() < 0.5:
+                check, who, by = dict(REPORTER, app_id=IMPOSTOR_APP, workflow=None), "another App", "platform"
+            else:
+                check, who, by = dict(REPORTER, workflow=IMPOSTOR_WORKFLOW), "another workflow", "platform"
+            self.results.append({"criterion": criterion, "content_id": self.cid(), "result": "passing", "check": check})
+            self.note("evidence %s: %s gave a result on %s" % (criterion, who, self.cid()))
+            self.caused(by)
+            return True
         given = {ev["criterion"] for ev in self.results if ev["content_id"] == self.cid()}
-        passed = [ev["criterion"] for ev in self.results if ev["content_id"] == self.cid() and ev["result"] == "passing"]
+        passed = [ev["criterion"] for ev in self.results if ev["content_id"] == self.cid() and ev["result"] == "passing"
+                  and ev["criterion"] in tested]
         if self.faults and passed and self.judge.random() < 0.1:
             # GitHub: a_criterion_can_have_a_result_from_each_check_suite
-            self.results.append({"criterion": passed[0], "content_id": self.cid(), "result": "failing"})
+            self.results.append({"criterion": passed[0], "content_id": self.cid(), "result": "failing",
+                                 "check": dict(REPORTER)})
             self.note("evidence %s: a second result, failing, on %s" % (passed[0], self.cid()))
             self.caused("lens")
             return True
-        lacking = [c for c in self.criteria if c not in given]
+        lacking = [c for c in tested if c not in given]
         if not lacking:
             return False
         criterion = lacking[int(self.judge.random() * len(lacking))]
         result = "failing" if self.faults and self.judge.random() < 0.15 else "passing"
-        self.results.append({"criterion": criterion, "content_id": self.cid(), "result": result})
+        self.results.append({"criterion": criterion, "content_id": self.cid(), "result": result, "check": dict(REPORTER)})
         self.note("evidence %s: %s on %s" % (criterion, result, self.cid()))
         self.caused("lens")
         return True
+
+    def foreign_results(self) -> bool:
+        """Whether a result on this content came from anyone but its criterion's reporter, in the world's own words."""
+        return any(ev["content_id"] == self.cid() and (self.kinds.get(ev["criterion"]) != "test"
+                                                         or ev["check"] != REPORTER) for ev in self.results)
+
+    def on_the_contract(self) -> bool:
+        """A person acts on the contract: approves it at the head, with an approving review of the content, where nobody
+        has or it changed since; or, while faults are on, now and then withdraws an approval. False if neither."""
+        if self.criteria is None:
+            return False
+        if not self.agreed() and self.head is not None:
+            self.confirm()
+            return True
+        if self.faults and self.approved is not None and self.judge.random() < 0.2:
+            self.approved = None
+            self.writer_acted()
+            self.note("%s withdrew the contract's approval" % self.contract_person["name"])
+            return True
+        return False
+
+    def confirm(self):
+        """The person who approves the contract approves the content: on an agent's pull request the Maintainer, with a
+        review; on the Maintainer's own, a colleague. It approves the contract at the head, and confirms every criterion
+        of kind human on this content."""
+        if self.contract_person == MAINTAINER:
+            self.review("approved")
+        else:
+            self.reviews.append({"by": dict(COLLEAGUE), "state": "approved", "commit": "c%d" % self.content,
+                                 "content_id": self.cid(), "submitted_at": self.now(), "dismissed_by": None,
+                                 "dismissed_from": None})
+            self.writer_acted()
+            self.note("a colleague approved %s" % self.cid())
+        self.approve_contract(self.contract_person)
+
+    def awaits_a_person(self) -> bool:
+        """Whether a criterion of kind human waits for a person's approval of this content, or the contract for a
+        person's approval at the head, in the world's own words."""
+        if self.criteria is None or self.pr_state != "open":
+            return False
+        return not self.agreed() or (t.HUMAN_KIND in self.kinds.values()
+                                     and not self.confirmed(self.reviews, self.cid()))
 
     def platform(self):
         if self.criteria is not None and self.judge.random() < 0.2 and self.gives_evidence():
@@ -820,6 +963,8 @@ class World:
 
     def acting(self) -> str:
         """Who acted: the Maintainer, or a stranger, who is no person with write access."""
+        if self.criteria is not None and self.judge.random() < 0.3 and self.on_the_contract():
+            return "human"
         # GitHub refuses a review by the pull request's author: on the Maintainer's own, they do as they always did.
         reviews = self.cls == "agent"
         if self.queue and self.faults and self.rng.random() < 0.5:
@@ -884,6 +1029,9 @@ class World:
                              "dismissed_from": None})
         if state != "commented":
             self.asked = state == "changes_requested"
+        if state == "approved":
+            # One approving review of the content by a person approves the contract at that commit too.
+            self.approve_contract(MAINTAINER)
         self.writer_acted()
         self.note("maintainer reviewed: %s" % state)
 
@@ -926,8 +1074,9 @@ class World:
             ok = any(rv["by"]["name"] == CONFIG["approver"] and rv["state"] == "approved"
                      and rv["content_id"] == self.cid() for rv in self.reviews)
             self.check(ok, "NFR-4 merged without an approval of the merged content")
-            self.check(self.accepted(self.criteria, self.results, self.cid()),
-                       "I-31 merged with a criterion lacking passing evidence on the merged content")
+            self.check(self.accepted(self.acceptance(), self.reviews, self.cid()),
+                       "I-29, I-31 merged without a contract a person approved, unchanged, or with a criterion lacking "
+                       "passing evidence from its reporter on the merged content")
             self.check(not self.on_the_list(self.changed) or self.reviewed(self.runs, self.cid()),
                        "I-45 a change to the list merged with no review of the merged content")
         since = [r for r in self.runs if (self.last_writer is None or r["started_at"] > self.last_writer)
@@ -965,6 +1114,17 @@ class World:
         if self.asked:
             self.review("approved")
             self.caused("human")
+        # The Maintainer puts back a contract a push deleted, and the person who approves the contract approves it at
+        # the head, where nobody has or it changed since.
+        if self.criteria is not None and self.head is None:
+            self.push(MAINTAINER["name"], writer=True)
+            self.revision += 1
+            self.head = self.digest()
+            self.note("the push restored the contract -> %s" % self.head)
+            self.caused("human")
+        if not self.agreed():
+            self.confirm()
+            self.caused("human")
         # The person runs again every check that did not pass, and the re-run replaces the run it repeats. What each
         # re-run then says is that person's: a Lens reports once for each run (the ruling on #38).
         # GitHub: a_rerun_replaces_only_its_own_run
@@ -973,10 +1133,21 @@ class World:
         self.completed = {k: (self.completed[k] if v == "success" else None) for k, v in self.checks.items()}
         self.writer_acted()
         self.caused("human")
-        if self.impostors:
-            # Another App's check cannot be run again or deleted: only a push leaves it behind.
+        if self.impostors or self.foreign_results():
+            # Another App's check, or a result from anyone but its reporter, cannot be run again or deleted: only a push
+            # leaves it behind.
             self.push(MAINTAINER["name"], writer=True)
             self.caused("human")
         for _ in range(steps):
             self.step()
+        # The person who approves the contract approves it again at the head, and the content the Factory settled on,
+        # which confirms each criterion of kind human, until neither waits for them; a deleted contract stays held.
+        for _ in range(3):
+            if not self.awaits_a_person():
+                break
+            self.minute += 1
+            self.confirm()
+            self.caused("human")
+            for _ in range(steps):
+                self.step()
         return decide(self.facts(), self.records(), self.context(), CONFIG, self.now())

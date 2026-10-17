@@ -30,6 +30,13 @@
     "startup_failure": "unreadable",
     "error": "unreadable"
   },
+  "acceptance_reporters": {
+    "test": "verify",
+    "scenario": null,
+    "mutation": null,
+    "static": null,
+    "role": null
+  },
   "limits": {
     "max_attempts": 3,
     "max_rounds": 3,
