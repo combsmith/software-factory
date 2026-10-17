@@ -2411,14 +2411,15 @@ class Mutants(unittest.TestCase):
         self.assertEqual((status, output.count("FAIL: test_b")), (1, 1), "the whole suite ran after the named test passed")
         said = mutants.verdict(*mutants.suite(where, first=("tests.test_x.T.test_gone",)))
         self.assertEqual(said[0], "ERROR", "a test named that is not there kills nothing")
+        status, output = mutants.suite(where, only="tests.test_x.T.test_a")
+        self.assertEqual((status, output.count("Ran 1 test")), (0, 1), "the test named alone ran alone, and passed")
         calls = []
-        unbroken = tree({"k.py": "rule\n"})
 
         def run(work, **given):
             calls.append(given)
-            return (0, "OK\n") if work == unbroken else (1, FAILS_A_TEST)
+            return (0, "OK\n") if (work / "k.py").read_text() == "rule\n" else (1, FAILS_A_TEST)
         for mutant in (("named", "k.py", "rule\n", "x\n", ("tests.test_x.T.test_b",)), ("plain", "k.py", "rule\n", "x\n")):
-            self.assertEqual(mutants.attempt(mutant, unbroken, run)[0], "killed")
+            self.assertEqual(mutants.attempt(mutant, tree({"k.py": "rule\n"}), run)[0], "killed")
         alone = {"only": "tests.test_x.T.test_x"}
         self.assertEqual(calls, [{"first": ("tests.test_x.T.test_b",)}, alone, alone, {}, alone, alone],
                          "the test that failed ran alone on the mutant and on the unbroken code")
@@ -2509,6 +2510,17 @@ class Mutants(unittest.TestCase):
         self.assertEqual((code, lines), (1, ["FLAKY     x (tests.test_x.T.test_x failed on the unbroken code too%s)" % MEND,
                                              "0 of 1 mutants killed"]))
 
+    def test_a_test_that_fails_only_in_a_copy_kills_nothing(self):
+        # The checkout has a .git, and a copy has none: the test fails on every mutant and passes where the tests were
+        # first run, so only a copy left unbroken shows it is not the mutant's.
+        root = suite_of("    def test_x(self):\n        self.assertTrue(os.path.exists('.git'))\n",
+                        {"k.py": "rule\n", ".git/HEAD": "ref: refs/heads/main\n"})
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            code = mutants.main(mutate("anything"), root, mutants.suite, 1)
+        self.assertEqual((code, said.getvalue().splitlines()),
+                         (1, ["FLAKY     anything (tests.test_x.T.test_x failed on the unbroken code too%s)" % MEND,
+                              "0 of 1 mutants killed"]))
+
     def test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check(self):
         code, lines, calls = self.check({"x": (0, 1, FAILS_A_TEST), "x alone": PASSES, "y": (0, 1, FAILS_A_TEST)},
                                         ["x", "y"])
@@ -2553,18 +2565,27 @@ class Mutants(unittest.TestCase):
         clock = {"monotonic", "monotonic_ns", "perf_counter", "perf_counter_ns", "time", "time_ns", "sleep"}
         marked, reads = set(), set()
         for path in sorted((ROOT / "tests").glob("test_*.py")):
-            for node in ast.walk(ast.parse(path.read_text())):
-                if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
-                    continue
-                if any("wall_clock" in ast.dump(d) for d in node.decorator_list):
-                    marked.add(node.name)
-                if any(isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "time"
-                       and n.attr in clock for n in ast.walk(node)):
-                    reads.add(node.name)
+            module = ast.parse(path.read_text())
+            # time under any name it is imported as, and any of its clocks imported on their own
+            modules = {a.asname or a.name for n in ast.walk(module) if isinstance(n, ast.Import) for a in n.names
+                       if a.name == "time"}
+            bare = {a.asname or a.name for n in ast.walk(module) if isinstance(n, ast.ImportFrom) and n.module == "time"
+                    for a in n.names if a.name in clock}
+            for owner in [n for n in ast.walk(module) if isinstance(n, ast.ClassDef)]:
+                for node in owner.body:
+                    if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
+                        continue
+                    where = (path.name, owner.name, node.name)
+                    if any("wall_clock" in ast.dump(d) for d in node.decorator_list):
+                        marked.add(where)
+                    if any((isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in modules
+                            and n.attr in clock) or (isinstance(n, ast.Name) and n.id in bare) for n in ast.walk(node)):
+                        reads.add(where)
         # The order of the runs is told by a stand-in that sleeps: that test reads no clock of its own.
-        timed = reads | {"test_mutants_are_reported_in_their_order_however_their_runs_finish"}
-        self.assertEqual(timed - marked, set(), "mark these @wall_clock, from tests/support.py")
-        self.assertIn("test_a_wildcard_that_would_backtrack_is_read_within_the_budget", marked)
+        timed = reads | {("test_tools.py", "Mutants", "test_mutants_are_reported_in_their_order_however_their_runs_finish")}
+        self.assertEqual(marked, timed, "mark @wall_clock, from tests/support.py, the tests timed by it and no other")
+        self.assertIn(("test_hooks.py", "ProtectedPaths", "test_a_wildcard_that_would_backtrack_is_read_within_the_budget"),
+                      marked)
 
         def test_x():
             pass

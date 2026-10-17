@@ -193,7 +193,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 
 ### L-60 A test that failed under load killed a mutant
 **Failure.** On a laptop with a load average near 30, the mutation run reported four mutants killed that CI's shards reported surviving. The code they broke had become dead. An unrelated test had failed under load, and any failing test counted as a kill, so four rules nothing checked passed as checked.
-**Rule.** A mutant is killed only by a test that fails on it, fails again when run alone on it, and passes when run alone on the unbroken code. A failure short of that runs the suite once more, and a second is `FLAKY`, which fails the run. A test timed by the wall clock is marked `@wall_clock` and skipped in the mutation run.
+**Rule.** A mutant is killed only by a test that fails on it, fails again when run alone on it, and passes when run alone on an unbroken copy made as the mutant's is. A failure short of that runs the suite once more, and a second is `FLAKY`, which fails the run. A test timed by the wall clock is marked `@wall_clock` and skipped in the mutation run.
 **Check.** `tests/test_tools.py::test_a_mutant_whose_only_failure_is_unrelated_survives`, `tests/test_tools.py::test_a_test_that_fails_on_the_unbroken_code_too_kills_nothing`, `tests/test_tools.py::test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check`, `tests/test_tools.py::test_every_test_timed_by_the_wall_clock_is_marked_and_skipped_when_mutating`, `tools/mutants.py`
 
 ## Workflows

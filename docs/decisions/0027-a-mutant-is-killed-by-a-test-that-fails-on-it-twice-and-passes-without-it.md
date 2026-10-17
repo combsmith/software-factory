@@ -9,7 +9,9 @@ Maintainer may overturn it in review.
 A run of the suite on a mutant stops at its first failure, as before. That failure kills the mutant
 only once it is confirmed: `tools/mutants.py` reads the one test that failed from unittest's output,
 runs that test alone on the mutant, where it must fail again, and alone on the unbroken code, where
-it must pass. If either run disagrees, the failure is unconfirmed, and the suite runs once more on
+it must pass. The unbroken code is a second copy, made as the mutant's is, with no `.git` and under
+the system's temporary directory: a test that fails in any copy and passes in the checkout fails
+there too, so a change cannot make its own mutants look killed that way. If either run disagrees, the failure is unconfirmed, and the suite runs once more on
 the mutant: a pass is `SURVIVED`, a confirmed failure is `killed`, and a second unconfirmed failure
 is `FLAKY`, which names the test and whether it passed again on the mutant or failed on the unbroken
 code too. `FLAKY` is not counted as killed, so it fails the run as an `ERROR` does. The tests a
@@ -64,8 +66,10 @@ budgets get mutants; and a test that kills only when the whole suite runs, if on
 |---|---|
 | A failure kills a mutant once its test fails again alone on the mutant and passes alone on the unbroken code | `tests/test_tools.py::test_a_failure_the_mutant_causes_kills_it` |
 | A mutant whose only failure is an unrelated test, which passes when run again, is `SURVIVED` | `tests/test_tools.py::test_a_mutant_whose_only_failure_is_unrelated_survives` |
+| A test that fails only in a copy, with no `.git`, kills nothing: the unbroken code it passes on is a copy too | `tests/test_tools.py::test_a_test_that_fails_only_in_a_copy_kills_nothing` |
 | A test that fails alone on the unbroken code too kills nothing | `tests/test_tools.py::test_a_test_that_fails_on_the_unbroken_code_too_kills_nothing` |
 | Two unconfirmed failures are `FLAKY`, which is not counted as killed and fails the run; a confirmation that times out is an `ERROR` | `tests/test_tools.py::test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check` |
 | The test is read from the line each Python prints under unittest's rule, a subtest's and `setUpClass`'s among them; a line not read is an `ERROR` | `tests/test_tools.py::test_the_failing_test_is_read_from_the_line_each_python_prints` |
-| Every test that reads the clock or sleeps carries `@wall_clock`, which skips it when mutating and leaves it as it is otherwise | `tests/test_tools.py::test_every_test_timed_by_the_wall_clock_is_marked_and_skipped_when_mutating` |
+| A test named to run alone runs alone, in a suite of many | `tests/test_tools.py::test_the_tests_a_mutant_names_run_first_and_the_whole_suite_after_them` |
+| Exactly the tests that read the clock or sleep, however `time` is imported, carry `@wall_clock`, which skips it when mutating and leaves it as it is otherwise | `tests/test_tools.py::test_every_test_timed_by_the_wall_clock_is_marked_and_skipped_when_mutating` |
 | Each rule above has a mutant that a test kills | `tools/mutants.py` |

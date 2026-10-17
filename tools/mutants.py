@@ -68,6 +68,8 @@ UNBROKEN_TESTS = (RUNNER + "test_a_test_that_fails_on_the_unbroken_code_too_kill
 FLAKY_TESTS = (RUNNER + "test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check",)
 LINE_TESTS = (RUNNER + "test_the_failing_test_is_read_from_the_line_each_python_prints",)
 CLOCK_TESTS = (RUNNER + "test_every_test_timed_by_the_wall_clock_is_marked_and_skipped_when_mutating",)
+COPY_TESTS = (RUNNER + "test_a_test_that_fails_only_in_a_copy_kills_nothing",)
+NAMED_TESTS = (RUNNER + "test_the_tests_a_mutant_names_run_first_and_the_whole_suite_after_them",)
 
 MUTANTS = [
     ("incomplete facts are trusted", "kernel/derive.py",
@@ -362,7 +364,7 @@ MUTANTS = [
     ("a failure is not run again on the mutant", "tools/mutants.py",
      "    again = verdict(*run(work," " only=test))\n", '    again = ("killed", "")\n', UNRELATED_TESTS + FLAKY_TESTS),
     ("a failure is not run again on the unbroken code", "tools/mutants.py",
-     "    before = verdict(*run(root," " only=test))\n", '    before = ("SURVIVED", "")\n', UNBROKEN_TESTS),
+     "    before = verdict(*run(unbroken," " only=test))\n", '    before = ("SURVIVED", "")\n', UNBROKEN_TESTS),
     ("an unconfirmed failure is taken as a kill", "tools/mutants.py",
      "            if outcome != UNCONFIRMED:\n" "                return outcome, why\n",
      '            return ("killed", "") if outcome == UNCONFIRMED else (outcome, why)\n',
@@ -381,6 +383,16 @@ MUTANTS = [
      'r"^={70}' '\\n(?:FAIL|ERROR)', 'r"^(?:FAIL|ERROR)', LINE_TESTS),
     ("two tests that failed are read as one", "tools/mutants.py",
      "found.pop() if len(found)" " == 1 else None", "found.pop() if found else None", LINE_TESTS),
+    ("the unbroken code is run where it was checked out, not in a copy", "tools/mutants.py",
+     "confirm(output, work," " unbroken, run)", "confirm(output, work, root, run)", COPY_TESTS),
+    ("a test named to run alone runs with every other", "tools/mutants.py",
+     "    if" " only:\n", "    if False:\n", NAMED_TESTS),
+    ("a confirmation that hangs or crashes is read as a disagreement", "tools/mutants.py",
+     '        if outcome ==' ' "ERROR":\n', "        if False:\n", FLAKY_TESTS),
+    ("a failure whose test cannot be read is confirmed anyway", "tools/mutants.py",
+     "    if test" " is None:\n", "    if False:\n", LINE_TESTS),
+    ("a failure line with a subtest after it is not read", "tools/mutants.py",
+     '\\(([\\w.]+)\\)' "(?: .*)?$", '\\(([\\w.]+)\\)$', LINE_TESTS),
     ("a test timed by the wall clock is run when mutating", "tests/support.py",
      '    if os.environ.get("MUTATING"):\n        return unittest.skip("a test timed by the wall clock',
      '    if False:\n        return unittest.skip("a test timed by the wall clock', CLOCK_TESTS),
@@ -1336,18 +1348,18 @@ def failed_test(output: str):
     return found.pop() if len(found) == 1 else None
 
 
-def confirm(output: str, work: pathlib.Path, root: pathlib.Path, run) -> tuple:
+def confirm(output: str, work: pathlib.Path, unbroken: pathlib.Path, run) -> tuple:
     """Is the failure in `output` the mutant's? ("killed", ""), (UNCONFIRMED, why) or ("ERROR", why).
 
     The test that failed runs alone twice more: on the mutant in `work`, where it must fail again, and on the unbroken
-    code in `root`, where it must pass. Only both tell a failure the mutant causes from one already broken and from one
-    caused by load.
+    code in `unbroken`, a copy made as `work` was, where it must pass. Only both tell a failure the mutant causes from
+    one already broken, or broken only in a copy, and from one caused by load.
     """
     test = failed_test(output)
     if test is None:
         return "ERROR", "the one test that failed cannot be read from the output%s" % AGAIN
     again = verdict(*run(work, only=test))
-    before = verdict(*run(root, only=test))
+    before = verdict(*run(unbroken, only=test))
     for outcome, why in (again, before):
         if outcome == "ERROR":
             return outcome, why
@@ -1361,8 +1373,10 @@ def confirm(output: str, work: pathlib.Path, root: pathlib.Path, run) -> tuple:
 def attempt(mutant: tuple, root: pathlib.Path, run) -> tuple:
     """Break one rule in a fresh copy of `root` and run the tests there: (outcome, why).
 
-    A failure kills the mutant only once `confirm` shows it is the mutant's. One that is not runs the suite once more
-    on the mutant: a pass is SURVIVED, and a second failure that is not the mutant's is FLAKY.
+    A failure kills the mutant only once `confirm` shows it is the mutant's, against a second copy left unbroken: a
+    test that fails in any copy, with no .git or under the system's temporary directory, then fails there too. One
+    that is not runs the suite once more on the mutant: a pass is SURVIVED, and a second failure that is not the
+    mutant's is FLAKY.
     """
     name, rel, old, new, *first = mutant
     with tempfile.TemporaryDirectory() as tmp:
@@ -1373,13 +1387,15 @@ def attempt(mutant: tuple, root: pathlib.Path, run) -> tuple:
         if text.count(old) != 1:
             return "STALE", "the code it mutates has changed"
         target.write_text(text.replace(old, new))
+        unbroken = pathlib.Path(tmp) / "unbroken"
+        walk.copy(root, unbroken)
         named = {"first": first[0]} if first else {}
         for _ in range(2):
             status, output = run(work, **named)
             outcome, why = verdict(status, output)
             if outcome != "killed":
                 return outcome, why
-            outcome, why = confirm(output, work, root, run)
+            outcome, why = confirm(output, work, unbroken, run)
             if outcome != UNCONFIRMED:
                 return outcome, why
         return "FLAKY", why
