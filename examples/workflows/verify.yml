@@ -1,5 +1,5 @@
 # The required check, `factory / verify`: it passes only when `make verify` and every shard of the mutation check pass on the commit, with the history tools/check_decisions.py compares it with.
-# Six shards of about 350 mutants take about 5 minutes each, so the whole runs in 8 to 9, `checks` the longest leg. Six stay under 15 minutes to about 800 mutants: add a shard before then.
+# About 350 mutants, in six shards, take about 5 minutes a shard, so the whole runs in 8 to 9, `checks` the longest leg. Six stay under 15 minutes to about 800 mutants: add a shard before then.
 name: factory
 on:
   pull_request:

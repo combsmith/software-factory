@@ -219,6 +219,8 @@ def _listed(text: str, entry: dict):
     else:
         values = []
         for raw in text.split("\n")[entry["line"]:]:
+            if not raw.strip() or raw.lstrip().startswith("#"):
+                continue
             item = ITEM.match(raw.rstrip())
             if item is None or len(item.group(1)) < entry["indent"]:
                 break
@@ -227,11 +229,12 @@ def _listed(text: str, entry: dict):
 
 
 def _judging(text: str, entries: list, job: str, jobs: list) -> list:
-    """Why the job `job`, which has `needs:`, would pass, or never report, when a job it needs did not pass.
+    """Why the job `job`, which has `needs:` or shares its file with other jobs, would pass, or never report, when one
+    of them did not pass.
 
-    With a plain `needs:` it is skipped when one fails, and GitHub passes a required check that is skipped. Under
-    `if: always()` it runs whatever they did, so it must judge them: run tools.needs_passed on `needs` given whole, and
-    need every other job, since a job left out of `needs:` is a check nobody requires.
+    A job it does not need is a check nobody requires. With a plain `needs:` it is skipped when one fails, and GitHub
+    passes a required check that is skipped. Under `if: always()` it runs whatever they did, so it must judge them: run
+    tools.needs_passed on `needs` given whole, and need every other job.
     """
     mine = [e for e in entries if e["path"][:2] == ["jobs", job]]
     inside = {e["key"]: e for e in mine if e["path"] == ["jobs", job]}
@@ -239,9 +242,12 @@ def _judging(text: str, entries: list, job: str, jobs: list) -> list:
     if inside.get("if", {}).get("value") != ALWAYS:
         whys.append("it has no job-level if: always(), so it is skipped when one of them fails, and a skipped "
                     "required check passes")
-    needs = _listed(text, inside["needs"])
+    needs = _listed(text, inside["needs"]) if "needs" in inside else []
     others = [j for j in jobs if j != job]
-    if needs is None:
+    if "needs" not in inside:
+        whys.append("it has no needs:, so the other jobs in its file, %s, are checks nobody requires"
+                    % ", ".join(others))
+    elif needs is None:
         whys.append("its needs: cannot be read as a list of jobs")
     elif sorted(set(needs)) != sorted(others):
         whys.append("it needs %s, not every other job in its file, %s: a job it does not need is a check nobody "
@@ -294,8 +300,8 @@ def lens_job_problems(text: str, check: str) -> list:
             if there:
                 problems.append("has the job %s, and it %s, so its check would never report under that name alone"
                                 % (job, said))
-        if "needs" in inside:
-            problems += ["has the job %s, which needs other jobs, and %s" % (job, why)
+        if "needs" in inside or len(jobs) > 1:
+            problems += ["has the job %s beside other jobs, and %s" % (job, why)
                          for why in _judging(text, entries, job, jobs)]
     return problems
 

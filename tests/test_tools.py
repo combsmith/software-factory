@@ -26,10 +26,10 @@ from kernel import derive, terms
 from sim import world
 from tests import support
 from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_lifecycle,
-                   check_purity, check_repo, check_trials, check_workflows, mutants, redact_trial, verify, walk)
+                   check_purity, check_repo, check_trials, check_workflows, mutants, needs_passed, redact_trial, verify,
+                   walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
-from tools import needs_passed
 
 ROOT = check_authority.ROOT
 GOOD = (ROOT / "examples" / "workflows" / "verify.yml").read_text()
@@ -1003,14 +1003,18 @@ class Workflows(unittest.TestCase):
                  (GOOD.replace(judge, judge + "        if: false\n"), "an if: can skip its step"),
                  (GOOD.replace(given, ""), "it does not give NEEDS"),
                  (GOOD.replace("toJSON(needs)", "toJSON(needs.checks)"), "it does not give NEEDS"),
-                 (GOOD.replace(judge, judge + "        env:\n          NEEDS: '{}'\n"), "it does not give NEEDS")]
+                 (GOOD.replace(judge, judge + "        env:\n          NEEDS: '{}'\n"), "it does not give NEEDS"),
+                 (GOOD.replace(needs, "").replace("    if: always()\n", "").replace(given, "")
+                  .replace(judge, "      - run: make verify\n"), "it has no needs:, so the other jobs in its file")]
         for text, said in cases:
             self.assertNotEqual(text, GOOD, said)
             self.assertTrue(caught(self.lens_problems(text), said), said)
         # The list of what it needs may stand at the indent of its key, as YAML allows.
         level = GOOD.replace(needs, "    needs:\n    - mutants\n    - checks\n")
-        self.assertNotEqual(level, GOOD)
-        self.assertEqual(self.lens_problems(level), [])
+        spaced = GOOD.replace(needs, "    needs:\n      - checks\n\n      # the shards\n      - mutants\n")
+        for text in (level, spaced):
+            self.assertNotEqual(text, GOOD)
+            self.assertEqual(self.lens_problems(text), [])
 
     def test_the_required_check_fails_unless_every_job_it_needs_passed(self):
         # `verify` runs under always(), so it reports whatever the jobs it needs did, and only every one's success
