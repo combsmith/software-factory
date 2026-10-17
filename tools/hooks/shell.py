@@ -611,7 +611,7 @@ WRAPPED = {
     "dtruss": ({"-p", "-n", "-t", "-W"}, 0), "gtime": ({"-f", "--format", "-o", "--output"}, 0),
     "npx": (NPX_VALUED, 0), "pnpx": (NPX_VALUED, 0), "bunx": (NPX_VALUED, 0),
 }
-# The prefixes and wrappers a commit or a push may run under (decision 0023): each runs the program its words name as
+# The prefixes and wrappers a commit or a push may run under (decision 0024): each runs the program its words name as
 # it is, as the same user and from the same PATH. env only with assignments, and command only with no option (-p looks
 # in another PATH). Any other, sudo, exec, env -i, env -C and xargs among them, runs a git the identity hook cannot read.
 AS_IS = {"env", "nice", "nohup", "timeout", "stdbuf", "caffeinate", "time", "command"}
@@ -695,6 +695,8 @@ def functions(text: str, spend=None) -> set:
     substitution), so a quote around a script hides none; zsh's functions[f]= among them. Raises ValueError or
     RecursionError when the text cannot be split."""
     names = set()
+    if "(" not in text and "function" not in text:
+        return names        # each definition holds one or the other, and a script it runs is made of its text
     for script in _scripts(text, spend)[1]:
         names |= {a or b for a, b in DEFINES.findall(script)}
         names |= {name for table, name in TABLES.findall(script) if table == "functions"}

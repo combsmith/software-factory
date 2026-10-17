@@ -384,7 +384,7 @@ class Identity(unittest.TestCase):
         return where
 
     def test_a_push_with_no_refspec_reads_what_git_would_push(self):
-        # Decision 0023: what a push that names no refspec sends is read from git's configuration, of every remote.
+        # Decision 0024: what a push that names no refspec sends is read from git's configuration, of every remote.
         sends = "push_carries_another_identity"
         for setting in ("remote.origin.mirror=true", "remote.origin.mirror=1",          # a mirror: every ref
                         "remote.origin.push=side:refs/heads/x",                          # each remote.*.push
@@ -401,16 +401,27 @@ class Identity(unittest.TestCase):
         # A push.default git may take one day, and this hook does not know, is not read as HEAD.
         future = identity.push_configuration(lambda args: "push.default\nfuture\0")
         self.assertEqual(future["default"], "future")
-        self.assertRaises(identity.Unreadable, identity._configured, future, "origin")
+        self.assertRaises(identity.Unreadable, identity._configured, future)
         for value in ("simple", "current", "upstream", "tracking", "nothing"):    # the branch the shell is on
             self.assertEqual(self.codes("git push", self.configured("push.default=" + value)), "", value)
         self.assertEqual(self.codes("git push", self.configured("remote.origin.mirror=false")), "")
-        # Where a push that names no remote goes: a value that is not a configured remote refuses.
-        for setting in ("remote.pushDefault=nowhere", "branch.side.pushRemote=elsewhere", "branch.side.remote=."):
+        # Where this push goes, as git picks it: the branch's pushRemote, remote.pushDefault, the branch's remote. A
+        # value that is not a configured remote refuses; another branch's says nothing of this push.
+        on = subprocess.run(["git", "-C", str(self.a_side_branch()), "symbolic-ref", "--short", "HEAD"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+        for setting in ("remote.pushDefault=nowhere", "branch.%s.pushRemote=elsewhere" % on,
+                        "branch.%s.remote=elsewhere" % on):
             where = self.configured(setting)
             self.assertIn("push_commits_unreadable", self.refused("git push", where), setting)
             self.assertEqual(self.codes("git push origin", where), "", setting)
-        self.assertEqual(self.codes("git push", self.configured("remote.pushDefault=origin")), "")
+        for settings in (("remote.pushDefault=origin",), ("branch.side.pushRemote=elsewhere",), ("branch.side.remote=.",),
+                         ("remote.pushDefault=nowhere", "branch.%s.pushRemote=origin" % on),     # pushRemote first
+                         ("branch.%s.remote=elsewhere" % on, "remote.pushDefault=origin")):      # then pushDefault
+            self.assertEqual(self.codes("git push", self.configured(*settings)), "", settings)
+        # "." is this repository: a push to it, named or configured (git branch -u main), writes nothing to GitHub.
+        local = self.configured("branch.%s.remote=." % on)
+        for command in ("git push", "git push . side:refs/heads/y"):
+            self.assertEqual(self.codes(command, local), "", command)
         self.assertIn("push_commits_unreadable", self.refused("git push", path=programs("gh")))     # and no git
 
     def test_push_settings_given_in_the_command_are_refused(self):
@@ -433,7 +444,7 @@ class Identity(unittest.TestCase):
             self.assertIn("merge", [c for c, _ in protected.check(bash(command, side), env)], command)
 
     def test_a_git_the_command_may_redefine_is_refused(self):
-        # Decision 0023: a function, an alias, PATH, a path or a wrapper may make git another program.
+        # Decision 0024: a function, an alias, PATH, a path or a wrapper may make git another program.
         issue = 'git(){ echo side; }; BRANCH=$(git branch --show-current); command git push origin "$BRANCH"'
         done = hook("identity", bash(issue, self.here), self.path)
         self.assertEqual(done.returncode, 2)
@@ -464,8 +475,12 @@ class Identity(unittest.TestCase):
                         "if git push; then echo ok; fi", '"$(which git)" push', "G=$(which git); $G push", "G=git; $G push",
                         "$(command -v git) commit -m x", "%s push" % git_on_path, "command -v git && git push",
                         "echo git push; git commit -m x", "git(){ :; }; git log", "sudo git log",
-                        "PATH=/x git status"):
+                        "PATH=/x git status", "env -- git push origin HEAD", "env A=1 -- git push",
+                        # git given to another program as a word: gitleaks runs itself, not git.
+                        "gitleaks git /p", "gitleaks detect --source .", "gitleaks git . && git commit -m x"):
             self.assertEqual(self.codes(command), "", command)
+        # ...and the commit after it is read as the commit.
+        self.assertIn("commit_identity_not_maintainer", self.refused("gitleaks git . && git commit -m x", self.bad))
 
     def test_a_push_refspec_the_hook_cannot_read_is_refused(self):
         # A variable no earlier command set, a command substitution, a wildcard: what the push sends cannot be read.

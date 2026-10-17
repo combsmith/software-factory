@@ -37,4 +37,4 @@ A check collects every problem and does not stop at the first. Its message says 
 what to do, in one sentence, because an author will read it with nothing else to go on.
 
 What the hooks decide without reading is `docs/decisions/0017-the-session-hooks-read-every-commit-a-push-sends.md`, and what
-the identity hook reads of git's configuration is `docs/decisions/0023-the-identity-hook-reads-where-a-push-goes-from-gits-configuration-and-refuses-a-git-the-command-may-redefine.md`.
+the identity hook reads of git's configuration is `docs/decisions/0024-the-identity-hook-reads-where-a-push-goes-from-gits-configuration-and-refuses-a-git-the-command-may-redefine.md`.
