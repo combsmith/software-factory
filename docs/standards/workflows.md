@@ -8,17 +8,17 @@ An org standard is cited from combsmith/.github at commit 9e2daad, by file and h
 ## The whole of a good workflow
 
 ```yaml
-# The required check, `factory / verify`: `make verify` and the mutation check, on the commit, with the history tools/check_decisions.py compares it with.
+# The required check, `factory / verify`: it passes only when `make verify` and every shard of the mutation check pass on the commit, with the history tools/check_decisions.py compares it with.
+# Six shards of about 350 mutants take about 5 minutes each, so the whole runs in 8 to 9, `checks` the longest leg. Six stay under 15 minutes to about 800 mutants: add a shard before then.
 name: factory
 on:
   pull_request:
   merge_group:
 permissions: {}
 jobs:
-  verify:
-    name: verify
+  checks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -27,14 +27,56 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - run: make verify
+  mutants:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 0
+          - 1
+          - 2
+          - 3
+          - 4
+          - 5
+    env:
+      MUTANTS_SHARD: ${{ strategy.job-index }}
+      MUTANTS_SHARDS: ${{ strategy.job-total }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
       - run: python3 -m tools.mutants
+  verify:
+    name: verify
+    needs:
+      - checks
+      - mutants
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      NEEDS: ${{ toJSON(needs) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -m tools.needs_passed
 ```
 
 This is `examples/workflows/verify.yml`, word for word. The check name people see is the workflow's
 name and the job's name: `factory / verify`. Renaming either silently stops it being required.
+`verify` needs every other job and has `if: always()`, the one job-level `if:` a Lens's job may have:
+GitHub passes a required check that is skipped, so `tools/needs_passed.py` fails it unless each passed.
 
 Org standard: ci-standards.md, "Permissions Policy", "Action Pinning Policy" and "CI Job Naming Convention". Its name, triggers and stages depart from "1. CI Pipeline (ci.yml)": `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md`.
-Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`
+Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`, `tests/test_tools.py::test_a_lens_job_that_would_never_report_under_its_name_is_caught`, `tests/test_tools.py::test_the_required_check_fails_unless_every_job_it_needs_passed`
 
 ## Pinned to what was looked up
 

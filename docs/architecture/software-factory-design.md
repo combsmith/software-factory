@@ -407,7 +407,12 @@ control character among them, is shown `unreadable`, so text from outside never 
 `tools/check_workflows.py` holds the configuration to the files: a Lens whose App is GitHub Actions
 names a file, no other Lens names one, and the file exists, runs on both `pull_request` and
 `merge_group`, and has a job whose own `name:`, or whose id where it has none, is the Lens's check,
-with no `strategy.matrix`, job-level `if:` or `uses:`, any of which would leave the Lens waiting.
+with no `strategy.matrix` or `uses:`, either of which would leave the Lens waiting. Its one job-level
+`if:` is exactly `always()`, and only beside a `needs:` that names every other job in its file: any
+other `if:` can skip the job, and GitHub passes a required check that is skipped. So `verify` needs
+`checks`, which runs `make verify`, and `mutants`, six shards of the mutation check, and runs
+`tools/needs_passed.py` on `${{ toJSON(needs) }}`, which fails it unless each ended `success`
+(decision 0022).
 
 The pin is to the path, not to what the file says, nor to what it runs. A pull request from a
 branch of this repo can change the file at that path in place, and its check still reports from

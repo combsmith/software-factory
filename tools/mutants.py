@@ -244,9 +244,45 @@ MUTANTS = [
     ("a workflow's or a step's name names a Lens's check", "tools/check_workflows.py",
      "    named = []\n", '    named = [(check, {}) for e in entries if e["key"] == "name" and e["value"] == check]\n'),
     ("a Lens's job may have a matrix", "tools/check_workflows.py",
-     '(matrix, "has a strategy.matrix"), ', ""),
+     '(matrix, "has a strategy.matrix"),\n', "\n"),
     ("a Lens's job may have a job-level if:", "tools/check_workflows.py",
-     '("if" in inside, "has a job-level if:"),', ""),
+     '("if" in inside and (inside["if"]["value"] != ALWAYS or "needs" not in inside)', '(False'),
+    ("a Lens's job may have always() without needs:", "tools/check_workflows.py",
+     'inside["if"]["value"] != ALWAYS or "needs" not in inside', 'inside["if"]["value"] != ALWAYS'),
+    ("a Lens's job that needs others is not held to judging them", "tools/check_workflows.py",
+     '        if "needs" in inside:\n', "        if False:\n"),
+    ("a Lens's job may need others without always()", "tools/check_workflows.py",
+     '    if inside.get("if", {}).get("value") != ALWAYS:\n', "    if False:\n"),
+    ("a Lens's job may leave a job of its file out of needs:", "tools/check_workflows.py",
+     "    elif sorted(set(needs)) != sorted(others):\n", "    elif not set(needs) <= set(others):\n"),
+    ("a Lens's job may need others without judging them", "tools/check_workflows.py",
+     "    if not judged:\n", "    if False:\n"),
+    ("a Lens's job may skip the step that judges what it needs", "tools/check_workflows.py",
+     '    elif any(e["key"] == "if" and e["step"] == j["step"] for e in steps for j in judged):\n', "    elif False:\n"),
+    ("a Lens's job may judge what it needs without being given it", "tools/check_workflows.py",
+     '!= [(["jobs", job, "env"], NEEDS)]:', '!= [(["jobs", job, "env"], NEEDS)] and False:'),
+    ("the workflow the standard copies counts toward its page", "tools/check_context.py",
+     '        copied = COPIED.search(text) if name == "workflows" else None\n', "        copied = None\n"),
+    ("a yaml block on any standard is not counted toward its page", "tools/check_context.py",
+     'COPIED.search(text) if name == "workflows" else None', "COPIED.search(text)"),
+    ("a needed job that did not pass passes the required check", "tools/needs_passed.py",
+     '        if result != "success":\n', '        if result in ("failure", None):\n'),
+    ("needs that name no job pass the required check", "tools/needs_passed.py",
+     "    if not isinstance(needs, dict) or not needs:\n", "    if not isinstance(needs, dict):\n"),
+    ("needs that cannot be read pass the required check", "tools/needs_passed.py",
+     '        return ["NEEDS cannot be read as JSON; give it ${{ toJSON(needs) }} in the job\'s env"]\n',
+     "        return []\n"),
+    # The text each of these breaks is written in two pieces, so that it is not also found here, in this file.
+    ("a shard drops a mutant", "tools/mutants.py",
+     "if place % count" " == index]", "if place % count == index and place]"),
+    ("a mutant is in two shards", "tools/mutants.py",
+     "if place % count" " == index]", "if place % count in (index, (index + 1) % count)]"),
+    ("a shard without its count runs every mutant", "tools/mutants.py",
+     "    if index is None and" " count is None:\n", "    if index is None or count is None:\n"),
+    ("a shard outside its count is run", "tools/mutants.py",
+     "    if not 0 <= index" " < count:\n", "    if False:\n"),
+    ("a shard that holds no mutant passes", "tools/mutants.py",
+     "    if not" " chosen:\n", "    if False:\n"),
     ("a Lens's job may call a reusable workflow", "tools/check_workflows.py",
      '\n                            ("uses" in inside, "calls a reusable workflow with uses:")', ""),
     ("a Lens's workflow need not run on merge_group", "tools/check_workflows.py",
@@ -1008,7 +1044,35 @@ def guarded(mutant: tuple, root: pathlib.Path, run) -> tuple:
         return "ERROR", "the run failed with %s: %s%s" % (type(err).__name__, err, AGAIN)
 
 
-def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: int = None) -> int:
+def shard(mutants: list, index: int, count: int) -> list:
+    """The mutants whose place in `mutants` is `index` modulo `count`: one of `count` shards, which hold each once."""
+    return [mutant for place, mutant in enumerate(mutants) if place % count == index]
+
+
+def selected(environ) -> tuple:
+    """(the mutants this run breaks, the words its summary ends with), read from MUTANTS_SHARD and MUTANTS_SHARDS.
+
+    CI sets both from the matrix, the shard counted from 0. Neither set: every mutant, as a run at a desk. Raises
+    ValueError for one without the other, a value that is not a whole number, a shard outside the count, or a shard
+    that holds no mutant, which cannot be told from a list that is broken.
+    """
+    index, count = environ.get("MUTANTS_SHARD"), environ.get("MUTANTS_SHARDS")
+    if index is None and count is None:
+        return MUTANTS, ""
+    if not all(isinstance(said, str) and re.fullmatch(r"[0-9]+", said) for said in (index, count)):
+        raise ValueError("MUTANTS_SHARD is %r and MUTANTS_SHARDS is %r; set both, to whole numbers, or neither"
+                         % (index, count))
+    index, count = int(index), int(count)
+    if not 0 <= index < count:
+        raise ValueError("MUTANTS_SHARD is %d and MUTANTS_SHARDS is %d; the shard is counted from 0, below the count"
+                         % (index, count))
+    chosen = shard(MUTANTS, index, count)
+    if not chosen:
+        raise ValueError("shard %d of %d holds no mutant" % (index, count))
+    return chosen, ", in shard %d of %d counted from 0" % (index, count)
+
+
+def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: int = None, where: str = "") -> int:
     mutants = MUTANTS if mutants is None else mutants
     outcome, why = verdict(*run(root))
     if outcome != "SURVIVED":
@@ -1022,9 +1086,14 @@ def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: in
         for mutant, (outcome, why) in zip(mutants, results):
             print("%-9s %s%s" % (outcome, mutant[0], " (%s)" % why if why else ""), flush=True)
             killed += outcome == "killed"
-    print("%d of %d mutants killed" % (killed, len(mutants)))
+    print("%d of %d mutants killed%s" % (killed, len(mutants), where))
     return 0 if killed == len(mutants) else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        chosen, where = selected(os.environ)
+    except ValueError as err:
+        print(err)
+        sys.exit(1)
+    sys.exit(main(chosen, where=where))

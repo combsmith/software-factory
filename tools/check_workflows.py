@@ -11,8 +11,9 @@ that must be rejected for that rule and no other. A rule with no counter-example
 It also holds the configuration's required Lenses to the workflows that run them (lens_workflows): a Lens whose App is
 GitHub Actions names its workflow file and no other Lens names one, and the file it names exists, runs on both
 pull_request and merge_group, and has a job whose own `name:`, or whose id where it has none, is the Lens's check,
-with no `strategy.matrix`, no job-level `if:` and no `uses:`. Only `jobs.<id>.name` is read: a workflow's or a step's
-`name:` names no check run.
+with no `strategy.matrix` and no `uses:`. Its one job-level `if:` is exactly `always()`, beside a `needs:` that names
+every other job in its file, and then it judges them with `tools/needs_passed.py`. Only `jobs.<id>.name` is read: a
+workflow's or a step's `name:` names no check run.
 """
 from __future__ import annotations
 
@@ -66,6 +67,12 @@ WHOLE = re.compile(r"^\$\{\{ [^{}]+ \}\}$")
 SECRET = re.compile(r"\bsecrets\b(\.(\w+)|\[\s*['\"](\w+)['\"]\s*\])?")
 PERSONAL = re.compile(r"(?:^|_)PAT(?:_|$)", re.I)
 PIN = re.compile(r"@[0-9a-f]{40} # v[\w.]+")
+# What a Lens's job that needs others has: the one job-level if: that cannot skip it, the step that judges what it
+# needs, and the results that step reads.
+ALWAYS = "always()"
+JUDGE = "python3 -m tools.needs_passed"
+NEEDS = "${{ toJSON(needs) }}"
+JOB = re.compile(r"^[A-Za-z_][\w-]*$")
 
 
 def _unquote(value: str) -> str:
@@ -205,6 +212,51 @@ def lint(text: str) -> list:
     return sorted(set(found))
 
 
+def _listed(text: str, entry: dict):
+    """The values of `entry`: its own, or the items of the block list under it; None where one is not a job's id."""
+    if entry["value"]:
+        values = [entry["value"]]
+    else:
+        values = []
+        for raw in text.split("\n")[entry["line"]:]:
+            item = ITEM.match(raw.rstrip())
+            if item is None or len(item.group(1)) < entry["indent"]:
+                break
+            values.append(_unquote(item.group(2).partition(" #")[0].strip()))
+    return values if values and all(JOB.match(v) for v in values) else None
+
+
+def _judging(text: str, entries: list, job: str, jobs: list) -> list:
+    """Why the job `job`, which has `needs:`, would pass, or never report, when a job it needs did not pass.
+
+    With a plain `needs:` it is skipped when one fails, and GitHub passes a required check that is skipped. Under
+    `if: always()` it runs whatever they did, so it must judge them: run tools.needs_passed on `needs` given whole, and
+    need every other job, since a job left out of `needs:` is a check nobody requires.
+    """
+    mine = [e for e in entries if e["path"][:2] == ["jobs", job]]
+    inside = {e["key"]: e for e in mine if e["path"] == ["jobs", job]}
+    whys = []
+    if inside.get("if", {}).get("value") != ALWAYS:
+        whys.append("it has no job-level if: always(), so it is skipped when one of them fails, and a skipped "
+                    "required check passes")
+    needs = _listed(text, inside["needs"])
+    others = [j for j in jobs if j != job]
+    if needs is None:
+        whys.append("its needs: cannot be read as a list of jobs")
+    elif sorted(set(needs)) != sorted(others):
+        whys.append("it needs %s, not every other job in its file, %s: a job it does not need is a check nobody "
+                    "requires" % (", ".join(needs), ", ".join(others) or "none"))
+    steps = [e for e in mine if e["path"] == ["jobs", job, "steps"]]
+    judged = [e for e in steps if e["key"] == "run" and JUDGE in (e["body"] or [e["value"]])]
+    if not judged:
+        whys.append("it runs no step `%s` to fail it when one of them did not pass" % JUDGE)
+    elif any(e["key"] == "if" and e["step"] == j["step"] for e in steps for j in judged):
+        whys.append("an if: can skip its step `%s`" % JUDGE)
+    if [(e["path"], e["value"]) for e in mine if e["key"] == "NEEDS"] != [(["jobs", job, "env"], NEEDS)]:
+        whys.append("it does not give NEEDS: %s once, in its own env:, so what it needs cannot be read" % NEEDS)
+    return whys
+
+
 def lens_job_problems(text: str, check: str) -> list:
     """Why a workflow holding `text` would never report the check run `check` on every head and in the merge queue.
 
@@ -212,7 +264,8 @@ def lens_job_problems(text: str, check: str) -> list:
     `name:` names none. A job with a `strategy.matrix` reports under its name and its values, one with a job-level
     `if:` can be skipped, and one that calls a reusable workflow with `uses:` reports under the caller's and the
     callee's names. A workflow that does not run on both pull_request and merge_group reports on no head, or not in
-    the queue. Each would leave the Lens waiting for ever.
+    the queue. Each would leave the Lens waiting for ever. The one `if:` allowed is `always()`, beside `needs:`, which
+    cannot skip the job; a job that needs others is held by _judging.
     """
     entries, _ = read(text)
     top = {e["key"]: e for e in entries if e["path"] == []}
@@ -234,11 +287,16 @@ def lens_job_problems(text: str, check: str) -> list:
                            % check]
     for job, inside in named:
         matrix = [e for e in entries if e["path"] == ["jobs", job, "strategy"] and e["key"] == "matrix"]
-        for there, said in ((matrix, "has a strategy.matrix"), ("if" in inside, "has a job-level if:"),
+        for there, said in ((matrix, "has a strategy.matrix"),
+                            ("if" in inside and (inside["if"]["value"] != ALWAYS or "needs" not in inside),
+                             "has a job-level if: other than always() beside needs:"),
                             ("uses" in inside, "calls a reusable workflow with uses:")):
             if there:
                 problems.append("has the job %s, and it %s, so its check would never report under that name alone"
                                 % (job, said))
+        if "needs" in inside:
+            problems += ["has the job %s, which needs other jobs, and %s" % (job, why)
+                         for why in _judging(text, entries, job, jobs)]
     return problems
 
 

@@ -1,12 +1,7 @@
 # 0018. A Lens is read from its own App and its own workflow file, and only what gates holds a merge
 
-Status: accepted. Replaces `docs/decisions/0015-a-lens-is-read-from-its-own-app-and-only-what-gates-holds-a-merge.md`,
-and keeps all of it: the Maintainer's ruling of 2026-10-14 on a Finding that does not gate
-("Kernel: what happens to a Finding that does not gate", issue 55), and the ruling on
-"The Apps' permissions as data, before any is registered" (issue 20) that a Lens is read only from
-the App that reports it ("Kernel: a Lens is read only from the App that reports it", issue 60). It
-adds the ruling on "A Lens run by GitHub Actions is read only from its own workflow file" (issue 97):
-a Lens GitHub Actions runs is read only from the workflow file the configuration names for it.
+Status: replaced by `docs/decisions/0022-a-lens-is-read-from-its-own-app-and-workflow-its-job-judges-every-job-it-waits-on-and-only-what-gates-holds-a-merge.md`,
+which holds the rule in force and its boundaries.
 
 ## Decision
 
