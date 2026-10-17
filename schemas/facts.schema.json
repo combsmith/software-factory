@@ -368,26 +368,76 @@
       "minimum": 0
     },
     "acceptance": {
-      "description": "The item's acceptance contract (design §3.13, §4.8), as the Kernel reads it for Convergence's fourth condition: null when the item has none, which only a full read (complete.acceptance) confirms. The contract is a file the pull request carries, and its criteria are given by id alone, never their statements, which are prose. Each result is one read for one criterion, from the check that gave it, with the content_id of the content it ran on; the port's contract is the latest result per criterion per check suite. Only this content's results are judged: evidence for other content does not count (I-31). Every criterion needs a passing result on this content; a failing one sends the content back to its author. A contract, or a result on this content, that the Kernel cannot read converges nothing",
+      "description": "The item's acceptance contract (design §3.13, §4.8), as the Kernel reads it: null when the issue the pull request closes asks for none, read from that issue and never from the head, which only a full read (complete.acceptance) confirms. `approved` is the contract a person approved, read at the commit of the newest approving review by a person, or null where none has; `head` is the contract's digest at the head, or null where the head carries none. A digest covers the contract and every path it protects, so an edit to a test it names changes it. A contract no person approved, or whose head differs from what was approved, is a Hold, read before anything admits a Run (I-29). Each result is one read for one criterion, from the check that gave it, with the content_id of the content it ran on; the port's contract is the latest result per criterion per check suite. Only this content's results are judged, and only from the Lens the configuration's acceptance_reporters names for the criterion's kind: a result from any other check, App or workflow file is unreadable, and so is any result for a kind no Lens reports. A criterion of kind human is passed only by a person's undismissed approval of this content. A contract, or a result on this content, that the Kernel cannot read converges nothing and admits nothing",
       "type": [
         "object",
         "null"
       ],
       "additionalProperties": false,
       "required": [
-        "criteria",
+        "approved",
+        "head",
         "results"
       ],
       "properties": {
-        "criteria": {
-          "description": "The id of each criterion in the contract at the head, each once",
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "pattern": "^AC-[0-9]+$"
-          },
-          "uniqueItems": true
+        "approved": {
+          "description": "The contract a person approved: its digest, who approved it, and its criteria, each by id and kind, never their statements; null where no person has approved one. Its criteria are the contract's: the head's are never read",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "digest",
+            "by",
+            "criteria"
+          ],
+          "properties": {
+            "digest": {
+              "$ref": "#/$defs/content_id"
+            },
+            "by": {
+              "$ref": "#/$defs/actor"
+            },
+            "criteria": {
+              "description": "Each criterion of the approved contract, by its id, each once, and the kind of its check, as schemas/acceptance.schema.json names them",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "kind"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^AC-[0-9]+$"
+                  },
+                  "kind": {
+                    "enum": [
+                      "test",
+                      "scenario",
+                      "mutation",
+                      "static",
+                      "role",
+                      "human"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "head": {
+          "description": "The digest of the contract and every path it protects at the head, or null where the head carries no contract: a deleted contract is a change, never no contract",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[0-9a-f]{4,64}$"
         },
         "results": {
           "type": "array",
@@ -397,7 +447,8 @@
             "required": [
               "criterion",
               "content_id",
-              "result"
+              "result",
+              "check"
             ],
             "properties": {
               "criterion": {
@@ -412,6 +463,32 @@
                   "passing",
                   "failing"
                 ]
+              },
+              "check": {
+                "description": "The check that reported the result, as the facts give a check: its name exactly as GitHub gives it, the id of the App that reported it, and the path of the workflow file that ran it, null for a check no workflow ran",
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "app_id",
+                  "workflow"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "app_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "workflow": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  }
+                }
               }
             }
           }
@@ -433,7 +510,7 @@
       ],
       "properties": {
         "acceptance": {
-          "description": "Whether the acceptance contract at the head, or that there is none, and every result for it were read in full",
+          "description": "Whether the four reads of the acceptance contract were read in full: whether the linked issue asks for one, the contract a person approved, its digest at the head, and every result for it",
           "type": "boolean"
         },
         "reviews": {

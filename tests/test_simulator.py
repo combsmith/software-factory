@@ -352,26 +352,32 @@ class Simulation(unittest.TestCase):
         self.assertTrue(workflows)
         self.assertLessEqual({"from_app", "from_workflow"}, shown)
 
-    def test_the_seeds_serve_items_with_an_acceptance_contract_and_without(self):  # I-31
+    def test_the_seeds_serve_items_with_an_acceptance_contract_and_without(self):  # I-29, I-10, I-31
         # Some worlds carry a contract, and its evidence goes missing for a while, fails, is given twice and disagrees,
-        # expires, is read short or unreadable and is left behind on content that changed; with every invariant holding,
-        # some merge once the faults stop. The others carry none.
+        # expires, is read short or unreadable and is left behind on content that changed. Its approval is missing, or
+        # withdrawn; a push edits or deletes the contract; another App or workflow gives a result, and a check one for a
+        # criterion only a person passes. With every invariant holding, some merge once the faults stop. The others
+        # carry none.
         reasons, contracts, notes, behind, merged = set(), set(), set(), False, False
+        held = ("acceptance_evidence_missing", "acceptance_failed", "acceptance_unreadable", "contract_not_approved",
+                "contract_changed")
+        happened = ("expired", "a second result", "withdrew the contract's approval", "the push changed the contract",
+                    "the push deleted the contract", "another App gave a result", "another workflow gave a result",
+                    "the reporter's check gave a result")
         for seed in SEEDS:
             w = World(seed)
             for _ in range(250):
                 w.step()
             contracts.add(w.criteria is not None)
-            reasons |= {r for line in w.trace if "pass: " in line
-                        for r in ("acceptance_evidence_missing", "acceptance_failed", "acceptance_unreadable") if r in line}
-            notes |= {n for line in w.trace for n in ("expired", "a second result") if n in line}
+            reasons |= {r for line in w.trace if "pass: " in line for r in held if r in line}
+            notes |= {n for line in w.trace for n in happened if n in line}
             behind = behind or any(ev["content_id"] != w.cid() for ev in w.results)
             if w.criteria is not None and not merged:
                 w.settle()
                 merged = w.pr_state == "merged"
         self.assertEqual(contracts, {True, False})
-        self.assertEqual(reasons, {"acceptance_evidence_missing", "acceptance_failed", "acceptance_unreadable"})
-        self.assertEqual(notes, {"expired", "a second result"})
+        self.assertEqual(reasons, set(held))
+        self.assertEqual(notes, set(happened))
         self.assertTrue(behind and merged)
 
     def test_a_queued_item_whose_evidence_is_gone_is_taken_out_before_it_merges(self):  # I-31
@@ -382,7 +388,8 @@ class Simulation(unittest.TestCase):
                 return 0.99
 
         def gone(w):
-            w.criteria, w.results, w.judge = ["AC-1"], [], Never()
+            w.criteria, w.kinds, w.results, w.judge, w.head = ["AC-1"], {"AC-1": "test"}, [], Never(), w.digest()
+            w.approve_contract(world.COLLEAGUE)
 
         w = queued()
         gone(w)
@@ -400,7 +407,7 @@ class Simulation(unittest.TestCase):
         # The other side: with the evidence there, on this content, the queue merges once a pass has read it.
         w = queued()
         gone(w)
-        w.results = [{"criterion": "AC-1", "content_id": w.cid(), "result": "passing"}]
+        w.results = [{"criterion": "AC-1", "content_id": w.cid(), "result": "passing", "check": dict(world.REPORTER)}]
         w.poll()
         w.platform()
         self.assertEqual(w.pr_state, "merged")

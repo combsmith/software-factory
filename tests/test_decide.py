@@ -9,8 +9,9 @@ import unittest
 
 from kernel import derive
 from kernel.decide import decide
-from tests.support import (CONFIG, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, ROOT, changed, config,
-                           context, contract, evidence, facts, labelled, review, run, thread, unlabelled)
+from tests.support import (CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, REPORTER, ROOT,
+                           changed, config, context, contract, evidence, facts, labelled, review, run, thread,
+                           unlabelled)
 from tools.jsonschema_lite import validate
 
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
@@ -1485,9 +1486,11 @@ class Acceptance(unittest.TestCase):
 
     def test_acceptance_is_read_after_every_other_condition_of_convergence(self):  # §4.2
         # The first three conditions are read first, whatever the evidence says: a failed check, a check or a review not
-        # yet reported and an open gate each give their own reading, and an unreadable contract hides none of them.
-        for acceptance in (contract(), contract(results=[evidence("AC-1", "failing")]),
-                           contract(results=[evidence("AC-9")])):
+        # yet reported and an open gate each give their own reading. The contract's own identity, whether a person
+        # approved it, unchanged, and whether it can be read, comes before them all, and admits nothing
+        # (test_no_run_is_admitted_on_a_contract_not_approved, test_an_unreadable_contract_admits_nothing); its evidence
+        # comes here.
+        for acceptance in (contract(), contract(results=[evidence("AC-1", "failing")])):
             cases = [(facts(acceptance=acceptance, checks=with_check(0, "failure")), (), "check_failed"),
                      (facts(acceptance=acceptance, checks=with_check(0, "pending")), (), "awaiting_checks"),
                      (facts(acceptance=acceptance), (), "awaiting_review"),
@@ -1503,23 +1506,64 @@ class Acceptance(unittest.TestCase):
         self.assertEqual(d["reason"], "approver_is_author_or_last_pusher")
 
     def test_unreadable_acceptance_never_converges(self):  # I-13, I-31
-        # A contract, or a result on this content, that the Kernel cannot read could hide a criterion with no passing
-        # evidence: it defers, for the Maintainer, since a port that misreads does not mend itself. A fact read from
-        # outside is never given a default, so facts that say nothing of a contract are not "no contract".
+        # A contract, an approval of one, or a result on this content, that the Kernel cannot read could hide a criterion
+        # with no passing evidence, or a contract no person approved: it defers, for the Maintainer, since a port that
+        # misreads does not mend itself. A fact read from outside is never given a default, so facts that say nothing of
+        # a contract are not "no contract", and a contract that says nothing of its approval or its head is not one
+        # unapproved or deleted.
         def bad(**over):
             return dict(contract(results=self.BOTH), **over)
 
+        def without(name):
+            return {k: v for k, v in bad().items() if k != name}
+
+        def approval(results=None, **over):
+            return dict(contract(results=self.BOTH if results is None else results),
+                        approved=dict(contract()["approved"], **over))
+
+        def criteria(*listed):
+            # Each with AC-1 passing alone, so that nothing but the criteria is unreadable.
+            return approval([evidence("AC-1")], criteria=[{"id": "AC-1", "kind": "test"}] + list(listed))
+
+        def by(**over):
+            return approval(by=dict(MAINTAINER, **over))
+
         unreadable = {
             "missing": "missing", "not an object": ["AC-1"], "an empty object": {},
-            "with no results": {"criteria": ["AC-1", "AC-2"]},
-            "no criteria": bad(criteria=[], results=[]), "criteria that are no list": bad(criteria="AC-1"),
-            "a criterion named twice": bad(criteria=["AC-1", "AC-2", "AC-1"]),
-            # Each with AC-1 passing alone, so that nothing but the criterion's id is unreadable.
-            "a criterion that is no name": bad(criteria=["AC-1", None], results=[evidence("AC-1")]),
-            "an empty name": bad(criteria=["AC-1", ""], results=[evidence("AC-1")]),
-            "a criterion in another form": bad(criteria=["AC-1", "ac-2"], results=[evidence("AC-1")]),
-            "a criterion with no number": bad(criteria=["AC-1", "AC-"], results=[evidence("AC-1")]),
-            "a criterion's number in other digits": bad(criteria=["AC-1", "AC-2a"], results=[evidence("AC-1")]),
+            "with no results": without("results"), "with no head": without("head"),
+            "with no approval": without("approved"),
+            "an approval that is no object": bad(approved=["AC-1"]),
+            "an approval with no criteria": approval(criteria=[]),
+            "an approval's criteria that are no list": approval(criteria="AC-1"),
+            "an approval with no list of criteria": {"approved": {"digest": DIGEST, "by": dict(MAINTAINER)},
+                                                     "head": DIGEST, "results": []},
+            "a criterion named twice": criteria({"id": "AC-1", "kind": "test"}),
+            "a criterion named twice, of another kind": criteria({"id": "AC-1", "kind": "human"}),
+            "a criterion that is no object": criteria("AC-2"),
+            "a criterion that is no name": criteria({"id": None, "kind": "test"}),
+            "an empty name": criteria({"id": "", "kind": "test"}),
+            "a criterion in another form": criteria({"id": "ac-2", "kind": "test"}),
+            "a criterion with no number": criteria({"id": "AC-", "kind": "test"}),
+            "a criterion's number in other digits": criteria({"id": "AC-2a", "kind": "test"}),
+            "a criterion with no id": criteria({"kind": "test"}),
+            "a criterion with no kind": criteria({"id": "AC-2"}),
+            "a kind the Kernel does not know": criteria({"id": "AC-2", "kind": "manual"}),
+            "a kind in capitals": criteria({"id": "AC-2", "kind": "Test"}),
+            "a kind that is no word": criteria({"id": "AC-2", "kind": None}),
+            "an approval with no digest": {"approved": {"by": dict(MAINTAINER), "criteria": [{"id": "AC-1",
+                                                                                            "kind": "test"}]},
+                                           "head": DIGEST, "results": []},
+            "an empty digest": approval(digest=""), "a digest with no hash": approval(digest="sha256:"),
+            "a digest in capitals": approval(digest="sha256:C0DE"), "a digest of another kind": approval(digest="md5:c0de"),
+            "a digest that is no text": approval(digest=None),
+            "an approval by a name alone": approval(by=MAINTAINER["name"]),
+            "an approval by nobody": approval(by=None),
+            "an approval by a kind the Kernel does not know": by(kind="bot"),
+            "an approval by a person named like an App's bot": by(name="don-petry[bot]"),
+            "an approval by the machine user under another name": by(kind="machine_user"),
+            "an approval whose access is not true or false": by(can_write="yes"),
+            "an empty head": bad(head=""), "a head with no hash": bad(head="sha256:"),
+            "a head in capitals": bad(head="sha256:C0DE"), "a head that is no text": bad(head=1),
             "results that are no list": bad(results=None),
             "a result that is no object": bad(results=self.BOTH + ["AC-1"]),
             "a result for a criterion the contract does not name": bad(results=self.BOTH + [evidence("AC-9")]),
@@ -1528,8 +1572,12 @@ class Acceptance(unittest.TestCase):
             "a result naming a criterion that is no name": bad(results=self.BOTH + [evidence(["AC-1"])]),
             "a result in words": bad(results=self.BOTH + [evidence("AC-1", "skipped")]),
             "a result in capitals": bad(results=[evidence("AC-1", "PASSING"), evidence("AC-2")]),
-            "no result": bad(results=self.BOTH + [{"criterion": "AC-1", "content_id": "sha256:aaaa"}]),
-            "no content": bad(results=self.BOTH + [{"criterion": "AC-1", "result": "passing"}]),
+            "no result": bad(results=self.BOTH + [{"criterion": "AC-1", "content_id": "sha256:aaaa",
+                                                   "check": dict(REPORTER)}]),
+            "no check": bad(results=self.BOTH + [{"criterion": "AC-1", "content_id": "sha256:aaaa",
+                                                  "result": "passing"}]),
+            "a check that is no object": bad(results=self.BOTH + [dict(evidence("AC-1"), check="verify")]),
+            "no content": bad(results=self.BOTH + [{"criterion": "AC-1", "result": "passing", "check": dict(REPORTER)}]),
             "content that is no hash": bad(results=self.BOTH + [evidence("AC-1", content=None)]),
             # A content id in any other form than the schema's could be this content misread: it is no earlier one.
             "an empty content id": bad(results=self.BOTH + [evidence("AC-1", "failing", content="")]),
@@ -1543,18 +1591,22 @@ class Acceptance(unittest.TestCase):
                 if acceptance == "missing":
                     del f["acceptance"]
                 d = go(f, REVIEWED)
-                self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
-                                 (None, "acceptance_unreadable", "defer", "needs_you"), name)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                 (None, "acceptance_unreadable", [], "defer", "needs_you"), name)
                 self.assertNotIn("action", d)
-        # The other side: the same contract read whole converges.
+        # The other side: the same contract read whole converges, and so does one whose approval is a colleague's.
         self.assertEqual(go(facts(acceptance=bad()), REVIEWED)["reason"], "approval_due")
+        self.assertEqual(go(facts(acceptance=approval(by=COLLEAGUE)), REVIEWED)["reason"], "approval_due")
 
     def test_only_this_contents_results_are_judged(self):  # I-31, the ruling on #17
         # A result on earlier content is not read past its content and criterion ids: a criterion the contract no longer
         # lists, as after a waiver or a revision, or a word the Kernel does not know, there makes nothing unreadable.
         old = "sha256:0000"
+        # Nor is who reported it: a result there from another App, or with no check at all, says nothing of this content.
         for earlier in ([evidence("AC-2", "failing", old)], [evidence("AC-9", "passing", old)],
-                        [evidence("AC-1", "neutral", old)], [{"criterion": "AC-2", "content_id": old}]):
+                        [evidence("AC-1", "neutral", old)], [{"criterion": "AC-2", "content_id": old}],
+                        [evidence("AC-1", content=old, check=dict(REPORTER, app_id=OTHER_APP))],
+                        [{"criterion": "AC-1", "content_id": old, "result": "passing"}]):
             d = go(facts(acceptance=contract(["AC-1"], [evidence("AC-1")] + earlier)), REVIEWED)
             self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"), earlier)
         # The other side: the same result on this content makes the contract unreadable.
@@ -1575,6 +1627,218 @@ class Acceptance(unittest.TestCase):
         # The other side: read in full, no contract converges, and so does a contract with every criterion passing.
         for acceptance in (None, contract(results=self.BOTH)):
             self.assertEqual(go(facts(acceptance=acceptance), REVIEWED)["reason"], "approval_due")
+
+
+    def test_a_contract_no_person_approved_is_a_hold(self):  # I-29, decision 0007
+        # The head is the author's: the contract that counts is the one a person approved, at one commit. None approved,
+        # or one approved by anyone who is not a person, is a Hold for the Maintainer, whatever its evidence says, and it
+        # takes a queued item out. The machine user's approval, or an App's, approves no contract, as with an admission.
+        for by in (None, MACHINE, AUTHOR_APP, REVIEWER_APP, ADVISORY, STRANGER):
+            for given in ([], self.BOTH, [evidence("AC-1", "failing")]):
+                d = go(facts(acceptance=contract(results=given, by=by)), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                 ("held", "contract_not_approved", [], "hold", "needs_you"), (by, given))
+            d = go(facts(acceptance=contract(results=self.BOTH, by=by), queue=True, reviews=APPROVED), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]),
+                             ("held", "contract_not_approved", "act", "dequeue"), by)
+        # The other side: a person approved it, the Maintainer or a colleague, and it converges, then stays queued.
+        for by in (MAINTAINER, COLLEAGUE):
+            self.assertEqual(go(facts(acceptance=contract(results=self.BOTH, by=by)), REVIEWED)["reason"],
+                             "approval_due", by)
+            d = go(facts(acceptance=contract(results=self.BOTH, by=by), queue=True, reviews=APPROVED), REVIEWED)
+            self.assertEqual((d["state"], d["reason"]), ("queued", "in_merge_queue"), by)
+
+    def test_a_contract_changed_since_its_approval_is_a_hold(self):  # I-29, I-30
+        # A digest covers the contract and every path it protects, so a push that edits a test the contract names changes
+        # it. A head whose digest differs from the one approved is a Hold until a person approves again, and so is a head
+        # with no contract at all: a deleted contract is a change, never "no contract".
+        for head in ("sha256:0000", DIGEST + "0", None):
+            for given in ([], self.BOTH, [evidence("AC-1", "failing")]):
+                d = go(facts(acceptance=contract(results=given, head=head)), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                 ("held", "contract_changed", [], "hold", "needs_you"), (head, given))
+            d = go(facts(acceptance=contract(results=self.BOTH, head=head), queue=True, reviews=APPROVED), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]),
+                             ("held", "contract_changed", "act", "dequeue"), head)
+            # A contract no person approved is read first: nothing was approved for it to differ from.
+            d = go(facts(acceptance=contract(results=self.BOTH, by=None, head=head)), REVIEWED)
+            self.assertEqual(d["reason"], "contract_not_approved", head)
+        # The other side: the head's contract is the one approved, and it converges.
+        self.assertEqual(go(facts(acceptance=contract(results=self.BOTH, head=DIGEST)), REVIEWED)["reason"],
+                         "approval_due")
+
+    def test_no_run_is_admitted_on_a_contract_not_approved(self):  # I-29
+        # Every implementing Run is barred until a person has approved the contract, and while the head differs from it.
+        # A conflict, a failed check, an open Finding, a failing criterion and a wait for the model review each admit a
+        # Run otherwise; under either Hold, each holds instead. Read after a foreign check, which admits nothing either.
+        person = thread(kind="human", name=COLLEAGUE["name"], severity=None)
+        cases = [(dict(mergeable=False), REVIEWED, "conflict"),
+                 (dict(checks=with_check(0, "failure")), (), "check_failed"),
+                 (dict(threads=[thread()]), REVIEWED, "findings_open"),
+                 (dict(threads=[person]), REVIEWED, "human_finding"),
+                 ({}, (), "awaiting_review")]
+        for over, runs, reason in cases:
+            for given in ([], [evidence("AC-1", "failing")]):
+                d = go(facts(acceptance=contract(results=given), **over), runs)
+                self.assertEqual((d["reason"], d["outcome"]), (reason, "admit"), (reason, given))
+                for acceptance, hold in ((contract(results=given, by=None), "contract_not_approved"),
+                                         (contract(results=given, head=None), "contract_changed")):
+                    d = go(facts(acceptance=acceptance, **over), runs)
+                    self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", hold, "hold"), (reason, given))
+                    self.assertNotIn("admit", d)
+        # A failing criterion itself: the author's fix Run only on the contract a person approved, unchanged.
+        failing = [evidence("AC-1", "failing")]
+        d = go(facts(acceptance=contract(results=failing)), REVIEWED)
+        self.assertEqual((d["reason"], d["admit"]["intent"]), ("acceptance_failed", "fix-findings"))
+        for acceptance in (contract(results=failing, by=None), contract(results=failing, head="sha256:0000")):
+            self.assertEqual(go(facts(acceptance=acceptance), REVIEWED)["outcome"], "hold")
+        # A check another App posted under a Lens's name is read first: it admits nothing either, and only a push clears it.
+        d = go(facts(acceptance=contract(by=None), checks=GREEN + [dict(GREEN[0], app_id=OTHER_APP)]))
+        self.assertEqual((d["reason"], d["outcome"]), ("check_unreadable", "defer"))
+
+    def test_a_result_counts_only_from_the_reporter_its_kind_names(self):  # I-10, FR-30
+        # Any App with checks: write can report a result, the implementing Role's own among them, and GitHub Actions runs
+        # any job a pull request adds. A result counts only from the check of the Lens the configuration names for its
+        # criterion's kind, read as that Lens's check is: its name, from its App and its workflow file. Any other is
+        # unreadable, read before any failure, and the Decision says which App or file it came from, as for a check.
+        scan = next(lens for lens in CONFIG["required_lenses"]["deterministic"] if lens["lens"] == "secret-scan")
+        codeql = next(lens for lens in CONFIG["required_lenses"]["deterministic"] if lens["workflow"] is None)
+        cases = [("AC-1:from_app:%d" % OTHER_APP, dict(REPORTER, app_id=OTHER_APP)),
+                 ("AC-1:from_app:%d" % codeql["app_id"],
+                  {"name": codeql["check"], "app_id": codeql["app_id"], "workflow": None}),
+                 ("AC-1:from_app:unreadable", dict(REPORTER, app_id=str(REPORTER["app_id"]))),
+                 ("AC-1:from_app:unreadable", {"name": REPORTER["name"], "workflow": REPORTER["workflow"]}),
+                 ("AC-1:from_workflow:%s" % OTHER_WORKFLOW, dict(REPORTER, workflow=OTHER_WORKFLOW)),
+                 ("AC-1:from_workflow:%s" % scan["workflow"],
+                  {"name": scan["check"], "app_id": scan["app_id"], "workflow": scan["workflow"]}),
+                 ("AC-1:from_workflow:unreadable", dict(REPORTER, workflow=None)),
+                 ("AC-1:from_workflow:unreadable", dict(REPORTER, workflow=REPORTER["workflow"] + "\n")),
+                 ("AC-1:from_workflow:unreadable", {"name": REPORTER["name"], "app_id": REPORTER["app_id"]}),
+                 ("AC-1:from_another_check", dict(REPORTER, name="mutants")),
+                 ("AC-1:from_another_check", dict(REPORTER, name=REPORTER["name"].upper())),
+                 ("AC-1:from_another_check", dict(REPORTER, name=REPORTER["name"] + " ")),
+                 ("AC-1:from_another_check", {"app_id": REPORTER["app_id"], "workflow": REPORTER["workflow"]})]
+        for shown, check in cases:
+            for given in ([evidence("AC-1", check=check), evidence("AC-2")],
+                          # beside a pass from its reporter
+                          self.BOTH + [evidence("AC-1", check=check)],
+                          # failing, and beside a failure from its reporter: read before any failure
+                          [evidence("AC-1", "failing", check=check), evidence("AC-2")],
+                          [evidence("AC-1", "failing"), evidence("AC-1", check=check), evidence("AC-2")]):
+                for reviews in ([], APPROVED):
+                    d = go(facts(acceptance=contract(results=given), reviews=reviews), REVIEWED)
+                    self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                     (None, "acceptance_unreadable", [shown], "defer", "needs_you"), (check, given))
+                    self.assertNotIn("action", d)
+            # On a queued item it takes it out.
+            d = go(facts(acceptance=contract(results=self.BOTH + [evidence("AC-1", check=check)]), queue=True,
+                         reviews=APPROVED), REVIEWED)
+            self.assertEqual((d["reason"], d["evidence"], d["action"]), ("acceptance_unreadable", [shown], "dequeue"))
+        # Each such result is named once, in the order given, and so is each criterion's.
+        other = dict(REPORTER, app_id=OTHER_APP)
+        given = [evidence("AC-2", check=other), evidence("AC-1", check=dict(REPORTER, workflow=OTHER_WORKFLOW)),
+                 evidence("AC-2", "failing", check=other)]
+        d = go(facts(acceptance=contract(results=given)), REVIEWED)
+        self.assertEqual(d["evidence"], ["AC-2:from_app:%d" % OTHER_APP, "AC-1:from_workflow:%s" % OTHER_WORKFLOW])
+        # The other side: from its reporter a result counts, passing or failing.
+        self.assertEqual(go(facts(acceptance=contract(results=self.BOTH)), REVIEWED)["reason"], "approval_due")
+        d = go(facts(acceptance=contract(results=[evidence("AC-1", "failing"), evidence("AC-2")])), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"]), ("acceptance_failed", ["AC-1"]))
+
+    def test_a_kind_with_no_reporter_cannot_pass(self):  # I-10
+        # No Lens reports a criterion of kind scenario, mutation, static or role yet: a result for one, from any check,
+        # is unreadable, so such a contract converges nothing until the configuration names its reporter.
+        for kind in ("scenario", "mutation", "static", "role"):
+            for check in (REPORTER, dict(REPORTER, app_id=OTHER_APP)):
+                for result in ("passing", "failing"):
+                    given = [evidence("AC-1", result, check=check), evidence("AC-2")]
+                    d = go(facts(acceptance=contract([("AC-1", kind), "AC-2"], given)), REVIEWED)
+                    self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                     (None, "acceptance_unreadable", ["AC-1:no_reporter"], "defer", "needs_you"),
+                                     (kind, check, result))
+            # With no result, it waits for one, as any criterion does.
+            d = go(facts(acceptance=contract([("AC-1", kind), "AC-2"], [evidence("AC-2")])), REVIEWED)
+            self.assertEqual((d["reason"], d["evidence"]), ("acceptance_evidence_missing", ["AC-1"]), kind)
+            # The other side: once the configuration names a Lens for the kind, a result from its check counts.
+            given = [evidence("AC-1", check=REPORTER), evidence("AC-2")]
+            named = config(acceptance_reporters=dict(CONFIG["acceptance_reporters"], **{kind: "verify"}))
+            d = go(facts(acceptance=contract([("AC-1", kind), "AC-2"], given)), REVIEWED, cfg=named)
+            self.assertEqual(d["reason"], "approval_due", kind)
+            # A name that is no required deterministic Lens's reports nothing.
+            nobody = config(acceptance_reporters=dict(CONFIG["acceptance_reporters"], **{kind: "pr-review"}))
+            d = go(facts(acceptance=contract([("AC-1", kind), "AC-2"], given)), REVIEWED, cfg=nobody)
+            self.assertEqual((d["reason"], d["evidence"]), ("acceptance_unreadable", ["AC-1:no_reporter"]), kind)
+
+    def test_a_human_criterion_is_passed_only_by_a_persons_approval_of_this_content(self):  # §3.13, I-10
+        # One approving review by a person, of this content, confirms every human criterion there (the Maintainer's ruling
+        # of 2026-10-17). It stands until a person dismisses it: an App's dismissal ends nothing a person did (L-17), as
+        # it ends no request for changes, and leaves the contract's approval standing too. The review approves no
+        # content: the approver's approval still does.
+        def f(reviews, given=(evidence("AC-2"),), **over):
+            return facts(acceptance=contract([("AC-1", "human"), "AC-2", ("AC-3", "human")], given), reviews=reviews,
+                         **dict(AGENT, **over))
+
+        person = review(kind="human", name=MAINTAINER["name"])
+        for who in (person, review(kind="human", name=COLLEAGUE["name"]), dismissed(person, REVIEWER_APP, "approved"),
+                    dismissed(person, AUTHOR_APP, "approved"), dismissed(person, MACHINE, "approved")):
+            d = go(f([who]), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]),
+                             ("converged", "approval_due", "act", "issue_approval"), who)
+            self.assertEqual(go(f([who] + APPROVED), REVIEWED)["action"], "enqueue")
+        # Not passed by the machine user's approval, an App's, a Lens's or a stranger's; by a person's of other content;
+        # by a person's approval a person dismissed, or a request for changes or a comment an App dismissed.
+        others = ([], APPROVED, [review(kind="app", name=AGENT["author"])], [review(kind="lens", name="pr-review")],
+                  [review(kind="human", name="stranger", can_write=False)],
+                  [review(kind="human", name=MAINTAINER["name"], content="sha256:0000")],
+                  [dismissed(person, MAINTAINER, "approved")], [dismissed(person, COLLEAGUE, "approved")],
+                  [dismissed(review("commented", kind="human", name=MAINTAINER["name"]), REVIEWER_APP, "commented")],
+                  [review("commented", kind="human", name=MAINTAINER["name"])])
+        for reviews in others:
+            d = go(f(reviews), REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
+                             ("verifying", "acceptance_evidence_missing", ["AC-1", "AC-3"], "nothing"), reviews)
+        # A check's result for it is unreadable, from any check, even beside a person's approval; and whatever the
+        # configuration names for the kind, only a person passes it.
+        for check in (REPORTER, dict(REPORTER, app_id=OTHER_APP)):
+            given = [evidence("AC-1", check=check), evidence("AC-2")]
+            for cfg in (None, config(acceptance_reporters=dict(CONFIG["acceptance_reporters"], human="verify"))):
+                d = go(f([person], given), REVIEWED, cfg=cfg)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"]),
+                                 (None, "acceptance_unreadable", ["AC-1:no_reporter"], "defer"), check)
+        # It never fails: a person objects with a request for changes, which gates as it always did.
+        d = go(f([review("changes_requested", kind="human", name=MAINTAINER["name"])]), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"]), ("human_finding", "admit"))
+
+    def test_an_unreadable_contract_admits_nothing(self):  # I-13
+        # A contract whose approval or criteria cannot be read is read early, as an unreadable fact is, so it admits no
+        # Run, not even for a conflict, a failed check or an open Finding: it waits for the Maintainer.
+        def approval(**over):
+            return dict(contract(), approved=dict(contract()["approved"], **over))
+
+        unread = {"an approval by the machine user under another name": approval(by=dict(MAINTAINER,
+                                                                                          kind="machine_user")),
+                  "an approval by someone named like an App's bot": approval(by=dict(COLLEAGUE, name="x[bot]")),
+                  "an approval by an actor of no kind": approval(by={"name": "don-petry", "can_write": True}),
+                  "a kind the Kernel does not know": approval(criteria=[{"id": "AC-1", "kind": "manual"}]),
+                  "a kind in capitals": approval(criteria=[{"id": "AC-1", "kind": "HUMAN"}]),
+                  "a criterion named twice": approval(criteria=[{"id": "AC-1", "kind": "test"},
+                                                                {"id": "AC-1", "kind": "human"}])}
+        cases = [(dict(mergeable=False), REVIEWED), (dict(checks=with_check(0, "failure")), ()),
+                 (dict(threads=[thread()]), REVIEWED), ({}, ()), ({}, REVIEWED)]
+        for name, acceptance in unread.items():
+            for over, runs in cases:
+                d = go(facts(acceptance=acceptance, **over), runs)
+                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                 (None, "acceptance_unreadable", [], "defer", "needs_you"), (name, over))
+        # Each Hold, too, is the Maintainer's to see, and never stale however long it waits.
+        later_on = later(NOW, 10 * CONFIG["lifecycle"]["stale_after_minutes"]["held"])
+        for acceptance, hold in ((contract(by=None), "contract_not_approved"), (contract(head=None),
+                                                                                "contract_changed")):
+            d = go(facts(acceptance=acceptance), REVIEWED, context(passes_since="2026-10-11T12:00:00Z"), now=later_on)
+            self.assertEqual((d["reason"], d["attention"]), (hold, "needs_you"))
+        # The other side: read whole, the same contract admits the Run each case asks for.
+        for over, runs in cases[:3]:
+            self.assertEqual(go(facts(acceptance=contract(), **over), runs)["outcome"], "admit", over)
 
 
 class Ceilings(unittest.TestCase):

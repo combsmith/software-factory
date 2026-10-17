@@ -91,6 +91,15 @@ RULES = (
      "past its retention", (), None),
     ("a_criterion_can_have_a_result_from_each_check_suite", "A criterion can have a result from each check suite that "
      "ran its check on one content, and they can disagree", (), None),
+    ("an_acceptance_result_names_its_reporter", "Each result for a criterion is read with the check that reported "
+     "it: the check run's name, the id of its App and the path of its workflow file, as a check is read", (), None),
+    ("any_app_gives_a_result_for_any_criterion", "Any App with checks: write, and any job GitHub Actions runs, can give "
+     "a result for any criterion of the contract, one only a person passes among them", (), None),
+    ("a_contract_approval_stays_on_its_commit", "The contract a person approved is read at the commit of the newest "
+     "approving review by a person; an approval an App dismisses, as stale or not, stays on its commit, and the "
+     "timeline says who dismissed it", ("P-38",), None),
+    ("a_push_can_change_the_contract", "A push can edit the acceptance contract or a test it names, or delete the "
+     "contract, and the digest at the head then differs from the one a person approved", (), None),
     ("a_read_can_be_stale", "A read can return what an earlier read did", (), None),
     ("a_tick_can_be_lost", "A scheduled tick can fail to arrive", ("P-8",), None),
     ("anyone_can_comment", "On a public repo anyone can submit a review that only comments", (), None),
