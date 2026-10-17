@@ -1035,6 +1035,7 @@ class ProtectedPaths(Asks):
                 "bash -c 'f() { claude \"$@\"; }; f --dangerously-skip-permissions'",     # defined in a script it runs
                 "builtin alias c=claude; c --dangerously-skip-permissions",
                 "'f'() { claude \"$@\"; }; f --dangerously-skip-permissions",      # a name however it is quoted
+                "bash -c 'f(''){ claude; }; f --dangerously-skip-permissions'",      # read in the script the shell runs
                 "function g h { claude \"$@\"; }; h --dangerously-skip-permissions",     # each name zsh's function takes
                 # -- ends a wrapper's options, and the words before its program still come first.
                 "timeout -- 60 claude --dangerously-skip-permissions",
@@ -1479,7 +1480,9 @@ class MergesAndSettings(Asks):
         feature, on_main, upstream, refspec, mirror, empty = (repo(fresh=True) for _ in range(6))
         git(empty, "checkout", "-q", "-b", "feature")
         git(empty, "config", "push.default", "")        # set to nothing is not unset: where it goes cannot be read
-        self.asked(self.run_("git push", empty, project=empty), "merge", "push.default set to nothing")
+        said = self.run_("git push", empty, project=empty)
+        self.asked(said, "merge", "push.default set to nothing")
+        self.assertIn("where push.default", said)       # asked for the setting, before git's own failure to read it
         for where in (feature, upstream, refspec):
             git(where, "checkout", "-q", "-b", "feature")
         git(on_main, "checkout", "-q", "-B", "main")
