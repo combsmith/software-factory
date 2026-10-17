@@ -1,11 +1,8 @@
 # 0020. A change to the Factory's own rules or a Lens's inputs is reviewed by a model Lens
 
-Status: accepted. The working rulings on issue 113,
-"Kernel: a change to the Factory's own rules or a Lens's inputs needs a person",
-with rule 3 decided by the Maintainer on 2026-10-16: no person is needed, and no push of one's own is
-excused. It decides one row of decision 0018 otherwise: the row on a Role's change to a Lens's own
-workflow file, and a change to a Lens's inputs, which it said needs a person. Under this decision no
-person is needed: every model Lens's review of the change's head is.
+Status: accepted. It decides one row of decision 0018 otherwise: a Role's change to a Lens's own
+workflow file, or to a Lens's inputs, needs no person. Every model Lens's review of the change's
+head is needed instead, whatever its class, and no push of one's own is excused.
 
 ## Decision
 
