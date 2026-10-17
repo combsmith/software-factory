@@ -376,6 +376,97 @@ class Identity(unittest.TestCase):
         git(where, "checkout", "-q", "-")
         return where
 
+    def configured(self, *settings: str) -> pathlib.Path:
+        """A clone whose branch `side` holds a commit by someone else, with git's configuration set as given."""
+        where = self.a_side_branch()
+        for setting in settings:
+            git(where, "config", *setting.split("=", 1))
+        return where
+
+    def test_a_push_with_no_refspec_reads_what_git_would_push(self):
+        # Decision 0023: what a push that names no refspec sends is read from git's configuration, of every remote.
+        sends = "push_carries_another_identity"
+        for setting in ("remote.origin.mirror=true", "remote.origin.mirror=1",          # a mirror: every ref
+                        "remote.origin.push=side:refs/heads/x",                          # each remote.*.push
+                        "remote.other.push=+side:refs/heads/x",                          # of a remote git may not pick
+                        "push.default=matching"):                                        # every branch the remote shares
+            where = self.configured(setting)
+            for command in ("git push", "git push origin", "git push -u origin"):
+                self.assertIn(sends, self.refused(command, where), (setting, command))
+            self.assertEqual(self.codes("git push origin HEAD", where), "", setting)    # a refspec given is read alone
+        for setting in ("remote.origin.push=refs/heads/*:refs/heads/*", "remote.origin.push=^HEAD",
+                        "push.default=bogus", "remote.origin.mirror=maybe"):    # what git does not take, or no reading
+            self.assertIn("push_commits_unreadable", self.refused("git push origin", self.configured(setting)), setting)
+        self.assertIn("push_commits_unreadable", self.refused("git push origin HEAD '^HEAD'"))     # given, as configured
+        # A push.default git may take one day, and this hook does not know, is not read as HEAD.
+        future = identity.push_configuration(lambda args: "push.default\nfuture\0")
+        self.assertEqual(future["default"], "future")
+        self.assertRaises(identity.Unreadable, identity._configured, future, "origin")
+        for value in ("simple", "current", "upstream", "tracking", "nothing"):    # the branch the shell is on
+            self.assertEqual(self.codes("git push", self.configured("push.default=" + value)), "", value)
+        self.assertEqual(self.codes("git push", self.configured("remote.origin.mirror=false")), "")
+        # Where a push that names no remote goes: a value that is not a configured remote refuses.
+        for setting in ("remote.pushDefault=nowhere", "branch.side.pushRemote=elsewhere", "branch.side.remote=."):
+            where = self.configured(setting)
+            self.assertIn("push_commits_unreadable", self.refused("git push", where), setting)
+            self.assertEqual(self.codes("git push origin", where), "", setting)
+        self.assertEqual(self.codes("git push", self.configured("remote.pushDefault=origin")), "")
+        self.assertIn("push_commits_unreadable", self.refused("git push", path=programs("gh")))     # and no git
+
+    def test_push_settings_given_in_the_command_are_refused(self):
+        # Read from configuration, never from the command: one list, PUSH_KEYS, for both hooks.
+        self.assertIs(protected.PUSH_KEYS, identity.PUSH_KEYS)
+        side = self.a_side_branch()
+        for command in ("git -c push.default=matching push", "git -c PUSH.DEFAULT=matching push origin",
+                        "git --config-env=push.default=V push", "git --config-env push.default=V push",
+                        "git -c branch.master.pushRemote=x push", "git -c branch.side.remote=x commit -m x",
+                        "git -c remote.pushDefault=x push", "git -c remote.origin.push=side push",
+                        "git -c remote.origin.mirror=true push",
+                        # git config and .git/config in the same command, as before.
+                        "git config push.default matching && git push", "echo '[push]' >> .git/config && git push"):
+            self.assertIn("identity_set_in_command", self.refused(command, side), command)
+        for command in ("git -c push.default=matching log", "git -c branch.x.pushRemote=y status"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+        env = environment(self.path, CLAUDE_PROJECT_DIR=str(side))
+        for command in ("git -c remote.origin.mirror=true push", "git -c remote.pushDefault=x push",
+                        "git -c branch.side.pushRemote=x push"):
+            self.assertIn("merge", [c for c, _ in protected.check(bash(command, side), env)], command)
+
+    def test_a_git_the_command_may_redefine_is_refused(self):
+        # Decision 0023: a function, an alias, PATH, a path or a wrapper may make git another program.
+        issue = 'git(){ echo side; }; BRANCH=$(git branch --show-current); command git push origin "$BRANCH"'
+        done = hook("identity", bash(issue, self.here), self.path)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("command_unreadable: the command defines a function or an alias", done.stderr)
+        for command in (issue, "source x.sh; git push", ". ./x.sh && git commit -m x",
+                        # A function or an alias, in the text or a script it runs, for git, gh or what runs them.
+                        "function git { :; }; git push", "alias git=echo; git push", "builtin alias gh=echo; gh pr create",
+                        "command(){ :; }; command git push", "builtin() { :; }; git push", "nice(){ :; }; nice git push",
+                        "bash -c 'git(){ :; }; git push'", "eval 'git(){ :; }'; git push", 'echo "$(git(){ :; })"; git push',
+                        "functions[git]=x; git push", "aliases[gh]=x; gh pr create", "hash -p /tmp/g git; git push",
+                        # PATH, anywhere or for git alone.
+                        "PATH=/tmp/x:$PATH git push", "export PATH=/tmp:$PATH; git commit -m x", "env PATH=/x git push",
+                        "(PATH=/x; git push)", "path=(/tmp $path); git push", ": ${PATH:=/x}; git push",
+                        "read PATH < f; git push", "PATH+=:/x; gh pr create",
+                        # A path to another git, and a wrapper not on the list.
+                        "/tmp/x/git push", "./git commit -m x", "~/bin/gh pr create", "sudo git push", "env -i git push",
+                        "env -C /tmp git push", "xargs git push < f", "exec git push", "command -p git push",
+                        "builtin command git push", "doas git commit -m x", "nice sudo git push",
+                        "nohup env -u X git push", "find . -exec git commit -m x \\;",
+                        # A program the hook cannot read, given a commit or a push.
+                        "G=$(cat g); $G push", '"$GIT" commit -m x', "$(echo git) push", "$GH pr create"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+        git_on_path = os.path.join(self.path, "git")
+        for command in ("nice git push", "nice -n 5 git push", 'command git push origin "$(git branch --show-current)"',
+                        "f() { echo hi; }; git push", "alias g=git; git push", "timeout 60 git push",
+                        "timeout -s KILL 60 git push", "env A=1 git push", "nohup git push", "time git push",
+                        "time -p git push", "stdbuf -oL git push", "caffeinate -i git push", "nice nohup env A=1 git push",
+                        "if git push; then echo ok; fi", '"$(which git)" push', "G=$(which git); $G push", "G=git; $G push",
+                        "$(command -v git) commit -m x", "%s push" % git_on_path, "command -v git && git push",
+                        "echo git push; git commit -m x", "git(){ :; }; git log", "sudo git log",
+                        "PATH=/x git status"):
+            self.assertEqual(self.codes(command), "", command)
+
     def test_a_push_refspec_the_hook_cannot_read_is_refused(self):
         # A variable no earlier command set, a command substitution, a wildcard: what the push sends cannot be read.
         side = self.a_side_branch()
@@ -893,6 +984,8 @@ class ProtectedPaths(Asks):
                 "alias c='claude --dangerously-skip-permissions'", "alias c=claude; c --dangerously-skip-permissions",
                 'f() { claude "$@"; }; f --dangerously-skip-permissions',
                 "function g { claude; }; g --dangerously-skip-permissions",
+                "bash -c 'f() { claude \"$@\"; }; f --dangerously-skip-permissions'",     # defined in a script it runs
+                "builtin alias c=claude; c --dangerously-skip-permissions",
                 # A prefix's options, and the word an option takes.
                 "command -p claude --dangerously-skip-permissions", "exec -a foo claude --dangerously-skip-permissions",
                 "time -p claude --dangerously-skip-permissions", "builtin command -- claude --dangerously-skip-permissions",

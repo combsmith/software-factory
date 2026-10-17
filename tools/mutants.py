@@ -57,6 +57,10 @@ BYPASS_TESTS = (HOOK_TESTS + "test_under_bypass_permissions_every_reason_is_told
 SESSION_TESTS = (HOOK_TESTS + "test_a_command_that_runs_claude_code_with_no_one_asked_asks",
                  HOOK_TESTS + "test_claude_code_given_what_the_hook_cannot_read_asks")
 DATA_TESTS = (HOOK_TESTS + "test_a_word_given_to_any_other_program_is_data",)
+IDENTITY_TESTS = "tests.test_hooks.Identity."
+NO_REFSPEC_TESTS = (IDENTITY_TESTS + "test_a_push_with_no_refspec_reads_what_git_would_push",)
+PUSH_SETTING_TESTS = (IDENTITY_TESTS + "test_push_settings_given_in_the_command_are_refused",)
+REDEFINE_TESTS = (IDENTITY_TESTS + "test_a_git_the_command_may_redefine_is_refused",)
 
 MUTANTS = [
     ("incomplete facts are trusted", "kernel/derive.py",
@@ -994,12 +998,12 @@ MUTANTS = [
     ("a variable that moves Claude Code's settings is not asked about", "tools/hooks/protected.py",
      '        for name in self.data["sessions"]["environment"]:\n', "        for name in []:\n", SESSION_TESTS),
     ("a variable set to $(which claude) is not Claude Code", "tools/hooks/protected.py",
-     "        for name, found in WHICH_INTO.findall(self.text):     # C=$(which claude); $C ...\n",
+     "        for name, found in shell.WHICH_INTO.findall(self.text):     # C=$(which claude); $C ...\n",
      "        for name, found in []:\n", SESSION_TESTS),
     ("$(which claude) is not read as Claude Code", "tools/hooks/protected.py",
      "m.group(1) if self._claude(m.group(1), claude) else m.group(0)", "m.group(0)", SESSION_TESTS),
-    ("a prefix's option is taken for the program", "tools/hooks/protected.py",
-     "                    at += 2 if words[at] in PREFIXED[word] else 1\n", "                    break\n",
+    ("a prefix's option is taken for the program", "tools/hooks/shell.py",
+     "                at += 2 if words[at] in PREFIXED[word] else 1\n", "                break\n",
      SESSION_TESTS),
     ("a word past a wrapper's program is taken for the program", "tools/hooks/protected.py",
      "        return self._runs(words[at:], claude, fed) if at < len(words) else None\n",
@@ -1011,13 +1015,54 @@ MUTANTS = [
     ("a word that is JSON is not read as JSON", "tools/hooks/protected.py",
      '                texts += _strings(json.loads(word)) if word.lstrip()[:1] in ("{", "[") else []\n',
      "                texts += []\n", SESSION_TESTS),
-    ("a command string is not read as a command", "tools/hooks/protected.py",
-     "                if option in COMMAND_STRINGS.get(program, ()):\n", "                if False:\n", SESSION_TESTS),
+    ("a command string is not read as a command", "tools/hooks/shell.py",
+     "            if option in strings:\n", "            if False:\n", SESSION_TESTS),
     ("a program the hook cannot read is not asked about", "tools/hooks/protected.py",
      '            if runs == "unknown" and named.search(self.text):\n', "            if False:\n", SESSION_TESTS),
     ("a variable's value is not split into words", "tools/hooks/protected.py",
      "            out += value.split() if value is not None else [word]\n",
      "            out += [value] if value is not None else [word]\n", SESSION_TESTS),
+    ("a function defined in a script the command runs is not read", "tools/hooks/shell.py",
+     "    for script in _scripts(text, spend)[1]:\n", "    for script in [without_heredocs(text)]:\n",
+     REDEFINE_TESTS + SESSION_TESTS),
+    ("an alias defined past a prefix is not read", "tools/hooks/shell.py",
+     '    if command != "alias":\n', '    if words[:1] != ["alias"]:\n', REDEFINE_TESTS + SESSION_TESTS),
+    ("a push that names no refspec reads no configuration", "tools/hooks/identity.py",
+     "        if not refspecs:        # what it sends, and where it goes, git's configuration says: read once\n",
+     "        if False:\n", NO_REFSPEC_TESTS),
+    ("a mirror configured is ignored", "tools/hooks/identity.py",
+     '] + (["--mirror"] if mirror else [])', "]", NO_REFSPEC_TESTS),
+    ("an unknown push.default is read as HEAD", "tools/hooks/identity.py",
+     '    if read["default"] not in DEFAULT_SENDS:\n'
+     '        raise Unreadable("push.default is set to a value git does not take, so what the push sends cannot be '
+     'read")\n'
+     '    return read["refspecs"] + [DEFAULT_SENDS[read["default"]]], read["mirror"]\n',
+     '    return read["refspecs"] + [DEFAULT_SENDS.get(read["default"], "HEAD")], read["mirror"]\n', NO_REFSPEC_TESTS),
+    ("a push that names no remote is read wherever git's configuration sends it", "tools/hooks/identity.py",
+     '    if remote is None and any(d not in read["remotes"] for d in read["destinations"]):\n', "    if False:\n",
+     NO_REFSPEC_TESTS),
+    ("a negative refspec is read", "tools/hooks/identity.py",
+     '        if source.startswith("^"):\n', "        if False:\n", NO_REFSPEC_TESTS),
+    ("where a push goes, set in the command, is not refused", "tools/hooks/identity.py",
+     '                if PUSH_KEYS.match(value.partition("=")[0].strip()):     # read from configuration, never the '
+     'command\n', "                if False:\n", PUSH_SETTING_TESTS),
+    ("a function or an alias for git is not counted", "tools/hooks/identity.py",
+     "    if shell.defined(_quoted(stripped)) & REDEFINABLE:\n", "    if False:\n", REDEFINE_TESTS),
+    ("a PATH set in the command is not counted", "tools/hooks/identity.py",
+     '    if "PATH" in shell.assigned_elsewhere(text) or shell.set_anywhere("PATH", stripped) or ZSH_PATH.search('
+     'stripped):\n', "    if False:\n", REDEFINE_TESTS),
+    ("a wrapper not on the list is counted as one", "tools/hooks/identity.py",
+     "        if name not in shell.AS_IS or name not in shell.WRAPPED:\n", "        if name not in shell.WRAPPED:\n",
+     REDEFINE_TESTS),
+    ("a prefix not on the list, or command -p, is counted as one", "tools/hooks/identity.py",
+     '(name not in shell.AS_IS or (name == "command" and options))', "False", REDEFINE_TESTS),
+    ("env given more than assignments is counted as a wrapper on the list", "tools/hooks/identity.py",
+     '        if name == "env" and not all(ASSIGNMENT.match(w) for w in words[at_ + 1:past]):\n', "        if False:\n",
+     REDEFINE_TESTS),
+    ("git named by any path is read as the git on PATH", "tools/hooks/identity.py",
+     '"/" not in word or _on_path(word, here, env)', "True", REDEFINE_TESTS),
+    ("a program held in a variable is not counted", "tools/hooks/identity.py",
+     "        if _expands(word):\n", "        if False:\n", REDEFINE_TESTS),
 ]
 
 

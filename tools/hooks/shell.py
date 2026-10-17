@@ -2,7 +2,9 @@
 
 It reads words, not meaning: a variable is not expanded and a script in a file is not read. A hook
 that guards something treats what this cannot read as a refusal. A here-document's body is data and
-is never read as commands.
+is never read as commands. What runs a program (a prefix, a wrapper and their options), the names a
+command defines (a function, an alias), `$(which ...)` and a variable set anywhere are read here, so
+that both hooks read them alike.
 """
 from __future__ import annotations
 
@@ -87,14 +89,17 @@ def simple_commands(text: str) -> list:
     return [(words, [target for _, target in redirections]) for words, redirections in commands(text)]
 
 
-def commands(text: str, spend=None) -> list:
+def commands(text: str, spend=None, texts: list = None) -> list:
     """Each simple command in `text`, as (words, [(operator, target)]), read as simple_commands reads it.
 
     An operator holding '>' writes its target; one holding only '<' reads it. `spend`, if given, is called
-    before each script is read, and may raise to stop a reading that has run over its budget.
+    before each script is read, and may raise to stop a reading that has run over its budget. `texts`, if
+    given, gets each script read: `text`, and every script it runs (sh -c, eval, a command substitution).
     """
     if spend:
         spend()
+    if texts is not None:
+        texts.append(text)
     lex = shlex.shlex(without_heredocs(text).replace("\\\n", " "), posix=True, punctuation_chars=PUNCTUATION)
     lex.whitespace, lex.whitespace_split, lex.commenters = " \t\r", True, ""
     found, words, targets, operator = [], [], [], None
@@ -118,20 +123,20 @@ def commands(text: str, spend=None) -> list:
     out = []
     for words, targets in found:
         out.append((words, targets))
-        out += _inner(words, spend)
+        out += _inner(words, spend, texts)
         for word in words:
             for script in _substituted(word):
-                out += commands(script, spend)
+                out += commands(script, spend, texts)
     return [(words, targets) for words, targets in out if words or targets]
 
 
-def _inner(words: list, spend=None) -> list:
+def _inner(words: list, spend=None, texts: list = None) -> list:
     """The commands of a script run by this one: `bash -c '...'` or `eval ...`, also after env, xargs or sudo; and
     the command string of `flock -c`, `script -c`, `runuser -c`, `su -c` and `env -S`."""
     for at, word in enumerate(words):
         name = os.path.basename(word)
         if name == "eval":
-            return commands(" ".join(words[at + 1:]), spend)
+            return commands(" ".join(words[at + 1:]), spend, texts)
         if name == "env":       # -S's string is split into the words of the command env runs, before the rest
             for i in range(at + 1, len(words)):
                 if not words[i].startswith("-") and "=" not in words[i] and words[i - 1] not in ENV_VALUED:
@@ -139,10 +144,10 @@ def _inner(words: list, spend=None) -> list:
                 script, taken = _value(words, i, "S", ("--split-string",), True)
                 if script is not None:
                     rest = words[i + 1 + taken:]
-                    return commands(" ".join([script] + [shlex.quote(w) for w in rest]), spend)
+                    return commands(" ".join([script] + [shlex.quote(w) for w in rest]), spend, texts)
         if name in SHELLS or name in STRINGS:
             script = script_of(words, at)
-            return [] if script is None else commands(script, spend)
+            return [] if script is None else commands(script, spend, texts)
     return []
 
 
@@ -556,3 +561,176 @@ def environment(text: str) -> tuple:
 def _plain(value: str) -> bool:
     """Whether the shell would put `value` in a word as it stands: no expansion, substitution or quote removal."""
     return re.match(r"^[^\s$`*?\[\]{}'\"\\]*$", value) is not None
+
+
+# ---- what runs a program: prefixes and wrappers, read alike by both hooks
+
+# Words before a program that change nothing about what runs, and the options of theirs that take the next word.
+PREFIXED = {"exec": {"-a"}, "time": {"-f", "--format", "-o", "--output"}, "command": set(), "builtin": set(),
+            "nohup": set()}
+# Reserved words that open or go on with a compound command: before a program, they change nothing of what it runs.
+RESERVED = PREFIXES - set(PREFIXED)
+# The options of xargs and parallel that take the next word, and those of npx and its like.
+FEED_VALUED = {"-I", "-L", "-n", "-P", "-s", "-d", "-E", "-a", "--max-args", "--max-procs", "--delimiter",
+               "--arg-file", "--max-lines", "--replace", "--eof", "-j", "--jobs"}
+NPX_VALUED = {"-p", "--package", "--cache", "--userconfig", "--registry", "-w", "--workspace"}
+# What runs the program its words name, after its own: for each, its options that take the next word as their value,
+# and how many words that are not options come before the program (timeout's duration, chroot's new root). The first
+# word past them is the program; what follows is that program's, and data to any other.
+WRAPPED = {
+    "env": ({"-u", "--unset", "-C", "--chdir", "-P"}, 0),
+    "sudo": ({"-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-D",
+              "--chdir", "-R", "--chroot", "-r", "--role", "-t", "--type", "-T", "--command-timeout", "-U",
+              "--other-user"}, 0),
+    "doas": ({"-u", "-C"}, 0),
+    "xargs": (FEED_VALUED, 0), "parallel": (FEED_VALUED, 0),
+    "timeout": ({"-s", "--signal", "-k", "--kill-after"}, 1), "gtimeout": ({"-s", "--signal", "-k", "--kill-after"}, 1),
+    "nice": ({"-n", "--adjustment"}, 0),
+    "ionice": ({"-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid"}, 0),
+    "chrt": (set(), 1), "taskset": (set(), 1),
+    "numactl": ({"-N", "--cpunodebind", "-m", "--membind", "-C", "--physcpubind", "-p", "--preferred", "-i",
+                 "--interleave"}, 0),
+    "stdbuf": ({"-i", "-o", "-e", "--input", "--output", "--error"}, 0),
+    "gstdbuf": ({"-i", "-o", "-e", "--input", "--output", "--error"}, 0),
+    "caffeinate": ({"-t", "-w"}, 0), "watch": ({"-n", "--interval"}, 0), "setsid": (set(), 0),
+    "flock": ({"-w", "--wait", "--timeout", "-E", "--conflict-exit-code"}, 1),
+    "chroot": ({"--userspec", "--groups"}, 1),
+    "unshare": ({"-S", "--setuid", "-G", "--setgid", "-R", "--root", "-w", "--wd"}, 0),
+    "nsenter": ({"-t", "--target", "-S", "--setuid", "-G", "--setgid"}, 0),
+    "runuser": ({"-u", "--user", "-g", "--group", "-G", "--supp-group", "-s", "--shell"}, 0),
+    "chpst": ({"-u", "-U", "-e", "-/", "-n", "-l", "-L", "-m", "-d", "-o", "-p", "-f", "-c"}, 0),
+    "unbuffer": (set(), 0), "chronic": (set(), 0), "arch": (set(), 0), "corepack": (set(), 0),
+    "script": ({"-t", "--timing", "-T", "-I", "-O", "-B", "--log-in", "--log-out", "--log-io", "-E", "-o"}, 1),
+    "xcrun": ({"--sdk", "--toolchain", "-sdk", "-toolchain"}, 0),
+    "sandbox-exec": ({"-f", "-n", "-p", "-D"}, 0),
+    "systemd-run": ({"-p", "--property", "-u", "--unit", "-E", "--setenv", "--uid", "--gid", "-M", "--machine",
+                     "--description", "--slice", "--working-directory", "-H", "--host", "--nice"}, 0),
+    "fakeroot": ({"-l", "--lib", "--faked", "-s", "-i", "-b"}, 0),
+    "strace": ({"-o", "-e", "-p", "-s", "-u", "-E", "-P", "-I", "-a", "-b", "-S", "-O", "-X"}, 0),
+    "ltrace": ({"-o", "-e", "-p", "-s", "-u", "-n", "-a", "-A", "-l", "-x", "-F"}, 0),
+    "dtruss": ({"-p", "-n", "-t", "-W"}, 0), "gtime": ({"-f", "--format", "-o", "--output"}, 0),
+    "npx": (NPX_VALUED, 0), "pnpx": (NPX_VALUED, 0), "bunx": (NPX_VALUED, 0),
+}
+# The prefixes and wrappers a commit or a push may run under (decision 0023): each runs the program its words name as
+# it is, as the same user and from the same PATH. env only with assignments, and command only with no option (-p looks
+# in another PATH). Any other, sudo, exec, env -i, env -C and xargs among them, runs a git the identity hook cannot read.
+AS_IS = {"env", "nice", "nohup", "timeout", "stdbuf", "caffeinate", "time", "command"}
+
+
+def past_prefixes(words: list, at: int = 0) -> tuple:
+    """(the index past the prefixes, assignments and reserved words from `at`, [(each prefix, its options)]). The index
+    is None when a prefix runs nothing: command -v names a program and runs none."""
+    passed = []
+    while at < len(words):
+        word = words[at]
+        if word in PREFIXES:
+            at += 1
+            options = []
+            while word in PREFIXED and at < len(words) and words[at].startswith("-") and words[at] != "-":
+                if words[at] == "--":
+                    at += 1
+                    break
+                if word == "command" and re.match(r"^-[pP]*[vV]", words[at]):
+                    return None, passed        # command -v names a program and runs none
+                options.append(words[at])
+                at += 2 if words[at] in PREFIXED[word] else 1
+            passed.append((word, options))
+        elif ASSIGNMENT.match(word):
+            at += 1
+        elif word == "function":
+            at += 2
+        else:
+            break
+    return at, passed
+
+
+def past_wrapper(words: list, at: int, program: str, strings=()) -> tuple:
+    """(the index of the program the wrapper `program` at words[at] runs, past its options, their values, its
+    assignments and the words that come before the program; the index of its option among `strings` whose value is a
+    command of its own, or None). The first index is len(words) when it names no program."""
+    valued, positional = WRAPPED[program]
+    at += 1
+    while at < len(words):
+        option, given, _ = words[at].partition("=")
+        if words[at] == "--":
+            return at + 1, None
+        if ASSIGNMENT.match(words[at]):
+            at += 1
+        elif words[at].startswith("-") and words[at] != "-":
+            if option in strings:
+                return at, at
+            at += 2 if option in valued and not given else 1
+        elif positional:
+            positional -= 1
+            at += 1
+        else:
+            break
+    return at, None
+
+
+# ---- names the command gives a new meaning: functions, aliases, a path hashed for a name
+
+# A function the command defines: f() { ...; } or function f { ...; }.
+DEFINES = re.compile(r"(?:^|[\s;&|(){}])function\s+([A-Za-z_][\w.-]*)|"
+                     r"(?:^|[\s;&|(){}])([A-Za-z_][\w.-]*)\s*\(\s*\)")
+# zsh's tables of them: functions[f]=..., aliases[a]=..., galiases[a]=..., and those it holds disabled.
+TABLES = re.compile(r"(?:^|[\s;&|(){}])(?:dis_)?(functions|aliases|galiases)\[['\"]?([^]'\"]*)['\"]?\]\+?=")
+# A command substitution that names a program's path: $(which claude), `command -v git` and their like.
+WHICH = re.compile(r"(?:\$\(|`)\s*(?:which|command\s+-v|type\s+-p|whence\s+-p)\s+([^\s)`'\"]+)\s*(?:\)|`)")
+# A variable set to one: C=$(which claude).
+WHICH_INTO = re.compile(r"([A-Za-z_]\w*)=[\"']?(?:\$\(|`)\s*(?:which|command\s+-v|type\s+-p|whence\s+-p)\s+"
+                        r"([^\s)`'\"]+)")
+
+
+def _scripts(text: str, spend=None) -> tuple:
+    """(the simple commands of `text`, its text and that of each script it runs: sh -c, eval, a substitution), each
+    script with its here-documents' bodies left out. Raises ValueError or RecursionError when it cannot be split."""
+    texts = []
+    found = commands(text, spend, texts)
+    return found, [without_heredocs(script) for script in texts]
+
+
+def functions(text: str, spend=None) -> set:
+    """The names the command defines as a function: in its text, and in each script it runs (sh -c, eval, a command
+    substitution), so a quote around a script hides none; zsh's functions[f]= among them. Raises ValueError or
+    RecursionError when the text cannot be split."""
+    names = set()
+    for script in _scripts(text, spend)[1]:
+        names |= {a or b for a, b in DEFINES.findall(script)}
+        names |= {name for table, name in TABLES.findall(script) if table == "functions"}
+    return names
+
+
+def aliases(words: list) -> list:
+    """(name, value) of each alias one simple command defines: alias NAME=VALUE, past a prefix (builtin alias), its
+    options (zsh's -g, -s) left out."""
+    _, command, args = _leading(words)
+    if command != "alias":
+        return []
+    return [tuple(w.split("=", 1)) for w in args if "=" in w[1:] and not w.startswith("-")]
+
+
+def defined(text: str, spend=None) -> set:
+    """Every name the command may give a new meaning, so that it runs another program than the one on PATH: a function
+    or an alias, in its text or in a script it runs, zsh's tables of them among them; a path hashed for a name (hash -p
+    PATH NAME, zsh's hash NAME=PATH); a built-in loaded or enabled (enable). Raises ValueError or RecursionError when
+    the text cannot be split."""
+    found, texts = _scripts(text, spend)
+    names = functions(text, spend)
+    for script in texts:
+        names |= {name for _, name in TABLES.findall(script)}
+    for words, _ in found:
+        names |= {name for name, _ in aliases(words)}
+        _, command, args = _leading(words)
+        if command in ("hash", "enable"):
+            names |= {w.split("=", 1)[0] for w in args if not w.startswith("-")}
+    return names
+
+
+def set_anywhere(name: str, text: str) -> bool:
+    """Whether the command may set the variable `name` anywhere, read as text: NAME=, NAME+=, ${NAME:=}, NAME[i]=, or
+    the name given to a built-in that writes or exports it (read, printf -v, export, declare and the like), in a
+    script, a subshell or a condition as much as at the top level."""
+    return re.search(r"(?<![\w-])%s(?:\[[^]]*\])?\+?:?=|\b(?:read|printf|getopts|mapfile|readarray|declare|typeset|"
+                     r"local|export|readonly|let)\b[^;&|\n]*(?<![\w-])%s(?![\w-])" % (re.escape(name), re.escape(name)),
+                     text) is not None
