@@ -1,9 +1,6 @@
 # 0025. Acceptance is read from its reporter, against the contract a person approved
 
-Status: accepted. The working rulings on "Kernel: acceptance evidence from the right reporter, against the
-approved contract" (issue 108), by the Solution Architect, delegated, with the Maintainer's three
-decisions of 2026-10-17. It builds on the ruling on "Kernel: acceptance evidence in Convergence"
-(issue 17) and on decision 0026, whose acceptance rows name its checks.
+Status: accepted.
 
 ## Decision
 

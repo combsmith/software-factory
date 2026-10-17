@@ -467,7 +467,7 @@ def approves_the_contract(pr: dict) -> dict:
     approved = contract_now["approved"]
     if approved is not None and approved["digest"] == contract_now["head"] and approved["by"] == MAINTAINER:
         return None
-    listed = approved["criteria"] if approved else contract()["approved"]["criteria"]
+    listed = approved["criteria"] if approved else pr.get("criteria", contract()["approved"]["criteria"])
     commit = "c%d" % pr["minute"]
     f["reviews"].append(review(content=f["content_id"], commit=commit, at=now(pr), **MAINTAINER))
     contract_now["approved"] = {"digest": contract_now["head"], "commit": commit, "by": dict(MAINTAINER),
@@ -486,6 +486,7 @@ def withdraws_the_approval(pr: dict) -> dict:
     f = pr["facts"]
     if f["acceptance"] is None or f["acceptance"]["approved"] is None:
         return None
+    pr["criteria"] = f["acceptance"]["approved"]["criteria"]
     f["acceptance"]["approved"] = None
     return writer_acted(pr)
 

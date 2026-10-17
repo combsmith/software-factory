@@ -936,7 +936,7 @@ credential that reads it (§4.9).
 
 The file and the tests it names are protected paths, so `apply` refuses any change to them by the
 Role that implements the work. Who approved the contract is not stored: it is the
-Maintainer's approving review at the commit that added the file. The facts carry the digest of the
+Maintainer's approving review at the commit of the newest approving review by a person. The facts carry the digest of the
 contract and every path it protects at that commit and at the head, so a change to either since is
 a Hold until a person approves again (decision 0025).
 
