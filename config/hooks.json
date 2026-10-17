@@ -55,6 +55,11 @@
     "mutations": ["mergePullRequest", "mergeBranch", "updateRefs", "updateRef", "deleteRef", "createCommitOnBranch"],
     "endpoints": ["repos/*/*/pulls/*/merge", "repos/*/*/merges", "repos/*/*/git/refs/**"]
   },
+  "sessions": {
+    "programs": ["claude", "claude-code"],
+    "words": ["--dangerously-skip-permissions", "--allow-dangerously-skip-permissions", "bypassPermissions"],
+    "environment": ["CLAUDE_CONFIG_DIR", "HOME"]
+  },
   "settings": {
     "commands": ["repo edit", "repo rename", "repo archive", "repo unarchive", "repo delete", "repo deploy-key",
                  "repo autolink", "ruleset", "secret set", "secret delete", "secret remove", "variable set",

@@ -2115,6 +2115,24 @@ class Mutants(unittest.TestCase):
                                                 "    def test_b(self):\n        self.fail()\n"))
         self.assertEqual((status, output.count("FAIL: ")), (1, 1))
 
+    def test_the_tests_a_mutant_names_run_first_and_the_whole_suite_after_them(self):
+        where = suite_of("    def test_a(self):\n        pass\n\n    def test_b(self):\n        self.fail()\n")
+        status, output = mutants.suite(where, first=("tests.test_x.T.test_b",))
+        self.assertEqual((status, output.count("FAIL: ")), (1, 1))
+        self.assertIn("Ran 1 test", output, "only the test named ran")
+        status, output = mutants.suite(where, first=("tests.test_x.T.test_a",))
+        self.assertEqual((status, output.count("FAIL: test_b")), (1, 1), "the whole suite ran after the named test passed")
+        said = mutants.verdict(*mutants.suite(where, first=("tests.test_x.T.test_gone",)))
+        self.assertEqual(said[0], "ERROR", "a test named that is not there kills nothing")
+        calls = []
+
+        def run(work, **given):
+            calls.append(given)
+            return 1, FAILS_A_TEST
+        for mutant in (("named", "k.py", "rule\n", "x\n", ("tests.test_x.T.test_b",)), ("plain", "k.py", "rule\n", "x\n")):
+            self.assertEqual(mutants.attempt(mutant, tree({"k.py": "rule\n"}), run)[0], "killed")
+        self.assertEqual(calls, [{"first": ("tests.test_x.T.test_b",)}, {}])
+
     def test_the_summary_counts_only_the_mutants_killed(self):
         stale = [("gone", "k.py", "not there\n", "x\n")]
         code, lines, _ = self.check({"fails": (0, 1, FAILS_A_TEST), "passes": (0, 0, "OK\n")},

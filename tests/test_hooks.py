@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from tools.hooks import after_edit, before_stop, identity, protected, rules_changed, shell
 
@@ -835,6 +836,137 @@ class ProtectedPaths(Asks):
                      tool_input={"file_path": str(self.project / "docs" / "notes.md"), "content": "{}"})
         done = hook("protected", clean, programs(), CLAUDE_PROJECT_DIR=str(self.project))
         self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))
+
+    def test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked(self):
+        # Decision 0019: the session is told every code and sentence the person would have been asked with.
+        write = {"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": str(self.project),
+                 "tool_input": {"file_path": str(self.project / "lifecycle" / "issue.json"), "content": "{}"}}
+        missing, load = folder() / "hooks.json", protected.load
+        cases = (
+            (write, "protected_path: lifecycle/ is the Lifecycle."),
+            (bash("git push origin HEAD:main", self.project), "merge: "),
+            (bash("claude --dangerously-skip-permissions -p x", self.project),
+             "unasked_session: Claude Code is given --dangerously-skip-permissions, which starts it with no one "
+             "asked."),
+            (bash("ls", self.project), "config_unreadable: config/hooks.json cannot be read (FileNotFoundError), so "
+                                       "the hook cannot clear any edit or command."),
+            (bash("echo %s" % ("x" * protected.LONGEST), self.project),
+             "budget_spent: the command is longer than the hook reads."),
+            ({"tool_name": "Edit", "tool_input": "x"},
+             "hook_failed: the hook could not finish (AttributeError), so it cannot clear it."),
+        )
+        for case, reason in cases:
+            said = {}
+            for mode in ("default", "bypassPermissions"):
+                unreadable = reason.startswith("config_unreadable")
+                with mock.patch.object(protected, "load", lambda source=None: load(missing if unreadable else source)):
+                    said[mode] = json.loads(protected.respond(dict(case, permission_mode=mode), self.env))
+            asked, told = said["default"]["hookSpecificOutput"], said["bypassPermissions"]["hookSpecificOutput"]
+            self.assertEqual(asked["permissionDecision"], "ask", reason)
+            self.assertNotIn("permissionDecision", told, reason)
+            self.assertIn(reason, told["additionalContext"])
+            self.assertEqual(told["additionalContext"].replace("Not asked, under bypassPermissions, by ", "Asked by ", 1),
+                             asked["permissionDecisionReason"])
+
+    def test_a_command_that_runs_claude_code_with_no_one_asked_asks(self):
+        # Decision 0021: a session under bypassPermissions is one only the Maintainer set.
+        for command in (
+                "claude --dangerously-skip-permissions -p 'do the next task'", "claude --DANGEROUSLY-skip-permissions",
+                "claude --allow-dangerously-skip-permissions -p x", "claude --permission-mode bypassPermissions -p x",
+                "claude --permission-mode=bypassPermissions -p x",
+                "claude --settings '{\"permissions\": {\"defaultMode\": \"bypassPermissions\"}}' -p x",
+                "/usr/local/bin/claude --dangerously-skip-permissions", "~/.claude/local/claude --dangerously-skip-permissions",
+                "env claude --dangerously-skip-permissions", "env FOO=1 claude --dangerously-skip-permissions",
+                "exec claude --dangerously-skip-permissions", "command claude --dangerously-skip-permissions",
+                "timeout 60 claude --dangerously-skip-permissions",
+                "cd /tmp && nohup claude --dangerously-skip-permissions &",
+                "npx @anthropic-ai/claude-code --dangerously-skip-permissions",
+                "npx -y @anthropic-ai/claude-code@latest --dangerously-skip-permissions",
+                "pnpm dlx @anthropic-ai/claude-code --dangerously-skip-permissions",
+                "bunx @anthropic-ai/claude-code --dangerously-skip-permissions",
+                "O=--dangerously-skip-permissions; claude $O -p x", "C=claude; $C --dangerously-skip-p'ermissions' -p x",
+                "D=dangerously; claude --$D-skip-permissions",
+                "sh -c 'claude --dangerously-skip-permissions -p x'", "bash -lc 'claude --permission-mode bypassPermissions'",
+                '"$(which claude)" --dangerously-skip-permissions', "$(which claude) --dangerously-skip-permissions",
+                "`command -v claude` --dangerously-skip-permissions", "C=$(which claude); $C --dangerously-skip-permissions",
+                "cd /tmp; `which claude` -p x --dangerously-skip-permissions",
+                "alias c='claude --dangerously-skip-permissions'", "alias c=claude; c --dangerously-skip-permissions",
+                'f() { claude "$@"; }; f --dangerously-skip-permissions',
+                "function g { claude; }; g --dangerously-skip-permissions",
+                # A prefix's options, and the word an option takes.
+                "command -p claude --dangerously-skip-permissions", "exec -a foo claude --dangerously-skip-permissions",
+                "time -p claude --dangerously-skip-permissions", "builtin command -- claude --dangerously-skip-permissions",
+                # A wrapper's options and the words before its program.
+                "sudo -u me claude --dangerously-skip-permissions", "timeout -k 5 60 claude --dangerously-skip-permissions",
+                "nice -n 5 env -u X claude --dangerously-skip-permissions",
+                "corepack pnpm dlx @anthropic-ai/claude-code --dangerously-skip-permissions",
+                "npm exec -- @anthropic-ai/claude-code --dangerously-skip-permissions",
+                # A command string, and a variable or eval that holds a command.
+                "env -S 'claude --dangerously-skip-permissions'", "npx -c 'claude --dangerously-skip-permissions'",
+                "CMD='claude --dangerously-skip-permissions'; $CMD",
+                # JSON that spells the word with an escape.
+                "claude --settings '{\"permissions\": {\"defaultMode\": \"\\u0062ypassPermissions\"}}'",
+                # $(which claude) wherever it stands, and an alias of it.
+                "alias c='$(which claude)'; c --dangerously-skip-permissions",
+                "alias c='$C'; C=$(which claude); c --dangerously-skip-permissions",
+                "which claude && `which claude` --dangerously-skip-permissions"):
+            self.asked(self.run_(command), "unasked_session", command)
+        for word in RULES["sessions"]["words"]:
+            self.asked(self.run_("claude %s -p x" % word), "unasked_session", word)
+        for command in ("claude -p 'do the next task'", "claude --permission-mode acceptEdits -p x",
+                        "claude --dangerously-skip-permissions-not -p x", "claude --settings '{\"model\": \"x\"}' -p x",
+                        "claude -p <<'EOF'\nmay I use --dangerously-skip-permissions?\nEOF"):
+            self.assertEqual(self.run_(command), "", command)
+        data = protected.load()
+        data["sessions"] = dict(data["sessions"], words=["--yolo"])
+        self.assertEqual(self.run_("claude --dangerously-skip-permissions", data=data), "")
+        self.asked(self.run_("claude --yolo", data=data), "unasked_session", "--yolo as data")
+        data["sessions"] = dict(data["sessions"], programs=["kode"])
+        self.asked(self.run_("kode --yolo", data=data), "unasked_session", "kode as data")
+        self.assertEqual(self.run_("claude --yolo", data=data), "")
+
+    def test_claude_code_given_what_the_hook_cannot_read_asks(self):
+        for command in ('claude -p "$(cat prompt.md)"', "claude $FLAGS -p x", 'env claude "$@"',
+                        "npx @anthropic-ai/claude-code $X", 'P=$(cat p.md); claude -p "$P"', "claude-code -p `cat p`",
+                        "echo x | xargs claude", "claude --settings s.json -p x", "claude --settings=$S -p x",
+                        "CLAUDE_CONFIG_DIR=/tmp/c claude -p x", "export CLAUDE_CONFIG_DIR=/tmp/c; claude -p x",
+                        "env CLAUDE_CONFIG_DIR=/tmp/c claude -p x", "claude --settings=s.json -p x",
+                        "S=--settings=s.json; claude $S -p x", "D=CLAUDE_CONFIG_DIR=/tmp/c; env $D claude -p x",
+                        "bash -c 'export CLAUDE_CONFIG_DIR=/tmp/c; claude -p x'",
+                        "(export CLAUDE_CONFIG_DIR=/tmp/c; claude -p x)", "HOME=/tmp/h claude -p x",
+                        "C=$(which claude); env CLAUDE_CONFIG_DIR=/tmp/c claude -p x", "C=$(which claude); xargs claude",
+                        "echo --dangerously-skip-permissions | timeout 60 xargs claude",
+                        'X=$(cat f.sh); eval "$X"; claude -p hi', '"$RUN" -p x; claude -p hi',
+                        "CMD='claude -p x'; eval \"$CMD --dangerously-skip-permissions\"",
+                        "eval 'claude --settings s.json'"):
+            said = self.run_(command)
+            self.asked(said, "command_unreadable", command)
+            self.assertIn("Claude Code", said, command)
+        for command in ('claude -p "hi"', 'P=hello; claude -p "$P"', 'git commit -m claude -m "$(date)"',
+                        "CLAUDE_CONFIG_DIR=/tmp/c ls"):
+            self.assertNotIn("Claude Code", self.run_(command), command)
+
+    def test_a_word_given_to_any_other_program_is_data(self):
+        # Decision 0021: only what Claude Code is given can start it; to any other program the words only read or print.
+        for command in (
+                "git log --grep bypassPermissions", "git grep -n -- --dangerously-skip-permissions",
+                "echo bypassPermissions", "printf '%s\\n' --dangerously-skip-permissions",
+                "export O=--dangerously-skip-permissions", "git commit -m 'Tell, under bypassPermissions'",
+                "git commit -F - <<'EOF'\nclaude --dangerously-skip-permissions\nEOF",
+                "git commit -m \"$(cat <<'EOF'\nbypassPermissions\nEOF\n)\"",
+                "gh pr create --title x --body 'claude --dangerously-skip-permissions is asked about'",
+                "gh pr comment 1 --body bypassPermissions", "gh pr list --search bypassPermissions",
+                "pytest -k bypassPermissions", "python3 -m pytest -k bypassPermissions",
+                "awk '/bypassPermissions/' docs/notes.md", "cat <<'EOF'\nclaude --dangerously-skip-permissions\nEOF",
+                "grep -rn -- --dangerously-skip-permissions tools", "rg bypassPermissions docs",
+                "python3 <<'EOF'\nprint('--dangerously-skip-permissions')\nEOF",
+                "which claude && claude --version; echo --dangerously-skip-permissions",
+                # Past a wrapper, the first program runs, and what follows is its data.
+                "timeout 5 echo claude --dangerously-skip-permissions", "env echo claude --dangerously-skip-permissions",
+                "npx cowsay claude --dangerously-skip-permissions", "sudo -u claude ls --dangerously-skip-permissions",
+                "nice -n 5 printf '%s' claude bypassPermissions", "command -v claude", "type claude",
+                "C=$(which claude); echo bypassPermissions", '"$EDITOR" docs/notes.md'):
+            self.assertNotIn("Claude Code", self.run_(command), command)
 
     def test_every_protected_path_asks_for_every_edit_tool_in_every_tree(self):
         for entry in RULES["protected"]:

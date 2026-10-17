@@ -34,6 +34,21 @@
       "repos/*/*/pulls/*/merge"
     ]
   },
+  "sessions": {
+    "programs": [
+      "claude",
+      "claude-code"
+    ],
+    "words": [
+      "--dangerously-skip-permissions",
+      "--allow-dangerously-skip-permissions",
+      "bypassPermissions"
+    ],
+    "environment": [
+      "CLAUDE_CONFIG_DIR",
+      "HOME"
+    ]
+  },
   "settings": {
     "commands": [
       "ruleset"

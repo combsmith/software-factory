@@ -37,4 +37,4 @@ session that disarms a hook still cannot pass CI, which checks out afresh, or th
 | Boundary | Check |
 |---|---|
 | Under bypassPermissions, spelled exactly, a protected write is told to the session and not asked; under any other mode, or none, it is asked | `tests/test_hooks.py::test_under_bypass_permissions_the_hook_tells_the_session_and_asks_nothing` |
-| Every reason, a reading the hook could not finish among them, is told and not asked under bypassPermissions | `tests/test_hooks.py::test_under_bypass_permissions_the_hook_tells_the_session_and_asks_nothing` |
+| Every reason, a reading the hook could not finish among them, is told and not asked under bypassPermissions | `tests/test_hooks.py::test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked` |
