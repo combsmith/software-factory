@@ -2309,15 +2309,28 @@ class Verify(unittest.TestCase):
 
 
 AGAIN = "; fix the copy or run named here, then run python3 -m tools.mutants again"
-FAILS_A_TEST = "F\n======\nFAIL: test_x (tests.test_x.T)\n------\nAssertionError\n\nRan 1 test\n\nFAILED (failures=1)\n"
+FAILS_A_TEST = ("F\n%s\nFAIL: test_x (tests.test_x.T)\n%s\nAssertionError\n\nRan 1 test\n\nFAILED (failures=1)\n"
+                % ("=" * 70, "-" * 70))
+
+
+MEND = "; mark or mend that test, then run python3 -m tools.mutants again"
+PASSES = (0, 0, "OK\n")
 
 
 def told(behaviour: dict, calls: list):
-    """A stand-in for `mutants.suite`, which answers by the word the mutant wrote into k.py."""
-    def run(work):
-        said = (work / "k.py").read_text().strip()
+    """A stand-in for `mutants.suite`, which answers by the word the mutant wrote into k.py.
+
+    A test run alone is answered by the word with " alone" after it, if `behaviour` has it, and by the word if not. A
+    list of answers gives one to each run in turn, the last given again to the runs after it.
+    """
+    def run(work, first=(), only=None):
+        said = (work / "k.py").read_text().strip() + (" alone" if only else "")
         calls.append(said)
-        wait, status, output = behaviour[said]
+        answers = behaviour.get(said, behaviour.get(said.replace(" alone", "")))
+        if isinstance(answers, list):
+            wait, status, output = answers[min(calls.count(said), len(answers)) - 1]
+        else:
+            wait, status, output = answers
         time.sleep(wait)
         if isinstance(output, Exception):
             raise output
@@ -2330,10 +2343,10 @@ def mutate(*names) -> list:
     return [(name, "k.py", "rule\n", name + "\n") for name in names]
 
 
-def suite_of(test: str) -> pathlib.Path:
-    """A throwaway repo whose tests are one module holding `test`, a method of a TestCase."""
-    return tree({"tests/__init__.py": "", "tests/test_x.py": "import os\nimport time\nimport unittest\n\n\n"
-                 "class T(unittest.TestCase):\n" + test})
+def suite_of(test: str, files: dict = None) -> pathlib.Path:
+    """A throwaway repo whose tests are one module holding `test`, a method of a TestCase, beside any other `files`."""
+    return tree(dict(files or {}, **{"tests/__init__.py": "", "tests/test_x.py": "import os\nimport time\nimport "
+                                     "unittest\n\n\nclass T(unittest.TestCase):\n" + test}))
 
 
 class Mutants(unittest.TestCase):
@@ -2346,6 +2359,7 @@ class Mutants(unittest.TestCase):
             code = mutants.main(mutate(*names) + list(extra), tree({"k.py": "rule\n"}), told(behaviour, calls), 3)
         return code, said.getvalue().splitlines(), calls
 
+    @support.wall_clock
     def test_mutants_are_reported_in_their_order_however_their_runs_finish(self):
         code, lines, calls = self.check({"slow": (0.5, 1, FAILS_A_TEST), "quick": (0, 1, FAILS_A_TEST),
                                          "quicker": (0, 1, FAILS_A_TEST)}, ["slow", "quick", "quicker"])
@@ -2354,6 +2368,7 @@ class Mutants(unittest.TestCase):
         self.assertEqual(lines, ["killed    slow", "killed    quick", "killed    quicker", "3 of 3 mutants killed"])
         self.assertEqual(code, 0)
 
+    @support.wall_clock
     def test_a_run_that_hangs_is_ended_reported_and_fails_the_check(self):
         began = time.monotonic()
         self.assertIsNone(mutants.suite(suite_of("    def test_x(self):\n        time.sleep(60)\n"), 1)[0])
@@ -2397,13 +2412,16 @@ class Mutants(unittest.TestCase):
         said = mutants.verdict(*mutants.suite(where, first=("tests.test_x.T.test_gone",)))
         self.assertEqual(said[0], "ERROR", "a test named that is not there kills nothing")
         calls = []
+        unbroken = tree({"k.py": "rule\n"})
 
         def run(work, **given):
             calls.append(given)
-            return 1, FAILS_A_TEST
+            return (0, "OK\n") if work == unbroken else (1, FAILS_A_TEST)
         for mutant in (("named", "k.py", "rule\n", "x\n", ("tests.test_x.T.test_b",)), ("plain", "k.py", "rule\n", "x\n")):
-            self.assertEqual(mutants.attempt(mutant, tree({"k.py": "rule\n"}), run)[0], "killed")
-        self.assertEqual(calls, [{"first": ("tests.test_x.T.test_b",)}, {}])
+            self.assertEqual(mutants.attempt(mutant, unbroken, run)[0], "killed")
+        alone = {"only": "tests.test_x.T.test_x"}
+        self.assertEqual(calls, [{"first": ("tests.test_x.T.test_b",)}, alone, alone, {}, alone, alone],
+                         "the test that failed ran alone on the mutant and on the unbroken code")
 
     def test_the_summary_counts_only_the_mutants_killed(self):
         stale = [("gone", "k.py", "not there\n", "x\n")]
@@ -2455,3 +2473,102 @@ class Mutants(unittest.TestCase):
             code = mutants.main(mutate("fails"), tree({"k.py": "rule\n"}), told({"rule": (0, 1, FAILS_A_TEST)}, calls))
         self.assertEqual((code, calls), (1, ["rule", "done rule"]))
         self.assertIn("the tests fail before anything is broken", said.getvalue())
+
+    def test_a_failure_the_mutant_causes_kills_it(self):
+        code, lines, calls = self.check({"breaks": (0, 1, FAILS_A_TEST)}, ["breaks"])
+        self.assertEqual((code, lines), (0, ["killed    breaks", "1 of 1 mutants killed"]))
+        self.assertEqual(calls[2:], ["breaks", "done breaks", "breaks alone", "done breaks alone", "rule alone",
+                                     "done rule alone"], "it failed again alone on the mutant, and passed alone unbroken")
+        # From the front door: a test that reads the rule fails on its mutant whole and alone, and passes without it.
+        root = suite_of("    def test_x(self):\n        self.assertEqual(open('k.py').read(), 'rule\\n')\n",
+                        {"k.py": "rule\n"})
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            code = mutants.main(mutate("breaks"), root, mutants.suite, 1)
+        self.assertEqual((code, said.getvalue().splitlines()), (0, ["killed    breaks", "1 of 1 mutants killed"]))
+
+    def test_a_mutant_whose_only_failure_is_unrelated_survives(self):
+        # A test failed under load on the mutant, and passes when run again: the suite runs once more, and passes.
+        code, lines, calls = self.check({"unrelated": [(0, 1, FAILS_A_TEST), PASSES], "unrelated alone": PASSES},
+                                        ["unrelated"])
+        self.assertEqual((code, lines), (1, ["SURVIVED  unrelated", "0 of 1 mutants killed"]))
+        self.assertEqual([c for c in calls if not c.startswith("done ")],
+                         ["rule", "unrelated", "unrelated alone", "rule alone", "unrelated"])
+        # From the front door: a test that fails on its second run, the first on the mutant, and on no other.
+        root = suite_of("    def test_x(self):\n        with open(os.environ['COUNTED'], 'a+') as runs:\n"
+                        "            runs.write('.')\n            runs.seek(0)\n"
+                        "            self.assertNotEqual(runs.read(), '..')\n", {"k.py": "rule\n"})
+        counted = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "counted"
+        with mock.patch.dict(os.environ, {"COUNTED": str(counted)}), \
+                contextlib.redirect_stdout(io.StringIO()) as said:
+            code = mutants.main(mutate("unrelated"), root, mutants.suite, 1)
+        self.assertEqual((code, said.getvalue().splitlines()), (1, ["SURVIVED  unrelated", "0 of 1 mutants killed"]))
+        self.assertEqual(counted.read_text(), "." * 5, "unbroken, whole, alone, alone unbroken, whole again")
+
+    def test_a_test_that_fails_on_the_unbroken_code_too_kills_nothing(self):
+        code, lines, _ = self.check({"x": (0, 1, FAILS_A_TEST), "rule alone": (0, 1, FAILS_A_TEST)}, ["x"])
+        self.assertEqual((code, lines), (1, ["FLAKY     x (tests.test_x.T.test_x failed on the unbroken code too%s)" % MEND,
+                                             "0 of 1 mutants killed"]))
+
+    def test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check(self):
+        code, lines, calls = self.check({"x": (0, 1, FAILS_A_TEST), "x alone": PASSES, "y": (0, 1, FAILS_A_TEST)},
+                                        ["x", "y"])
+        self.assertEqual(lines, ["FLAKY     x (tests.test_x.T.test_x passed when run again on the mutant%s)" % MEND,
+                                 "killed    y", "1 of 2 mutants killed"])
+        self.assertEqual((code, calls.count("x"), calls.count("x alone")), (1, 2, 2), "the suite ran twice on it")
+        # A run alone that hangs or crashes is an ERROR, as any other run is: never killed, and never FLAKY.
+        code, lines, _ = self.check({"x": (0, 1, FAILS_A_TEST), "x alone": (0, None, "")}, ["x"])
+        self.assertEqual(lines[0], "ERROR     x (the run took longer than %d s%s)" % (mutants.TIMEOUT, AGAIN))
+        code, lines, _ = self.check({"x": (0, 1, FAILS_A_TEST), "rule alone": (0, None, "")}, ["x"])
+        self.assertEqual(lines[0], "ERROR     x (the run took longer than %d s%s)" % (mutants.TIMEOUT, AGAIN))
+
+    def test_the_failing_test_is_read_from_the_line_each_python_prints(self):
+        lines = {
+            "FAIL: test_x (tests.m.T)": "tests.m.T.test_x",                     # 3.9 and 3.10
+            "FAIL: test_x (tests.m.T.test_x)": "tests.m.T.test_x",              # 3.11 and later
+            "ERROR: test_x (tests.m.T)": "tests.m.T.test_x",
+            "FAIL: test_x (tests.m.T) [one] (i=1)": "tests.m.T.test_x",         # a subtest
+            "FAIL: test_x (tests.m.T.test_x) (i=1)": "tests.m.T.test_x",
+            "ERROR: setUpClass (tests.m.T)": "tests.m.T",                       # the class
+            "FAIL: test_x (tests.m.T)\nFAIL: test_x (tests.m.T.test_x)": "tests.m.T.test_x",
+            "FAIL: test_x (tests.m.T)\nFAIL: test_y (tests.m.T)": None,          # two tests: which is unknown
+            "FAILED (failures=1)": None,
+            "FAIL: test x (tests.m.T)": None,
+        }
+        for said, test in lines.items():
+            output = "F\n" + "".join("%s\n%s\n%s\nAssertionError\n" % ("=" * 70, line, "-" * 70)
+                                     for line in said.splitlines())
+            self.assertEqual(mutants.failed_test(output), test, said)
+        # A line of that form in a test's own message is not unittest's.
+        output = "F\n%s\nFAIL: test_x (tests.m.T)\n%s\nAssertionError: FAIL: test_y (tests.m.T)\nFAIL: test_y (tests.m.T)\n"
+        self.assertEqual(mutants.failed_test(output % ("=" * 70, "-" * 70)), "tests.m.T.test_x")
+        # The line this Python prints.
+        status, output = mutants.suite(suite_of("    def test_x(self):\n        self.fail()\n"))
+        self.assertEqual(mutants.failed_test(output), "tests.test_x.T.test_x")
+        # A failure whose test cannot be read is an ERROR, and kills nothing.
+        code, lines, _ = self.check({"x": (0, 1, "F\nFAILED (failures=1)\n")}, ["x"])
+        self.assertEqual(lines[0], "ERROR     x (the one test that failed cannot be read from the output%s)" % AGAIN)
+
+    def test_every_test_timed_by_the_wall_clock_is_marked_and_skipped_when_mutating(self):
+        # A test that reads the clock, or sleeps, can fail under load for its own reasons, and must not kill a mutant.
+        clock = {"monotonic", "monotonic_ns", "perf_counter", "perf_counter_ns", "time", "time_ns", "sleep"}
+        marked, reads = set(), set()
+        for path in sorted((ROOT / "tests").glob("test_*.py")):
+            for node in ast.walk(ast.parse(path.read_text())):
+                if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
+                    continue
+                if any("wall_clock" in ast.dump(d) for d in node.decorator_list):
+                    marked.add(node.name)
+                if any(isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "time"
+                       and n.attr in clock for n in ast.walk(node)):
+                    reads.add(node.name)
+        # The order of the runs is told by a stand-in that sleeps: that test reads no clock of its own.
+        timed = reads | {"test_mutants_are_reported_in_their_order_however_their_runs_finish"}
+        self.assertEqual(timed - marked, set(), "mark these @wall_clock, from tests/support.py")
+        self.assertIn("test_a_wildcard_that_would_backtrack_is_read_within_the_budget", marked)
+
+        def test_x():
+            pass
+        with mock.patch.dict(os.environ, {"MUTATING": "1"}):
+            self.assertTrue(getattr(support.wall_clock(test_x), "__unittest_skip__", False))
+        with mock.patch.dict(os.environ, {"MUTATING": ""}):
+            self.assertIs(support.wall_clock(test_x), test_x, "in make verify it runs as it is")

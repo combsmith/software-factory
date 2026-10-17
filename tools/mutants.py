@@ -62,6 +62,12 @@ IDENTITY_TESTS = "tests.test_hooks.Identity."
 NO_REFSPEC_TESTS = (IDENTITY_TESTS + "test_a_push_with_no_refspec_reads_what_git_would_push",)
 PUSH_SETTING_TESTS = (IDENTITY_TESTS + "test_push_settings_given_in_the_command_are_refused",)
 REDEFINE_TESTS = (IDENTITY_TESTS + "test_a_git_the_command_may_redefine_is_refused",)
+RUNNER = "tests.test_tools.Mutants."
+UNRELATED_TESTS = (RUNNER + "test_a_mutant_whose_only_failure_is_unrelated_survives",)
+UNBROKEN_TESTS = (RUNNER + "test_a_test_that_fails_on_the_unbroken_code_too_kills_nothing",)
+FLAKY_TESTS = (RUNNER + "test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check",)
+LINE_TESTS = (RUNNER + "test_the_failing_test_is_read_from_the_line_each_python_prints",)
+CLOCK_TESTS = (RUNNER + "test_every_test_timed_by_the_wall_clock_is_marked_and_skipped_when_mutating",)
 
 MUTANTS = [
     ("incomplete facts are trusted", "kernel/derive.py",
@@ -352,6 +358,32 @@ MUTANTS = [
      "    if not 0 <= index" " < count:\n", "    if False:\n"),
     ("a shard that holds no mutant passes", "tools/mutants.py",
      "    if not" " chosen:\n", "    if False:\n"),
+    # Decision 0027: a mutant is killed by a test that fails on it twice and passes without it.
+    ("a failure is not run again on the mutant", "tools/mutants.py",
+     "    again = verdict(*run(work," " only=test))\n", '    again = ("killed", "")\n', UNRELATED_TESTS + FLAKY_TESTS),
+    ("a failure is not run again on the unbroken code", "tools/mutants.py",
+     "    before = verdict(*run(root," " only=test))\n", '    before = ("SURVIVED", "")\n', UNBROKEN_TESTS),
+    ("an unconfirmed failure is taken as a kill", "tools/mutants.py",
+     "            if outcome != UNCONFIRMED:\n" "                return outcome, why\n",
+     '            return ("killed", "") if outcome == UNCONFIRMED else (outcome, why)\n',
+     UNRELATED_TESTS + UNBROKEN_TESTS),
+    ("an unconfirmed failure is FLAKY with no second run", "tools/mutants.py",
+     "        for _ in range" "(2):\n", "        for _ in range(1):\n", UNRELATED_TESTS),
+    ("FLAKY is counted as killed", "tools/mutants.py",
+     'killed += outcome' ' == "killed"', 'killed += outcome in ("killed", "FLAKY")', FLAKY_TESTS),
+    ("the failure line of Python 3.10 and earlier is read as the class", "tools/mutants.py",
+     '            found.add(where' ' + "." + method)\n', "            found.add(where)\n", LINE_TESTS),
+    ("the failure line of Python 3.11 and later is read as 3.10's", "tools/mutants.py",
+     'if method == "setUpClass"' ' or where.endswith("." + method):', 'if method == "setUpClass":', LINE_TESTS),
+    ("a failure in setUpClass is read as a test", "tools/mutants.py",
+     'if method == "setUpClass"' " or ", "if ", LINE_TESTS),
+    ("a failure line in a test's own message is read as unittest's", "tools/mutants.py",
+     'r"^={70}' '\\n(?:FAIL|ERROR)', 'r"^(?:FAIL|ERROR)', LINE_TESTS),
+    ("two tests that failed are read as one", "tools/mutants.py",
+     "found.pop() if len(found)" " == 1 else None", "found.pop() if found else None", LINE_TESTS),
+    ("a test timed by the wall clock is run when mutating", "tests/support.py",
+     '    if os.environ.get("MUTATING"):\n        return unittest.skip("a test timed by the wall clock',
+     '    if False:\n        return unittest.skip("a test timed by the wall clock', CLOCK_TESTS),
     ("a Lens's job may call a reusable workflow", "tools/check_workflows.py",
      '\n                            ("uses" in inside, "calls a reusable workflow with uses:")', ""),
     ("a Lens's workflow need not run on merge_group", "tools/check_workflows.py",
@@ -1239,19 +1271,30 @@ FAILED = re.compile(r"^FAILED \((?:failures|errors)=", re.M)
 UNIMPORTABLE = "unittest.loader._FailedTest"
 # How every ERROR's reason ends. An ERROR says nothing of the rule, so the run is mended and made again.
 AGAIN = "; fix the copy or run named here, then run python3 -m tools.mutants again"
+# The line unittest prints under its rule of = for the test that failed or raised: its method, then its class in 3.10
+# and earlier or its whole id from 3.11, then any subtest. A failure in setUpClass names the class. The rule above
+# tells it from a line of the same form in a test's own message.
+FAILURE_LINE = re.compile(r"^={70}\n(?:FAIL|ERROR): (\w+) \(([\w.]+)\)(?: .*)?$", re.M)
+# Said of a failure not shown to be the mutant's: one more run of the suite on the mutant decides.
+UNCONFIRMED = "unconfirmed"
+# How a FLAKY's reason ends. FLAKY fails the run as an ERROR does: nobody has shown that a test notices the mutant.
+MEND = "; mark or mend that test, then run python3 -m tools.mutants again"
 
 
-def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = ()) -> tuple:
+def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only: str = None) -> tuple:
     """Run the tests in `cwd` to the first failure: (exit status, output), the status None if it timed out.
 
     The tests named in `first` run on their own before the rest: when they pass, or none is named, the whole suite
-    runs, so a mutant they miss is still read by every test.
+    runs, so a mutant they miss is still read by every test. The one test, or class, named in `only` runs alone.
     """
+    if only:
+        return _unittest(cwd, timeout, ["-q", "-f", only])
     if first:
         status, output = _unittest(cwd, timeout, ["-q", "-f", *first])
         if status != 0:
             return status, output
-    return _unittest(cwd, timeout, ["discover", "-q", "-f", "tests"])
+    # From the top, as verify.py discovers them: a test's id is then its dotted path, as `first` and `only` name it.
+    return _unittest(cwd, timeout, ["discover", "-q", "-f", "-s", "tests", "-t", "."])
 
 
 def _unittest(cwd: pathlib.Path, timeout: float, args: list) -> tuple:
@@ -1282,8 +1325,45 @@ def verdict(status, output: str) -> tuple:
     return "ERROR", "exit status %d and no test failed, ending %r%s" % (status, last, AGAIN)
 
 
+def failed_test(output: str):
+    """The id of the one test that failed in `output`, as unittest takes it to run that test alone; else None."""
+    found = set()
+    for method, where in FAILURE_LINE.findall(output):
+        if method == "setUpClass" or where.endswith("." + method):
+            found.add(where)
+        else:
+            found.add(where + "." + method)
+    return found.pop() if len(found) == 1 else None
+
+
+def confirm(output: str, work: pathlib.Path, root: pathlib.Path, run) -> tuple:
+    """Is the failure in `output` the mutant's? ("killed", ""), (UNCONFIRMED, why) or ("ERROR", why).
+
+    The test that failed runs alone twice more: on the mutant in `work`, where it must fail again, and on the unbroken
+    code in `root`, where it must pass. Only both tell a failure the mutant causes from one already broken and from one
+    caused by load.
+    """
+    test = failed_test(output)
+    if test is None:
+        return "ERROR", "the one test that failed cannot be read from the output%s" % AGAIN
+    again = verdict(*run(work, only=test))
+    before = verdict(*run(root, only=test))
+    for outcome, why in (again, before):
+        if outcome == "ERROR":
+            return outcome, why
+    if again[0] == "killed" and before[0] == "SURVIVED":
+        return "killed", ""
+    if before[0] != "SURVIVED":
+        return UNCONFIRMED, "%s failed on the unbroken code too%s" % (test, MEND)
+    return UNCONFIRMED, "%s passed when run again on the mutant%s" % (test, MEND)
+
+
 def attempt(mutant: tuple, root: pathlib.Path, run) -> tuple:
-    """Break one rule in a fresh copy of `root` and run the tests there: (outcome, why)."""
+    """Break one rule in a fresh copy of `root` and run the tests there: (outcome, why).
+
+    A failure kills the mutant only once `confirm` shows it is the mutant's. One that is not runs the suite once more
+    on the mutant: a pass is SURVIVED, and a second failure that is not the mutant's is FLAKY.
+    """
     name, rel, old, new, *first = mutant
     with tempfile.TemporaryDirectory() as tmp:
         work = pathlib.Path(tmp) / "repo"
@@ -1293,7 +1373,16 @@ def attempt(mutant: tuple, root: pathlib.Path, run) -> tuple:
         if text.count(old) != 1:
             return "STALE", "the code it mutates has changed"
         target.write_text(text.replace(old, new))
-        return verdict(*(run(work, first=first[0]) if first else run(work)))
+        named = {"first": first[0]} if first else {}
+        for _ in range(2):
+            status, output = run(work, **named)
+            outcome, why = verdict(status, output)
+            if outcome != "killed":
+                return outcome, why
+            outcome, why = confirm(output, work, root, run)
+            if outcome != UNCONFIRMED:
+                return outcome, why
+        return "FLAKY", why
 
 
 def guarded(mutant: tuple, root: pathlib.Path, run) -> tuple:
