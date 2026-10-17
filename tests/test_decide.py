@@ -1648,6 +1648,11 @@ class Acceptance(unittest.TestCase):
             d = go(facts(acceptance=contract(results=self.BOTH, by=by), queue=True, reviews=APPROVED), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]),
                              ("held", "contract_not_approved", "act", "dequeue"), by)
+        # Nor does a person's approving review of the content, or of the commit, where the facts name no approval at all.
+        for reviews in ([review(kind="human", name=MAINTAINER["name"])],
+                        [review(kind="human", name=MAINTAINER["name"], content="sha256:c0c0", commit=COMMIT)]):
+            d = go(facts(acceptance=contract(results=self.BOTH, by=None), reviews=reviews, **AGENT), REVIEWED)
+            self.assertEqual((d["state"], d["reason"]), ("held", "contract_not_approved"), reviews)
         # Nor does a person's review under the same name: the approval is read as the approver's, of the kind it names.
         for by in (REVIEWER_APP, ADVISORY, STRANGER):
             namesake = review(kind="human", name=by["name"], content="sha256:c0c0", commit=COMMIT)
