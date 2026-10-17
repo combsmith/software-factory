@@ -1,0 +1,5 @@
+# Fake secrets in the hooks' and the redaction check's own tests, at the commit that added each.
+d0814ef217d9fc062c39e9b5a803a4aa987d6e26:tests/test_hooks.py:curl-auth-user:895
+ff255151ff8b52d23fd88b10a9d629ba06fc3e99:tests/test_hooks.py:curl-auth-user:636
+a69fae72632192a4d5fc14f30812cc210420a84a:tests/test_tools.py:generic-api-key:745
+15a767fd0a26ae4a3d1a72d9a3025e3cf552ed1d:tests/test_tools.py:generic-api-key:745
