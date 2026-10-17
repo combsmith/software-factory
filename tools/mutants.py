@@ -728,7 +728,7 @@ MUTANTS = [
      ' "protected_paths_unreadable",\n', "\n"),
     ("a name `..` is read", "kernel/terms.py",
      'NOT_A_NAME = ("", ".", "..")', 'NOT_A_NAME = ("", ".")'),
-    ("an empty name is read", "kernel/terms.py",
+    ("an empty name in a path is read", "kernel/terms.py",
      'NOT_A_NAME = ("", ".", "..")', 'NOT_A_NAME = (".", "..")'),
     ("a list of paths that is no list is read", "kernel/derive.py",
      "    if not (isinstance(changed, list) and all(", "    if not (all("),
