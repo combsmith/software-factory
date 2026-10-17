@@ -475,6 +475,8 @@ class Identity(unittest.TestCase):
                         "PATH=/tmp/x:$PATH git push", "export PATH=/tmp:$PATH; git commit -m x", "env PATH=/x git push",
                         "(PATH=/x; git push)", "path=(/tmp $path); git push", ": ${PATH:=/x}; git push",
                         "read PATH < f; git push", "PATH+=:/x; gh pr create", "bash -c 'PATH=/x git push'",
+                        "export A=1; export PATH=/x; git push", "readonly A=1; readonly PATH=/x; git push",
+                        "declare A=1; declare -x PATH=/x; git commit -m x",
                         # A variable the command set, as the shell expands it, and a variable named at run time.
                         "E=PATH; env $E=/tmp git push", "E=PATH; $E=/tmp git push", "E=PATH; export $E=/tmp; git push",
                         # A path to another git, and a wrapper not on the list.
@@ -501,7 +503,11 @@ class Identity(unittest.TestCase):
                         "time grep 'git push' notes.md; git commit -m x",
                         # Prose in a commit message or a pull request is data, never a setting.
                         'git commit -m "read the file on the hook\'s PATH"', 'git commit -m "fix path=value parsing"',
-                        "git commit -m 'export PATH=/x is refused'", 'gh pr create --title x --body "set PATH=/tmp"'):
+                        "git commit -m 'export PATH=/x is refused'", 'gh pr create --title x --body "set PATH=/tmp"',
+                        # ...and prose about a function is no definition.
+                        'git commit -m "make the function git uses faster"',
+                        'git commit -m "the function git uses {x} (and gh)"', "git commit -m 'fix git() wrapper'",
+                        "echo the function git uses; git push"):
             self.assertEqual(self.codes(command), "", command)
         # A wrapper named by its path passes when it is the file the hook's PATH finds.
         self.assertEqual(self.codes("/usr/bin/env git push", path=self.path + os.pathsep + "/usr/bin"), "")
@@ -1036,6 +1042,7 @@ class ProtectedPaths(Asks):
                 "builtin alias c=claude; c --dangerously-skip-permissions",
                 "'f'() { claude \"$@\"; }; f --dangerously-skip-permissions",      # a name however it is quoted
                 "bash -c 'f(''){ claude; }; f --dangerously-skip-permissions'",      # read in the script the shell runs
+                "function g\n{ claude; }; g --dangerously-skip-permissions",           # its body on the next line
                 "function g h { claude \"$@\"; }; h --dangerously-skip-permissions",     # each name zsh's function takes
                 # -- ends a wrapper's options, and the words before its program still come first.
                 "timeout -- 60 claude --dangerously-skip-permissions",
@@ -1061,6 +1068,8 @@ class ProtectedPaths(Asks):
         for word in RULES["sessions"]["words"]:
             self.asked(self.run_("claude %s -p x" % word), "unasked_session", word)
         for command in ("claude -p 'do the next task'", "claude --permission-mode acceptEdits -p x",
+                        # Prose about a function is no definition: f stays a program of its own.
+                        'claude -p x; git commit -m "make the function f uses {faster}"; f --dangerously-skip-permissions',
                         "claude --dangerously-skip-permissions-not -p x", "claude --settings '{\"model\": \"x\"}' -p x",
                         "claude -p <<'EOF'\nmay I use --dangerously-skip-permissions?\nEOF"):
             self.assertEqual(self.run_(command), "", command)

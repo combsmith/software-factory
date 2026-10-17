@@ -672,9 +672,13 @@ def past_wrapper(words: list, at: int, program: str, strings=()) -> tuple:
 
 # ---- names the command gives a new meaning: functions, aliases, a path hashed for a name
 
-# A function the command defines: f() { ...; }, or function f { ...; } and zsh's function f g { ...; }. A name is read
-# as the shell reads it, its quotes and backslashes taken out: 'git'() and \git() define git.
-DEFINES = re.compile(r"(?:^|[\s;&|(){}])function\s+([^{}()<>;&|\n]*)|(?:^|[\s;&|(){}])([^\s;&|(){}<>]+)\s*\(\s*\)")
+# A function the command defines: f() { ...; }, or function f { ...; } and zsh's function f g { ...; }, its body opened
+# on the same line or the next. A name is read as the shell reads it, its quotes and backslashes taken out: 'git'() and
+# \git() define git. It is read in a script with its quoted data masked (_masked), so prose is never a definition.
+DEFINES = re.compile(r"(?:^|[\s;&|(){}])function\s+([^{}()<>;&|\n]*?)\s*(?:\(\s*\)\s*)?(?=[{(])|"
+                     r"(?:^|[\s;&|(){}])([^\s;&|(){}<>]+)\s*\(\s*\)")
+# What a quote holds that the shell would otherwise read as the end of a word or a command.
+MASKED = set(" \t\r\n;&|(){}<>`$")
 # zsh's tables of them: functions[f]=..., aliases[a]=..., galiases[a]=..., and those it holds disabled.
 TABLES = re.compile(r"(?:^|[\s;&|(){}])(?:dis_)?(functions|aliases|galiases)\[['\"]?([^]'\"]*)['\"]?\]\+?=")
 # A command substitution that names a program's path: $(which claude), `command -v git` and their like.
@@ -689,7 +693,33 @@ def _scripts(text: str, spend=None) -> tuple:
     script with its here-documents' bodies left out. Raises ValueError or RecursionError when it cannot be split."""
     texts = []
     found = commands(text, spend, texts)
-    return found, [without_heredocs(script) for script in texts]
+    return found, [_masked(without_heredocs(script)) for script in texts]
+
+
+def _masked(script: str) -> str:
+    """`script` with its quotes taken out and what they hold made one word: each character that would end a word or a
+    command is `_`. A name stays as the shell reads it ('git'() is git()); prose in a commit message is one word, never
+    a definition. A script a quote holds that runs (sh -c '...', eval, "$(...)") is read as a script of its own."""
+    out, quote, i = [], None, 0
+    while i < len(script):
+        c = script[i]
+        if quote is None and c == "\\" and i + 1 < len(script):
+            out.append(script[i:i + 2])
+            i += 2
+            continue
+        if quote is None and c in "'\"":
+            quote = c
+        elif quote is not None and c == quote:
+            quote = None
+        elif quote is not None:
+            if quote == '"' and c == "\\" and i + 1 < len(script):
+                i += 1
+                c = script[i]
+            out.append("_" if c in MASKED else c)
+        else:
+            out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def functions(text: str, spend=None) -> set:
@@ -763,7 +793,9 @@ def sets(name: str, text: str, spend=None) -> bool:
             if ASSIGNMENT.match(word) or word in PREFIXES:
                 at += 1
             elif command in SETTERS:
-                return any(assigns.match(w) or w == name for w in words[at + 1:])
+                if any(assigns.match(w) or w == name for w in words[at + 1:]):
+                    return True
+                break       # this command sets other names: a later one may set this
             elif command in WRAPPED:
                 past = past_wrapper(words, at, command)[0]
                 if any(assigns.match(w) for w in words[at + 1:past]):
