@@ -1155,7 +1155,7 @@ class Workflows(unittest.TestCase):
         install = scan[scan.index("      - name: Install gitleaks"):scan.index("      - name: Run gitleaks")]
         self.assertIn(rm + line, scan)
         self.assertIn(ref, step)
-        ran, checkout = "does not run, as its last step's whole block", "does not check out the head and then the base"
+        ran, checkout = "does not run, as its last step's whole literal block", "does not check out the head and then the base"
         shape = "does not run, in this order and nothing else"
         installed = "does not install gitleaks by INSTALL_RUN, word for word"
         cases = [(scan.replace("--config base/.gitleaks.toml", "--config .gitleaks.toml"), ran),
@@ -1246,6 +1246,22 @@ class Workflows(unittest.TestCase):
                  (scan.replace(checksum, checksum.replace('"', "")), "GITLEAKS_CHECKSUM once"),
                  (scan.replace(checksum, ""), "GITLEAKS_CHECKSUM once")]
         for text, said in cases:
+            self.assertNotEqual(text, scan, said)
+            self.assertTrue(caught(check_workflows.scan_problems(text), said), (said, text))
+        # read() leaves a line with a tab or a carriage return out of a block, and bash runs it: a file with one holds
+        # neither block. A folded block, `>`, is one command, not the lines it is written in.
+        tabbed = "          \tprintf 'exit 0' | sudo tee /usr/local/bin/gitleaks\n"
+        last = "          sudo mv /tmp/gitleaks /usr/local/bin\n"
+        scanned = "          " + check_workflows.SCAN_RUN[1] + "\n"
+        ran = "does not run, as its last step's whole literal block"
+        for text, said in ((scan.replace(last, last + tabbed), installed),
+                           (scan.replace(last, last + tabbed), ran),
+                           (scan.replace(scanned, scanned + tabbed), ran),
+                           (scan.replace(scanned, scanned + tabbed), installed),
+                           (scan.replace(last, last.replace("\n", "\r\n")), installed),
+                           (scan.replace("        run: |\n" + block, "        run: >\n" + block), installed),
+                           (scan.replace("        run: |\n          rm -f", "        run: >\n          rm -f"), ran),
+                           (scan.replace("        run: |\n          rm -f", "        run: |-\n          rm -f"), ran)):
             self.assertNotEqual(text, scan, said)
             self.assertTrue(caught(check_workflows.scan_problems(text), said), (said, text))
         # Another version and checksum of their shapes are free: that is a bump, the reviewer's to judge.

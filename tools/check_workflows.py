@@ -294,6 +294,14 @@ def _lines(entry) -> list:
     return (entry["body"] or [entry["value"]]) if entry and entry["key"] == "run" else []
 
 
+def _block(entry, bad: list):
+    """The command lines of a `run:` entry as bash is given them: None where a line of its file cannot be read, which
+    read() leaves out of every block, or where its block is not literal, `|`, since `>` folds its lines into one."""
+    if bad or (entry and entry["body"] and entry["value"] != "|"):
+        return None
+    return _lines(entry)
+
+
 def scan_problems(text: str) -> list:
     """Why the secret scan in `text` could be passed by the head it scans: its rules not read from the base.
 
@@ -301,9 +309,10 @@ def scan_problems(text: str) -> list:
     under `base/`, at the base's commit; the install, whose whole block is INSTALL_RUN, given a version and a checksum
     of their shapes; and the scan, whose whole block is SCAN_RUN, telling gitleaks the base's `.gitleaks.toml` and
     `.gitleaksignore` on the line after the head's `.gitleaksignore` is deleted. Nothing sets an environment, a
-    directory or a container that the scan could run in instead.
+    directory or a container that the scan could run in instead. Both blocks are literal, and a file with a line
+    read() cannot read, which it leaves out of a block, holds neither.
     """
-    entries, _ = read(text)
+    entries, bad = read(text)
     problems = []
     jobs = [e["key"] for e in entries if e["path"] == ["jobs"]]
     steps = _steps(entries, jobs[0]) if len(jobs) == 1 else []
@@ -324,9 +333,10 @@ def scan_problems(text: str) -> list:
         problems.append("%s does not run, in this order and nothing else, the head's checkout, the base's, the "
                         "install and the scan, with no environment, directory or container of its own: a step could "
                         "change base/ or what the scan reads" % SCAN)
-    if _lines(install.get("run")) != INSTALL_RUN:
-        problems.append("%s does not install gitleaks by INSTALL_RUN, word for word, as its third step's whole block: "
-                        "another install could put another program where the scan runs gitleaks" % SCAN)
+    if _block(install.get("run"), bad) != INSTALL_RUN:
+        problems.append("%s does not install gitleaks by INSTALL_RUN, word for word, as its third step's whole literal "
+                        "block in a file read whole: another install could put another program where the scan runs "
+                        "gitleaks" % SCAN)
     lines = text.split("\n")
     for key, shape in SCAN_ENV.items():
         values = [lines[e["line"] - 1].strip()[len(key) + 2:] for e in entries if e["key"] == key and install.get("env")
@@ -334,9 +344,10 @@ def scan_problems(text: str) -> list:
         if len(values) != 1 or not shape.fullmatch(values[0]):
             problems.append("%s does not give the install %s once, as %s: a value of another shape could change what "
                             "the install fetches" % (SCAN, key, shape.pattern))
-    if _lines(steps[-1].get("run") if steps else None) != SCAN_RUN:
-        problems.append("%s does not run, as its last step's whole block, `%s` on the line after `%s`: it could read "
-                        "the head's .gitleaks.toml or .gitleaksignore, and a change could widen the allowlist it needs"
+    if _block(steps[-1].get("run") if steps else None, bad) != SCAN_RUN:
+        problems.append("%s does not run, as its last step's whole literal block in a file read whole, `%s` on the line "
+                        "after `%s`: it could read the head's .gitleaks.toml or .gitleaksignore, and a change could "
+                        "widen the allowlist it needs"
                         % (SCAN, SCAN_RUN[1], SCAN_RUN[0]))
     return problems
 
