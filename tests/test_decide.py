@@ -1533,7 +1533,7 @@ class Acceptance(unittest.TestCase):
             "with no results": without("results"), "with no head": without("head"),
             "with no approval": without("approved"),
             "an approval that is no object": bad(approved=["AC-1"]),
-            "an approval with no criteria": approval(criteria=[]),
+            "an approval with no criteria": approval([], criteria=[]),
             "an approval's criteria that are no list": approval(criteria="AC-1"),
             "an approval with no list of criteria": {"approved": {"digest": DIGEST, "by": dict(MAINTAINER)},
                                                      "head": DIGEST, "results": []},
