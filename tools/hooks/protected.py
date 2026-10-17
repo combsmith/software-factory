@@ -1071,7 +1071,8 @@ class Command:
             self.ask("merge", "a push that names no branch goes where git's configuration says, which the hook cannot "
                               "read, and it may be %s" % branch)
             return False
-        if ((read["default"] or "").casefold() or None) not in PUSH_DEFAULTS or read["refspecs"] or read["mirror"]:
+        default = None if read["default"] is None else read["default"].casefold()   # set to "", it is no default
+        if default not in PUSH_DEFAULTS or read["refspecs"] or read["mirror"]:
             self.ask("merge", "a push that names no branch goes where push.default, remote.*.push or remote.*.mirror "
                               "says, which may be %s" % branch)
             return False

@@ -637,8 +637,10 @@ def past_prefixes(words: list, at: int = 0) -> tuple:
             passed.append((word, options))
         elif ASSIGNMENT.match(word):
             at += 1
-        elif word == "function":
-            at += 2
+        elif word == "function":    # its names, one or (zsh) more, up to the body
+            at += 1
+            while at < len(words) and words[at] not in ("{", "()") and not words[at].startswith("("):
+                at += 1
         else:
             break
     return at, passed
@@ -652,8 +654,8 @@ def past_wrapper(words: list, at: int, program: str, strings=()) -> tuple:
     at += 1
     while at < len(words):
         option, given, _ = words[at].partition("=")
-        if words[at] == "--":
-            return at + 1, None
+        if words[at] == "--":       # its options end; the words before its program do not (timeout -- 60 cmd)
+            return min(at + 1 + positional, len(words)), None
         if ASSIGNMENT.match(words[at]):
             at += 1
         elif words[at].startswith("-") and words[at] != "-":
@@ -670,16 +672,16 @@ def past_wrapper(words: list, at: int, program: str, strings=()) -> tuple:
 
 # ---- names the command gives a new meaning: functions, aliases, a path hashed for a name
 
-# A function the command defines: f() { ...; } or function f { ...; }.
-DEFINES = re.compile(r"(?:^|[\s;&|(){}])function\s+([A-Za-z_][\w.-]*)|"
-                     r"(?:^|[\s;&|(){}])([A-Za-z_][\w.-]*)\s*\(\s*\)")
+# A function the command defines: f() { ...; }, or function f { ...; } and zsh's function f g { ...; }. A name is read
+# as the shell reads it, its quotes and backslashes taken out: 'git'() and \git() define git.
+DEFINES = re.compile(r"(?:^|[\s;&|(){}])function\s+([^{}()<>;&|\n]*)|(?:^|[\s;&|(){}])([^\s;&|(){}<>]+)\s*\(\s*\)")
 # zsh's tables of them: functions[f]=..., aliases[a]=..., galiases[a]=..., and those it holds disabled.
 TABLES = re.compile(r"(?:^|[\s;&|(){}])(?:dis_)?(functions|aliases|galiases)\[['\"]?([^]'\"]*)['\"]?\]\+?=")
 # A command substitution that names a program's path: $(which claude), `command -v git` and their like.
-WHICH = re.compile(r"(?:\$\(|`)\s*(?:which|command\s+-v|type\s+-p|whence\s+-p)\s+([^\s)`'\"]+)\s*(?:\)|`)")
+WHICH = re.compile(r"(?:\$\(|`)\s*(?:which|command\s+-v|type\s+-p|whence\s+-p)\s+([\w./+-]+)\s*(?:\)|`)")
 # A variable set to one: C=$(which claude).
 WHICH_INTO = re.compile(r"([A-Za-z_]\w*)=[\"']?(?:\$\(|`)\s*(?:which|command\s+-v|type\s+-p|whence\s+-p)\s+"
-                        r"([^\s)`'\"]+)")
+                        r"([\w./+-]+)\s*(?:\)|`)")
 
 
 def _scripts(text: str, spend=None) -> tuple:
@@ -698,9 +700,15 @@ def functions(text: str, spend=None) -> set:
     if "(" not in text and "function" not in text:
         return names        # each definition holds one or the other, and a script it runs is made of its text
     for script in _scripts(text, spend)[1]:
-        names |= {a or b for a, b in DEFINES.findall(script)}
+        for listed, single in DEFINES.findall(script):
+            names |= {_unquoted(name) for name in (listed.split() if listed else [single])}
         names |= {name for table, name in TABLES.findall(script) if table == "functions"}
     return names
+
+
+def _unquoted(name: str) -> str:
+    """A name as the shell reads it: its quotes and backslashes taken out."""
+    return re.sub(r"[\\'\"]", "", name)
 
 
 def aliases(words: list) -> list:
@@ -727,6 +735,43 @@ def defined(text: str, spend=None) -> set:
         if command in ("hash", "enable"):
             names |= {w.split("=", 1)[0] for w in args if not w.startswith("-")}
     return names
+
+
+# The built-ins that write or export a variable a word names, and env, which sets one for the program it runs.
+SETTERS = {"export", "declare", "typeset", "local", "readonly", "read", "mapfile", "readarray", "printf", "getopts",
+           "unset", "let", "env"}
+
+
+def sets(name: str, text: str, spend=None) -> bool:
+    """Whether the command may set the variable `name`, read from the words the shell runs, in its text and in each
+    script it runs: an assignment before a command, alone, or given to a wrapper (NAME=, NAME+=, NAME[i]=); the name
+    given to a built-in that writes or exports it (export, declare, read, printf -v, unset and the like); a for or a
+    select over it; and ${NAME:=v} or arithmetic anywhere. A quoted word given to any other program is data: a commit
+    message that says NAME= sets nothing. Raises ValueError or RecursionError when the text cannot be split."""
+    if name in assigned_elsewhere(text):
+        return True
+    assigns = re.compile(r"^%s(?:\[[^]]*\])?\+?=" % re.escape(name))
+    for words, _ in commands(text, spend):
+        if words[:1] in (["for"], ["select"]) and words[1:2] == [name]:
+            return True
+        at = 0
+        while at < len(words):
+            word = words[at]
+            if assigns.match(word):
+                return True
+            command = os.path.basename(word)
+            if ASSIGNMENT.match(word) or word in PREFIXES:
+                at += 1
+            elif command in SETTERS:
+                return any(assigns.match(w) or w == name for w in words[at + 1:])
+            elif command in WRAPPED:
+                past = past_wrapper(words, at, command)[0]
+                if any(assigns.match(w) for w in words[at + 1:past]):
+                    return True
+                at = past
+            else:
+                break
+    return False
 
 
 def set_anywhere(name: str, text: str) -> bool:

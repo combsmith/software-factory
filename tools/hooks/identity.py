@@ -166,9 +166,8 @@ VARIABLE_WHOLE = re.compile(r"^\$\{?([A-Za-z_]\w*)\}?$")     # a word that is on
 # program they run; before git, so do the wrappers and prefixes that run it (nohup env X=1 git).
 SETS_LOCALLY = {"env", "sudo"}
 # A name the command may define so that it runs in place of git or gh: they, and the words that run them as they are.
-REDEFINABLE = {"git", "gh", "builtin"} | shell.AS_IS
-# zsh's path, the array PATH is made of: set by path=(...), path+=(...) or path[1]=...
-ZSH_PATH = re.compile(r"(?<![\w./$-])path(?:\[[^]]*\])?\+?=")
+# $(which git) is read as the git on PATH, so which, type and whence, which say where it is, are among them.
+REDEFINABLE = {"git", "gh", "builtin", "which", "type", "whence"} | shell.AS_IS
 # gh's commands that write, as WRITE_TEXT names them, given to a program the hook cannot read.
 GH_WRITES = {"pr", "release", "api"}
 RUNS_GIT = shell.WRAPPERS | shell.PREFIXES
@@ -257,24 +256,27 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
     values, present, branches = shell.environment(text)     # what the command leaves in the environment, fail-closed
     calls, always, inline = [], [], []
     blind = _redefined(text)        # a git the command may redefine is one the hook cannot read (decision 0024)
-    for words, targets in commands:
+    for raw, targets in commands:
+        # A word is read with what the command set unconditionally put in for each variable it holds.
+        words, targets = [expand(w, values) for w in raw], [expand(t, values) for t in targets]
         inline += [("identity_set_in_command", "%s is set in the command; the hook reads only what is configured"
                     % w.split("=")[0]) for w in words if ENVIRONMENT.match(w)]
         inline += [("identity_set_in_command", "the command touches git's configuration (%s); change it in a command "
                                                "of its own" % w) for w in words + targets if GIT_CONFIG_FILE.search(w)]
         if not words:
             continue
-        if words[0] in ("cd", "pushd"):
-            here = _join(here, words[1]) if len(words) > 1 and words[1] != "-" else None
+        if raw[0] in ("cd", "pushd"):
+            here = _join(here, raw[1]) if len(raw) > 1 and raw[1] != "-" else None
             continue
-        # A word is read with what the command set unconditionally put in for each variable it holds.
-        words = [expand(w, values) for w in words]
-        at = _program(words)
-        at = at if at is not None and os.path.basename(words[at]) in ("git", "gh") else None
-        named = present | _local(words, at)     # the environment git runs with: persisted, and set for it alone
-        program = os.path.basename(words[0])
-        if program in SHELLS_AND_SOURCE and not any(w.startswith("-") and not w.startswith("--") and "c" in w
-                                                    for w in words[1:]):
+        runs = _program(words)      # past reserved words, prefixes and wrappers: time bash, if sh, nice sh
+        at = runs if runs is not None and os.path.basename(words[runs]) in ("git", "gh") else None
+        local = _local(words, at)
+        named = present | local     # the environment git runs with: persisted, and set for it alone
+        if local & {"PATH", "path"}:
+            blind.append("the command sets PATH, so git or gh may be another program")
+        start = runs if runs is not None else 0
+        program = os.path.basename(words[start])
+        if program in SHELLS_AND_SOURCE and not _given_c(words[start + 1:]):
             blind.append("a shell reads a script the hook cannot see")
         runner = _runner(words, at, here, env or {})
         if runner:
@@ -345,12 +347,25 @@ def _redefined(text: str) -> list:
     """Why git or gh, as the command runs it, may not be the program on the hook's PATH (decision 0024): the command
     defines a function or an alias (or hashes a path) for git, gh or a word that runs them, in its text or in a script
     it runs; or it sets PATH, anywhere, or for git alone. Each is a reason; none is an empty list."""
-    reasons, stripped = [], shell.without_heredocs(text)
-    if shell.defined(_quoted(stripped)) & REDEFINABLE:
+    reasons, quoted = [], _quoted(shell.without_heredocs(text))
+    if shell.defined(quoted) & REDEFINABLE:
         reasons.append("the command defines a function or an alias for git, gh or what runs them")
-    if "PATH" in shell.assigned_elsewhere(text) or shell.set_anywhere("PATH", stripped) or ZSH_PATH.search(stripped):
+    if shell.sets("PATH", quoted) or shell.sets("path", quoted):
         reasons.append("the command sets PATH, so git or gh may be another program")
+    if "*" in shell.touched(text):
+        reasons.append("the command writes a variable it names at run time, or evals or sources, which may set PATH")
     return reasons
+
+
+def _given_c(args: list) -> bool:
+    """Whether a shell's own options, the words before its first operand, hold -c: alone or bundled (-lc, -ec). A word
+    past them is the script or its arguments (bash x.sh -c), and -o and +o take the next word as their value."""
+    i = 0
+    while i < len(args) and args[i][:1] in ("-", "+") and args[i] not in ("-", "--"):
+        if args[i][:1] == "-" and args[i][1:2] != "-" and "c" in args[i]:
+            return True
+        i += 2 if args[i] in ("-o", "+o", "-O", "+O") else 1
+    return False
 
 
 def _program(words: list):
@@ -389,6 +404,8 @@ def _runner(words: list, at, here, env: dict) -> str:
         name = os.path.basename(word)
         if name not in shell.AS_IS:     # a wrapper _program stepped past to reach git
             return "git or gh may run under a program the hook does not read as a wrapper"
+        if "/" in word and not _on_path(word, here, env):
+            return "git or gh runs under a wrapper named by a path to another file than the one on the hook's PATH"
         past, _ = shell.past_wrapper(words, at_, name)
         if name == "env" and not all(ASSIGNMENT.match(w) or w == "--" for w in words[at_ + 1:past]):
             return "git or gh may run under env given more than assignments, which the hook does not read"
