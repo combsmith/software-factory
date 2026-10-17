@@ -29,7 +29,7 @@ OTHER_APP = 1000001
 # request adds on its own branch among them.
 OTHER_WORKFLOW = ".github/workflows/impostor.yml"
 # What a pull request changes by default: neither a protected path nor any Lens's input.
-PATHS = ("README.md", "docs/glossary.md")
+PATHS = ("docs/notes.md", "docs/glossary.md")
 # The Maintainer: a person, which is an actor of kind human with write access, and nobody else is.
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 

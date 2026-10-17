@@ -1647,7 +1647,8 @@ class RulesChanged(unittest.TestCase):
         where = self.branch()
         inputs = json.loads((ROOT / "config" / "hooks.json").read_text())["lens_inputs"]
         def rel(entry):
-            return entry["path"].replace("*", "x") + ("x.txt" if entry["path"].endswith("/") else "")
+            name = "x%d" % inputs.index(entry)
+            return entry["path"].replace("*", name) + ("x.txt" if entry["path"].endswith("/") else "")
         for entry in inputs:
             self.write(where, rel(entry))
         said = self.told(where)

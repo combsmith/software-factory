@@ -703,20 +703,17 @@ MUTANTS = [
     ("verify's inputs leave out a package at the top of the repo", "config/hooks.json",
      '    {"lens": "verify", "path": "*/__init__.*", "is": "a package at the top of the repo, which verify imports '
      'before the standard library"},\n', ""),
-    ("verify's inputs leave out an extension module at the top of the repo", "config/hooks.json",
-     '    {"lens": "verify", "path": "*.so", "is": "an extension module at the top of the repo, which verify imports '
-     'before the standard library"},\n', ""),
     ("verify's inputs leave out a package's compiled modules", "config/hooks.json",
      '    {"lens": "verify", "path": "*/__pycache__/", "is": "the compiled modules of a package at the top of the '
      'repo"},\n', ""),
     ("verify's inputs leave out the compiled modules at the top of the repo", "config/hooks.json",
      '    {"lens": "verify", "path": "__pycache__/", "is": "the compiled modules at the top of the repo"},\n', ""),
-    ("verify's inputs leave out a compiled module at the top of the repo", "config/hooks.json",
-     '"path": "*.py*", "is"', '"path": "*.py", "is"'),
+    ("verify's inputs name only a module's suffixes at the top of the repo", "config/hooks.json",
+     '"path": "*", "is"', '"path": "*.py*", "is"'),
     ("verify's inputs leave out the Kernel the tests import", "config/hooks.json",
      '    {"lens": "verify", "path": "kernel/", "is": "the Kernel, which the tests verify runs import"},\n', ""),
     ("the secret scan's inputs leave out what it is told to pass over", "config/hooks.json",
-     ',\n    {"lens": "secret-scan", "path": ".gitleaksignore", "is": "the findings the secret scan is told to pass over"}',
+     '    {"lens": "secret-scan", "path": ".gitleaksignore", "is": "the findings the secret scan is told to pass over"},\n',
      ""),
     ("verify's inputs leave out a place where checks live", "config/hooks.json",
      '    {"lens": "verify", "path": "sim/", "is": "the simulator verify runs"},\n', ""),

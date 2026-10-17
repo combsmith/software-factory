@@ -2305,12 +2305,12 @@ class TheFactorysOwnRules(unittest.TestCase):
 
     def test_a_change_to_a_protected_path_needs_the_model_review(self):  # I-45
         # A dependency update is judged by the deterministic Lenses alone while it changes nothing on the list.
-        self.converges(["README.md"])
+        self.converges(["docs/notes.md"])
         for entry in HOOKS["protected"]:
             path = example(entry["path"])
-            self.waits_for_review(["README.md", path], entry["path"])
+            self.waits_for_review(["docs/notes.md", path], entry["path"])
             # Reviewed on this head, it converges, and the machine user approves it as usual.
-            d = go(changing(**DEPENDENCY, changed_paths=["README.md", path]), REVIEWED)
+            d = go(changing(**DEPENDENCY, changed_paths=["docs/notes.md", path]), REVIEWED)
             self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"),
                              path)
         # Every other class needs the review anyway; the list names what it touched.
@@ -2326,8 +2326,8 @@ class TheFactorysOwnRules(unittest.TestCase):
         for path in ("tests/a/b/test_x.py", "tests", "sim/world.py", "Makefile", "makefile", "GNUmakefile", "json.py",
                      "kernel/gate.py", ".gitleaks.toml", ".gitleaksignore"):
             self.waits_for_review([path])
-        for path in ("testsuite/x.py", "tests.md", "docs/tests/x.py", "Makefile.bak", "docs/Makefile", "docs/json.py",
-                     "x/.gitleaks.toml", "kernelx/a.py"):
+        for path in ("testsuite/x.py", "docs/tests/x.py", "docs/Makefile", "docs/json.py", "x/.gitleaks.toml",
+                     "kernelx/a.py", "tests.d/x.md"):
             self.converges([path])
 
     def test_a_package_at_the_top_of_the_repo_counts_as_a_lens_input(self):  # I-45
@@ -2343,6 +2343,18 @@ class TheFactorysOwnRules(unittest.TestCase):
         # package below the top.
         for path in ("unittest/AGENTS.md", "docs/unittest/__init__.py", "docs/a/__pycache__/x.pyc"):
             self.converges([path])
+
+    def test_anything_at_the_top_of_the_repo_counts_as_a_lens_input(self):  # I-45
+        # verify may import any file or link at the top of the repo before the standard library, whatever its name: a
+        # link `json` to a package elsewhere among them, which no suffix names.
+        f = changing(**DEPENDENCY, changed_paths=["json", "docs/payload/__init__.py"])
+        d = go(f)
+        self.assertEqual((d["state"], d["reason"], d["evidence"], d["admit"]),
+                         ("verifying", "awaiting_review", ["pr-review", "*"], REVIEW_IT))
+        for path in ("README.md", "LICENSE", ".gitignore", "json.py", "x.so"):
+            self.waits_for_review([path])
+        # The other side: below the top, outside every package and every other entry, a file is not on the list.
+        self.converges(["docs/payload/__init__.py"])
 
     def test_a_module_of_a_package_at_the_top_of_the_repo_counts_as_a_lens_input(self):  # I-45
         # A package verify imports changes what it does through any of its modules, or the bytecode cached beside them,
@@ -2422,14 +2434,14 @@ class TheFactorysOwnRules(unittest.TestCase):
             self.assertEqual((d["reason"], d["admit"]), ("awaiting_review", dict(REVIEW_IT, content_id="sha256:bbbb")))
         # The other side: an item off the list, approved on this head, is read past a review not yet listed, as before.
         d = go(dict(f, **{"class": "maintainer", "author": "don-petry", "last_pusher": "don-petry"},
-                    changed_paths=[changed("README.md")], content_id="sha256:bbbb",
+                    changed_paths=[changed("docs/notes.md")], content_id="sha256:bbbb",
                     reviews=[review(content="sha256:bbbb", commit="c2")]), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("queued", "in_merge_queue", "nothing"))
 
     def test_changed_paths_read_short_defer(self):  # I-13, I-20
         # A list read short could leave out the one path on the list.
         for value in ("missing", False, None, "true", 1):
-            f = changing(**DEPENDENCY, changed_paths=["README.md"])
+            f = changing(**DEPENDENCY, changed_paths=["docs/notes.md"])
             if value == "missing":
                 del f["complete"]["changed_paths"]
             else:
@@ -2440,7 +2452,7 @@ class TheFactorysOwnRules(unittest.TestCase):
             d = go(dict(f, queue=True, reviews=APPROVED))
             self.assertEqual((d["reason"], d["outcome"], d["action"]), ("facts_incomplete", "act", "dequeue"), value)
         # The other side: read in full, it converges.
-        self.converges(["README.md"])
+        self.converges(["docs/notes.md"])
 
     def test_an_unreadable_changed_path_defers_for_the_maintainer(self):  # I-13
         # A path that cannot be read could be a protected one, read as another: no name of it is empty, `.` or `..`.
@@ -2448,14 +2460,14 @@ class TheFactorysOwnRules(unittest.TestCase):
                       "docs/../lifecycle/a.json", "..", ".", "docs/..", 5, None, ["lifecycle/a.json"])
         for path in unreadable:
             for cls in (DEPENDENCY, AGENT):
-                d = go(changing(**cls, changed_paths=["README.md", path]), REVIEWED)
+                d = go(changing(**cls, changed_paths=["docs/notes.md", path]), REVIEWED)
                 self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
                                  (None, "paths_unreadable", [], "defer", "needs_you"), (path, cls["class"]))
         # So is a list that is no list, or none, and a record that is not one file's: its path and its previous path,
         # null or a path, each given.
-        for value in ("missing", None, "README.md", {"README.md": True}, 5, ["README.md"], [{"path": "README.md"}],
-                      [changed("README.md", "")], [changed("README.md", "../x")], [changed("README.md", 5)],
-                      [changed("README.md", "/x")]):
+        for value in ("missing", None, "docs/notes.md", {"docs/notes.md": True}, 5, ["docs/notes.md"], [{"path": "docs/notes.md"}],
+                      [changed("docs/notes.md", "")], [changed("docs/notes.md", "../x")], [changed("docs/notes.md", 5)],
+                      [changed("docs/notes.md", "/x")]):
             f = changing(**DEPENDENCY, changed_paths=["docs/a.md"])
             if value == "missing":
                 del f["changed_paths"]
@@ -2468,7 +2480,7 @@ class TheFactorysOwnRules(unittest.TestCase):
             d = go(dict(f, queue=True, reviews=APPROVED), REVIEWED)
             self.assertEqual((d["reason"], d["outcome"], d["action"]), ("paths_unreadable", "act", "dequeue"), value)
         # The other side: a name that only starts or ends with dots is a name.
-        for path in ("..lifecycle", "docs/...", "docs/a..b", ".github.md", ("docs/b.md", "..a")):
+        for path in ("docs/..lifecycle", "docs/...", "docs/a..b", "docs/.github.md", ("docs/b.md", "docs/..a")):
             self.converges([path])
         # It is read where an unreadable review is: after what needs no paths, a draft or a Hold.
         self.assertEqual(go(changing(changed_paths=None, is_draft=True))["reason"], "draft")
@@ -2480,7 +2492,7 @@ class TheFactorysOwnRules(unittest.TestCase):
         # whole, left a file out or misread one, which could be on the list: a short read that gives a rename's two
         # names as two files, and leaves out the protected file beside it, among them.
         two = {"files": 2, "lines": 40, "truncated": False}
-        for paths in ([], [changed("README.md")], [changed("README.md"), changed("README.md")],
+        for paths in ([], [changed("docs/notes.md")], [changed("docs/notes.md"), changed("docs/notes.md")],
                       [changed("docs/new.md", "docs/old.md")],
                       [changed("a.md"), changed("b.md"), changed("c.md")]):
             f = facts(**DEPENDENCY, changed_paths=paths, diff=two)
@@ -2490,7 +2502,7 @@ class TheFactorysOwnRules(unittest.TestCase):
             d = go(dict(f, queue=True, reviews=APPROVED))
             self.assertEqual((d["reason"], d["outcome"], d["action"]), ("paths_unreadable", "act", "dequeue"), paths)
         # The other side: a record for each file, a rename's with the name it had before, is whole.
-        for paths, files in (([changed("README.md"), changed("docs/a.md")], 2),
+        for paths, files in (([changed("docs/notes.md"), changed("docs/a.md")], 2),
                              ([changed("docs/new.md", "docs/old.md")], 1),
                              ([changed("docs/new.md", "docs/old.md"), changed("docs/old.md")], 2)):
             d = go(facts(**DEPENDENCY, changed_paths=paths, diff=dict(two, files=files)))
@@ -2522,7 +2534,7 @@ class TheFactorysOwnRules(unittest.TestCase):
     def test_a_decision_names_the_pattern_never_the_path(self):  # I-45
         # A path is text from outside. The Decision names each pattern of the configuration that matched, once, in the
         # configuration's order.
-        paths = [PIN, ".github/dependabot.yml", "tests/test_decide.py", "README.md"]
+        paths = [PIN, ".github/dependabot.yml", "tests/test_decide.py", "docs/notes.md"]
         d = go(changing(**DEPENDENCY, changed_paths=paths))
         self.assertEqual(d["evidence"], ["pr-review", ".github/", "tests/"])
         spelt = ".GitHub/workflows/a\u202eb.yml"

@@ -97,10 +97,10 @@ BASES = {
     "a dependency update, approved": base(reviews=APPROVED, **DEPENDENCY),
     # One that changes a workflow's pin: it waits for the model review, and is queued only once reviewed.
     "a dependency update to a workflow's pin, awaiting its review": base(
-        changed_paths=[a_file(PIN), a_file("README.md")], **DEPENDENCY),
+        changed_paths=[a_file(PIN), a_file("docs/notes.md")], **DEPENDENCY),
     "a dependency update to a workflow's pin, queued": base(
         [reviewed()], reviews=APPROVED, queue=True, acts_since_writer=2,
-        changed_paths=[a_file(PIN), a_file("README.md")], **DEPENDENCY),
+        changed_paths=[a_file(PIN), a_file("docs/notes.md")], **DEPENDENCY),
     # A dependency bot's rebase at the act ceiling: held, then rebased, then its last check passes, and held again.
     "a dependency update held at the act ceiling": base(content_id="sha256:bbbb", reviews=APPROVED,
                                                         acts_since_writer=LIMITS["max_acts_per_item"], **DEPENDENCY),
@@ -225,7 +225,7 @@ STILL = {
     "acceptance_unreadable": base([reviewed()], acceptance=contract(results=ACCEPTED + [evidence("AC-9")])),
     # A path the schema refuses, which the Kernel still reads as unreadable.
     "paths_unreadable": base([reviewed()], changed_paths=[a_file("docs/../lifecycle/issue.json"),
-                                                           a_file("README.md")]),
+                                                           a_file("docs/notes.md")]),
 }
 
 

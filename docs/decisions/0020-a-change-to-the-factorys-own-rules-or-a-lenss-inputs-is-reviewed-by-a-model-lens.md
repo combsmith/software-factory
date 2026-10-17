@@ -22,8 +22,8 @@ files: such a list left a file out or misread one, whatever it says.
 The Factory's own rules and the inputs of each deterministic Lens are one list, in
 `config/hooks.json`: `protected`, which gains `config/apps.json`, and `lens_inputs`, each with the
 Lens that reads it. verify reads what make reads (`GNUmakefile`, `makefile` or `Makefile`), every
-place checks live, the Kernel the tests import, and whatever `python3 -m` imports from the top of
-the repo before the standard library: a module, source, compiled or an extension, a regular package's
+place checks live, the Kernel the tests import, and whatever `python3 -m` may import from the top of
+the repo before the standard library: every file or link there, whatever its name, a regular package's
 `__init__`, and the compiled modules in `__pycache__`, at the top or in a package there; and every package
 at the top of the repo whole (`kernel/`, `sim/`, `tests/`, `tools/`). A directory with no `__init__` is a namespace package, which a module
 found later on the path wins over, so it is not listed; the secret scan reads `.gitleaks.toml` and
@@ -80,6 +80,7 @@ not weaken the Lens that judges it, and that story comes next.
 | A Lens's input counts as a protected path does: below a directory however deep, and never a name that only starts with one | `tests/test_decide.py::test_a_lens_input_counts_like_a_protected_path` |
 | `*` stands for any part of one name, none included, never across a `/`; case is not compared; the pieces between stars are found in order and never overlap | `tests/test_decide.py::test_a_pattern_matches_one_name_per_star_in_any_case`, `tests/test_decide.py::test_a_pattern_of_several_stars_matches_each_piece_in_order_once` |
 | A package at the top of the repo, which verify imports before the standard library, is a Lens's input; a directory there with no `__init__` is not | `tests/test_decide.py::test_a_package_at_the_top_of_the_repo_counts_as_a_lens_input` |
+| Every file or link at the top of the repo is a Lens's input, whatever its name; below the top, outside every package and every other entry, a file is not | `tests/test_decide.py::test_anything_at_the_top_of_the_repo_counts_as_a_lens_input` |
 | Every package at the top of the repo is a Lens's input whole: each of its modules and its cached bytecode | `tests/test_decide.py::test_a_module_of_a_package_at_the_top_of_the_repo_counts_as_a_lens_input`, `tests/test_tools.py::test_every_package_at_the_top_of_the_repo_is_a_lens_input_whole` |
 | Either name of a rename or a copy counts | `tests/test_decide.py::test_either_name_of_a_rename_counts` |
 | A dependency bot's update to a workflow's pin is reviewed by the model Lens before the machine user approves it, and what that review raises gates it | `tests/test_decide.py::test_a_dependency_update_to_a_workflow_pin_needs_the_model_review` |
