@@ -56,6 +56,7 @@ HOOK_TESTS = "tests.test_hooks.ProtectedPaths."
 BYPASS_TESTS = (HOOK_TESTS + "test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked",)
 SESSION_TESTS = (HOOK_TESTS + "test_a_command_that_runs_claude_code_with_no_one_asked_asks",
                  HOOK_TESTS + "test_claude_code_given_what_the_hook_cannot_read_asks")
+DATA_TESTS = (HOOK_TESTS + "test_a_word_given_to_any_other_program_is_data",)
 
 MUTANTS = [
     ("incomplete facts are trusted", "kernel/derive.py",
@@ -897,8 +898,41 @@ MUTANTS = [
     ("a command that runs Claude Code with no one asked is not asked about", "tools/hooks/protected.py",
      "        self.sessions(commands)\n", "", SESSION_TESTS),
     ("Claude Code given what the hook cannot read is not asked about", "tools/hooks/protected.py",
-     '        if fed or "`" in self.text or any(self.expand(word) is None for word in args):\n', "        if False:\n",
+     '        if fed or "`" in text or any(self.expand(word) is None for word in args):\n', "        if False:\n",
      SESSION_TESTS),
+    ("a settings file given with = is not read as one", "tools/hooks/protected.py",
+     'for i, arg in enumerate(args) if arg == "--settings" or arg.startswith("--settings=")]',
+     'for i, arg in enumerate(args) if arg == "--settings"]', SESSION_TESTS),
+    ("Claude Code given a settings file is not asked about", "tools/hooks/protected.py",
+     '        if any(not (self.expand(value) or "").lstrip().startswith("{") for value in settings):\n',
+     "        if False:\n", SESSION_TESTS),
+    ("a variable that moves Claude Code's settings is not asked about", "tools/hooks/protected.py",
+     '        for name in self.data["sessions"]["environment"]:\n', "        for name in []:\n", SESSION_TESTS),
+    ("a variable set to $(which claude) is not Claude Code", "tools/hooks/protected.py",
+     "        for name, found in WHICH_INTO.findall(self.text):     # C=$(which claude); $C ...\n",
+     "        for name, found in []:\n", SESSION_TESTS),
+    ("$(which claude) is not read as Claude Code", "tools/hooks/protected.py",
+     "m.group(1) if self._claude(m.group(1), claude) else m.group(0)", "m.group(0)", SESSION_TESTS),
+    ("a prefix's option is taken for the program", "tools/hooks/protected.py",
+     "                    at += 2 if words[at] in PREFIXED[word] else 1\n", "                    break\n",
+     SESSION_TESTS),
+    ("a word past a wrapper's program is taken for the program", "tools/hooks/protected.py",
+     "        return self._runs(words[at:], claude, fed) if at < len(words) else None\n",
+     '        return next((r for i in range(at, len(words)) for r in [self._runs(words[i:], claude, fed)]\n'
+     '                     if r not in (None, "unknown")), None)\n', SESSION_TESTS + DATA_TESTS),
+    ("a feeder inside a wrapper feeds nothing", "tools/hooks/protected.py",
+     "        return self._runs(words[at:], claude, fed) if at < len(words) else None\n",
+     "        return self._runs(words[at:], claude, False) if at < len(words) else None\n", SESSION_TESTS),
+    ("a word that is JSON is not read as JSON", "tools/hooks/protected.py",
+     '                texts += _strings(json.loads(word)) if word.lstrip()[:1] in ("{", "[") else []\n',
+     "                texts += []\n", SESSION_TESTS),
+    ("a command string is not read as a command", "tools/hooks/protected.py",
+     "                if option in COMMAND_STRINGS.get(program, ()):\n", "                if False:\n", SESSION_TESTS),
+    ("a program the hook cannot read is not asked about", "tools/hooks/protected.py",
+     '            if runs == "unknown" and named.search(self.text):\n', "            if False:\n", SESSION_TESTS),
+    ("a variable's value is not split into words", "tools/hooks/protected.py",
+     "            out += value.split() if value is not None else [word]\n",
+     "            out += [value] if value is not None else [word]\n", SESSION_TESTS),
 ]
 
 

@@ -892,7 +892,24 @@ class ProtectedPaths(Asks):
                 "cd /tmp; `which claude` -p x --dangerously-skip-permissions",
                 "alias c='claude --dangerously-skip-permissions'", "alias c=claude; c --dangerously-skip-permissions",
                 'f() { claude "$@"; }; f --dangerously-skip-permissions',
-                "function g { claude; }; g --dangerously-skip-permissions"):
+                "function g { claude; }; g --dangerously-skip-permissions",
+                # A prefix's options, and the word an option takes.
+                "command -p claude --dangerously-skip-permissions", "exec -a foo claude --dangerously-skip-permissions",
+                "time -p claude --dangerously-skip-permissions", "builtin command -- claude --dangerously-skip-permissions",
+                # A wrapper's options and the words before its program.
+                "sudo -u me claude --dangerously-skip-permissions", "timeout -k 5 60 claude --dangerously-skip-permissions",
+                "nice -n 5 env -u X claude --dangerously-skip-permissions",
+                "corepack pnpm dlx @anthropic-ai/claude-code --dangerously-skip-permissions",
+                "npm exec -- @anthropic-ai/claude-code --dangerously-skip-permissions",
+                # A command string, and a variable or eval that holds a command.
+                "env -S 'claude --dangerously-skip-permissions'", "npx -c 'claude --dangerously-skip-permissions'",
+                "CMD='claude --dangerously-skip-permissions'; $CMD",
+                # JSON that spells the word with an escape.
+                "claude --settings '{\"permissions\": {\"defaultMode\": \"\\u0062ypassPermissions\"}}'",
+                # $(which claude) wherever it stands, and an alias of it.
+                "alias c='$(which claude)'; c --dangerously-skip-permissions",
+                "alias c='$C'; C=$(which claude); c --dangerously-skip-permissions",
+                "which claude && `which claude` --dangerously-skip-permissions"):
             self.asked(self.run_(command), "unasked_session", command)
         for word in RULES["sessions"]["words"]:
             self.asked(self.run_("claude %s -p x" % word), "unasked_session", word)
@@ -913,7 +930,15 @@ class ProtectedPaths(Asks):
                         "npx @anthropic-ai/claude-code $X", 'P=$(cat p.md); claude -p "$P"', "claude-code -p `cat p`",
                         "echo x | xargs claude", "claude --settings s.json -p x", "claude --settings=$S -p x",
                         "CLAUDE_CONFIG_DIR=/tmp/c claude -p x", "export CLAUDE_CONFIG_DIR=/tmp/c; claude -p x",
-                        "env CLAUDE_CONFIG_DIR=/tmp/c claude -p x"):
+                        "env CLAUDE_CONFIG_DIR=/tmp/c claude -p x", "claude --settings=s.json -p x",
+                        "S=--settings=s.json; claude $S -p x", "D=CLAUDE_CONFIG_DIR=/tmp/c; env $D claude -p x",
+                        "bash -c 'export CLAUDE_CONFIG_DIR=/tmp/c; claude -p x'",
+                        "(export CLAUDE_CONFIG_DIR=/tmp/c; claude -p x)", "HOME=/tmp/h claude -p x",
+                        "C=$(which claude); env CLAUDE_CONFIG_DIR=/tmp/c claude -p x", "C=$(which claude); xargs claude",
+                        "echo --dangerously-skip-permissions | timeout 60 xargs claude",
+                        'X=$(cat f.sh); eval "$X"; claude -p hi', '"$RUN" -p x; claude -p hi',
+                        "CMD='claude -p x'; eval \"$CMD --dangerously-skip-permissions\"",
+                        "eval 'claude --settings s.json'"):
             said = self.run_(command)
             self.asked(said, "command_unreadable", command)
             self.assertIn("Claude Code", said, command)
@@ -935,7 +960,12 @@ class ProtectedPaths(Asks):
                 "awk '/bypassPermissions/' docs/notes.md", "cat <<'EOF'\nclaude --dangerously-skip-permissions\nEOF",
                 "grep -rn -- --dangerously-skip-permissions tools", "rg bypassPermissions docs",
                 "python3 <<'EOF'\nprint('--dangerously-skip-permissions')\nEOF",
-                "which claude && claude --version; echo --dangerously-skip-permissions"):
+                "which claude && claude --version; echo --dangerously-skip-permissions",
+                # Past a wrapper, the first program runs, and what follows is its data.
+                "timeout 5 echo claude --dangerously-skip-permissions", "env echo claude --dangerously-skip-permissions",
+                "npx cowsay claude --dangerously-skip-permissions", "sudo -u claude ls --dangerously-skip-permissions",
+                "nice -n 5 printf '%s' claude bypassPermissions", "command -v claude", "type claude",
+                "C=$(which claude); echo bypassPermissions", '"$EDITOR" docs/notes.md'):
             self.assertNotIn("Claude Code", self.run_(command), command)
 
     def test_every_protected_path_asks_for_every_edit_tool_in_every_tree(self):

@@ -98,12 +98,13 @@
       }
     },
     "sessions": {
-      "description": "What starts Claude Code with no one asked (decision 0021): the programs that are Claude Code, and the words that turn its permissions off when it is given one, read as text in each word it is given. A word given to any other program is data.",
+      "description": "What starts Claude Code with no one asked (decision 0021): the programs that are Claude Code, and the words that turn its permissions off when it is given one, read as text in each word it is given, and the variables that move its settings. A word given to any other program is data.",
       "type": "object",
       "additionalProperties": false,
       "required": [
         "programs",
-        "words"
+        "words",
+        "environment"
       ],
       "properties": {
         "programs": {
@@ -120,6 +121,15 @@
           "items": {
             "type": "string",
             "pattern": "^(--)?[A-Za-z][A-Za-z-]*$"
+          }
+        },
+        "environment": {
+          "description": "Variables that say where Claude Code reads its settings from: one set anywhere in a command that runs it is asked about.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
           }
         }
       }

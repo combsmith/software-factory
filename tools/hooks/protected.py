@@ -73,15 +73,6 @@ READS = {"cat", "less", "more", "head", "tail", "wc", "grep", "egrep", "fgrep", 
          "tr", "comm", "paste", "column", "fold", "strings", "which", "type", "pwd", "sleep", "export", "unset", "set",
          "local", "declare", "readonly", "read", "shift", "exit", "return", "wait", "case", "esac", "fi", "done",
          "cd", "pushd", "popd"}
-# Programs that fetch and run the package their words name, as npx @anthropic-ai/claude-code does, alone or as
-# the first word of a command of theirs.
-RUNNERS = {"npx", "bunx", "pnpx"}
-RUNNER_COMMANDS = {("pnpm", "dlx"), ("yarn", "dlx"), ("npm", "exec"), ("bun", "x")}
-# A command substitution that names a program's path: $(which claude), $(command -v claude) and their like.
-WHICH = re.compile(r"^(?:\$\(|`)\s*(?:which|command\s+-v|type\s+-p|whence\s+-p)\s+(\S+?)\s*(?:\)|`)$", re.S)
-# A variable set to one: C=$(which claude).
-WHICH_INTO = re.compile(r"([A-Za-z_]\w*)=[\"']?(?:\$\(|`)\s*(?:which|command\s+-v|type\s+-p|whence\s+-p)\s+"
-                        r"([^\s)`'\"]+)")
 # A function the command defines: f() { ...; } or function f { ...; }.
 DEFINES = re.compile(r"(?:^|[\s;&|(){}])function\s+([A-Za-z_][\w.-]*)|"
                      r"(?:^|[\s;&|(){}])([A-Za-z_][\w.-]*)\s*\(\s*\)")
@@ -100,6 +91,57 @@ INTERPRETERS = re.compile(r"^(python[\d.]*|node|nodejs|deno|bun|perl|ruby|php|lu
 FEEDERS = {"xargs", "parallel"}
 FEED_VALUED = {"-I", "-L", "-n", "-P", "-s", "-d", "-E", "-a", "--max-args", "--max-procs", "--delimiter",
                "--arg-file", "--max-lines", "--replace", "--eof", "-j", "--jobs"}
+# Words before a program that change nothing about what runs, and the options of theirs that take the next word.
+PREFIXED = {"exec": {"-a"}, "time": {"-f", "--format", "-o", "--output"}, "command": set(), "builtin": set(),
+            "nohup": set()}
+# What runs the program its words name, after its own: for each, its options that take the next word as their value,
+# and how many words that are not options come before the program (timeout's duration, chroot's new root). The first
+# word past them is the program; what follows is that program's, and data to any other.
+NPX_VALUED = {"-p", "--package", "--cache", "--userconfig", "--registry", "-w", "--workspace"}
+WRAPPED = {
+    "env": ({"-u", "--unset", "-C", "--chdir", "-P"}, 0),
+    "sudo": ({"-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--close-from", "-D",
+              "--chdir", "-R", "--chroot", "-r", "--role", "-t", "--type", "-T", "--command-timeout", "-U",
+              "--other-user"}, 0),
+    "doas": ({"-u", "-C"}, 0),
+    "xargs": (FEED_VALUED, 0), "parallel": (FEED_VALUED, 0),
+    "timeout": ({"-s", "--signal", "-k", "--kill-after"}, 1), "gtimeout": ({"-s", "--signal", "-k", "--kill-after"}, 1),
+    "nice": ({"-n", "--adjustment"}, 0),
+    "ionice": ({"-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid"}, 0),
+    "chrt": (set(), 1), "taskset": (set(), 1),
+    "numactl": ({"-N", "--cpunodebind", "-m", "--membind", "-C", "--physcpubind", "-p", "--preferred", "-i",
+                 "--interleave"}, 0),
+    "stdbuf": ({"-i", "-o", "-e", "--input", "--output", "--error"}, 0),
+    "gstdbuf": ({"-i", "-o", "-e", "--input", "--output", "--error"}, 0),
+    "caffeinate": ({"-t", "-w"}, 0), "watch": ({"-n", "--interval"}, 0), "setsid": (set(), 0),
+    "flock": ({"-w", "--wait", "--timeout", "-E", "--conflict-exit-code"}, 1),
+    "chroot": ({"--userspec", "--groups"}, 1),
+    "unshare": ({"-S", "--setuid", "-G", "--setgid", "-R", "--root", "-w", "--wd"}, 0),
+    "nsenter": ({"-t", "--target", "-S", "--setuid", "-G", "--setgid"}, 0),
+    "runuser": ({"-u", "--user", "-g", "--group", "-G", "--supp-group", "-s", "--shell"}, 0),
+    "chpst": ({"-u", "-U", "-e", "-/", "-n", "-l", "-L", "-m", "-d", "-o", "-p", "-f", "-c"}, 0),
+    "unbuffer": (set(), 0), "chronic": (set(), 0), "arch": (set(), 0), "corepack": (set(), 0),
+    "script": ({"-t", "--timing", "-T", "-I", "-O", "-B", "--log-in", "--log-out", "--log-io", "-E", "-o"}, 1),
+    "xcrun": ({"--sdk", "--toolchain", "-sdk", "-toolchain"}, 0),
+    "sandbox-exec": ({"-f", "-n", "-p", "-D"}, 0),
+    "systemd-run": ({"-p", "--property", "-u", "--unit", "-E", "--setenv", "--uid", "--gid", "-M", "--machine",
+                     "--description", "--slice", "--working-directory", "-H", "--host", "--nice"}, 0),
+    "fakeroot": ({"-l", "--lib", "--faked", "-s", "-i", "-b"}, 0),
+    "strace": ({"-o", "-e", "-p", "-s", "-u", "-E", "-P", "-I", "-a", "-b", "-S", "-O", "-X"}, 0),
+    "ltrace": ({"-o", "-e", "-p", "-s", "-u", "-n", "-a", "-A", "-l", "-x", "-F"}, 0),
+    "dtruss": ({"-p", "-n", "-t", "-W"}, 0), "gtime": ({"-f", "--format", "-o", "--output"}, 0),
+    "npx": (NPX_VALUED, 0), "pnpx": (NPX_VALUED, 0), "bunx": (NPX_VALUED, 0),
+}
+# A package manager's command that fetches and runs a package, as npx does: pnpm dlx, npm exec and their like.
+RUNNER_COMMANDS = {("pnpm", "dlx"), ("pnpm", "exec"), ("yarn", "dlx"), ("npm", "exec"), ("npm", "x"), ("bun", "x")}
+# The options whose value is a command of its own: env -S splits it into words, npx -c runs it.
+COMMAND_STRINGS = {"env": {"-S", "--split-string"}, "npx": {"-c", "--call"}, "pnpx": {"-c", "--call"},
+                   "npm": {"-c", "--call"}}
+# A command substitution that names a program's path: $(which claude), `command -v claude` and their like.
+WHICH = re.compile(r"(?:\$\(|`)\s*(?:which|command\s+-v|type\s+-p|whence\s+-p)\s+([^\s)`'\"]+)\s*(?:\)|`)")
+# A variable set to one: C=$(which claude).
+WHICH_INTO = re.compile(r"([A-Za-z_]\w*)=[\"']?(?:\$\(|`)\s*(?:which|command\s+-v|type\s+-p|whence\s+-p)\s+"
+                        r"([^\s)`'\"]+)")
 # Options after which an interpreter's next word is code or a module, not a script file it reads.
 CODE_FOLLOWS = {"-c", "-e", "-E", "--eval", "-p", "--print", "-m", "-r", "--require"}
 UNPACKERS = {"tar", "unzip", "cpio", "patch", "bsdtar", "7z", "ditto"}
@@ -214,7 +256,7 @@ def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
                  for group in ("merging", "settings")}
         lists["settings"]["reads"] = list(data["settings"]["reads"])
         branch = data["merging"]["branch"]
-        sessions = {key: list(data["sessions"][key]) for key in ("programs", "words")}
+        sessions = {key: list(data["sessions"][key]) for key in ("programs", "words", "environment")}
     except (OSError, ValueError, KeyError, TypeError) as err:
         raise Unreadable("config/hooks.json cannot be read (%s)" % type(err).__name__)
     paths = protected + reported
@@ -477,10 +519,7 @@ class Command:
         if ">(" in self.text:
             self.ask("command_unreadable", "a process substitution writes where the hook cannot follow")
         try:
-            outer, inner = _process_substitutions(self.text)
-            commands = shell.commands(outer, self.spend)
-            for script in inner:
-                commands += shell.commands(script, self.spend)
+            commands = _split(self.text, self.spend)
         except (ValueError, RecursionError):
             self.ask("command_unreadable", "the command cannot be split into words")
             return self.found
@@ -883,92 +922,151 @@ class Command:
     def sessions(self, commands: list):
         """Ask about each command that runs Claude Code with no one asked (decision 0021).
 
-        Claude Code runs when the program is one config/hooks.json names, by its name or its path, with what the hook
-        knows put in for a variable; when a wrapper, xargs, or npx and its like run it; as $(which claude); or as an
-        alias or a function the command defines that runs it. It is asked about when it is given a word config/hooks.json
-        lists, read as text in any of its words; a word the hook cannot read; a settings file, which the hook does not
-        read (settings written inline are read as text); or CLAUDE_CONFIG_DIR, set in the command. A word given to any
-        other program, a here-document's body among them, is data.
+        Claude Code runs when the program is one config/hooks.json names, by its name, its path or its package, with
+        what the hook knows put in for a variable and the value split into words as the shell splits it; past the
+        words and options of a prefix (exec -a NAME), and of a wrapper, xargs, or npx and its like, whose first program
+        it is; in a command string (sh -c, env -S, npx -c, eval); as $(which claude) or a variable set to it; or as an
+        alias or a function the command defines that runs it. It is asked about when it is given a word
+        config/hooks.json lists, read as text, and as JSON when a word is JSON; a word the hook cannot read, or words
+        a feeder gives it; a settings file, which the hook does not read; or when a variable config/hooks.json lists,
+        CLAUDE_CONFIG_DIR among them, is set anywhere in the command. A program the hook cannot read, in a command
+        that names Claude Code, is asked about. A word given to any other program, a here-document's body among them,
+        is data.
         """
         claude = set(self.data["sessions"]["programs"])
-        listed, aliases = [words for words, _ in commands if words], []
-        for words in list(listed):          # an alias's value is code: the commands it holds are read as commands
-            for word in words[1:] if words[0] == "alias" else []:
-                name, given, value = word.partition("=")
-                try:
-                    body = [w for w, _ in shell.commands(value, self.spend) if w] if given else []
-                except (ValueError, RecursionError):
-                    self.ask("command_unreadable", "an alias the command defines cannot be split into words")
-                    return
-                aliases.append((name, body))
-                listed += body
-        functions = {a or b for a, b in DEFINES.findall(self.text)}
-        while True:     # a name that runs Claude Code may be run by another: read until no more are found
-            before = len(claude)
-            claude |= {name for name, body in aliases if any(self._claude_at(w, claude) for w in body)}
-            if any(self._claude_at(w, claude) for w in listed):
-                claude |= functions     # which function runs it the hook does not tell: each may
-            if len(claude) == before:
-                break
         for name, found in WHICH_INTO.findall(self.text):     # C=$(which claude); $C ...
             if self._claude(found, claude):
                 claude |= {"$" + name, "${%s}" % name}
-        skip = set()
-        for i, words in enumerate(listed):
+        # $(which claude) and `which claude` stand for Claude Code's path: read each as the name it looks up.
+        text = WHICH.sub(lambda m: m.group(1) if self._claude(m.group(1), claude) else m.group(0), self.text)
+        try:
+            listed = [self._expanded(words) for words, _ in (_split(text, self.spend) if text != self.text
+                                                              else commands) if words]
+        except (ValueError, RecursionError):
+            self.ask("command_unreadable", "the command cannot be split into words")
+            return
+        aliases = []
+        for words in list(listed):          # an alias's value, and eval's words, are code: read as commands
+            body = words[1:] if words[0] == "alias" else [" ".join(words[1:])] if words[0] == "eval" else []
+            for word in body:
+                name, given, value = word.partition("=") if words[0] == "alias" else ("", "=", word)
+                if words[0] == "eval" and self.expand(value) is None:
+                    listed.append(["$eval"])        # what it runs the hook cannot read
+                    continue
+                try:
+                    inner = [self._expanded(w) for w, _ in shell.commands(value, self.spend) if w] if given else []
+                except (ValueError, RecursionError):
+                    self.ask("command_unreadable", "an alias or an eval the command holds cannot be split into words")
+                    return
+                aliases += [(name, inner)] if name else []
+                listed += inner
+        functions = {a or b for a, b in DEFINES.findall(text)}
+        while True:     # a name that runs Claude Code may be run by another: read until no more are found
+            before = len(claude)
+            claude |= {name for name, body in aliases if any(self._runs(w, claude) not in (None, "unknown")
+                                                              for w in body)}
+            if any(self._runs(w, claude) not in (None, "unknown") for w in listed):
+                claude |= functions     # which function runs it the hook does not tell: each may
+            if len(claude) == before:
+                break
+        named = re.compile(r"(?<![\w.-])(%s)(?![\w./-])" % "|".join(
+            re.escape(n) for n in self.data["sessions"]["programs"]))
+        for words in listed:
             self.spend()
-            if i in skip:
-                continue
-            before = listed[i - 1] if i else [""]
-            if self._which(words, claude) and (before[-1].endswith("$") or "`" in self.text):
-                # Unquoted, $(which claude) -p x is read as a lone $, the command inside, and then the words it is
-                # given; `which claude` -p x as the command inside and the words.
-                words = (before[:-1] if before[-1].endswith("$") else []) + [words[-1]] + (
-                    listed[i + 1] if i + 1 < len(listed) else [])
-                skip.add(i + 1)
-            runs = self._claude_at(words, claude)
-            if runs:
-                self._session(words, *runs)
+            runs = self._runs(words, claude)
+            if runs == "unknown" and named.search(self.text):
+                self.ask("command_unreadable", "a program the hook cannot read runs in a command that names Claude "
+                                               "Code, and may be it")
+            elif runs not in (None, "unknown"):
+                self._session(*runs, text)
 
-    def _which(self, words: list, claude: set) -> bool:
-        """Whether the command names the path of Claude Code: which claude, command -v claude and their like."""
-        return (words[0] in ("which", "type", "whence") or words[:2] == ["command", "-v"]) and self._claude(
-            words[-1], claude)
+    def _expanded(self, words: list) -> list:
+        """The words with what the hook knows put in for each variable, each value split into words as the shell splits
+        an unquoted expansion. A word the hook cannot read stays as it is; an assignment is not split."""
+        out = []
+        for word in words:
+            value = self.expand(word) if "$" in word and not ASSIGNMENT.match(word) else None
+            out += value.split() if value is not None else [word]
+        return out
 
     def _claude(self, word: str, claude: set) -> bool:
-        """Whether a word is Claude Code: a name in `claude`, by its path, its package (@scope/name@version) or
-        $(which ...)."""
-        found = WHICH.match(word)
-        value = found.group(1) if found else (self.expand(word) or word)
-        name = os.path.basename(value)
+        """Whether a word is Claude Code: a name in `claude`, by its path or its package (@scope/name@version)."""
+        name = os.path.basename(self.expand(word) or word)
         return (name.split("@")[0] if "@" in name[1:] else name) in claude
 
-    def _claude_at(self, words: list, claude: set):
-        """(where Claude Code is in the words, whether a feeder gives it words from its input), when they run it."""
+    def _runs(self, words: list, claude: set, fed: bool = False):
+        """(the words, where Claude Code is in them, whether a feeder gives it words) when they run it; "unknown" when
+        the program they run is a word the hook cannot read; None when they run another program."""
         at = 0
         while at < len(words):
-            if words[at] in PREFIXES or ASSIGNMENT.match(words[at]):
+            word = words[at]
+            if word in PREFIXES:
                 at += 1
-            elif words[at] == "function":
+                while word in PREFIXED and at < len(words) and words[at].startswith("-") and words[at] != "-":
+                    if words[at] == "--":
+                        at += 1
+                        break
+                    if word == "command" and re.match(r"^-[pP]*[vV]", words[at]):
+                        return None         # command -v names a program and runs none
+                    at += 2 if words[at] in PREFIXED[word] else 1
+            elif ASSIGNMENT.match(word):
+                at += 1
+            elif word == "function":
                 at += 2
             else:
                 break
         if at >= len(words):
             return None
         if self._claude(words[at], claude):
-            return at, False
-        program = os.path.basename(self.expand(words[at]) or words[at])
-        then = os.path.basename(words[at + 1]) if at + 1 < len(words) else None
-        if program in WRAPPERS or program in RUNNERS or (program, then) in RUNNER_COMMANDS:
-            runs = next((i for i in range(at + 1, len(words)) if self._claude(words[i], claude)), None)
-            return None if runs is None else (runs, program in FEEDERS)
-        return None
+            return words, at, fed
+        value = self.expand(words[at])
+        if value is None:
+            return "unknown"
+        program = os.path.basename(value)
+        if (program, words[at + 1] if at + 1 < len(words) else None) in RUNNER_COMMANDS:
+            at += 1
+            program = "npx"
+        if program not in WRAPPED:
+            return None
+        valued, positional = WRAPPED[program]
+        fed = fed or program in FEEDERS
+        at += 1
+        while at < len(words):
+            option, given, value = words[at].partition("=")
+            if words[at] == "--":
+                at += 1
+                break
+            if ASSIGNMENT.match(words[at]):
+                at += 1
+            elif words[at].startswith("-") and words[at] != "-":
+                if option in COMMAND_STRINGS.get(program, ()):
+                    value = value if given else (words[at + 1] if at + 1 < len(words) else "")
+                    try:
+                        inner = [w for w, _ in shell.commands(value, self.spend) if w]
+                    except (ValueError, RecursionError):
+                        return "unknown"
+                    rest = words[at + (1 if given else 2):]
+                    return self._runs(self._expanded(inner[0]) + rest, claude, fed) if inner else None
+                at += 2 if option in valued and not given else 1
+            elif positional:
+                positional -= 1
+                at += 1
+            else:
+                break
+        return self._runs(words[at:], claude, fed) if at < len(words) else None
 
-    def _session(self, words: list, runs: int, fed: bool):
+    def _session(self, words: list, runs: int, fed: bool, text: str):
         """Ask about one command that runs Claude Code at `runs`, if it may start with no one asked."""
         args = words[runs + 1:]
-        texts = [value for word in args for value in (word, self.expand(word)) if value is not None]
+        texts = []
+        for word in args:
+            texts += [value for value in (word, self.expand(word)) if value is not None]
+            try:
+                texts += _strings(json.loads(word)) if word.lstrip()[:1] in ("{", "[") else []
+            except ValueError:
+                pass
         for word, named in self.unasked:
-            if any(named.search(text) for text in texts):
+            if any(named.search(value) for value in texts):
                 self.ask("unasked_session", "Claude Code is given %s, which starts it with no one asked" % word)
                 return
         settings = [arg[len("--settings="):] if arg.startswith("--settings=") else args[i + 1] if i + 1 < len(args)
@@ -976,12 +1074,15 @@ class Command:
         if any(not (self.expand(value) or "").lstrip().startswith("{") for value in settings):
             self.ask("command_unreadable", "Claude Code is given a settings file, which the hook does not read")
             return
-        if "CLAUDE_CONFIG_DIR" in self.assigned or any(w.startswith("CLAUDE_CONFIG_DIR=") for w in words[:runs]):
-            self.ask("command_unreadable", "Claude Code runs with CLAUDE_CONFIG_DIR set in the command, whose "
-                                           "settings the hook does not read")
-            return
+        for name in self.data["sessions"]["environment"]:
+            if name in self.assigned or any(w.startswith(name + "=") for w in words[:runs]) or re.search(
+                    r"(?<![\w-])%s\+?:?=|\b(?:read|printf|getopts|mapfile|readarray|declare|typeset|local|export|"
+                    r"readonly|let)\b[^;&|\n]*(?<![\w-])%s(?![\w-])" % (name, name), text):
+                self.ask("command_unreadable", "Claude Code runs with %s set in the command, and the settings that "
+                                               "names the hook does not read" % name)
+                return
         # An unquoted `...` is split out of the words it stands in, so one anywhere in the command may be Claude Code's.
-        if fed or "`" in self.text or any(self.expand(word) is None for word in args):
+        if fed or "`" in text or any(self.expand(word) is None for word in args):
             self.ask("command_unreadable", "Claude Code is given a word the hook cannot read, which may start it with "
                                            "no one asked")
 
@@ -1325,6 +1426,25 @@ def _process_substitutions(text: str) -> tuple:
 
 
 HANDLED = {"sed", "find", "cp", "mv", "install", "git", "gh"}
+
+
+def _split(text: str, spend) -> list:
+    """The simple commands of a command, each (words, redirections), a process substitution's among them. Raises
+    ValueError or RecursionError when it cannot be split."""
+    outer, inner = _process_substitutions(text)
+    commands = shell.commands(outer, spend)
+    for script in inner:
+        commands += shell.commands(script, spend)
+    return commands
+
+
+def _strings(value) -> list:
+    """Every string a JSON value holds, its keys among them."""
+    if isinstance(value, dict):
+        return [s for k, v in value.items() for s in [k] + _strings(v)]
+    if isinstance(value, list):
+        return [s for v in value for s in _strings(v)]
+    return [value] if isinstance(value, str) else []
 
 
 def _branch(here, root: str, env: dict = None, spend=None):
