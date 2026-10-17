@@ -1025,6 +1025,34 @@ class Workflows(unittest.TestCase):
             self.assertNotEqual(text, GOOD)
             self.assertEqual(self.lens_problems(text), [])
 
+    def test_a_lens_job_that_judges_its_needs_runs_from_the_base(self):
+        # verify's verdict is the base's tools/needs_passed.py: its one checkout is of the base, on a pull request and in
+        # the merge queue, and of nothing else, so a change cannot make its own verdict pass (decision 0023).
+        ref = "          ref: %s\n" % check_workflows.BASE
+        self.assertIn(ref, GOOD)
+        said = "its one checkout is not of the base alone"
+        head = "      - uses: actions/checkout@" + "a" * 40 + " # v7.0.1\n        with:\n          persist-credentials: false\n"
+        mine = ("    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
+                "        with:\n          persist-credentials: false\n" + ref)
+        self.assertEqual(GOOD.count(mine), 1)
+        cases = [GOOD.replace(ref, ""),
+                 GOOD.replace(ref, "          ref: ${{ github.event.pull_request.base.sha }}\n"),
+                 GOOD.replace(ref, "          ref: ${{ github.event.merge_group.base_sha }}\n"),
+                 GOOD.replace(ref, ref.replace(" }}", " || github.sha }}")),
+                 GOOD.replace(ref, ref.replace(" }}", " || github.event.pull_request.head.sha }}")),
+                 GOOD.replace(ref, "          ref: main\n"),
+                 GOOD.replace(ref, ref + "          path: base\n"),
+                 GOOD.replace(ref, ref + "          repository: someone/else\n"),
+                 GOOD.replace(ref, ref + "          fetch-depth: 0\n"),
+                 GOOD.replace("      - run: python3 -m tools.needs_passed\n", head + "      - run: python3 -m tools.needs_passed\n"),
+                 GOOD.replace(mine, "    steps:\n" + head.replace("false\n", "false\n          path: head\n")
+                              + mine[len("    steps:\n"):]),
+                 GOOD.replace(mine, "    steps:\n")]
+        for text in cases:
+            self.assertNotEqual(text, GOOD)
+            self.assertTrue(caught(self.lens_problems(text), said), text)
+        self.assertFalse(caught(self.lens_problems(GOOD), said))
+
     def test_the_required_check_fails_unless_every_job_it_needs_passed(self):
         # `verify` runs under always(), so it reports whatever the jobs it needs did, and only every one's success
         # passes it. Needs it cannot read, or that name no job, fail it too.
@@ -1099,6 +1127,50 @@ class Workflows(unittest.TestCase):
         other = scan.replace("ubuntu-24.04", "ubuntu-latest")
         self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": other}))),
                                "ci.yml: [runner]"))
+
+    def test_the_secret_scan_reads_the_bases_configuration(self):
+        # gitleaks 8.30.1 reads the .gitleaksignore it is told of, and also the one at the top of what it scans, so the
+        # scan deletes the head's and reads its rules from a checkout of the base: a change cannot widen the allowlist it
+        # needs (decision 0023). The history it scans is still the head's.
+        scan = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertEqual(check_workflows.scan_problems(scan), [])
+        line = "          " + check_workflows.SCAN_RUN[1] + "\n"
+        rm = "          " + check_workflows.SCAN_RUN[0] + "\n"
+        ref = "          ref: %s\n" % check_workflows.SCAN_BASE
+        start = scan.index("      - name: Checkout the base")
+        step = scan[start:scan.index("      - name: Install gitleaks")]
+        head = scan[scan.index("      - name: Checkout (full history)"):start]
+        self.assertIn(rm + line, scan)
+        self.assertIn(ref, step)
+        ran, checkout = "runs gitleaks other than as", "does not check out the head and then the base"
+        cases = [(scan.replace("--config base/.gitleaks.toml", "--config .gitleaks.toml"), ran),
+                 (scan.replace("--gitleaks-ignore-path base/.gitleaksignore", "--gitleaks-ignore-path ."), ran),
+                 (scan.replace(" --gitleaks-ignore-path base/.gitleaksignore", ""), ran),
+                 (scan.replace(rm, ""), ran),
+                 (scan.replace(rm + line, line + rm), ran),
+                 (scan.replace(line, line + "          gitleaks -c .gitleaks.toml detect --source .\n"), ran),
+                 (scan.replace(line, line + "          /usr/local/bin/gitleaks detect --source .\n"), ran),
+                 (scan.replace(rm + line, "          gitleaks dir .\n"), ran),
+                 (scan.replace(rm + line, "          make verify\n"), "runs no gitleaks"),
+                 (scan.replace(ref, ref.replace(" || github.sha", "")), checkout),
+                 (scan.replace(ref, ref.replace(" || github.event.merge_group.base_sha", "")), checkout),
+                 (scan.replace(ref, ref.replace("github.event.pull_request.base.sha || ", "")), checkout),
+                 (scan.replace(ref, ref.replace("pull_request.base.sha", "pull_request.head.sha")), checkout),
+                 (scan.replace("          path: base\n", ""), checkout),
+                 (scan.replace("          path: base\n", "          path: base\n          repository: someone/else\n"),
+                  checkout),
+                 (scan.replace(step, ""), checkout),
+                 (scan.replace(head + step, step + head), checkout),
+                 (scan.replace(step, step + step.replace("path: base", "path: other")), checkout)]
+        for text, said in cases:
+            self.assertNotEqual(text, scan, said)
+            self.assertTrue(caught(check_workflows.scan_problems(text), said), (said, text))
+        # The check reads it where it stands, and only there.
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        widened = scan.replace("--config base/.gitleaks.toml", "--config .gitleaks.toml")
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": widened}))),
+                               ".github/workflows/ci.yml: ci.yml runs gitleaks other than as"))
+        self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": scan}))), "ci.yml"))
 
     def test_a_rule_is_not_dodged_by_writing_the_workflow_another_way(self):
         ways = {
