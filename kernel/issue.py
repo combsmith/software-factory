@@ -1,14 +1,18 @@
-"""Derive the State of an issue from its facts and run records (design §4.1, the issue Lifecycle).
+"""Derive the State of an issue from its facts and run records, and decide what happens next on it (design §4.1).
 
-State is never stored. This function is the only definition of an issue's, as derive.py's is of a pull request's,
+State is never stored. `derive` is the only definition of an issue's, as derive.py's is of a pull request's,
 and it reads only the issue's own facts. Its rows are tried in order and the first that holds gives the State, so
 no two States overlap (I-44). It imports the calendar, the run records' readers and the reading of control labels
 from derive.py, and who is a person from gate.py, and changes none of them (decision 0028).
+
+`decide` is the issue's Admission: the Controller's acts, and the one Run admitted, with its own schema,
+`issue-decision/1`. It asks the brakes before every act and Run, as decide.py does, and edits neither (decision 0031).
 """
 from __future__ import annotations
 
+from kernel import brakes
 from kernel import terms as t
-from kernel.derive import in_progress, is_time, runs_on, standing_labels
+from kernel.derive import in_progress, is_time, runs_on, since_writer, standing_labels
 from kernel.gate import is_person
 
 # The States of lifecycle/issue.json that a pull request's do not share. `held` and `not_served` are terms.py's.
@@ -42,6 +46,33 @@ CONTENT_MOST = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 # adds factory:ready. The opening Run creates the work's branch and its draft pull request.
 JUDGE_READINESS = "judge-readiness"
 OPENING = "open-pull-request"
+# The investigating Run, which reads the issue and comments what it found, for this content.
+INVESTIGATE = "investigate-issue"
+# Every Intent the issue's decision admits, the three above, each mapped in the configuration's `issues.intents` to
+# its Role and App. A module holds only constants, so they are written out again.
+INTENTS = ("investigate-issue", "judge-readiness", "open-pull-request")
+
+# The issue's Decision, and the Controller's acts on an issue: accept it, remove a label that no longer counts, and
+# place a Hold when unmerged closes pass their bound.
+SCHEMA = "issue-decision/1"
+ACCEPT = "accept"
+REMOVE_LABEL = "remove_label"
+PLACE_HOLD = "place_hold"
+# The States in which an issue admits nothing at all: its two ends, and not served.
+ADMITS_NOTHING = frozenset({DONE, DECLINED, t.NOT_SERVED})
+# The States whose labels the Controller keeps to what the Kernel reads (I-17).
+KEPT = frozenset({NEW, TRIAGE, READY})
+# The reasons that need a person: a Hold, a lapse, the brakes, a configuration or a fact that does not mend itself,
+# and the end of what the Factory may do on its own in triage or ready.
+NEEDS_YOU_REASONS = frozenset({
+    "human_hold", "linked_twice", "acceptance_lapsed", "attempts_exhausted", "run_ceiling", "act_ceiling",
+    "unmerged_closes", "judged", "ready_removed", "no_statement", "intent_undeclared", "label_unreadable",
+    "issues_unreadable", "intents_unreadable", "intents_share_a_role",
+})
+# The States and reasons that call nobody: an end, not served, the pull request's own Lifecycle, an issue nobody
+# accepted (I-32), and a person's own decline of the investigation.
+QUIET_STATES = frozenset({DONE, DECLINED, t.NOT_SERVED, IN_REVIEW})
+QUIET_REASONS = frozenset({"not_accepted", "triage_removed"})
 
 
 def states() -> tuple:
@@ -338,3 +369,279 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     if counts(facts, runs, config, LABEL_TRIAGE):
         return out(TRIAGE, "triage", [])
     return out(NEW, "acceptance_due", [])
+
+
+# What is admitted on an issue, and when `apply` refuses (design §4.1, decision 0031).
+
+
+def _attention(state, reason, working: bool) -> str:
+    # An unreadable fact that does not mend itself needs a person even with no State.
+    if state is None and reason not in NEEDS_YOU_REASONS:
+        return t.NONE
+    if working:
+        return t.WORKING
+    if reason in NEEDS_YOU_REASONS:
+        return t.NEEDS_YOU
+    if state in QUIET_STATES or reason in QUIET_REASONS:
+        return t.NONE
+    return t.READY
+
+
+def _decision(facts, state, reason, evidence, outcome, working=False, **extra) -> dict:
+    d = {
+        "schema": SCHEMA,
+        "item": facts["item"],
+        "state": state,
+        "reason": reason,
+        "evidence": list(evidence),
+        "attention": _attention(state, reason, working),
+        "outcome": outcome,
+    }
+    d.update(extra)
+    return d
+
+
+def readable_comments(comments) -> bool:
+    """The latest comment of each Factory App that commented: its App's name, and when."""
+    return isinstance(comments, list) and all(
+        isinstance(c, dict) and isinstance(c.get("by"), str) and c["by"] != "" and is_time(c.get("at"))
+        for c in comments)
+
+
+def readable_writer(facts: dict) -> bool:
+    """When a person with write access last acted, and last commented: a time, or null where none has. Never
+    defaulted: a time left out could renew nothing, or everything."""
+    return all(facts.get(name, "") is None or is_time(facts.get(name))
+               for name in ("last_writer_action_at", "last_writer_comment_at"))
+
+
+def readable_head(facts: dict) -> bool:
+    """The head of the branch the next opening Run would push to: a name, or null while that branch does not exist."""
+    return "branch_head" in facts and (facts["branch_head"] is None
+                                       or (isinstance(facts["branch_head"], str) and facts["branch_head"] != ""))
+
+
+def readable_intents(intents) -> bool:
+    """Whether `issues.intents` can be read whole: each Intent named, and mapped to null, which admits nothing, or to a
+    Role and its App, each a name."""
+    if not (isinstance(intents, dict) and all(name in intents for name in INTENTS)):
+        return False
+    return all(intents[name] is None or (isinstance(intents[name], dict) and all(
+        isinstance(intents[name].get(key), str) and intents[name][key] != "" for key in ("role", "app")))
+        for name in INTENTS)
+
+
+def shares_a_role(intents: dict) -> bool:
+    """Whether two Intents name one Role: the readiness Role would judge its own investigation."""
+    roles = [intents[name]["role"] for name in INTENTS if intents[name] is not None]
+    return len(set(roles)) != len(roles)
+
+
+def unmerged_closes(facts: dict) -> list:
+    """The linked pull requests that closed in the issue's present life without being done, since a person last
+    removed factory:hold from it: only that removal, or a new life, resets the count (I-43). A close in the same second
+    as either is counted, the reading that stops work."""
+    released = [ev["at"] for ev in facts["label_events"]
+                if ev["label"] == t.LABEL_HOLD and ev["action"] == "unlabeled" and is_person(ev["by"])]
+    since = max([facts["life_started_at"]] + released)
+    return [str(p["number"]) for p in facts["linked"]
+            if is_linked(p) and not p["open"] and p["closed_at"] >= since]
+
+
+def not_counted(facts: dict, runs: list, config: dict, state: str):
+    """factory:ready or factory:triage, if it stands on an issue in new, triage or ready and does not count: what people
+    see is then what the Kernel reads (I-17). Never a Hold, an admission or hands-off. None if no such label stands."""
+    if state not in KEPT:
+        return None
+    for name in (LABEL_READY, LABEL_TRIAGE):
+        if latest_adds(facts["label_events"], name) and not counts(facts, runs, config, name):
+            return name
+    return None
+
+
+def removed_by_a_person(facts: dict, name: str) -> bool:
+    """Whether a person removed `name` since the content last changed: the Factory never adds it again for this
+    content (I-40). A removal in the same second as the edit counts as after it, the reading that stops work."""
+    return any(ev["label"] == name and ev["action"] == "unlabeled" and is_person(ev["by"])
+               and ev["at"] >= facts["content_changed_at"] for ev in facts["label_events"])
+
+
+def investigated_at(facts: dict, mine: list, who: dict):
+    """When the investigation became current, or None if it is not. It is current once the investigating Role
+    completed a Run for this content, successfully, since a person with write access last acted. Once that record has
+    expired, its App's latest comment later than both the edit and that action stands in for it. A failed Run has not
+    investigated: it is an attempt, which the brakes bound."""
+    mark = facts["last_writer_action_at"]
+    times = [r["started_at"] for r in mine
+             if r["intent"] == INVESTIGATE and r["role"] == who["role"]
+             and r["conclusion"] == "success" and r["content_id"] == facts["content_id"]]
+    times += [c["at"] for c in facts["role_comments"] if c["by"] == who["app"] and c["at"] > facts["content_changed_at"]]
+    times = [when for when in times if mark is None or when > mark]
+    return min(times) if times else None
+
+
+def judged(facts: dict, mine: list, who: dict, since: str) -> bool:
+    """Whether the readiness Role has given its verdict on this content since the investigation: a Run that completed
+    successfully, or once its record has expired, its App's factory:ready or its comment, from then or later."""
+    if any(r["intent"] == JUDGE_READINESS and r["role"] == who["role"]
+           and r["conclusion"] == "success" and r["content_id"] == facts["content_id"] and r["started_at"] >= since
+           for r in mine):
+        return True
+    if any(ev["label"] == LABEL_READY and ev["action"] == "labeled" and ev["by"]["kind"] in APP_KINDS
+           and ev["by"]["name"] == who["app"] and ev["at"] >= since for ev in facts["label_events"]):
+        return True
+    return any(c["by"] == who["app"] and c["at"] >= since for c in facts["role_comments"])
+
+
+def stated(facts: dict, intents: dict) -> bool:
+    """Whether the work has a statement the opening Run may be given in place of an outsider's text: the investigating
+    App's comment, or a comment by a person with write access, made after the content last changed. A person's own
+    issue needs none."""
+    if is_person(facts["author"]):
+        return True
+    changed = facts["content_changed_at"]
+    who = intents[INVESTIGATE]
+    if who is not None and any(c["by"] == who["app"] and c["at"] > changed for c in facts["role_comments"]):
+        return True
+    said = facts["last_writer_comment_at"]
+    return said is not None and said > changed
+
+
+def _stop(facts, state, reason, evidence, context, action, **extra) -> dict:
+    """An act that stops work, or that takes back a label that lets none go. Only the Pause stops it (decision 0003):
+    it is never refused at the act ceiling, and placing a Hold is not delayed by a Run in flight."""
+    pause = brakes.paused(_decision, facts, state, evidence, context)
+    if pause:
+        return pause
+    return _decision(facts, state, reason, evidence, t.ACT, action=action, content_id=facts["content_id"], **extra)
+
+
+def _accept(facts, state, reason, evidence, mine, context, config) -> dict:
+    """Row 10: the Controller accepts the issue by adding factory:triage, once its App is declared for it, so that the
+    label it adds counts. Not once a person removed it for this content (I-40). The act ceiling bounds it."""
+    if reason != "acceptance_due":
+        return _decision(facts, state, reason, evidence, t.NOTHING)
+    if in_progress(mine):
+        return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
+    if config["issues"]["label_apps"][LABEL_TRIAGE] is None:
+        return _decision(facts, state, reason, evidence, t.NOTHING)
+    if removed_by_a_person(facts, LABEL_TRIAGE):
+        return _decision(facts, state, "triage_removed", evidence, t.NOTHING)
+    brake = brakes.on_act(_decision, facts, state, evidence, context, ACCEPT, since_writer(mine, facts),
+                          config["limits"])
+    if brake:
+        return brake
+    return _decision(facts, state, reason, evidence, t.ACT, action=ACCEPT, content_id=facts["content_id"])
+
+
+def _wanted(facts, state, reason, evidence, mine, intents):
+    """The Run the State calls for, as (role, intent, what else its admission carries), or the Decision that admits
+    none. In triage one at a time: an investigation unless it is current, then a verdict unless one stands or a person
+    overruled it, then nothing. In ready the opening Run, from a statement on an outsider's issue."""
+    if state == TRIAGE:
+        who = intents[INVESTIGATE]
+        if who is None:
+            return _decision(facts, state, "intent_undeclared", [INVESTIGATE], t.NOTHING)
+        since = investigated_at(facts, mine, who)
+        if since is None:
+            return (who["role"], INVESTIGATE, {})
+        if removed_by_a_person(facts, LABEL_READY):
+            return _decision(facts, state, "ready_removed", evidence, t.NOTHING)
+        who = intents[JUDGE_READINESS]
+        if who is None:
+            return _decision(facts, state, "intent_undeclared", [JUDGE_READINESS], t.NOTHING)
+        if judged(facts, mine, who, since):
+            return _decision(facts, state, "judged", evidence, t.NOTHING)
+        return (who["role"], JUDGE_READINESS, {})
+    who = intents[OPENING]
+    if state == IN_PROGRESS:
+        # Only an opening Run holds the issue here: it is in flight, and the brakes are asked of it below.
+        if who is None:
+            return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
+        return (who["role"], OPENING, {})
+    if who is None:
+        return _decision(facts, state, "intent_undeclared", [OPENING], t.NOTHING)
+    if not stated(facts, intents):
+        return _decision(facts, state, "no_statement", evidence, t.NOTHING)
+    if not readable_head(facts):
+        return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)
+    return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
+
+
+def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> dict:
+    """Return the Decision for one issue: what, if anything, happens next on it. No I/O, no clock."""
+    d = derive(facts, runs, config)
+    state, reason, evidence = d["state"], d["reason"], d["evidence"]
+    # Fail to a deferral, never to an action.
+    if state is None:
+        return _decision(facts, None, reason, evidence, t.DEFER)
+    if state in ADMITS_NOTHING:
+        return _decision(facts, state, reason, evidence, t.NOTHING)
+    if state == t.HELD:
+        return _decision(facts, state, reason, evidence, t.HOLD)
+    mine = runs_on(runs, facts)
+
+    # The acts that stop work, read first. Unmerged closes past their bound place a Hold (I-43); a label that stands
+    # and does not count is removed, though not while a Run is in flight, whose own label may not count until it ends.
+    closes = unmerged_closes(facts)
+    if len(closes) > config["limits"]["max_unmerged_closes"]:
+        return dict(_stop(facts, state, "unmerged_closes", closes, context, PLACE_HOLD), attention=t.NEEDS_YOU)
+    label = not_counted(facts, runs, config, state)
+    if label is not None and not in_progress(mine):
+        return _stop(facts, state, "label_not_counted", [label], context, REMOVE_LABEL, label=label)
+
+    # What steers what is admitted, read whole.
+    if not readable_comments(facts.get("role_comments")):
+        return _decision(facts, state, "comments_unreadable", evidence, t.DEFER)
+    if not readable_writer(facts):
+        return _decision(facts, state, "writer_unreadable", evidence, t.DEFER)
+    if state == NEW:
+        return _accept(facts, state, reason, evidence, mine, context, config)
+    if state == IN_REVIEW or reason == "linked_draft":
+        return _decision(facts, state, reason, evidence, t.NOTHING)
+    intents = config["issues"].get("intents")
+    if not readable_intents(intents):
+        return _decision(facts, state, "intents_unreadable", evidence, t.DEFER)
+    if shares_a_role(intents):
+        return _decision(facts, state, "intents_share_a_role", evidence, t.DEFER)
+    wanted = _wanted(facts, state, reason, evidence, mine, intents)
+    if isinstance(wanted, dict):
+        return wanted
+    role, intent, carried = wanted
+
+    # The brakes on a Run (decision 0003). A Run in flight admits nothing, but their Hold still applies: the one they
+    # would have made of that Run, which is left out of its own count, since it was admitted under the ceiling.
+    limits = config["limits"]
+    since = since_writer(mine, facts)
+    if in_progress(mine):
+        done = [r for r in since if r["status"] == "completed"]
+        brake = brakes.on_run(_decision, facts, state, evidence, context, intent, done, limits)
+        if brake and brake["outcome"] == t.HOLD:
+            return brake
+        return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
+    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since, limits)
+    if brake:
+        return brake
+
+    # Capacity and the org's concurrency are not brakes: they bound no cycle (§4.1), and only defer.
+    until = context.get("model_deferred_until", "unreadable")
+    if until == "unreadable":
+        return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
+    if until is not None and until > now:
+        return _decision(facts, state, "capacity", evidence, t.DEFER)
+    active = context.get("active_runs")
+    if active is None:
+        return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
+    if active >= limits["org_max_active_runs"]:
+        return _decision(facts, state, "concurrency", evidence, t.DEFER)
+
+    admit = dict({"role": role, "intent": intent, "content_id": facts["content_id"]}, **carried)
+    return _decision(facts, state, reason, evidence, t.ADMIT, admit=admit)
+
+
+def still_admitted(admitted: dict, again: dict) -> bool:
+    """Whether `apply` may write. Before any Effect it asks the Kernel again, leaving its own Run out of the records
+    (I-38), and writes nothing unless that admits the same Run: the same Role and Intent, which only one State admits,
+    for the same content, and for the opening Run the same branch head (I-21). So a label removed, a Hold added, an
+    edit made or a head moved while the Run was in flight each stop it."""
+    return again.get("admit") is not None and again.get("admit") == admitted.get("admit")

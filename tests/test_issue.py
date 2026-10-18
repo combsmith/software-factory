@@ -13,12 +13,13 @@ import tempfile
 import unittest
 
 from kernel import issue
-from tests.support import CONFIG, MAINTAINER, ROOT
+from tests.support import CONFIG, MAINTAINER, NOW, ROOT, context
 from tools import check_purity
 from tools.jsonschema_lite import validate
 
 LIFECYCLE = json.loads((ROOT / "lifecycle" / "issue.json").read_text())
 SCHEMA = json.loads((ROOT / "schemas" / "issue-facts.schema.json").read_text())
+DECISION = json.loads((ROOT / "schemas" / "issue-decision.schema.json").read_text())
 ITEM = {"repo": "combsmith/software-factory", "type": "issue", "number": 7}
 THIS, OTHER = "sha256:c1c1", "sha256:c2c2"
 # Who acts. A person is human with write access, and nobody else is.
@@ -30,9 +31,16 @@ READINESS = {"kind": "app", "name": "combsmith-sf-readiness[bot]", "can_write": 
 AUTHOR_APP = {"kind": "app", "name": "combsmith-sf-dev-lead[bot]", "can_write": True}
 OTHER_APP = {"kind": "app", "name": "some-other-app[bot]", "can_write": True}
 MACHINE = {"kind": "machine_user", "name": CONFIG["approver"], "can_write": True}
+ANALYST = {"kind": "app", "name": "combsmith-sf-business-analyst[bot]", "can_write": True}
+# The Intents the Kernel admits on an issue, each with its Role and that Role's App, once the Maintainer turns them on.
+INVESTIGATE, JUDGE, OPEN = "investigate-issue", "judge-readiness", "open-pull-request"
+INTENTS = {INVESTIGATE: {"role": "business-analyst", "app": ANALYST["name"]},
+           JUDGE: {"role": "readiness", "app": READINESS["name"]},
+           OPEN: {"role": "dev-lead", "app": AUTHOR_APP["name"]}}
 # The issues served once the Maintainer turns them on, with the App declared for each label that lets work go.
 SERVED = {"served_from": "2026-01-01T00:00:00Z", "left_out_labels": ["epic", "idea"], "left_out_types": ["Epic"],
-          "label_apps": {"factory:triage": CONTROLLER["name"], "factory:ready": READINESS["name"]}}
+          "label_apps": {"factory:triage": CONTROLLER["name"], "factory:ready": READINESS["name"]},
+          "intents": INTENTS}
 TRIAGE, READY, HOLD, HANDS_OFF, ADMIT = "factory:triage", "factory:ready", "factory:hold", "factory:hands-off", \
     "factory:admit"
 
@@ -84,7 +92,8 @@ def facts(**over) -> dict:
     f = {"schema": "issue-facts/1", "item": dict(ITEM), "state": "open", "author": dict(WRITER), "type": None, "label_names": [], "assignees": [],
          "life_started_at": at(0), "reopened_last_by": "never", "content_id": THIS, "content_changed_at": at(0),
          "label_events": [], "linked": [], "role_comments": [], "last_writer_action_at": at(0),
-         "last_writer_comment_at": None, "complete": {"timeline": True, "linked": True, "runs": True},
+         "last_writer_comment_at": None, "acts_since_writer": 0, "branch_head": None,
+         "complete": {"timeline": True, "linked": True, "runs": True},
          "read_at": at(50)}
     f.update(over)
     return f
@@ -443,7 +452,8 @@ class NotServed(unittest.TestCase):
     def test_no_issue_is_served_until_the_maintainer_turns_issues_on(self):
         self.assertEqual(json.loads((ROOT / "config" / "defaults.json").read_text())["issues"],
                          {"served_from": None, "left_out_labels": [], "left_out_types": [],
-                          "label_apps": {"factory:triage": None, "factory:ready": None}})
+                          "label_apps": {"factory:triage": None, "factory:ready": None},
+                          "intents": {INVESTIGATE: None, JUDGE: None, OPEN: None}})
         d = derive(facts(label_events=[labelled(READY)]), cfg=copy.deepcopy(CONFIG))
         self.assertEqual((d["state"], d["reason"]), ("not_served", "left_out"))
         self.assertEqual(state(facts(), cfg=config(served_from=None)), "not_served")
@@ -741,6 +751,463 @@ class Counts(unittest.TestCase):
         triage = [labelled(TRIAGE, CONTROLLER, 2), labelled(TRIAGE, OUTSIDER, 2)]
         for events in (triage, triage[::-1]):
             self.assertEqual(state(facts(label_events=events)), "new", events)
+
+
+# What is admitted on an issue, and when `apply` refuses (design §4.1; decision 0031). Each boundary from both sides.
+LIMITS = CONFIG["limits"]
+TRIAGED = facts(label_events=ACCEPTED)
+READIED_BY_A_PERSON = [labelled(READY)]
+
+
+def decide(f, runs=(), ctx=None, cfg=None, now=NOW) -> dict:
+    """The Kernel's Decision on an issue, held to its schema; no argument is changed."""
+    given = copy.deepcopy((f, list(runs), context() if ctx is None else ctx, cfg or config()))
+    d = issue.decide(*copy.deepcopy(given), now)
+    again = issue.decide(*copy.deepcopy(given), now)
+    assert d == again, "the same inputs gave another Decision"
+    args = copy.deepcopy(given)
+    issue.decide(*args, now)
+    assert args == given, "the Kernel changed an argument"
+    errors = validate(d, DECISION)
+    assert not errors, (errors, d)
+    return d
+
+
+def what(d) -> tuple:
+    """(outcome, reason, and the act or the Intent admitted, if any)."""
+    return d["outcome"], d["reason"], d.get("action") or d.get("admit", {}).get("intent")
+
+
+def investigated(status="completed", content=THIS, minute=3, name="i1", role="business-analyst") -> dict:
+    """The investigating Run on the issue. By default it completed, for this content, at minute 3."""
+    return run(intent=INVESTIGATE, content=content, status=status, minute=minute, name=name, role=role)
+
+
+def failed(intent, minute, name, outcome="item", role="business-analyst") -> dict:
+    """A Run that completed and failed. By a fault of the item it is an attempt; by any other, it only spends."""
+    return dict(run(intent=intent, minute=minute, name=name, role=role), conclusion="failure", outcome=outcome)
+
+
+def comment(app: dict, minute: int) -> dict:
+    """An App's latest comment on the issue."""
+    return {"by": app["name"], "at": at(minute)}
+
+
+def intents(**over) -> dict:
+    """The Intents as INTENTS gives them, but for what differs. Python names stand for the Intents' codes."""
+    names = {"investigate": INVESTIGATE, "judge": JUDGE, "opening": OPEN}
+    return dict(copy.deepcopy(INTENTS), **{names[k]: v for k, v in over.items()})
+
+
+def closed_links(*minutes) -> list:
+    """The Factory's pull requests that closed the issue unmerged, one at each minute."""
+    return [agents(number=20 + i, is_open=False, closed=m) for i, m in enumerate(minutes)]
+
+
+class Outcomes(unittest.TestCase):
+    def test_an_issue_that_cannot_be_read_defers_and_one_at_an_end_admits_nothing(self):
+        d = decide(facts(state=None))
+        self.assertEqual((d["state"], what(d), d["attention"]), (None, ("defer", "state_unreadable", None), "none"))
+        d = decide(facts(), cfg=dict(config(), issues=None))
+        self.assertEqual((what(d), d["attention"]), (("defer", "issues_unreadable", None), "needs_you"))
+        for f, state in ((facts(linked=[pr(is_open=False, merged=5)]), "done"), (facts(state="closed"), "declined"),
+                         (facts(label_events=[labelled(HANDS_OFF)]), "not_served")):
+            d = decide(f)
+            self.assertEqual((d["state"], d["outcome"], d["attention"]), (state, "nothing", "none"), state)
+        d = decide(facts(label_events=[labelled(HOLD)]))
+        self.assertEqual((d["state"], what(d), d["attention"]), ("held", ("hold", "human_hold", None), "needs_you"))
+
+    def test_every_situation_gives_one_valid_decision(self):
+        for name, f, runs, _ in CASES:
+            with self.subTest(name):
+                decide(f, runs, cfg=config(served_from=None) if name == UNSERVED else config())
+
+    def test_in_review_and_with_a_linked_draft_nothing_is_admitted_whatever_the_intents(self):
+        for f, reason in ((facts(linked=[pr()]), "linked_ready"), (facts(linked=[agents(draft=True)]), "linked_draft")):
+            for cfg in (config(), config(intents=None)):
+                self.assertEqual(what(decide(f, cfg=cfg)), ("nothing", reason, None))
+
+
+class Acceptance(unittest.TestCase):
+    """The Controller accepts an issue at row 10 by adding factory:triage: an act, which on_act bounds."""
+
+    def test_the_controller_accepts_a_new_issue_at_row_10_once_its_app_is_declared(self):
+        d = decide(facts())
+        self.assertEqual((what(d), d["content_id"], d["attention"]), (("act", "acceptance_due", "accept"), THIS, "ready"))
+        undeclared = config(label_apps={"factory:triage": None, "factory:ready": READINESS["name"]})
+        self.assertEqual(what(decide(facts(), cfg=undeclared)), ("nothing", "acceptance_due", None))
+        # Not row 10: an outsider's issue nobody admitted waits, and one whose acceptance lapsed calls a person.
+        d = decide(outsiders())
+        self.assertEqual((what(d), d["attention"]), (("nothing", "not_accepted", None), "none"))
+        lapsed = outsiders(content_changed_at=at(9), label_events=[labelled(ADMIT), labelled(TRIAGE, CONTROLLER, 2)])
+        d = decide(lapsed)
+        self.assertEqual((what(d), d["attention"]), (("nothing", "acceptance_lapsed", None), "needs_you"))
+
+    def test_acceptance_is_not_decided_once_triage_is_there_and_the_label_is_the_only_guard(self):
+        self.assertNotEqual(decide(TRIAGED).get("action"), "accept")
+        # Until an act is counted by the ruling on how acts are recorded, the label's presence is the only guard: one
+        # that stands and does not count is removed first, and only then is the issue accepted again.
+        at_the_reopening = facts(life_started_at=at(1), reopened_last_by="writer",
+                                 label_events=[labelled(TRIAGE, CONTROLLER, 1)])
+        d = decide(at_the_reopening)
+        self.assertEqual((what(d), d["label"]), (("act", "label_not_counted", "remove_label"), TRIAGE))
+
+    def test_a_person_who_removed_triage_since_the_content_changed_is_not_overruled(self):
+        for by, minute, want in ((WRITER, 1, "accept"), (WRITER, 2, None), (WRITER, 3, None), (CONTROLLER, 3, "accept")):
+            f = facts(content_changed_at=at(2), label_events=[labelled(TRIAGE, CONTROLLER, 1), unlabelled(TRIAGE, by, minute)])
+            d = decide(f)
+            self.assertEqual(d.get("action"), want, (by, minute))
+            if want is None:
+                self.assertEqual((what(d), d["attention"]), (("nothing", "triage_removed", None), "none"))
+
+    def test_acceptance_is_held_to_the_act_ceiling_and_stopped_by_the_pause(self):
+        top = LIMITS["max_acts_per_item"]
+        self.assertEqual(decide(facts(acts_since_writer=top - 1)).get("action"), "accept")
+        d = decide(facts(acts_since_writer=top))
+        self.assertEqual((d["state"], what(d)), ("held", ("hold", "act_ceiling", None)))
+        for value in (-1, None, "1", True):
+            self.assertEqual(what(decide(facts(acts_since_writer=value))), ("defer", "acts_unreadable", None), value)
+        f = facts()
+        del f["acts_since_writer"]
+        self.assertEqual(what(decide(f)), ("defer", "acts_unreadable", None))
+        self.assertEqual(what(decide(facts(), ctx=context(paused=True))), ("defer", "paused", None))
+        self.assertEqual(what(decide(facts(), ctx=context(paused=None))), ("defer", "pause_unreadable", None))
+
+    def test_acceptance_waits_for_a_run_in_flight(self):
+        d = decide(facts(), [run(status="in_progress")])
+        self.assertEqual((what(d), d["attention"]), (("nothing", "acceptance_due", None), "working"))
+
+
+class RemoveLabel(unittest.TestCase):
+    """The Controller removes a factory:triage or factory:ready that stands and no longer counts (I-17)."""
+
+    def test_a_label_that_stands_and_no_longer_counts_is_removed(self):
+        cases = [(facts(label_events=[labelled(TRIAGE, OTHER_APP, 1)]), TRIAGE),
+                 (facts(label_events=[labelled(READY, OTHER_APP, 1)]), READY),
+                 (facts(content_changed_at=at(4), label_events=ACCEPTED + [labelled(READY, minute=3)]), READY),
+                 (facts(label_events=READIED), READY),
+                 (facts(life_started_at=at(5), reopened_last_by="writer",
+                        label_events=[labelled(TRIAGE, CONTROLLER, 1), labelled(READY, minute=6)]), TRIAGE)]
+        for f, label in cases:
+            d = decide(f)
+            self.assertEqual((what(d), d["label"], d["evidence"], d["content_id"]),
+                             (("act", "label_not_counted", "remove_label"), label, [label], THIS), label)
+        # The other side: a label that counts stays, and one already gone is not removed again.
+        self.assertEqual(what(decide(facts(label_events=READIED), JUDGED)), ("admit", "ready", OPEN))
+        self.assertEqual(what(decide(TRIAGED)), ("admit", "triage", INVESTIGATE))
+        gone = facts(label_events=[labelled(TRIAGE, OTHER_APP, 1), unlabelled(TRIAGE, OTHER_APP, 2)])
+        self.assertEqual(decide(gone).get("action"), "accept")
+
+    def test_the_hold_an_admission_and_hands_off_are_never_removed_nor_a_label_once_work_is_linked(self):
+        self.assertEqual(what(decide(outsiders(label_events=[labelled(ADMIT, OTHER_APP)]))),
+                         ("nothing", "not_accepted", None))
+        self.assertEqual(decide(facts(label_events=[labelled(HOLD, OTHER_APP)]))["outcome"], "hold")
+        self.assertEqual(decide(facts(label_events=[labelled(HANDS_OFF, OTHER_APP)]))["outcome"], "hold")
+        linked = facts(label_events=[labelled(TRIAGE, OTHER_APP, 1)], linked=[agents(draft=True)])
+        self.assertEqual(what(decide(linked)), ("nothing", "linked_draft", None))
+
+    def test_removing_a_label_is_stopped_by_the_pause_and_waits_for_a_run_in_flight(self):
+        stale = facts(label_events=[labelled(READY, OTHER_APP, 1)], acts_since_writer=LIMITS["max_acts_per_item"])
+        self.assertEqual(decide(stale).get("action"), "remove_label")
+        self.assertEqual(what(decide(stale, ctx=context(paused=True))), ("defer", "paused", None))
+        # A readiness Run that adds factory:ready completes after its apply: until then its label does not count.
+        d = decide(facts(label_events=READIED), [run(status="in_progress")])
+        self.assertEqual((what(d), d["attention"]), (("nothing", "triage", None), "working"))
+
+
+class UnmergedCloses(unittest.TestCase):
+    """The Controller places factory:hold when unmerged closes pass max_unmerged_closes (I-43)."""
+
+    def test_unmerged_closes_past_the_bound_place_a_hold(self):
+        top = LIMITS["max_unmerged_closes"]
+        within = facts(label_events=READIED_BY_A_PERSON, linked=closed_links(*range(2, 2 + top)))
+        self.assertEqual(what(decide(within)), ("admit", "ready", OPEN))
+        past = facts(label_events=READIED_BY_A_PERSON, linked=closed_links(*range(2, 3 + top)))
+        d = decide(past)
+        self.assertEqual((d["state"], what(d), d["attention"], d["content_id"]),
+                         ("ready", ("act", "unmerged_closes", "place_hold"), "needs_you", THIS))
+        self.assertEqual(d["evidence"], [str(20 + i) for i in range(top + 1)])
+        # Only a linked pull request counts: a stranger's that nobody admitted closes nothing here.
+        strangers_too = facts(label_events=READIED_BY_A_PERSON,
+                              linked=closed_links(*range(2, 2 + top)) + [strangers(number=30, is_open=False, closed=9)])
+        self.assertEqual(what(decide(strangers_too)), ("admit", "ready", OPEN))
+
+    def test_closes_are_counted_in_this_life_since_a_person_released_the_hold(self):
+        self.assertEqual(LIMITS["max_unmerged_closes"], 1)
+        for start, hold in ((5, True), (6, False)):
+            f = facts(life_started_at=at(start), reopened_last_by="writer", linked=closed_links(5, 6))
+            self.assertEqual(decide(f).get("action") == "place_hold", hold, start)
+        placed = labelled(HOLD, CONTROLLER, 4)
+        for minute, hold in ((5, True), (6, True), (7, False)):
+            f = facts(label_events=READIED_BY_A_PERSON + [placed, unlabelled(HOLD, minute=minute)],
+                      linked=closed_links(6, 7))
+            self.assertEqual(decide(f).get("action") == "place_hold", hold, minute)
+        # Only a person's removal resets the count: anyone else's ends no Hold, and so releases none.
+        released = [labelled(HOLD, minute=4), unlabelled(HOLD, minute=5), unlabelled(HOLD, OTHER_APP, 7)]
+        f = facts(label_events=READIED_BY_A_PERSON + released, linked=closed_links(6, 7))
+        self.assertEqual(decide(f).get("action"), "place_hold")
+
+    def test_placing_a_hold_is_stopped_only_by_the_pause_and_not_once_the_hold_is_there(self):
+        past = facts(label_events=READIED_BY_A_PERSON, linked=closed_links(2, 3),
+                     acts_since_writer=LIMITS["max_acts_per_item"])
+        self.assertEqual(decide(past).get("action"), "place_hold")
+        self.assertEqual(decide(past, [opening(status="queued")]).get("action"), "place_hold")
+        d = decide(past, ctx=context(paused=True))
+        self.assertEqual((what(d), d["attention"]), (("defer", "paused", None), "needs_you"))
+        held = facts(label_events=READIED_BY_A_PERSON + [labelled(HOLD, CONTROLLER, 4)], linked=closed_links(2, 3))
+        self.assertEqual(what(decide(held)), ("hold", "human_hold", None))
+
+
+class Investigation(unittest.TestCase):
+    """In triage one Run at a time: an investigation unless it is current, then a verdict unless one stands."""
+
+    def test_in_triage_an_investigating_run_is_admitted_first(self):
+        d = decide(TRIAGED)
+        self.assertEqual((what(d), d["admit"]), (("admit", "triage", INVESTIGATE),
+                                                 {"role": "business-analyst", "intent": INVESTIGATE, "content_id": THIS}))
+        self.assertEqual(d["attention"], "ready")
+
+    def test_the_investigation_is_current_once_its_role_completed_a_run_for_this_content_since_a_writer_acted(self):
+        d = decide(TRIAGED, [investigated()])
+        self.assertEqual((what(d), d["admit"]), (("admit", "triage", JUDGE),
+                                                 {"role": "readiness", "intent": JUDGE, "content_id": THIS}))
+        for runs in ([dict(investigated(), conclusion="failure", outcome="item")], [investigated(content=OTHER)],
+                     [investigated(role="readiness")], [investigated(minute=0)],
+                     [dict(investigated(), intent=JUDGE)]):
+            self.assertEqual(what(decide(TRIAGED, runs)), ("admit", "triage", INVESTIGATE), runs)
+        for mark, want in ((2, JUDGE), (3, INVESTIGATE), (4, INVESTIGATE)):
+            f = facts(label_events=ACCEPTED, last_writer_action_at=at(mark))
+            self.assertEqual(what(decide(f, [investigated()]))[2], want, mark)
+        self.assertEqual(what(decide(facts(label_events=ACCEPTED, last_writer_action_at=None), [investigated()]))[2],
+                         JUDGE)
+
+    def test_once_the_record_has_expired_the_investigating_apps_comment_stands_in(self):
+        self.assertEqual(what(decide(facts(label_events=ACCEPTED, role_comments=[comment(ANALYST, 5)])))[2], JUDGE)
+        for over in ({"content_changed_at": at(5)}, {"last_writer_action_at": at(5)},
+                     {"role_comments": [comment(OTHER_APP, 6)]}):
+            f = facts(**dict({"label_events": ACCEPTED, "role_comments": [comment(ANALYST, 5)]}, **over))
+            self.assertEqual(what(decide(f))[2], INVESTIGATE, over)
+
+    def test_a_verdict_is_given_once_for_each_content_and_investigation(self):
+        d = decide(TRIAGED, [investigated(), run()])
+        self.assertEqual((what(d), d["attention"]), (("nothing", "judged", None), "needs_you"))
+        self.assertEqual(what(decide(TRIAGED, [investigated(), run(minute=3, name="r1")])), ("nothing", "judged", None))
+        for verdict in (dict(run(), conclusion="failure", outcome="item"), run(content=OTHER), run(minute=2),
+                        run(role="business-analyst"), run(intent=OPEN)):
+            self.assertEqual(what(decide(TRIAGED, [investigated(), verdict])), ("admit", "triage", JUDGE), verdict)
+        # The investigation is read from when it was first shown: a later comment of its App does not move it.
+        f = facts(label_events=ACCEPTED, role_comments=[comment(ANALYST, 5)])
+        self.assertEqual(what(decide(f, [investigated(), run()])), ("nothing", "judged", None))
+
+    def test_once_its_record_has_expired_the_readiness_apps_label_or_comment_stands_in(self):
+        for added, by, want in ((5, READINESS, "judged"), (3, READINESS, "judged"), (2, READINESS, "triage"),
+                                (5, OTHER_APP, "triage")):
+            f = facts(label_events=ACCEPTED + [labelled(READY, by, added), unlabelled(READY, CONTROLLER, added + 1)])
+            self.assertEqual(decide(f, [investigated()])["reason"], want, (added, by))
+        for minute, want in ((5, "judged"), (2, "triage")):
+            f = facts(label_events=ACCEPTED, role_comments=[comment(READINESS, minute)])
+            self.assertEqual(decide(f, [investigated()])["reason"], want, minute)
+        self.assertEqual(decide(facts(label_events=ACCEPTED, role_comments=[comment(OTHER_APP, 5)]),
+                                [investigated()])["reason"], "triage")
+        # Only the App's add is its label: its removal is no verdict, nor is a person's add under the App's name.
+        f = facts(label_events=ACCEPTED + [labelled(READY, READINESS, 2), unlabelled(READY, READINESS, 5)])
+        self.assertEqual(decide(f, [investigated()])["reason"], "triage")
+        cfg = config(intents=intents(judge={"role": "readiness", "app": "readiness"}))
+        person = {"kind": "human", "name": "readiness", "can_write": True}
+        f = facts(label_events=ACCEPTED + [labelled(READY, person, 5), unlabelled(READY, CONTROLLER, 6)])
+        self.assertEqual(decide(f, [investigated()], cfg=cfg)["reason"], "triage")
+
+    def test_a_person_who_removed_ready_since_the_content_changed_overrules_readiness(self):
+        removed = ACCEPTED + [labelled(READY, minute=4), unlabelled(READY, minute=5)]
+        d = decide(facts(label_events=removed), [investigated()])
+        self.assertEqual((what(d), d["attention"]), (("nothing", "ready_removed", None), "needs_you"))
+        before = facts(content_changed_at=at(5), label_events=ACCEPTED + [labelled(READY, minute=2),
+                                                                          unlabelled(READY, minute=4)])
+        self.assertEqual(what(decide(before, [investigated(minute=6)]))[2], JUDGE)
+        at_the_edit = facts(content_changed_at=at(4), label_events=ACCEPTED + [labelled(READY, minute=2),
+                                                                               unlabelled(READY, minute=4)])
+        self.assertEqual(decide(at_the_edit, [investigated(minute=6)])["reason"], "ready_removed")
+        by_the_controller = ACCEPTED + [labelled(READY, minute=4), unlabelled(READY, CONTROLLER, 5)]
+        self.assertEqual(what(decide(facts(label_events=by_the_controller), [investigated()]))[2], JUDGE)
+        # The removal is the person's action, after which the investigation is no longer current: as ruled, it is
+        # investigated again first, and then no verdict is admitted.
+        self.assertEqual(what(decide(facts(label_events=removed, last_writer_action_at=at(5)), [investigated()]))[2],
+                         INVESTIGATE)
+
+    def test_an_intent_not_declared_admits_nothing_and_needs_a_person(self):
+        for cfg, f, runs, intent in ((config(intents=intents(investigate=None)), TRIAGED, [], INVESTIGATE),
+                                     (config(intents=intents(judge=None)), TRIAGED, [investigated()], JUDGE),
+                                     (config(intents=intents(opening=None)), facts(label_events=READIED_BY_A_PERSON),
+                                      [], OPEN)):
+            d = decide(f, runs, cfg=cfg)
+            self.assertEqual((what(d), d["evidence"], d["attention"]),
+                             (("nothing", "intent_undeclared", None), [intent], "needs_you"), intent)
+        # By default every Intent is null.
+        defaults = json.loads((ROOT / "config" / "defaults.json").read_text())["issues"]["intents"]
+        self.assertEqual(defaults, {INVESTIGATE: None, JUDGE: None, OPEN: None})
+
+    def test_intents_that_cannot_be_read_or_share_a_role_defer(self):
+        lacking = intents()
+        del lacking[JUDGE]
+        for value in (None, [], "business-analyst", lacking, intents(investigate={"role": "business-analyst"}),
+                      intents(judge={"role": "", "app": READINESS["name"]}), intents(opening={"role": "dev-lead", "app": 1}),
+                      intents(investigate="business-analyst")):
+            d = decide(TRIAGED, cfg=config(intents=value))
+            self.assertEqual((what(d), d["attention"]), (("defer", "intents_unreadable", None), "needs_you"), value)
+        missing = config()
+        del missing["issues"]["intents"]
+        self.assertEqual(what(decide(TRIAGED, cfg=missing)), ("defer", "intents_unreadable", None))
+        for name in ("judge", "opening"):
+            shared = intents(**{name: {"role": "business-analyst", "app": ANALYST["name"]}})
+            self.assertEqual(what(decide(TRIAGED, cfg=config(intents=shared))), ("defer", "intents_share_a_role", None))
+        # An Intent that is null shares no Role; and a new issue's acceptance reads no Intent.
+        self.assertEqual(what(decide(TRIAGED, cfg=config(intents=intents(judge=None, opening=None))))[2], INVESTIGATE)
+        self.assertEqual(decide(facts(), cfg=config(intents=None)).get("action"), "accept")
+
+    def test_the_brakes_bound_investigation_and_readiness(self):
+        tries = LIMITS["max_attempts"]
+        spent = [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(tries)]
+        self.assertEqual(what(decide(TRIAGED, spent[:-1])), ("admit", "triage", INVESTIGATE))
+        d = decide(TRIAGED, spent)
+        self.assertEqual((d["state"], what(d), d["attention"]), ("held", ("hold", "attempts_exhausted", None), "needs_you"))
+        judging = [investigated(minute=1)] + [failed(JUDGE, 2 + i, "j%d" % i, role="readiness") for i in range(tries)]
+        self.assertEqual(what(decide(TRIAGED, judging[:-1])), ("admit", "triage", JUDGE))
+        self.assertEqual(what(decide(TRIAGED, judging)), ("hold", "attempts_exhausted", None))
+        ceiling = LIMITS["max_runs_per_item"]
+        runs = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(ceiling)]
+        self.assertEqual(what(decide(TRIAGED, runs[:-1])), ("admit", "triage", INVESTIGATE))
+        self.assertEqual(what(decide(TRIAGED, runs)), ("hold", "run_ceiling", None))
+        # A person's action renews every count.
+        renewed = facts(label_events=ACCEPTED, last_writer_action_at=at(30))
+        self.assertEqual(what(decide(renewed, runs)), ("admit", "triage", INVESTIGATE))
+
+    def test_a_run_in_flight_admits_nothing_and_the_brakes_hold_still_applies(self):
+        tries = LIMITS["max_attempts"]
+        queued = investigated(status="queued", minute=20, name="q1")
+        spent = [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(tries)]
+        d = decide(TRIAGED, spent[:-1] + [queued])
+        self.assertEqual((what(d), d["attention"]), (("nothing", "triage", None), "working"))
+        self.assertEqual(what(decide(TRIAGED, spent + [queued])), ("hold", "attempts_exhausted", None))
+        # The Run in flight was admitted under the ceiling: it is not counted against itself.
+        ceiling = LIMITS["max_runs_per_item"]
+        runs = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(ceiling)]
+        self.assertEqual(what(decide(TRIAGED, runs[:-1] + [queued])), ("nothing", "triage", None))
+        self.assertEqual(what(decide(TRIAGED, runs + [queued])), ("hold", "run_ceiling", None))
+        # Under a Pause, a Run in flight is still only working.
+        self.assertEqual(decide(TRIAGED, [queued], ctx=context(paused=True))["attention"], "working")
+
+    def test_the_pause_capacity_and_concurrency_defer_a_run(self):
+        self.assertEqual(what(decide(TRIAGED, ctx=context(paused=True))), ("defer", "paused", None))
+        for ctx, want in ((context(model_deferred_until="2026-10-11T13:00:01Z"), ("defer", "capacity", None)),
+                          (context(model_deferred_until=NOW), ("admit", "triage", INVESTIGATE)),
+                          (context(active_runs=None), ("defer", "capacity_unreadable", None)),
+                          (context(active_runs=LIMITS["org_max_active_runs"]), ("defer", "concurrency", None)),
+                          (context(active_runs=LIMITS["org_max_active_runs"] - 1), ("admit", "triage", INVESTIGATE))):
+            self.assertEqual(what(decide(TRIAGED, ctx=ctx)), want, ctx)
+        ctx = context()
+        del ctx["model_deferred_until"]
+        self.assertEqual(what(decide(TRIAGED, ctx=ctx)), ("defer", "capacity_unreadable", None))
+
+    def test_what_steers_admission_is_read_whole_or_defers(self):
+        for over, reason in (({"role_comments": None}, "comments_unreadable"),
+                             ({"role_comments": [{"by": "", "at": at(5)}]}, "comments_unreadable"),
+                             ({"role_comments": [{"by": ANALYST["name"], "at": "today"}]}, "comments_unreadable"),
+                             ({"role_comments": ["x"]}, "comments_unreadable"),
+                             ({"last_writer_action_at": "today"}, "writer_unreadable"),
+                             ({"last_writer_comment_at": 5}, "writer_unreadable")):
+            d = decide(facts(**dict({"label_events": ACCEPTED}, **over)))
+            self.assertEqual(what(d), ("defer", reason, None), over)
+        for name in ("role_comments", "last_writer_action_at", "last_writer_comment_at"):
+            f = facts(label_events=ACCEPTED)
+            del f[name]
+            self.assertEqual(decide(f)["outcome"], "defer", name)
+
+
+class Opening(unittest.TestCase):
+    """In ready, the opening Run, for the issue's content and the branch head it will push to."""
+
+    def test_in_ready_the_opening_run_is_admitted_for_the_content_and_the_branch_head(self):
+        d = decide(facts(label_events=READIED_BY_A_PERSON))
+        self.assertEqual((what(d), d["admit"]), (("admit", "ready", OPEN), {"role": "dev-lead", "intent": OPEN,
+                                                                           "content_id": THIS, "branch_head": None}))
+        d = decide(facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d"))
+        self.assertEqual(d["admit"]["branch_head"], "9f2c41d")
+        self.assertNotIn("branch_head", decide(TRIAGED)["admit"])
+
+    def test_an_unreadable_branch_head_defers_the_opening_run_alone(self):
+        for value in ("", 1, ["9f2c41d"]):
+            self.assertEqual(what(decide(facts(label_events=READIED_BY_A_PERSON, branch_head=value))),
+                             ("defer", "branch_unreadable", None), value)
+        f = facts(label_events=READIED_BY_A_PERSON)
+        del f["branch_head"]
+        self.assertEqual(what(decide(f)), ("defer", "branch_unreadable", None))
+        self.assertEqual(what(decide(facts(label_events=ACCEPTED, branch_head=1)))[2], INVESTIGATE)
+
+    def test_an_outsiders_issue_opens_only_from_a_statement_made_since_its_content_changed(self):
+        events = [labelled(ADMIT), labelled(READY, minute=2)]
+        d = decide(outsiders(label_events=events))
+        self.assertEqual((what(d), d["attention"]), (("nothing", "no_statement", None), "needs_you"))
+        for over, want in (({"role_comments": [comment(ANALYST, 1)]}, OPEN), ({"role_comments": [comment(ANALYST, 0)]}, None),
+                           ({"role_comments": [comment(OTHER_APP, 1)]}, None), ({"last_writer_comment_at": at(1)}, OPEN),
+                           ({"last_writer_comment_at": at(0)}, None)):
+            d = decide(outsiders(**dict({"label_events": events}, **over)))
+            self.assertEqual(what(d)[2], want, over)
+        # With no investigating Role declared, no App's comment is a statement.
+        cfg = config(intents=intents(investigate=None))
+        self.assertEqual(decide(outsiders(label_events=events, role_comments=[comment(ANALYST, 1)]), cfg=cfg)["reason"],
+                         "no_statement")
+
+    def test_opening_attempts_are_bounded_and_hold_even_while_an_opening_run_is_in_flight(self):
+        tries = LIMITS["max_attempts"]
+        spent = [failed(OPEN, 2 + i, "o%d" % i, role="dev-lead") for i in range(tries)]
+        ready = facts(label_events=READIED_BY_A_PERSON)
+        self.assertEqual(what(decide(ready, spent[:-1])), ("admit", "ready", OPEN))
+        self.assertEqual(what(decide(ready, spent)), ("hold", "attempts_exhausted", None))
+        d = decide(ready, spent[:-1] + [opening(status="queued")])
+        self.assertEqual((d["state"], what(d), d["attention"]), ("in_progress", ("nothing", "opening_run", None), "working"))
+        d = decide(ready, spent + [opening(status="queued")])
+        self.assertEqual((d["state"], what(d)), ("held", ("hold", "attempts_exhausted", None)))
+        undeclared = decide(ready, [opening()], cfg=config(intents=intents(opening=None)))
+        self.assertEqual((what(undeclared), undeclared["attention"]), (("nothing", "opening_run", None), "working"))
+
+
+class Apply(unittest.TestCase):
+    """`apply` asks again with its own Run left out of the records (I-38), and writes nothing unless the Kernel still
+    admits that Run: the same Intent, Role and content, and for the opening Run the same branch head (I-21)."""
+
+    def assertRefused(self, admitted, f, runs=(), want=False):
+        self.assertEqual(issue.still_admitted(admitted, decide(f, runs)), want, f["label_events"])
+
+    def test_the_opening_run_is_refused_after_a_label_is_removed_a_hold_added_the_content_changed_or_the_head_moved(self):
+        f = facts(label_events=READIED_BY_A_PERSON, branch_head="9f2c41d")
+        admitted = decide(f)
+        self.assertEqual(admitted["outcome"], "admit")
+        # In flight, the Run holds the issue; left out, it is the Run still wanted.
+        self.assertEqual(decide(f, [opening()])["outcome"], "nothing")
+        self.assertRefused(admitted, f, want=True)
+        for changed in (dict(f, label_events=f["label_events"] + [unlabelled(READY, minute=7)]),
+                        dict(f, label_events=f["label_events"] + [labelled(HOLD, OTHER_APP, 7)]),
+                        dict(f, content_id=OTHER, content_changed_at=at(7)),
+                        dict(f, branch_head="a07e3c1")):
+            self.assertRefused(admitted, changed)
+
+    def test_an_investigating_or_readiness_run_is_refused_once_the_issue_changed(self):
+        admitted = decide(TRIAGED)
+        self.assertRefused(admitted, TRIAGED, want=True)
+        for changed in (dict(TRIAGED, label_events=ACCEPTED + [unlabelled(TRIAGE, minute=7)]),
+                        dict(TRIAGED, label_events=ACCEPTED + [labelled(HOLD, OTHER_APP, 7)]),
+                        dict(TRIAGED, content_id=OTHER, content_changed_at=at(7))):
+            self.assertRefused(admitted, changed)
+        judging = decide(TRIAGED, [investigated()])
+        self.assertRefused(judging, TRIAGED, [investigated()], want=True)
+        self.assertRefused(judging, dict(TRIAGED, content_id=OTHER, content_changed_at=at(7)), [investigated()])
+        self.assertRefused(judging, TRIAGED, [investigated(), run()])
+
+    def test_a_decision_that_admits_nothing_admits_no_run(self):
+        admitted = decide(TRIAGED)
+        for f in (facts(), facts(state="closed"), facts(label_events=ACCEPTED, role_comments=None)):
+            self.assertRefused(admitted, f)
+        self.assertFalse(issue.still_admitted(decide(facts()), decide(facts())))
 
 
 if __name__ == "__main__":

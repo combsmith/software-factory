@@ -86,6 +86,8 @@
   ],
   "last_writer_action_at": "2026-10-11T09:30:00Z",
   "last_writer_comment_at": null,
+  "acts_since_writer": 1,
+  "branch_head": "9f2c41d07a3be58e1c6d0b4a7e25f3c18d90ab6e",
   "complete": {
     "timeline": true,
     "linked": true,
