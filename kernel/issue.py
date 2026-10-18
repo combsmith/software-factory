@@ -57,6 +57,8 @@ INTENTS = ("investigate-issue", "judge-readiness", "open-pull-request")
 
 # The work item lifecycle/issue.json names: an issue's limits are read from that Lifecycle and no other.
 WORK_ITEM = "issue"
+# The classes of linked pull request whose opening or close moves the issue: the Factory's and a writer's.
+MOVING_CLASSES = ("agent", "maintainer")
 # The issue's Decision, and the Controller's acts on an issue: accept it, remove a label that no longer counts, and
 # place a Hold when unmerged closes pass their bound.
 SCHEMA = "issue-decision/1"
@@ -615,32 +617,50 @@ def _wanted(facts, state, reason, evidence, mine, intents):
 def moved_at(facts: dict, runs: list, config: dict, now: str):
     """When the issue last moved, or None if no time can be read (design §4.1).
 
-    The newest time a writer, a declared App or the Factory moved it, read from the issue's own facts: its present life
-    began, its content changed, a person with write access acted or commented, a person or the App declared for it
-    added or removed a control label, a Run on it started, or a linked pull request opened or closed. Nothing else: not
-    a Role's comment, whose Run is counted already, nor another App's label, nor a label the Kernel does not read, nor a
-    pull request that is not linked (I-39), so that no stranger can keep an issue from showing. A time that is not a
-    real moment no later than `now` is passed over, so the wait counts from earlier: that shows more, never less.
+    The newest time a writer, a named App or the Factory moved it, read from the issue's own facts: its present life
+    began, its content changed, a person with write access acted or commented, a person or an App `issues.label_apps`
+    names added or removed a control label, a Run on it started, or the Factory's or a writer's linked pull request
+    opened or closed. Nothing else: not a Role's comment, whose Run is counted already, nor an App named nowhere, nor a
+    label the Kernel does not read, nor a pull request of any other class, an admitted outsider's among them, which its
+    author could close and reopen for ever, so that no stranger can keep an issue from showing. A time that is not a
+    real moment no later than `now` is passed over, so the wait counts from earlier: that shows more, never less. A
+    `now` that is no moment gives no time at all.
     """
+    if not is_time(now):
+        return None
     times = [facts["life_started_at"]]
     times += [facts["content_changed_at"]]
     times += [facts.get("last_writer_action_at")]
     times += [facts.get("last_writer_comment_at")]
     times += [ev["at"] for ev in facts["label_events"]
-              if ev["label"] in issue_labels() and (is_person(ev["by"]) or declared(ev["by"], ev["label"], config))]
+              if ev["label"] in issue_labels() and (is_person(ev["by"]) or named(ev["by"], config))]
     times += [r["started_at"] for r in runs_on(runs, facts)]
-    linked = [p for p in facts["linked"] if is_linked(p)]
+    linked = [p for p in facts["linked"] if p["class"] in MOVING_CLASSES]
     times += [p["opened_at"] for p in linked]
     times += [p["closed_at"] for p in linked]
     readable = [x for x in times if is_time(x) and x <= now]
     return max(readable) if readable else None
 
 
+def named(by: dict, config: dict) -> bool:
+    """Whether `by` is an App `issues.label_apps` names, for any label that lets work go."""
+    return any(declared(by, name, config) for name in (LABEL_TRIAGE, LABEL_READY))
+
+
 def overdue(lifecycle, state: str, moved, passes_since, now: str) -> bool:
     """Whether a wait in `state` has run past its limit in the issue's Lifecycle. The Controller gives each item its own
-    type's (decision 0028); one that is not the issue's cannot be read, and is read as past its limit: that shows more,
-    never less, and a pure function does not crash on it."""
+    type's (decision 0028); one that is not the issue's, or whose limit for `state` is not a finite number of minutes,
+    cannot be read, and is read as past its limit: that shows more, never less, and a pure function does not crash on
+    it. A negative limit needs no test of its own: every wait is past it. An end the Lifecycle declares never waits."""
     if not (isinstance(lifecycle, dict) and lifecycle.get("work_item") == WORK_ITEM):
+        return True
+    ends = lifecycle.get("terminal")
+    if isinstance(ends, list) and state in ends:
+        return False
+    limits = lifecycle.get("stale_after_minutes")
+    cap = limits.get(state) if isinstance(limits, dict) else None
+    # A bool is no number of minutes; and only a finite number less itself is 0, never NaN or an infinity.
+    if not (type(cap) in (int, float) and cap - cap == 0):
         return True
     return stale(lifecycle, state, moved, passes_since, now)
 

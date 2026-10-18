@@ -1436,6 +1436,8 @@ class Stale(unittest.TestCase):
             ("a Run on it started", WAITING, [dict(investigated(), started_at=then)], "triage"),
             ("a linked pull request opened", dict(WAITING, linked=[dict(agents(draft=True), opened_at=then)]), [],
              "in_progress"),
+            ("a writer's linked pull request opened", dict(WAITING, linked=[dict(pr(draft=True), opened_at=then)]), [],
+             "in_progress"),
             ("a linked pull request closed",
              dict(WAITING, linked=[dict(agents(is_open=False, closed=0), opened_at=START, closed_at=then)]), [],
              "triage"),
@@ -1462,10 +1464,19 @@ class Stale(unittest.TestCase):
              dict(WAITING, linked=[dict(dependency, open=False, opened_at=START, closed_at=then)]), [], "triage"),
             ("a stranger's pull request nobody admitted", dict(WAITING, linked=[dict(strangers(), opened_at=then)]),
              [], "triage"),
+            # Each of the sources above, timed after now.
+            ("a life begun after now", dict(WAITING, life_started_at=later, reopened_last_by="writer"), [], "new"),
+            ("an edit after now", dict(WAITING, content_changed_at=later, content_id=OTHER), [], "triage"),
+            ("a writer's action after now", dict(WAITING, last_writer_action_at=later), [], "triage"),
             ("a writer's comment after now", dict(WAITING, last_writer_comment_at=later), [], "triage"),
+            ("a person's label after now", dict(WAITING, label_events=events + [event(TRIAGE, COLLEAGUE, later)]), [],
+             "triage"),
             ("a Run started after now", WAITING, [dict(investigated(), started_at=later)], "triage"),
             ("a linked pull request opened after now", dict(WAITING, linked=[dict(agents(draft=True), opened_at=later)]),
              [], "in_progress"),
+            ("a linked pull request closed after now",
+             dict(WAITING, linked=[dict(agents(is_open=False, closed=0), opened_at=START, closed_at=later)]), [],
+             "triage"),
         ]
         for name, f, runs, state in others:
             with self.subTest(name):
@@ -1505,6 +1516,80 @@ class Stale(unittest.TestCase):
                 self.assertEqual((d["state"], what(d)), (None, ("defer", "linked_unreadable", None)), entry)
         # The other side: read whole, the draft holds the issue in progress.
         self.assertEqual(decide(facts(linked=[good]))["state"], "in_progress")
+
+    def test_a_lifecycle_whose_limit_cannot_be_read_shows_the_wait_as_stale(self):  # §4.1
+        now = minutes_after(MOVED, 1)
+        own = decide(WAITING, ctx=PASSING, now=now)
+        limits = LIFECYCLE["stale_after_minutes"]
+        # A limit for the State that is no finite number of minutes, a bool among them; json.loads reads NaN too.
+        for cap in (json.loads("NaN"), float("inf"), True, "1440", None, [1440]):
+            lifecycle = dict(LIFECYCLE, stale_after_minutes=dict(limits, triage=cap))
+            d = decide(WAITING, ctx=PASSING, cfg=dict(config(), lifecycle=lifecycle), now=now)
+            self.assertEqual((d["attention"], dict(d, attention="ready")), ("stale", own), cap)
+        # No limit for the State, no limits that can be read, or a Lifecycle that only names the issue.
+        absent = dict(limits)
+        del absent["triage"]
+        for lifecycle in (dict(LIFECYCLE, stale_after_minutes=absent), dict(LIFECYCLE, stale_after_minutes=None),
+                          dict(LIFECYCLE, stale_after_minutes=[]), dict(LIFECYCLE, stale_after_minutes={}),
+                          {"work_item": "issue"}):
+            d = decide(WAITING, ctx=PASSING, cfg=dict(config(), lifecycle=lifecycle), now=now)
+            self.assertEqual((d["attention"], dict(d, attention="ready")), ("stale", own), lifecycle)
+        # The other side: a limit in minutes as a whole or a fractional number is read.
+        for cap, want in ((1440, "ready"), (1440.0, "ready"), (1.5, "ready"), (0, "stale"), (0.5, "stale")):
+            lifecycle = dict(LIFECYCLE, stale_after_minutes=dict(limits, triage=cap))
+            d = decide(WAITING, ctx=PASSING, cfg=dict(config(), lifecycle=lifecycle), now=now)
+            self.assertEqual(d["attention"], want, cap)
+
+    def test_an_end_never_goes_stale(self):
+        # lifecycle/issue.json sets no limit on an end, which never waits.
+        far = minutes_after(MOVED, 10 * max(LIFECYCLE["stale_after_minutes"].values()))
+        for end in LIFECYCLE["terminal"]:
+            self.assertFalse(issue.overdue(LIFECYCLE, end, START, START, far), end)
+            # The other side: a Lifecycle whose ends cannot be read has no limit for them, and shows the wait.
+            self.assertTrue(issue.overdue(dict(LIFECYCLE, terminal=None), end, START, START, far), end)
+        self.assertTrue(issue.overdue(LIFECYCLE, "triage", START, START, far))
+
+    def test_any_app_the_configuration_names_moves_an_issue_by_any_control_label(self):  # §4.1
+        added, removed = minutes_after(MOVED, 1), minutes_after(MOVED, 2)
+        now = minutes_after(MOVED, limit("triage") + 1)
+        # Some other App adds factory:ready, and the Controller, named for factory:triage alone, removes it.
+        f = dict(WAITING, label_events=WAITING["label_events"] + [event(READY, OTHER_APP, added),
+                                                                  event(READY, CONTROLLER, removed, "unlabeled")])
+        self.assertEqual(issue.moved_at(f, [], config(), now), removed)
+        d = decide(f, ctx=PASSING, now=now)
+        self.assertEqual((d["state"], d["attention"]), ("triage", "ready"))
+        # The other side: an App named nowhere moves nothing, by any label.
+        f = dict(WAITING, label_events=WAITING["label_events"] + [event(READY, OTHER_APP, added),
+                                                                  event(READY, OTHER_APP, removed, "unlabeled")])
+        self.assertEqual(issue.moved_at(f, [], config(), now), MOVED)
+        self.assertEqual(decide(f, ctx=PASSING, now=now)["attention"], "stale")
+
+    def test_an_outsiders_pull_request_moves_nothing_even_once_admitted(self):  # §4.1
+        # Its author could close and reopen it every day, and keep the issue from ever showing.
+        then = minutes_after(MOVED, 2)
+        now = minutes_after(MOVED, limit("triage") + 1)
+        cycled = dict(strangers(admitted=True, is_open=False, closed=0), opened_at=START, closed_at=then)
+        reopened = dict(strangers(admitted=True, draft=True), opened_at=then)
+        for f, state in ((dict(WAITING, linked=[cycled]), "triage"), (dict(WAITING, linked=[reopened]), "in_progress")):
+            d = decide(f, ctx=PASSING, now=now)
+            self.assertEqual((d["state"], d["attention"]), (state, "stale"))
+            # The other side: the Factory's own pull request, opened or closed at the same moments, moves it.
+            ours = [dict(p, **{"class": "agent", "opener": dict(AUTHOR_APP), "label_events": []}) for p in f["linked"]]
+            d = decide(dict(f, linked=ours), ctx=PASSING, now=now)
+            self.assertEqual((d["state"], d["attention"]), (state, "ready"))
+
+    def test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing(self):  # §4.1
+        own = decide(WAITING, ctx=PASSING, now=minutes_after(MOVED, 1))
+        held = decide(facts(label_events=[labelled(HOLD)]), ctx=PASSING, now=minutes_after(MOVED, 1))
+        for now in (None, 5, True, float("nan"), "never", "2026-02-30T12:00:00Z"):
+            try:
+                d = decide(WAITING, ctx=PASSING, now=now)
+                h = decide(facts(label_events=[labelled(HOLD)]), ctx=PASSING, now=now)
+            except Exception as e:  # what is asserted is that it returns at all
+                self.fail("a now of %r raised %r" % (now, e))
+            self.assertEqual((d["attention"], dict(d, attention="ready")), ("stale", own), now)
+            # The other side: a Decision that never goes stale is as it was.
+            self.assertEqual(h, held, now)
 
 
 if __name__ == "__main__":
