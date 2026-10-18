@@ -13,7 +13,7 @@ everything a trial leaves in it: its runs, logs and artifacts.
 ## Before anything runs
 
 - **Order.** Section 6.1 runs the trials in batches. Batch 1, before any code: P-13; P-1, P-7,
-  P-24; P-17, P-22; P-3; P-28, P-29; P-8. Batch 2, before the first approval: P-9, P-20; P-5,
+  P-24; P-17, P-22; P-3; P-28, P-29; P-8; P-39. Batch 2, before the first approval: P-9, P-20; P-5,
   P-23, P-25; P-2; P-30; P-27, P-14, P-4; P-26. Batch 3, before the control room: P-11, P-19,
   P-21; P-16, P-18. Batch 4, as they come up: P-6, P-10, P-12, P-15. P-32, P-33 and P-34 run before
   the Factory's author is built. List `trials/` and check that every trial of an earlier batch has

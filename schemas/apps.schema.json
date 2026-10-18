@@ -219,13 +219,42 @@
       "additionalProperties": false,
       "required": [
         "name",
-        "installed_on",
-        "permissions"
+        "app_id",
+        "key",
+        "permissions",
+        "installed_on"
       ],
       "properties": {
         "name": {
           "type": "string",
           "pattern": "^combsmith-sf-[a-z][a-z-]*$"
+        },
+        "app_id": {
+          "title": "GitHub's id for the registered App. Trial P-39 reads what was granted to the installation of this id, and tools/check_apps.py holds the permissions here to it.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "key": {
+          "title": "Where the App's private key is kept, by name and never by value: an environment secret on the Factory's repo, in the environment of the one job that holds it (decision 0033). No two Apps share an environment.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "environment",
+            "secret"
+          ],
+          "properties": {
+            "environment": {
+              "enum": [
+                "factory-poller",
+                "factory-apply",
+                "factory-run"
+              ]
+            },
+            "secret": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*_APP_KEY$"
+            }
+          }
         },
         "installed_on": {
           "title": "Each repo the App is installed on, by name, and never the whole org, until a Consumer repo is served (slice 3).",

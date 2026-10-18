@@ -5,6 +5,11 @@ the Controller makes that is not an Effect; `read:` is something read. The table
 `config/apps.json` maps each need to one GitHub permission and level, or says what it waits on.
 No App holds `workflows` or `security_events` (NEVER).
 A write permission serves a read of the same permission too, since GitHub's write includes read.
+
+The data is held to what GitHub granted (decision 0033). Trial P-39's fixture records the org's
+installations as GitHub listed them; each App's permissions and levels here must be exactly those
+of the installation of its `app_id`, and that installation must be of the App so named. Each App's
+key is kept in an environment of its own, since a job that names an environment reads all of it.
 """
 from __future__ import annotations
 
@@ -22,6 +27,78 @@ FACT = "read:facts."
 # code scanning under CodeQL's tool and category, and might stand for CodeQL's verdict (design, trial P-36).
 NEVER = ("workflows", "security_events")
 REPO = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$")
+# What trial P-39 recorded of each installation: in trials/P-39.json or a fixture of it such as P-39.grants.json.
+TRIAL = "P-39"
+INSTALLATIONS = "GET /orgs/combsmith/installations"
+
+
+def _installed(root: pathlib.Path) -> tuple:
+    """([(fixture, {app_id: installation})] for each read of the installations P-39 recorded, [problems])."""
+    found, problems = [], []
+    paths = sorted((root / "trials").glob(TRIAL + ".json")) + sorted((root / "trials").glob(TRIAL + ".*.json"))
+    for path in paths:
+        rel = "trials/" + path.name
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError) as err:
+            problems.append("%s cannot be read, so no App can be held to it: %s" % (rel, err))
+            continue
+        exchanges = data.get("exchanges") if isinstance(data, dict) else None
+        for exchange in exchanges if isinstance(exchanges, list) else []:
+            request = exchange.get("request") if isinstance(exchange, dict) else None
+            if not isinstance(request, dict) or request.get("call") != INSTALLATIONS:
+                continue
+            response = exchange.get("response") if isinstance(exchange.get("response"), dict) else {}
+            body = response.get("body") if isinstance(response.get("body"), dict) else {}
+            listed = body.get("installations")
+            if response.get("status") != 200 or not isinstance(listed, list):
+                problems.append("%s: its read of the installations holds no list of them; run %s again" % (rel, TRIAL))
+                continue
+            found.append((rel, {i.get("app_id"): i for i in listed if isinstance(i, dict)}))
+    if not found and not problems:
+        problems.append("no fixture of trial %s in trials/ records %s, so no App's permissions can be held to what "
+                        "GitHub granted; run %s and add its fixture" % (TRIAL, INSTALLATIONS, TRIAL))
+    return found, problems
+
+
+def _granted(app: str, entry: dict, fixture: str, installations: dict) -> list:
+    """Each way the App's permissions in the data differ from what its installation was granted."""
+    app_id = entry.get("app_id")
+    if type(app_id) is not int:
+        return ["%s: has no app_id that is a whole number; give GitHub's id for the App" % app]
+    installation = installations.get(app_id)
+    if installation is None:
+        return ["%s: %s records no installation of App %d; install it, or correct app_id" % (app, fixture, app_id)]
+    problems = []
+    if installation.get("app_slug") != entry.get("name"):
+        problems.append("%s: App %d is installed as %s in %s, and the data names it %s; correct app_id or the name"
+                        % (app, app_id, installation.get("app_slug"), fixture, entry.get("name")))
+    have = installation.get("permissions") if isinstance(installation.get("permissions"), dict) else {}
+    permissions = entry.get("permissions") if isinstance(entry.get("permissions"), dict) else {}
+    want = {name: (grant.get("level") if isinstance(grant, dict) else None) for name, grant in permissions.items()}
+    for name in sorted(set(want) | set(have)):
+        if want.get(name) != have.get(name):
+            problems.append("%s: %s is %s in the data and %s as GitHub granted it in %s; they must agree exactly, so "
+                            "correct the registration and run %s again" % (app, name, want.get(name) or "absent",
+                                                                          have.get(name) or "absent", fixture, TRIAL))
+    return problems
+
+
+def _keys(apps: dict) -> list:
+    """Two Apps whose keys share an environment: a job that names it would hold both."""
+    problems, held = [], {}
+    for app, entry in sorted(apps.items()):
+        key = entry.get("key") if isinstance(entry, dict) else None
+        environment = key.get("environment") if isinstance(key, dict) else None
+        if not isinstance(environment, str) or not environment:
+            problems.append("%s: names no environment its key is kept in; give it a key of environment and secret" % app)
+            continue
+        held.setdefault(environment, []).append(app)
+    for environment, holders in sorted(held.items()):
+        if len(holders) > 1:
+            problems.append("%s keep their keys in one environment, %s; a job that names it holds both, so give each "
+                            "App its own" % (" and ".join(holders), environment))
+    return problems
 
 
 def _table(needs: dict, facts: set) -> list:
@@ -118,4 +195,9 @@ def run(root: pathlib.Path = ROOT) -> list:
     for need, held in sorted(holders.items()):
         if len(held) > 1:
             problems.append("%s is held by %s; a write need belongs to one App" % (need, " and ".join(sorted(held))))
-    return problems
+    found, unread = _installed(root)
+    problems += unread
+    for fixture, installations in found:
+        for app, entry in sorted(apps.items()):
+            problems += _granted(app, entry if isinstance(entry, dict) else {}, fixture, installations)
+    return problems + _keys(apps)

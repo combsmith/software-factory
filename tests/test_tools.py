@@ -493,10 +493,49 @@ class Apps(unittest.TestCase):
     def setUp(self):
         self.table = json.loads((ROOT / "config" / "apps.json").read_text())
         self.apps, self.needs = self.table["apps"], self.table["needs"]
+        self.fixture = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        installations = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS]
+        self.installed = {i["app_slug"]: i for i in installations[0]["response"]["body"]["installations"]}
 
     def check(self) -> list:
         facts = (ROOT / "schemas" / "facts.schema.json").read_text()
-        return check_apps.run(tree({"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts}))
+        return check_apps.run(tree({"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts,
+                                    "trials/P-39.grants.json": json.dumps(self.fixture)}))
+
+    def test_the_data_is_held_to_what_github_granted_each_app(self):
+        # P-39 recorded each installation's permissions. The data must name exactly those, at the same levels: a
+        # permission GitHub granted that the data leaves out, one the data names that was not granted, and a level
+        # that differs are each caught, and so is an app_id whose installation is another App's, or none.
+        self.assertEqual(self.check(), [])
+        self.installed["combsmith-sf-controller"]["permissions"]["issues"] = "read"
+        self.installed["combsmith-sf-reader"]["permissions"].pop("checks")
+        self.apps["pr-review"]["permissions"]["contents"]["level"] = "write"
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: issues is absent in the data and read as GitHub granted it"))
+        self.assertTrue(caught(problems, "reader: checks is read in the data and absent as GitHub granted it"))
+        self.assertTrue(caught(problems, "pr-review: contents is write in the data and read as GitHub granted it"))
+        self.setUp()
+        self.apps["controller"]["app_id"] = self.apps["reader"]["app_id"]
+        self.apps["reader"]["app_id"] = 1
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: App 5364151 is installed as combsmith-sf-reader"))
+        self.assertTrue(caught(problems, "reader: trials/P-39.grants.json records no installation of App 1"))
+
+    def test_with_no_record_of_what_github_granted_the_data_is_not_trusted(self):
+        facts = (ROOT / "schemas" / "facts.schema.json").read_text()
+        problems = check_apps.run(tree({"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts}))
+        self.assertTrue(caught(problems, "no fixture of trial P-39 in trials/ records GET /orgs/combsmith/installations"))
+        self.fixture["exchanges"] = [e for e in self.fixture["exchanges"]
+                                     if e["request"]["call"] != check_apps.INSTALLATIONS]
+        self.assertTrue(caught(self.check(), "no fixture of trial P-39"))
+
+    def test_two_apps_whose_keys_share_an_environment_are_caught(self):
+        # A job that names an environment reads every secret in it, so the reader's job would hold a key that writes.
+        self.apps["reader"]["key"]["environment"] = self.apps["controller"]["key"]["environment"]
+        del self.apps["pr-review"]["key"]
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller and reader keep their keys in one environment, factory-poller"))
+        self.assertTrue(caught(problems, "pr-review: names no environment its key is kept in"))
 
     def test_no_app_may_change_a_workflow_or_upload_to_code_scanning(self):
         # GitHub refuses an App's push under .github/workflows/ without `workflows`, and with `security_events: write`
