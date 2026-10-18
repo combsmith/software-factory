@@ -34,6 +34,17 @@ PATHS = ("docs/notes.md", "docs/glossary.md")
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
 
 
+def wall_clock(test):
+    """Mark a test whose verdict rests on how long something takes, against the wall clock.
+
+    Under load it can fail for its own reasons, so it is not one that may notice a mutant: under the mutation check it
+    is skipped, as `pending` is. It still runs in `make verify`, with its margins as they are.
+    """
+    if os.environ.get("MUTATING"):
+        return unittest.skip("a test timed by the wall clock is not part of the mutation check")(test)
+    return test
+
+
 def pending(test):
     """Mark a rule that is decided and that the Kernel does not hold yet.
 
