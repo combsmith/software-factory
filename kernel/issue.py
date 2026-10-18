@@ -67,7 +67,7 @@ KEPT = frozenset({NEW, TRIAGE, READY})
 NEEDS_YOU_REASONS = frozenset({
     "human_hold", "linked_twice", "acceptance_lapsed", "attempts_exhausted", "run_ceiling", "act_ceiling",
     "unmerged_closes", "judged", "ready_removed", "no_statement", "intent_undeclared", "label_unreadable",
-    "issues_unreadable", "intents_unreadable", "intents_share_a_role",
+    "issues_unreadable", "intents_unreadable", "intents_share_a_role", "intents_share_an_app",
 })
 # The States and reasons that call nobody: an end, not served, the pull request's own Lifecycle, an issue nobody
 # accepted (I-32), and a person's own decline of the investigation.
@@ -437,6 +437,13 @@ def shares_a_role(intents: dict) -> bool:
     return len(set(roles)) != len(roles)
 
 
+def shares_an_app(intents: dict) -> bool:
+    """Whether two Intents name one App: one Role's comment would then be read as another's, the investigation's as
+    the verdict, or the opening Role's as the statement."""
+    apps = [intents[name]["app"] for name in INTENTS if intents[name] is not None]
+    return len(set(apps)) != len(apps)
+
+
 def unmerged_closes(facts: dict) -> list:
     """The linked pull requests that closed in the issue's present life without being done, since a person last
     removed factory:hold from it: only that removal, or a new life, resets the count (I-43). A close in the same second
@@ -448,13 +455,17 @@ def unmerged_closes(facts: dict) -> list:
             if is_linked(p) and not p["open"] and p["closed_at"] >= since]
 
 
-def not_counted(facts: dict, runs: list, config: dict, state: str):
+def not_counted(facts: dict, runs: list, config: dict, state: str, reason: str):
     """factory:ready or factory:triage, if it stands on an issue in new, triage or ready and does not count: what people
-    see is then what the Kernel reads (I-17). Never a Hold, an admission or hands-off. None if no such label stands."""
-    if state not in KEPT:
+    see is then what the Kernel reads (I-17). Never a Hold, an admission or hands-off, and never a label a person added,
+    alone or in the same second as another's: not counting it is enough, and what a person placed only a person ends
+    (L-17). Not while acceptance has lapsed, whose labels are what tells the Maintainer that work began. None if no such
+    label stands."""
+    if state not in KEPT or reason == "acceptance_lapsed":
         return None
     for name in (LABEL_READY, LABEL_TRIAGE):
-        if latest_adds(facts["label_events"], name) and not counts(facts, runs, config, name):
+        adds = latest_adds(facts["label_events"], name)
+        if adds and not any(is_person(ev["by"]) for ev in adds) and not counts(facts, runs, config, name):
             return name
     return None
 
@@ -470,23 +481,27 @@ def investigated_at(facts: dict, mine: list, who: dict):
     """When the investigation became current, or None if it is not. It is current once the investigating Role
     completed a Run for this content, successfully, since a person with write access last acted. Once that record has
     expired, its App's latest comment later than both the edit and that action stands in for it. A failed Run has not
-    investigated: it is an attempt, which the brakes bound."""
+    investigated: it is an attempt, which the brakes bound. While any record of the Role's investigating Runs is kept,
+    the comment stands in for none of them: a Run that commented and failed has still not investigated."""
     mark = facts["last_writer_action_at"]
-    times = [r["started_at"] for r in mine
-             if r["intent"] == INVESTIGATE and r["role"] == who["role"]
-             and r["conclusion"] == "success" and r["content_id"] == facts["content_id"]]
-    times += [c["at"] for c in facts["role_comments"] if c["by"] == who["app"] and c["at"] > facts["content_changed_at"]]
+    kept = [r for r in mine if r["intent"] == INVESTIGATE and r["role"] == who["role"]]
+    times = [r["started_at"] for r in kept
+             if r["conclusion"] == "success" and r["content_id"] == facts["content_id"]]
+    if not kept:
+        times = [c["at"] for c in facts["role_comments"]
+                 if c["by"] == who["app"] and c["at"] > facts["content_changed_at"]]
     times = [when for when in times if mark is None or when > mark]
     return min(times) if times else None
 
 
 def judged(facts: dict, mine: list, who: dict, since: str) -> bool:
     """Whether the readiness Role has given its verdict on this content since the investigation: a Run that completed
-    successfully, or once its record has expired, its App's factory:ready or its comment, from then or later."""
-    if any(r["intent"] == JUDGE_READINESS and r["role"] == who["role"]
-           and r["conclusion"] == "success" and r["content_id"] == facts["content_id"] and r["started_at"] >= since
-           for r in mine):
-        return True
+    successfully, or once every record of its readiness Runs has expired, its App's factory:ready or its comment, from
+    then or later."""
+    kept = [r for r in mine if r["intent"] == JUDGE_READINESS and r["role"] == who["role"]]
+    if kept:
+        return any(r["conclusion"] == "success" and r["content_id"] == facts["content_id"] and r["started_at"] >= since
+                   for r in kept)
     if any(ev["label"] == LABEL_READY and ev["action"] == "labeled" and ev["by"]["kind"] in APP_KINDS
            and ev["by"]["name"] == who["app"] and ev["at"] >= since for ev in facts["label_events"]):
         return True
@@ -521,8 +536,6 @@ def _accept(facts, state, reason, evidence, mine, context, config) -> dict:
     label it adds counts. Not once a person removed it for this content (I-40). The act ceiling bounds it."""
     if reason != "acceptance_due":
         return _decision(facts, state, reason, evidence, t.NOTHING)
-    if in_progress(mine):
-        return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
     if config["issues"]["label_apps"][LABEL_TRIAGE] is None:
         return _decision(facts, state, reason, evidence, t.NOTHING)
     if removed_by_a_person(facts, LABEL_TRIAGE):
@@ -554,11 +567,6 @@ def _wanted(facts, state, reason, evidence, mine, intents):
             return _decision(facts, state, "judged", evidence, t.NOTHING)
         return (who["role"], JUDGE_READINESS, {})
     who = intents[OPENING]
-    if state == IN_PROGRESS:
-        # Only an opening Run holds the issue here: it is in flight, and the brakes are asked of it below.
-        if who is None:
-            return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
-        return (who["role"], OPENING, {})
     if who is None:
         return _decision(facts, state, "intent_undeclared", [OPENING], t.NOTHING)
     if not stated(facts, intents):
@@ -586,7 +594,7 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
     closes = unmerged_closes(facts)
     if len(closes) > config["limits"]["max_unmerged_closes"]:
         return dict(_stop(facts, state, "unmerged_closes", closes, context, PLACE_HOLD), attention=t.NEEDS_YOU)
-    label = not_counted(facts, runs, config, state)
+    label = not_counted(facts, runs, config, state, reason)
     if label is not None and not in_progress(mine):
         return _stop(facts, state, "label_not_counted", [label], context, REMOVE_LABEL, label=label)
 
@@ -595,6 +603,19 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
         return _decision(facts, state, "comments_unreadable", evidence, t.DEFER)
     if not readable_writer(facts):
         return _decision(facts, state, "writer_unreadable", evidence, t.DEFER)
+
+    # A Run in flight admits nothing, and nothing it has written is read until it completes: its comment or its label
+    # would move the Intent on. The brakes' Hold still applies, the one they would have made of each Run in flight,
+    # which is left out of its own count, since it was admitted under the ceiling (decision 0003).
+    limits = config["limits"]
+    flight = in_progress(mine)
+    if flight:
+        done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]
+        for r in flight:
+            brake = brakes.on_run(_decision, facts, state, evidence, context, r["intent"], done, limits)
+            if brake and brake["outcome"] == t.HOLD:
+                return brake
+        return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
     if state == NEW:
         return _accept(facts, state, reason, evidence, mine, context, config)
     if state == IN_REVIEW or reason == "linked_draft":
@@ -604,22 +625,15 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
         return _decision(facts, state, "intents_unreadable", evidence, t.DEFER)
     if shares_a_role(intents):
         return _decision(facts, state, "intents_share_a_role", evidence, t.DEFER)
+    if shares_an_app(intents):
+        return _decision(facts, state, "intents_share_an_app", evidence, t.DEFER)
     wanted = _wanted(facts, state, reason, evidence, mine, intents)
     if isinstance(wanted, dict):
         return wanted
     role, intent, carried = wanted
 
-    # The brakes on a Run (decision 0003). A Run in flight admits nothing, but their Hold still applies: the one they
-    # would have made of that Run, which is left out of its own count, since it was admitted under the ceiling.
-    limits = config["limits"]
-    since = since_writer(mine, facts)
-    if in_progress(mine):
-        done = [r for r in since if r["status"] == "completed"]
-        brake = brakes.on_run(_decision, facts, state, evidence, context, intent, done, limits)
-        if brake and brake["outcome"] == t.HOLD:
-            return brake
-        return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
-    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since, limits)
+    # The brakes on a Run (decision 0003): the Pause, the attempts and the Run ceiling.
+    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)
     if brake:
         return brake
 
