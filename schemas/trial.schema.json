@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "The fixture of one platform trial: what was asked of GitHub in the canary repo, what it answered, and the verdict.",
+  "title": "The fixture of one platform trial: what was asked of GitHub in the canary repo, or of a vendor's CLI in no repo (decision 0033), what it answered, and the verdict.",
   "$comment": "A credential is refused by tools/check_trials.py, not here: this validator has no not and no propertyNames, and its pattern refuses every string that ends in a newline, so a pattern that refused token shapes would refuse a recorded log line too.",
   "type": "object",
   "additionalProperties": false,

@@ -17,7 +17,7 @@
         "headers": {},
         "body": {
           "env": {
-            "CLAUDE_CONFIG_DIR": "the configuration directory the Factory alone uses, logged in on its subscription",
+            "CLAUDE_CONFIG_DIR": "a configuration directory of its own, logged in to the Maintainer's own subscription (decision 0033)",
             "DISABLE_AUTOUPDATER": "1",
             "passed_on": [
               "HOME",
@@ -50,7 +50,7 @@
         "headers": {},
         "body": {
           "env": {
-            "CLAUDE_CONFIG_DIR": "the configuration directory the Factory alone uses, logged in on its subscription",
+            "CLAUDE_CONFIG_DIR": "a configuration directory of its own, logged in to the Maintainer's own subscription (decision 0033)",
             "DISABLE_AUTOUPDATER": "1",
             "passed_on": [
               "HOME",
@@ -94,7 +94,7 @@
         "headers": {},
         "body": {
           "env": {
-            "CLAUDE_CONFIG_DIR": "the configuration directory the Factory alone uses, logged in on its subscription",
+            "CLAUDE_CONFIG_DIR": "a configuration directory of its own, logged in to the Maintainer's own subscription (decision 0033)",
             "DISABLE_AUTOUPDATER": "1",
             "passed_on": [
               "HOME",
@@ -182,7 +182,6 @@
         "body": {
           "duration_api_ms": 2563,
           "stop_reason": "tool_use",
-          "session_id": "6cb57953-ceb7-4736-9ab1-98a4ee82a7d0",
           "total_cost_usd": 0.167688,
           "usage": {
             "input_tokens": 2,
@@ -255,7 +254,6 @@
           "ttft_ms": 2692,
           "type": "result",
           "duration_ms": 2714,
-          "uuid": "2b9499cd-5522-43a8-b34c-7d4c2f67dee1",
           "ttft_stream_ms": 1260,
           "time_to_request_ms": 151,
           "first_content_frame_ms": 1260,
@@ -296,7 +294,9 @@
     "exchanges[2].response.body.modelUsage.claude-opus-5-5.cacheReadInputTokens",
     "exchanges[2].response.body.modelUsage.claude-opus-5-5.cacheCreationInputTokens",
     "exchanges[2].response.body.modelUsage.claude-opus-5-5.maxOutputTokens",
-    "exchanges[2].response.body.modelUsage.claude-opus-5-5.thinkingTokens"
+    "exchanges[2].response.body.modelUsage.claude-opus-5-5.thinkingTokens",
+    "exchanges[2].response.body.session_id",
+    "exchanges[2].response.body.uuid"
   ],
   "verdict": "pass"
 }

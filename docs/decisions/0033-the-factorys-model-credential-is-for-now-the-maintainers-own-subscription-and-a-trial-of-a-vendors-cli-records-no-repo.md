@@ -20,10 +20,11 @@ The same ruling decides how a trial is recorded when it asks a vendor's CLI and 
 does. Its fixture records `repo` as null. Each of its requests is made `as` the kind
 `subscription`: the vendor account the CLI is logged in to. That account is named in words and
 never by its address or a credential. `schemas/trial.schema.json` accepts null for `repo` and
-`subscription` for `as.kind`, and nothing more. The schema cannot say that `subscription` goes with
-a null `repo` and with nothing else: its validator, `tools/jsonschema_lite.py`, has no conditional
-keyword. So a `subscription` request in a fixture of the canary validates, and no counter-example
-can show that it should not.
+`subscription` for `as.kind`, and nothing more. The schema cannot tie the two together, because
+its validator, `tools/jsonschema_lite.py`, has no conditional keyword. So `tools/check_trials.py`
+ties them, in a fixture and in an example alike:
+- `repo` is null exactly when every request asks as `subscription`;
+- a name that holds an `@` is refused as an address.
 
 ## Why
 
@@ -43,7 +44,8 @@ a kind of its own.
 | Boundary | Check |
 |---|---|
 | A trial that asks a vendor's CLI records `repo` as null, and asks as `subscription` | `examples/trial.a-vendors-cli.json` |
+| `repo` is null exactly when every request asks as `subscription`: a null `repo` with any other kind is refused, and so is `subscription` with a repo | `tests/test_tools.py::test_a_null_repo_goes_with_a_subscription_and_nothing_else` |
 | A fixture's `repo` is the canary or null, never another repo | `examples/invalid/trial.run-outside-the-canary.json` |
-| A subscription is named in words, never by its address | `examples/invalid/trial.a-subscription-named-by-its-address.json` |
+| Whoever asked is named in words, never by an address | `tests/test_tools.py::test_an_asker_named_by_an_address_is_caught` |
 | A fixture of a vendor's CLI holds no credential and no header a fixture may not keep | `tools/check_trials.py` |
 | The Factory's model credential is its own again, held by the `run` job as an environment secret | waiting on `harness/` |
