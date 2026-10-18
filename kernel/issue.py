@@ -35,6 +35,10 @@ CLASSES = ("agent", "maintainer", "dependency", "outside")
 APP_KINDS = ("app", "lens")
 # What GitHub says of an issue: open, or closed.
 ISSUE_STATES = ("open", "closed")
+# The fewest and the most digits of a content id after its prefix, as schemas/issue-facts.schema.json gives them,
+# written as shapes, as terms.py writes a time's: a length is no limit anyone chooses, and so is not configuration.
+CONTENT_FEWEST = "ffff"
+CONTENT_MOST = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 # The Intents of an issue's Runs that its State reads, as their run records name them. The issue's decision, which
 # admits them, uses these codes. The readiness Run judges whether the issue is ready for this content, and its `apply`
 # adds factory:ready. The opening Run creates the work's branch and its draft pull request.
@@ -96,10 +100,14 @@ def readable_link(entry, config: dict) -> bool:
 
 
 def readable_content(facts: dict) -> bool:
-    """A content id in its one form, `sha256:` and lower-case hexadecimal digits, and when the content last changed."""
+    """A content id in its one form, `sha256:` and as many lower-case hexadecimal digits as the schema allows, no
+    fewer than CONTENT_FEWEST has and no more than CONTENT_MOST; and when the content last changed."""
     cid = facts.get("content_id")
-    return (isinstance(cid, str) and cid.startswith(t.CONTENT_PREFIX) and len(cid) > len(t.CONTENT_PREFIX)
-            and all(c in t.HEX_DIGITS for c in cid[len(t.CONTENT_PREFIX):]) and is_time(facts.get("content_changed_at")))
+    if not (isinstance(cid, str) and cid.startswith(t.CONTENT_PREFIX)):
+        return False
+    digits = cid[len(t.CONTENT_PREFIX):]
+    return (len(CONTENT_FEWEST) <= len(digits) <= len(CONTENT_MOST) and all(c in t.HEX_DIGITS for c in digits)
+            and is_time(facts.get("content_changed_at")))
 
 
 def readable_names(names) -> bool:
@@ -226,7 +234,7 @@ def served(facts: dict, config: dict) -> bool:
 def accepted(facts: dict, runs: list, config: dict) -> bool:
     """Accepted: served, and opened by a person with write access, or factory:admit counts on it (I-42). Whether the
     Consumer entry serves it is row 3, read before this; so rows 6 to 9 are reached only by an accepted issue."""
-    return facts.get("author_can_write") is True or counts(facts, runs, config, t.LABEL_ADMIT)
+    return is_person(facts["author"]) or counts(facts, runs, config, t.LABEL_ADMIT)
 
 
 def work_began(facts: dict, links: list, config: dict) -> bool:
@@ -235,7 +243,9 @@ def work_began(facts: dict, links: list, config: dict) -> bool:
     a person or the App declared for it. An issue never accepted only waits."""
     if not admitted_once(facts):
         return False
-    return bool(links) or any(added_in_this_life(facts, config, name) for name in (LABEL_TRIAGE, LABEL_READY))
+    # An open linked pull request counts in any life; a closed one only in the life it closed in.
+    here = [p for p in links if p["open"] or p["closed_at"] >= facts["life_started_at"]]
+    return bool(here) or any(added_in_this_life(facts, config, name) for name in (LABEL_TRIAGE, LABEL_READY))
 
 
 def placed_by_a_person(labels: dict, facts: dict) -> bool:
@@ -263,6 +273,9 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         return out(None, "facts_incomplete", gaps)
     if facts.get("state") not in ISSUE_STATES:
         return out(None, "state_unreadable", [])
+    # Who opened the issue, of what kind: only a person who opened it accepts it by authorship.
+    if not whole_actor(facts.get("author"), config):
+        return out(None, "author_unreadable", [])
     if not readable_events(facts.get("label_events"), config):
         return out(None, "label_unreadable", [])
     if not readable_names(facts.get("label_names")):

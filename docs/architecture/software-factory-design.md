@@ -530,7 +530,7 @@ An issue has facts of its own (§4.1, the issue Lifecycle):
 
 | Field | Content |
 |---|---|
-| `item`, `state`, `author`, `author_can_write` | Identity, open or closed, the opening actor and whether that actor has write access |
+| `item`, `state`, `author` | Identity, open or closed, and the opening actor: its kind, name and write access, as any actor in the facts. Only a person who opened it accepts it by authorship |
 | `type`, `label_names`, `assignees` | The issue's type, every label's name, and who it is assigned to |
 | `life_started_at`, `reopened_last_by` | When it was opened, or last reopened by a person with write access; and whether its latest reopening was by such a person, by someone else, or never happened |
 | `content_id`, `content_changed_at` | A hash of the title and body, computed by the port, and when either last changed |
@@ -1258,10 +1258,11 @@ A label **counts** when all of these hold (I-41):
 - for `factory:triage` and `factory:ready`, it was added in the issue's present life. A Hold, an
   admission and hands-off are a person's and outlast a reopening;
 - for `factory:ready` and `factory:admit`, it was added after the issue's content last changed;
-- for a `factory:ready` the Factory added, the readiness Run that completed just before it was
-  added was admitted for the issue's present `content_id`, for as long as that Run's record is
-  kept. After that the time alone is read; a label that did not count will long since have been
-  removed.
+- for a `factory:ready` the Factory added, the latest readiness Run that started no later than
+  the label completed, admitted for the issue's present `content_id`. One still running, or none,
+  as once that Run's record has expired, shows nothing was judged: the label does not count, and
+  the issue stays in `triage` until a person adds `factory:ready` or the content is judged again
+  (decision 0028).
 
 An issue's **content** is its title and its body, and its `content_id` is a hash of the two,
 computed by the port. Comments are not content. A comment from a person with write access steers,

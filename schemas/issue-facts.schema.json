@@ -8,7 +8,6 @@
     "item",
     "state",
     "author",
-    "author_can_write",
     "type",
     "label_names",
     "assignees",
@@ -57,12 +56,8 @@
       ]
     },
     "author": {
-      "type": "string",
-      "minLength": 1
-    },
-    "author_can_write": {
-      "description": "Whether the actor that opened the issue has write access, read with one named credential",
-      "type": "boolean"
+      "description": "Who opened the issue: its kind, name and write access, as any actor. Only a person who opened it accepts it by authorship; an App or the machine user, write access or none, does not",
+      "$ref": "#/$defs/actor"
     },
     "type": {
       "description": "The issue's type as GitHub names it, or null where it has none. The Consumer entry may leave a type out",

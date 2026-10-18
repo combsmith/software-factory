@@ -6,8 +6,11 @@
     "number": 41
   },
   "state": "open",
-  "author": "don-petry",
-  "author_can_write": true,
+  "author": {
+    "kind": "human",
+    "name": "don-petry",
+    "can_write": true
+  },
   "type": "Task",
   "label_names": [
     "kernel",

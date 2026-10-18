@@ -81,8 +81,7 @@ def strangers(admitted=False, **over) -> dict:
 
 def facts(**over) -> dict:
     """An open issue the Maintainer opened at minute 0, with no label and no pull request, read in full."""
-    f = {"schema": "issue-facts/1", "item": dict(ITEM), "state": "open", "author": WRITER["name"],
-         "author_can_write": True, "type": None, "label_names": [], "assignees": [],
+    f = {"schema": "issue-facts/1", "item": dict(ITEM), "state": "open", "author": dict(WRITER), "type": None, "label_names": [], "assignees": [],
          "life_started_at": at(0), "reopened_last_by": "never", "content_id": THIS, "content_changed_at": at(0),
          "label_events": [], "linked": [], "role_comments": [], "last_writer_action_at": at(0),
          "last_writer_comment_at": None, "complete": {"timeline": True, "linked": True, "runs": True},
@@ -93,7 +92,7 @@ def facts(**over) -> dict:
 
 def outsiders(**over) -> dict:
     """An issue an outsider opened."""
-    return facts(**dict({"author": OUTSIDER["name"], "author_can_write": False}, **over))
+    return facts(**dict({"author": dict(OUTSIDER)}, **over))
 
 
 def run(intent="judge-readiness", content=THIS, status="completed", minute=4, name="r1", role="readiness") -> dict:
@@ -301,6 +300,24 @@ class Unreadable(unittest.TestCase):
         for said in ("writer", "never"):
             self.assertEqual(state(facts(reopened_last_by=said)), "new")
 
+    def test_an_unreadable_author_defers(self):
+        for value in (None, "don-petry", {"kind": "human", "name": "don-petry"}, dict(WRITER, kind="User"),
+                      dict(WRITER, name="x[bot]"), dict(MACHINE, name="someone"), dict(WRITER, name=CONFIG["approver"])):
+            for f in (facts(author=value), facts(state="closed", author=value)):
+                d = derive(f)
+                self.assertEqual((d["state"], d["reason"]), (None, "author_unreadable"), value)
+        f = facts()
+        del f["author"]
+        self.assertEqual(derive(f)["reason"], "author_unreadable")
+        self.assertEqual(state(facts(author=dict(MACHINE))), "new")
+
+    def test_a_content_id_has_as_many_digits_as_the_schema_allows(self):
+        pattern = SCHEMA["$defs"]["content_id"]["pattern"]
+        self.assertIn("{%d,%d}" % (len(issue.CONTENT_FEWEST), len(issue.CONTENT_MOST)), pattern)
+        for digits, readable in ((3, False), (4, True), (64, True), (65, False)):
+            d = derive(facts(content_id="sha256:" + "a" * digits))
+            self.assertEqual(d["reason"] != "content_unreadable", readable, digits)
+
     def test_unreadable_content_defers(self):
         for over in ({"content_id": None}, {"content_id": "c1"}, {"content_id": "sha256:"}, {"content_id": "sha256:C1"},
                      {"content_changed_at": None}, {"content_changed_at": "yesterday"}):
@@ -505,7 +522,13 @@ class Accepted(unittest.TestCase):
         self.assertEqual(state(outsiders(label_events=[labelled(READY)])), "new")
         d = derive(outsiders())
         self.assertEqual((d["state"], d["reason"]), ("new", "not_accepted"))
-        self.assertEqual(state(facts(author_can_write=None, label_events=[labelled(READY)])), "new")
+        # Only a person who opened it accepts it by authorship: an App or the machine user, with write access, does not.
+        for by in (CONTROLLER, AUTHOR_APP, OTHER_APP, MACHINE, dict(OUTSIDER, can_write=True)):
+            accepted = by["kind"] == "human"
+            self.assertEqual(state(facts(author=dict(by), label_events=[labelled(READY)])),
+                             "ready" if accepted else "new", by)
+            admitted = [labelled(ADMIT), labelled(READY, minute=2)]
+            self.assertEqual(state(facts(author=dict(by), label_events=admitted)), "ready", by)
 
     def test_a_persons_admission_after_the_last_edit_accepts_it(self):
         self.assertEqual(state(outsiders(label_events=[labelled(ADMIT), labelled(READY, minute=2)])), "ready")
@@ -547,6 +570,17 @@ class Accepted(unittest.TestCase):
         # Adds in one second, a person's and another App's, are read the way that stops: no work begun.
         f = outsiders(content_changed_at=at(9), label_events=admit + [labelled(READY, minute=2), labelled(READY, OTHER_APP, 2)])
         self.assertEqual(derive(f)["reason"], "not_accepted")
+
+    def test_a_closed_link_is_work_begun_only_in_the_life_it_closed_in(self):
+        admit = [labelled(ADMIT)]
+        for closed_at, want in ((4, "not_accepted"), (5, "acceptance_lapsed"), (6, "acceptance_lapsed")):
+            for entry in (agents(is_open=False, closed=closed_at), agents(is_open=False, merged=closed_at, empty=True)):
+                f = outsiders(life_started_at=at(5), reopened_last_by="writer", content_changed_at=at(9),
+                              label_events=admit, linked=[entry])
+                self.assertEqual(derive(f)["reason"], want, (closed_at, entry["merged_at"]))
+        f = outsiders(life_started_at=at(5), reopened_last_by="writer", content_changed_at=at(9), label_events=admit,
+                      linked=[agents(draft=True)])
+        self.assertEqual(derive(f)["reason"], "acceptance_lapsed")
 
     def test_acceptance_lapsed_after_work_began_is_told_apart(self):
         lapsed = outsiders(content_changed_at=at(9), label_events=[labelled(ADMIT), labelled(TRIAGE, CONTROLLER, 2)])

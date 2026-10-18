@@ -16,7 +16,9 @@ and `standing_labels` from `kernel/derive.py`, and `is_person` from `kernel/gate
 one reading of "what a person placed, only a person ends". The pull request's work treats these
 five as a contract. Once both are built, the readers they share move into one module.
 
-An issue's facts are `issue-facts/1`, in `schemas/issue-facts.schema.json`. Its control labels are
+An issue's facts are `issue-facts/1`, in `schemas/issue-facts.schema.json`. Its author is an actor,
+with a kind, a name and write access: only a person who opened it accepts it by authorship, never
+an App or the machine user, whatever their access. Its control labels are
 `label_events`, as on a pull request: label, action, who and when. Each linked pull request carries
 its number, its class as the port gives it, its opener, whether it is open or a draft, when it
 merged and closed, whether its diff was empty, and its own `label_events`. The Hold, hands-off and
@@ -74,4 +76,5 @@ fails closed. The Run ceiling stays with the brakes because they count it and no
 | Adds in one second are read the way that stops work, whatever their order | `tests/test_issue.py::test_adds_in_one_second_are_read_the_way_that_stops_work_whatever_their_order` |
 | Only a completed readiness Run of this content lets the Factory's `factory:ready` count; an expired record does not | `tests/test_issue.py::test_only_a_readiness_run_judges_and_only_once_it_has_completed`, `tests/test_issue.py::test_a_factory_ready_whose_run_record_has_expired_does_not_count` |
 | A state, label names, a type or an `issues` block that cannot be read defers | `tests/test_issue.py::test_an_unreadable_state_defers`, `tests/test_issue.py::test_unreadable_label_names_defer`, `tests/test_issue.py::test_an_unreadable_type_defers`, `tests/test_issue.py::test_an_issues_block_that_cannot_be_read_defers` |
-| Acceptance lapses only once it held and work began in this life | `tests/test_issue.py::test_acceptance_lapses_only_once_it_held_and_work_began_in_this_life` |
+| Acceptance lapses only once it held and work began in this life | `tests/test_issue.py::test_acceptance_lapses_only_once_it_held_and_work_began_in_this_life`, `tests/test_issue.py::test_a_closed_link_is_work_begun_only_in_the_life_it_closed_in` |
+| Only a person who opened an issue accepts it by authorship | `tests/test_issue.py::test_an_insiders_issue_is_accepted_and_an_outsiders_is_not`, `tests/test_issue.py::test_an_unreadable_author_defers` |
