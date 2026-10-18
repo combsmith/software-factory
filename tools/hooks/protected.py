@@ -191,8 +191,16 @@ class Budget:
 
 
 def _glob(pattern: str, segment: str, most: str = "*") -> str:
-    """A regular expression for a pattern of names: `*` is any part of one name (`segment` is what a name is made of)."""
-    return "".join(segment + most if c == "*" else re.escape(c) for c in pattern)
+    """A regular expression for a pattern of names: `*` is any part of one name (`segment` is what a name is made of),
+    and `**` as a whole name is any run of names, none included, as the Kernel reads it (kernel/derive.py, matches)."""
+    out, first = "", True
+    for name in pattern.split("/"):
+        if name == "**":
+            out += ("(?:%s+/)*" if first else "(?:/%s+)*") % segment
+            continue
+        out += ("" if first else "/") + "".join(segment + most if c == "*" else re.escape(c) for c in name)
+        first = False
+    return out + (segment + "+" if first else "")
 
 
 def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
@@ -235,8 +243,7 @@ def entries(listing: list) -> list:
     out = []
     for path, what in listing:
         parts = path.casefold().rstrip("/").split("/")
-        whole = re.compile("/".join(_glob(p, "[^/]") for p in parts) + ("(/.*)?" if path.endswith("/") else "")
-                           + r"\Z", re.S)
+        whole = re.compile(_glob("/".join(parts), "[^/]") + ("(/.*)?" if path.endswith("/") else "") + r"\Z", re.S)
         out.append((path, what, parts, whole))
     return out
 

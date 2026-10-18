@@ -62,6 +62,9 @@ IDENTITY_TESTS = "tests.test_hooks.Identity."
 NO_REFSPEC_TESTS = (IDENTITY_TESTS + "test_a_push_with_no_refspec_reads_what_git_would_push",)
 PUSH_SETTING_TESTS = (IDENTITY_TESTS + "test_push_settings_given_in_the_command_are_refused",)
 REDEFINE_TESTS = (IDENTITY_TESTS + "test_a_git_the_command_may_redefine_is_refused",)
+# Where the boundary cases of decision 0029 are.
+REPORTED = "tests.test_decide.AReviewThatReported."
+COVERAGE = "tests.test_coverage.Coverage."
 
 MUTANTS = [
     ("incomplete facts are trusted", "kernel/derive.py",
@@ -230,8 +233,8 @@ MUTANTS = [
      '        return {"state": None, "reason": "mergeable_unreadable", "evidence": []}\n'
      '    if facts["state"] == "merged":\n'),
     ("a dependency update waits for a model review", "kernel/derive.py",
-     "    for lens in required_model_lenses(facts, config):\n",
-     '    for lens in config["required_lenses"]["model"]:\n'),
+     "    lenses = required_model_lenses(facts, config)\n",
+     '    lenses = config["required_lenses"]["model"]\n'),
     ("a model Lens's thread does not gate a dependency update", "kernel/gate.py",
      '    required = set(config["required_lenses"]["model"])\n',
      '    lenses = config["required_lenses"]\n'
@@ -829,6 +832,55 @@ MUTANTS = [
      ' "acceptance_reporters_unreadable",\n', "\n"),
     ("a digest of any length is read", "kernel/derive.py",
      " and len(value) == len(t.DIGEST_SHAPE)", ""),
+    # A required model Lens has reported only through a review of this content that succeeded, and a Result that
+    # leaves a criterion of its rubric uncovered is refused (decision 0029, I-37).
+    ("a failed review Run counts as a report", "kernel/derive.py",
+     '        and r["status"] == "completed"\n        and r["conclusion"] == "success"\n        for r in runs\n',
+     '        and r["status"] == "completed"\n        for r in runs\n', (REPORTED + "test_a_review_run_that_failed_has_not_reported",)),
+    ("a success with a fault is read as a report", "kernel/derive.py",
+     '    if odd:\n        return {"state": None, "reason": "run_unreadable", "evidence": odd}\n', "",
+     (REPORTED + "test_a_review_that_succeeded_with_a_fault_is_unreadable",)),
+    ("a success with a fault is not the Maintainer's to see", "kernel/decide.py",
+     '    "run_unreadable",\n', "",
+     (REPORTED + "test_a_review_that_succeeded_with_a_fault_is_unreadable",)),
+    ("** is read within one name by the Kernel", "kernel/derive.py",
+     "        if run == t.ANY_NAMES:\n", "        if False:\n",
+     ("tests.test_tools.TheList.test_two_stars_as_a_whole_name_stand_for_any_run_of_names",)),
+    ("** is read within one name by the hooks", "tools/hooks/protected.py",
+     '        if name == "**":\n', "        if False:\n",
+     ("tests.test_tools.TheList.test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus",)),
+    ("a criterion left out is covered", "kernel/coverage.py",
+     "        if len(mine) != 1 or not reported(mine[0], c in cites):\n",
+     "        if len(mine) > 1 or (mine and not reported(mine[0], c in cites)):\n",
+     (COVERAGE + "test_a_criterion_that_applies_must_be_covered",)),
+    ("a criterion given twice is covered", "kernel/coverage.py",
+     "        if len(mine) != 1 or not reported(mine[0], c in cites):\n",
+     "        if not mine or not reported(mine[0], c in cites):\n",
+     (COVERAGE + "test_a_criterion_that_applies_must_be_covered",)),
+    ("a verdict that is none of the three is read", "kernel/coverage.py",
+     "    if verdict not in t.VERDICTS:\n        return False\n", "",
+     (COVERAGE + "test_a_criterion_that_applies_must_be_covered",)),
+    ("an entry for a criterion the rubric lacks is passed over", "kernel/coverage.py",
+     "        if said not in ids:\n", "        if False:\n",
+     (COVERAGE + "test_a_criterion_that_applies_must_be_covered",)),
+    ("an applies_when that cannot be read applies to nothing", "kernel/coverage.py",
+     "        return True\n    return any(matches(", "        return False\n    return any(matches(",
+     (COVERAGE + "test_a_criterion_that_applies_must_be_covered",)),
+    ("the previous path is not read", "kernel/coverage.py",
+     "    paths = names(changed)\n", '    paths = [entry["path"] for entry in changed]\n',
+     (COVERAGE + "test_a_renamed_files_old_path_makes_a_criterion_apply",)),
+    ("not_applicable needs no reason", "kernel/coverage.py",
+     '    return verdict != t.NOT_APPLICABLE or is_code(entry.get("reason"))\n', "    return True\n",
+     (COVERAGE + "test_not_applicable_needs_a_reason_code",)),
+    ("finding needs no Finding", "kernel/coverage.py",
+     "    if verdict == t.FINDING and not cited:\n        return False\n", "",
+     (COVERAGE + "test_a_finding_verdict_needs_a_finding_that_cites_it",)),
+    ("a Finding that cites a criterion met or not applicable is passed over", "kernel/coverage.py",
+     "    if cited and verdict != t.FINDING:\n        return False\n", "",
+     (COVERAGE + "test_a_finding_verdict_needs_a_finding_that_cites_it",)),
+    ("unreadable is read as covered", "kernel/coverage.py",
+     '        return "unreadable", []\n', '        return "covered", []\n',
+     (COVERAGE + "test_an_unreadable_rubric_is_unreadable_never_covered",)),
     # A change to the Factory's own rules or a Lens's input is reviewed by every model Lens (decision 0020, I-45).
     ("the list is never read", "kernel/derive.py",
      '    return [p for p in dict.fromkeys(config["protected_paths"]) if any(matches(p, path) for path in changed)]\n',
@@ -869,7 +921,7 @@ MUTANTS = [
     ("a dependency update is excused on the list", "kernel/derive.py",
      "\n            and not touched(facts, config)):", "):"),
     ("a final separator names only the directory", "kernel/derive.py",
-     "        path = t.SEPARATOR.join(path.split(t.SEPARATOR)[:whole.count(t.SEPARATOR) + 1])\n", "        pass\n"),
+     "        return any(n > 0 for n in counts)\n", "        return path.count(t.SEPARATOR) + 1 in counts\n"),
     ("a wildcard crosses a separator", "kernel/derive.py",
      "    return t.SEPARATOR not in text\n", "    return True\n"),
     ("case is compared", "kernel/derive.py",

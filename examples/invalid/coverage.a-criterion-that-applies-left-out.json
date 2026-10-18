@@ -1,0 +1,6 @@
+[
+  {"criterion": "PR-1", "verdict": "met", "reason": null},
+  {"criterion": "PR-2", "verdict": "met", "reason": null},
+  {"criterion": "PR-3", "verdict": "finding", "reason": null},
+  {"criterion": "PR-5", "verdict": "not_applicable", "reason": "no_rule_added"}
+]

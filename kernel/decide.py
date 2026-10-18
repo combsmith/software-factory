@@ -18,6 +18,7 @@ NEEDS_YOU_REASONS = frozenset({
     "awaiting_human", "act_ceiling", "check_unreadable", "review_unreadable", "thread_unreadable", "label_unreadable",
     "acceptance_unreadable", "paths_unreadable", "protected_paths_unreadable",
     "contract_not_approved", "contract_changed", "acceptance_reporters_unreadable",
+    "run_unreadable",
 })
 
 

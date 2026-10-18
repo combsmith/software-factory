@@ -785,7 +785,7 @@ cost is not known exactly; its duration is the estimate.
 
 | Outcome | Example | Counts as an attempt | Then |
 |---|---|---|---|
-| `item` | The Engine produced an invalid Result; the fix did not pass | Yes | The item's attempt ceiling applies |
+| `item` | The Engine produced an invalid Result; a reviewing Result left a criterion uncovered; the fix did not pass | Yes | The item's attempt ceiling applies |
 | `capacity` | The model window ran out mid-Run | No | Every model Run is deferred until the window is expected to reset |
 | `environment` | A token expired; an App was uninstalled; GitHub was unavailable | No | Several in a row pause Admission automatically, raise one alert, and clear when a probe Run succeeds |
 | `superseded` | The item was held or changed before `apply` | No | The next pass decides afresh |
