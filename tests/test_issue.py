@@ -1546,13 +1546,15 @@ class Stale(unittest.TestCase):
         # The other side: read whole, the draft holds the issue in progress.
         self.assertEqual(decide(facts(linked=[good]))["state"], "in_progress")
 
-    def test_a_link_that_closed_before_it_opened_defers(self):
+    def test_a_link_that_closed_or_merged_before_it_opened_defers(self):
         # Each time is a real moment, but a close before the opening is no chronology: read, its opening would be the
         # issue's newest movement, and hold off its staleness.
         then = minutes_after(MOVED, 2)
         closed = dict(agents(is_open=False, closed=0), opened_at=minutes_after(then, 1), closed_at=then)
         merged = dict(agents(is_open=False, merged=0), opened_at=minutes_after(then, 1), merged_at=then, closed_at=then)
-        for entry in (closed, merged):
+        # A merge before the opening, though the close is after it: read, the issue would be done.
+        merged_first = dict(merged, closed_at=minutes_after(then, 2))
+        for entry in (closed, merged_first, merged):
             for f in (dict(WAITING, linked=[entry]), dict(WAITING, state="closed", linked=[entry])):
                 d = decide(f, ctx=PASSING, now=minutes_after(MOVED, limit("triage") + 1))
                 self.assertEqual((d["state"], what(d)), (None, ("defer", "linked_unreadable", None)), entry)
@@ -1561,6 +1563,11 @@ class Stale(unittest.TestCase):
             d = decide(dict(WAITING, linked=[dict(closed, opened_at=opened)]), ctx=PASSING,
                        now=minutes_after(then, limit("triage")))
             self.assertEqual((d["state"], what(d), d["attention"]), ("triage", ("admit", "triage", INVESTIGATE), "ready"))
+        # And a merge in the second it opened, or after it, is read: the issue is done.
+        for opened in (then, MOVED):
+            d = decide(dict(WAITING, linked=[dict(merged_first, opened_at=opened)]), ctx=PASSING,
+                       now=minutes_after(then, limit("triage")))
+            self.assertEqual((d["state"], what(d)), ("done", ("nothing", "merged", None)))
 
     def test_a_lifecycle_whose_limit_cannot_be_read_shows_the_wait_as_stale(self):  # §4.1
         now = minutes_after(MOVED, 1)
@@ -1668,6 +1675,26 @@ class Stale(unittest.TestCase):
             self.assertEqual((d["attention"], dict(d, attention="ready")), ("stale", own), now)
             # The other side: a Decision that never goes stale is as it was.
             self.assertEqual(h, held, now)
+            # A capacity deadline cannot be compared with such a now: the Run defers, as on a capacity unread, and a
+            # deferral of the whole scope is never stale.
+            try:
+                d = decide(WAITING, ctx=context(passes_since=START, model_deferred_until=MOVED), now=now)
+            except Exception as e:
+                self.fail("a now of %r with a capacity deadline raised %r" % (now, e))
+            self.assertEqual((d["state"], what(d), d["attention"]), ("triage", ("defer", "capacity_unreadable", None),
+                                                                     "ready"), now)
+        # Nor can a deadline that is no moment be compared with a real now.
+        now = minutes_after(MOVED, 1)
+        for until in (5, True, "never", "2026-02-30T12:00:00Z"):
+            try:
+                d = decide(WAITING, ctx=context(passes_since=START, model_deferred_until=until), now=now)
+            except Exception as e:
+                self.fail("a capacity deadline of %r raised %r" % (until, e))
+            self.assertEqual(what(d), ("defer", "capacity_unreadable", None), until)
+        # The other side: a real deadline and a real now compare, at the boundary.
+        for until, want in ((minutes_after(now, 1), ("defer", "capacity", None)), (now, ("admit", "triage", INVESTIGATE))):
+            self.assertEqual(what(decide(WAITING, ctx=context(passes_since=START, model_deferred_until=until), now=now)),
+                             want, until)
 
 
 if __name__ == "__main__":

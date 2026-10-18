@@ -151,7 +151,8 @@ def readable_events(events, config: dict) -> bool:
 
 def readable_link(entry, config: dict) -> bool:
     """Whether a pull request that closes the issue can be read whole. Each says when it opened. An open one has neither
-    closed nor merged; one that is not open says when it closed, no earlier than it opened, and a merge closes it too."""
+    closed nor merged; one that is not open says when it closed, and a merge closes it too, neither earlier than it
+    opened."""
     if not (isinstance(entry, dict) and type(entry.get("number")) is int and entry["number"] >= 1
             and entry.get("class") in CLASSES and whole_actor(entry.get("opener"), config)
             and all(type(entry.get(flag)) is bool for flag in ("open", "draft", "empty"))):
@@ -162,8 +163,9 @@ def readable_link(entry, config: dict) -> bool:
         return False
     if entry["open"] != (entry["closed_at"] is None) or (entry["open"] and entry["merged_at"] is not None):
         return False
-    # A close before the opening is no chronology: its opening, read as the newest movement, would hold off staleness.
-    if entry["closed_at"] is not None and entry["closed_at"] < entry["opened_at"]:
+    # A close or a merge before the opening is no chronology: its opening, read as the newest movement, would hold off
+    # staleness, and its merge would make the issue done.
+    if any(entry[when] is not None and entry[when] < entry["opened_at"] for when in ("closed_at", "merged_at")):
         return False
     return readable_events(entry.get("label_events"), config)
 
@@ -744,6 +746,9 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     # Capacity and the org's concurrency are not brakes: they bound no cycle (§4.1), and only defer.
     until = context.get("model_deferred_until", "unreadable")
     if until == "unreadable":
+        return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
+    # A deadline, or a `now`, that is no moment cannot be compared: the deferral fails closed, and nothing raises.
+    if until is not None and not (is_time(until) and is_time(now)):
         return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
     if until is not None and until > now:
         return _decision(facts, state, "capacity", evidence, t.DEFER)

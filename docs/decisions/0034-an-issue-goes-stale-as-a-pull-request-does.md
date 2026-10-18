@@ -22,7 +22,9 @@ on it starts, or a linked pull request of the Factory's (`agent`) or of a person
 opens or closes. Nothing else moves it: not a Role's comment, whose Run is counted already, nor an App named nowhere,
 nor a label the Kernel does not read, nor a pull request of any other class, an admitted outsider's or a dependency
 bot's among them. A time that is no real moment, or is later than `now`, is passed over. A `now` that is no moment
-gives no time, and a context that is no mapping says nothing of the passes.
+gives no time, and a context that is no mapping says nothing of the passes. Nothing on an issue raises on such a
+`now`: a capacity deadline that cannot be compared with `now`, either being no moment, defers the Run with
+`capacity_unreadable`.
 
 The limits are read from `lifecycle/issue.json` alone, given with the configuration as its `lifecycle`, never from
 `config/defaults.json`. A Lifecycle that is not a mapping whose `work_item` is `issue`, or whose limit for the State is
@@ -31,7 +33,8 @@ the Lifecycle declares never goes stale. As the Lifecycle declares, an issue in 
 with no movement, whoever opened its draft.
 
 Each pull request in `linked`, in `issue-facts/1`, says when it opened, `opened_at`: a new fact, read whole, or the
-issue defers with `linked_unreadable`.
+issue defers with `linked_unreadable`. One that closed or merged before it opened is no chronology, and defers the
+same way; a close or a merge in the second it opened is read.
 
 A draft's own pushes, and a person converting it back to draft, are not in `issue-facts/1`. Until the hand-over brings
 them, an issue whose draft is busy may read stale; that shows more, never less.
@@ -55,9 +58,9 @@ staleness shows it.
 | An issue's wait past its State's limit in `lifecycle/issue.json`, given with the configuration, shows `stale`: only the attention changes, only on a `ready` wait, and never under a deferral of the whole scope; a Lifecycle not the issue's shows such a wait as stale | `tests/test_issue.py::test_a_wait_past_its_states_limit_shows_stale_and_changes_nothing_else`, `tests/test_issue.py::test_a_person_a_run_nobody_or_a_deferral_of_the_whole_scope_is_never_stale`, `tests/test_issue.py::test_a_wait_counts_no_earlier_than_the_chain_of_passes`, `tests/test_issue.py::test_a_lifecycle_not_the_issues_shows_every_wait_as_stale` |
 | An issue moves when its life begins, its content changes, a writer acts or comments, a person or an App the configuration names adds or removes a control label, a Run on it starts, or the Factory's or a writer's linked pull request opens or closes, and at nothing else | `tests/test_issue.py::test_an_issue_moves_at_what_its_own_facts_say_moved_it_and_at_nothing_else` |
 | A linked pull request's opening time is read whole, or the issue defers | `tests/test_issue.py::test_a_link_with_no_opening_time_defers`, `examples/invalid/issue-facts.a-link-with-no-opening.json` |
-| A linked pull request that closed before it opened cannot be read, and the issue defers; one that closed in the second it opened, or later, is read | `tests/test_issue.py::test_a_link_that_closed_before_it_opened_defers` |
+| A linked pull request that closed or merged before it opened cannot be read, and the issue defers; one that closed or merged in the second it opened, or later, is read | `tests/test_issue.py::test_a_link_that_closed_or_merged_before_it_opened_defers` |
 | An issue's Lifecycle whose limit for the State is no finite number of minutes shows the wait as stale; an end the Lifecycle declares never goes stale | `tests/test_issue.py::test_a_lifecycle_whose_limit_cannot_be_read_shows_the_wait_as_stale`, `tests/test_issue.py::test_an_end_never_goes_stale` |
 | Any App `issues.label_apps` names moves an issue by any control label it adds or removes; an App named nowhere moves nothing | `tests/test_issue.py::test_any_app_the_configuration_names_moves_an_issue_by_any_control_label` |
 | Only the Factory's or a writer's linked pull request moves an issue by opening or closing; an outsider's, even one admitted, moves nothing | `tests/test_issue.py::test_an_outsiders_pull_request_moves_nothing_even_once_admitted` |
-| A `now` that is no moment raises nothing on an issue, and shows a wait as stale | `tests/test_issue.py::test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing` |
+| A `now` that is no moment raises nothing on an issue, and shows a wait as stale; a capacity deadline that cannot be compared with `now` defers the Run as capacity unread | `tests/test_issue.py::test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing` |
 | A context that cannot be read raises nothing on an issue, and says nothing of the passes, as an unreadable `passes_since` does not | `tests/test_issue.py::test_a_context_that_cannot_be_read_says_nothing_of_the_passes` |
