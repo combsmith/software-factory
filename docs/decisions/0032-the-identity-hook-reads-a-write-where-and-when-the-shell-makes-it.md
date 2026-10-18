@@ -1,0 +1,51 @@
+# 0032. The identity hook reads a write where and when the shell makes it
+
+Status: accepted. It adds to `docs/decisions/0030-the-identity-hook-refuses-a-write-into-gits-directory-and-a-git-an-alias-or-a-feeder-hides.md`,
+whose Decision stays in force. It settles "Identity hook: spellings left after the .git-write story" (issue 160), whose
+spellings the reviews of "Identity hook: a write into git's directory, an alias that runs git, and xargs git are
+refused" (pull request 156) found, as its working rulings say, which the Maintainer may overturn in review. As before,
+under the working ruling on "Session hooks that refuse: protected paths, merging, and the repo's own rules" (issue 23):
+a hook guards against mistakes, and the Stop check and the rulesets are the boundary. No new kind of word is read: each
+part reads only a path a program of `PATH_WRITERS` writes, or a redirection, in a command that commits or pushes, or the
+program an alias names; prose, patterns and a loop's words stay data.
+
+## Decision
+
+| What | Decided | Because |
+|---|---|---|
+| One rule | A write is resolved where and when the shell makes it, and a reading the hook would cut short is one it cannot read, and is refused | In each spelling a write was resolved in the wrong place or at the wrong moment, or read short |
+| A loop's variable over more than `LOOP_MOST` words, in a path a writer is given | `git_directory_written`: the loop is too long to read. The words are not cut short | A path past the cap was never read. Its one false refusal: a commit command whose loop over more than 256 words writes a path holding its variable |
+| `popd`, `pushd` with no directory or with +N or -N, and `cd -` (`cd ~-`, `cd "$OLDPWD"`) or `cd +N` | The hook keeps no stack and does not guess: a relative write, and a commit or a push, are read in every directory the command has stood in, so one that would be in git's directory in any of them is refused, and one in a directory outside a repository cannot be read. A later cd to a plain path is read again. Past `PLACES_MOST` directories, which `cd -` then a relative cd doubles, where the command stands is lost, and a commit or a push is `directory_unreadable`. `cd ''`, `pushd -n` and `popd -n` stay where they are. A directory the hook cannot tell (`cd "$(...)"`) stays one, whatever plain path follows, so a commit or a push after it is `directory_unreadable`, as before | A popped directory is one the command stood in, and a stack is more code for the same answer. Its cost: once a command has stood in `.git`, a relative write after `cd -` is refused |
+| A writer whose words name no output | A column of `PATH_WRITERS`: `unzip` with no `-d`, `tar` extracting with no `-C`, `curl -O` or `-J` with no `--output-dir`, `wget` with no `-O` or `-P`, and `patch` with no file or output write where they stand, which is a place written. `-` is the standard output, and no place, only to curl's and wget's output file options and tar's `-f`; given to an option that names a directory (`--output-dir`, `-P`), to any other writer, or as an operand, it is a path, which may be a link into `.git` | `cd .git && unzip x.zip` wrote into git's directory with no path to read |
+| A command substitution in a case's pattern | `shell.commands` lists it where the pattern stands, not before every command, so a write in it is resolved after a cd before it. It runs in a subshell, so for the identity hook a cd in it is its own, and the command stands after it where it stood before. A substitution in a command's words is read as on main, its cd flattened into the command's. The pattern stays data. `tools/hooks/protected.py` reads the same list, and gains the same | The order is the shell's |
+| tar's old-style bundle, its modes and its names | A first word with no dash, all letters, is read as tar reads it: each letter an option, and each that takes a value takes the next word in turn (GNU's f, C, g, K, L, V, F and the rest, and bsdtar's own table, where -H, -L and -K take no word and -s takes one: tar is either, so both readings are read, and either writing into `.git` refuses), so `tar xfC h.tar .git` is `-x -f h.tar -C .git` and is refused, and `tar cf out.tar .git` reads `.git` as a source and passes. Read as one dashed bundle, `-xfC` would give `C` to `-f`, as getopt does, and miss `.git`. Which places tar writes depends on its mode: `-C` when it extracts, `-f` when it creates or changes an archive, and `-g`'s snapshot always; creating, `-C` is where it reads, and listing or comparing, `-f` the archive it reads; in a mode the hook does not know, every place it names. `gtar` and `bsdtar` are tar | The ruling's note that `_options` already decodes the bundle holds for a dashed bundle only; reading every place in every mode refused `tar cf x.tar -C .git .` and `tar -tf .git/x.tar` |
+| An alias whose value is a feeder, a shell, `source`, `.` or `eval` | Read as its value where its name stands as the program, by `shell.alias_values`: after `alias x=xargs`, `x git` fed `push` is git given no command, and an alias for `sh` fed `git push` is a shell that reads a script the hook cannot see. The hook does not order definitions: a name given more than one value, or unaliased, is read as each value, and as itself, wherever it runs. A value that ends in a blank makes the next word an alias too, its redirections with it, as in bash and zsh, and the script an aliased shell's `-c` or eval is given is read as commands of its own. Each alias is read again where it runs again, up to `ALIAS_MOST` in a command; past that the command is one the hook cannot read. An alias for git or gh is refused always, as 0030 says | An alias for git was already read; one for what runs git hid it the same way. Aliases that expand one another double at each step, and without a bound a 435-byte command took half a minute |
+| A bracket expression in a path | Read as the shell matches it: a range stays a range (`.gi[s-u]`), a POSIX class is the letters it holds (`.gi[[:alpha:]]`), and a class the hook cannot read, an equivalence class or a collating symbol, or a range it cannot order, may match anything | `-` was escaped, so a range matched only its ends, and a class closed the bracket early |
+| A double-quoted command substitution that holds quotes of its own | Read as a script of its own, as the shell does: `git commit -m "$(printf '%s\n' 'echo '"'"'git push'"'"'')"` is one word, and its text is data; a parenthesis a quote of the script's holds, a comment holds, or a `${...}` holds does not end it, so `"$(echo hi # )` and a commit on the next line is read as the commit it is | A printf's text, quoted as a session quotes it, was refused as a command that could not be split, and a `)` in a comment hid what followed it. A false refusal is fixed in the story that finds it |
+| How long the hook reads | Within `READ_SECONDS` of its deadline. Past them the command is `command_unreadable`, refused, not read on; a bracket that never closes is read once, and git or gh is looked for once in the text, not before each command | A hook that runs out its settings' timeout may let the command through, and readings that grew with the square of a command's length, or doubled with each alias, did |
+| Left to the Stop check and the rulesets | An archive's own entry names; a directory the hook cannot expand, the shell's own stack and an `OLDPWD` from before the command among them; and a writer the list does not name, such as `python3 -c` | The hook reads words, never a file or the shell's state |
+
+## Why
+
+Each spelling read the right path in the wrong place, or the right words at the wrong moment, or fewer words than the
+shell runs. Resolving a write where the shell makes it closes them as one rule, and a reading cut short is refused, as
+every reading the hook cannot finish within its budget already is. False refusals stay rare because a part refuses only
+a path that resolves into `.git`, which no ordinary command writes beside a commit, and each part has must-pass cases
+that spell it out in a commit message by `-m` and `-F`, a pull request's body, grep, echo, and printf into a file and
+into a message's substitution.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| A loop's variable over more words than the hook reads, in a path a writer is given, is refused; a loop that writes no such path passes | `tests/test_hooks.py::test_a_loop_too_long_to_read_that_writes_through_its_variable_is_refused` |
+| After popd, pushd with no directory or ±N, or cd -, a write and a commit are read in every directory the command stood in | `tests/test_hooks.py::test_a_write_after_the_hook_loses_the_directory_is_read_in_every_directory_the_command_stood_in` |
+| A writer whose words name no output writes where it stands | `tests/test_hooks.py::test_a_writer_that_names_no_output_writes_where_it_stands` |
+| A substitution in a case's pattern runs where the pattern stands, in both hooks | `tests/test_hooks.py::test_a_substitution_in_a_case_pattern_runs_where_the_pattern_stands`, `tests/test_hooks.py::test_a_command_that_writes_a_protected_path_asks` |
+| tar's old-style bundle is read as tar reads it | `tests/test_hooks.py::test_tars_old_style_bundle_is_read_as_tar_reads_it` |
+| An alias for a feeder, a shell, source or eval is read as its value | `tests/test_hooks.py::test_an_alias_for_a_feeder_a_shell_source_or_eval_is_read_as_its_value` |
+| A bracket expression is read as the shell matches it, and one the hook cannot read may match anything | `tests/test_hooks.py::test_a_bracket_expression_is_read_as_the_shell_matches_it` |
+| A double-quoted substitution with quotes of its own is one word, read as a script of its own | `tests/test_hooks.py::test_a_substitution_in_double_quotes_is_read_with_quotes_of_its_own` |
+| A comment or a `${...}` in a substitution does not end it | `tests/test_hooks.py::test_a_comment_or_a_parameter_expansion_in_a_substitution_does_not_end_it` |
+| A reading past its budget is refused, and the readings that ran long run in linear time | `tests/test_hooks.py::test_a_reading_that_would_run_on_is_cut_short_and_refused`, `tests/test_hooks.py::test_the_spellings_that_ran_long_are_read_in_linear_time` |
+| Each of these rules has a mutant that a test kills | `tools/mutants.py` |
