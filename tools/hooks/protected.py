@@ -191,8 +191,16 @@ class Budget:
 
 
 def _glob(pattern: str, segment: str, most: str = "*") -> str:
-    """A regular expression for a pattern of names: `*` is any part of one name (`segment` is what a name is made of)."""
-    return "".join(segment + most if c == "*" else re.escape(c) for c in pattern)
+    """A regular expression for a pattern of names: `*` is any part of one name (`segment` is what a name is made of),
+    and `**` as a whole name is any run of names, none included, as the Kernel reads it (kernel/derive.py, matches)."""
+    out, first = "", True
+    for name in pattern.split("/"):
+        if name == "**":
+            out += ("(?:%s+/)*" if first else "(?:/%s+)*") % segment
+            continue
+        out += ("" if first else "/") + "".join(segment + most if c == "*" else re.escape(c) for c in name)
+        first = False
+    return out + (segment + "+" if first else "")
 
 
 def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
@@ -218,6 +226,10 @@ def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
     if not protected or not inputs or not all(sessions.values()) or not all(
             isinstance(w, str) and w for w in words) or any(".." in p.split("/") for p, _ in paths):
         raise Unreadable("config/hooks.json does not have the shape the hook reads")
+    # Where a command writes below a directory, Rules.where reads each name of a path as one name, so a `**` there would
+    # let a directory that holds a protected path go unasked. No path here may use it until that reading does.
+    if any("**" in p.split("/") for p, _ in paths):
+        raise Unreadable("config/hooks.json names a path with **, which the hooks cannot read where a command writes")
     return {"protected": protected, "reported": reported, "lens_inputs": inputs, "branch": branch, "sessions": sessions,
             **lists}
 
@@ -235,8 +247,7 @@ def entries(listing: list) -> list:
     out = []
     for path, what in listing:
         parts = path.casefold().rstrip("/").split("/")
-        whole = re.compile("/".join(_glob(p, "[^/]") for p in parts) + ("(/.*)?" if path.endswith("/") else "")
-                           + r"\Z", re.S)
+        whole = re.compile(_glob("/".join(parts), "[^/]") + ("(/.*)?" if path.endswith("/") else "") + r"\Z", re.S)
         out.append((path, what, parts, whole))
     return out
 

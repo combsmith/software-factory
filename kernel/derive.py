@@ -50,6 +50,14 @@ def reviewed_clean_or_not(runs: list, facts: dict, role: str) -> bool:
     )
 
 
+def contradicts(run: dict, facts: dict) -> bool:
+    """Whether `run`, a review of exactly this content, succeeded and yet names whose fault its failure was. A review
+    reports only through a Run that succeeded (decision 0029), and one that failed names its fault, so this one can be
+    read as neither: no report is read from it (I-13)."""
+    return (run["intent"] == "review-change" and run["content_id"] == facts["content_id"]
+            and run["status"] == "completed" and run["conclusion"] == "success" and run.get("outcome") is not None)
+
+
 def check_reading(check: dict, config: dict) -> str:
     """What one check says: 'passing', 'failing', 'pending' or 'unreadable'.
 
@@ -206,14 +214,10 @@ def readable_rules(config: dict) -> bool:
     return isinstance(rules, list) and len(rules) > 0 and all(readable_pattern(p) for p in rules)
 
 
-def within_a_name(text: str) -> bool:
-    """Whether `text`, what a wildcard stood for, lies within one name."""
-    return t.SEPARATOR not in text
-
-
 def fits(pattern: str, path: str) -> bool:
     """Whether `path` fits `pattern` whole, in any case: each wildcard stands for any run of characters within one
-    name, none included, and every other character for itself."""
+    name, none included, and every other character for itself. It is given only a stretch of the path with as many
+    names as the pattern's run (reached), so the separators are the pattern's own and no wildcard can stand for one."""
     pattern, path = pattern.casefold(), path.casefold()
     pieces = pattern.split(t.WILDCARD)
     if len(pieces) == 1:
@@ -225,21 +229,49 @@ def fits(pattern: str, path: str) -> bool:
     # wildcard to stand for.
     for piece in pieces[1:-1]:
         found = path.find(piece, at)
-        if found < 0 or not within_a_name(path[at:found]):
+        if found < 0:
             return False
         at = found + len(piece)
     end = len(path) - len(pieces[-1])
-    return end >= at and path.endswith(pieces[-1]) and within_a_name(path[at:end])
+    return end >= at and path.endswith(pieces[-1])
+
+
+def runs_of(pattern: str) -> list:
+    """`pattern`'s names in order, each run of them between two `**` joined again by the separator, and each `**` that
+    is a whole name alone."""
+    out = []
+    for name in pattern.split(t.SEPARATOR):
+        if name != t.ANY_NAMES and out and out[-1] != t.ANY_NAMES:
+            out = out[:-1] + [out[-1] + t.SEPARATOR + name]
+        else:
+            out = out + [name]
+    return out
+
+
+def reached(pattern: str, path: str) -> list:
+    """Each count of `path`'s first names that `pattern` names whole, from none up. A run of the pattern's names stands
+    for as many names of the path (fits), and `**` as a whole name for any run of names, none included."""
+    names_ = path.split(t.SEPARATOR)
+    counts = [0]
+    for run in runs_of(pattern):
+        if run == t.ANY_NAMES:
+            counts = list(range(min(counts), len(names_) + 1)) if counts else []
+            continue
+        size = run.count(t.SEPARATOR) + 1
+        counts = [n + size for n in counts
+                  if n + size <= len(names_) and fits(run, t.SEPARATOR.join(names_[n:n + size]))]
+    return counts
 
 
 def matches(pattern: str, path: str) -> bool:
     """Whether `path`, one the pull request changes, is what `pattern` names: a protected path or a Lens's input, in
-    the one syntax of config/hooks.json, as the session hooks read it (tools/hooks/protected.py, entries). A final
-    separator names the directory and everything below it."""
+    the one syntax of config/hooks.json, as the session hooks read it (tools/hooks/protected.py, entries), or a path a
+    rubric's criterion applies to. A final separator names the directory and everything below it."""
     whole = pattern.rstrip(t.SEPARATOR)
+    counts = reached(whole, path)
     if whole != pattern:
-        path = t.SEPARATOR.join(path.split(t.SEPARATOR)[:whole.count(t.SEPARATOR) + 1])
-    return fits(whole, path)
+        return any(n > 0 for n in counts)
+    return path.count(t.SEPARATOR) + 1 in counts
 
 
 def touched(facts: dict, config: dict) -> list:
@@ -887,7 +919,13 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # never merges a change to the rules that no model Lens has reviewed (I-45).
     mine = runs_on(runs, facts)
     rules = touched(facts, config)
-    for lens in required_model_lenses(facts, config):
+    lenses = required_model_lenses(facts, config)
+    # A review of this content that succeeded and names a fault contradicts itself, so no Lens's report is read from it.
+    # It does not end on its own, so a queued item is never read past it.
+    odd = [r["run"] for r in mine if r["role"] in lenses and contradicts(r, facts)]
+    if odd:
+        return {"state": None, "reason": "run_unreadable", "evidence": odd}
+    for lens in lenses:
         if not reviewed_clean_or_not(mine, facts, lens) and ("awaiting_review" not in past or rules):
             return {"state": t.VERIFYING, "reason": "awaiting_review", "evidence": [lens] + rules}
 

@@ -214,6 +214,18 @@ class Examples(unittest.TestCase):
     def test_an_example_that_does_not_validate_is_caught(self):
         self.assertTrue(caught(check_examples.run(clone({"examples/decision.json": "{}"})), "decision.json: $: missing"))
 
+    def test_a_coverage_that_leaves_a_criterion_uncovered_is_caught(self):  # decision 0029
+        # Valid to its schema, a coverage example is judged by kernel/coverage.py too, against the rubric, the Finding
+        # example and the paths the facts example changes: no schema can say every criterion that applies is there.
+        left = (ROOT / "examples" / "invalid" / "coverage.a-criterion-that-applies-left-out.json").read_text()
+        whole = (ROOT / "examples" / "coverage.json").read_text()
+        self.assertTrue(caught(check_examples.run(clone({"examples/coverage.json": left})),
+                               "coverage.json: $: uncovered PR-4"))
+        self.assertTrue(caught(check_examples.run(clone({"examples/invalid/coverage.a-criterion-that-applies-left-out"
+                                                         ".json": whole})), "was accepted, and must be rejected"))
+        problems = check_examples.run(clone({"examples/finding.json": "{}"}))
+        self.assertTrue(caught(problems, "coverage.json: $: uncovered PR-3"))
+
     def test_only_success_can_pass_a_check(self):  # I-27, L-07
         # The configuration may say what a conclusion means, but never that one with no verdict has passed.
         schema = json.loads((ROOT / "schemas" / "config.schema.json").read_text())
@@ -1351,13 +1363,18 @@ class TheList(unittest.TestCase):
     Kernel is given as `protected_paths` (decision 0020)."""
 
     HOOKS = json.loads((ROOT / "config" / "hooks.json").read_text())
+    # The paths each criterion of the review's rubric applies to, read with the same matcher (decision 0029).
+    RUBRIC = [p for c in json.loads((ROOT / "config" / "rubric-pr-review.json").read_text())["criteria"]
+              for p in c.get("applies_when", {}).get("paths", [])]
 
     def test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus(self):
         # Only the two matchers can drift, so they are held to each other: on every file in the repo, and on paths made
         # from each pattern, its wildcard standing for nothing, a letter or more than one name, in any case, below it,
-        # beside it and above it.
+        # beside it and above it. The rubric's patterns are among them, and `**` as a whole name.
         data = protected.load()
         patterns = [p for p, _ in data["protected"] + data["reported"]] + ["a/*", "*.json", "x*y*z/", "a*/b*/", "*"]
+        patterns += self.RUBRIC + ["**", "**/", "a/**/b*/", "**/a/**", "a**b/c", "**/**/x"]
+        self.assertLessEqual({"**/*.py", "kernel/**", "**/AGENTS.md"}, set(self.RUBRIC))
         corpus = {p.relative_to(ROOT).as_posix() for p in walk.files(ROOT)}
         for pattern in patterns:
             for star in ("", "x", "x/y", "a.b", "*"):
@@ -1371,6 +1388,20 @@ class TheList(unittest.TestCase):
             whole = protected.entries([(pattern, "")])[0][3]
             for path in corpus:
                 self.assertEqual(derive.matches(pattern, path), bool(whole.match(path.casefold())), (pattern, path))
+
+    def test_two_stars_as_a_whole_name_stand_for_any_run_of_names(self):  # decision 0029
+        # `**` as a whole name stands for any run of names, none included; within a name it is two wildcards, each
+        # within that name. The hooks read it alike (test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus).
+        for pattern, path, fits in (("**/*.py", "a.py", True), ("**/*.py", "a/b/c.py", True), ("**/*.py", "a/b.txt", False),
+                                    ("kernel/**", "kernel", True), ("kernel/**", "kernel/a/b.py", True),
+                                    ("kernel/**", "kernels/a.py", False), ("**/AGENTS.md", "AGENTS.md", True),
+                                    ("**/AGENTS.md", "a/b/AGENTS.md", True), ("**/AGENTS.md", "a/xAGENTS.md", False),
+                                    ("a/**/b", "a/b", True), ("a/**/b", "a/x/y/b", True), ("a/**/b", "a/x/y/c", False),
+                                    ("a**b", "ab", True), ("a**b", "axyb", True), ("a**b", "ax/yb", False),
+                                    ("docs/**/", "docs/a/b.md", True), ("docs/**/", "doc/a.md", False)):
+            self.assertEqual(derive.matches(pattern, path), fits, (pattern, path))
+            whole = protected.entries([(pattern, "")])[0][3]
+            self.assertEqual(bool(whole.match(path.casefold())), fits, (pattern, path))
 
     def test_the_kernel_is_given_every_protected_path_and_lens_input(self):
         want = [e["path"] for e in self.HOOKS["protected"]] + [e["path"] for e in self.HOOKS["lens_inputs"]]

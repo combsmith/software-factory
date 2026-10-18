@@ -9,7 +9,7 @@ If you are about to change something, read `AGENTS.md`. It is one page.
 ## What is here
 
 - **The Kernel** for a pull request: derived State, Convergence, Admission and the attention class.
-- **Schemas** for the facts, a run record, a Decision, a Finding, an acceptance contract, a rubric,
+- **Schemas** for the facts, a run record, a Decision, a Finding, an acceptance contract, a rubric, a Result's coverage,
   the authority table, the Lifecycle and the configuration, each with an example and with
   counter-examples that must be rejected. A validator for them with no dependencies.
 - **The Lifecycles** of a pull request and of an issue, as data, with the bounds on each cycle.

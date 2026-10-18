@@ -1960,6 +1960,20 @@ class RulesChanged(unittest.TestCase):
             broken.write_text(json.dumps(dict(data, lens_inputs=value)))
             self.assertRaises(protected.Unreadable, protected.load, broken)
 
+    def test_a_protected_or_reported_path_with_two_stars_is_refused(self):  # decision 0029
+        # The directory-holds check reads each name of a path as one name, so `**` is refused until it reads it.
+        data = json.loads((ROOT / "config" / "hooks.json").read_text())
+        for group, entry in (("protected", {"path": "**/secret.json", "is": "x"}),
+                             ("reported", {"path": "docs/**/x.md", "is": "x"}),
+                             ("lens_inputs", {"lens": "verify", "path": "**", "is": "x"})):
+            broken = folder() / "hooks.json"
+            broken.write_text(json.dumps(dict(data, **{group: data[group] + [entry]})))
+            self.assertRaises(protected.Unreadable, protected.load, broken)
+        # A star within a name, two of them among it, is read as before.
+        fine = folder() / "hooks.json"
+        fine.write_text(json.dumps(dict(data, protected=data["protected"] + [{"path": "a/x**y.json", "is": "x"}])))
+        self.assertIn(("a/x**y.json", "x"), protected.load(fine)["protected"])
+
     def test_every_protected_path_changed_is_listed(self):
         where = self.branch()
         for n in range(25):

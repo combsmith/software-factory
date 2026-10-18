@@ -381,6 +381,34 @@ class Simulation(unittest.TestCase):
         self.assertEqual(notes, set(happened))
         self.assertTrue(behind and merged)
 
+    def test_the_seeds_serve_a_review_that_left_a_criterion_uncovered(self):  # I-37, decision 0029
+        # Now and then a review's Result leaves a criterion of its rubric uncovered: `apply` refuses it, so its Run fails
+        # by a fault of the item and opens no thread. The same Lens's review of the same content is admitted again, and
+        # at its attempts the item is held with those Runs as evidence; every invariant holds throughout.
+        again, exhausted, noted = False, False, False
+
+        def uncovered(r: dict) -> bool:
+            return r["intent"] == "review-change" and (r["conclusion"], r["outcome"]) == ("failure", "item")
+
+        def recording(f, r, c, cfg, now):
+            nonlocal exhausted
+            d = decide(f, r, c, cfg, now)
+            if d["reason"] == "attempts_exhausted":
+                ran = {x["run"]: x for x in r}
+                exhausted = exhausted or any(uncovered(ran[e]) for e in d["evidence"])
+            return d
+
+        with mock.patch.object(world, "decide", recording):
+            for seed in SEEDS:
+                w = World(seed)
+                for _ in range(250):
+                    w.step()
+                noted = noted or any("left a criterion uncovered" in line for line in w.trace)
+                again = again or any(uncovered(r) and any(x["intent"] == "review-change" and x["role"] == r["role"]
+                                                          and x["content_id"] == r["content_id"] for x in w.runs[i + 1:])
+                                     for i, r in enumerate(w.runs))
+        self.assertTrue(noted and again and exhausted, (noted, again, exhausted))
+
     def test_a_queued_item_whose_evidence_is_gone_is_taken_out_before_it_merges(self):  # I-31
         # GitHub's merge queue knows nothing of the contract. The evidence a queued item converged on is gone, as an
         # artifact is after its retention: the queue waits for a pass, and the pass takes it out.

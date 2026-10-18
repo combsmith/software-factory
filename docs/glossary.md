@@ -15,6 +15,7 @@ This page holds only the words this repo uses that the requirements do not defin
 | Class | Who a Work item comes from: `agent`, `maintainer`, `dependency` (opened by a dependency bot; a dependency update while that bot pushed its head itself) or `outside` (a fork, or someone who is not a collaborator). Worked out once, when the facts are read |
 | Gating | A Finding gates when it sends the Work item back to its author. That is not a Hold, which stops the item until a person acts |
 | Rubric | The criteria a reviewing Role must report on, as data. `schemas/rubric.schema.json` |
+| Coverage | What a reviewing Result says of each criterion of its rubric that applies: `met`, a Finding that cites it, or `not_applicable` with a reason code. A Result that leaves one uncovered is refused, and its Run fails by a fault of the item. `schemas/coverage.schema.json`, `kernel/coverage.py` |
 | Acceptance contract | The criteria a change is judged against, written before the work by a Role other than the one that does it. `schemas/acceptance.schema.json` |
 | Boundary case | One input at the edge of a Kernel rule, with the Decision it must give. A test in `tests/test_decide.py` |
 | Mutant | A Kernel rule broken on purpose, which some test must notice. An entry in `tools/mutants.py` |
