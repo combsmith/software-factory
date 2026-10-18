@@ -1264,6 +1264,11 @@ class Workflows(unittest.TestCase):
                            (scan.replace("        run: |\n          rm -f", "        run: |-\n          rm -f"), ran)):
             self.assertNotEqual(text, scan, said)
             self.assertTrue(caught(check_workflows.scan_problems(text), said), (said, text))
+        # The same, read from the file as run() reads it: a carriage return must reach read() untranslated.
+        root = clone({".github/workflows/ci.yml": scan.replace(last, last.replace("\n", "\r\n"))})
+        self.assertTrue(caught(check_workflows.run(root), installed), "a carriage return in ci.yml")
+        crlf = clone({".github/workflows/verify.yml": GOOD.replace("\n", "\r\n")})
+        self.assertTrue(caught(check_workflows.run(crlf), "verify.yml: [form]"), "windows line ends in a workflow")
         # Another version and checksum of their shapes are free: that is a bump, the reviewer's to judge.
         bumped = scan.replace(version, version.replace("8.30.1", "8.31.0")).replace(checksum, checksum.replace(
             "551f6fc8", "0123abcd"))
