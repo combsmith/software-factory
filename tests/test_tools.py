@@ -2604,8 +2604,8 @@ class Mutants(unittest.TestCase):
             # time under any name it is imported as, and any of its clocks imported on their own
             modules = {a.asname or a.name for n in ast.walk(module) if isinstance(n, ast.Import) for a in n.names
                        if a.name == "time"}
-            bare = {a.asname or a.name for n in ast.walk(module) if isinstance(n, ast.ImportFrom) and n.module == "time"
-                    for a in n.names if a.name in clock}
+            bare = {name for n in ast.walk(module) if isinstance(n, ast.ImportFrom) and n.module == "time"
+                    for a in n.names for name in (clock if a.name == "*" else [a.asname or a.name] if a.name in clock else [])}
             for owner in [n for n in ast.walk(module) if isinstance(n, ast.ClassDef)]:
                 for node in owner.body:
                     if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
