@@ -1,0 +1,19 @@
+# Must be rejected. A real hash of actions/checkout, v2.7.0, but not the listed one: a pin compared word for word with
+# another is equal to any pin, so only the listed one says which checkout reads ref: and path: for the base.
+name: factory
+on:
+  pull_request:
+  merge_group:
+permissions: {}
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@ee0669bd1cc54295c223e0bb666b733df41de1c5 # v2.7.0
+        with:
+          persist-credentials: false
+      - run: make verify

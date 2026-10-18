@@ -1155,8 +1155,9 @@ class Workflows(unittest.TestCase):
         install = scan[scan.index("      - name: Install gitleaks"):scan.index("      - name: Run gitleaks")]
         self.assertIn(rm + line, scan)
         self.assertIn(ref, step)
-        ran, checkout = "does not run, as its last step's whole block", "does not check out the head and then the base"
+        ran, checkout = "does not run, as its last step's whole literal block", "does not check out the head and then the base"
         shape = "does not run, in this order and nothing else"
+        installed = "does not install gitleaks by INSTALL_RUN, word for word"
         cases = [(scan.replace("--config base/.gitleaks.toml", "--config .gitleaks.toml"), ran),
                  (scan.replace("--gitleaks-ignore-path base/.gitleaksignore", "--gitleaks-ignore-path ."), ran),
                  (scan.replace(" --gitleaks-ignore-path base/.gitleaksignore", ""), ran),
@@ -1174,15 +1175,16 @@ class Workflows(unittest.TestCase):
                  (scan.replace(rm, "          cp .gitleaks.toml base/.gitleaks.toml\n" + rm), ran),
                  (scan.replace(line, line + "          true\n"), ran),
                  (scan.replace("        run: |\n" + rm + line, "        run: gitleaks detect --source .\n"), ran),
-                 # An install on one line is read: it may not name base/ either.
-                 (scan.replace(install, "      - name: Install gitleaks\n        run: cp .gitleaks.toml base/\n"), shape),
+                 # An install on one line is read: it is held whole too.
+                 (scan.replace(install, "      - name: Install gitleaks\n        run: cp .gitleaks.toml base/\n"),
+                  installed),
                  # The steps are the head's checkout, the base's, the install and the scan, in that order alone.
                  (scan.replace(step, "").replace(rm + line, rm + line + step),
                   shape),
                  (scan.replace(step, step + "      - run: cp .gitleaks.toml base/.gitleaks.toml\n"), shape),
                  (scan.replace("          sudo mv /tmp/gitleaks /usr/local/bin\n",
                                "          sudo mv /tmp/gitleaks /usr/local/bin\n          cp .gitleaks.toml base/\n"),
-                  shape),
+                  installed),
                  (scan.replace("    permissions:\n      contents: read\n",
                                "    permissions:\n      contents: read\n    env:\n      GIT_DIR: base/.git\n"), shape),
                  (scan.replace("permissions: {}\n", "permissions: {}\ndefaults:\n  run:\n    working-directory: base\n"),
@@ -1210,6 +1212,91 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": widened}))),
                                ".github/workflows/ci.yml: ci.yml " + ran))
         self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": scan}))), "ci.yml"))
+
+    def test_the_secret_scans_install_is_held_whole(self):
+        # The install's whole block is INSTALL_RUN: a stub gitleaks that exits 0 would pass every scan. Only the version
+        # and the checksum it reads from its env are free, each held to its shape and quoted: the version goes into the
+        # URL's path, where curl folds `/../`.
+        scan = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertEqual(check_workflows.scan_problems(scan), [])
+        block = "".join("          %s\n" % line for line in check_workflows.INSTALL_RUN)
+        self.assertIn("        run: |\n" + block + "      - name: Run gitleaks\n", scan)
+        version = '          GITLEAKS_VERSION: "8.30.1"\n'
+        checksum = '          GITLEAKS_CHECKSUM: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"\n'
+        self.assertIn(version + checksum, scan)
+        installed = "does not install gitleaks by INSTALL_RUN, word for word"
+        stub = "          printf 'exit 0' | sudo tee /usr/local/bin/gitleaks\n          sudo chmod +x /usr/local/bin/gitleaks\n"
+        cases = [(scan.replace(block, stub), installed),
+                 (scan.replace(block, block + "          true\n"), installed),
+                 (scan.replace(block, "          true\n" + block), installed),
+                 (scan.replace("sha256sum -c", "sha256sum -c || true"), installed),
+                 (scan.replace(" --proto '=https'", ""), installed),
+                 (scan.replace("v${GITLEAKS_VERSION}", "v8.30.1"), installed),
+                 (scan.replace("https://github.com/gitleaks/gitleaks/", "https://github.com/someone/gitleaks/"), installed),
+                 (scan.replace(version, version.replace("8.30.1", "8.30.1/../../../someone/gitleaks/releases/download/v1")),
+                  "GITLEAKS_VERSION once"),
+                 (scan.replace(version, version.replace('"8.30.1"', "8.30.1")), "GITLEAKS_VERSION once"),
+                 (scan.replace(version, version.replace("8.30.1", "8.30")), "GITLEAKS_VERSION once"),
+                 (scan.replace(version, version.replace("8.30.1", "8.3O.1")), "GITLEAKS_VERSION once"),
+                 (scan.replace(version, version + version), "GITLEAKS_VERSION once"),
+                 (scan.replace(version, ""), "GITLEAKS_VERSION once"),
+                 (scan.replace(checksum, checksum.replace("551f6fc8", "551F6FC8")), "GITLEAKS_CHECKSUM once"),
+                 (scan.replace(checksum, checksum.replace("551f6fc8", "551f6fz8")), "GITLEAKS_CHECKSUM once"),
+                 (scan.replace(checksum, checksum.replace("eb\"", "\"")), "GITLEAKS_CHECKSUM once"),
+                 (scan.replace(checksum, checksum.replace('"', "")), "GITLEAKS_CHECKSUM once"),
+                 (scan.replace(checksum, ""), "GITLEAKS_CHECKSUM once")]
+        for text, said in cases:
+            self.assertNotEqual(text, scan, said)
+            self.assertTrue(caught(check_workflows.scan_problems(text), said), (said, text))
+        # read() leaves a line with a tab or a carriage return out of a block, and bash runs it: a file with one holds
+        # neither block. A folded block, `>`, is one command, not the lines it is written in.
+        tabbed = "          \tprintf 'exit 0' | sudo tee /usr/local/bin/gitleaks\n"
+        last = "          sudo mv /tmp/gitleaks /usr/local/bin\n"
+        scanned = "          " + check_workflows.SCAN_RUN[1] + "\n"
+        ran = "does not run, as its last step's whole literal block"
+        for text, said in ((scan.replace(last, last + tabbed), installed),
+                           (scan.replace(last, last + tabbed), ran),
+                           (scan.replace(scanned, scanned + tabbed), ran),
+                           (scan.replace(scanned, scanned + tabbed), installed),
+                           (scan.replace(last, last.replace("\n", "\r\n")), installed),
+                           (scan.replace("        run: |\n" + block, "        run: >\n" + block), installed),
+                           (scan.replace("        run: |\n          rm -f", "        run: >\n          rm -f"), ran),
+                           (scan.replace("        run: |\n          rm -f", "        run: |-\n          rm -f"), ran)):
+            self.assertNotEqual(text, scan, said)
+            self.assertTrue(caught(check_workflows.scan_problems(text), said), (said, text))
+        # Another version and checksum of their shapes are free: that is a bump, the reviewer's to judge.
+        bumped = scan.replace(version, version.replace("8.30.1", "8.31.0")).replace(checksum, checksum.replace(
+            "551f6fc8", "0123abcd"))
+        self.assertNotEqual(bumped, scan)
+        self.assertEqual(check_workflows.scan_problems(bumped), [])
+
+    def test_every_checkout_is_the_listed_one(self):
+        # PIN makes any two pins equal where a text is compared word for word, so neither the EXEMPT hash nor verify.yml's
+        # example holds which actions/checkout a workflow runs; CHECKOUT does, in every workflow.
+        listed = "%s %s" % check_workflows.CHECKOUT
+        old = "actions/checkout@ee0669bd1cc54295c223e0bb666b733df41de1c5 # v2.7.0"
+        scan = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        verify = (ROOT / ".github" / "workflows" / "verify.yml").read_text()
+        ref = "          ref: %s\n" % check_workflows.BASE
+        base_checkout = "      - uses: %s\n        with:\n          persist-credentials: false\n%s" % (listed, ref)
+        self.assertEqual(verify.count(base_checkout), 1)
+        self.assertEqual(scan.count(listed), 2)
+        self.assertNotIn("pin", rules(scan))
+        self.assertEqual(rules(verify), [])
+        for text in (scan.replace(listed, old, 1), scan.replace(listed, old),
+                     verify.replace(base_checkout, base_checkout.replace(listed, old)),
+                     verify.replace(listed, "actions/checkout@" + "a" * 40 + " # v7.0.1"),
+                     verify.replace(listed, listed.replace("v7.0.1", "v2.7.0")),
+                     verify.replace(listed, listed.replace("actions/checkout", "Actions/Checkout"))):
+            self.assertIn("pin", rules(text), text)
+        # The hash of the exempt scan does not see it; the pin rule does.
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        problems = check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": scan.replace(listed, old)})))
+        self.assertFalse(caught(problems, "held word for word"))
+        self.assertTrue(caught(problems, ".github/workflows/ci.yml: [pin] %s is not the listed checkout" % old))
+        # Another action keeps any pin that was looked up.
+        other = GOOD.replace(STEP, "      - uses: actions/setup-java@" + "a" * 40 + " # v6.0.1\n" + STEP)
+        self.assertEqual(rules(other), [])
 
     def test_a_rule_is_not_dodged_by_writing_the_workflow_another_way(self):
         ways = {
