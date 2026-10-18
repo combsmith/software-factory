@@ -306,6 +306,38 @@ class Simulation(unittest.TestCase):
         with mock.patch.object(world, "decide", lambda f, r, c, cfg, now: decide(f, r, dict(c, paused=False), cfg, now)):
             self.assertRaises(world.Broken, w.poll)
 
+    def test_under_a_pause_a_spent_count_shows_while_a_run_is_in_flight(self):  # decision 0003, issue 158
+        # Seed 297's Runs: a review superseded, three that failed by a fault of the item, and a fourth waiting. While a
+        # Run of the item is in flight, a count already spent holds it whatever would defer, a Pause among them: the
+        # Hold shows through unchanged. With none in flight, the Pause's deferral is still required.
+        def review(name, minute, status="completed", conclusion="failure", outcome="item"):
+            return {"run": name, "item": dict(world.ITEM), "role": "pr-review", "intent": "review-change",
+                    "content_id": w.cid(), "status": status, "conclusion": conclusion, "outcome": outcome,
+                    "started_at": w.at(minute)}
+
+        for reading, status in ((True, "queued"), (None, "in_progress")):
+            w = World(2, faults=False, people=False)
+            w.checks = dict.fromkeys(w.checks, "success")
+            w.minute += 6
+            spent = [review("r0", 1, outcome="superseded")] + [review("r%d" % i, 1 + i) for i in (1, 2, 3)]
+            waiting = review("r4", 5, status=status, conclusion=None, outcome=None)
+            w.pause_from, w.pause_reading = w.minute, reading
+            f, ctx = w.facts(), w.context()
+            d = decide(f, spent + [waiting], ctx, world.CONFIG, w.now())
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "attempts_exhausted", "hold"), reading)
+            w.paused(f, spent + [waiting], d)
+            self.assertEqual(w.stopped, [], reading)   # the Pause held nothing back: the count did
+            # A Kernel that let the Pause hide the Hold breaks the invariant.
+            self.assertRaises(world.Broken, w.paused, f, spent + [waiting], dict(d, state="verifying", outcome="defer",
+                                                                                 reason="paused"))
+            # The other side: with no Run in flight, the Pause defers, and a Hold in its place breaks the invariant.
+            d = decide(f, spent, ctx, world.CONFIG, w.now())
+            self.assertEqual((d["outcome"], d["reason"]), ("defer", "paused" if reading else "pause_unreadable"))
+            w.paused(f, spent, d)
+            self.assertEqual(w.stopped, ["hold"], reading)
+            self.assertRaises(world.Broken, w.paused, f, spent, decide(f, spent, dict(ctx, paused=False),
+                                                                      world.CONFIG, w.now()))
+
     def test_a_dequeue_at_the_act_ceiling_is_the_one_act_past_it(self):  # I-8
         # A required check fails after the item entered the queue, with the acts since a writer at the ceiling. The
         # dequeue stops work, so it is made, and takes the count one past the ceiling.

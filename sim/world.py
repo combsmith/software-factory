@@ -612,7 +612,12 @@ class World:
         self.check(d["outcome"] not in (t.ADMIT, t.ACT), "a Pause let through %s %s" % (d["outcome"], d["reason"]))
         free = decide(facts, runs, dict(self.context(), paused=False), CONFIG, self.now())
         why = "paused" if self.pause_reading else "pause_unreadable"
-        if free["outcome"] in (t.ADMIT, t.ACT) or (free["outcome"] == t.HOLD and free["reason"] in CEILINGS):
+        ceiling = free["outcome"] == t.HOLD and free["reason"] in CEILINGS
+        # A Run of the item in flight, as the Kernel reads it: admitted and not completed. While one is, a count already
+        # spent holds the item whatever would defer, a Pause among them, so the Hold shows through (issue 158).
+        if ceiling and any(r["item"] == facts["item"] and r["status"] != "completed" for r in runs):
+            self.check(d == free, "a spent count is hidden by a Pause while a Run is in flight")
+        elif free["outcome"] in (t.ADMIT, t.ACT) or ceiling:
             self.stopped.append(free.get("action") or free["outcome"])
             self.check((d["outcome"], d["reason"]) == (t.DEFER, why),
                        "a Pause did not defer %s %s" % (free["outcome"], free["reason"]))
