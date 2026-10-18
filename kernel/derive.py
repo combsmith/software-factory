@@ -214,14 +214,10 @@ def readable_rules(config: dict) -> bool:
     return isinstance(rules, list) and len(rules) > 0 and all(readable_pattern(p) for p in rules)
 
 
-def within_a_name(text: str) -> bool:
-    """Whether `text`, what a wildcard stood for, lies within one name."""
-    return t.SEPARATOR not in text
-
-
 def fits(pattern: str, path: str) -> bool:
     """Whether `path` fits `pattern` whole, in any case: each wildcard stands for any run of characters within one
-    name, none included, and every other character for itself."""
+    name, none included, and every other character for itself. It is given only a stretch of the path with as many
+    names as the pattern's run (reached), so the separators are the pattern's own and no wildcard can stand for one."""
     pattern, path = pattern.casefold(), path.casefold()
     pieces = pattern.split(t.WILDCARD)
     if len(pieces) == 1:
@@ -233,11 +229,11 @@ def fits(pattern: str, path: str) -> bool:
     # wildcard to stand for.
     for piece in pieces[1:-1]:
         found = path.find(piece, at)
-        if found < 0 or not within_a_name(path[at:found]):
+        if found < 0:
             return False
         at = found + len(piece)
     end = len(path) - len(pieces[-1])
-    return end >= at and path.endswith(pieces[-1]) and within_a_name(path[at:end])
+    return end >= at and path.endswith(pieces[-1])
 
 
 def runs_of(pattern: str) -> list:
