@@ -265,6 +265,12 @@ class Unreadable(unittest.TestCase):
         del no_by["by"]
         self.assertEqual(derive(facts(label_events=[no_by]))["reason"], "label_unreadable")
         self.assertEqual(derive(facts(label_events=None))["reason"], "label_unreadable")
+        # Every control label a pull request's facts carry is one an issue's are read for, as terms.py lists them.
+        for name in issue.t.CONTROL_LABELS:
+            no_by = labelled(name)
+            del no_by["by"]
+            d = derive(facts(label_events=[no_by]))
+            self.assertEqual((d["state"], d["reason"]), (None, "label_unreadable"), name)
         # The other side: another label's event is not read, a readable one is, and the machine user is readable.
         other = {"label": "bug", "action": "whatever", "by": None, "at": "never"}
         self.assertEqual(state(facts(label_events=[other])), "new")

@@ -23,8 +23,6 @@ DECLINED = "declined"
 # The labels that let work go. Each counts from its latest add, and any removal at or after it ends it.
 LABEL_TRIAGE = "factory:triage"
 LABEL_READY = "factory:ready"
-# The control labels the Kernel reads on an issue: the pull request's three, and the two above.
-ISSUE_LABELS = ("factory:hold", "factory:hands-off", "factory:admit", "factory:triage", "factory:ready")
 # What the issue's facts say was read in full: the flags `complete` requires in schemas/issue-facts.schema.json.
 ISSUE_READ_IN_FULL = ("linked", "runs", "timeline")
 # Who last reopened the issue: a person with write access, anyone else, or nobody.
@@ -49,6 +47,12 @@ OPENING = "open-pull-request"
 def states() -> tuple:
     """Every State this module derives, each a code: lifecycle/issue.json declares the same nine."""
     return (NEW, TRIAGE, READY, IN_PROGRESS, IN_REVIEW, t.HELD, t.NOT_SERVED, DONE, DECLINED)
+
+
+def issue_labels() -> tuple:
+    """The control labels the Kernel reads on an issue: the pull request's, as terms.py lists them, so that one added
+    there is read here too, and factory:triage and factory:ready. A module holds only constants, so it is worked out."""
+    return tuple(t.CONTROL_LABELS) + (LABEL_TRIAGE, LABEL_READY)
 
 
 def unread_lists(facts: dict) -> list:
@@ -78,7 +82,7 @@ def readable_events(events, config: dict) -> bool:
     for ev in events:
         if not isinstance(ev, dict) or not isinstance(ev.get("label"), str):
             return False
-        if ev["label"] not in ISSUE_LABELS:
+        if ev["label"] not in issue_labels():
             continue
         if ev.get("action") not in t.LABEL_ACTIONS or not is_time(ev.get("at")) or not whole_actor(ev.get("by"), config):
             return False
