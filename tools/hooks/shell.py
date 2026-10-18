@@ -100,27 +100,55 @@ def commands(text: str, spend=None, texts: list = None) -> list:
         spend()
     if texts is not None:
         texts.append(text)
-    lex = shlex.shlex(without_heredocs(text).replace("\\\n", " "), posix=True, punctuation_chars=PUNCTUATION)
+    held = _held(without_heredocs(text).replace("\\\n", " "))     # only an unquoted ; ) or > is punctuation
+    lex = shlex.shlex(held, posix=True, punctuation_chars=PUNCTUATION)
     lex.whitespace, lex.whitespace_split, lex.commenters = " \t\r", True, ""
     found, words, targets, operator = [], [], [], None
-    for token in lex:
-        if token and all(c in PUNCTUATION for c in token):
+    # A case's patterns are data, in every arm: from `in`, and from each ;; or ;&, to the ) that ends the pattern.
+    patterns, arm, cases, in_pattern = [], [], 0, False
+    for read in lex:
+        punctuation, token = bool(read) and all(c in PUNCTUATION for c in read), read.translate(RETURNED)
+        if in_pattern:
+            if punctuation and ")" in token:
+                in_pattern, arm = ";;" in token or ";&" in token, []      # `);;` ends an arm with no body
+            elif punctuation and "(" in token:
+                arm.append("(")         # a pattern has begun: (esac) is a pattern, not the case's end
+            elif not punctuation and token == "esac" and not arm:
+                cases, in_pattern = cases - 1, False
+            elif not punctuation:
+                arm.append(token)
+                patterns.append(token)
+            continue
+        if punctuation:
             if "<" in token or ">" in token:
                 if words and words[-1].isdigit():
                     words.pop()     # the 2 of 2>&1
                 operator = (operator or "") + token     # the next word is where it goes, not an argument
-            elif words or targets:
+                continue
+            if words or targets:
                 found.append((words, targets))
                 words, targets = [], []
+            in_pattern = cases > 0 and (";;" in token or ";&" in token)
             continue
         if operator is not None:
             targets.append((operator, token))
             operator = None
             continue
+        if token == "esac" and cases and not words:
+            cases -= 1
+            continue
         words.append(token)
+        if token == "in" and words[-3:-2] == ["case"] and set(words[:-3]) <= OPENERS | NEUTRAL:
+            found.append((words, targets))      # case WORD in: what follows, to a ), is a pattern
+            words, targets, cases, in_pattern = [], [], cases + 1, True
     if words or targets:
         found.append((words, targets))
+    if cases or in_pattern:
+        raise ValueError("a case is never ended")
     out = []
+    for word in patterns:       # a pattern runs nothing, but a substitution in it does
+        for script in _substituted(word):
+            out += commands(script, spend, texts)
     for words, targets in found:
         out.append((words, targets))
         out += _inner(words, spend, texts)
@@ -128,6 +156,42 @@ def commands(text: str, spend=None, texts: list = None) -> list:
             for script in _substituted(word):
                 out += commands(script, spend, texts)
     return [(words, targets) for words, targets in out if words or targets]
+
+
+# Each character that ends a word or a command, as it stands while a quote or a backslash holds it: one of the Unicode
+# private use area, so that shlex reads it as part of a word and never as punctuation. It is given back in every word.
+HOLDS = {c: chr(0xE000 + ord(c)) for c in PUNCTUATION}
+RETURNED = {ord(held): c for c, held in HOLDS.items()}
+
+
+def _held(text: str) -> str:
+    """`text` with each character of PUNCTUATION that a quote or a backslash holds made its HOLDS, as shlex in posix
+    mode reads quotes: a backslash outside single quotes holds the next character, and nothing ends a single quote but
+    another. Raises ValueError where what a quote holds cannot be told: a quote or a backslash left open, or text that
+    already holds a character of HOLDS."""
+    if any(ord(c) in RETURNED for c in text):
+        raise ValueError("the command holds a character the reader keeps for what a quote holds")
+    out, quote, i = [], None, 0
+    while i < len(text):
+        c = text[i]
+        if c == "\\" and quote != "'":
+            if i + 1 >= len(text):
+                raise ValueError("No escaped character")
+            out.append(c + HOLDS.get(text[i + 1], text[i + 1]))
+            i += 2
+            continue
+        if quote is None:
+            quote = c if c in "'\"" else None
+            out.append(c)
+        elif c == quote:
+            quote = None
+            out.append(c)
+        else:
+            out.append(HOLDS.get(c, c))
+        i += 1
+    if quote:
+        raise ValueError("No closing quotation")
+    return "".join(out)
 
 
 def _inner(words: list, spend=None, texts: list = None) -> list:
@@ -573,6 +637,8 @@ RESERVED = PREFIXES - set(PREFIXED)
 # The options of xargs and parallel that take the next word, and those of npx and its like.
 FEED_VALUED = {"-I", "-L", "-n", "-P", "-s", "-d", "-E", "-a", "--max-args", "--max-procs", "--delimiter",
                "--arg-file", "--max-lines", "--replace", "--eof", "-j", "--jobs"}
+# The wrappers that give the program they run words read from their input, which the command's words do not show.
+FEEDERS = {"xargs", "parallel"}
 NPX_VALUED = {"-p", "--package", "--cache", "--userconfig", "--registry", "-w", "--workspace"}
 # What runs the program its words name, after its own: for each, its options that take the next word as their value,
 # and how many words that are not options come before the program (timeout's duration, chroot's new root). The first
@@ -765,6 +831,58 @@ def defined(text: str, spend=None) -> set:
         if command in ("hash", "enable"):
             names |= {w.split("=", 1)[0] for w in args if not w.startswith("-")}
     return names
+
+
+# zsh's table of aliases, as a word the shell runs: aliases[g]=git, its key quoted or not, and those it holds disabled.
+TABLE_ALIAS = re.compile(r"^(?:dis_)?g?aliases\[([^]]*)\]\+?=(.*)$", re.S)
+
+
+def expands(code: str) -> bool:
+    """Whether `code`, read as the shell reads it, expands a variable or a command: a `$` or a backtick that no
+    backslash escapes and no single quote holds. `echo \\$HOME` and 'echo $HOME' expand nothing."""
+    quote, i = None, 0
+    while i < len(code):
+        c = code[i]
+        if quote == "'":
+            quote = None if c == "'" else quote
+        elif c == "\\":
+            i += 2
+            continue
+        elif c in "$`":
+            return True
+        elif c == '"':
+            quote = None if quote == '"' else '"'
+        elif c == "'" and quote is None:
+            quote = "'"
+        i += 1
+    return False
+
+
+def aliased(text: str, names: set, spend=None) -> set:
+    """The names the command makes an alias for a value that runs one of `names`: a value that holds one of them as a
+    word (by its base name: /usr/bin/git is git), in its text or in a script it runs, by alias or zsh's aliases[g]=,
+    as the words the shell runs give them; or a value the hook cannot read, which expands a variable or a command, or
+    cannot be split. An alias's value is code, so `alias g=git` then `g push` on a later line is a push. Prose that says
+    alias g=git, in a commit message or given to any other program, defines nothing. Raises ValueError or
+    RecursionError when the text cannot be split."""
+    found = set()
+    for words, _ in commands(text, spend):
+        at = 0      # zsh's table is set where an assignment stands, before the command: anywhere else it is a word
+        while at < len(words) and (ASSIGNMENT.match(words[at]) or TABLE_ALIAS.match(words[at])):
+            at += 1
+        given = aliases(words) + [(m.group(1), m.group(2)) for m in map(TABLE_ALIAS.match, words[:at]) if m]
+        for name, value in given:
+            if expands(value):
+                found.add(_unquoted(name))
+                continue
+            try:
+                held = [w for inner, _ in commands(value, spend) for w in inner]
+            except ValueError:
+                found.add(_unquoted(name))
+                continue
+            if {os.path.basename(_unquoted(w)) for w in held} & names:
+                found.add(_unquoted(name))
+    return found
 
 
 # The built-ins that write or export a variable a word names, and env, which sets one for the program it runs.
