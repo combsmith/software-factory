@@ -63,16 +63,38 @@ ADMITS_NOTHING = frozenset({DONE, DECLINED, t.NOT_SERVED})
 # The States whose labels the Controller keeps to what the Kernel reads (I-17).
 KEPT = frozenset({NEW, TRIAGE, READY})
 # The reasons that need a person: a Hold, a lapse, the brakes, a configuration or a fact that does not mend itself,
-# and the end of what the Factory may do on its own in triage or ready.
+# and the end of what the Factory may do on its own. One to a line, so that each has a mutant. A Hold the Controller
+# places for unmerged closes calls a person whatever its reason, the Pause's deferral of it too, and is not listed.
 NEEDS_YOU_REASONS = frozenset({
-    "human_hold", "linked_twice", "acceptance_lapsed", "attempts_exhausted", "run_ceiling", "act_ceiling",
-    "unmerged_closes", "judged", "ready_removed", "no_statement", "intent_undeclared", "label_unreadable",
-    "issues_unreadable", "intents_unreadable", "intents_share_a_role", "intents_share_an_app",
+    "human_hold",
+    "linked_twice",
+    "acceptance_lapsed",
+    "attempts_exhausted",
+    "run_ceiling",
+    "act_ceiling",
+    "triage_stands",
+    "judged",
+    "ready_removed",
+    "no_statement",
+    "intent_undeclared",
+    "label_unreadable",
+    "issues_unreadable",
+    "intents_unreadable",
+    "intents_share_a_role",
+    "intents_share_an_app",
 })
 # The States and reasons that call nobody: an end, not served, the pull request's own Lifecycle, an issue nobody
 # accepted (I-32), and a person's own decline of the investigation.
-QUIET_STATES = frozenset({DONE, DECLINED, t.NOT_SERVED, IN_REVIEW})
-QUIET_REASONS = frozenset({"not_accepted", "triage_removed"})
+QUIET_STATES = frozenset({
+    DONE,
+    DECLINED,
+    t.NOT_SERVED,
+    IN_REVIEW,
+})
+QUIET_REASONS = frozenset({
+    "not_accepted",
+    "triage_removed",
+})
 
 
 def states() -> tuple:
@@ -508,16 +530,19 @@ def judged(facts: dict, mine: list, who: dict, since: str) -> bool:
     return any(c["by"] == who["app"] and c["at"] >= since for c in facts["role_comments"])
 
 
-def stated(facts: dict, intents: dict) -> bool:
+def stated(facts: dict, intents: dict, mine: list) -> bool:
     """Whether the work has a statement the opening Run may be given in place of an outsider's text: the investigating
     App's comment, or a comment by a person with write access, made after the content last changed. A person's own
-    issue needs none."""
+    issue needs none. While a record of the investigating Role's Runs is kept, its App's comment is a statement only
+    if one of them succeeded for this content: a Run that commented and failed has not investigated."""
     if is_person(facts["author"]):
         return True
     changed = facts["content_changed_at"]
     who = intents[INVESTIGATE]
     if who is not None and any(c["by"] == who["app"] and c["at"] > changed for c in facts["role_comments"]):
-        return True
+        kept = [r for r in mine if r["intent"] == INVESTIGATE and r["role"] == who["role"]]
+        if not kept or any(r["conclusion"] == "success" and r["content_id"] == facts["content_id"] for r in kept):
+            return True
     said = facts["last_writer_comment_at"]
     return said is not None and said > changed
 
@@ -533,9 +558,13 @@ def _stop(facts, state, reason, evidence, context, action, **extra) -> dict:
 
 def _accept(facts, state, reason, evidence, mine, context, config) -> dict:
     """Row 10: the Controller accepts the issue by adding factory:triage, once its App is declared for it, so that the
-    label it adds counts. Not once a person removed it for this content (I-40). The act ceiling bounds it."""
+    label it adds counts. Not once a person removed it for this content (I-40), and not while factory:triage stands,
+    whoever placed it: a person's that does not count is never removed, and adding it again changes nothing. The act
+    ceiling bounds it."""
     if reason != "acceptance_due":
         return _decision(facts, state, reason, evidence, t.NOTHING)
+    if latest_adds(facts["label_events"], LABEL_TRIAGE):
+        return _decision(facts, state, "triage_stands", [LABEL_TRIAGE], t.NOTHING)
     if config["issues"]["label_apps"][LABEL_TRIAGE] is None:
         return _decision(facts, state, reason, evidence, t.NOTHING)
     if removed_by_a_person(facts, LABEL_TRIAGE):
@@ -569,7 +598,7 @@ def _wanted(facts, state, reason, evidence, mine, intents):
     who = intents[OPENING]
     if who is None:
         return _decision(facts, state, "intent_undeclared", [OPENING], t.NOTHING)
-    if not stated(facts, intents):
+    if not stated(facts, intents, mine):
         return _decision(facts, state, "no_statement", evidence, t.NOTHING)
     if not readable_head(facts):
         return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)

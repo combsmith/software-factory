@@ -1179,6 +1179,73 @@ class WhatARunWrites(unittest.TestCase):
         self.assertEqual((what(d), d["label"]), (("act", "label_not_counted", "remove_label"), READY))
 
 
+class Attention(unittest.TestCase):
+    """Who each reason and State calls: a person, nobody, or the Factory's own next act."""
+
+    def test_each_reason_and_state_calls_whom_it_should(self):
+        tries, ceiling = LIMITS["max_attempts"], LIMITS["max_runs_per_item"]
+        spent = [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(tries)]
+        worn = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(ceiling)]
+        stale = facts(life_started_at=at(5), reopened_last_by="writer", label_events=[labelled(TRIAGE, WRITER, 1)])
+        cases = [
+            ("human_hold", "needs_you", facts(label_events=[labelled(HOLD)]), [], config()),
+            ("linked_twice", "needs_you", facts(linked=[pr(), agents(number=12, draft=True)]), [], config()),
+            ("acceptance_lapsed", "needs_you",
+             outsiders(content_changed_at=at(9), label_events=[labelled(ADMIT), labelled(TRIAGE, CONTROLLER, 2)]), [],
+             config()),
+            ("attempts_exhausted", "needs_you", TRIAGED, spent, config()),
+            ("run_ceiling", "needs_you", TRIAGED, worn, config()),
+            ("act_ceiling", "needs_you", facts(acts_since_writer=LIMITS["max_acts_per_item"]), [], config()),
+            ("triage_stands", "needs_you", stale, [], config()),
+            ("judged", "needs_you", TRIAGED, [investigated(), run()], config()),
+            ("ready_removed", "needs_you",
+             facts(label_events=ACCEPTED + [labelled(READY, minute=4), unlabelled(READY, minute=5)]), [investigated()],
+             config()),
+            ("no_statement", "needs_you", outsiders(label_events=[labelled(ADMIT), labelled(READY, minute=2)]), [],
+             config()),
+            ("intent_undeclared", "needs_you", TRIAGED, [], config(intents=intents(investigate=None))),
+            ("label_unreadable", "needs_you", facts(label_names=None), [], config()),
+            ("issues_unreadable", "needs_you", facts(), [], dict(config(), issues=None)),
+            ("intents_unreadable", "needs_you", TRIAGED, [], config(intents=None)),
+            ("intents_share_a_role", "needs_you", TRIAGED, [],
+             config(intents=intents(judge={"role": "business-analyst", "app": READINESS["name"]}))),
+            ("intents_share_an_app", "needs_you", TRIAGED, [],
+             config(intents=intents(judge={"role": "readiness", "app": ANALYST["name"]}))),
+            ("unmerged_closes", "needs_you", facts(label_events=READIED_BY_A_PERSON, linked=closed_links(2, 3)), [],
+             config()),
+            ("merged", "none", facts(linked=[pr(is_open=False, merged=5)]), [], config()),
+            ("closed", "none", facts(state="closed"), [], config()),
+            ("hands_off", "none", facts(label_events=[labelled(HANDS_OFF)]), [], config()),
+            ("linked_ready", "none", facts(linked=[pr()]), [], config()),
+            ("not_accepted", "none", outsiders(), [], config()),
+            ("triage_removed", "none",
+             facts(content_changed_at=at(2), label_events=[labelled(TRIAGE, CONTROLLER, 1), unlabelled(TRIAGE, minute=2)]),
+             [], config()),
+            ("acceptance_due", "ready", facts(), [], config()),
+            ("linked_draft", "ready", facts(linked=[agents(draft=True)]), [], config()),
+        ]
+        for reason, attention, f, runs, cfg in cases:
+            d = decide(f, runs, cfg=cfg)
+            self.assertEqual((d["reason"], d["attention"]), (reason, attention), reason)
+
+    def test_no_act_is_decided_whose_label_already_stands(self):
+        # A person's factory:triage from an earlier life does not count, and is never removed: nothing is accepted.
+        stale = facts(life_started_at=at(5), reopened_last_by="writer", label_events=[labelled(TRIAGE, WRITER, 1)])
+        d = decide(stale)
+        self.assertEqual((what(d), d["evidence"]), (("nothing", "triage_stands", None), [TRIAGE]))
+        removed = facts(life_started_at=at(5), reopened_last_by="writer",
+                        label_events=[labelled(TRIAGE, WRITER, 1), unlabelled(TRIAGE, CONTROLLER, 2)])
+        self.assertEqual(decide(removed).get("action"), "accept")
+
+    def test_a_failed_investigations_comment_is_no_statement(self):
+        events = [labelled(ADMIT), labelled(READY, minute=3)]
+        f = outsiders(label_events=events, role_comments=[comment(ANALYST, 2)])
+        self.assertEqual(what(decide(f, [failed(INVESTIGATE, 2, "f1")])), ("nothing", "no_statement", None))
+        self.assertEqual(what(decide(f, [investigated(minute=2)]))[2], OPEN)
+        self.assertEqual(what(decide(f, [investigated(minute=2, content=OTHER)])), ("nothing", "no_statement", None))
+        self.assertEqual(what(decide(f))[2], OPEN)
+
+
 class Opening(unittest.TestCase):
     """In ready, the opening Run, for the issue's content and the branch head it will push to."""
 

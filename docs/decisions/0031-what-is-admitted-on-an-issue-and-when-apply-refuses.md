@@ -18,8 +18,8 @@ as the life's start or the release is counted. `remove_label`: a `factory:triage
 latest add, and does not count, in `new`, `triage` or `ready`; never a Hold, an admission or hands-off, never a label a
 person added, alone or tied in its second with another's (not counting it is enough, L-17), and not while acceptance
 has lapsed, whose labels are what tells the Maintainer that work began. `accept`: at
-row 10, once the Controller's App is declared for `factory:triage` and no person has removed it since the content last
-changed; the brakes' `on_act` bounds it, by the Pause and the act ceiling. Placing a Hold and removing a label are
+row 10, once the Controller's App is declared for `factory:triage`, no person has removed it since the content last
+changed, and it does not stand, whoever placed it; the brakes' `on_act` bounds it, by the Pause and the act ceiling. Placing a Hold and removing a label are
 stopped by the Pause alone. Removing a label also waits while a Run on the issue is in flight, since a readiness Run's
 own `factory:ready` does not count until that Run has completed. None is decided once its label is there, or gone.
 Every act names the `content_id`, and `remove_label` the label.
@@ -33,7 +33,9 @@ of that Role's Runs of the Intent is kept: a Run that commented and failed has n
 a person removed `factory:ready` since the content changed (I-40). The investigation counts from its first sign. A
 failed Run is an attempt, which the brakes bound. Otherwise nothing, with a reason that needs a person. In `ready`,
 `open-pull-request`; on an issue a person did not open, only with a statement made after the content changed: the
-investigating App's comment, or a comment by a person with write access. With neither, `no_statement`.
+investigating App's comment, or a comment by a person with write access. While a record of the investigating
+Role's Runs is kept, its App's comment is a statement only if one of them succeeded for this content. With neither,
+`no_statement`.
 
 `issues.intents` in the configuration maps each Intent to its Role and that Role's App, or to null, which admits
 nothing; every one is null by default. Intents that cannot be read, or two that name one Role or one App, defer. A
@@ -79,4 +81,5 @@ because the records are kept 90 days and an issue may wait longer.
 | Every Decision on an issue is a valid `issue-decision/1`, and a counter-example is rejected | `tests/test_issue.py::test_every_situation_gives_one_valid_decision`, `examples/invalid/issue-decision.sentence-as-reason.json` |
 | A Run in flight is read by its own Intent, nothing it wrote is read until it completes, and a Role's comment or label stands in only once no record of its Runs is kept | `tests/test_issue.py::test_nothing_a_run_in_flight_wrote_is_read_until_it_completes`, `tests/test_issue.py::test_a_comment_or_label_stands_in_only_once_every_record_of_its_role_has_expired`, `tests/test_issue.py::test_the_readiness_apps_comment_in_the_second_of_the_investigation_stands_in` |
 | Intents that name one App defer, and no label is removed while acceptance has lapsed | `tests/test_issue.py::test_intents_that_share_an_app_defer`, `tests/test_issue.py::test_a_label_is_not_removed_while_acceptance_has_lapsed` |
+| Each reason and State calls a person, nobody, or the Factory's next act, as listed; no act is decided whose label stands; a failed investigation's comment is no statement | `tests/test_issue.py::test_each_reason_and_state_calls_whom_it_should`, `tests/test_issue.py::test_no_act_is_decided_whose_label_already_stands`, `tests/test_issue.py::test_a_failed_investigations_comment_is_no_statement` |
 | What steers admission, and the branch head, are read whole or defer | `tests/test_issue.py::test_what_steers_admission_is_read_whole_or_defers`, `tests/test_issue.py::test_an_unreadable_branch_head_defers_the_opening_run_alone` |
