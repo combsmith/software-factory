@@ -63,11 +63,9 @@ IDENTITY_TESTS = "tests.test_hooks.Identity."
 NO_REFSPEC_TESTS = (IDENTITY_TESTS + "test_a_push_with_no_refspec_reads_what_git_would_push",)
 PUSH_SETTING_TESTS = (IDENTITY_TESTS + "test_push_settings_given_in_the_command_are_refused",)
 REDEFINE_TESTS = (IDENTITY_TESTS + "test_a_git_the_command_may_redefine_is_refused",)
-<<<<<<< HEAD
 # Where the boundary cases of decision 0029 are.
 REPORTED = "tests.test_decide.AReviewThatReported."
 COVERAGE = "tests.test_coverage.Coverage."
-=======
 RUNNER = "tests.test_tools.Mutants."
 UNRELATED_TESTS = (RUNNER + "test_a_mutant_whose_only_failure_is_unrelated_survives",)
 UNBROKEN_TESTS = (RUNNER + "test_a_test_that_fails_on_the_unbroken_code_too_kills_nothing",)
@@ -77,7 +75,6 @@ CLOCK_TESTS = (RUNNER + "test_every_test_timed_by_the_wall_clock_is_marked_and_s
 KILL_TESTS = (RUNNER + "test_a_failure_the_mutant_causes_kills_it",)
 TRACE_TESTS = (RUNNER + "test_a_mutant_leaves_no_trace_in_the_copy_the_next_one_is_lent",)
 NAMED_TESTS = (RUNNER + "test_the_tests_a_mutant_names_run_first_and_the_whole_suite_after_them",)
->>>>>>> origin/main
 
 # An issue's State (kernel/issue.py, decision 0028), in a list of its own so that the pull request's work, which adds
 # to MUTANTS below, never touches the same lines. Each is run against tests.test_issue first.
