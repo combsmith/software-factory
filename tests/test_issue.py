@@ -7,6 +7,7 @@ builders live here, not in `tests/support.py`: an issue's facts are not a pull r
 from __future__ import annotations
 
 import copy
+import datetime
 import json
 import pathlib
 import tempfile
@@ -51,9 +52,10 @@ def at(minute: int) -> str:
 
 
 def config(**issues) -> dict:
-    """The configuration, with issues served as SERVED says but for what differs."""
+    """The configuration, with issues served as SERVED says but for what differs, and the issue's own Lifecycle."""
     c = copy.deepcopy(CONFIG)
     c["issues"] = dict(copy.deepcopy(SERVED), **issues)
+    c["lifecycle"] = copy.deepcopy(LIFECYCLE)
     return c
 
 
@@ -67,12 +69,13 @@ def unlabelled(label: str, by=None, minute: int = 2) -> dict:
 
 
 def pr(number=11, by=None, cls="maintainer", is_open=True, draft=False, merged=None, closed=None, empty=False,
-       events=()) -> dict:
-    """A pull request that closes the issue. By default the Maintainer's, open and ready. A merged one closed then."""
+       events=(), opened=0) -> dict:
+    """A pull request that closes the issue. By default the Maintainer's, opened with the issue, open and ready. A
+    merged one closed then."""
     if merged is not None and closed is None:
         closed = merged
     return {"number": number, "class": cls, "opener": dict(WRITER if by is None else by), "open": is_open,
-            "draft": draft, "merged_at": None if merged is None else at(merged),
+            "draft": draft, "opened_at": at(opened), "merged_at": None if merged is None else at(merged),
             "closed_at": None if closed is None else at(closed), "empty": empty, "label_events": list(events)}
 
 
@@ -1334,6 +1337,174 @@ class Apply(unittest.TestCase):
         for f in (facts(), facts(state="closed"), facts(label_events=ACCEPTED, role_comments=None)):
             self.assertRefused(admitted, f)
         self.assertFalse(issue.still_admitted(decide(facts()), decide(facts())))
+
+
+# An issue's wait past its State's limit (design §4.1, decision 0031). Each boundary from both sides.
+START = at(0)
+DEPENDABOT = {"kind": "app", "name": "dependabot[bot]", "can_write": True}
+
+
+def minutes_after(time: str, minutes: int) -> str:
+    """The time `minutes` minutes after `time`, in the one text format."""
+    shape = "%Y-%m-%dT%H:%M:%SZ"
+    return (datetime.datetime.strptime(time, shape) + datetime.timedelta(minutes=minutes)).strftime(shape)
+
+
+# When each wait below last moved, an hour after the issue was opened; and passes have run since before it.
+MOVED = minutes_after(START, 60)
+PASSING = context(passes_since=START)
+
+
+def limit(state: str) -> int:
+    """The limit lifecycle/issue.json sets on a wait in `state`, in minutes."""
+    return LIFECYCLE["stale_after_minutes"][state]
+
+
+def event(label: str, by: dict, time: str, action: str = "labeled") -> dict:
+    """A label event at any time, not only in the issue's first hour."""
+    return dict(labelled(label, by, action=action), at=time)
+
+
+# An issue in triage, accepted by the Controller at MOVED, with its investigation due.
+WAITING = facts(label_events=[event(TRIAGE, CONTROLLER, MOVED)])
+
+
+class Stale(unittest.TestCase):
+    """A wait past its State's limit in lifecycle/issue.json, while passes ran, is the Maintainer's to see. Only the
+    attention changes (I-1), and only on a wait for the Factory's own next act."""
+
+    def test_a_wait_past_its_states_limit_shows_stale_and_changes_nothing_else(self):  # I-1
+        moved = facts(last_writer_action_at=MOVED)
+        waits = [
+            ("new", ("act", "acceptance_due", "accept"), moved),
+            ("triage", ("admit", "triage", INVESTIGATE), dict(moved, label_events=ACCEPTED)),
+            ("ready", ("admit", "ready", OPEN), dict(moved, label_events=READIED_BY_A_PERSON)),
+            ("in_progress", ("nothing", "linked_draft", None), dict(moved, linked=[agents(draft=True)])),
+        ]
+        for state, want, f in waits:
+            with self.subTest(state):
+                cap = limit(state)
+                before = decide(f, ctx=PASSING, now=minutes_after(MOVED, cap - 1))
+                self.assertEqual((before["state"], what(before), before["attention"]), (state, want, "ready"))
+                self.assertEqual(decide(f, ctx=PASSING, now=minutes_after(MOVED, cap)), before)
+                past = decide(f, ctx=PASSING, now=minutes_after(MOVED, cap + 1))
+                self.assertEqual((past["attention"], dict(past, attention="ready")), ("stale", before))
+
+    def test_a_person_a_run_nobody_or_a_deferral_of_the_whole_scope_is_never_stale(self):  # I-1, §4.6
+        tries = LIMITS["max_attempts"]
+        spent = [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(tries)]
+        late = minutes_after(MOVED, 10 * max(LIFECYCLE["stale_after_minutes"].values()))
+        cases = [
+            ("intent_undeclared", "needs_you", TRIAGED, [], {}, config(intents=intents(investigate=None))),
+            ("attempts_exhausted", "needs_you", TRIAGED, spent, {}, config()),
+            ("human_hold", "needs_you", facts(label_events=[labelled(HOLD)]), [], {}, config()),
+            ("triage", "working", TRIAGED, [investigated(status="in_progress")], {}, config()),
+            ("not_accepted", "none", outsiders(), [], {}, config()),
+            ("linked_ready", "none", facts(linked=[pr()]), [], {}, config()),
+            ("hands_off", "none", facts(label_events=[labelled(HANDS_OFF)]), [], {}, config()),
+            ("merged", "none", facts(linked=[pr(is_open=False, merged=5)]), [], {}, config()),
+            ("paused", "ready", TRIAGED, [], {"paused": True}, config()),
+            ("pause_unreadable", "ready", TRIAGED, [], {"paused": None}, config()),
+            ("capacity", "ready", TRIAGED, [], {"model_deferred_until": minutes_after(late, 1)}, config()),
+            ("capacity_unreadable", "ready", TRIAGED, [], {"active_runs": None}, config()),
+            ("concurrency", "ready", TRIAGED, [], {"active_runs": LIMITS["org_max_active_runs"]}, config()),
+        ]
+        for reason, attention, f, runs, over, cfg in cases:
+            with self.subTest(reason):
+                d = decide(f, runs, ctx=context(**dict(over, passes_since=START)), cfg=cfg, now=late)
+                self.assertEqual((d["reason"], d["attention"]), (reason, attention))
+                # Read with no wait at all, the Decision is the same.
+                self.assertEqual(d, decide(f, runs, ctx=context(**dict(over, passes_since=late)), cfg=cfg, now=late))
+
+    def test_an_issue_moves_at_what_its_own_facts_say_moved_it_and_at_nothing_else(self):  # §4.1, I-39
+        then = minutes_after(MOVED, 2)
+        now = minutes_after(MOVED, limit("triage") + 1)
+        self.assertEqual(decide(WAITING, ctx=PASSING, now=now)["attention"], "stale")
+        self.assertEqual(decide(WAITING, ctx=PASSING, now=minutes_after(MOVED, limit("triage")))["attention"], "ready")
+        events = WAITING["label_events"]
+        # Each source, at `then`. Where it leads to another State, that State's limit is read.
+        sources = [
+            ("its life began again", dict(WAITING, life_started_at=then, reopened_last_by="writer"), [], "new"),
+            ("its content changed", dict(WAITING, content_changed_at=then, content_id=OTHER), [], "triage"),
+            ("a writer acted", dict(WAITING, last_writer_action_at=then), [], "triage"),
+            ("a writer commented", dict(WAITING, last_writer_comment_at=then), [], "triage"),
+            ("a person removed a control label",
+             dict(WAITING, label_events=events + [event(HOLD, WRITER, then, "unlabeled")]), [], "triage"),
+            ("a person added one", dict(WAITING, label_events=events + [event(TRIAGE, COLLEAGUE, then)]), [], "triage"),
+            ("the App declared for it added one",
+             dict(WAITING, label_events=events + [event(TRIAGE, CONTROLLER, then)]), [], "triage"),
+            ("a Run on it started", WAITING, [dict(investigated(), started_at=then)], "triage"),
+            ("a linked pull request opened", dict(WAITING, linked=[dict(agents(draft=True), opened_at=then)]), [],
+             "in_progress"),
+            ("a linked pull request closed",
+             dict(WAITING, linked=[dict(agents(is_open=False, closed=0), opened_at=START, closed_at=then)]), [],
+             "triage"),
+        ]
+        for name, f, runs, state in sources:
+            with self.subTest(name):
+                d = decide(f, runs, ctx=PASSING, now=minutes_after(then, limit(state)))
+                self.assertEqual((d["state"], d["attention"]), (state, "ready"))
+                d = decide(f, runs, ctx=PASSING, now=minutes_after(then, limit(state) + 1))
+                self.assertEqual((d["state"], d["attention"]), (state, "stale"))
+        # Nothing else moves it, at `then`; nor does any source timed after `now`.
+        later = minutes_after(now, 1)
+        dependency = dict(pr(by=DEPENDABOT, cls="dependency"), opened_at=then)
+        others = [
+            ("another App removed a control label",
+             dict(WAITING, label_events=events + [event(HOLD, OTHER_APP, then, "unlabeled")]), [], "triage"),
+            ("another App added one", dict(WAITING, label_events=events + [event(ADMIT, OTHER_APP, then)]), [],
+             "triage"),
+            ("a person's label the Kernel does not read",
+             dict(WAITING, label_events=events + [event("bug", WRITER, then)]), [], "triage"),
+            ("a Role's comment", dict(WAITING, role_comments=[{"by": ANALYST["name"], "at": then}]), [], "triage"),
+            ("a dependency bot's pull request opened", dict(WAITING, linked=[dependency]), [], "triage"),
+            ("a dependency bot's pull request closed",
+             dict(WAITING, linked=[dict(dependency, open=False, opened_at=START, closed_at=then)]), [], "triage"),
+            ("a stranger's pull request nobody admitted", dict(WAITING, linked=[dict(strangers(), opened_at=then)]),
+             [], "triage"),
+            ("a writer's comment after now", dict(WAITING, last_writer_comment_at=later), [], "triage"),
+            ("a Run started after now", WAITING, [dict(investigated(), started_at=later)], "triage"),
+            ("a linked pull request opened after now", dict(WAITING, linked=[dict(agents(draft=True), opened_at=later)]),
+             [], "in_progress"),
+        ]
+        for name, f, runs, state in others:
+            with self.subTest(name):
+                d = decide(f, runs, ctx=PASSING, now=now)
+                self.assertEqual((d["state"], d["attention"]), (state, "stale"))
+        # A time after now is passed over, and the wait counts from the newest before it.
+        f = dict(WAITING, last_writer_comment_at=then, last_writer_action_at=later)
+        self.assertEqual(decide(f, ctx=PASSING, now=now)["attention"], "ready")
+
+    def test_a_wait_counts_no_earlier_than_the_chain_of_passes(self):  # I-1, §4.6
+        now = minutes_after(MOVED, limit("triage") + 1)
+        since = minutes_after(MOVED, 1000)
+        self.assertEqual(decide(WAITING, ctx=context(passes_since=since), now=now)["attention"], "ready")
+        for since in (MOVED, START, None, "never", minutes_after(now, 1)):
+            self.assertEqual(decide(WAITING, ctx=context(passes_since=since), now=now)["attention"], "stale", since)
+
+    def test_a_lifecycle_not_the_issues_shows_every_wait_as_stale(self):  # §4.1
+        now = minutes_after(MOVED, 1)
+        own = decide(WAITING, ctx=PASSING, now=now)
+        self.assertEqual((what(own), own["attention"]), (("admit", "triage", INVESTIGATE), "ready"))
+        # The issue's own limits under another work item's name, lifecycle/pull_request.json, and none that can be read.
+        for lifecycle in (dict(LIFECYCLE, work_item="pull_request"), CONFIG["lifecycle"], None, [], "issue"):
+            d = decide(WAITING, ctx=PASSING, cfg=dict(config(), lifecycle=lifecycle), now=now)
+            self.assertEqual((d["attention"], dict(d, attention="ready")), ("stale", own), lifecycle)
+        cfg = config()
+        del cfg["lifecycle"]
+        self.assertEqual(decide(WAITING, ctx=PASSING, cfg=cfg, now=now)["attention"], "stale")
+
+    def test_a_link_with_no_opening_time_defers(self):
+        good = agents(draft=True)
+        missing = dict(good)
+        del missing["opened_at"]
+        for entry in (dict(good, opened_at=None), dict(good, opened_at="2026-10-11"),
+                      dict(good, opened_at="2026-02-30T12:00:00Z"), missing):
+            for f in (facts(linked=[entry]), facts(state="closed", linked=[entry])):
+                d = decide(f)
+                self.assertEqual((d["state"], what(d)), (None, ("defer", "linked_unreadable", None)), entry)
+        # The other side: read whole, the draft holds the issue in progress.
+        self.assertEqual(decide(facts(linked=[good]))["state"], "in_progress")
 
 
 if __name__ == "__main__":

@@ -2,17 +2,20 @@
 
 State is never stored. `derive` is the only definition of an issue's, as derive.py's is of a pull request's,
 and it reads only the issue's own facts. Its rows are tried in order and the first that holds gives the State, so
-no two States overlap (I-44). It imports the calendar, the run records' readers and the reading of control labels
-from derive.py, and who is a person from gate.py, and changes none of them (decision 0028).
+no two States overlap (I-44). It imports the calendar, the run records' readers, the reading of control labels and
+`stale`, the one test of a wait against its Lifecycle's limit, from derive.py, and who is a person from gate.py, and
+changes none of them (decision 0028).
 
 `decide` is the issue's Admission: the Controller's acts, and the one Run admitted, with its own schema,
 `issue-decision/1`. It asks the brakes before every act and Run, as decide.py does, and edits neither (decision 0031).
+It wraps `_decide` as decide.py does: a wait past its State's limit in lifecycle/issue.json shows `stale`, counted
+from when the issue last moved, which `moved_at` reads from the issue's own facts.
 """
 from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import in_progress, is_time, runs_on, since_writer, standing_labels
+from kernel.derive import in_progress, is_time, runs_on, since_writer, stale, standing_labels
 from kernel.gate import is_person
 
 # The States of lifecycle/issue.json that a pull request's do not share. `held` and `not_served` are terms.py's.
@@ -52,6 +55,8 @@ INVESTIGATE = "investigate-issue"
 # its Role and App. A module holds only constants, so they are written out again.
 INTENTS = ("investigate-issue", "judge-readiness", "open-pull-request")
 
+# The work item lifecycle/issue.json names: an issue's limits are read from that Lifecycle and no other.
+WORK_ITEM = "issue"
 # The issue's Decision, and the Controller's acts on an issue: accept it, remove a label that no longer counts, and
 # place a Hold when unmerged closes pass their bound.
 SCHEMA = "issue-decision/1"
@@ -143,11 +148,13 @@ def readable_events(events, config: dict) -> bool:
 
 
 def readable_link(entry, config: dict) -> bool:
-    """Whether a pull request that closes the issue can be read whole. An open one has neither closed nor merged; one
-    that is not open says when it closed, and a merge closes it too."""
+    """Whether a pull request that closes the issue can be read whole. Each says when it opened. An open one has neither
+    closed nor merged; one that is not open says when it closed, and a merge closes it too."""
     if not (isinstance(entry, dict) and type(entry.get("number")) is int and entry["number"] >= 1
             and entry.get("class") in CLASSES and whole_actor(entry.get("opener"), config)
             and all(type(entry.get(flag)) is bool for flag in ("open", "draft", "empty"))):
+        return False
+    if not is_time(entry.get("opened_at")):
         return False
     if not all(entry.get(when, "") is None or is_time(entry.get(when)) for when in ("merged_at", "closed_at")):
         return False
@@ -605,8 +612,52 @@ def _wanted(facts, state, reason, evidence, mine, intents):
     return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
 
 
+def moved_at(facts: dict, runs: list, config: dict, now: str):
+    """When the issue last moved, or None if no time can be read (design §4.1).
+
+    The newest time a writer, a declared App or the Factory moved it, read from the issue's own facts: its present life
+    began, its content changed, a person with write access acted or commented, a person or the App declared for it
+    added or removed a control label, a Run on it started, or a linked pull request opened or closed. Nothing else: not
+    a Role's comment, whose Run is counted already, nor another App's label, nor a label the Kernel does not read, nor a
+    pull request that is not linked (I-39), so that no stranger can keep an issue from showing. A time that is not a
+    real moment no later than `now` is passed over, so the wait counts from earlier: that shows more, never less.
+    """
+    times = [facts["life_started_at"]]
+    times += [facts["content_changed_at"]]
+    times += [facts.get("last_writer_action_at")]
+    times += [facts.get("last_writer_comment_at")]
+    times += [ev["at"] for ev in facts["label_events"]
+              if ev["label"] in issue_labels() and (is_person(ev["by"]) or declared(ev["by"], ev["label"], config))]
+    times += [r["started_at"] for r in runs_on(runs, facts)]
+    linked = [p for p in facts["linked"] if is_linked(p)]
+    times += [p["opened_at"] for p in linked]
+    times += [p["closed_at"] for p in linked]
+    readable = [x for x in times if is_time(x) and x <= now]
+    return max(readable) if readable else None
+
+
+def overdue(lifecycle, state: str, moved, passes_since, now: str) -> bool:
+    """Whether a wait in `state` has run past its limit in the issue's Lifecycle. The Controller gives each item its own
+    type's (decision 0028); one that is not the issue's cannot be read, and is read as past its limit: that shows more,
+    never less, and a pure function does not crash on it."""
+    if not (isinstance(lifecycle, dict) and lifecycle.get("work_item") == WORK_ITEM):
+        return True
+    return stale(lifecycle, state, moved, passes_since, now)
+
+
 def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> dict:
     """Return the Decision for one issue: what, if anything, happens next on it. No I/O, no clock."""
+    d = _decide(facts, runs, context, config, now)
+    # A wait past its State's limit, while passes ran, is the Maintainer's to see. Only what they see changes (I-1).
+    # A deferral that holds the whole scope is one cause, reported once (§4.6): the issue keeps the attention it had.
+    if (d["attention"] in t.MAY_GO_STALE and d["reason"] not in t.SCOPE_DEFERRALS
+            and overdue(config.get("lifecycle"), d["state"], moved_at(facts, runs, config, now),
+                        context.get("passes_since"), now)):
+        return dict(d, attention=t.STALE)
+    return d
+
+
+def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> dict:
     d = derive(facts, runs, config)
     state, reason, evidence = d["state"], d["reason"], d["evidence"]
     # Fail to a deferral, never to an action.
