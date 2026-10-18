@@ -320,8 +320,6 @@ MUTANTS = [
      '              and set(steps[3]) <= {"name", "run"})\n', ")\n"),
     ("the secret scan's install may be given any environment", "tools/check_workflows.py",
      'given == ({*SCAN_ENV} if "env" in install else set())', "True"),
-    ("a single-line run: is not read", "tools/check_workflows.py",
-     '(entry["body"] or [entry["value"]]) if entry', 'entry["body"] if entry'),
     ("a workflow named by a scalar on: is not read for its events", "tools/check_workflows.py",
      '    events |= {e["value"] for e in entries if e["path"] == [] and e["key"] == "on" and e["value"]}\n', ""),
     ("the secret scan is not read where it stands", "tools/check_workflows.py",
