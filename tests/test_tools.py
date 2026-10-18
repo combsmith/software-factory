@@ -1851,9 +1851,9 @@ def fixture(**fields) -> str:
 GROUNDING = (ROOT / "sim" / "grounding.py").read_text()
 
 
-def grounded(fixture_path: str, trials: str = '("P-28",)') -> str:
-    """sim/grounding.py with the rule P-28 asks grounded by `fixture_path`, and asked by `trials`."""
-    rule = '("P-28",), None)'
+def grounded(fixture_path: str, trials: str = '("P-18",)') -> str:
+    """sim/grounding.py with the rule P-18 asks grounded by `fixture_path`, and asked by `trials`."""
+    rule = '("P-18",), None)'
     assert GROUNDING.count(rule) == 1
     return GROUNDING.replace(rule, '%s, "%s")' % (trials, fixture_path))
 
@@ -1958,22 +1958,22 @@ class Trials(unittest.TestCase):
             self.assertFalse(caught(problems, where), where)
 
     def test_a_fixture_named_for_a_rule_must_exist_and_validate(self):
-        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json")}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-28.json does not exist"))
-        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json"), "trials/P-28.json": "{}"}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-28.json is not a valid fixture"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-18.json")}))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-18.json does not exist"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-18.json"), "trials/P-18.json": "{}"}))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-18.json is not a valid fixture"))
         problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-12.json"), "trials/P-12.json": fixture()}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-12.json records P-12, and P-28 asks this"))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-12.json records P-12, and P-18 asks this"))
         problems = check_trials.run(clone({"sim/grounding.py": grounded("examples/trial.json")}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: examples/trial.json is not a fixture in trials/"))
-        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json", "()"),
-                                           "trials/P-28.json": fixture(trial="P-28")}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: no trial asks this; add one to section 6 first"))
-        root = clone({"sim/grounding.py": grounded("trials/P-28.json", '("P-7", "P-28")'),
-                      "trials/P-28.json": fixture(trial="P-28")})
+        self.assertTrue(caught(problems, "a_killed_job_times_out: examples/trial.json is not a fixture in trials/"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-18.json", "()"),
+                                           "trials/P-18.json": fixture(trial="P-18")}))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: no trial asks this; add one to section 6 first"))
+        root = clone({"sim/grounding.py": grounded("trials/P-18.json", '("P-7", "P-18")'),
+                      "trials/P-18.json": fixture(trial="P-18")})
         self.assertEqual(check_trials.run(root), [])
-        self.assertFalse(caught(check_trials.unverified(root), "the_pusher_is_the_last_pusher"))
-        self.assertTrue(caught(check_trials.unverified(), "the_pusher_is_the_last_pusher"))
+        self.assertFalse(caught(check_trials.unverified(root), "a_killed_job_times_out"))
+        self.assertTrue(caught(check_trials.unverified(), "a_killed_job_times_out"))
 
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
@@ -1989,7 +1989,9 @@ class Trials(unittest.TestCase):
             self.assertTrue(check_trials.run(clone({"sim/grounding.py": broken})), broken)
 
     def test_verify_prints_every_rule_no_fixture_grounds(self):
-        codes = [rule[0] for rule in check_trials.rules()]
+        listed = check_trials.rules()
+        codes = [code for code, _, _, fixture in listed if fixture is None]
+        grounded = [code for code, _, _, fixture in listed if fixture is not None]
         self.assertTrue(codes)
         self.assertEqual(len(check_trials.unverified()), len(codes))
         ran = {}
@@ -2011,6 +2013,8 @@ class Trials(unittest.TestCase):
             verify.failed, verify.unittest.TextTestRunner = real
         for code in codes:
             self.assertIn("unverified: " + code, said.getvalue())
+        for code in grounded:
+            self.assertNotIn("unverified: %s:" % code, said.getvalue())
 
     def test_the_check_runs_alone_before_anything_is_added(self):
         with contextlib.redirect_stdout(io.StringIO()) as said:
