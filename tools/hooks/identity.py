@@ -226,6 +226,9 @@ PATH_WRITERS = {
               (set(), {"-o", "--output", "-d", "--directory"})),
 }
 HERE = "."      # where a writer that names no output writes: the directory it stands in
+# The writers whose output option given `-` writes the standard output: to any other program, and as an operand, `-` is
+# a path like any other, which may be a link into git's directory.
+STDOUT_DASH = {"curl", "wget"}
 # tar by its other names, and its modes: which of its places it writes depends on them (_tar).
 TARS = {"tar", "gtar", "bsdtar"}
 PATH_WRITERS.update({name: PATH_WRITERS["tar"] for name in TARS})
@@ -321,9 +324,12 @@ def _directory(words: list):
     """The directory cd or pushd (words[0]) goes to, past its options: `~` for none, and `.` for an empty one, where
     the shell stays. None where the shell takes it from a stack the hook does not keep (decision 0032): popd, pushd
     with no directory or with +N or -N, and cd - (~-, $OLDPWD) or cd +N."""
-    args = words[1:]
+    args, options = words[1:], []
     while args and re.fullmatch(r"-[A-Za-z@]+", args[0]):
-        args = args[1:]
+        options, args = options + [args[0]], args[1:]
+    if words[0] in ("pushd", "popd") and any("n" in option for option in options):
+        return "."      # -n changes the stack, never the directory
+
     args = args[1:] if args[:1] == ["--"] else args
     if words[0] == "popd" or (words[0] == "pushd" and not args):
         return None
@@ -350,9 +356,9 @@ def _unaliased(commands: list, table: dict, seen: frozenset = frozenset(), budge
     budget = [ALIAS_MOST] if budget is None else budget
     out = []
     for words, redirections in commands:
-        at, _ = shell.past_prefixes(words)
-        name = words[at] if at is not None and at < len(words) else None
-        if name not in table or name in seen:
+        at, _ = shell.past_prefixes(words or [])
+        name = words[at] if words and at is not None and at < len(words) else None
+        if name not in table or name in seen:       # a SCOPE mark, too
             out.append((words, redirections))
             continue
         for alternative in _alias(table, name, budget):
@@ -434,9 +440,16 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         commands = _unaliased(commands, shell.alias_values(_quoted(shell.without_heredocs(text)), spend))
     except (Unreadable, ValueError) as err:
         always.append(("command_unreadable", "the command's aliases cannot be read (%s)" % err))
-    loops = _loops(commands, values)
+    scoped = []     # where the command stood when each subshell it is in began
+    loops = _loops([c for c in commands if c[0] is not None], values)
     for raw, redirections in commands:
         spend()
+        if raw is None:     # a case pattern's substitution runs in a subshell: a cd in it is its own (shell.SCOPE)
+            if (raw, redirections) == shell.SCOPE[0]:
+                scoped.append((here, places, stood))
+            elif scoped:
+                here, places, stood = scoped.pop()
+            continue
         # A word is read with what the command set unconditionally put in for each variable it holds.
         words, targets = [expand(w, values) for w in raw], [expand(t, values) for _, t in redirections]
         inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], places, "a redirection",
@@ -534,7 +547,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         else:
             kind = _gh_kind(words)
         calls += [(tool, where, words, kind) for where in wheres]
-    said = " ".join(w for words, _ in commands for w in words)     # as the shell runs it: g''it push is git push
+    said = " ".join(w for words, _ in commands for w in words or [])     # as the shell runs it: g''it push is git push
     if blind and (WRITE_TEXT.search(text) or WRITE_TEXT.search(said) or any(kind for _, _, _, kind in calls)):
         always += [("command_unreadable", "%s, in a command that names a commit or push" % why)
                    for why in dict.fromkeys(blind)]
@@ -776,16 +789,18 @@ def _written(program: str, args: list) -> list:
     which, valued, destinations, stands = PATH_WRITERS[program]
     if program in TARS:     # GNU tar's options and bsdtar's take different words (-H, -s): each reading is read
         written = _tar(args, valued, destinations, stands) + _tar(args, TAR_BSD_VALUED, destinations, stands)
-        return [path for path in dict.fromkeys(written) if path != "-"]
+        return list(dict.fromkeys(written))
     operands, named, given = _options(args, valued, destinations)
     if which == "last" and set(given) & TARGET:
         return named        # -t names the destination: every operand is a source
+    if program in STDOUT_DASH:
+        named = [path for path in named if path != "-"]     # curl -o - and wget -O - write the standard output
     written = named + {"last": operands[-1:], "all": operands, "first": operands[:1], "none": []}[which]
     if stands is not None:
         needs, names = stands
         if (not needs or _gave(given, needs)) and not _gave(given, names) and written == named:
             written.append(HERE)        # its words name no output: it writes where it stands
-    return [path for path in written if path != "-"]       # - is the standard output, or input
+    return written
 
 
 def _tar(args: list, valued: set, destinations: set, stands: tuple) -> list:
@@ -806,7 +821,8 @@ def _tar(args: list, valued: set, destinations: set, stands: tuple) -> list:
     directories = values({"-C", "--directory"})
     needs, names = stands
     here = [HERE] if _gave(given, needs) and not _gave(given, names) else []     # it writes where it stands
-    return ((directories if extracts else []) + here + (values({"-f", "--file"}) if changes else []) +
+    archives = [path for path in values({"-f", "--file"}) if path != "-"]      # tar -f - writes the standard output
+    return ((directories if extracts else []) + here + (archives if changes else []) +
             values({"-g", "--listed-incremental"}))
 
 
@@ -1446,7 +1462,7 @@ def check(payload: dict, env: dict, seconds: float = DEADLINE) -> list:
                            command)
     started, spend = time.monotonic(), _budget(min(READ_SECONDS, seconds))
     try:
-        commands = shell.commands(_quoted(shell.without_heredocs(read)), spend)
+        commands = shell.commands(_quoted(shell.without_heredocs(read)), spend, scopes=True)
         calls, problems, inline = _calls(commands, payload.get("cwd"), read, env, spend)
     except ValueError as err:
         # The command cannot be split into words. If it names git or gh at all, what it does cannot be read.

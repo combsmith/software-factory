@@ -724,6 +724,10 @@ class Identity(unittest.TestCase):
                         'cd "$(echo .git)"; cp /tmp/x hooks/pre-push; git -C %s push' % self.here):
             self.assertIn("directory_unreadable", self.refused(command), command)
         self.assertEqual(self.codes("cd ''; echo x > notes.txt; git commit -m x"), "")
+        # pushd -n and popd -n change the stack, never the directory.
+        for command in ("pushd -n .git; echo x > notes; git push", "pushd -n .git >/dev/null; popd -n; echo x > notes; "
+                        "git push"):
+            self.assertEqual(self.codes(command), "", command)
         # cd - then a relative cd doubles where the command may stand: past PLACES_MOST, where it stands is lost.
         doubling = "cd a; " + "".join("cd -; cd d%d; " % n for n in range(8)) + "git push"
         self.assertIn("more directories than the hook reads", self.refused(doubling))
@@ -736,6 +740,14 @@ class Identity(unittest.TestCase):
         # Decision 0032: unzip with no -d, tar extracting with no -C, curl -O or -J with no --output-dir, wget with no
         # -O or -P, and patch with no file, write in the directory they stand in.
         (self.here / "sub").mkdir(exist_ok=True)
+        # - is the standard output only to curl's and wget's output options and tar's -f: given to any other, or as an
+        # operand, it is a path, which may be a link into git's directory.
+        dashed = repo(fresh=True)
+        (dashed / "-").symlink_to(dashed / ".git" / "config")
+        for command in ("cp -- /tmp/payload -; git push", "tee - < /tmp/payload; git push"):
+            self.assertIn("git_directory_written", self.refused(command, dashed), command)
+        self.assertEqual(self.codes("cd .git && tar -cf - hooks > /tmp/h.tar && curl -o - https://example.com/y && "
+                                    "cd .. && git push"), "")
         for command in ("cd .git && unzip /tmp/x.zip && cd .. && git commit -m x",
                         "cd .git/hooks && tar -xf /tmp/h.tar && cd ../.. && git push",
                         "cd .git/hooks && tar --extract --file=/tmp/h.tar && cd ../.. && git push",
@@ -766,7 +778,11 @@ class Identity(unittest.TestCase):
         # it, and before what follows.
         for command in ("cd .git; case x in $(cp /tmp/x hooks/pre-push)) :;; esac; cd ..; git push",
                         'cd .git; case x in a) :;; "$(echo y > config)") :;; esac; cd ..; git push',
-                        "cd .git\ncase x in\n a|`tee hooks/pre-push < /tmp/x`) :;;\nesac\ncd ..\ngit commit -m x"):
+                        "cd .git\ncase x in\n a|`tee hooks/pre-push < /tmp/x`) :;;\nesac\ncd ..\ngit commit -m x",
+                        # It runs in a subshell: a cd in it is its own, and leaves the command where it stood.
+                        "cd .git; case x in $(cd /tmp)) :;; esac; cp /tmp/x config; git -C %s push" % self.here,
+                        'cd .git; case x in "$(cd /tmp)") :;; esac; cp /tmp/x config; git -C %s push' % self.here,
+                        "cd .git; case x in $(cd hooks; cp /tmp/x pre-push)) :;; esac; git -C %s push" % self.here):
             self.assertIn("git_directory_written", self.refused(command), command)
         for command in ("case x in $(echo ok)) :;; esac; cd .git; cat HEAD; cd ..; git push",
                         "case x in $(echo y > /tmp/x)) :;; esac; git push", 'case "$x" in {a,b}) echo y;; esac; git push',

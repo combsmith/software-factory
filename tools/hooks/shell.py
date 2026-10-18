@@ -89,12 +89,14 @@ def simple_commands(text: str) -> list:
     return [(words, [target for _, target in redirections]) for words, redirections in commands(text)]
 
 
-def commands(text: str, spend=None, texts: list = None) -> list:
+def commands(text: str, spend=None, texts: list = None, scopes: bool = False) -> list:
     """Each simple command in `text`, as (words, [(operator, target)]), read as simple_commands reads it.
 
     An operator holding '>' writes its target; one holding only '<' reads it. `spend`, if given, is called
     before each script is read, and may raise to stop a reading that has run over its budget. `texts`, if
     given, gets each script read: `text`, and every script it runs (sh -c, eval, a command substitution).
+    With `scopes`, the commands a substitution in a case's pattern runs come between SCOPE's two marks, which
+    no command can spell: they run in a subshell, so a cd among them is theirs alone (decision 0032).
     """
     if spend:
         spend()
@@ -150,14 +152,19 @@ def commands(text: str, spend=None, texts: list = None) -> list:
     for words, targets in found:
         if words is None:       # a pattern runs nothing, but a substitution in it does, where the pattern stands
             for script in _substituted(targets):
-                out += commands(script, spend, texts)
+                read = commands(script, spend, texts, scopes)
+                out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read
             continue
         out.append((words, targets))
         out += _inner(words, spend, texts)
         for word in words:
             for script in _substituted(word):
-                out += commands(script, spend, texts)
+                out += commands(script, spend, texts, scopes)
     return [(words, targets) for words, targets in out if words or targets]
+
+
+# The marks commands(scopes=True) puts around what a case pattern's substitution runs: no words, so no command spells one.
+SCOPE = ((None, "("), (None, ")"))
 
 
 # Each character that ends a word or a command, as it stands while a quote or a backslash holds it: one of the Unicode
