@@ -2038,6 +2038,106 @@ class Ceilings(unittest.TestCase):
         d = go(none, REVIEWED + approvals(LIMITS["max_attempts"] - 1))
         self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
 
+    def test_spent_attempts_hold_the_item_while_a_run_waits(self):  # I-8, I-12, I-23
+        # The simulator's seed 297: a review superseded, three that failed by a fault of the item, and a fourth admitted
+        # on a list read one Run short. No Run in flight lowers a count, so the item is held while it waits, and a
+        # superseded Run is no attempt.
+        r0 = run(conclusion="failure", outcome="superseded", at=at(10), name="r0")
+        failed = [run(conclusion="failure", outcome="item", at=at(11 + i), name="r%d" % (i + 1)) for i in range(3)]
+        for status in ("queued", "in_progress"):
+            r4 = dict(run(status="in_progress", at=at(14), name="r4"), status=status)
+            d = go(facts(), [r0] + failed + [r4])
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"], d["evidence"]),
+                             ("held", "attempts_exhausted", "hold", "needs_you", ["r1", "r2", "r3"]), status)
+            # The other side: without r3 the attempts are not spent, and r0 is none of them. The Run waits.
+            d = go(facts(), [r0] + failed[:2] + [r4])
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("verifying", "awaiting_review", "nothing", "working"), status)
+        # When the lane supersedes r4, as `apply` does on a held item, the evidence is still r1 to r3, and it stays held.
+        d = go(facts(), [r0] + failed + [run(conclusion="failure", outcome="superseded", at=at(14), name="r4")])
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["evidence"]),
+                         ("held", "attempts_exhausted", "hold", ["r1", "r2", "r3"]))
+        # A converged item's approval attempts hold it the same way, whatever Run waits.
+        waiting = [dict(run(intent="issue-approval", status="in_progress", at=at(40), name="a9"), status="queued")]
+        failed = approvals(LIMITS["max_attempts"])
+        d = go(facts(), REVIEWED + failed + waiting)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["evidence"]),
+                         ("held", "attempts_exhausted", "hold", [r["run"] for r in failed]))
+        d = go(facts(), REVIEWED + failed[1:] + waiting)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                         ("converged", "approval_due", "nothing", "working"))
+
+    def test_a_spent_count_holds_whatever_would_defer_while_a_run_waits(self):  # I-8, I-12
+        # A Pause, one that cannot be read, or an unreadable count of acts does not hide a count already spent while a
+        # Run is in flight: the ceilings are asked alone.
+        r0 = run(conclusion="failure", outcome="superseded", at=at(10), name="r0")
+        failed = [run(conclusion="failure", outcome="item", at=at(11 + i), name="r%d" % (i + 1)) for i in range(3)]
+        approvals_failed = approvals(LIMITS["max_attempts"])
+        waiting = [dict(run(intent="issue-approval", status="in_progress", at=at(40), name="a9"), status="queued")]
+        for status in ("queued", "in_progress"):
+            r4 = dict(run(status="in_progress", at=at(14), name="r4"), status=status)
+            for paused in (True, None):
+                d = go(facts(), [r0] + failed + [r4], ctx=context(paused=paused))
+                self.assertEqual((d["state"], d["reason"], d["outcome"], d["evidence"]),
+                                 ("held", "attempts_exhausted", "hold", ["r1", "r2", "r3"]), (status, paused))
+                d = go(facts(), REVIEWED + approvals_failed + waiting, ctx=context(paused=paused))
+                self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "attempts_exhausted", "hold"), paused)
+                # The other side: with the count not spent, the Run in flight keeps the item working, as it did.
+                d = go(facts(), [r0] + failed[:2] + [r4], ctx=context(paused=paused))
+                self.assertEqual((d["state"], d["outcome"], d["attention"]), ("verifying", "nothing", "working"))
+        d = go(facts(acts_since_writer=None), REVIEWED + approvals_failed + waiting)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "attempts_exhausted", "hold"))
+        d = go(facts(acts_since_writer=None), REVIEWED + approvals_failed[1:] + waiting)
+        self.assertEqual((d["state"], d["outcome"], d["attention"]), ("converged", "nothing", "working"))
+
+    def test_an_act_waits_for_a_run_in_flight(self):  # I-12
+        # The act ceiling counts acts, not Runs, and stops only an act: none is decided while a Run waits.
+        ceiling = facts(acts_since_writer=LIMITS["max_acts_per_item"])
+        waiting = dict(run(intent="adjudicate-findings", status="in_progress", at=at(40), name="o9"), status="queued")
+        d = go(ceiling, REVIEWED + [waiting])
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                         ("converged", "approval_due", "nothing", "working"))
+        d = go(ceiling, REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "act_ceiling", "hold"))
+        # An approval that landed is enqueued whatever failed before, so failed approvals do not hold it either.
+        landed = facts(reviews=APPROVED)
+        d = go(landed, REVIEWED + approvals(LIMITS["max_attempts"]) + [waiting])
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                         ("converged", "approved", "nothing", "working"))
+
+    def test_spent_rounds_hold_the_item_while_a_run_waits(self):  # I-14
+        # An item whose owner's rulings are at `max_rounds` is held while another Run is queued or in progress, as with
+        # none in flight. One round short, the Run in flight keeps it working.
+        rounds = LIMITS["max_rounds"]
+        laps = [r for i in range(rounds) for r in (run(intent="adjudicate-findings", at=at(20 + 2 * i), name="o%d" % i),
+                                                   run(role="dev-lead", intent="fix-findings", at=at(21 + 2 * i),
+                                                       name="a%d" % i))]
+        short = [r for r in laps if r["run"] not in ("o%d" % (rounds - 1), "a%d" % (rounds - 1))]
+        for status in ("queued", "in_progress"):
+            waiting = dict(run(intent="adjudicate-findings", status="in_progress", at=at(40), name="o9"), status=status)
+            d = go(facts(threads=[thread()]), REVIEWED + laps + [waiting])
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("held", "max_rounds", "hold", "needs_you"), status)
+            d = go(facts(threads=[thread()]), REVIEWED + short + [waiting])
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("adjudicating", "proposals_await_owner", "nothing", "working"), status)
+        # The other side of the Run in flight: with none, the same rounds hold it and one short admits a ruling.
+        self.assertEqual(go(facts(threads=[thread()]), REVIEWED + laps)["reason"], "max_rounds")
+        self.assertEqual(go(facts(threads=[thread()]), REVIEWED + short)["admit"]["intent"], "adjudicate-findings")
+
+    def test_a_run_in_flight_is_held_by_the_completed_runs_alone(self):  # I-8
+        # The Run ceiling counts the Runs that completed: the tenth Run, admitted with nine completed, is not held at
+        # the ceiling it was admitted under. Ten completed hold the item while another waits.
+        ceiling = LIMITS["max_runs_per_item"]
+        spent = [run(conclusion="failure", outcome="environment", at=at(10 + i), name="e%d" % i) for i in range(ceiling)]
+        waiting = dict(run(status="in_progress", at=at(40), name="w"), status="queued")
+        d = go(facts(), spent[1:] + [waiting])
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                         ("verifying", "awaiting_review", "nothing", "working"))
+        d = go(facts(), spent + [waiting])
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                         ("held", "run_ceiling", "hold", "needs_you"))
+
     def test_an_approval_that_does_not_land_is_bounded(self):  # I-8, I-28
         failed = approvals(LIMITS["max_attempts"])
         d = go(facts(), REVIEWED + failed)
