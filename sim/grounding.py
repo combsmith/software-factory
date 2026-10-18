@@ -10,8 +10,9 @@ to its schema. It reads RULES as a literal, so that it can judge a copy of the r
 """
 
 RULES = (
-    ("a_push_is_new_content", "A push gives the pull request new content", ("P-29",), None),
-    ("the_pusher_is_the_last_pusher", "The account that pushed the head is read as its last pusher", ("P-28",), None),
+    ("a_push_is_new_content", "A push gives the pull request new content", ("P-29",), "trials/P-29.base.json"),
+    ("the_pusher_is_the_last_pusher", "The account that pushed the head is read as its last pusher", ("P-28",),
+     "trials/P-28.json"),
     ("an_app_pushes_to_the_head", "An App can push to the head of a pull request", ("P-7",), None),
     ("an_approval_survives_a_push", "A push leaves an earlier approval in place", ("P-7", "P-29"), None),
     ("a_request_for_changes_survives_a_push", "A push leaves a request for changes standing", (), None),
@@ -71,7 +72,8 @@ RULES = (
     ("a_run_list_stops_short", "The list of run records can stop short, with the oldest Runs missing", (), None),
     ("a_killed_job_times_out", "A job killed part way concludes timed_out", ("P-18",), None),
     ("a_superseded_run_fails", "A Run whose apply refuses, or that never starts, concludes failure", ("P-17",), None),
-    ("a_short_diff_says_so", "A diff read short says so, and is not mistaken for the whole", ("P-29",), None),
+    ("a_short_diff_says_so", "A diff read short says so, and is not mistaken for the whole", ("P-29",),
+     "trials/P-29.truncated.json"),
     ("a_short_list_says_so", "A list of reviews, threads, checks or timeline events read short says so", (), None),
     ("a_pull_request_lists_the_paths_it_changes", "Every file a pull request changes is read once, as many as the diff "
      "counts, by its path from the top of the repo, with the path a renamed or copied file had before", (), None),

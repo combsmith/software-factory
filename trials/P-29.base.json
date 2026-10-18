@@ -1,0 +1,2671 @@
+{
+  "schema": "trial/1",
+  "trial": "P-29",
+  "question": "Is the hash of a pull request's own diff stable when only the base moves?",
+  "pass": "Stable (section 6). As the story, #11, states it: the hash of a pull request's own diff is unchanged when only the base moves; fixtures before and after. Read here as: the diff GitHub serves for the pull request (GET /repos/{repo}/pulls/{n} with Accept: application/vnd.github.diff, the diff against the merge base that content_id hashes, ADR-0013 decision 7), hashed with SHA-256 over its bytes, is the same before and after main is moved forward by a commit that touches no file the pull request changes, while the pull request's base.sha moves and its head.sha does not; and a push to the head that changes a file gives a different hash.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-18T01:52:02Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "git",
+        "call": "git push -u origin p28-p29/content, from a clone of the canary outside the repo, by the Maintainer's own gh login: the branch created with one commit on main's da11d39",
+        "headers": {},
+        "body": {
+          "commit": "3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+          "parent": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+          "author": "Don Petry <36422719+don-petry@users.noreply.github.com>",
+          "committer": "Don Petry <36422719+don-petry@users.noreply.github.com>",
+          "changes": "adds p28-p29/content.txt, three lines"
+        }
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": " * [new branch]      p28-p29/content -> p28-p29/content"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/26, the pull request as opened, before the base moves",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "18363",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sun, 18 Oct 2026 01:57:54 GMT",
+          "etag": "\"31eda74ba282780e9d5a2de56ca04fca08b4e046b1554a9204a261d8953d4c4f\"",
+          "last-modified": "Sun, 18 Oct 2026 01:57:44 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "CBEC:33F604:10915BD:3645711:6AD427A2",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4603",
+          "x-ratelimit-reset": "1792289927",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "397"
+        },
+        "body": {
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26",
+          "id": 4905601986,
+          "node_id": "PR_kwDOVFD6788AAAABJGWLwg",
+          "html_url": "https://github.com/combsmith/software-factory-canary/pull/26",
+          "diff_url": "https://github.com/combsmith/software-factory-canary/pull/26.diff",
+          "patch_url": "https://github.com/combsmith/software-factory-canary/pull/26.patch",
+          "issue_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26",
+          "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/commits",
+          "review_comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/comments",
+          "review_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/comments{/number}",
+          "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26/comments",
+          "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+          "number": 26,
+          "state": "open",
+          "locked": false,
+          "title": "Trials P-28 and P-29: who pushed the head, and the identity of the diff",
+          "user": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "body": "A trial pull request. It is closed and its branch deleted when the trial ends.\n\n<!-- This is an auto-generated description by cubic. -->\n<a href=\"https://cubic.dev/pr/combsmith/software-factory-canary/pull/26?utm_source=github\" target=\"_blank\" rel=\"noopener noreferrer\" data-no-image-dialog=\"true\"><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://www.cubic.dev/buttons/review-in-cubic-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://www.cubic.dev/buttons/review-in-cubic-light.svg\"><img alt=\"View guided diff\" src=\"https://www.cubic.dev/buttons/review-in-cubic-light.svg\"></picture></a> <a href=\"https://www.cubic.dev/action/auto-fix/pr/combsmith/software-factory-canary/26?returnTo=https%3A%2F%2Fgithub.com%2Fcombsmith%2Fsoftware-factory-canary%2Fpull%2F26&source=description\" target=\"_blank\" rel=\"noopener noreferrer\" data-no-image-dialog=\"true\"><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://www.cubic.dev/buttons/turn-on-auto-fix-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://www.cubic.dev/buttons/turn-on-auto-fix-light.svg\"><img alt=\"Turn on auto-fix\" src=\"https://www.cubic.dev/buttons/turn-on-auto-fix-light.svg\"></picture></a>\n<!-- End of auto-generated description by cubic. -->\n\n",
+          "labels": [],
+          "milestone": null,
+          "active_lock_reason": null,
+          "created_at": "2026-10-18T01:57:30Z",
+          "updated_at": "2026-10-18T01:57:44Z",
+          "closed_at": null,
+          "merged_at": null,
+          "merge_commit_sha": "9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+          "assignee": null,
+          "assignees": [],
+          "requested_reviewers": [],
+          "requested_teams": [],
+          "head": {
+            "label": "combsmith:p28-p29/content",
+            "ref": "p28-p29/content",
+            "repo": {
+              "id": 1414593263,
+              "node_id": "R_kgDOVFD67w",
+              "name": "software-factory-canary",
+              "full_name": "combsmith/software-factory-canary",
+              "owner": {
+                "login": "combsmith",
+                "id": 258516906,
+                "node_id": "O_kgDOD2inqg",
+                "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/combsmith",
+                "html_url": "https://github.com/combsmith",
+                "followers_url": "https://api.github.com/users/combsmith/followers",
+                "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                "repos_url": "https://api.github.com/users/combsmith/repos",
+                "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "private": false,
+              "fork": false,
+              "archived": false,
+              "disabled": false,
+              "description": "Throwaway repo for the Factory's platform trials. Nothing here is depended on.",
+              "homepage": null,
+              "language": null,
+              "visibility": "public",
+              "is_template": false,
+              "topics": [],
+              "forks_count": 0,
+              "forks": 0,
+              "stargazers_count": 0,
+              "watchers_count": 0,
+              "watchers": 0,
+              "open_issues_count": 25,
+              "open_issues": 25,
+              "size": 2,
+              "default_branch": "main",
+              "has_issues": true,
+              "has_projects": true,
+              "has_wiki": true,
+              "has_pages": false,
+              "has_downloads": false,
+              "has_discussions": false,
+              "has_pull_requests": true,
+              "pushed_at": "2026-10-18T01:55:58Z",
+              "created_at": "2026-10-11T17:23:37Z",
+              "updated_at": "2026-10-18T01:28:39Z",
+              "allow_forking": true,
+              "web_commit_signoff_required": false,
+              "pull_request_creation_policy": "all",
+              "license": null,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+              "html_url": "https://github.com/combsmith/software-factory-canary",
+              "archive_url": "https://api.github.com/repos/combsmith/software-factory-canary/{archive_format}{/ref}",
+              "assignees_url": "https://api.github.com/repos/combsmith/software-factory-canary/assignees{/user}",
+              "blobs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs{/sha}",
+              "branches_url": "https://api.github.com/repos/combsmith/software-factory-canary/branches{/branch}",
+              "collaborators_url": "https://api.github.com/repos/combsmith/software-factory-canary/collaborators{/collaborator}",
+              "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/comments{/number}",
+              "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits{/sha}",
+              "compare_url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/{base}...{head}",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/{+path}",
+              "contributors_url": "https://api.github.com/repos/combsmith/software-factory-canary/contributors",
+              "deployments_url": "https://api.github.com/repos/combsmith/software-factory-canary/deployments",
+              "downloads_url": "https://api.github.com/repos/combsmith/software-factory-canary/downloads",
+              "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/events",
+              "forks_url": "https://api.github.com/repos/combsmith/software-factory-canary/forks",
+              "git_commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits{/sha}",
+              "git_refs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs{/sha}",
+              "git_tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/tags{/sha}",
+              "git_url": "git://github.com/combsmith/software-factory-canary.git",
+              "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments{/number}",
+              "issue_events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events{/number}",
+              "issues_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues{/number}",
+              "keys_url": "https://api.github.com/repos/combsmith/software-factory-canary/keys{/key_id}",
+              "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/labels{/name}",
+              "languages_url": "https://api.github.com/repos/combsmith/software-factory-canary/languages",
+              "merges_url": "https://api.github.com/repos/combsmith/software-factory-canary/merges",
+              "milestones_url": "https://api.github.com/repos/combsmith/software-factory-canary/milestones{/number}",
+              "notifications_url": "https://api.github.com/repos/combsmith/software-factory-canary/notifications{?since,all,participating}",
+              "pulls_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls{/number}",
+              "releases_url": "https://api.github.com/repos/combsmith/software-factory-canary/releases{/id}",
+              "ssh_url": "git@github.com:combsmith/software-factory-canary.git",
+              "stargazers_url": "https://api.github.com/repos/combsmith/software-factory-canary/stargazers",
+              "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/{sha}",
+              "subscribers_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscribers",
+              "subscription_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscription",
+              "tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/tags",
+              "teams_url": "https://api.github.com/repos/combsmith/software-factory-canary/teams",
+              "trees_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees{/sha}",
+              "clone_url": "https://github.com/combsmith/software-factory-canary.git",
+              "mirror_url": null,
+              "hooks_url": "https://api.github.com/repos/combsmith/software-factory-canary/hooks",
+              "svn_url": "https://github.com/combsmith/software-factory-canary"
+            },
+            "sha": "3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+            "user": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          "base": {
+            "label": "combsmith:main",
+            "ref": "main",
+            "repo": {
+              "id": 1414593263,
+              "node_id": "R_kgDOVFD67w",
+              "name": "software-factory-canary",
+              "full_name": "combsmith/software-factory-canary",
+              "owner": {
+                "login": "combsmith",
+                "id": 258516906,
+                "node_id": "O_kgDOD2inqg",
+                "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/combsmith",
+                "html_url": "https://github.com/combsmith",
+                "followers_url": "https://api.github.com/users/combsmith/followers",
+                "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                "repos_url": "https://api.github.com/users/combsmith/repos",
+                "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "private": false,
+              "fork": false,
+              "archived": false,
+              "disabled": false,
+              "description": "Throwaway repo for the Factory's platform trials. Nothing here is depended on.",
+              "homepage": null,
+              "language": null,
+              "visibility": "public",
+              "is_template": false,
+              "topics": [],
+              "forks_count": 0,
+              "forks": 0,
+              "stargazers_count": 0,
+              "watchers_count": 0,
+              "watchers": 0,
+              "open_issues_count": 25,
+              "open_issues": 25,
+              "size": 2,
+              "default_branch": "main",
+              "has_issues": true,
+              "has_projects": true,
+              "has_wiki": true,
+              "has_pages": false,
+              "has_downloads": false,
+              "has_discussions": false,
+              "has_pull_requests": true,
+              "pushed_at": "2026-10-18T01:55:58Z",
+              "created_at": "2026-10-11T17:23:37Z",
+              "updated_at": "2026-10-18T01:28:39Z",
+              "allow_forking": true,
+              "web_commit_signoff_required": false,
+              "pull_request_creation_policy": "all",
+              "license": null,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+              "html_url": "https://github.com/combsmith/software-factory-canary",
+              "archive_url": "https://api.github.com/repos/combsmith/software-factory-canary/{archive_format}{/ref}",
+              "assignees_url": "https://api.github.com/repos/combsmith/software-factory-canary/assignees{/user}",
+              "blobs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs{/sha}",
+              "branches_url": "https://api.github.com/repos/combsmith/software-factory-canary/branches{/branch}",
+              "collaborators_url": "https://api.github.com/repos/combsmith/software-factory-canary/collaborators{/collaborator}",
+              "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/comments{/number}",
+              "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits{/sha}",
+              "compare_url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/{base}...{head}",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/{+path}",
+              "contributors_url": "https://api.github.com/repos/combsmith/software-factory-canary/contributors",
+              "deployments_url": "https://api.github.com/repos/combsmith/software-factory-canary/deployments",
+              "downloads_url": "https://api.github.com/repos/combsmith/software-factory-canary/downloads",
+              "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/events",
+              "forks_url": "https://api.github.com/repos/combsmith/software-factory-canary/forks",
+              "git_commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits{/sha}",
+              "git_refs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs{/sha}",
+              "git_tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/tags{/sha}",
+              "git_url": "git://github.com/combsmith/software-factory-canary.git",
+              "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments{/number}",
+              "issue_events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events{/number}",
+              "issues_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues{/number}",
+              "keys_url": "https://api.github.com/repos/combsmith/software-factory-canary/keys{/key_id}",
+              "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/labels{/name}",
+              "languages_url": "https://api.github.com/repos/combsmith/software-factory-canary/languages",
+              "merges_url": "https://api.github.com/repos/combsmith/software-factory-canary/merges",
+              "milestones_url": "https://api.github.com/repos/combsmith/software-factory-canary/milestones{/number}",
+              "notifications_url": "https://api.github.com/repos/combsmith/software-factory-canary/notifications{?since,all,participating}",
+              "pulls_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls{/number}",
+              "releases_url": "https://api.github.com/repos/combsmith/software-factory-canary/releases{/id}",
+              "ssh_url": "git@github.com:combsmith/software-factory-canary.git",
+              "stargazers_url": "https://api.github.com/repos/combsmith/software-factory-canary/stargazers",
+              "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/{sha}",
+              "subscribers_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscribers",
+              "subscription_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscription",
+              "tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/tags",
+              "teams_url": "https://api.github.com/repos/combsmith/software-factory-canary/teams",
+              "trees_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees{/sha}",
+              "clone_url": "https://github.com/combsmith/software-factory-canary.git",
+              "mirror_url": null,
+              "hooks_url": "https://api.github.com/repos/combsmith/software-factory-canary/hooks",
+              "svn_url": "https://github.com/combsmith/software-factory-canary"
+            },
+            "sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "user": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          "_links": {
+            "comments": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26/comments"
+            },
+            "commits": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/commits"
+            },
+            "statuses": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/pull/26"
+            },
+            "issue": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26"
+            },
+            "review_comments": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/comments"
+            },
+            "review_comment": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/comments{/number}"
+            },
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26"
+            }
+          },
+          "author_association": "MEMBER",
+          "auto_merge": null,
+          "draft": false,
+          "merged": false,
+          "mergeable": true,
+          "rebaseable": true,
+          "mergeable_state": "unstable",
+          "merged_by": null,
+          "comments": 3,
+          "review_comments": 0,
+          "maintainer_can_modify": false,
+          "commits": 1,
+          "additions": 3,
+          "deletions": 0,
+          "changed_files": 1
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/26 (the diff, against the merge base), before the base moves",
+        "headers": {
+          "accept": "application/vnd.github.diff",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "243",
+          "content-type": "application/vnd.github.diff; charset=utf-8",
+          "date": "Sun, 18 Oct 2026 01:57:54 GMT",
+          "etag": "\"ea98105a5f9e266ad94b12cb8552f9aa92574720fdcbe9e340fba82257aff7ce\"",
+          "last-modified": "Sun, 18 Oct 2026 01:57:44 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; param=diff",
+          "x-github-request-id": "CBEE:3D482B:10D2D:36C3E:6AD427A2",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4602",
+          "x-ratelimit-reset": "1792289927",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "398"
+        },
+        "body": "diff --git a/p28-p29/content.txt b/p28-p29/content.txt\nnew file mode 100644\nindex 0000000..3b97c57\n--- /dev/null\n+++ b/p28-p29/content.txt\n@@ -0,0 +1,3 @@\n+Trials P-28 and P-29: a pull request whose head a person pushes.\n+line two\n+line three\n"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh api repos/combsmith/software-factory-canary/pulls/26 -H 'Accept: application/vnd.github.diff' -H 'X-GitHub-Api-Version: 2022-11-28' | shasum -a 256, the diff hashed as it arrives and never stored, before the base moves",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "4dbca8c198da4fc9a2b9e122f9196b0cff04b71b01d17b53f801cde6164ba6c1  -"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "git",
+        "call": "git push origin main: main moved forward by one commit that touches no file of the pull request",
+        "headers": {},
+        "body": {
+          "commit": "a260bd6fefee687a16bef3f79139993801fb5936",
+          "parent": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+          "author": "Don Petry <36422719+don-petry@users.noreply.github.com>",
+          "committer": "Don Petry <36422719+don-petry@users.noreply.github.com>",
+          "changes": "adds p29-unrelated.txt, one line"
+        }
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "   da11d39..a260bd6  main -> main"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh api repos/combsmith/software-factory-canary/pulls/26 --jq '.base.sha, .merge_commit_sha, .mergeable_state', every 10 s from 01:59:02Z to 02:00:57Z: main moved at 01:58:14Z, and the plain push to the head was at 02:00:23Z",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": [
+          {
+            "at": "2026-10-18T01:59:02Z",
+            "base.sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "merge_commit_sha": "9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+            "mergeable_state": "unstable"
+          },
+          {
+            "at": "2026-10-18T01:59:12Z",
+            "base.sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "merge_commit_sha": "9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+            "mergeable_state": "clean"
+          },
+          {
+            "at": "2026-10-18T01:59:23Z",
+            "base.sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "merge_commit_sha": "9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+            "mergeable_state": "clean"
+          },
+          {
+            "at": "2026-10-18T01:59:33Z",
+            "base.sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "merge_commit_sha": "9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+            "mergeable_state": "clean"
+          },
+          {
+            "at": "2026-10-18T01:59:44Z",
+            "base.sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "merge_commit_sha": "9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+            "mergeable_state": "clean"
+          },
+          {
+            "at": "2026-10-18T01:59:54Z",
+            "base.sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "merge_commit_sha": "9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+            "mergeable_state": "clean"
+          },
+          {
+            "at": "2026-10-18T02:00:05Z",
+            "base.sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "merge_commit_sha": "9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+            "mergeable_state": "clean"
+          },
+          {
+            "at": "2026-10-18T02:00:15Z",
+            "base.sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "merge_commit_sha": "9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+            "mergeable_state": "clean"
+          },
+          {
+            "at": "2026-10-18T02:00:26Z",
+            "base.sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "merge_commit_sha": "9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+            "mergeable_state": "unknown"
+          },
+          {
+            "at": "2026-10-18T02:00:36Z",
+            "base.sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "merge_commit_sha": "c6b66911198bf189dfc3623cf8dc438e626914fa",
+            "mergeable_state": "unstable"
+          },
+          {
+            "at": "2026-10-18T02:00:47Z",
+            "base.sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "merge_commit_sha": "c6b66911198bf189dfc3623cf8dc438e626914fa",
+            "mergeable_state": "unstable"
+          },
+          {
+            "at": "2026-10-18T02:00:57Z",
+            "base.sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "merge_commit_sha": "c6b66911198bf189dfc3623cf8dc438e626914fa",
+            "mergeable_state": "unstable"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/26, after the base moved",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "18360",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sun, 18 Oct 2026 02:00:05 GMT",
+          "etag": "\"c756d05c6659cca21f3a80f96c58b76cb038eb1d6ff86563c1fc4114ae04dca9\"",
+          "last-modified": "Sun, 18 Oct 2026 01:59:04 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "CC2B:35CD7E:303DC8:9D2B5E:6AD42825",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4560",
+          "x-ratelimit-reset": "1792289927",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "440"
+        },
+        "body": {
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26",
+          "id": 4905601986,
+          "node_id": "PR_kwDOVFD6788AAAABJGWLwg",
+          "html_url": "https://github.com/combsmith/software-factory-canary/pull/26",
+          "diff_url": "https://github.com/combsmith/software-factory-canary/pull/26.diff",
+          "patch_url": "https://github.com/combsmith/software-factory-canary/pull/26.patch",
+          "issue_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26",
+          "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/commits",
+          "review_comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/comments",
+          "review_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/comments{/number}",
+          "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26/comments",
+          "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+          "number": 26,
+          "state": "open",
+          "locked": false,
+          "title": "Trials P-28 and P-29: who pushed the head, and the identity of the diff",
+          "user": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "body": "A trial pull request. It is closed and its branch deleted when the trial ends.\n\n<!-- This is an auto-generated description by cubic. -->\n<a href=\"https://cubic.dev/pr/combsmith/software-factory-canary/pull/26?utm_source=github\" target=\"_blank\" rel=\"noopener noreferrer\" data-no-image-dialog=\"true\"><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://www.cubic.dev/buttons/review-in-cubic-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://www.cubic.dev/buttons/review-in-cubic-light.svg\"><img alt=\"View guided diff\" src=\"https://www.cubic.dev/buttons/review-in-cubic-light.svg\"></picture></a> <a href=\"https://www.cubic.dev/action/auto-fix/pr/combsmith/software-factory-canary/26?returnTo=https%3A%2F%2Fgithub.com%2Fcombsmith%2Fsoftware-factory-canary%2Fpull%2F26&source=description\" target=\"_blank\" rel=\"noopener noreferrer\" data-no-image-dialog=\"true\"><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://www.cubic.dev/buttons/turn-on-auto-fix-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://www.cubic.dev/buttons/turn-on-auto-fix-light.svg\"><img alt=\"Turn on auto-fix\" src=\"https://www.cubic.dev/buttons/turn-on-auto-fix-light.svg\"></picture></a>\n<!-- End of auto-generated description by cubic. -->\n\n",
+          "labels": [],
+          "milestone": null,
+          "active_lock_reason": null,
+          "created_at": "2026-10-18T01:57:30Z",
+          "updated_at": "2026-10-18T01:59:04Z",
+          "closed_at": null,
+          "merged_at": null,
+          "merge_commit_sha": "9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+          "assignee": null,
+          "assignees": [],
+          "requested_reviewers": [],
+          "requested_teams": [],
+          "head": {
+            "label": "combsmith:p28-p29/content",
+            "ref": "p28-p29/content",
+            "repo": {
+              "id": 1414593263,
+              "node_id": "R_kgDOVFD67w",
+              "name": "software-factory-canary",
+              "full_name": "combsmith/software-factory-canary",
+              "owner": {
+                "login": "combsmith",
+                "id": 258516906,
+                "node_id": "O_kgDOD2inqg",
+                "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/combsmith",
+                "html_url": "https://github.com/combsmith",
+                "followers_url": "https://api.github.com/users/combsmith/followers",
+                "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                "repos_url": "https://api.github.com/users/combsmith/repos",
+                "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "private": false,
+              "fork": false,
+              "archived": false,
+              "disabled": false,
+              "description": "Throwaway repo for the Factory's platform trials. Nothing here is depended on.",
+              "homepage": null,
+              "language": null,
+              "visibility": "public",
+              "is_template": false,
+              "topics": [],
+              "forks_count": 0,
+              "forks": 0,
+              "stargazers_count": 0,
+              "watchers_count": 0,
+              "watchers": 0,
+              "open_issues_count": 27,
+              "open_issues": 27,
+              "size": 2,
+              "default_branch": "main",
+              "has_issues": true,
+              "has_projects": true,
+              "has_wiki": true,
+              "has_pages": false,
+              "has_downloads": false,
+              "has_discussions": false,
+              "has_pull_requests": true,
+              "pushed_at": "2026-10-18T01:59:09Z",
+              "created_at": "2026-10-11T17:23:37Z",
+              "updated_at": "2026-10-18T01:58:18Z",
+              "allow_forking": true,
+              "web_commit_signoff_required": false,
+              "pull_request_creation_policy": "all",
+              "license": null,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+              "html_url": "https://github.com/combsmith/software-factory-canary",
+              "archive_url": "https://api.github.com/repos/combsmith/software-factory-canary/{archive_format}{/ref}",
+              "assignees_url": "https://api.github.com/repos/combsmith/software-factory-canary/assignees{/user}",
+              "blobs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs{/sha}",
+              "branches_url": "https://api.github.com/repos/combsmith/software-factory-canary/branches{/branch}",
+              "collaborators_url": "https://api.github.com/repos/combsmith/software-factory-canary/collaborators{/collaborator}",
+              "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/comments{/number}",
+              "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits{/sha}",
+              "compare_url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/{base}...{head}",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/{+path}",
+              "contributors_url": "https://api.github.com/repos/combsmith/software-factory-canary/contributors",
+              "deployments_url": "https://api.github.com/repos/combsmith/software-factory-canary/deployments",
+              "downloads_url": "https://api.github.com/repos/combsmith/software-factory-canary/downloads",
+              "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/events",
+              "forks_url": "https://api.github.com/repos/combsmith/software-factory-canary/forks",
+              "git_commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits{/sha}",
+              "git_refs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs{/sha}",
+              "git_tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/tags{/sha}",
+              "git_url": "git://github.com/combsmith/software-factory-canary.git",
+              "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments{/number}",
+              "issue_events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events{/number}",
+              "issues_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues{/number}",
+              "keys_url": "https://api.github.com/repos/combsmith/software-factory-canary/keys{/key_id}",
+              "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/labels{/name}",
+              "languages_url": "https://api.github.com/repos/combsmith/software-factory-canary/languages",
+              "merges_url": "https://api.github.com/repos/combsmith/software-factory-canary/merges",
+              "milestones_url": "https://api.github.com/repos/combsmith/software-factory-canary/milestones{/number}",
+              "notifications_url": "https://api.github.com/repos/combsmith/software-factory-canary/notifications{?since,all,participating}",
+              "pulls_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls{/number}",
+              "releases_url": "https://api.github.com/repos/combsmith/software-factory-canary/releases{/id}",
+              "ssh_url": "git@github.com:combsmith/software-factory-canary.git",
+              "stargazers_url": "https://api.github.com/repos/combsmith/software-factory-canary/stargazers",
+              "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/{sha}",
+              "subscribers_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscribers",
+              "subscription_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscription",
+              "tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/tags",
+              "teams_url": "https://api.github.com/repos/combsmith/software-factory-canary/teams",
+              "trees_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees{/sha}",
+              "clone_url": "https://github.com/combsmith/software-factory-canary.git",
+              "mirror_url": null,
+              "hooks_url": "https://api.github.com/repos/combsmith/software-factory-canary/hooks",
+              "svn_url": "https://github.com/combsmith/software-factory-canary"
+            },
+            "sha": "3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+            "user": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          "base": {
+            "label": "combsmith:main",
+            "ref": "main",
+            "repo": {
+              "id": 1414593263,
+              "node_id": "R_kgDOVFD67w",
+              "name": "software-factory-canary",
+              "full_name": "combsmith/software-factory-canary",
+              "owner": {
+                "login": "combsmith",
+                "id": 258516906,
+                "node_id": "O_kgDOD2inqg",
+                "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/combsmith",
+                "html_url": "https://github.com/combsmith",
+                "followers_url": "https://api.github.com/users/combsmith/followers",
+                "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                "repos_url": "https://api.github.com/users/combsmith/repos",
+                "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "private": false,
+              "fork": false,
+              "archived": false,
+              "disabled": false,
+              "description": "Throwaway repo for the Factory's platform trials. Nothing here is depended on.",
+              "homepage": null,
+              "language": null,
+              "visibility": "public",
+              "is_template": false,
+              "topics": [],
+              "forks_count": 0,
+              "forks": 0,
+              "stargazers_count": 0,
+              "watchers_count": 0,
+              "watchers": 0,
+              "open_issues_count": 27,
+              "open_issues": 27,
+              "size": 2,
+              "default_branch": "main",
+              "has_issues": true,
+              "has_projects": true,
+              "has_wiki": true,
+              "has_pages": false,
+              "has_downloads": false,
+              "has_discussions": false,
+              "has_pull_requests": true,
+              "pushed_at": "2026-10-18T01:59:09Z",
+              "created_at": "2026-10-11T17:23:37Z",
+              "updated_at": "2026-10-18T01:58:18Z",
+              "allow_forking": true,
+              "web_commit_signoff_required": false,
+              "pull_request_creation_policy": "all",
+              "license": null,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+              "html_url": "https://github.com/combsmith/software-factory-canary",
+              "archive_url": "https://api.github.com/repos/combsmith/software-factory-canary/{archive_format}{/ref}",
+              "assignees_url": "https://api.github.com/repos/combsmith/software-factory-canary/assignees{/user}",
+              "blobs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs{/sha}",
+              "branches_url": "https://api.github.com/repos/combsmith/software-factory-canary/branches{/branch}",
+              "collaborators_url": "https://api.github.com/repos/combsmith/software-factory-canary/collaborators{/collaborator}",
+              "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/comments{/number}",
+              "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits{/sha}",
+              "compare_url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/{base}...{head}",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/{+path}",
+              "contributors_url": "https://api.github.com/repos/combsmith/software-factory-canary/contributors",
+              "deployments_url": "https://api.github.com/repos/combsmith/software-factory-canary/deployments",
+              "downloads_url": "https://api.github.com/repos/combsmith/software-factory-canary/downloads",
+              "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/events",
+              "forks_url": "https://api.github.com/repos/combsmith/software-factory-canary/forks",
+              "git_commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits{/sha}",
+              "git_refs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs{/sha}",
+              "git_tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/tags{/sha}",
+              "git_url": "git://github.com/combsmith/software-factory-canary.git",
+              "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments{/number}",
+              "issue_events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events{/number}",
+              "issues_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues{/number}",
+              "keys_url": "https://api.github.com/repos/combsmith/software-factory-canary/keys{/key_id}",
+              "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/labels{/name}",
+              "languages_url": "https://api.github.com/repos/combsmith/software-factory-canary/languages",
+              "merges_url": "https://api.github.com/repos/combsmith/software-factory-canary/merges",
+              "milestones_url": "https://api.github.com/repos/combsmith/software-factory-canary/milestones{/number}",
+              "notifications_url": "https://api.github.com/repos/combsmith/software-factory-canary/notifications{?since,all,participating}",
+              "pulls_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls{/number}",
+              "releases_url": "https://api.github.com/repos/combsmith/software-factory-canary/releases{/id}",
+              "ssh_url": "git@github.com:combsmith/software-factory-canary.git",
+              "stargazers_url": "https://api.github.com/repos/combsmith/software-factory-canary/stargazers",
+              "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/{sha}",
+              "subscribers_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscribers",
+              "subscription_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscription",
+              "tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/tags",
+              "teams_url": "https://api.github.com/repos/combsmith/software-factory-canary/teams",
+              "trees_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees{/sha}",
+              "clone_url": "https://github.com/combsmith/software-factory-canary.git",
+              "mirror_url": null,
+              "hooks_url": "https://api.github.com/repos/combsmith/software-factory-canary/hooks",
+              "svn_url": "https://github.com/combsmith/software-factory-canary"
+            },
+            "sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "user": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          "_links": {
+            "comments": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26/comments"
+            },
+            "commits": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/commits"
+            },
+            "statuses": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/pull/26"
+            },
+            "issue": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26"
+            },
+            "review_comments": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/comments"
+            },
+            "review_comment": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/comments{/number}"
+            },
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26"
+            }
+          },
+          "author_association": "MEMBER",
+          "auto_merge": null,
+          "draft": false,
+          "merged": false,
+          "mergeable": true,
+          "rebaseable": true,
+          "mergeable_state": "clean",
+          "merged_by": null,
+          "comments": 3,
+          "review_comments": 0,
+          "maintainer_can_modify": false,
+          "commits": 1,
+          "additions": 3,
+          "deletions": 0,
+          "changed_files": 1
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/26 (the diff, against the merge base), after the base moved",
+        "headers": {
+          "accept": "application/vnd.github.diff",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "243",
+          "content-type": "application/vnd.github.diff; charset=utf-8",
+          "date": "Sun, 18 Oct 2026 02:00:06 GMT",
+          "etag": "\"ea98105a5f9e266ad94b12cb8552f9aa92574720fdcbe9e340fba82257aff7ce\"",
+          "last-modified": "Sun, 18 Oct 2026 01:59:04 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; param=diff",
+          "x-github-request-id": "CC2D:388A0E:2FE819:9CBF96:6AD42825",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4558",
+          "x-ratelimit-reset": "1792289927",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "442"
+        },
+        "body": "diff --git a/p28-p29/content.txt b/p28-p29/content.txt\nnew file mode 100644\nindex 0000000..3b97c57\n--- /dev/null\n+++ b/p28-p29/content.txt\n@@ -0,0 +1,3 @@\n+Trials P-28 and P-29: a pull request whose head a person pushes.\n+line two\n+line three\n"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh api repos/combsmith/software-factory-canary/pulls/26 -H 'Accept: application/vnd.github.diff' -H 'X-GitHub-Api-Version: 2022-11-28' | shasum -a 256, the diff hashed as it arrives and never stored, after the base moved",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "4dbca8c198da4fc9a2b9e122f9196b0cff04b71b01d17b53f801cde6164ba6c1  -"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/branches/main, after the base moved",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sun, 18 Oct 2026 02:00:06 GMT",
+          "etag": "W/\"38dd56d14fc4ca8a87ae6b0ef50690affbef9a0c0605d708a1d61320288d9a6c\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "CC30:1FF7D1:2D7EA9:921F5C:6AD42826",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4556",
+          "x-ratelimit-reset": "1792289927",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "444"
+        },
+        "body": {
+          "name": "main",
+          "commit": {
+            "sha": "a260bd6fefee687a16bef3f79139993801fb5936",
+            "node_id": "C_kwDOVFD679oAKGEyNjBiZDZmZWZlZTY4N2ExNmJlZjNmNzkxMzk5OTM4MDFmYjU5MzY",
+            "commit": {
+              "author": {
+                "name": "Don Petry",
+                "email": "36422719+don-petry@users.noreply.github.com",
+                "date": "2026-10-18T01:58:13Z"
+              },
+              "committer": {
+                "name": "Don Petry",
+                "email": "36422719+don-petry@users.noreply.github.com",
+                "date": "2026-10-18T01:58:13Z"
+              },
+              "message": "Trial P-29: move main forward with a commit unrelated to the trial pull request",
+              "tree": {
+                "sha": "0d7b329f05bc594f4be84b3a939ac34f03ab170f",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/0d7b329f05bc594f4be84b3a939ac34f03ab170f"
+              },
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/a260bd6fefee687a16bef3f79139993801fb5936",
+              "comment_count": 0,
+              "verification": {
+                "verified": false,
+                "reason": "unsigned",
+                "signature": null,
+                "payload": null,
+                "verified_at": null
+              }
+            },
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/a260bd6fefee687a16bef3f79139993801fb5936",
+            "html_url": "https://github.com/combsmith/software-factory-canary/commit/a260bd6fefee687a16bef3f79139993801fb5936",
+            "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/a260bd6fefee687a16bef3f79139993801fb5936/comments",
+            "author": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "committer": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "parents": [
+              {
+                "sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/da11d39b310ba339e1928446aa274ea3ee7d62d5",
+                "html_url": "https://github.com/combsmith/software-factory-canary/commit/da11d39b310ba339e1928446aa274ea3ee7d62d5"
+              }
+            ]
+          },
+          "_links": {
+            "self": "https://api.github.com/repos/combsmith/software-factory-canary/branches/main",
+            "html": "https://github.com/combsmith/software-factory-canary/tree/main"
+          },
+          "protected": false,
+          "protection": {
+            "enabled": false,
+            "required_status_checks": {
+              "enforcement_level": "off",
+              "contexts": [],
+              "checks": []
+            }
+          },
+          "protection_url": "https://api.github.com/repos/combsmith/software-factory-canary/branches/main/protection"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/compare/main...p28-p29/content, after the base moved",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sun, 18 Oct 2026 02:00:07 GMT",
+          "etag": "W/\"635415742a4ea7c48f6c6b23200eff9b655e39499b5368b10c0978202c61e783\"",
+          "last-modified": "Sun, 18 Oct 2026 01:58:13 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "CC31:317F96:2E447E:975CF0:6AD42827",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4555",
+          "x-ratelimit-reset": "1792289927",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "445"
+        },
+        "body": {
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/main...p28-p29/content",
+          "html_url": "https://github.com/combsmith/software-factory-canary/compare/main...p28-p29/content",
+          "permalink_url": "https://github.com/combsmith/software-factory-canary/compare/combsmith:a260bd6...combsmith:3884a1a",
+          "diff_url": "https://github.com/combsmith/software-factory-canary/compare/main...p28-p29/content.diff",
+          "patch_url": "https://github.com/combsmith/software-factory-canary/compare/main...p28-p29/content.patch",
+          "base_commit": {
+            "sha": "a260bd6fefee687a16bef3f79139993801fb5936",
+            "node_id": "C_kwDOVFD679oAKGEyNjBiZDZmZWZlZTY4N2ExNmJlZjNmNzkxMzk5OTM4MDFmYjU5MzY",
+            "commit": {
+              "author": {
+                "name": "Don Petry",
+                "email": "36422719+don-petry@users.noreply.github.com",
+                "date": "2026-10-18T01:58:13Z"
+              },
+              "committer": {
+                "name": "Don Petry",
+                "email": "36422719+don-petry@users.noreply.github.com",
+                "date": "2026-10-18T01:58:13Z"
+              },
+              "message": "Trial P-29: move main forward with a commit unrelated to the trial pull request",
+              "tree": {
+                "sha": "0d7b329f05bc594f4be84b3a939ac34f03ab170f",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/0d7b329f05bc594f4be84b3a939ac34f03ab170f"
+              },
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/a260bd6fefee687a16bef3f79139993801fb5936",
+              "comment_count": 0,
+              "verification": {
+                "verified": false,
+                "reason": "unsigned",
+                "signature": null,
+                "payload": null,
+                "verified_at": null
+              }
+            },
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/a260bd6fefee687a16bef3f79139993801fb5936",
+            "html_url": "https://github.com/combsmith/software-factory-canary/commit/a260bd6fefee687a16bef3f79139993801fb5936",
+            "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/a260bd6fefee687a16bef3f79139993801fb5936/comments",
+            "author": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "committer": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "parents": [
+              {
+                "sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/da11d39b310ba339e1928446aa274ea3ee7d62d5",
+                "html_url": "https://github.com/combsmith/software-factory-canary/commit/da11d39b310ba339e1928446aa274ea3ee7d62d5"
+              }
+            ]
+          },
+          "merge_base_commit": {
+            "sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "node_id": "C_kwDOVFD679oAKGRhMTFkMzliMzEwYmEzMzllMTkyODQ0NmFhMjc0ZWEzZWU3ZDYyZDU",
+            "commit": {
+              "author": {
+                "name": "Don Petry",
+                "email": "36422719+don-petry@users.noreply.github.com",
+                "date": "2026-10-18T01:27:47Z"
+              },
+              "committer": {
+                "name": "Don Petry",
+                "email": "36422719+don-petry@users.noreply.github.com",
+                "date": "2026-10-18T01:27:47Z"
+              },
+              "message": "Trials P-17 and P-22: a workflow named for the id a dispatch passes in",
+              "tree": {
+                "sha": "e6e3cf1a53b6531c96dda0e9243cc8e250d71a5b",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/e6e3cf1a53b6531c96dda0e9243cc8e250d71a5b"
+              },
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/da11d39b310ba339e1928446aa274ea3ee7d62d5",
+              "comment_count": 0,
+              "verification": {
+                "verified": false,
+                "reason": "unsigned",
+                "signature": null,
+                "payload": null,
+                "verified_at": null
+              }
+            },
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "html_url": "https://github.com/combsmith/software-factory-canary/commit/da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/da11d39b310ba339e1928446aa274ea3ee7d62d5/comments",
+            "author": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "committer": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "parents": [
+              {
+                "sha": "bd9f7eddfa9b24f3480cccd11d789b8c5d8d9838",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/bd9f7eddfa9b24f3480cccd11d789b8c5d8d9838",
+                "html_url": "https://github.com/combsmith/software-factory-canary/commit/bd9f7eddfa9b24f3480cccd11d789b8c5d8d9838"
+              }
+            ]
+          },
+          "status": "diverged",
+          "ahead_by": 1,
+          "behind_by": 1,
+          "total_commits": 1,
+          "commits": [
+            {
+              "sha": "3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+              "node_id": "C_kwDOVFD679oAKDM4ODRhMWFkNDFkYWEzZDVmZTllYTMzY2M3ZjZjMDU1NzMzMDljZjg",
+              "commit": {
+                "author": {
+                  "name": "Don Petry",
+                  "email": "36422719+don-petry@users.noreply.github.com",
+                  "date": "2026-10-18T01:55:57Z"
+                },
+                "committer": {
+                  "name": "Don Petry",
+                  "email": "36422719+don-petry@users.noreply.github.com",
+                  "date": "2026-10-18T01:55:57Z"
+                },
+                "message": "Trials P-28 and P-29: the first content of a pull request",
+                "tree": {
+                  "sha": "5ff7ce149df5f1d02fbd14d39fbed916a228a016",
+                  "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/5ff7ce149df5f1d02fbd14d39fbed916a228a016"
+                },
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+                "comment_count": 0,
+                "verification": {
+                  "verified": false,
+                  "reason": "unsigned",
+                  "signature": null,
+                  "payload": null,
+                  "verified_at": null
+                }
+              },
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+              "html_url": "https://github.com/combsmith/software-factory-canary/commit/3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+              "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8/comments",
+              "author": {
+                "login": "don-petry",
+                "id": 36422719,
+                "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+                "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/don-petry",
+                "html_url": "https://github.com/don-petry",
+                "followers_url": "https://api.github.com/users/don-petry/followers",
+                "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+                "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+                "organizations_url": "https://api.github.com/users/don-petry/orgs",
+                "repos_url": "https://api.github.com/users/don-petry/repos",
+                "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/don-petry/received_events",
+                "type": "User",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "committer": {
+                "login": "don-petry",
+                "id": 36422719,
+                "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+                "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/don-petry",
+                "html_url": "https://github.com/don-petry",
+                "followers_url": "https://api.github.com/users/don-petry/followers",
+                "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+                "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+                "organizations_url": "https://api.github.com/users/don-petry/orgs",
+                "repos_url": "https://api.github.com/users/don-petry/repos",
+                "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/don-petry/received_events",
+                "type": "User",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "parents": [
+                {
+                  "sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+                  "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/da11d39b310ba339e1928446aa274ea3ee7d62d5",
+                  "html_url": "https://github.com/combsmith/software-factory-canary/commit/da11d39b310ba339e1928446aa274ea3ee7d62d5"
+                }
+              ]
+            }
+          ],
+          "files": [
+            {
+              "sha": "3b97c578f262697feab1f4b9cb71297786d2c5d6",
+              "filename": "p28-p29/content.txt",
+              "status": "added",
+              "additions": 3,
+              "deletions": 0,
+              "changes": 3,
+              "blob_url": "https://github.com/combsmith/software-factory-canary/blob/3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8/p28-p29%2Fcontent.txt",
+              "raw_url": "https://github.com/combsmith/software-factory-canary/raw/3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8/p28-p29%2Fcontent.txt",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p28-p29%2Fcontent.txt?ref=3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+              "patch": "@@ -0,0 +1,3 @@\n+Trials P-28 and P-29: a pull request whose head a person pushes.\n+line two\n+line three"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "git",
+        "call": "git push origin p28-p29/content: a second commit on the head, pushed plainly (a fast-forward) by the Maintainer",
+        "headers": {},
+        "body": {
+          "commit": "94c0619b063ffbd7842a12bff37af2112383ee9b",
+          "parent": "3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+          "author": "Don Petry <36422719+don-petry@users.noreply.github.com>",
+          "committer": "Don Petry <36422719+don-petry@users.noreply.github.com>",
+          "changes": "appends a fourth line to p28-p29/content.txt"
+        }
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "   3884a1a..94c0619  p28-p29/content -> p28-p29/content"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/26, after the plain push",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "18360",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sun, 18 Oct 2026 02:01:14 GMT",
+          "etag": "\"67a69691ba8ee8575618a29e267ad52094c144846a683b071bcad2d7126eaf2c\"",
+          "last-modified": "Sun, 18 Oct 2026 02:00:37 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "CC59:1EFD2A:327913:A4B274:6AD4286A",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4534",
+          "x-ratelimit-reset": "1792289927",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "466"
+        },
+        "body": {
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26",
+          "id": 4905601986,
+          "node_id": "PR_kwDOVFD6788AAAABJGWLwg",
+          "html_url": "https://github.com/combsmith/software-factory-canary/pull/26",
+          "diff_url": "https://github.com/combsmith/software-factory-canary/pull/26.diff",
+          "patch_url": "https://github.com/combsmith/software-factory-canary/pull/26.patch",
+          "issue_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26",
+          "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/commits",
+          "review_comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/comments",
+          "review_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/comments{/number}",
+          "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26/comments",
+          "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/94c0619b063ffbd7842a12bff37af2112383ee9b",
+          "number": 26,
+          "state": "open",
+          "locked": false,
+          "title": "Trials P-28 and P-29: who pushed the head, and the identity of the diff",
+          "user": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "body": "A trial pull request. It is closed and its branch deleted when the trial ends.\n\n<!-- This is an auto-generated description by cubic. -->\n<a href=\"https://cubic.dev/pr/combsmith/software-factory-canary/pull/26?utm_source=github\" target=\"_blank\" rel=\"noopener noreferrer\" data-no-image-dialog=\"true\"><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://www.cubic.dev/buttons/review-in-cubic-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://www.cubic.dev/buttons/review-in-cubic-light.svg\"><img alt=\"View guided diff\" src=\"https://www.cubic.dev/buttons/review-in-cubic-light.svg\"></picture></a> <a href=\"https://www.cubic.dev/action/auto-fix/pr/combsmith/software-factory-canary/26?returnTo=https%3A%2F%2Fgithub.com%2Fcombsmith%2Fsoftware-factory-canary%2Fpull%2F26&source=description\" target=\"_blank\" rel=\"noopener noreferrer\" data-no-image-dialog=\"true\"><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://www.cubic.dev/buttons/turn-on-auto-fix-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://www.cubic.dev/buttons/turn-on-auto-fix-light.svg\"><img alt=\"Turn on auto-fix\" src=\"https://www.cubic.dev/buttons/turn-on-auto-fix-light.svg\"></picture></a>\n<!-- End of auto-generated description by cubic. -->\n\n",
+          "labels": [],
+          "milestone": null,
+          "active_lock_reason": null,
+          "created_at": "2026-10-18T01:57:30Z",
+          "updated_at": "2026-10-18T02:00:37Z",
+          "closed_at": null,
+          "merged_at": null,
+          "merge_commit_sha": "c6b66911198bf189dfc3623cf8dc438e626914fa",
+          "assignee": null,
+          "assignees": [],
+          "requested_reviewers": [],
+          "requested_teams": [],
+          "head": {
+            "label": "combsmith:p28-p29/content",
+            "ref": "p28-p29/content",
+            "repo": {
+              "id": 1414593263,
+              "node_id": "R_kgDOVFD67w",
+              "name": "software-factory-canary",
+              "full_name": "combsmith/software-factory-canary",
+              "owner": {
+                "login": "combsmith",
+                "id": 258516906,
+                "node_id": "O_kgDOD2inqg",
+                "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/combsmith",
+                "html_url": "https://github.com/combsmith",
+                "followers_url": "https://api.github.com/users/combsmith/followers",
+                "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                "repos_url": "https://api.github.com/users/combsmith/repos",
+                "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "private": false,
+              "fork": false,
+              "archived": false,
+              "disabled": false,
+              "description": "Throwaway repo for the Factory's platform trials. Nothing here is depended on.",
+              "homepage": null,
+              "language": null,
+              "visibility": "public",
+              "is_template": false,
+              "topics": [],
+              "forks_count": 0,
+              "forks": 0,
+              "stargazers_count": 0,
+              "watchers_count": 0,
+              "watchers": 0,
+              "open_issues_count": 27,
+              "open_issues": 27,
+              "size": 2,
+              "default_branch": "main",
+              "has_issues": true,
+              "has_projects": true,
+              "has_wiki": true,
+              "has_pages": false,
+              "has_downloads": false,
+              "has_discussions": false,
+              "has_pull_requests": true,
+              "pushed_at": "2026-10-18T02:00:23Z",
+              "created_at": "2026-10-11T17:23:37Z",
+              "updated_at": "2026-10-18T01:58:18Z",
+              "allow_forking": true,
+              "web_commit_signoff_required": false,
+              "pull_request_creation_policy": "all",
+              "license": null,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+              "html_url": "https://github.com/combsmith/software-factory-canary",
+              "archive_url": "https://api.github.com/repos/combsmith/software-factory-canary/{archive_format}{/ref}",
+              "assignees_url": "https://api.github.com/repos/combsmith/software-factory-canary/assignees{/user}",
+              "blobs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs{/sha}",
+              "branches_url": "https://api.github.com/repos/combsmith/software-factory-canary/branches{/branch}",
+              "collaborators_url": "https://api.github.com/repos/combsmith/software-factory-canary/collaborators{/collaborator}",
+              "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/comments{/number}",
+              "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits{/sha}",
+              "compare_url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/{base}...{head}",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/{+path}",
+              "contributors_url": "https://api.github.com/repos/combsmith/software-factory-canary/contributors",
+              "deployments_url": "https://api.github.com/repos/combsmith/software-factory-canary/deployments",
+              "downloads_url": "https://api.github.com/repos/combsmith/software-factory-canary/downloads",
+              "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/events",
+              "forks_url": "https://api.github.com/repos/combsmith/software-factory-canary/forks",
+              "git_commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits{/sha}",
+              "git_refs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs{/sha}",
+              "git_tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/tags{/sha}",
+              "git_url": "git://github.com/combsmith/software-factory-canary.git",
+              "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments{/number}",
+              "issue_events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events{/number}",
+              "issues_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues{/number}",
+              "keys_url": "https://api.github.com/repos/combsmith/software-factory-canary/keys{/key_id}",
+              "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/labels{/name}",
+              "languages_url": "https://api.github.com/repos/combsmith/software-factory-canary/languages",
+              "merges_url": "https://api.github.com/repos/combsmith/software-factory-canary/merges",
+              "milestones_url": "https://api.github.com/repos/combsmith/software-factory-canary/milestones{/number}",
+              "notifications_url": "https://api.github.com/repos/combsmith/software-factory-canary/notifications{?since,all,participating}",
+              "pulls_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls{/number}",
+              "releases_url": "https://api.github.com/repos/combsmith/software-factory-canary/releases{/id}",
+              "ssh_url": "git@github.com:combsmith/software-factory-canary.git",
+              "stargazers_url": "https://api.github.com/repos/combsmith/software-factory-canary/stargazers",
+              "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/{sha}",
+              "subscribers_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscribers",
+              "subscription_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscription",
+              "tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/tags",
+              "teams_url": "https://api.github.com/repos/combsmith/software-factory-canary/teams",
+              "trees_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees{/sha}",
+              "clone_url": "https://github.com/combsmith/software-factory-canary.git",
+              "mirror_url": null,
+              "hooks_url": "https://api.github.com/repos/combsmith/software-factory-canary/hooks",
+              "svn_url": "https://github.com/combsmith/software-factory-canary"
+            },
+            "sha": "94c0619b063ffbd7842a12bff37af2112383ee9b",
+            "user": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          "base": {
+            "label": "combsmith:main",
+            "ref": "main",
+            "repo": {
+              "id": 1414593263,
+              "node_id": "R_kgDOVFD67w",
+              "name": "software-factory-canary",
+              "full_name": "combsmith/software-factory-canary",
+              "owner": {
+                "login": "combsmith",
+                "id": 258516906,
+                "node_id": "O_kgDOD2inqg",
+                "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/combsmith",
+                "html_url": "https://github.com/combsmith",
+                "followers_url": "https://api.github.com/users/combsmith/followers",
+                "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                "repos_url": "https://api.github.com/users/combsmith/repos",
+                "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "private": false,
+              "fork": false,
+              "archived": false,
+              "disabled": false,
+              "description": "Throwaway repo for the Factory's platform trials. Nothing here is depended on.",
+              "homepage": null,
+              "language": null,
+              "visibility": "public",
+              "is_template": false,
+              "topics": [],
+              "forks_count": 0,
+              "forks": 0,
+              "stargazers_count": 0,
+              "watchers_count": 0,
+              "watchers": 0,
+              "open_issues_count": 27,
+              "open_issues": 27,
+              "size": 2,
+              "default_branch": "main",
+              "has_issues": true,
+              "has_projects": true,
+              "has_wiki": true,
+              "has_pages": false,
+              "has_downloads": false,
+              "has_discussions": false,
+              "has_pull_requests": true,
+              "pushed_at": "2026-10-18T02:00:23Z",
+              "created_at": "2026-10-11T17:23:37Z",
+              "updated_at": "2026-10-18T01:58:18Z",
+              "allow_forking": true,
+              "web_commit_signoff_required": false,
+              "pull_request_creation_policy": "all",
+              "license": null,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+              "html_url": "https://github.com/combsmith/software-factory-canary",
+              "archive_url": "https://api.github.com/repos/combsmith/software-factory-canary/{archive_format}{/ref}",
+              "assignees_url": "https://api.github.com/repos/combsmith/software-factory-canary/assignees{/user}",
+              "blobs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs{/sha}",
+              "branches_url": "https://api.github.com/repos/combsmith/software-factory-canary/branches{/branch}",
+              "collaborators_url": "https://api.github.com/repos/combsmith/software-factory-canary/collaborators{/collaborator}",
+              "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/comments{/number}",
+              "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits{/sha}",
+              "compare_url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/{base}...{head}",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/{+path}",
+              "contributors_url": "https://api.github.com/repos/combsmith/software-factory-canary/contributors",
+              "deployments_url": "https://api.github.com/repos/combsmith/software-factory-canary/deployments",
+              "downloads_url": "https://api.github.com/repos/combsmith/software-factory-canary/downloads",
+              "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/events",
+              "forks_url": "https://api.github.com/repos/combsmith/software-factory-canary/forks",
+              "git_commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits{/sha}",
+              "git_refs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs{/sha}",
+              "git_tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/tags{/sha}",
+              "git_url": "git://github.com/combsmith/software-factory-canary.git",
+              "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments{/number}",
+              "issue_events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events{/number}",
+              "issues_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues{/number}",
+              "keys_url": "https://api.github.com/repos/combsmith/software-factory-canary/keys{/key_id}",
+              "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/labels{/name}",
+              "languages_url": "https://api.github.com/repos/combsmith/software-factory-canary/languages",
+              "merges_url": "https://api.github.com/repos/combsmith/software-factory-canary/merges",
+              "milestones_url": "https://api.github.com/repos/combsmith/software-factory-canary/milestones{/number}",
+              "notifications_url": "https://api.github.com/repos/combsmith/software-factory-canary/notifications{?since,all,participating}",
+              "pulls_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls{/number}",
+              "releases_url": "https://api.github.com/repos/combsmith/software-factory-canary/releases{/id}",
+              "ssh_url": "git@github.com:combsmith/software-factory-canary.git",
+              "stargazers_url": "https://api.github.com/repos/combsmith/software-factory-canary/stargazers",
+              "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/{sha}",
+              "subscribers_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscribers",
+              "subscription_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscription",
+              "tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/tags",
+              "teams_url": "https://api.github.com/repos/combsmith/software-factory-canary/teams",
+              "trees_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees{/sha}",
+              "clone_url": "https://github.com/combsmith/software-factory-canary.git",
+              "mirror_url": null,
+              "hooks_url": "https://api.github.com/repos/combsmith/software-factory-canary/hooks",
+              "svn_url": "https://github.com/combsmith/software-factory-canary"
+            },
+            "sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+            "user": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          "_links": {
+            "comments": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26/comments"
+            },
+            "commits": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/commits"
+            },
+            "statuses": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/94c0619b063ffbd7842a12bff37af2112383ee9b"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/pull/26"
+            },
+            "issue": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26"
+            },
+            "review_comments": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/comments"
+            },
+            "review_comment": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/comments{/number}"
+            },
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26"
+            }
+          },
+          "author_association": "MEMBER",
+          "auto_merge": null,
+          "draft": false,
+          "merged": false,
+          "mergeable": true,
+          "rebaseable": true,
+          "mergeable_state": "clean",
+          "merged_by": null,
+          "comments": 3,
+          "review_comments": 0,
+          "maintainer_can_modify": false,
+          "commits": 2,
+          "additions": 4,
+          "deletions": 0,
+          "changed_files": 1
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/26 (the diff, against the merge base), after the plain push",
+        "headers": {
+          "accept": "application/vnd.github.diff",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "273",
+          "content-type": "application/vnd.github.diff; charset=utf-8",
+          "date": "Sun, 18 Oct 2026 02:01:15 GMT",
+          "etag": "\"57fd3383c4638644c40a779e713fa8aa7ce2090d9679a6e933889d1f893179fb\"",
+          "last-modified": "Sun, 18 Oct 2026 02:00:37 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; param=diff",
+          "x-github-request-id": "CC5A:20A975:337275:A82E6B:6AD4286B",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4533",
+          "x-ratelimit-reset": "1792289927",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "467"
+        },
+        "body": "diff --git a/p28-p29/content.txt b/p28-p29/content.txt\nnew file mode 100644\nindex 0000000..0e3abed\n--- /dev/null\n+++ b/p28-p29/content.txt\n@@ -0,0 +1,4 @@\n+Trials P-28 and P-29: a pull request whose head a person pushes.\n+line two\n+line three\n+line four, from a plain push\n"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh api repos/combsmith/software-factory-canary/pulls/26 -H 'Accept: application/vnd.github.diff' -H 'X-GitHub-Api-Version: 2022-11-28' | shasum -a 256, the diff hashed as it arrives and never stored, after the plain push",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "90536dc50430fd54840135d38ba3b6c71dc9320ce0f53dfd1c39dffd9d385157  -"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/git/commits/9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762, the merge_commit_sha read before and just after the base moved",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sun, 18 Oct 2026 02:01:31 GMT",
+          "etag": "W/\"65373d056b901d9a7c44366cfa6a7f4c9ca34c076baf01d909cd8f442bd3f3af\"",
+          "last-modified": "Sun, 18 Oct 2026 01:57:30 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "CC64:1D22FF:48702:EC1F7:6AD4287B",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4528",
+          "x-ratelimit-reset": "1792289927",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "472"
+        },
+        "body": {
+          "sha": "9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+          "node_id": "C_kwDOVFD679oAKDljZjdiNmFlZGFkZWQ2Y2ViMjdjNzJlZWJhOWQ1N2QyZjA1YjQ3NjI",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+          "html_url": "https://github.com/combsmith/software-factory-canary/commit/9cf7b6aedaded6ceb27c72eeba9d57d2f05b4762",
+          "author": {
+            "name": "Don Petry",
+            "email": "36422719+don-petry@users.noreply.github.com",
+            "date": "2026-10-18T01:57:30Z"
+          },
+          "committer": {
+            "name": "GitHub",
+            "email": "noreply@github.com",
+            "date": "2026-10-18T01:57:30Z"
+          },
+          "tree": {
+            "sha": "5ff7ce149df5f1d02fbd14d39fbed916a228a016",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/5ff7ce149df5f1d02fbd14d39fbed916a228a016"
+          },
+          "message": "Merge 3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8 into da11d39b310ba339e1928446aa274ea3ee7d62d5",
+          "parents": [
+            {
+              "sha": "da11d39b310ba339e1928446aa274ea3ee7d62d5",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/da11d39b310ba339e1928446aa274ea3ee7d62d5",
+              "html_url": "https://github.com/combsmith/software-factory-canary/commit/da11d39b310ba339e1928446aa274ea3ee7d62d5"
+            },
+            {
+              "sha": "3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+              "html_url": "https://github.com/combsmith/software-factory-canary/commit/3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8"
+            }
+          ],
+          "verification": {
+            "verified": true,
+            "reason": "valid",
+            "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq1CeKCRC1aQ7uu5UhlAAAa6EQAJxpMameBIUO/mUg1Ls3RM4U\nPlOgx/MwY5WZg0BVuvZIXd0vq0eH0dEpGfV3on2viFPEws7jRsf2ghCaLIRTKmFL\nIM46HLnFpiq9tqO/4I9f4XO/EG7Ulyp1FUaORtaD8Ql0/Vmd/NGzAVl6FMBs4Nop\ntr7Z7Mwsy92KH288IkhfB0dsI63f8rSCLOfKDIqqfK3fOQRIjEOsqAkLwAS3a2nb\nebZ2FJW8QND96IZchhOuu2gj8ZO2foCqYDGUNmuWS9IEeifBcmqUWeBRJrt1nKrg\n01k1S53ROQD2Y0CoYv789ndwrRRIheNZpZbwhat5S9aSGOdWLpDW2TxgwVzJDVV7\ncNjxCZ7aSOU22s7zgGCpE5Ce701ZkXCz8Yqu0TohRR2dbxdCsWho52Dutvkpv1D7\nnsfXwxxobSbpWK0GYN9+F7ihl1weET8cJ8Ppntyw8zSp0eRxS43pJ+Db1wkHP4VK\nwCOlwyZEy3IYfqlT55/LBaJBWLdDrUeWtjMoo6ifYXDunrk/qt9pkf2b2H6+M8rW\neYNXzYvatKPINbAtM66NkNgM2FuNvAD2/XyLQOiB9l/Ft1j6vK1ilqlftJA9zgQE\nx9GyKo7Su13BJ/dBvXqS6Y79YpM34zSO32B+M9dGUH+XbVwIsGcMqUdeGyAcX9QC\n9arGN7GDrpDJoXWHr3DV\n=XNNK\n-----END PGP SIGNATURE-----\n",
+            "payload": "tree 5ff7ce149df5f1d02fbd14d39fbed916a228a016\nparent da11d39b310ba339e1928446aa274ea3ee7d62d5\nparent 3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8\nauthor Don Petry <36422719+don-petry@users.noreply.github.com> 1792288650 -0500\ncommitter GitHub <noreply@github.com> 1792288650 -0500\n\nMerge 3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8 into da11d39b310ba339e1928446aa274ea3ee7d62d5\n",
+            "verified_at": "2026-10-18T01:57:31Z"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/git/commits/c6b66911198bf189dfc3623cf8dc438e626914fa, the merge_commit_sha read after the plain push",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sun, 18 Oct 2026 02:01:31 GMT",
+          "etag": "W/\"e9b7bd3a16b83ac23849febea8bf1a97873729eadb5ac958f224f8ffa0dea4a0\"",
+          "last-modified": "Sun, 18 Oct 2026 02:00:26 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "CC65:18C49:E52853:2E7B702:6AD4287B",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4527",
+          "x-ratelimit-reset": "1792289927",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "473"
+        },
+        "body": {
+          "sha": "c6b66911198bf189dfc3623cf8dc438e626914fa",
+          "node_id": "C_kwDOVFD679oAKGM2YjY2OTExMTk4YmYxODlkZmMzNjIzY2Y4ZGM0MzhlNjI2OTE0ZmE",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/c6b66911198bf189dfc3623cf8dc438e626914fa",
+          "html_url": "https://github.com/combsmith/software-factory-canary/commit/c6b66911198bf189dfc3623cf8dc438e626914fa",
+          "author": {
+            "name": "Don Petry",
+            "email": "36422719+don-petry@users.noreply.github.com",
+            "date": "2026-10-18T02:00:26Z"
+          },
+          "committer": {
+            "name": "GitHub",
+            "email": "noreply@github.com",
+            "date": "2026-10-18T02:00:26Z"
+          },
+          "tree": {
+            "sha": "7548bf3c6c9b443cddfc8aeb79b6f86a1ce45577",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/7548bf3c6c9b443cddfc8aeb79b6f86a1ce45577"
+          },
+          "message": "Merge 94c0619b063ffbd7842a12bff37af2112383ee9b into a260bd6fefee687a16bef3f79139993801fb5936",
+          "parents": [
+            {
+              "sha": "a260bd6fefee687a16bef3f79139993801fb5936",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/a260bd6fefee687a16bef3f79139993801fb5936",
+              "html_url": "https://github.com/combsmith/software-factory-canary/commit/a260bd6fefee687a16bef3f79139993801fb5936"
+            },
+            {
+              "sha": "94c0619b063ffbd7842a12bff37af2112383ee9b",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/94c0619b063ffbd7842a12bff37af2112383ee9b",
+              "html_url": "https://github.com/combsmith/software-factory-canary/commit/94c0619b063ffbd7842a12bff37af2112383ee9b"
+            }
+          ],
+          "verification": {
+            "verified": true,
+            "reason": "valid",
+            "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq1Cg6CRC1aQ7uu5UhlAAA5e0QAEq+S/qjf6fHWb6P2YzXzY1+\nCXj/qMTFe29mqqRdtxXvvBvXa7D/GoxsGq+a8t4i953cx5nCz9iVB2vWGe/Sl91X\nueNGNdb7R5WOpULq6gCftogrIjESdO9hqsVNFNy8j+yHZ/FtLNcuFxARCbb9EdRJ\nLa8JoujDWD11751wMa7/ITqHWFWaBQY0OPFMOXhJ+LgrFg7/iLmNveguMBqMsSye\nt1/Zrk3+ggEIp5vQOEOdP3MvEWFF/eIdjReitWfEkQQ3SCqB9ScrNEWgmEGgqj7g\nTkOZ3eMDyJ8Z4tOTBg/nfPOXMF1Yfl19Hg/GIo/0OZIbfTESfhNo1ZnP6fP5CEYQ\n3/hpqAxik4W6+SE1j4bPJPnmrM55h/aWZs/KpBlNKv57pPjFVtidQJA9BvoV9+I+\nXSyJLbJ+cc4sDb5Pb8OvFkux2qETfZJdUty6yvhN3WX9vB545v4GeKeDc9vxvBel\nondapDfLQxQ3zIm+xtsxH5Km/v/9oMMGByeccBQ91ofFtxfIJGlG54g+yuePLpNx\nqJr1S6BIOTqSxhDuRAs9H+NFPWQihsxZ93T/X/cvt49n7gmDITuYeia2KJrL90Py\nAW7D2DtijnnE1T8jLlUX1iwdd0pjisWMO3AWw/GkrS/lR55wy3fSfHZ9jSF8tH46\nX5bXF3vBe1eYW4LVMXLg\n=+6fO\n-----END PGP SIGNATURE-----\n",
+            "payload": "tree 7548bf3c6c9b443cddfc8aeb79b6f86a1ce45577\nparent a260bd6fefee687a16bef3f79139993801fb5936\nparent 94c0619b063ffbd7842a12bff37af2112383ee9b\nauthor Don Petry <36422719+don-petry@users.noreply.github.com> 1792288826 +0000\ncommitter GitHub <noreply@github.com> 1792288826 +0000\n\nMerge 94c0619b063ffbd7842a12bff37af2112383ee9b into a260bd6fefee687a16bef3f79139993801fb5936\n",
+            "verified_at": "2026-10-18T02:00:27Z"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/compare/a260bd6fefee687a16bef3f79139993801fb5936...3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8 (the diff): the first head against the moved main",
+        "headers": {
+          "accept": "application/vnd.github.diff",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "243",
+          "content-type": "application/vnd.github.diff; charset=utf-8",
+          "date": "Sun, 18 Oct 2026 02:01:52 GMT",
+          "etag": "\"ea98105a5f9e266ad94b12cb8552f9aa92574720fdcbe9e340fba82257aff7ce\"",
+          "last-modified": "Sun, 18 Oct 2026 01:58:13 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; param=diff",
+          "x-github-request-id": "CC6B:25EC5E:FCD4FC:3326221:6AD42890",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4524",
+          "x-ratelimit-reset": "1792289927",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "476"
+        },
+        "body": "diff --git a/p28-p29/content.txt b/p28-p29/content.txt\nnew file mode 100644\nindex 0000000..3b97c57\n--- /dev/null\n+++ b/p28-p29/content.txt\n@@ -0,0 +1,3 @@\n+Trials P-28 and P-29: a pull request whose head a person pushes.\n+line two\n+line three\n"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh api repos/combsmith/software-factory-canary/compare/a260bd6fefee687a16bef3f79139993801fb5936...3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8 -H 'Accept: application/vnd.github.diff' -H 'X-GitHub-Api-Version: 2022-11-28' | shasum -a 256: the first head against the moved main",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "4dbca8c198da4fc9a2b9e122f9196b0cff04b71b01d17b53f801cde6164ba6c1  -"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh api repos/combsmith/software-factory-canary/compare/da11d39b310ba339e1928446aa274ea3ee7d62d5...3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8 -H 'Accept: application/vnd.github.diff' -H 'X-GitHub-Api-Version: 2022-11-28' | shasum -a 256: the first head against main as it was",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "4dbca8c198da4fc9a2b9e122f9196b0cff04b71b01d17b53f801cde6164ba6c1  -"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "git",
+        "call": "git push --force origin p28-p29/content: the second commit amended (git commit --amend, which keeps its author and author date) and force-pushed by the Maintainer",
+        "headers": {},
+        "body": {
+          "commit": "95afbd9c497ff4c92b5cd36d9b02585a2f92e0de",
+          "parent": "3884a1ad41daa3d5fe9ea33cc7f6c05573309cf8",
+          "replaces": "94c0619b063ffbd7842a12bff37af2112383ee9b",
+          "author": "Don Petry <36422719+don-petry@users.noreply.github.com>",
+          "committer": "Don Petry <36422719+don-petry@users.noreply.github.com>",
+          "changes": "the fourth line of p28-p29/content.txt reworded"
+        }
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": " + 94c0619...95afbd9 p28-p29/content -> p28-p29/content (forced update)"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/26, after the force push",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "18363",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Sun, 18 Oct 2026 02:02:16 GMT",
+          "etag": "\"d06a3deaa50c68be754324a56ceb550b145938e99380386e451ed1740317139c\"",
+          "last-modified": "Sun, 18 Oct 2026 02:02:05 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "CC78:21C85B:55FD6:118E9B:6AD428A7",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4517",
+          "x-ratelimit-reset": "1792289927",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "483"
+        },
+        "body": {
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26",
+          "id": 4905601986,
+          "node_id": "PR_kwDOVFD6788AAAABJGWLwg",
+          "html_url": "https://github.com/combsmith/software-factory-canary/pull/26",
+          "diff_url": "https://github.com/combsmith/software-factory-canary/pull/26.diff",
+          "patch_url": "https://github.com/combsmith/software-factory-canary/pull/26.patch",
+          "issue_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26",
+          "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/commits",
+          "review_comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/comments",
+          "review_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/comments{/number}",
+          "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26/comments",
+          "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/95afbd9c497ff4c92b5cd36d9b02585a2f92e0de",
+          "number": 26,
+          "state": "open",
+          "locked": false,
+          "title": "Trials P-28 and P-29: who pushed the head, and the identity of the diff",
+          "user": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "body": "A trial pull request. It is closed and its branch deleted when the trial ends.\n\n<!-- This is an auto-generated description by cubic. -->\n<a href=\"https://cubic.dev/pr/combsmith/software-factory-canary/pull/26?utm_source=github\" target=\"_blank\" rel=\"noopener noreferrer\" data-no-image-dialog=\"true\"><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://www.cubic.dev/buttons/review-in-cubic-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://www.cubic.dev/buttons/review-in-cubic-light.svg\"><img alt=\"View guided diff\" src=\"https://www.cubic.dev/buttons/review-in-cubic-light.svg\"></picture></a> <a href=\"https://www.cubic.dev/action/auto-fix/pr/combsmith/software-factory-canary/26?returnTo=https%3A%2F%2Fgithub.com%2Fcombsmith%2Fsoftware-factory-canary%2Fpull%2F26&source=description\" target=\"_blank\" rel=\"noopener noreferrer\" data-no-image-dialog=\"true\"><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://www.cubic.dev/buttons/turn-on-auto-fix-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://www.cubic.dev/buttons/turn-on-auto-fix-light.svg\"><img alt=\"Turn on auto-fix\" src=\"https://www.cubic.dev/buttons/turn-on-auto-fix-light.svg\"></picture></a>\n<!-- End of auto-generated description by cubic. -->\n\n",
+          "labels": [],
+          "milestone": null,
+          "active_lock_reason": null,
+          "created_at": "2026-10-18T01:57:30Z",
+          "updated_at": "2026-10-18T02:02:05Z",
+          "closed_at": null,
+          "merged_at": null,
+          "merge_commit_sha": "1c4be4edc452fb2c9ee673e52f1583981c4c8fb6",
+          "assignee": null,
+          "assignees": [],
+          "requested_reviewers": [],
+          "requested_teams": [],
+          "head": {
+            "label": "combsmith:p28-p29/content",
+            "ref": "p28-p29/content",
+            "repo": {
+              "id": 1414593263,
+              "node_id": "R_kgDOVFD67w",
+              "name": "software-factory-canary",
+              "full_name": "combsmith/software-factory-canary",
+              "owner": {
+                "login": "combsmith",
+                "id": 258516906,
+                "node_id": "O_kgDOD2inqg",
+                "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/combsmith",
+                "html_url": "https://github.com/combsmith",
+                "followers_url": "https://api.github.com/users/combsmith/followers",
+                "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                "repos_url": "https://api.github.com/users/combsmith/repos",
+                "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "private": false,
+              "fork": false,
+              "archived": false,
+              "disabled": false,
+              "description": "Throwaway repo for the Factory's platform trials. Nothing here is depended on.",
+              "homepage": null,
+              "language": null,
+              "visibility": "public",
+              "is_template": false,
+              "topics": [],
+              "forks_count": 0,
+              "forks": 0,
+              "stargazers_count": 0,
+              "watchers_count": 0,
+              "watchers": 0,
+              "open_issues_count": 27,
+              "open_issues": 27,
+              "size": 2,
+              "default_branch": "main",
+              "has_issues": true,
+              "has_projects": true,
+              "has_wiki": true,
+              "has_pages": false,
+              "has_downloads": false,
+              "has_discussions": false,
+              "has_pull_requests": true,
+              "pushed_at": "2026-10-18T02:02:03Z",
+              "created_at": "2026-10-11T17:23:37Z",
+              "updated_at": "2026-10-18T01:58:18Z",
+              "allow_forking": true,
+              "web_commit_signoff_required": false,
+              "pull_request_creation_policy": "all",
+              "license": null,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+              "html_url": "https://github.com/combsmith/software-factory-canary",
+              "archive_url": "https://api.github.com/repos/combsmith/software-factory-canary/{archive_format}{/ref}",
+              "assignees_url": "https://api.github.com/repos/combsmith/software-factory-canary/assignees{/user}",
+              "blobs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs{/sha}",
+              "branches_url": "https://api.github.com/repos/combsmith/software-factory-canary/branches{/branch}",
+              "collaborators_url": "https://api.github.com/repos/combsmith/software-factory-canary/collaborators{/collaborator}",
+              "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/comments{/number}",
+              "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits{/sha}",
+              "compare_url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/{base}...{head}",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/{+path}",
+              "contributors_url": "https://api.github.com/repos/combsmith/software-factory-canary/contributors",
+              "deployments_url": "https://api.github.com/repos/combsmith/software-factory-canary/deployments",
+              "downloads_url": "https://api.github.com/repos/combsmith/software-factory-canary/downloads",
+              "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/events",
+              "forks_url": "https://api.github.com/repos/combsmith/software-factory-canary/forks",
+              "git_commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits{/sha}",
+              "git_refs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs{/sha}",
+              "git_tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/tags{/sha}",
+              "git_url": "git://github.com/combsmith/software-factory-canary.git",
+              "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments{/number}",
+              "issue_events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events{/number}",
+              "issues_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues{/number}",
+              "keys_url": "https://api.github.com/repos/combsmith/software-factory-canary/keys{/key_id}",
+              "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/labels{/name}",
+              "languages_url": "https://api.github.com/repos/combsmith/software-factory-canary/languages",
+              "merges_url": "https://api.github.com/repos/combsmith/software-factory-canary/merges",
+              "milestones_url": "https://api.github.com/repos/combsmith/software-factory-canary/milestones{/number}",
+              "notifications_url": "https://api.github.com/repos/combsmith/software-factory-canary/notifications{?since,all,participating}",
+              "pulls_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls{/number}",
+              "releases_url": "https://api.github.com/repos/combsmith/software-factory-canary/releases{/id}",
+              "ssh_url": "git@github.com:combsmith/software-factory-canary.git",
+              "stargazers_url": "https://api.github.com/repos/combsmith/software-factory-canary/stargazers",
+              "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/{sha}",
+              "subscribers_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscribers",
+              "subscription_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscription",
+              "tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/tags",
+              "teams_url": "https://api.github.com/repos/combsmith/software-factory-canary/teams",
+              "trees_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees{/sha}",
+              "clone_url": "https://github.com/combsmith/software-factory-canary.git",
+              "mirror_url": null,
+              "hooks_url": "https://api.github.com/repos/combsmith/software-factory-canary/hooks",
+              "svn_url": "https://github.com/combsmith/software-factory-canary"
+            },
+            "sha": "95afbd9c497ff4c92b5cd36d9b02585a2f92e0de",
+            "user": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          "base": {
+            "label": "combsmith:main",
+            "ref": "main",
+            "repo": {
+              "id": 1414593263,
+              "node_id": "R_kgDOVFD67w",
+              "name": "software-factory-canary",
+              "full_name": "combsmith/software-factory-canary",
+              "owner": {
+                "login": "combsmith",
+                "id": 258516906,
+                "node_id": "O_kgDOD2inqg",
+                "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/combsmith",
+                "html_url": "https://github.com/combsmith",
+                "followers_url": "https://api.github.com/users/combsmith/followers",
+                "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                "repos_url": "https://api.github.com/users/combsmith/repos",
+                "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "private": false,
+              "fork": false,
+              "archived": false,
+              "disabled": false,
+              "description": "Throwaway repo for the Factory's platform trials. Nothing here is depended on.",
+              "homepage": null,
+              "language": null,
+              "visibility": "public",
+              "is_template": false,
+              "topics": [],
+              "forks_count": 0,
+              "forks": 0,
+              "stargazers_count": 0,
+              "watchers_count": 0,
+              "watchers": 0,
+              "open_issues_count": 27,
+              "open_issues": 27,
+              "size": 2,
+              "default_branch": "main",
+              "has_issues": true,
+              "has_projects": true,
+              "has_wiki": true,
+              "has_pages": false,
+              "has_downloads": false,
+              "has_discussions": false,
+              "has_pull_requests": true,
+              "pushed_at": "2026-10-18T02:02:03Z",
+              "created_at": "2026-10-11T17:23:37Z",
+              "updated_at": "2026-10-18T01:58:18Z",
+              "allow_forking": true,
+              "web_commit_signoff_required": false,
+              "pull_request_creation_policy": "all",
+              "license": null,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+              "html_url": "https://github.com/combsmith/software-factory-canary",
+              "archive_url": "https://api.github.com/repos/combsmith/software-factory-canary/{archive_format}{/ref}",
+              "assignees_url": "https://api.github.com/repos/combsmith/software-factory-canary/assignees{/user}",
+              "blobs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs{/sha}",
+              "branches_url": "https://api.github.com/repos/combsmith/software-factory-canary/branches{/branch}",
+              "collaborators_url": "https://api.github.com/repos/combsmith/software-factory-canary/collaborators{/collaborator}",
+              "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/comments{/number}",
+              "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits{/sha}",
+              "compare_url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/{base}...{head}",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/{+path}",
+              "contributors_url": "https://api.github.com/repos/combsmith/software-factory-canary/contributors",
+              "deployments_url": "https://api.github.com/repos/combsmith/software-factory-canary/deployments",
+              "downloads_url": "https://api.github.com/repos/combsmith/software-factory-canary/downloads",
+              "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/events",
+              "forks_url": "https://api.github.com/repos/combsmith/software-factory-canary/forks",
+              "git_commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits{/sha}",
+              "git_refs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs{/sha}",
+              "git_tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/tags{/sha}",
+              "git_url": "git://github.com/combsmith/software-factory-canary.git",
+              "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments{/number}",
+              "issue_events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events{/number}",
+              "issues_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues{/number}",
+              "keys_url": "https://api.github.com/repos/combsmith/software-factory-canary/keys{/key_id}",
+              "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/labels{/name}",
+              "languages_url": "https://api.github.com/repos/combsmith/software-factory-canary/languages",
+              "merges_url": "https://api.github.com/repos/combsmith/software-factory-canary/merges",
+              "milestones_url": "https://api.github.com/repos/combsmith/software-factory-canary/milestones{/number}",
+              "notifications_url": "https://api.github.com/repos/combsmith/software-factory-canary/notifications{?since,all,participating}",
+              "pulls_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls{/number}",
+              "releases_url": "https://api.github.com/repos/combsmith/software-factory-canary/releases{/id}",
+              "ssh_url": "git@github.com:combsmith/software-factory-canary.git",
+              "stargazers_url": "https://api.github.com/repos/combsmith/software-factory-canary/stargazers",
+              "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/{sha}",
+              "subscribers_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscribers",
+              "subscription_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscription",
+              "tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/tags",
+              "teams_url": "https://api.github.com/repos/combsmith/software-factory-canary/teams",
+              "trees_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees{/sha}",
+              "clone_url": "https://github.com/combsmith/software-factory-canary.git",
+              "mirror_url": null,
+              "hooks_url": "https://api.github.com/repos/combsmith/software-factory-canary/hooks",
+              "svn_url": "https://github.com/combsmith/software-factory-canary"
+            },
+            "sha": "a260bd6fefee687a16bef3f79139993801fb5936",
+            "user": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          "_links": {
+            "comments": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26/comments"
+            },
+            "commits": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/commits"
+            },
+            "statuses": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/95afbd9c497ff4c92b5cd36d9b02585a2f92e0de"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/pull/26"
+            },
+            "issue": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/issues/26"
+            },
+            "review_comments": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26/comments"
+            },
+            "review_comment": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/comments{/number}"
+            },
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/26"
+            }
+          },
+          "author_association": "MEMBER",
+          "auto_merge": null,
+          "draft": false,
+          "merged": false,
+          "mergeable": true,
+          "rebaseable": true,
+          "mergeable_state": "unstable",
+          "merged_by": null,
+          "comments": 3,
+          "review_comments": 0,
+          "maintainer_can_modify": false,
+          "commits": 2,
+          "additions": 4,
+          "deletions": 0,
+          "changed_files": 1
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/26 (the diff, against the merge base), after the force push",
+        "headers": {
+          "accept": "application/vnd.github.diff",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "273",
+          "content-type": "application/vnd.github.diff; charset=utf-8",
+          "date": "Sun, 18 Oct 2026 02:02:56 GMT",
+          "etag": "\"d369d123498fc44eafd6de76e3eeb72f1c541244a537db3c884cbb37f32cc06f\"",
+          "last-modified": "Sun, 18 Oct 2026 02:02:16 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; param=diff",
+          "x-github-request-id": "CC7F:1A2948:F85B06:3226742:6AD428CF",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4515",
+          "x-ratelimit-reset": "1792289927",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "485"
+        },
+        "body": "diff --git a/p28-p29/content.txt b/p28-p29/content.txt\nnew file mode 100644\nindex 0000000..462e56d\n--- /dev/null\n+++ b/p28-p29/content.txt\n@@ -0,0 +1,4 @@\n+Trials P-28 and P-29: a pull request whose head a person pushes.\n+line two\n+line three\n+line four, from a force push\n"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh api repos/combsmith/software-factory-canary/pulls/26 -H 'Accept: application/vnd.github.diff' -H 'X-GitHub-Api-Version: 2022-11-28' | shasum -a 256, the diff hashed as it arrives and never stored, after the force push",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "d1124196522babcd4ca253b26f4b4421dedc16bab471dd374752cf1256160971  -"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "python3, in the scratch directory, over the redacted captures above: SHA-256 of each diff body as kept here, which matches the hash taken as it arrived",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": {
+          "before the base moved": "4dbca8c198da4fc9a2b9e122f9196b0cff04b71b01d17b53f801cde6164ba6c1",
+          "after the base moved": "4dbca8c198da4fc9a2b9e122f9196b0cff04b71b01d17b53f801cde6164ba6c1",
+          "after the plain push": "90536dc50430fd54840135d38ba3b6c71dc9320ce0f53dfd1c39dffd9d385157",
+          "after the force push": "d1124196522babcd4ca253b26f4b4421dedc16bab471dd374752cf1256160971",
+          "compare, moved main...first head": "4dbca8c198da4fc9a2b9e122f9196b0cff04b71b01d17b53f801cde6164ba6c1"
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
+    "exchanges[12].request.headers.authorization",
+    "exchanges[13].request.headers.authorization",
+    "exchanges[15].request.headers.authorization",
+    "exchanges[16].request.headers.authorization",
+    "exchanges[17].request.headers.authorization",
+    "exchanges[21].request.headers.authorization",
+    "exchanges[22].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}
