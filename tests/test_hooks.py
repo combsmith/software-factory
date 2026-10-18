@@ -724,6 +724,9 @@ class Identity(unittest.TestCase):
                         'cd "$(echo .git)"; cp /tmp/x hooks/pre-push; git -C %s push' % self.here):
             self.assertIn("directory_unreadable", self.refused(command), command)
         self.assertEqual(self.codes("cd ''; echo x > notes.txt; git commit -m x"), "")
+        # cd - then a relative cd doubles where the command may stand: past PLACES_MOST, where it stands is lost.
+        doubling = "cd a; " + "".join("cd -; cd d%d; " % n for n in range(8)) + "git push"
+        self.assertIn("more directories than the hook reads", self.refused(doubling))
         # A commit is read in each directory the command may stand in: one outside a repository cannot be read.
         self.assertIn("unreadable", self.refused("pushd /tmp && popd && git push"))
         self.assertIn("commit_identity_not_maintainer", self.refused("pushd %s && popd && git commit -m x" % self.bad))
@@ -788,7 +791,9 @@ class Identity(unittest.TestCase):
                         "tar xVfC l /tmp/h.tar .git; git push", "tar xsfC s/a/b/ /tmp/h.tar .git; git push",
                         "tar -csf .git/a.tar src; git push", "tar -czg .git/snap -f /tmp/a.tgz src; git push",
                         # ...by its other names too.
-                        "gtar -xf /tmp/h.tar -C .git; git push", "bsdtar -xf /tmp/h.tar -C .git; git push"):
+                        "gtar -xf /tmp/h.tar -C .git; git push", "bsdtar -xf /tmp/h.tar -C .git; git push",
+                        # bsdtar's -H takes no word, where GNU's takes one: each reading is read.
+                        "bsdtar xHf /tmp/a.tar -C .git; git push", "tar xLfC /tmp/h.tar .git; git push"):
             self.assertIn("git_directory_written", self.refused(command), command)
         # By its mode: creating, -C names where it reads; listing or comparing, -f the archive it reads.
         for command in ("tar cf /tmp/b.tar -C .git . && git push", "tar -tf .git/x.tar; git push",
@@ -814,6 +819,13 @@ class Identity(unittest.TestCase):
         for command in ("alias b='bash -c'; b 'cat /tmp/c >> .git/config'; git push",
                         "alias e=eval; e 'cp /tmp/x .git/hooks/pre-push'; git push"):
             self.assertIn("git_directory_written", self.refused(command), command)
+        # The next word's redirections come with it; and a name given more than one value, or unaliased, is read as
+        # each wherever it runs, since the hook does not order definitions.
+        for command in ("alias t='echo '\nalias w='payload > .git/hooks/pre-push'\nt w\ngit push",
+                        "alias x='cp /tmp/a .git/hooks/pre-push'\nx\nalias x=echo\ngit push",
+                        "alias x='tee .git/hooks/pre-push'\nx < /tmp/a\nunalias x\ngit push"):
+            self.assertIn("git_directory_written", self.refused(command), command)
+        self.assertEqual(self.codes("alias x=ls\nx\nalias x='ls -la'\nx\ngit push"), "")
         # An alias read again and again, past ALIAS_MOST, is one the hook cannot read: it is refused, not run on.
         bomb = "alias a0=:\n" + "".join("alias a%d='a%d;a%d'\n" % (n, n - 1, n - 1) for n in range(1, 12)) + "a11; git push"
         self.assertIn("aliases cannot be read", self.refused(bomb))
@@ -858,7 +870,9 @@ class Identity(unittest.TestCase):
                         'echo $(echo hi # )\ngit commit -m x\n)', 'echo "$(# )\ngit commit -m x)"',
                         'echo "$(echo ${x:-${y/)/z}}; git commit -m x)"',
                         # ...with quotes of its own after it, which only a substitution read whole keeps as its own.
-                        'echo "$(echo hi # )\ngit commit -m "x y"\n)"', 'echo "$(echo ${x/)/y}; git commit -m "it\'s")"'):
+                        'echo "$(echo hi # )\ngit commit -m "x y"\n)"', 'echo "$(echo ${x/)/y}; git commit -m "it\'s")"',
+                        # A substitution nested in ${...} is its own: its } does not end the expansion.
+                        'echo "$(echo ${x:-$(echo })}; git commit -m x)"'):
             self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
         for command in ('git commit -m "$(echo "a # b") and $(printf \'%s\' \'#x)\')"',
                         "git commit -m \"$(cat <<'EOF'\n# Title (with parens)\nbody ) here #7, ${not} $(this)\nEOF\n)\"",
@@ -880,7 +894,9 @@ class Identity(unittest.TestCase):
         # Decision 0032: an alias read again and again, an unclosed [ again and again, and cd - again and again.
         bomb = "alias a0=:\n" + "".join("alias a%d='a%d;a%d'\n" % (n, n - 1, n - 1) for n in range(1, 23)) + "a22; git push"
         for command, code in ((bomb, "command_unreadable"), ("cp /tmp/x ." + "[a" * 8000 + "; git push", ""),
-                              ("cd .git; " + "cd -;" * 16000 + " cd %s; git push" % self.here, "")):
+                              ("cd .git; " + "cd -;" * 16000 + " cd %s; git push" % self.here, ""),
+                              ("cd a; " + "".join("cd -; cd d%d; " % n for n in range(40)) + "git push",
+                               "more directories than the hook reads")):
             started = time.monotonic()
             said = self.codes(command)
             self.assertLess(time.monotonic() - started, 5, command[:40])

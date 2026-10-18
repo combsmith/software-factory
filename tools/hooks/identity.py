@@ -210,7 +210,7 @@ PATH_WRITERS = {
     "truncate": ("all", {"-s", "--size", "-r", "--reference"}, set(), None),
     "tar": ("none", {"-T", "--files-from", "-X", "--exclude-from", "--exclude", "-b", "--blocking-factor", "-H",
                      "--format", "-I", "--use-compress-program", "-N", "--newer", "-K", "--starting-file", "-L",
-                     "--tape-length", "-V", "--label", "-F", "--info-script", "--new-volume-script", "-s"},
+                     "--tape-length", "-V", "--label", "-F", "--info-script", "--new-volume-script"},
             {"-C", "--directory", "-f", "--file", "-g", "--listed-incremental"},
             ({"-x", "--extract", "--get"}, {"-C", "--directory"})),
     "curl": ("none", {"-d", "--data", "-H", "--header", "-u", "--user", "-X", "--request", "-F", "--form", "-A",
@@ -232,6 +232,12 @@ PATH_WRITERS.update({name: PATH_WRITERS["tar"] for name in TARS})
 TAR_EXTRACTS = {"-x", "--extract", "--get"}
 TAR_CHANGES = {"-c", "--create", "-r", "--append", "-u", "--update", "-A", "--catenate", "--concatenate", "--delete"}
 TAR_READS = {"-t", "--list", "-d", "--diff", "--compare"}
+# bsdtar's options that take the next word, where GNU tar's, in PATH_WRITERS, differ: its -H, -L and -K take none, and
+# its -s takes a pattern. tar is either, by the system it runs on, so both readings are read (_written).
+TAR_BSD_VALUED = {"-b", "--block-size", "-I", "-T", "--files-from", "-X", "--exclude-from", "--exclude", "--include",
+                  "-s", "--format", "--options", "--newer", "--newer-mtime", "--newer-than", "--newer-mtime-than",
+                  "--older", "--older-mtime", "--older-than", "--older-mtime-than", "--strip-components", "--uname",
+                  "--gname", "--uid", "--gid", "--passphrase"}
 # Programs that write their operands only in place (-i): their options that take the next word, and those whose value
 # is the script, so that the first operand is a file and not the script.
 IN_PLACE = {"sed": ({"-e", "--expression", "-f", "--file", "-l", "--line-length"}, {"-e", "--expression", "-f", "--file"}),
@@ -329,13 +335,16 @@ def _directory(words: list):
 
 
 ALIAS_MOST = 256    # aliases read in one command, at most: past it, the command is one the hook cannot read
+PLACES_MOST = 64    # directories a command may stand in, at most: past it, where it stands cannot be read
 
 
 def _unaliased(commands: list, table: dict, seen: frozenset = frozenset(), budget: list = None) -> list:
-    """`commands` with each alias the command defines (`table`, from shell.alias_values: name to (its value's commands,
-    whether the value ends in a blank)) read as its value where its name stands as the program, as zsh expands it: so
-    that an alias for xargs, a shell, source or eval is read as that program (decision 0032). Its value's commands run
-    in turn, the words before the name going to the first and those after it to the last; a value that ends in a blank
+    """`commands` with each alias the command defines (`table`, from shell.alias_values: name to each value it is
+    given, as (the value's commands, whether it ends in a blank), or None where it is unaliased) read as its value
+    where its name stands as the program, as zsh expands it: so that an alias for xargs, a shell, source or eval is
+    read as that program (decision 0032). A name given more than one value, or unaliased, is read as each, and as
+    itself, wherever it runs: the hook does not order definitions. A value's commands run in turn, the words before
+    the name going to the first and those after it, with their redirections, to the last; a value that ends in a blank
     makes the next word an alias too; a script an aliased shell or eval is given is read as commands of its own; an
     alias already read in a command is not read again. Past ALIAS_MOST aliases read, it raises Unreadable."""
     budget = [ALIAS_MOST] if budget is None else budget
@@ -346,28 +355,36 @@ def _unaliased(commands: list, table: dict, seen: frozenset = frozenset(), budge
         if name not in table or name in seen:
             out.append((words, redirections))
             continue
-        value, trailing = _alias(table, name, budget)
-        value[0] = (words[:at] + value[0][0], value[0][1])
-        last, tail, read = value[-1][0], words[at + 1:], seen | {name}
-        while trailing and tail[:1] and tail[0] in table and tail[0] not in read:
-            # A value that ends in a blank makes the next word an alias too, in bash and zsh.
-            following, trailing = _alias(table, tail[0], budget)
-            if len(following) > 1:
-                raise Unreadable("an alias after one whose value ends in a blank runs more than one command")
-            last, tail, read = last + following[0][0], tail[1:], read | {tail[0]}
-        value[-1] = (last + tail, value[-1][1] + redirections)
-        for each in _unaliased(value, table, read, budget):
-            out += [each] + _unaliased(shell._inner(each[0]), table, read, budget)     # sh -c, eval, an alias gave
+        for alternative in _alias(table, name, budget):
+            if alternative is None:     # where the name is not an alias, it runs as itself
+                out.append((words, redirections))
+                continue
+            value, trailing = alternative
+            value[0] = (words[:at] + value[0][0], value[0][1])
+            last, more, tail, read = value[-1][0], [], words[at + 1:], seen | {name}
+            while trailing and tail[:1] and tail[0] in table and tail[0] not in read:
+                # A value that ends in a blank makes the next word an alias too, in bash and zsh.
+                following = _alias(table, tail[0], budget)
+                if len(following) > 1 or following[0] is None or len(following[0][0]) > 1:
+                    raise Unreadable("an alias after one whose value ends in a blank is one the hook cannot place")
+                (((given, directed),), trailing) = following[0]
+                last, more, tail, read = last + given, more + directed, tail[1:], read | {tail[0]}
+            value[-1] = (last + tail, value[-1][1] + more + redirections)
+            for each in _unaliased(value, table, read, budget):
+                out += [each] + _unaliased(shell._inner(each[0]), table, read, budget)     # sh -c, eval, an alias
     return out
 
 
-def _alias(table: dict, name: str, budget: list) -> tuple:
-    """(a copy of the commands `name`'s value runs, whether the value ends in a blank), one alias read of the budget."""
-    budget[0] -= 1
-    if budget[0] < 0:
-        raise Unreadable("the command reads more than %d aliases, which the hook does not read" % ALIAS_MOST)
-    read, trailing = table[name]
-    return [(list(words), list(redirections)) for words, redirections in read], trailing
+def _alias(table: dict, name: str, budget: list) -> list:
+    """Each value `name` is given, as (a copy of the commands it runs, whether it ends in a blank), or None where it is
+    unaliased; each one alias read of the budget."""
+    out = []
+    for each in table[name]:
+        budget[0] -= 1
+        if budget[0] < 0:
+            raise Unreadable("the command reads more than %d aliases, which the hook does not read" % ALIAS_MOST)
+        out.append(None if each is None else ([(list(w), list(r)) for w, r in each[0]], each[1]))
+    return out
 
 
 def _gh_kind(words: list) -> str:
@@ -436,6 +453,10 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
             # directory it has stood in, and what it writes or commits is read in each (decision 0032).
             places = list(dict.fromkeys(stood if target is None else [_join(place, target) for place in places]))
             stood = list(dict.fromkeys(stood + places))
+            if len(stood) > PLACES_MOST:    # cd - then a relative cd doubles them: past the most, the directory is lost
+                inline.append(("directory_unreadable", "the command may stand in more directories than the hook reads "
+                                                       "(%d); give each a plain path" % PLACES_MOST))
+                places = stood = [None]
             here = places[0] if len(places) == 1 else None
             continue
         runs = _program(words)      # past reserved words, prefixes and wrappers: time bash, if sh, nice sh
@@ -753,8 +774,8 @@ def _written(program: str, args: list) -> list:
     if program not in PATH_WRITERS:
         return []
     which, valued, destinations, stands = PATH_WRITERS[program]
-    if program in TARS:     # bsdtar's -s takes a pattern and GNU tar's takes nothing: both readings are read
-        written = _tar(args, valued, destinations, stands) + _tar(args, valued - {"-s"}, destinations, stands)
+    if program in TARS:     # GNU tar's options and bsdtar's take different words (-H, -s): each reading is read
+        written = _tar(args, valued, destinations, stands) + _tar(args, TAR_BSD_VALUED, destinations, stands)
         return [path for path in dict.fromkeys(written) if path != "-"]
     operands, named, given = _options(args, valued, destinations)
     if which == "last" and set(given) & TARGET:

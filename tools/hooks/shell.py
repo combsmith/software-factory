@@ -300,7 +300,7 @@ def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
         elif comments and close == ")" and c == "#" and (i == start or text[i - 1] in " \t\n;&|()"):
             end = text.find("\n", i)        # a comment runs to the end of its line
             i = (len(text) if end < 0 else end) - 1
-        elif close == ")" and text.startswith("$(", i):
+        elif text.startswith("$(", i):      # a substitution nested in any run, ${...} too, is its own
             i = _balanced(text, i + 2, ")") - 1
         elif c == close and (close != ")" or depth == 0):
             return i + 1
@@ -870,11 +870,22 @@ def expands(code: str) -> bool:
 
 
 def alias_values(text: str, spend=None) -> dict:
-    """{name: (the simple commands its value runs, whether the value ends in a blank)} of each alias the command defines
-    whose value the hook can read, as aliased reads them, so that a hook can read the alias where its name runs
-    (decision 0032)."""
+    """{name: [each value it is given, as (the simple commands it runs, whether it ends in a blank), and None where it
+    is unaliased]} of each alias the command defines whose value the hook can read, as aliased reads them, so that a
+    hook can read the alias where its name runs (decision 0032). The order the shell defines them in is not kept: a
+    name given more than one value, or unaliased, is read as each wherever it runs."""
     values = {}
     aliased(text, set(), spend, values)
+    for words, _ in commands(text, spend):
+        _, command, args = _leading(words)
+        if command == "unalias":
+            names = list(values) if "-a" in args else [_unquoted(w) for w in args if not w.startswith("-")]
+            for name in names:
+                if name in values and None not in values[name]:
+                    values[name].append(None)
+    for name, each in values.items():
+        if len(each) > 1 and None not in each:
+            each.append(None)       # before its first definition, too, the name is itself
     return values
 
 
@@ -901,7 +912,7 @@ def aliased(text: str, names: set, spend=None, values: dict = None) -> set:
                 found.add(_unquoted(name))
                 continue
             if values is not None and read:     # `values`, if given, gets each value that can be read
-                values[_unquoted(name)] = (read, value[-1:] in (" ", "\t"))
+                values.setdefault(_unquoted(name), []).append((read, value[-1:] in (" ", "\t")))
             if {os.path.basename(_unquoted(w)) for inner, _ in read for w in inner} & names:
                 found.add(_unquoted(name))
     return found
