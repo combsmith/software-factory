@@ -530,15 +530,15 @@ An issue has facts of its own (§4.1, the issue Lifecycle):
 
 | Field | Content |
 |---|---|
-| `item`, `state`, `author`, `author_can_write` | Identity, open or closed, the opening actor and whether that actor has write access |
+| `item`, `state`, `author` | Identity, open or closed, and the opening actor: its kind, name and write access, as any actor in the facts. Only a person who opened it accepts it by authorship |
 | `type`, `label_names`, `assignees` | The issue's type, every label's name, and who it is assigned to |
 | `life_started_at`, `reopened_last_by` | When it was opened, or last reopened by a person with write access; and whether its latest reopening was by such a person, by someone else, or never happened |
 | `content_id`, `content_changed_at` | A hash of the title and body, computed by the port, and when either last changed |
-| `labels` | For each control label: who added it, whether that actor is a person with write access or a declared Factory App, and when. Who last removed it, of what kind, and when |
-| `linked` | Each pull request that closes it: number, opening actor and kind, whether an outsider's is admitted, open, draft, merged or closed and when, whether its diff was empty, head branch, whether it carries a Hold, and who last changed its draft flag. For an open draft, that pull request's own facts as above |
+| `label_events` | Every `labeled` and `unlabeled` event on the timeline, as on a pull request: the label, who added or removed it (kind, name and write access), and when. The control labels are read from them alone; every other label is in `label_names` |
+| `linked` | Each pull request that closes it: number, `class` as the port gives it for a pull request, opening actor, open, draft, `merged_at`, `closed_at`, whether its diff was empty, and its own `label_events`, from which its Hold, hands-off and whether a person once admitted it are read |
 | `role_comments` | For each Factory App that has commented: the time of its latest comment |
 | `last_writer_action_at`, `last_writer_comment_at` | The last action on the issue by a person with write access, and that person's last comment |
-| `complete`, `read_at` | As for a pull request |
+| `complete`, `read_at` | As for a pull request; `complete` says whether the `timeline`, the `linked` pull requests and the `runs` were read in full |
 
 No field holds prose. Thread and comment bodies are read by the port into a separate `texts` set,
 keyed by id and labelled with a trust class. An issue's body is classed by its author alone;
@@ -785,7 +785,7 @@ cost is not known exactly; its duration is the estimate.
 
 | Outcome | Example | Counts as an attempt | Then |
 |---|---|---|---|
-| `item` | The Engine produced an invalid Result; the fix did not pass | Yes | The item's attempt ceiling applies |
+| `item` | The Engine produced an invalid Result; a reviewing Result left a criterion uncovered; the fix did not pass | Yes | The item's attempt ceiling applies |
 | `capacity` | The model window ran out mid-Run | No | Every model Run is deferred until the window is expected to reset |
 | `environment` | A token expired; an App was uninstalled; GitHub was unavailable | No | Several in a row pause Admission automatically, raise one alert, and clear when a probe Run succeeds |
 | `superseded` | The item was held or changed before `apply` | No | The next pass decides afresh |
@@ -1258,10 +1258,11 @@ A label **counts** when all of these hold (I-41):
 - for `factory:triage` and `factory:ready`, it was added in the issue's present life. A Hold, an
   admission and hands-off are a person's and outlast a reopening;
 - for `factory:ready` and `factory:admit`, it was added after the issue's content last changed;
-- for a `factory:ready` the Factory added, the readiness Run that completed just before it was
-  added was admitted for the issue's present `content_id`, for as long as that Run's record is
-  kept. After that the time alone is read; a label that did not count will long since have been
-  removed.
+- for a `factory:ready` the Factory added, the latest readiness Run that started no later than
+  the label completed, admitted for the issue's present `content_id`. One still running, or none,
+  as once that Run's record has expired, shows nothing was judged: the label does not count, and
+  the issue stays in `triage` until a person adds `factory:ready` or the content is judged again
+  (decision 0028).
 
 An issue's **content** is its title and its body, and its `content_id` is a hash of the two,
 computed by the port. Comments are not content. A comment from a person with write access steers,

@@ -66,6 +66,15 @@
     "max_acts_per_item": 6,
     "max_path_length": 255
   },
+  "issues": {
+    "served_from": null,
+    "left_out_labels": [],
+    "left_out_types": [],
+    "label_apps": {
+      "factory:triage": null,
+      "factory:ready": null
+    }
+  },
   "stale_after_minutes": {
     "draft": 1440,
     "verifying": 30,
