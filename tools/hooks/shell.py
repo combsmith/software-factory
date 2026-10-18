@@ -110,6 +110,8 @@ def commands(text: str, spend=None, texts: list = None) -> list:
         if in_pattern:
             if punctuation and ")" in token:
                 in_pattern, arm = ";;" in token or ";&" in token, []      # `);;` ends an arm with no body
+            elif punctuation and "(" in token:
+                arm.append("(")         # a pattern has begun: (esac) is a pattern, not the case's end
             elif not punctuation and token == "esac" and not arm:
                 cases, in_pattern = cases - 1, False
             elif not punctuation:
@@ -796,6 +798,27 @@ def defined(text: str, spend=None) -> set:
 TABLE_ALIAS = re.compile(r"^(?:dis_)?g?aliases\[([^]]*)\]\+?=(.*)$", re.S)
 
 
+def expands(code: str) -> bool:
+    """Whether `code`, read as the shell reads it, expands a variable or a command: a `$` or a backtick that no
+    backslash escapes and no single quote holds. `echo \\$HOME` and 'echo $HOME' expand nothing."""
+    quote, i = None, 0
+    while i < len(code):
+        c = code[i]
+        if quote == "'":
+            quote = None if c == "'" else quote
+        elif c == "\\":
+            i += 2
+            continue
+        elif c in "$`":
+            return True
+        elif c == '"':
+            quote = None if quote == '"' else '"'
+        elif c == "'" and quote is None:
+            quote = "'"
+        i += 1
+    return False
+
+
 def aliased(text: str, names: set, spend=None) -> set:
     """The names the command makes an alias for a value that runs one of `names`: a value that holds one of them as a
     word (by its base name: /usr/bin/git is git), in its text or in a script it runs, by alias or zsh's aliases[g]=,
@@ -810,7 +833,7 @@ def aliased(text: str, names: set, spend=None) -> set:
             at += 1
         given = aliases(words) + [(m.group(1), m.group(2)) for m in map(TABLE_ALIAS.match, words[:at]) if m]
         for name, value in given:
-            if "$" in value or "`" in value:
+            if expands(value):
                 found.add(_unquoted(name))
                 continue
             try:

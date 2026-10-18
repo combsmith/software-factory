@@ -539,6 +539,8 @@ class Identity(unittest.TestCase):
         self.assertIn("a shell reads a script", self.refused("source ./x.sh gi''t pu''sh", folder(), programs()))
         # Prose that spells the case out, and an alias that runs neither, define nothing that runs git.
         for command in ("alias ll='ls -la'; git push", "echo alias g=git; git push",
+                        # A $ the shell's quoting makes plain expands nothing.
+                        "alias g='echo \\$HOME'; git push", 'alias g="echo \\$HOME"; git push',
                         'git commit -m "alias g=git, then g push, is refused"',
                         'git commit -m "aliases[g]=git is refused too"', "git commit -m aliases[g]=git",
                         "gh pr create --title x --body 'alias g=git; g push'",
@@ -586,7 +588,10 @@ class Identity(unittest.TestCase):
                         # A wildcard or a brace the shell may expand to .git, and a loop's variable bound to it.
                         "cp /tmp/x .gi?/hooks/pre-push && git push", "cp /tmp/x .gi[t]/hooks/ && git push",
                         "cp /tmp/x .g*/hooks/ && git push", "cp /tmp/x .{git,x}/hooks/ && git push",
-                        "cd .gi? && echo x >> config; cd ..; git push",
+                        "cd .gi? && echo x >> config; cd ..; git push", "cp /tmp/x {a/.git,b}/hooks/ && git push",
+                        "cp /tmp/x .gi{s..u}/hooks/ && git push", "mkdir -p .{g{i{t,x},y},z}; git push",
+                        # Past the words the hook expands, a brace that may still give .git.
+                        "cp /tmp/x {.git,x{1..100}}{a,b,} && git push",
                         "for H in .git/hooks/pre-push; do cp /tmp/x $H; done; git push",
                         'for H in a .git/hooks/x; do cp /tmp/x "${H}"; done; git push'):
             self.assertIn("git_directory_written", self.refused(command), command)
@@ -599,6 +604,11 @@ class Identity(unittest.TestCase):
                         "sed -n 1p .git/HEAD && git push", "awk '{print}' .git/HEAD && git push",
                         "stat .git/HEAD; du -sh .git; git push", "cp .git/HEAD /tmp/x; git push",
                         "cp /tmp/x */hooks/ && git push", "for H in a b; do cp /tmp/x $H; done; git push",
+                        # A brace is read as the words it gives, and a range of digits past them gives no .git.
+                        "mkdir -p {build,dist}; git push", "mkdir -p out/{a,b}/{1..20}; git push",
+                        "mkdir -p out/{1..100000}; git push", "cp /tmp/x .{git,x}{1..100}/ && git push",
+                        # -t names the destination, so every operand is a source.
+                        "cp --target-directory=/tmp .git/HEAD; git push", "cp -t /tmp .git/HEAD; git push",
                         "cd .git && cat HEAD && cd .. && git push", "cd .git && cd .. && git push",
                         "echo x >> .gitignore && git commit -m x", "cp /tmp/x .github/x; git push",
                         'git push > "$TMPDIR/log" 2>&1', "echo .git/hooks/pre-push; git push",
@@ -622,7 +632,10 @@ class Identity(unittest.TestCase):
                         # Every arm's pattern is data, on any line, with its alternatives.
                         'case "$x" in\n git-commit) echo y;;\nesac', 'case "$x" in a) echo a;; git-commit) echo y;; esac',
                         'case "$x" in\n a) echo a;;\n git-commit|git-push) echo y;;\n (git-merge) echo z;;\n *) :\nesac',
-                        'case "$x" in a);; git-commit) :;; esac; echo done'):
+                        'case "$x" in a);; git-commit) :;; esac; echo done',
+                        # After a (, esac is a pattern, not the case's end.
+                        "case x in (esac|git-commit) echo ok;; esac; git status",
+                        "case x in a) :;; (esac) echo e;; git-commit) :;; esac; git status"):
             self.assertEqual(self.codes(command, folder(), programs()), "", command)
         self.assertEqual(self.codes("for f in .git/hooks/*; do cat $f; done; git push"), "")
         for command in ("for f in a b; do git commit -m x; done", "for x in $(git commit -m y); do :; done",

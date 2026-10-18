@@ -214,8 +214,12 @@ PATH_WRITERS = {
 # is the script, so that the first operand is a file and not the script.
 IN_PLACE = {"sed": ({"-e", "--expression", "-f", "--file", "-l", "--line-length"}, {"-e", "--expression", "-f", "--file"}),
             "perl": ({"-e", "-E", "-I", "-l", "-0"}, {"-e", "-E"})}
-# A brace that expands, {a,b} or {1..9}: the hook reads it as a wildcard, as protected.py does.
+# A brace that expands, {a,b} or {1..9}: the hook reads each word it gives, up to BRACE_MOST of them; past that, a
+# range of digits as a digit and any other brace as a wildcard.
 BRACE = re.compile(r"\{[^{}]*(?:,|\.\.)[^{}]*\}")
+NUMBERS = re.compile(r"\{-?\d+\.\.-?\d+(?:\.\.-?\d+)?\}")
+RANGE = re.compile(r"^(-?\d+|[a-zA-Z])\.\.(-?\d+|[a-zA-Z])(?:\.\.(-?\d+))?$")
+BRACE_MOST = 64
 LOOP_MOST = 256     # paths a loop variable is read as, at most
 WILDCARD = re.compile(r"[*?\[]")
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
@@ -425,47 +429,127 @@ def _git_directory(paths: list, here, given: str, loops: dict) -> list:
     path the hook cannot expand is left alone, so that `git push > "$TMPDIR/log"` passes."""
     found = []
     for written in paths:
-        for path in _bound(written, loops):
-            if not path or _expands(path):
+        hits = False
+        for unbraced in _bound(written, loops):
+            if not unbraced or _expands(unbraced):
                 continue
-            path = os.path.expanduser(path)
-            seen = [os.path.normpath(path)]
-            if here is not None or os.path.isabs(path):
-                joined = os.path.normpath(os.path.join(str(here or ""), path))
-                seen += [joined, os.path.realpath(joined)]
-            if any(_names_git(part) for each in seen for part in each.split(os.sep)):
-                found.append(("git_directory_written", "%s writes a path in git's directory, which may change what git "
-                                                       "runs or where a push goes; make the write in a command of its own"
-                              % given))
-                break
+            expanded, exact = _braced(unbraced)
+            for path in expanded:
+                path = os.path.expanduser(path)
+                seen = [os.path.normpath(path)]
+                if here is not None or os.path.isabs(path):
+                    joined = os.path.normpath(os.path.join(str(here or ""), path))
+                    seen += [joined, os.path.realpath(joined)]
+                parts = [part for each in seen for part in each.split(os.sep)]
+                hits = hits or any(_names_git(part) if exact else _globbed(part.casefold()) for part in parts)
+        if hits:
+            found.append(("git_directory_written", "%s writes a path in git's directory, which may change what git "
+                                                   "runs or where a push goes; make the write in a command of its own"
+                          % given))
     return found
 
 
 def _names_git(part: str) -> bool:
-    """Whether one component of a path may name git's directory, in any case: `.git`, or a wildcard or a brace the
-    shell may expand to it (.gi?, .g*, .gi[t], .{git,x}). A wildcard matches a leading dot only when the dot is
+    """Whether one component of a path, its braces expanded, may name git's directory, in any case: `.git`, or a
+    wildcard the shell may expand to it (.gi?, .g*, .gi[t]). A wildcard matches a leading dot only when the dot is
     written, as the shell's does."""
     part = part.casefold()
-    if part == GIT_DIRECTORY:
-        return True
-    if not re.search(r"[*?\[{]", part) or not part.startswith((".", "{")):
-        return False
-    while BRACE.search(part):
-        part = BRACE.sub("*", part)
-    pattern, i = [], 0
-    while i < len(part):
-        c, end = part[i], part.find("]", i + 2) if part[i] == "[" else -1
+    return part == GIT_DIRECTORY or bool(re.search(r"[*?\[]", part) and part.startswith(".") and _globbed(part))
+
+
+def _braced(path: str) -> tuple:
+    """(the paths the brace expansions in `path` give, whether they are exact). Past BRACE_MOST, one path in which a
+    range of digits stands for a digit, which .git holds none of, and any other brace for a wildcard, which may be
+    anything, even a leading dot: not exact."""
+    names = _expansions(path)
+    if names is not None:
+        return names, True
+    while NUMBERS.search(path):
+        path = NUMBERS.sub("0", path)
+    while BRACE.search(path):
+        path = BRACE.sub("*", path)
+    return [path], False
+
+
+def _globbed(pattern: str) -> bool:
+    """Whether a shell pattern for one name matches `.git`."""
+    out, i = [], 0
+    while i < len(pattern):
+        c, end = pattern[i], pattern.find("]", i + 2) if pattern[i] == "[" else -1
         if c in "*?":
-            pattern.append(".*" if c == "*" else ".")
+            out.append(".*" if c == "*" else ".")
         elif end > 0:
-            body = part[i + 1:end]
+            body = pattern[i + 1:end]
             negated = body[:1] in ("!", "^")
-            pattern.append("[%s%s]" % ("^" if negated else "", re.escape(body[1:] if negated else body)))
+            out.append("[%s%s]" % ("^" if negated else "", re.escape(body[1:] if negated else body)))
             i = end
         else:
-            pattern.append(re.escape(c))
+            out.append(re.escape(c))
         i += 1
-    return re.fullmatch("".join(pattern), GIT_DIRECTORY, re.S) is not None
+    return re.fullmatch("".join(out), GIT_DIRECTORY, re.S) is not None
+
+
+def _expansions(word: str, most: int = None):
+    """Each word the brace expansions in `word` give, as bash expands them: {a,b}, nested, and {1..9}, {1..9..2} or
+    {a..e}; a brace that is neither is left as it stands. None when they would be more than `most` (BRACE_MOST)."""
+    most = BRACE_MOST if most is None else most
+    out, todo = [], [word]
+    while todo:
+        each = todo.pop()
+        found = _first_brace(each, most)
+        if found is None:
+            out.append(each)
+        elif found[2] is None:
+            return None
+        else:
+            start, end, alternatives = found
+            todo += [each[:start] + alternative + each[end:] for alternative in alternatives]
+        if len(out) + len(todo) > most:
+            return None
+    return out
+
+
+def _first_brace(word: str, most: int):
+    """(where the first brace expansion in `word` starts, where it ends, what it expands to, None when that is more
+    than `most`), or None when `word` holds none."""
+    start = word.find("{")
+    while start >= 0:
+        depth, i, commas = 0, start, []
+        while i < len(word):
+            if word[i] == "\\":
+                i += 1
+            elif word[i] == "{":
+                depth += 1
+            elif word[i] == "}":
+                depth -= 1
+                if not depth:
+                    break
+            elif word[i] == "," and depth == 1:
+                commas.append(i)
+            i += 1
+        if i >= len(word):
+            return None
+        body = word[start + 1:i]
+        if commas:
+            cuts = [start] + commas + [i]
+            return start, i + 1, [word[a + 1:b] for a, b in zip(cuts, cuts[1:])]
+        ranged = RANGE.match(body)
+        if ranged:
+            low, high, step = ranged.group(1), ranged.group(2), abs(int(ranged.group(3) or 1)) or 1
+            if low.isalpha() != high.isalpha():
+                pass
+            elif low.isalpha():
+                a, b = ord(low), ord(high)
+                if abs(b - a) // step + 1 > most:
+                    return start, i + 1, None
+                return start, i + 1, [chr(c) for c in range(a, b + (1 if b >= a else -1), step if b >= a else -step)]
+            else:
+                a, b = int(low), int(high)
+                if abs(b - a) // step + 1 > most:
+                    return start, i + 1, None
+                return start, i + 1, [str(n) for n in range(a, b + (1 if b >= a else -1), step if b >= a else -step)]
+        start = word.find("{", start + 1)
+    return None
 
 
 def _bound(path: str, loops: dict) -> list:
@@ -509,7 +593,9 @@ def _written(program: str, args: list) -> list:
     if program not in PATH_WRITERS:
         return []
     which, valued, destinations = PATH_WRITERS[program]
-    operands, named, _ = _options(args, valued, destinations)
+    operands, named, given = _options(args, valued, destinations)
+    if which == "last" and set(given) & TARGET:
+        return named        # -t names the destination: every operand is a source
     return named + {"last": operands[-1:], "all": operands, "first": operands[:1], "none": []}[which]
 
 
