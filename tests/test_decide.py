@@ -2138,6 +2138,97 @@ class Ceilings(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
                          ("held", "run_ceiling", "hold", "needs_you"))
 
+    def test_under_a_pause_spent_attempts_hold_the_item_with_no_run_in_flight(self):  # I-8, I-23, decision 0003
+        # Seed 297's Runs with none in flight. A Hold of the brakes is a reading, not an act, and a Pause leaves each
+        # item where it is: the count already spent holds it under a Pause, or one that cannot be read, as without one.
+        r0 = run(conclusion="failure", outcome="superseded", at=at(10), name="r0")
+        failed = [run(conclusion="failure", outcome="item", at=at(11 + i), name="r%d" % (i + 1)) for i in range(3)]
+        for paused, why in ((True, "paused"), (None, "pause_unreadable")):
+            d = go(facts(), [r0] + failed, ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"], d["evidence"]),
+                             ("held", "attempts_exhausted", "hold", "needs_you", ["r1", "r2", "r3"]), paused)
+            # The other side: without r3 nothing is spent, and the Pause defers the review.
+            d = go(facts(), [r0] + failed[:2], ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("verifying", why, "defer"), paused)
+
+    def test_under_a_pause_spent_rounds_hold_the_item(self):  # I-14, decision 0003
+        rounds = LIMITS["max_rounds"]
+        laps = [r for i in range(rounds) for r in (run(intent="adjudicate-findings", at=at(20 + 2 * i), name="o%d" % i),
+                                                   run(role="dev-lead", intent="fix-findings", at=at(21 + 2 * i),
+                                                       name="a%d" % i))]
+        short = [r for r in laps if r["run"] not in ("o%d" % (rounds - 1), "a%d" % (rounds - 1))]
+        for paused, why in ((True, "paused"), (None, "pause_unreadable")):
+            d = go(facts(threads=[thread()]), REVIEWED + laps, ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("held", "max_rounds", "hold", "needs_you"), paused)
+            d = go(facts(threads=[thread()]), REVIEWED + short, ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("adjudicating", why, "defer"), paused)
+
+    def test_under_a_pause_a_spent_run_ceiling_holds_the_item(self):  # I-8, FR-39, decision 0003
+        ceiling = LIMITS["max_runs_per_item"]
+        fixes = [run(role="dev-lead", intent="fix-findings", at=at(10 + i), name="f%d" % i) for i in range(ceiling)]
+        for paused, why in ((True, "paused"), (None, "pause_unreadable")):
+            d = go(facts(), fixes, ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("held", "run_ceiling", "hold", "needs_you"), paused)
+            d = go(facts(), fixes[1:], ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("verifying", why, "defer"), paused)
+
+    def test_under_a_pause_spent_approvals_hold_the_item(self):  # I-8, I-28, decision 0003
+        failed = approvals(LIMITS["max_attempts"])
+        for paused, why in ((True, "paused"), (None, "pause_unreadable")):
+            d = go(facts(), REVIEWED + failed, ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"], d["evidence"]),
+                             ("held", "attempts_exhausted", "hold", "needs_you", [r["run"] for r in failed]), paused)
+            d = go(facts(), REVIEWED + failed[1:], ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("converged", why, "defer"), paused)
+
+    def test_under_a_pause_the_act_ceiling_holds_the_item(self):  # I-8, FR-17, decision 0003
+        limit = LIMITS["max_acts_per_item"]
+        for paused, why in ((True, "paused"), (None, "pause_unreadable")):
+            d = go(facts(acts_since_writer=limit), REVIEWED, ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("held", "act_ceiling", "hold", "needs_you"), paused)
+            d = go(facts(acts_since_writer=limit - 1), REVIEWED, ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("converged", why, "defer"), paused)
+            # A count of acts that cannot be read holds nothing: the Pause defers first, and without one the count does.
+            d = go(facts(acts_since_writer=None), REVIEWED, ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("converged", why, "defer"), paused)
+        d = go(facts(acts_since_writer=None), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("converged", "acts_unreadable", "defer"))
+
+    def test_the_run_ceiling_holds_no_item_that_wants_no_run(self):  # FR-39, I-13, I-23
+        # The Run ceiling bounds model spend. A required check that gave no verdict wants no Run: the item defers for a
+        # person, who is called for that cause alone. Once a Run is wanted again, the ceiling holds before any is
+        # admitted. An approved item's enqueue spends no model, and goes ahead.
+        ceiling = LIMITS["max_runs_per_item"]
+        spent = [run(conclusion="failure", outcome="environment", at=at(10 + i), name="e%d" % i) for i in range(ceiling)]
+        neutral, failing = with_check(1, "neutral"), with_check(1, "failure")
+        for paused in (False, True, None):
+            d = go(facts(checks=neutral), spent, ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("verifying", "check_unreadable", "defer", "needs_you"), paused)
+            d = go(facts(checks=failing), spent, ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "run_ceiling", "hold"), paused)
+        d = go(facts(reviews=APPROVED), REVIEWED + spent)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
+                         ("converged", "approved", "act", "enqueue"))
+
+    def test_the_run_ceiling_holds_no_item_that_wants_no_run_while_a_run_waits(self):  # FR-39, I-2
+        ceiling = LIMITS["max_runs_per_item"]
+        spent = [run(conclusion="failure", outcome="environment", at=at(10 + i), name="e%d" % i) for i in range(ceiling)]
+        waiting = dict(run(status="in_progress", at=at(40), name="w"), status="queued")
+        neutral, failing = with_check(1, "neutral"), with_check(1, "failure")
+        for paused in (False, True, None):
+            d = go(facts(checks=neutral), spent + [waiting], ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("verifying", "check_unreadable", "nothing", "working"), paused)
+            d = go(facts(checks=failing), spent + [waiting], ctx=context(paused=paused))
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "run_ceiling", "hold"), paused)
+        d = go(facts(reviews=APPROVED), REVIEWED + spent + [waiting])
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                         ("converged", "approved", "nothing", "working"))
+
     def test_an_approval_that_does_not_land_is_bounded(self):  # I-8, I-28
         failed = approvals(LIMITS["max_attempts"])
         d = go(facts(), REVIEWED + failed)
@@ -2211,6 +2302,16 @@ class Ceilings(unittest.TestCase):
                 d = go(f, REVIEWED)
                 self.assertEqual((d["state"], d["outcome"], d["reason"]), ("converged", "defer", "acts_unreadable"),
                                  (reviews, value))
+
+    def test_under_a_pause_an_unreadable_count_of_acts_defers_for_the_pause(self):  # I-13, decision 0003
+        # A count of acts that cannot be read holds nothing, so it is read after the Pause: the item defers for the
+        # Pause, or for one that cannot be read, and only with no Pause for the count.
+        for reviews in ([], APPROVED):
+            for value in (None, -1, True):
+                for paused, why in ((True, "paused"), (None, "pause_unreadable"), (False, "acts_unreadable")):
+                    d = go(facts(reviews=reviews, acts_since_writer=value), REVIEWED, ctx=context(paused=paused))
+                    self.assertEqual((d["state"], d["outcome"], d["reason"]), ("converged", "defer", why),
+                                     (reviews, value, paused))
 
     def test_the_act_ceiling_stops_acts_and_nothing_else(self):
         # A Run is bounded by the Run ceiling. A Hold is an act that stops work: counted, and never refused.

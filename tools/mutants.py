@@ -1676,18 +1676,18 @@ MUTANTS = ISSUE + [
     ("an approval's failed attempts stop an enqueue", "kernel/brakes.py",
      '    if action == "issue_approval":\n', "    if True:\n"),
     ("acts are unlimited", "kernel/brakes.py",
-     '    if acts >= limits["max_acts_per_item"]:\n', "    if False:\n"),
+     '    if readable and acts >= limits["max_acts_per_item"]:\n', "    if False:\n"),
     ("the act ceiling is reached one act late", "kernel/brakes.py",
      'acts >= limits["max_acts_per_item"]', 'acts > limits["max_acts_per_item"]'),
     ("an enqueue is not held to the act ceiling", "kernel/brakes.py",
-     '    if acts >= limits["max_acts_per_item"]:\n',
-     '    if acts >= limits["max_acts_per_item"] and action == "issue_approval":\n'),
+     '    if readable and acts >= limits["max_acts_per_item"]:\n',
+     '    if readable and acts >= limits["max_acts_per_item"] and action == "issue_approval":\n'),
     ("an unreadable count of acts is read as none", "kernel/brakes.py",
      '    acts = facts.get("acts_since_writer")\n', '    acts = facts.get("acts_since_writer") or 0\n'),
     ("a count of acts that is not a whole number is trusted", "kernel/brakes.py",
-     "if type(acts) is not int or acts < 0:", "if not isinstance(acts, int) or acts < 0:"),
+     "readable = type(acts) is int and acts >= 0", "readable = isinstance(acts, int) and acts >= 0"),
     ("a negative count of acts is trusted", "kernel/brakes.py",
-     "if type(acts) is not int or acts < 0:", "if type(acts) is not int:"),
+     "readable = type(acts) is int and acts >= 0", "readable = type(acts) is int"),
     ("the act ceiling is not the Maintainer's to see", "kernel/decide.py",
      '"awaiting_human", "act_ceiling",', '"awaiting_human",'),
     ("an unreadable check is not the Maintainer's to see", "kernel/decide.py",
@@ -2044,6 +2044,36 @@ MUTANTS = ISSUE + [
      '    held = without_heredocs(text).replace("\\\\\\n", " ")\n', LOOP_TESTS),
     ("a case that never ends is read as one that does", "tools/hooks/shell.py",
      '    if cases or in_pattern:\n        raise ValueError("a case is never ended")\n', "", LOOP_TESTS),
+    ("a spent count waits behind the Pause", "kernel/brakes.py",
+     *moved_after("kernel/brakes.py",
+                  "    held = run_ceilings(_decision, facts, evidence, intent, recent, limits)\n"
+                  "    if held:\n        return held\n", "        return pause\n")),
+    ("an approval's spent count waits behind the Pause", "kernel/brakes.py",
+     *moved_after("kernel/brakes.py",
+                  '    if action == "issue_approval":\n'
+                  "        held = approval_ceilings(_decision, facts, since, limits)\n"
+                  "        if held:\n            return held\n", "        return stopped\n")),
+    ("the act ceiling waits behind the Pause", "kernel/brakes.py",
+     *moved_after("kernel/brakes.py",
+                  '    if readable and acts >= limits["max_acts_per_item"]:\n'
+                  '        return _decision(facts, t.HELD, "act_ceiling", [], t.HOLD)\n', "        return stopped\n")),
+    ("an unreadable count of acts defers before the Pause", "kernel/brakes.py",
+     *moved_after("kernel/brakes.py",
+                  "    stopped = paused(_decision, facts, state, evidence, context)\n"
+                  "    if stopped:\n        return stopped\n",
+                  '        return _decision(facts, state, "acts_unreadable", evidence, t.DEFER)\n')),
+    ("the Run ceiling holds an item that wants no Run", "kernel/decide.py",
+     '    if reason == "check_unreadable":\n',
+     '    if reason == "check_unreadable":\n'
+     '        return brakes.run_ceilings(_decision, facts, evidence, "", since_writer(mine, facts), config["limits"]) or'
+     " _decision(facts, state, reason, evidence, t.DEFER)\n"
+     "    if False:\n"),
+    ("the Run ceiling holds an item that wants no Run while a Run waits", "kernel/decide.py",
+     "        elif wanted is not None:\n"
+     '            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"])\n',
+     "        else:\n"
+     '            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1] if wanted else "", done,'
+     ' config["limits"])\n'),
 ]
 
 

@@ -61,7 +61,8 @@ NOT_YET_HELD = ()
 # from the seed alone, so the rest of each world stays as it was.
 PAUSES = {0: True, 3: None}
 PAUSE_FOR = 80
-# The Holds the brakes place at a ceiling. Under a Pause they are not reached: the Pause defers first (decision 0003).
+# The Holds the brakes place at a ceiling. Under a Pause each shows as it would with no Pause, with a Run in flight or
+# none: a Hold is a reading and no act (decision 0003).
 CEILINGS = ("attempts_exhausted", "run_ceiling", "max_rounds", "act_ceiling")
 # On three seeds in seven the item has an acceptance contract (design §3.13), of this many criteria, by the seed alone.
 # Seeds 1 and 2, which the tests set worlds up from by hand, have none. On an agent's pull request the last of two or
@@ -605,19 +606,18 @@ class World:
             self.caused("factory")
 
     def paused(self, facts: dict, runs: list, d: dict):
-        """Under a Pause, or one that cannot be read, nothing is admitted and nothing acts, not even a dequeue. A Hold
-        the facts establish shows first; anything else that would go ahead defers for the Pause, and a dequeue so
-        deferred is the Maintainer's to see (decision 0003)."""
+        """Under a Pause, or one that cannot be read, nothing is admitted and nothing acts, not even a dequeue. Every
+        Hold shows as it would with no Pause, whether the facts establish it or a count spent does; anything that would
+        go ahead defers for the Pause, and a dequeue so deferred is the Maintainer's to see (decision 0003)."""
         self.paused_passes += 1
         self.check(d["outcome"] not in (t.ADMIT, t.ACT), "a Pause let through %s %s" % (d["outcome"], d["reason"]))
         free = decide(facts, runs, dict(self.context(), paused=False), CONFIG, self.now())
         why = "paused" if self.pause_reading else "pause_unreadable"
-        ceiling = free["outcome"] == t.HOLD and free["reason"] in CEILINGS
-        # A Run of the item in flight, as the Kernel reads it: admitted and not completed. While one is, a count already
-        # spent holds the item whatever would defer, a Pause among them, so the Hold shows through (issue 158).
-        if ceiling and any(r["item"] == facts["item"] and r["status"] != "completed" for r in runs):
-            self.check(d == free, "a spent count is hidden by a Pause while a Run is in flight")
-        elif free["outcome"] in (t.ADMIT, t.ACT) or ceiling:
+        # A Hold of the brakes is a reading and no act, so a count already spent holds the item under a Pause as without
+        # one, with a Run of the item in flight or none (issues 158 and 169). The Pause holds back only what would go on.
+        if free["outcome"] == t.HOLD and free["reason"] in CEILINGS:
+            self.check(d == free, "a spent count is hidden by a Pause")
+        elif free["outcome"] in (t.ADMIT, t.ACT):
             self.stopped.append(free.get("action") or free["outcome"])
             self.check((d["outcome"], d["reason"]) == (t.DEFER, why),
                        "a Pause did not defer %s %s" % (free["outcome"], free["reason"]))
