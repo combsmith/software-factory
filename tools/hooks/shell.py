@@ -100,13 +100,14 @@ def commands(text: str, spend=None, texts: list = None) -> list:
         spend()
     if texts is not None:
         texts.append(text)
-    lex = shlex.shlex(without_heredocs(text).replace("\\\n", " "), posix=True, punctuation_chars=PUNCTUATION)
+    held = _held(without_heredocs(text).replace("\\\n", " "))     # only an unquoted ; ) or > is punctuation
+    lex = shlex.shlex(held, posix=True, punctuation_chars=PUNCTUATION)
     lex.whitespace, lex.whitespace_split, lex.commenters = " \t\r", True, ""
     found, words, targets, operator = [], [], [], None
     # A case's patterns are data, in every arm: from `in`, and from each ;; or ;&, to the ) that ends the pattern.
     patterns, arm, cases, in_pattern = [], [], 0, False
-    for token in lex:
-        punctuation = bool(token) and all(c in PUNCTUATION for c in token)
+    for read in lex:
+        punctuation, token = bool(read) and all(c in PUNCTUATION for c in read), read.translate(RETURNED)
         if in_pattern:
             if punctuation and ")" in token:
                 in_pattern, arm = ";;" in token or ";&" in token, []      # `);;` ends an arm with no body
@@ -142,6 +143,8 @@ def commands(text: str, spend=None, texts: list = None) -> list:
             words, targets, cases, in_pattern = [], [], cases + 1, True
     if words or targets:
         found.append((words, targets))
+    if cases or in_pattern:
+        raise ValueError("a case is never ended")
     out = []
     for word in patterns:       # a pattern runs nothing, but a substitution in it does
         for script in _substituted(word):
@@ -153,6 +156,42 @@ def commands(text: str, spend=None, texts: list = None) -> list:
             for script in _substituted(word):
                 out += commands(script, spend, texts)
     return [(words, targets) for words, targets in out if words or targets]
+
+
+# Each character that ends a word or a command, as it stands while a quote or a backslash holds it: one of the Unicode
+# private use area, so that shlex reads it as part of a word and never as punctuation. It is given back in every word.
+HOLDS = {c: chr(0xE000 + ord(c)) for c in PUNCTUATION}
+RETURNED = {ord(held): c for c, held in HOLDS.items()}
+
+
+def _held(text: str) -> str:
+    """`text` with each character of PUNCTUATION that a quote or a backslash holds made its HOLDS, as shlex in posix
+    mode reads quotes: a backslash outside single quotes holds the next character, and nothing ends a single quote but
+    another. Raises ValueError where what a quote holds cannot be told: a quote or a backslash left open, or text that
+    already holds a character of HOLDS."""
+    if any(ord(c) in RETURNED for c in text):
+        raise ValueError("the command holds a character the reader keeps for what a quote holds")
+    out, quote, i = [], None, 0
+    while i < len(text):
+        c = text[i]
+        if c == "\\" and quote != "'":
+            if i + 1 >= len(text):
+                raise ValueError("No escaped character")
+            out.append(c + HOLDS.get(text[i + 1], text[i + 1]))
+            i += 2
+            continue
+        if quote is None:
+            quote = c if c in "'\"" else None
+            out.append(c)
+        elif c == quote:
+            quote = None
+            out.append(c)
+        else:
+            out.append(HOLDS.get(c, c))
+        i += 1
+    if quote:
+        raise ValueError("No closing quotation")
+    return "".join(out)
 
 
 def _inner(words: list, spend=None, texts: list = None) -> list:

@@ -648,8 +648,16 @@ class Identity(unittest.TestCase):
                         'case "$x" in a);; git-commit) :;; esac; echo done',
                         # After a (, esac is a pattern, not the case's end.
                         "case x in (esac|git-commit) echo ok;; esac; git status",
-                        "case x in a) :;; (esac) echo e;; git-commit) :;; esac; git status"):
+                        "case x in a) :;; (esac) echo e;; git-commit) :;; esac; git status",
+                        'case "$x" in a) echo ok;; esac; git status'):
             self.assertEqual(self.codes(command, folder(), programs()), "", command)
+        # Only an unquoted ;; or ) changes where a case is: a quoted one is a word, and what follows it is read.
+        for command in ('case x in a) echo ";;"; git commit -m x;; esac', "case x in a) echo ';;'; git commit -m x;; esac",
+                        "case x in a) echo \\;\\;; git commit -m x;; esac", 'case x in "a)b") git commit -m x;; esac',
+                        "case x in 'a)' | b) git commit -m x;; esac"):
+            self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
+        # A case that never ends cannot be read, and is refused.
+        self.assertIn("command_unreadable", self.refused("case x in a) git commit -m x;;", self.bad))
         self.assertEqual(self.codes("for f in .git/hooks/*; do cat $f; done; git push"), "")
         for command in ("for f in a b; do git commit -m x; done", "for x in $(git commit -m y); do :; done",
                         # What an arm runs, and a substitution in a case's word or pattern, are read.

@@ -1665,6 +1665,11 @@ MUTANTS = ISSUE + [
     ("a substitution in a case's pattern is not read", "tools/hooks/shell.py",
      "    for word in patterns:       # a pattern runs nothing, but a substitution in it does\n",
      "    for word in []:\n", LOOP_TESTS),
+    ("a quoted ;; or ) is read as punctuation", "tools/hooks/shell.py",
+     '    held = _held(without_heredocs(text).replace("\\\\\\n", " "))     # only an unquoted ; ) or > is punctuation\n',
+     '    held = without_heredocs(text).replace("\\\\\\n", " ")\n', LOOP_TESTS),
+    ("a case that never ends is read as one that does", "tools/hooks/shell.py",
+     '    if cases or in_pattern:\n        raise ValueError("a case is never ended")\n', "", LOOP_TESTS),
 ]
 
 
