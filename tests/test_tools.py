@@ -2554,6 +2554,14 @@ class Mutants(unittest.TestCase):
         self.assertIn("k.py in this copy is not the tree's", why)
         self.assertEqual(mutants.guarded(mutate("next")[0], root, run, trees), ("killed", ""))
         self.assertNotEqual(seen[-1][0], left, "a fresh copy was made in its place")
+        # A copy whose target cannot be read is an ERROR for the mutant it is lent to, and is never lent again.
+        with trees.lent() as missing:
+            (missing / "k.py").unlink()
+        outcome, why = mutants.guarded(mutate("next")[0], root, run, trees)
+        self.assertEqual(outcome, "ERROR")
+        self.assertIn("k.py could not be read in this copy", why)
+        self.assertEqual(mutants.guarded(mutate("next")[0], root, run, trees), ("killed", ""))
+        self.assertNotEqual(seen[-1][0], missing, "a fresh copy was made in its place")
         self.assertEqual(min(os.cpu_count() or 1, mutants.WORKERS), min(os.cpu_count() or 1, 4))
 
     def test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check(self):
@@ -2563,8 +2571,9 @@ class Mutants(unittest.TestCase):
                                  "killed    y", "1 of 2 mutants killed"])
         self.assertEqual((code, calls.count("x"), calls.count("x alone")), (1, 2, 2), "the suite ran twice on it")
         # A run alone that hangs or crashes is an ERROR, as any other run is: never killed, and never FLAKY.
-        code, lines, _ = self.check({"x": (0, 1, FAILS_A_TEST), "x alone": (0, None, "")}, ["x"])
+        code, lines, calls = self.check({"x": (0, 1, FAILS_A_TEST), "x alone": (0, None, "")}, ["x"])
         self.assertEqual(lines[0], "ERROR     x (the run took longer than %d s%s)" % (mutants.TIMEOUT, AGAIN))
+        self.assertNotIn("rule alone", calls, "the unbroken run was skipped when the mutant run errored")
         code, lines, _ = self.check({"x": (0, 1, FAILS_A_TEST), "rule alone": (0, None, "")}, ["x"])
         self.assertEqual(lines[0], "ERROR     x (the run took longer than %d s%s)" % (mutants.TIMEOUT, AGAIN))
 

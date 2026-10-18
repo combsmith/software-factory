@@ -397,7 +397,7 @@ MUTANTS = [
     ("a test named to run alone runs with every other", "tools/mutants.py",
      "    if" " only:\n", "    if False:\n", NAMED_TESTS),
     ("a confirmation that hangs or crashes is read as a disagreement", "tools/mutants.py",
-     '        if outcome ==' ' "ERROR":\n', "        if False:\n", FLAKY_TESTS),
+     '    if before[0] ==' ' "ERROR":\n', "    if False:\n", FLAKY_TESTS),
     ("a failure whose test cannot be read is confirmed anyway", "tools/mutants.py",
      "    if test" " is None:\n", "    if False:\n", LINE_TESTS),
     ("a failure line with a subtest after it is not read", "tools/mutants.py",
@@ -1371,11 +1371,12 @@ def confirm(output: str, work: pathlib.Path, run, broken, unbroken) -> tuple:
         return "ERROR", "the one test that failed cannot be read from the output%s" % AGAIN
     again = verdict(*run(work, only=test))
     unbroken()
+    if again[0] == "ERROR":
+        return again
     before = verdict(*run(work, only=test))
     broken()
-    for outcome, why in (again, before):
-        if outcome == "ERROR":
-            return outcome, why
+    if before[0] == "ERROR":
+        return before
     if again[0] == "killed" and before[0] == "SURVIVED":
         return "killed", ""
     if before[0] != "SURVIVED":
@@ -1432,7 +1433,10 @@ def attempt(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tupl
     name, rel, old, new, *first = mutant
     with trees.lent() as work:
         target = work / rel
-        original = target.read_bytes()
+        try:
+            original = target.read_bytes()
+        except OSError as err:
+            raise Broken("%s could not be read in this copy: %s" % (rel, err)) from None
         if original != (root / rel).read_bytes():
             raise Broken("%s in this copy is not the tree's: a mutant before this one left it changed" % rel)
         text = original.decode()
