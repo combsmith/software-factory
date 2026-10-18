@@ -252,6 +252,10 @@ def _substituted(word: str) -> list:
     while i < len(word):
         if word.startswith("$(", i):
             j = _balanced(word, i + 2, ")")     # a ( or ) a quote of the script's own holds is data: '%s)'
+            if word[j - 1:j] != ")":
+                # It never closes as the shell reads it, which only data a quote held may do: read to its first ), as
+                # though a # began no comment, so that what it holds is still read.
+                j = _balanced(word, i + 2, ")", comments=False)
             scripts.append(word[i + 2:j - 1] if word[j - 1:j] == ")" else word[i + 2:])
             i = j
         elif word[i] == "`":
@@ -278,10 +282,11 @@ CURRENT_BRANCH = re.compile(r"^\$\(\s*git\s+(branch\s+--show-current|rev-parse\s
                             r"symbolic-ref\s+((-q|--quiet)\s+)?--short\s+HEAD)\s*\)$")
 
 
-def _balanced(text: str, i: int, close: str) -> int:
+def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
     """The index just past where a run opened before `i` closes: a ) that may hold nested $( ), or a ` or }.
-    Quotes inside are skipped. Runs to the end of the text when it never closes."""
-    depth, quote = 0, None
+    Quotes inside are skipped, and so are a parameter expansion's `${...}` and, in a `( )` and with `comments`, a
+    comment (decision 0032). Runs to the end of the text when it never closes."""
+    depth, quote, start = 0, None, i
     while i < len(text):
         c = text[i]
         if quote:
@@ -290,6 +295,11 @@ def _balanced(text: str, i: int, close: str) -> int:
             i += 1
         elif c in "'\"":
             quote = c
+        elif text.startswith("${", i):
+            i = _balanced(text, i + 2, "}") - 1
+        elif comments and close == ")" and c == "#" and (i == start or text[i - 1] in " \t\n;&|()"):
+            end = text.find("\n", i)        # a comment runs to the end of its line
+            i = (len(text) if end < 0 else end) - 1
         elif close == ")" and text.startswith("$(", i):
             i = _balanced(text, i + 2, ")") - 1
         elif c == close and (close != ")" or depth == 0):
@@ -559,6 +569,8 @@ def trusted_assignments(text: str) -> list:
     events, depth, balanced = [], 0, True
     functions = {a or b for a, b in re.findall(
         r"(?:^|[\s;&|(){}])(?:function\s+(%s)|(%s)\s*\(\s*\))" % (NAME, NAME), stripped)}
+    named = GIT_OR_GH.search(stripped)      # where git or gh is first named: searched once, not before every segment
+    named = len(stripped) if named is None else named.start()
     for words, before, after, start in segs:
         if not words:
             continue
@@ -584,7 +596,7 @@ def trusted_assignments(text: str) -> list:
             used = re.search(r"\$\{?%s(?!\w)" % re.escape(name), stripped[:start])
             events.append(("set", name, value) if trusted and not used else ("maybe", name, None))
         events += [("maybe", word.split("=", 1)[0], None) for word in maybe]
-        if trusted and not GIT_OR_GH.search(stripped[:start]):
+        if trusted and named >= start:
             events += [("unset", name, None) for name in unset]
     if depth != 0 or not balanced:
         return [("maybe", name, None) for kind, name, _ in events if kind != "unset"]
@@ -858,8 +870,9 @@ def expands(code: str) -> bool:
 
 
 def alias_values(text: str, spend=None) -> dict:
-    """{name: the simple commands its value runs} of each alias the command defines whose value the hook can read, as
-    aliased reads them, so that a hook can read the alias where its name runs (decision 0032)."""
+    """{name: (the simple commands its value runs, whether the value ends in a blank)} of each alias the command defines
+    whose value the hook can read, as aliased reads them, so that a hook can read the alias where its name runs
+    (decision 0032)."""
     values = {}
     aliased(text, set(), spend, values)
     return values
@@ -887,8 +900,8 @@ def aliased(text: str, names: set, spend=None, values: dict = None) -> set:
             except ValueError:
                 found.add(_unquoted(name))
                 continue
-            if values is not None and read:
-                values[_unquoted(name)] = read      # `values`, if given, gets each value that can be read
+            if values is not None and read:     # `values`, if given, gets each value that can be read
+                values[_unquoted(name)] = (read, value[-1:] in (" ", "\t"))
             if {os.path.basename(_unquoted(w)) for inner, _ in read for w in inner} & names:
                 found.add(_unquoted(name))
     return found

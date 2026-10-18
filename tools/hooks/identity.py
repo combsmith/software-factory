@@ -54,6 +54,9 @@ sys.path.append(str(ROOT))
 from tools.hooks import shell  # noqa: E402
 
 DEADLINE = 45   # seconds for the whole check; the settings give the hook 60, and running out refuses
+# Seconds, of DEADLINE, for reading the command's words. Past them the command is one the hook cannot read, and is
+# refused, so that no reading runs on until the settings' timeout, which may let the command through (decision 0032).
+READ_SECONDS = 10
 WRITES = {"am", "cherry-pick", "commit", "commit-tree", "filter-branch", "merge", "pull", "push", "rebase", "revert"}
 # Known, and not a commit. These run commands of their own, so their text is read for a commit or push.
 RUNNERS = {"bisect", "difftool", "mergetool", "submodule"}
@@ -86,9 +89,7 @@ PUSH_VALUED = {"-o", "--push-option", "--receive-pack", "--exec", "--repo"}
 # Programs that print their words and run none of them, so a commit or push in their text is only text.
 TEXT_ONLY = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "cat", "head", "tail", "wc", "ls", "less", "sort",
              "uniq", "cut", "tr", "diff", "test", "[", "true", "false"}
-# Without -c, these run a script the hook cannot see. eval's own words are read by shell.commands, but not where an alias
-# names it (decision 0032).
-SHELLS_AND_SOURCE = shell.SHELLS | {"source", ".", "eval"}
+SHELLS_AND_SOURCE = shell.SHELLS | {"source", "."}     # without -c, these run a script the hook cannot see
 WRITE_TEXT = re.compile(r"\bgit\b[\s\S]*\b(%s)\b|\bgh\b[\s\S]*\b(pr|release|api)\b" % "|".join(sorted(WRITES)))
 # Set in the command, each of these changes who git or gh says you are.
 ENVIRONMENT = re.compile(r"^(GIT_AUTHOR_\w*|GIT_COMMITTER_\w*|GIT_CONFIG\w*|GIT_DIR|GIT_WORK_TREE|GIT_ASKPASS|"
@@ -208,8 +209,10 @@ PATH_WRITERS = {
     "chown": ("all", {"--reference", "--from"}, set(), None), "chgrp": ("all", {"--reference", "--from"}, set(), None),
     "truncate": ("all", {"-s", "--size", "-r", "--reference"}, set(), None),
     "tar": ("none", {"-T", "--files-from", "-X", "--exclude-from", "--exclude", "-b", "--blocking-factor", "-H",
-                     "--format", "-I", "--use-compress-program", "-N", "--newer"},
-            {"-C", "--directory", "-f", "--file"}, ({"-x", "--extract", "--get"}, {"-C", "--directory"})),
+                     "--format", "-I", "--use-compress-program", "-N", "--newer", "-K", "--starting-file", "-L",
+                     "--tape-length", "-V", "--label", "-F", "--info-script", "--new-volume-script", "-s"},
+            {"-C", "--directory", "-f", "--file", "-g", "--listed-incremental"},
+            ({"-x", "--extract", "--get"}, {"-C", "--directory"})),
     "curl": ("none", {"-d", "--data", "-H", "--header", "-u", "--user", "-X", "--request", "-F", "--form", "-A",
                       "--user-agent", "-e", "--referer", "-b", "--cookie", "-K", "--config", "-m", "--max-time"},
              {"-o", "--output", "--output-dir", "-D", "--dump-header", "-c", "--cookie-jar", "--trace", "--trace-ascii",
@@ -223,6 +226,12 @@ PATH_WRITERS = {
               (set(), {"-o", "--output", "-d", "--directory"})),
 }
 HERE = "."      # where a writer that names no output writes: the directory it stands in
+# tar by its other names, and its modes: which of its places it writes depends on them (_tar).
+TARS = {"tar", "gtar", "bsdtar"}
+PATH_WRITERS.update({name: PATH_WRITERS["tar"] for name in TARS})
+TAR_EXTRACTS = {"-x", "--extract", "--get"}
+TAR_CHANGES = {"-c", "--create", "-r", "--append", "-u", "--update", "-A", "--catenate", "--concatenate", "--delete"}
+TAR_READS = {"-t", "--list", "-d", "--diff", "--compare"}
 # Programs that write their operands only in place (-i): their options that take the next word, and those whose value
 # is the script, so that the first operand is a file and not the script.
 IN_PLACE = {"sed": ({"-e", "--expression", "-f", "--file", "-l", "--line-length"}, {"-e", "--expression", "-f", "--file"}),
@@ -247,6 +256,20 @@ SHOWN = 3   # commits of another identity named in a refusal
 
 class Unreadable(Exception):
     """Something the decision rests on could not be read."""
+
+
+class Spent(Exception):
+    """The budget for reading the command ran out."""
+
+
+def _budget(seconds: float):
+    """A function that raises Spent once `seconds` from now have passed: called as the reading goes."""
+    until = time.monotonic() + seconds
+
+    def spend():
+        if time.monotonic() > until:
+            raise Spent()
+    return spend
 
 
 class Reader:
@@ -279,33 +302,43 @@ class Reader:
 
 def _join(here, path: str):
     """Where `cd path` or `git -C path` leads from `here`; None when it cannot be told from the words."""
-    if "$" in path or "`" in path or (path.startswith("~") and not re.match(r"~(/|$)", path)):
-        return None
-    path = os.path.expanduser(path)
-    if os.path.isabs(path):
-        return pathlib.Path(path)
-    return None if here is None else here / path
+    if here is None or "$" in path or "`" in path or (path.startswith("~") and not re.match(r"~(/|$)", path)):
+        return None     # a directory the hook cannot tell stays one, whatever follows (an absolute path among it)
+    return here / os.path.expanduser(path)
+
+
+# What cd is given that goes where cd - goes: the shell's previous directory.
+PREVIOUS = {"-", "~-", "$OLDPWD", "${OLDPWD}"}
 
 
 def _directory(words: list):
-    """The directory cd or pushd (words[0]) goes to, past its options: `~` for none. None where the shell takes it
-    from a stack the hook does not keep (decision 0032): popd, pushd with no directory or with +N or -N, and cd - or
-    cd +N."""
+    """The directory cd or pushd (words[0]) goes to, past its options: `~` for none, and `.` for an empty one, where
+    the shell stays. None where the shell takes it from a stack the hook does not keep (decision 0032): popd, pushd
+    with no directory or with +N or -N, and cd - (~-, $OLDPWD) or cd +N."""
     args = words[1:]
     while args and re.fullmatch(r"-[A-Za-z@]+", args[0]):
         args = args[1:]
     args = args[1:] if args[:1] == ["--"] else args
-    target = args[0] if args else ""
-    if words[0] == "popd" or re.fullmatch(r"[+-]\d*", target) or (words[0] == "pushd" and not target):
+    if words[0] == "popd" or (words[0] == "pushd" and not args):
         return None
-    return target or "~"
+    if not args:
+        return "~"
+    if args[0] in PREVIOUS or re.fullmatch(r"[+-]\d+", args[0]):
+        return None
+    return args[0] or "."
 
 
-def _unaliased(commands: list, table: dict, seen: frozenset = frozenset()) -> list:
-    """`commands` with each alias the command defines (`table`, from shell.alias_values) read as its value where its
-    name stands as the program, as zsh expands it: so that an alias for xargs, a shell, source or eval is read as that
-    program (decision 0032). Its value's commands run in turn, the words before the name going to the first and those
-    after it to the last; an alias already read in a command is not read again."""
+ALIAS_MOST = 256    # aliases read in one command, at most: past it, the command is one the hook cannot read
+
+
+def _unaliased(commands: list, table: dict, seen: frozenset = frozenset(), budget: list = None) -> list:
+    """`commands` with each alias the command defines (`table`, from shell.alias_values: name to (its value's commands,
+    whether the value ends in a blank)) read as its value where its name stands as the program, as zsh expands it: so
+    that an alias for xargs, a shell, source or eval is read as that program (decision 0032). Its value's commands run
+    in turn, the words before the name going to the first and those after it to the last; a value that ends in a blank
+    makes the next word an alias too; a script an aliased shell or eval is given is read as commands of its own; an
+    alias already read in a command is not read again. Past ALIAS_MOST aliases read, it raises Unreadable."""
+    budget = [ALIAS_MOST] if budget is None else budget
     out = []
     for words, redirections in commands:
         at, _ = shell.past_prefixes(words)
@@ -313,11 +346,28 @@ def _unaliased(commands: list, table: dict, seen: frozenset = frozenset()) -> li
         if name not in table or name in seen:
             out.append((words, redirections))
             continue
-        value = list(table[name])
+        value, trailing = _alias(table, name, budget)
         value[0] = (words[:at] + value[0][0], value[0][1])
-        value[-1] = (value[-1][0] + words[at + 1:], value[-1][1] + redirections)
-        out += _unaliased(value, table, seen | {name})
+        last, tail, read = value[-1][0], words[at + 1:], seen | {name}
+        while trailing and tail[:1] and tail[0] in table and tail[0] not in read:
+            # A value that ends in a blank makes the next word an alias too, in bash and zsh.
+            following, trailing = _alias(table, tail[0], budget)
+            if len(following) > 1:
+                raise Unreadable("an alias after one whose value ends in a blank runs more than one command")
+            last, tail, read = last + following[0][0], tail[1:], read | {tail[0]}
+        value[-1] = (last + tail, value[-1][1] + redirections)
+        for each in _unaliased(value, table, read, budget):
+            out += [each] + _unaliased(shell._inner(each[0]), table, read, budget)     # sh -c, eval, an alias gave
     return out
+
+
+def _alias(table: dict, name: str, budget: list) -> tuple:
+    """(a copy of the commands `name`'s value runs, whether the value ends in a blank), one alias read of the budget."""
+    budget[0] -= 1
+    if budget[0] < 0:
+        raise Unreadable("the command reads more than %d aliases, which the hook does not read" % ALIAS_MOST)
+    read, trailing = table[name]
+    return [(list(words), list(redirections)) for words, redirections in read], trailing
 
 
 def _gh_kind(words: list) -> str:
@@ -345,14 +395,16 @@ def _gh_kind(words: list) -> str:
     return "account" if method in ("POST", "PUT", "PATCH", "DELETE") else ""
 
 
-def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
+def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tuple:
     """(calls, always, inline). A call is (tool, directory, words after the tool's options, kind).
 
     `commands` are shell.commands's: (words, [(operator, target)]). `always` refuses whatever the command does: what
     cannot be read. `inline` refuses only a command that commits, pushes or writes: an identity set in the command
     itself, or a write into git's directory. `text` is the command as the shell reads it, and `env` the hook's own
-    environment, whose PATH names the git and gh it reads.
+    environment, whose PATH names the git and gh it reads. `spend`, called as the reading goes, raises Spent once its
+    budget is gone.
     """
+    spend = spend or _budget(READ_SECONDS)
     here = pathlib.Path(cwd) if cwd else None
     places, stood = [here], [here]  # where a relative write may land, and every directory the command has stood in
     values, present, branches = shell.environment(text)     # what the command leaves in the environment, fail-closed
@@ -361,13 +413,17 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
     if shell.aliased(_quoted(shell.without_heredocs(text)), REDEFINABLE):
         always.append(("command_unreadable", "the command defines an alias whose value runs git, gh or what runs them "
                                              "(decision 0030)"))
-    commands = _unaliased(commands, shell.alias_values(_quoted(shell.without_heredocs(text))))
+    try:
+        commands = _unaliased(commands, shell.alias_values(_quoted(shell.without_heredocs(text)), spend))
+    except (Unreadable, ValueError) as err:
+        always.append(("command_unreadable", "the command's aliases cannot be read (%s)" % err))
     loops = _loops(commands, values)
     for raw, redirections in commands:
+        spend()
         # A word is read with what the command set unconditionally put in for each variable it holds.
         words, targets = [expand(w, values) for w in raw], [expand(t, values) for _, t in redirections]
         inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], places, "a redirection",
-                                 loops)
+                                 loops, spend)
         inline += [("identity_set_in_command", "%s is set in the command; the hook reads only what is configured"
                     % w.split("=")[0]) for w in words if ENVIRONMENT.match(w)]
         inline += [("identity_set_in_command", "the command touches git's configuration (%s); change it in a command "
@@ -379,7 +435,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
             # The hook keeps no stack: where the shell takes the directory from one, the command may stand in any
             # directory it has stood in, and what it writes or commits is read in each (decision 0032).
             places = list(dict.fromkeys(stood if target is None else [_join(place, target) for place in places]))
-            stood += places
+            stood = list(dict.fromkeys(stood + places))
             here = places[0] if len(places) == 1 else None
             continue
         runs = _program(words)      # past reserved words, prefixes and wrappers: time bash, if sh, nice sh
@@ -388,7 +444,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
         program = os.path.basename(words[start])
         if at is None and program in DATA_HEADS:
             continue        # a loop's word list is data: what its body runs is a command of its own
-        inline += _git_directory(_written(program, words[start + 1:]), places, program, loops)
+        inline += _git_directory(_written(program, words[start + 1:]), places, program, loops, spend)
         local = _local(words, at)
         named = present | local     # the environment git runs with: persisted, and set for it alone
         if local & {"PATH", "path"}:
@@ -478,7 +534,7 @@ def _redefined(text: str) -> list:
     return reasons
 
 
-def _git_directory(paths: list, places: list, given: str, loops: dict) -> list:
+def _git_directory(paths: list, places: list, given: str, loops: dict, spend=lambda: None) -> list:
     """Why a command that commits or pushes is refused for writing into git's directory (decision 0030): each of
     `paths`, the places a redirection or a program of PATH_WRITERS writes, that has a component naming `.git`, as it is
     written or once resolved against each of `places`, where the hook tracks the command through cd (decision 0032):
@@ -498,6 +554,7 @@ def _git_directory(paths: list, places: list, given: str, loops: dict) -> list:
                 continue
             expanded, exact = _braced(unbraced)
             for path, here in [(p, h) for p in expanded for h in places]:
+                spend()
                 path = os.path.expanduser(path)
                 seen = [os.path.normpath(path)]
                 if here is not None or os.path.isabs(path):
@@ -536,9 +593,11 @@ def _braced(path: str) -> tuple:
 
 def _globbed(pattern: str) -> bool:
     """Whether a shell pattern for one name matches `.git`."""
-    out, i = [], 0
+    out, i, unclosed = [], 0, False
     while i < len(pattern):
-        c, bracket = pattern[i], _bracket(pattern, i) if pattern[i] == "[" else None
+        # Past a [ that never closes, no later one is read either: each would scan to the end again (quadratic).
+        c, bracket = pattern[i], _bracket(pattern, i) if pattern[i] == "[" and not unclosed else None
+        unclosed = unclosed or (c == "[" and bracket is None)
         if c in "*?":
             out.append(".*" if c == "*" else ".")
         elif bracket is not None:
@@ -694,8 +753,9 @@ def _written(program: str, args: list) -> list:
     if program not in PATH_WRITERS:
         return []
     which, valued, destinations, stands = PATH_WRITERS[program]
-    if program == "tar" and args and re.fullmatch(r"[A-Za-z]+", args[0]):
-        args = _old_style(args, valued | destinations)
+    if program in TARS:     # bsdtar's -s takes a pattern and GNU tar's takes nothing: both readings are read
+        written = _tar(args, valued, destinations, stands) + _tar(args, valued - {"-s"}, destinations, stands)
+        return [path for path in dict.fromkeys(written) if path != "-"]
     operands, named, given = _options(args, valued, destinations)
     if which == "last" and set(given) & TARGET:
         return named        # -t names the destination: every operand is a source
@@ -705,6 +765,28 @@ def _written(program: str, args: list) -> list:
         if (not needs or _gave(given, needs)) and not _gave(given, names) and written == named:
             written.append(HERE)        # its words name no output: it writes where it stands
     return [path for path in written if path != "-"]       # - is the standard output, or input
+
+
+def _tar(args: list, valued: set, destinations: set, stands: tuple) -> list:
+    """The places tar writes, by its mode: -C's directory when it extracts, or where it stands when it extracts with no
+    -C; -f's archive when it creates or changes one; and -g's snapshot always. Creating, -C names where it reads, and
+    listing or comparing, -f the archive it reads. In a mode the hook does not know, every place it names. A first word
+    with no dash, all letters, is read as tar reads it (_old_style)."""
+    takes = valued | destinations
+    if args and re.fullmatch(r"[A-Za-z]+", args[0]):
+        args = _old_style(args, takes)
+    given = _options(args, valued, destinations)[2]
+
+    def values(options: set) -> list:
+        return _options(args, takes - options, options)[1]
+    extracts, changes = _gave(given, TAR_EXTRACTS), _gave(given, TAR_CHANGES)
+    if not (extracts or changes or _gave(given, TAR_READS)):
+        extracts = changes = True
+    directories = values({"-C", "--directory"})
+    needs, names = stands
+    here = [HERE] if _gave(given, needs) and not _gave(given, names) else []     # it writes where it stands
+    return ((directories if extracts else []) + here + (values({"-f", "--file"}) if changes else []) +
+            values({"-g", "--listed-incremental"}))
 
 
 def _gave(given: list, options: set) -> bool:
@@ -984,8 +1066,9 @@ def _quoted(text: str) -> str:
 
 
 def _closed(text: str, i: int, end: str):
-    """Where the substitution whose body starts at i ends: its `)`, or its closing backtick; None if it never does."""
-    depth, quote = 0, None
+    """Where the substitution whose body starts at i ends: its `)`, or its closing backtick; None if it never does. A
+    `)` in a comment or in a parameter expansion (`${x/)/y}`) does not end it (decision 0032)."""
+    depth, quote, start = 0, None, i
     while i < len(text):
         c = text[i]
         if quote == "'":
@@ -996,6 +1079,14 @@ def _closed(text: str, i: int, end: str):
             quote = None
         elif c in "'\"" and quote is None:
             quote = c
+        elif text.startswith("${", i):
+            i = shell._balanced(text, i + 2, "}") - 1
+            if text[i:i + 1] != "}":
+                return None
+        elif end == ")" and quote is None and c == "#" and (i == start or text[i - 1] in " \t\n;&|()"):
+            i = text.find("\n", i)      # a comment runs to the end of its line
+            if i < 0:
+                return None
         elif end == ")" and text.startswith("$(", i):
             i = _closed(text, i + 2, ")")
             if i is None:
@@ -1332,15 +1423,20 @@ def check(payload: dict, env: dict, seconds: float = DEADLINE) -> list:
     # $(which git) and `command -v gh` stand for the git or gh on PATH, which a PATH set in the command would change.
     read = shell.WHICH.sub(lambda m: m.group(1) if os.path.basename(m.group(1)) in ("git", "gh") else m.group(0),
                            command)
+    started, spend = time.monotonic(), _budget(min(READ_SECONDS, seconds))
     try:
-        commands = shell.commands(_quoted(shell.without_heredocs(read)))
+        commands = shell.commands(_quoted(shell.without_heredocs(read)), spend)
+        calls, problems, inline = _calls(commands, payload.get("cwd"), read, env, spend)
     except ValueError as err:
         # The command cannot be split into words. If it names git or gh at all, what it does cannot be read.
         if re.search(r"(?<![\w.-])(git|gh)(?![\w.-])", command):
             return [("command_unreadable", "the command cannot be split into words (%s), so what git or gh would do "
                                            "cannot be read. Write any message to a file and use git commit -F" % err)]
         return []
-    calls, problems, inline = _calls(commands, payload.get("cwd"), read, env)
+    except Spent:
+        return [("command_unreadable", "the hook could not read the command within its budget (%d seconds), so it "
+                                       "refuses it; split it into shorter commands" % READ_SECONDS)]
+    seconds -= time.monotonic() - started
     writes = [c for c in calls if c[3]]
     if writes:
         problems += inline

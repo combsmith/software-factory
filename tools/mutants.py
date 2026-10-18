@@ -77,6 +77,8 @@ TAR_TESTS = (IDENTITY_TESTS + "test_tars_old_style_bundle_is_read_as_tar_reads_i
 ALIASED_TESTS = (IDENTITY_TESTS + "test_an_alias_for_a_feeder_a_shell_source_or_eval_is_read_as_its_value",)
 BRACKET_TESTS = (IDENTITY_TESTS + "test_a_bracket_expression_is_read_as_the_shell_matches_it",)
 QUOTED_TESTS = (IDENTITY_TESTS + "test_a_substitution_in_double_quotes_is_read_with_quotes_of_its_own",)
+COMMENT_TESTS = (IDENTITY_TESTS + "test_a_comment_or_a_parameter_expansion_in_a_substitution_does_not_end_it",)
+BUDGET_TESTS = (IDENTITY_TESTS + "test_a_reading_that_would_run_on_is_cut_short_and_refused",)
 
 # Where the boundary cases of decision 0029 are.
 REPORTED = "tests.test_decide.AReviewThatReported."
@@ -1936,7 +1938,7 @@ MUTANTS = ISSUE + [
      FEEDER_TESTS),
     ("a redirection into git's directory is not read", "tools/hooks/identity.py",
      '        inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], places, "a redirection",\n'
-     "                                 loops)\n", "", GIT_DIRECTORY_TESTS),
+     "                                 loops, spend)\n", "", GIT_DIRECTORY_TESTS),
     ("every program's words are read as writes into git's directory", "tools/hooks/identity.py",
      "    if program not in PATH_WRITERS:\n        return []\n", "    if program not in PATH_WRITERS:\n        return args\n",
      GIT_DIRECTORY_TESTS),
@@ -2007,7 +2009,19 @@ MUTANTS = ISSUE + [
      "            places = list(dict.fromkeys(stood if target is None else",
      "            places = list(dict.fromkeys([None] if target is None else", LOST_TESTS),
     ("popd is read as a cd to the home directory", "tools/hooks/identity.py",
-     '    if words[0] == "popd" or re.fullmatch(', "    if re.fullmatch(", LOST_TESTS),
+     '    if words[0] == "popd" or (words[0] == "pushd" and not args):\n',
+     '    if words[0] == "pushd" and not args:\n', LOST_TESTS),
+    ("a directory the hook cannot tell is told again by a plain path", "tools/hooks/identity.py",
+     '    if here is None or "$" in path or "`" in path or (path.startswith("~") and not re.match(r"~(/|$)", path)):\n'
+     "        return None     # a directory the hook cannot tell stays one, whatever follows (an absolute path among it)\n"
+     "    return here / os.path.expanduser(path)\n",
+     '    if "$" in path or "`" in path or (path.startswith("~") and not re.match(r"~(/|$)", path)):\n'
+     "        return None\n    path = os.path.expanduser(path)\n"
+     "    return pathlib.Path(path) if os.path.isabs(path) or here is None else here / path\n", LOST_TESTS),
+    ("~- and $OLDPWD are read as directories of their own", "tools/hooks/identity.py",
+     "    if args[0] in PREVIOUS or re.fullmatch(", "    if re.fullmatch(", LOST_TESTS),
+    ("cd '' is read as cd ~", "tools/hooks/identity.py",
+     '    return args[0] or "."\n', '    return args[0] or "~"\n', LOST_TESTS),
     ("a writer that names no output writes nothing", "tools/hooks/identity.py",
      "            written.append(HERE)        # its words name no output: it writes where it stands\n", "            pass\n",
      STANDS_TESTS),
@@ -2016,15 +2030,46 @@ MUTANTS = ISSUE + [
     ("a substitution in a case's pattern is read before every command", "tools/hooks/shell.py",
      "                found.append((None, token))\n", "                found.insert(0, (None, token))\n", PATTERN_TESTS),
     ("tar's old-style bundle is not read", "tools/hooks/identity.py",
-     '    if program == "tar" and args and re.fullmatch(r"[A-Za-z]+", args[0]):\n', "    if False:\n", TAR_TESTS),
+     '    if args and re.fullmatch(r"[A-Za-z]+", args[0]):\n        args = _old_style(args, takes)\n', "", TAR_TESTS),
     ("tar's old-style bundle is read as a dashed one", "tools/hooks/identity.py",
-     "        args = _old_style(args, valued | destinations)\n", '        args = ["-" + args[0]] + args[1:]\n', TAR_TESTS),
+     "        args = _old_style(args, takes)\n", '        args = ["-" + args[0]] + args[1:]\n', TAR_TESTS),
+    ("tar's -g snapshot takes no word and is not written", "tools/hooks/identity.py",
+     '{"-C", "--directory", "-f", "--file", "-g", "--listed-incremental"},', '{"-C", "--directory", "-f", "--file"},',
+     TAR_TESTS),
+    ("tar by another name is not read", "tools/hooks/identity.py",
+     'TARS = {"tar", "gtar", "bsdtar"}', 'TARS = {"tar"}', TAR_TESTS),
+    ("bsdtar's -s is read only as taking a word", "tools/hooks/identity.py",
+     ' + _tar(args, valued - {"-s"}, destinations, stands)', "", TAR_TESTS),
+    ("tar's -C is read as written in every mode", "tools/hooks/identity.py",
+     "    return ((directories if extracts else []) + here +", "    return (directories + here +", TAR_TESTS),
+    ("tar's -f is read as written in every mode", "tools/hooks/identity.py",
+     '(values({"-f", "--file"}) if changes else [])', 'values({"-f", "--file"})', TAR_TESTS),
     ("an alias is not read as its value where its name runs", "tools/hooks/identity.py",
-     "    commands = _unaliased(commands, shell.alias_values(_quoted(shell.without_heredocs(text))))\n", "",
-     ALIASED_TESTS),
-    ("eval reached through an alias reads no script", "tools/hooks/identity.py",
-     'SHELLS_AND_SOURCE = shell.SHELLS | {"source", ".", "eval"}', 'SHELLS_AND_SOURCE = shell.SHELLS | {"source", "."}',
-     ALIASED_TESTS),
+     "        commands = _unaliased(commands, shell.alias_values(_quoted(shell.without_heredocs(text)), spend))\n",
+     "        pass\n", ALIASED_TESTS),
+    ("an alias whose value ends in a blank leaves the next word as it is", "tools/hooks/identity.py",
+     "        while trailing and tail[:1]", "        while False and tail[:1]", ALIASED_TESTS),
+    ("a script an aliased shell or eval is given is not read", "tools/hooks/identity.py",
+     "            out += [each] + _unaliased(shell._inner(each[0]), table, read, budget)     # sh -c, eval, an alias gave\n",
+     "            out += [each]\n", ALIASED_TESTS),
+    ("aliases are read without end", "tools/hooks/identity.py",
+     "    budget[0] -= 1\n", "    budget[0] -= 0\n", ALIASED_TESTS),
+    ("the command is read with no budget", "tools/hooks/identity.py",
+     "    started, spend = time.monotonic(), _budget(min(READ_SECONDS, seconds))\n",
+     "    started, spend = time.monotonic(), (lambda: None)\n", BUDGET_TESTS),
+    ("every [ is read to the end, though one before it never closed", "tools/hooks/identity.py",
+     'if pattern[i] == "[" and not unclosed else None', 'if pattern[i] == "[" else None', BUDGET_TESTS),
+    ("a # in a substitution is read as no comment", "tools/hooks/identity.py",
+     '        elif end == ")" and quote is None and c == "#" and (i == start or text[i - 1] in " \\t\\n;&|()"):\n',
+     "        elif False:\n", COMMENT_TESTS),
+    ("a ${...} in a substitution is not read as one", "tools/hooks/identity.py",
+     '        elif text.startswith("${", i):\n            i = shell._balanced(text, i + 2, "}") - 1\n'
+     '            if text[i:i + 1] != "}":\n                return None\n', "", COMMENT_TESTS),
+    ("a # in a substitution's script is read as no comment", "tools/hooks/shell.py",
+     '        elif comments and close == ")" and c == "#"', '        elif False and close == ")" and c == "#"',
+     COMMENT_TESTS),
+    ("a ${...} in a substitution's script is not read as one", "tools/hooks/shell.py",
+     '        elif text.startswith("${", i):\n            i = _balanced(text, i + 2, "}") - 1\n', "", COMMENT_TESTS),
     ("a range in a bracket is read as its two ends and a dash", "tools/hooks/identity.py",
      'items.append("%s-%s" % (re.escape(low), re.escape(high)))',
      'items.append("%s\\\\-%s" % (re.escape(low), re.escape(high)))', BRACKET_TESTS),

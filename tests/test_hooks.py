@@ -714,6 +714,16 @@ class Identity(unittest.TestCase):
             self.assertEqual(self.codes(command), "", command)
         # Its cost: once the command has stood in git's directory, a relative write after cd - is read there too.
         self.assertIn("git_directory_written", self.refused("cd .git && cat HEAD && cd - && echo x > notes && git push"))
+        # ~- and $OLDPWD are cd -; cd '' stays where it is; and a directory the hook cannot tell stays one, though a
+        # plain path follows it.
+        for command in ("cd .git; cd /tmp; cd ~-; cp /tmp/x hooks/pre-push; cd %s; git push" % self.here,
+                        'cd .git; cd /tmp; cd "$OLDPWD"; cp /tmp/x hooks/pre-push; cd %s; git push' % self.here,
+                        "cd .git; cd ''; cp /tmp/x hooks/pre-push; cd %s; git push" % self.here):
+            self.assertIn("git_directory_written", self.refused(command), command)
+        for command in ('cd "$(echo .git)"; cp /tmp/x hooks/pre-push; cd %s; git push' % self.here,
+                        'cd "$(echo .git)"; cp /tmp/x hooks/pre-push; git -C %s push' % self.here):
+            self.assertIn("directory_unreadable", self.refused(command), command)
+        self.assertEqual(self.codes("cd ''; echo x > notes.txt; git commit -m x"), "")
         # A commit is read in each directory the command may stand in: one outside a repository cannot be read.
         self.assertIn("unreadable", self.refused("pushd /tmp && popd && git push"))
         self.assertIn("commit_identity_not_maintainer", self.refused("pushd %s && popd && git commit -m x" % self.bad))
@@ -773,6 +783,18 @@ class Identity(unittest.TestCase):
         for command in ("tar cf out.tar .git; git push", "tar cf /tmp/out.tar src .git && git commit -m x",
                         "tar tvf x.tar; git push", "tar xfC /tmp/h.tar /tmp/out; git push", "tar czf /tmp/a.tgz .; git push"):
             self.assertEqual(self.codes(command), "", command)
+        # Every letter that takes a word takes it in turn: GNU's g, K, L, V and F, and bsdtar's s, read both ways.
+        for command in ("tar xgfC /dev/null /tmp/h.tar .git; git push", "tar xKfC a /tmp/h.tar .git; git push",
+                        "tar xVfC l /tmp/h.tar .git; git push", "tar xsfC s/a/b/ /tmp/h.tar .git; git push",
+                        "tar -csf .git/a.tar src; git push", "tar -czg .git/snap -f /tmp/a.tgz src; git push",
+                        # ...by its other names too.
+                        "gtar -xf /tmp/h.tar -C .git; git push", "bsdtar -xf /tmp/h.tar -C .git; git push"):
+            self.assertIn("git_directory_written", self.refused(command), command)
+        # By its mode: creating, -C names where it reads; listing or comparing, -f the archive it reads.
+        for command in ("tar cf /tmp/b.tar -C .git . && git push", "tar -tf .git/x.tar; git push",
+                        "tar -xf .git/x.tar -C /tmp/out; git push", "tar -df .git/x.tar; git commit -m x",
+                        "gtar -czf /tmp/a.tgz -C .git hooks; git push"):
+            self.assertEqual(self.codes(command), "", command)
         self.as_data("tar cf .git/a.tar src", "tar xfC h.tar .git is refused")
 
     def test_an_alias_for_a_feeder_a_shell_source_or_eval_is_read_as_its_value(self):
@@ -786,7 +808,17 @@ class Identity(unittest.TestCase):
                         "alias s='cat | sh'; echo 'git push' | s", "alias src=source; src ./x.sh; git push",
                         "alias e=eval; e \"$X\"; git push", "alias d=.; d ./x.sh; git commit -m x"):
             self.assertIn("command_unreadable", self.refused(command), command)
+        # A value that ends in a blank makes the next word an alias too, and a script an aliased shell is given is read.
+        self.assertIn("git_command_unknown", self.refused("alias t='gtimeout 9 '; alias x=xargs; echo push | t x git",
+                                                          folder(), programs()))
+        for command in ("alias b='bash -c'; b 'cat /tmp/c >> .git/config'; git push",
+                        "alias e=eval; e 'cp /tmp/x .git/hooks/pre-push'; git push"):
+            self.assertIn("git_directory_written", self.refused(command), command)
+        # An alias read again and again, past ALIAS_MOST, is one the hook cannot read: it is refused, not run on.
+        bomb = "alias a0=:\n" + "".join("alias a%d='a%d;a%d'\n" % (n, n - 1, n - 1) for n in range(1, 12)) + "a11; git push"
+        self.assertIn("aliases cannot be read", self.refused(bomb))
         for command in ("alias x=xargs; ls | x wc -l; git commit -m y", "alias ll='ls -la'; ll; git push",
+                        "alias v='echo '; alias l=ls; v l; git push",
                         "alias s=sh; s -c 'echo hi'; git commit -m x", "alias g=grep; g -rn x docs; git push"):
             self.assertEqual(self.codes(command), "", command)
         self.as_data("alias x=xargs; echo push | x git", "alias s=sh; echo 'git push' | s",
@@ -819,6 +851,40 @@ class Identity(unittest.TestCase):
         # ...and what the script runs is read, in the substitution's own quotes.
         for command in ('echo "$(git commit -m "x y")"', 'echo "a $(git commit -m "it\'s (done)") b"'):
             self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
+
+    def test_a_comment_or_a_parameter_expansion_in_a_substitution_does_not_end_it(self):
+        # Decision 0032: a ) in a comment or in ${...} inside $(...) is the script's, so what follows it is still read.
+        for command in ('echo "$(echo hi # )\ngit commit -m x\n)"', 'echo "$(echo ${x/)/y}; git commit -m x)"',
+                        'echo $(echo hi # )\ngit commit -m x\n)', 'echo "$(# )\ngit commit -m x)"',
+                        'echo "$(echo ${x:-${y/)/z}}; git commit -m x)"',
+                        # ...with quotes of its own after it, which only a substitution read whole keeps as its own.
+                        'echo "$(echo hi # )\ngit commit -m "x y"\n)"', 'echo "$(echo ${x/)/y}; git commit -m "it\'s")"'):
+            self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
+        for command in ('git commit -m "$(echo "a # b") and $(printf \'%s\' \'#x)\')"',
+                        "git commit -m \"$(cat <<'EOF'\n# Title (with parens)\nbody ) here #7, ${not} $(this)\nEOF\n)\"",
+                        'git commit -m "$(echo ${#x} $# a#b)"', 'gh pr create --title x --body "$(echo "${x%)}")"'):
+            self.assertEqual(self.codes(command), "", command)
+        self.as_data("echo \"$(echo hi # )\" and ${x/)/y}", "# a heading (with a paren)")
+
+    def test_a_reading_that_would_run_on_is_cut_short_and_refused(self):
+        # Decision 0032: the hook reads the command within a budget, and past it refuses: a hook that runs out its
+        # settings' timeout may let the command through. A [ that never closes is read once, not once for each [.
+        with mock.patch.object(identity, "READ_SECONDS", -1):
+            self.assertIn("within its budget", self.refused("echo x; git commit -m x"))
+        with mock.patch.object(identity, "_bracket", wraps=identity._bracket) as bracket:
+            self.assertEqual(self.codes("cp /tmp/x ." + "[a" * 200 + "; git push"), "")
+        self.assertLessEqual(bracket.call_count, 4)
+
+    @wall_clock
+    def test_the_spellings_that_ran_long_are_read_in_linear_time(self):
+        # Decision 0032: an alias read again and again, an unclosed [ again and again, and cd - again and again.
+        bomb = "alias a0=:\n" + "".join("alias a%d='a%d;a%d'\n" % (n, n - 1, n - 1) for n in range(1, 23)) + "a22; git push"
+        for command, code in ((bomb, "command_unreadable"), ("cp /tmp/x ." + "[a" * 8000 + "; git push", ""),
+                              ("cd .git; " + "cd -;" * 16000 + " cd %s; git push" % self.here, "")):
+            started = time.monotonic()
+            said = self.codes(command)
+            self.assertLess(time.monotonic() - started, 5, command[:40])
+            self.assertIn(code, said)
 
     def test_a_push_refspec_the_hook_cannot_read_is_refused(self):
         # A variable no earlier command set, a command substitution, a wildcard: what the push sends cannot be read.
