@@ -670,9 +670,10 @@ def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> di
     d = _decide(facts, runs, context, config, now)
     # A wait past its State's limit, while passes ran, is the Maintainer's to see. Only what they see changes (I-1).
     # A deferral that holds the whole scope is one cause, reported once (§4.6): the issue keeps the attention it had.
+    # A context that cannot be read says nothing of the passes, as an unreadable `passes_since` does not.
+    passes_since = context.get("passes_since") if isinstance(context, dict) else None
     if (d["attention"] in t.MAY_GO_STALE and d["reason"] not in t.SCOPE_DEFERRALS
-            and overdue(config.get("lifecycle"), d["state"], moved_at(facts, runs, config, now),
-                        context.get("passes_since"), now)):
+            and overdue(config.get("lifecycle"), d["state"], moved_at(facts, runs, config, now), passes_since, now)):
         return dict(d, attention=t.STALE)
     return d
 

@@ -640,6 +640,13 @@ ISSUE = [
     ("an issue's limit that is not finite is read", ISSUE_PY, " and cap - cap == 0):", "):", ISSUE_TESTS),
     ("an issue at its end goes stale", ISSUE_PY,
      "    if isinstance(ends, list) and state in ends:\n", "    if False:\n", ISSUE_TESTS),
+    ("the App named for factory:ready moves no issue", ISSUE_PY,
+     "any(declared(by, name, config) for name in (LABEL_TRIAGE, LABEL_READY))",
+     "any(declared(by, name, config) for name in (LABEL_TRIAGE,))", ISSUE_TESTS),
+    ("an issue with no time before now raises", ISSUE_PY,
+     "    return max(readable) if readable else None\n", "    return max(readable)\n", ISSUE_TESTS),
+    ("an issue's context that cannot be read raises", ISSUE_PY,
+     'context.get("passes_since") if isinstance(context, dict) else None', 'context.get("passes_since")', ISSUE_TESTS),
 ]
 
 MUTANTS = ISSUE + [

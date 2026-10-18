@@ -90,3 +90,4 @@ because the records are kept 90 days and an issue may wait longer.
 | Any App `issues.label_apps` names moves an issue by any control label it adds or removes; an App named nowhere moves nothing | `tests/test_issue.py::test_any_app_the_configuration_names_moves_an_issue_by_any_control_label` |
 | Only the Factory's or a writer's linked pull request moves an issue by opening or closing; an outsider's, even one admitted, moves nothing | `tests/test_issue.py::test_an_outsiders_pull_request_moves_nothing_even_once_admitted` |
 | A `now` that is no moment raises nothing on an issue, and shows a wait as stale | `tests/test_issue.py::test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing` |
+| A context that cannot be read raises nothing on an issue, and says nothing of the passes, as an unreadable `passes_since` does not | `tests/test_issue.py::test_a_context_that_cannot_be_read_says_nothing_of_the_passes` |

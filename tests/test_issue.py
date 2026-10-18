@@ -1507,6 +1507,13 @@ class Stale(unittest.TestCase):
         # A time after now is passed over, and the wait counts from the newest before it.
         f = dict(WAITING, last_writer_comment_at=then, last_writer_action_at=later)
         self.assertEqual(decide(f, ctx=PASSING, now=now)["attention"], "ready")
+        # With every source after now, and the passes too, no time is left to count from: the wait shows.
+        before = minutes_after(START, -1)
+        try:
+            moved, d = issue.moved_at(WAITING, [], config(), before), decide(WAITING, ctx=PASSING, now=before)
+        except Exception as e:  # what is asserted is that it returns at all
+            self.fail("every source after now raised %r" % e)
+        self.assertEqual((moved, d["state"], d["attention"]), (None, "triage", "stale"))
 
     def test_a_wait_counts_no_earlier_than_the_chain_of_passes(self):  # I-1, §4.6
         now = minutes_after(MOVED, limit("triage") + 1)
@@ -1580,6 +1587,18 @@ class Stale(unittest.TestCase):
         self.assertEqual(issue.moved_at(f, [], config(), now), removed)
         d = decide(f, ctx=PASSING, now=now)
         self.assertEqual((d["state"], d["attention"]), ("triage", "ready"))
+        # The App named for factory:ready alone moves it too: it removes factory:hold, and the issue stays in triage.
+        f = dict(WAITING, label_events=WAITING["label_events"] + [event(HOLD, READINESS, removed, "unlabeled")])
+        self.assertEqual(issue.moved_at(f, [], config(), now), removed)
+        d = decide(f, ctx=PASSING, now=now)
+        self.assertEqual((d["state"], d["attention"]), ("triage", "ready"))
+        # Or it adds factory:triage, which only the Controller's counts: the issue is new, with new's limit.
+        f = dict(WAITING, label_events=WAITING["label_events"] + [event(TRIAGE, READINESS, removed)])
+        self.assertEqual(issue.moved_at(f, [], config(), now), removed)
+        d = decide(f, ctx=PASSING, now=minutes_after(removed, limit("new")))
+        self.assertEqual((d["state"], d["attention"]), ("new", "ready"))
+        d = decide(f, ctx=PASSING, now=minutes_after(removed, limit("new") + 1))
+        self.assertEqual((d["state"], d["attention"]), ("new", "stale"))
         # The other side: an App named nowhere moves nothing, by any label.
         f = dict(WAITING, label_events=WAITING["label_events"] + [event(READY, OTHER_APP, added),
                                                                   event(READY, OTHER_APP, removed, "unlabeled")])
@@ -1599,6 +1618,27 @@ class Stale(unittest.TestCase):
             ours = [dict(p, **{"class": "agent", "opener": dict(AUTHOR_APP), "label_events": []}) for p in f["linked"]]
             d = decide(dict(f, linked=ours), ctx=PASSING, now=now)
             self.assertEqual((d["state"], d["attention"]), (state, "ready"))
+
+    def test_a_context_that_cannot_be_read_says_nothing_of_the_passes(self):  # I-1, §4.6
+        # An issue waiting on its linked draft, which asks the brakes nothing, so only staleness reads the context.
+        f, cfg = facts(linked=[agents(draft=True)], last_writer_action_at=MOVED), config()
+        for when, want in ((limit("in_progress"), "ready"), (limit("in_progress") + 1, "stale")):
+            now = minutes_after(MOVED, when)
+            unread = issue.decide(f, [], context(passes_since=None), cfg, now)
+            self.assertEqual((unread["state"], what(unread), unread["attention"]),
+                             ("in_progress", ("nothing", "linked_draft", None), want))
+            for ctx in (None, "paused", [], 5):
+                try:
+                    d = issue.decide(f, [], ctx, cfg, now)
+                except Exception as e:  # what is asserted is that it returns at all
+                    self.fail("a context of %r raised %r" % (ctx, e))
+                self.assertEqual(d, unread, (ctx, when))
+        # The input that once raised: moved a moment ago, so it is not yet stale.
+        try:
+            d = issue.decide(facts(linked=[agents(draft=True)]), [], None, cfg, at(0))
+        except Exception as e:
+            self.fail("a context of None raised %r" % e)
+        self.assertEqual((d["state"], d["attention"]), ("in_progress", "ready"))
 
     def test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing(self):  # §4.1
         own = decide(WAITING, ctx=PASSING, now=minutes_after(MOVED, 1))
