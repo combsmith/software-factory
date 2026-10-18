@@ -67,9 +67,14 @@ def _wanted_run(state: str, reason: str, config: dict):
     return None
 
 
+def _action(reason: str) -> str:
+    """The act that moves a converged item on."""
+    return "enqueue" if reason == "approved" else "issue_approval"
+
+
 def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, context: dict, config: dict) -> dict:
     """An act that moves work on, once the brakes let it through. An act that stops work is not decided here."""
-    action = "enqueue" if reason == "approved" else "issue_approval"
+    action = _action(reason)
     since = since_writer(mine, facts)
     brake = brakes.on_act(_decision, facts, state, evidence, context, action, since, config["limits"])
     if brake:
@@ -109,7 +114,20 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         return _decision(facts, state, reason, evidence, t.HOLD)
 
     mine = runs_on(runs, facts)
+    wanted = _wanted_run(state, reason, config)
     if in_progress(mine):
+        # No Run in flight lowers a count: attempts, rounds and the Run ceiling count completed Runs, and only a
+        # writer's action renews them. So a count the completed Runs have spent holds the item, whatever Run waits and
+        # whatever would defer, a Pause among them: the ceilings are asked alone (decision 0003). The act ceiling is
+        # not, since it counts acts and stops nothing but an act, and none is decided while a Run waits.
+        done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]
+        held = None
+        if state == t.CONVERGED and _action(reason) == "issue_approval":
+            held = brakes.approval_ceilings(_decision, facts, done, config["limits"])
+        elif wanted is not None:
+            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"])
+        if held:
+            return held
         return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
 
     if state == t.CONVERGED:
@@ -119,7 +137,6 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     # A required check that gave no verdict is unreadable: admit nothing, and wait for a person (I-13).
     if reason == "check_unreadable":
         return _decision(facts, state, reason, evidence, t.DEFER)
-    wanted = _wanted_run(state, reason, config)
     if wanted is None:
         return _decision(facts, state, reason, evidence, t.NOTHING)
     role, intent = wanted

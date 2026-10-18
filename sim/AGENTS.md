@@ -30,7 +30,7 @@ moment, results on earlier content stay behind, a second result can disagree wit
 the contract short or with a result on this content for a criterion it does not name. A person approves the contract, or on some seeds has not yet,
 and can withdraw it; a push can edit or delete it; another App or workflow can give a result, and a check one for a criterion only a person passes,
 which on an agent's pull request a person's approval of the content confirms (`tests/test_simulator.py::test_the_seeds_serve_items_with_an_acceptance_contract_and_without`).
-On one seed in six a review's Result now and then leaves a criterion of its rubric uncovered: its Run fails by a fault of the item and opens no thread,
+On one seed in three a review's Result now and then leaves a criterion of its rubric uncovered: its Run fails by a fault of the item and opens no thread,
 and the review is admitted again until its attempts hold the item (`tests/test_simulator.py::test_the_seeds_serve_a_review_that_left_a_criterion_uncovered`).
 A rule about anything else is not exercised here, so its boundary cases are all that hold it. An invariant is a call to `check()` with its name. When a seed finds a fault, the fix goes in the
 Kernel with a boundary case in `tests/test_decide.py`.

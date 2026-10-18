@@ -48,11 +48,9 @@ def on_act(_decision, facts: dict, state: str, evidence: list, context: dict, ac
     if stopped:
         return stopped
     if action == "issue_approval":
-        failed = _attempts(since, t.ISSUE_APPROVAL)
-        if len(failed) >= limits["max_attempts"]:
-            return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in failed], t.HOLD)
-        if len(_spent(since)) >= limits["max_runs_per_item"]:
-            return _decision(facts, t.HELD, "run_ceiling", [], t.HOLD)
+        held = approval_ceilings(_decision, facts, since, limits)
+        if held:
+            return held
     acts = facts.get("acts_since_writer")
     if type(acts) is not int or acts < 0:
         return _decision(facts, state, "acts_unreadable", evidence, t.DEFER)
@@ -71,6 +69,22 @@ def on_run(_decision, facts: dict, state: str, evidence: list, context: dict, in
     pause = paused(_decision, facts, state, evidence, context)
     if pause:
         return pause
+    return run_ceilings(_decision, facts, evidence, intent, recent, limits)
+
+
+def approval_ceilings(_decision, facts: dict, since: list, limits: dict):
+    """The Hold an approval meets at its attempts or the Run ceiling, or None. No deferral is read here."""
+    failed = _attempts(since, t.ISSUE_APPROVAL)
+    if len(failed) >= limits["max_attempts"]:
+        return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in failed], t.HOLD)
+    if len(_spent(since)) >= limits["max_runs_per_item"]:
+        return _decision(facts, t.HELD, "run_ceiling", [], t.HOLD)
+    return None
+
+
+def run_ceilings(_decision, facts: dict, evidence: list, intent: str, recent: list, limits: dict):
+    """The Hold a Run of this Intent meets at its attempts, its rounds or the Run ceiling, or None. No deferral is read
+    here: decide.py asks it alone while a Run is in flight, when a spent count holds the item whatever would defer."""
     attempts = _attempts(recent, intent)
     if len(attempts) >= limits["max_attempts"]:
         return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in attempts], t.HOLD)
