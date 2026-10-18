@@ -20,6 +20,7 @@ import time
 import unittest
 from unittest import mock
 
+from tests.support import wall_clock
 from tools.hooks import after_edit, before_stop, identity, protected, rules_changed, shell
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -791,6 +792,7 @@ class Identity(unittest.TestCase):
         self.assertIn("gh is not on PATH", self.refused("git push", path=programs("git")))
         self.assertIn("command_unreadable", self.refused('git commit -m "never closed'))
 
+    @wall_clock
     def test_a_check_that_runs_out_of_time_refuses(self):
         started = time.monotonic()
         said = self.codes("git push", FAKE_GH_SLEEP="5", seconds=0.3)
@@ -1274,6 +1276,7 @@ class ProtectedPaths(Asks):
                 "echo x > docs/{a,b}.md"):
             self.assertEqual(self.run_(command), "", command)
 
+    @wall_clock
     def test_the_brace_bomb_is_answered_ask_within_the_deadline(self):
         bomb = "echo x > lifecycle/a.json; : '%s'" % ("{a,b}" * 25)
         started = time.monotonic()
@@ -1282,6 +1285,7 @@ class ProtectedPaths(Asks):
         self.assertEqual(json.loads(done.stdout)["hookSpecificOutput"]["permissionDecision"], "ask")
         self.asked(self.run_("touch %s" % ("{a,b}" * 25)), "path_unreadable", "a bomb with no redirection")
 
+    @wall_clock
     def test_a_brace_left_open_is_read_within_the_budget(self):
         started = time.monotonic()
         self.asked(self.run_("rm {" + "a," * 100000), "path_unreadable", "a brace left open, 200 KB long")
@@ -1293,6 +1297,7 @@ class ProtectedPaths(Asks):
                               ("{a,{b,c}}", "*"), ("{a,b", "{a,b"), ("a}b{c,d}", "a}b*")):
             self.assertEqual(protected._starred(word, lambda: None), starred, word)
 
+    @wall_clock
     def test_a_wildcard_that_would_backtrack_is_read_within_the_budget(self):
         p = a_tree()
         (p / "lifecycle" / ("a" * 250)).write_text("")

@@ -302,6 +302,12 @@ def _block(entry, bad: list):
     return _lines(entry)
 
 
+def raw(path: pathlib.Path) -> str:
+    """A workflow's text as its bytes say, with no newline translation: `read_text` would turn a carriage return into a
+    line end, and a line the shell would run with one in it must reach `read()` to be refused."""
+    return path.read_bytes().decode(errors="replace")
+
+
 def scan_problems(text: str) -> list:
     """Why the secret scan in `text` could be passed by the head it scans: its rules not read from the base.
 
@@ -482,7 +488,7 @@ def lens_workflows(root: pathlib.Path) -> list:
             problems.append("%s names no check, so its workflow file cannot be read for it" % where)
             continue
         problems += ["%s is read from %s, which %s" % (where, rel, why)
-                     for why in lens_job_problems(path.read_text(errors="replace"), lens["check"])]
+                     for why in lens_job_problems(raw(path), lens["check"])]
     return problems
 
 
@@ -491,7 +497,7 @@ def run(root: pathlib.Path = ROOT) -> list:
     live = sorted((root / ".github" / "workflows").glob("*.y*ml"))
     example = root / "examples" / "workflows" / "verify.yml"
     for path in live + sorted((root / "examples" / "workflows").glob("*.y*ml")):
-        text = path.read_text(errors="replace")
+        text = raw(path)
         spared, held = EXEMPT.get(path.name, ((), None)) if path in live else ((), None)
         if path in live and path.name == SCAN:
             problems += ["%s: %s" % (path.relative_to(root), p) for p in scan_problems(text)]
@@ -521,7 +527,7 @@ def run(root: pathlib.Path = ROOT) -> list:
     tripped = set()
     for path in sorted((root / "examples" / "workflows" / "invalid").glob("*.y*ml")):
         want = path.name.split(".")[0]
-        got = sorted({rule for rule, _ in lint(path.read_text())})
+        got = sorted({rule for rule, _ in lint(raw(path))})
         tripped.add(want)
         if got != [want]:
             problems.append("invalid/%s: must break the rule '%s' and no other, and breaks %s"

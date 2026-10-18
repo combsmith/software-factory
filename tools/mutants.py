@@ -6,6 +6,7 @@ is a rule nothing is checking. Run with `python3 -m tools.mutants`.
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import os
 import pathlib
 import re
@@ -62,11 +63,228 @@ IDENTITY_TESTS = "tests.test_hooks.Identity."
 NO_REFSPEC_TESTS = (IDENTITY_TESTS + "test_a_push_with_no_refspec_reads_what_git_would_push",)
 PUSH_SETTING_TESTS = (IDENTITY_TESTS + "test_push_settings_given_in_the_command_are_refused",)
 REDEFINE_TESTS = (IDENTITY_TESTS + "test_a_git_the_command_may_redefine_is_refused",)
+<<<<<<< HEAD
 # Where the boundary cases of decision 0029 are.
 REPORTED = "tests.test_decide.AReviewThatReported."
 COVERAGE = "tests.test_coverage.Coverage."
+=======
+RUNNER = "tests.test_tools.Mutants."
+UNRELATED_TESTS = (RUNNER + "test_a_mutant_whose_only_failure_is_unrelated_survives",)
+UNBROKEN_TESTS = (RUNNER + "test_a_test_that_fails_on_the_unbroken_code_too_kills_nothing",)
+FLAKY_TESTS = (RUNNER + "test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check",)
+LINE_TESTS = (RUNNER + "test_the_failing_test_is_read_from_the_line_each_python_prints",)
+CLOCK_TESTS = (RUNNER + "test_every_test_timed_by_the_wall_clock_is_marked_and_skipped_when_mutating",)
+KILL_TESTS = (RUNNER + "test_a_failure_the_mutant_causes_kills_it",)
+TRACE_TESTS = (RUNNER + "test_a_mutant_leaves_no_trace_in_the_copy_the_next_one_is_lent",)
+NAMED_TESTS = (RUNNER + "test_the_tests_a_mutant_names_run_first_and_the_whole_suite_after_them",)
+>>>>>>> origin/main
 
-MUTANTS = [
+# An issue's State (kernel/issue.py, decision 0028), in a list of its own so that the pull request's work, which adds
+# to MUTANTS below, never touches the same lines. Each is run against tests.test_issue first.
+ISSUE_PY, ISSUE_TESTS = "kernel/issue.py", ("tests.test_issue",)
+ISSUE = [
+    # What is read short or cannot be read, before row 1.
+    ("an issue's lists read short are trusted", ISSUE_PY,
+     "    gaps = unread_lists(facts)\n", "    gaps = []\n", ISSUE_TESTS),
+    ("an issue's flag that is not exactly true counts as whole", ISSUE_PY,
+     "if flags.get(name) is not True]", "if not flags.get(name, True)]", ISSUE_TESTS),
+    ("an issue's unreadable state is trusted", ISSUE_PY,
+     '    if facts.get("state") not in ISSUE_STATES:\n', "    if False:\n", ISSUE_TESTS),
+    ("an issue's unreadable author is trusted", ISSUE_PY,
+     '    if not whole_actor(facts.get("author"), config):\n', "    if False:\n", ISSUE_TESTS),
+    ("an issue's unreadable label event is trusted", ISSUE_PY,
+     '    if not readable_events(facts.get("label_events"), config):\n', "    if False:\n", ISSUE_TESTS),
+    ("an issue's unreadable label names are trusted", ISSUE_PY,
+     '    if not readable_names(facts.get("label_names")):\n', "    if False:\n", ISSUE_TESTS),
+    ("an issue's unreadable linked pull request is trusted", ISSUE_PY,
+     ' and all(readable_link(p, config) for p in facts["linked"])):\n', "):\n", ISSUE_TESTS),
+    ("a linked pull request numbered 1 cannot be read", ISSUE_PY,
+     'entry["number"] >= 1', 'entry["number"] > 1', ISSUE_TESTS),
+    ("a linked pull request's closing time is not read", ISSUE_PY,
+     'for when in ("merged_at", "closed_at")', 'for when in ("merged_at",)', ISSUE_TESTS),
+    ("an issue's unreadable life is trusted", ISSUE_PY,
+     '    if not (is_time(facts.get("life_started_at")) and facts.get("reopened_last_by") in REOPENED_BY):\n',
+     "    if False:\n", ISSUE_TESTS),
+    ("a content id of too few digits is read", ISSUE_PY,
+     "len(CONTENT_FEWEST) <= len(digits) <= len(CONTENT_MOST)", "len(digits) <= len(CONTENT_MOST)", ISSUE_TESTS),
+    ("a content id of too many digits is read", ISSUE_PY,
+     "len(CONTENT_FEWEST) <= len(digits) <= len(CONTENT_MOST)", "len(CONTENT_FEWEST) <= len(digits)", ISSUE_TESTS),
+    ("an issue's unreadable content is trusted", ISSUE_PY,
+     "    if not readable_content(facts):\n", "    if False:\n", ISSUE_TESTS),
+    ("an issue's unreadable type is trusted", ISSUE_PY,
+     "    if not readable_type(facts):\n", "    if False:\n", ISSUE_TESTS),
+    ("an issue's missing type is read as none", ISSUE_PY,
+     '    return "type" in facts and (', "    return (", ISSUE_TESTS),
+    ("an issues block that cannot be read is trusted", ISSUE_PY,
+     "    if not readable_issues(config):\n", "    if False:\n", ISSUE_TESTS),
+    ("an issues block's date is not read", ISSUE_PY,
+     ' or is_time(issues.get("served_from")))', " or True)", ISSUE_TESTS),
+    ("an issues block's labels left out are not read", ISSUE_PY,
+     '            and readable_names(issues.get("left_out_labels")) and', "            and", ISSUE_TESTS),
+    ("an issues block's types left out are not read", ISSUE_PY,
+     ' and readable_names(issues.get("left_out_types"))):', "):", ISSUE_TESTS),
+    ("an issues block's Apps are not read", ISSUE_PY,
+     "    return isinstance(apps, dict) and all(", "    return True or all(", ISSUE_TESTS),
+    ("an issues block's App may be any value", ISSUE_PY,
+     '        name in apps and (apps[name] is None or (isinstance(apps[name], str) and apps[name] != ""))',
+     "        name in apps", ISSUE_TESTS),
+    # Row 1: done.
+    ("a linked merge is not done", ISSUE_PY, "    if merges:\n", "    if False:\n", ISSUE_TESTS),
+    ("an empty merge is done", ISSUE_PY,
+     'if p["merged_at"] is not None and not p["empty"] and', 'if p["merged_at"] is not None and', ISSUE_TESTS),
+    ("a merge in an earlier life is done", ISSUE_PY,
+     ' and p["merged_at"] >= facts["life_started_at"]]', "]", ISSUE_TESTS),
+    ("a merge at the start of a life is not done", ISSUE_PY,
+     'p["merged_at"] >= facts["life_started_at"]', 'p["merged_at"] > facts["life_started_at"]', ISSUE_TESTS),
+    # Row 2: declined.
+    ("a closed issue is not declined", ISSUE_PY,
+     '    if facts["state"] != "open":\n', "    if False:\n", ISSUE_TESTS),
+    ("a reopening by anyone begins a life", ISSUE_PY,
+     '    if facts["reopened_last_by"] == "other":\n', "    if False:\n", ISSUE_TESTS),
+    # Row 3: not served.
+    ("an issue the Consumer entry leaves out is served", ISSUE_PY,
+     "    if not served(facts, config):\n", "    if False:\n", ISSUE_TESTS),
+    ("an issue whose life began before the date served is served", ISSUE_PY,
+     'if not is_time(start) or facts["life_started_at"] < start:', "if not is_time(start):", ISSUE_TESTS),
+    ("an issue of a type left out is served", ISSUE_PY,
+     '    if facts["type"] in issues["left_out_types"]:\n', "    if False:\n", ISSUE_TESTS),
+    ("an issue with a label left out is served", ISSUE_PY,
+     'not any(label in issues["left_out_labels"] for label in facts["label_names"])', "True", ISSUE_TESTS),
+    ("a person's hands-off on an issue is not read", ISSUE_PY,
+     "    if placed_by_a_person(labels, facts) or any(", "    if any(", ISSUE_TESTS),
+    ("a person's hands-off on the linked draft is not read", ISSUE_PY,
+     " or any(placed_by_a_person(standing_labels(p), p) for p in drafts):", ":", ISSUE_TESTS),
+    ("hands-off anyone placed on an issue is a person's", ISSUE_PY,
+     '    if placed is None or not is_person(placed["by"]):\n', "    if placed is None:\n", ISSUE_TESTS),
+    ("hands-off a person removed in the second it was placed stands", ISSUE_PY,
+     '    return not any(ev["label"] == t.LABEL_HANDS_OFF', '    return True or not any(ev["label"] == t.LABEL_HANDS_OFF',
+     ISSUE_TESTS),
+    ("a person's removal of hands-off at another second ties", ISSUE_PY,
+     ' and ev["at"] == placed["at"]\n', "\n", ISSUE_TESTS),
+    ("a person's removal of another label ties with hands-off", ISSUE_PY,
+     'ev["label"] == t.LABEL_HANDS_OFF and ev["action"] == "unlabeled"', 'ev["action"] == "unlabeled"', ISSUE_TESTS),
+    # Row 4: held.
+    ("a Hold does not hold an issue", ISSUE_PY, "    if stops:\n", "    if False:\n", ISSUE_TESTS),
+    ("a Hold on the linked draft does not hold the issue", ISSUE_PY,
+     "if name in labels or any(name in d for d in on_drafts)]", "if name in labels]", ISSUE_TESTS),
+    ("two linked pull requests open do not hold the issue", ISSUE_PY,
+     "    if len(open_links) > 1:\n", "    if False:\n", ISSUE_TESTS),
+    # Row 5, and accepted.
+    ("an issue that is not accepted moves on", ISSUE_PY,
+     "    if not accepted(facts, runs, config):\n", "    if False:\n", ISSUE_TESTS),
+    ("acceptance that lapsed after work began is not told apart", ISSUE_PY,
+     '"acceptance_lapsed" if work_began(facts, links, config) else "not_accepted"', '"not_accepted"', ISSUE_TESTS),
+    ("acceptance lapses on an issue never admitted", ISSUE_PY,
+     "    if not admitted_once(facts):\n        return False\n", "", ISSUE_TESTS),
+    ("a linked pull request is no work begun", ISSUE_PY,
+     "    return bool(here) or any(added_in_this_life(", "    return any(added_in_this_life(", ISSUE_TESTS),
+    ("a link closed in an earlier life is work begun", ISSUE_PY,
+     ' or p["closed_at"] >= facts["life_started_at"]]', " or True]", ISSUE_TESTS),
+    ("a link closed at the start of a life is no work begun in it", ISSUE_PY,
+     'p["closed_at"] >= facts["life_started_at"]', 'p["closed_at"] > facts["life_started_at"]', ISSUE_TESTS),
+    ("factory:ready is no work begun", ISSUE_PY,
+     "config, name) for name in (LABEL_TRIAGE, LABEL_READY))\n", "config, name) for name in (LABEL_TRIAGE,))\n",
+     ISSUE_TESTS),
+    ("a label from an earlier life is work begun", ISSUE_PY,
+     ' and placed[0]["at"] > facts["life_started_at"]', "", ISSUE_TESTS),
+    ("a label anyone added is work begun", ISSUE_PY,
+     '            and all(is_person(ev["by"]) or declared(ev["by"], name, config) for ev in placed))',
+     "            )", ISSUE_TESTS),
+    ("a person's issue is not accepted", ISSUE_PY,
+     '    return is_person(facts["author"]) or ', "    return ", ISSUE_TESTS),
+    ("an issue opened by any actor with write access is accepted", ISSUE_PY,
+     'is_person(facts["author"]) or ', 'facts["author"]["can_write"] is True or ', ISSUE_TESTS),
+    ("an admission does not accept an outsider's issue", ISSUE_PY,
+     " or counts(facts, runs, config, t.LABEL_ADMIT)", "", ISSUE_TESTS),
+    # Linked.
+    ("the Factory's pull request is not linked", ISSUE_PY,
+     '    if entry["class"] == "agent":\n        return True\n', "", ISSUE_TESTS),
+    ("a writer's pull request is not linked", ISSUE_PY,
+     '    if entry["class"] == "maintainer":\n        return True\n', "", ISSUE_TESTS),
+    ("an outsider's pull request nobody admitted is linked", ISSUE_PY,
+     'return entry["class"] == "outside" and admitted_once(entry)', 'return entry["class"] == "outside"', ISSUE_TESTS),
+    ("a dependency update is linked", ISSUE_PY,
+     'return entry["class"] == "outside" and admitted_once(entry)',
+     'return entry["class"] == "dependency" or (entry["class"] == "outside" and admitted_once(entry))', ISSUE_TESTS),
+    ("an admission anyone placed links an outsider's pull request", ISSUE_PY,
+     'and ev["action"] == "labeled" and is_person(ev["by"])\n', 'and ev["action"] == "labeled"\n', ISSUE_TESTS),
+    # Counts.
+    ("a label anyone added counts", ISSUE_PY,
+     '    if not all(is_person(ev["by"]) or declared(ev["by"], name, config) for ev in placed):\n',
+     "    if False:\n", ISSUE_TESTS),
+    ("of adds in one second, the first listed is read", ISSUE_PY,
+     '    if not all(is_person(ev["by"]) or declared(ev["by"], name, config) for ev in placed):\n',
+     '    if not (is_person(placed[0]["by"]) or declared(placed[0]["by"], name, config)):\n', ISSUE_TESTS),
+    ("any App counts as the declared one", ISSUE_PY,
+     'by["kind"] in APP_KINDS and by["name"] == app', 'by["kind"] in APP_KINDS', ISSUE_TESTS),
+    ("anyone named as the declared App counts", ISSUE_PY,
+     'by["kind"] in APP_KINDS and by["name"] == app', 'by["name"] == app', ISSUE_TESTS),
+    ("an App declared for one label counts for the other", ISSUE_PY,
+     'app = config["issues"]["label_apps"].get(name)', 'app = config["issues"]["label_apps"].get(LABEL_READY)',
+     ISSUE_TESTS),
+    ("triage and ready count from an earlier life", ISSUE_PY,
+     'if name != t.LABEL_ADMIT and at <= facts["life_started_at"]:', "if False:", ISSUE_TESTS),
+    ("a label added at a reopening counts", ISSUE_PY,
+     'at <= facts["life_started_at"]', 'at < facts["life_started_at"]', ISSUE_TESTS),
+    ("an admission lasts one life", ISSUE_PY,
+     'if name != t.LABEL_ADMIT and at <= facts["life_started_at"]', 'if at <= facts["life_started_at"]', ISSUE_TESTS),
+    ("ready and an admission count from before the last edit", ISSUE_PY,
+     'if name != LABEL_TRIAGE and at <= facts["content_changed_at"]:', "if False:", ISSUE_TESTS),
+    ("a label added at an edit counts", ISSUE_PY,
+     'at <= facts["content_changed_at"]', 'at < facts["content_changed_at"]', ISSUE_TESTS),
+    ("an edit ends triage", ISSUE_PY,
+     'if name != LABEL_TRIAGE and at <= facts["content_changed_at"]', 'if at <= facts["content_changed_at"]',
+     ISSUE_TESTS),
+    ("a Factory ready counts for content its readiness Run did not judge", ISSUE_PY,
+     '    if name == LABEL_READY and not all(is_person(ev["by"]) for ev in placed) and not judged_here(at, facts, runs):\n',
+     "    if False:\n", ISSUE_TESTS),
+    ("a person's ready is held to a readiness Run's content", ISSUE_PY,
+     ' and not all(is_person(ev["by"]) for ev in placed) and not judged_here(', " and not judged_here(", ISSUE_TESTS),
+    ("a person's add in the second of the App's excuses the App's", ISSUE_PY,
+     ' and not all(is_person(ev["by"]) for ev in placed) and not judged_here(',
+     ' and not any(is_person(ev["by"]) for ev in placed) and not judged_here(', ISSUE_TESTS),
+    ("a Factory ready whose readiness Run record expired counts on its time", ISSUE_PY,
+     "    if not mine:\n        return False\n", "    if not mine:\n        return True\n", ISSUE_TESTS),
+    ("a Run of any Intent judges readiness", ISSUE_PY,
+     'if r["intent"] == JUDGE_READINESS and r["started_at"] <= at]', 'if r["started_at"] <= at]', ISSUE_TESTS),
+    ("a readiness Run that started after the label is the one read", ISSUE_PY,
+     ' and r["started_at"] <= at]', "]", ISSUE_TESTS),
+    ("a readiness Run in the same second as the label is not read", ISSUE_PY,
+     'r["started_at"] <= at]', 'r["started_at"] < at]', ISSUE_TESTS),
+    ("a readiness Run still running has judged", ISSUE_PY,
+     '    return all(r["status"] == "completed" and r["content_id"]', '    return all(r["content_id"]', ISSUE_TESTS),
+    ("one readiness Run of that second agreeing is enough", ISSUE_PY,
+     '    return all(r["status"] == "completed" and r["content_id"]',
+     '    return any(r["status"] == "completed" and r["content_id"]', ISSUE_TESTS),
+    ("another issue's Run judges this one's label", ISSUE_PY,
+     "    mine = [r for r in runs_on(runs, facts) if", "    mine = [r for r in runs if", ISSUE_TESTS),
+    ("a removal does not end ready or triage", ISSUE_PY,
+     '    if any(ev["label"] == name and ev["action"] == "unlabeled"',
+     '    if False and any(ev["label"] == name and ev["action"] == "unlabeled"', ISSUE_TESTS),
+    ("a removal in the second of the latest add does not end it", ISSUE_PY,
+     'ev["at"] >= last for ev in events', 'ev["at"] > last for ev in events', ISSUE_TESTS),
+    ("the first add of ready or triage is read, not the latest", ISSUE_PY,
+     'last = max(ev["at"] for ev in adds)', 'last = min(ev["at"] for ev in adds)', ISSUE_TESTS),
+    # Rows 6 to 10.
+    ("a linked pull request ready for review is not in review", ISSUE_PY,
+     '    if open_links and not open_links[0]["draft"]:\n', "    if False:\n", ISSUE_TESTS),
+    ("a linked draft is not in progress", ISSUE_PY, "    if open_links:\n", "    if False:\n", ISSUE_TESTS),
+    ("an opening Run does not hold the issue", ISSUE_PY,
+     "    if any(r[\"intent\"] == OPENING for r in in_progress(runs_on(runs, facts))):\n", "    if False:\n",
+     ISSUE_TESTS),
+    ("any Run in progress holds the issue as an opening Run would", ISSUE_PY,
+     'r["intent"] == OPENING for r in', "True for r in", ISSUE_TESTS),
+    ("an opening Run that ended still holds the issue", ISSUE_PY,
+     "for r in in_progress(runs_on(runs, facts))", "for r in runs_on(runs, facts)", ISSUE_TESTS),
+    ("factory:ready does not make an issue ready", ISSUE_PY,
+     "    if counts(facts, runs, config, LABEL_READY):\n", "    if False:\n", ISSUE_TESTS),
+    ("factory:triage does not put an issue in triage", ISSUE_PY,
+     "    if counts(facts, runs, config, LABEL_TRIAGE):\n", "    if False:\n", ISSUE_TESTS),
+    ("an accepted issue with no label is not new", ISSUE_PY,
+     '    return out(NEW, "acceptance_due", [])', '    return out(TRIAGE, "acceptance_due", [])', ISSUE_TESTS),
+]
+
+MUTANTS = ISSUE + [
     ("incomplete facts are trusted", "kernel/derive.py",
      "    gaps = incomplete(facts)\n", "    gaps = []\n"),
     ("a list of Runs read short is trusted", "kernel/derive.py",
@@ -323,6 +541,9 @@ MUTANTS = [
      '              and set(steps[3]) <= {"name", "run"})\n', ")\n"),
     ("the secret scan's install may be given any environment", "tools/check_workflows.py",
      'given == ({*SCAN_ENV} if "env" in install else set())', "True"),
+    ("a workflow is read with its carriage returns turned into line ends", "tools/check_workflows.py",
+     '    return path.read_bytes().decode(errors="replace")\n', '    return path.read_text(errors="replace")\n',
+     ("tests.test_tools.Workflows.test_the_secret_scans_install_is_held_whole",)),
     ("a workflow named by a scalar on: is not read for its events", "tools/check_workflows.py",
      '    events |= {e["value"] for e in entries if e["path"] == [] and e["key"] == "on" and e["value"]}\n', ""),
     ("the secret scan is not read where it stands", "tools/check_workflows.py",
@@ -355,6 +576,50 @@ MUTANTS = [
      "    if not 0 <= index" " < count:\n", "    if False:\n"),
     ("a shard that holds no mutant passes", "tools/mutants.py",
      "    if not" " chosen:\n", "    if False:\n"),
+    # Decision 0027: a mutant is killed by a test that fails on it twice and passes without it.
+    ("a failure is not run again on the mutant", "tools/mutants.py",
+     "    again = verdict(*run(work," " only=test))\n", '    again = ("killed", "")\n', UNRELATED_TESTS + FLAKY_TESTS),
+    ("a failure is not run again on the unbroken code", "tools/mutants.py",
+     "    before = verdict(*run(work," " only=test))\n", '    before = ("SURVIVED", "")\n', UNBROKEN_TESTS),
+    ("an unconfirmed failure is taken as a kill", "tools/mutants.py",
+     "                if outcome != UNCONFIRMED:\n" "                    return outcome, why\n",
+     '                return ("killed", "") if outcome == UNCONFIRMED else (outcome, why)\n',
+     UNRELATED_TESTS + UNBROKEN_TESTS),
+    ("an unconfirmed failure is FLAKY with no second run", "tools/mutants.py",
+     "        for _ in range" "(2):\n", "        for _ in range(1):\n", UNRELATED_TESTS),
+    ("FLAKY is counted as killed", "tools/mutants.py",
+     'killed += outcome' ' == "killed"', 'killed += outcome in ("killed", "FLAKY")', FLAKY_TESTS),
+    ("the failure line of Python 3.10 and earlier is read as the class", "tools/mutants.py",
+     '            found.add(where' ' + "." + method)\n', "            found.add(where)\n", LINE_TESTS),
+    ("the failure line of Python 3.11 and later is read as 3.10's", "tools/mutants.py",
+     'if method == "setUpClass"' ' or where.endswith("." + method):', 'if method == "setUpClass":', LINE_TESTS),
+    ("a failure in setUpClass is read as a test", "tools/mutants.py",
+     'if method == "setUpClass"' " or ", "if ", LINE_TESTS),
+    ("a failure line in a test's own message is read as unittest's", "tools/mutants.py",
+     'r"^={70}' '\\n(?:FAIL|ERROR)', 'r"^(?:FAIL|ERROR)', LINE_TESTS),
+    ("two tests that failed are read as one", "tools/mutants.py",
+     "found.pop() if len(found)" " == 1 else None", "found.pop() if found else None", LINE_TESTS),
+    ("the unbroken side is run on the mutant", "tools/mutants.py",
+     "    again = verdict(*run(work," " only=test))\n    unbroken()\n",
+     "    again = verdict(*run(work, only=test))\n", KILL_TESTS),
+    ("a mutant's file is not put back", "tools/mutants.py",
+     "        finally:\n" "            unbroken()\n", "        finally:\n            pass\n", TRACE_TESTS),
+    ("a copy left changed is lent again", "tools/mutants.py",
+     "        if original != (root / rel)" ".read_bytes():\n", "        if False:\n", TRACE_TESTS),
+    ("a copy is made for every mutant", "tools/mutants.py",
+     "            work = self.free" ".pop()      # one step", "            work = self.free[:0].pop()      # one step",
+     TRACE_TESTS),
+    ("a test named to run alone runs with every other", "tools/mutants.py",
+     "    if" " only:\n", "    if False:\n", NAMED_TESTS),
+    ("a confirmation that hangs or crashes is read as a disagreement", "tools/mutants.py",
+     '    if before[0] ==' ' "ERROR":\n', "    if False:\n", FLAKY_TESTS),
+    ("a failure whose test cannot be read is confirmed anyway", "tools/mutants.py",
+     "    if test" " is None:\n", "    if False:\n", LINE_TESTS),
+    ("a failure line with a subtest after it is not read", "tools/mutants.py",
+     '\\(([\\w.]+)\\)' "(?: .*)?$", '\\(([\\w.]+)\\)$', LINE_TESTS),
+    ("a test timed by the wall clock is run when mutating", "tests/support.py",
+     '    if os.environ.get("MUTATING"):\n        return unittest.skip("a test timed by the wall clock',
+     '    if False:\n        return unittest.skip("a test timed by the wall clock', CLOCK_TESTS),
     ("a Lens's job may call a reusable workflow", "tools/check_workflows.py",
      '\n                            ("uses" in inside, "calls a reusable workflow with uses:")', ""),
     ("a Lens's workflow need not run on merge_group", "tools/check_workflows.py",
@@ -1329,6 +1594,7 @@ MUTANTS = [
 ]
 
 
+WORKERS = 4        # runs at once, at most, unless told: each is a whole run of the suite, in a copy of its own
 TIMEOUT = 600      # seconds for one run of the suite. A run that takes longer is an ERROR, never a kill
 # What unittest prints last when a test failed or raised. Without it, the run broke some other way.
 FAILED = re.compile(r"^FAILED \((?:failures|errors)=", re.M)
@@ -1336,19 +1602,30 @@ FAILED = re.compile(r"^FAILED \((?:failures|errors)=", re.M)
 UNIMPORTABLE = "unittest.loader._FailedTest"
 # How every ERROR's reason ends. An ERROR says nothing of the rule, so the run is mended and made again.
 AGAIN = "; fix the copy or run named here, then run python3 -m tools.mutants again"
+# The line unittest prints under its rule of = for the test that failed or raised: its method, then its class in 3.10
+# and earlier or its whole id from 3.11, then any subtest. A failure in setUpClass names the class. The rule above
+# tells it from a line of the same form in a test's own message.
+FAILURE_LINE = re.compile(r"^={70}\n(?:FAIL|ERROR): (\w+) \(([\w.]+)\)(?: .*)?$", re.M)
+# Said of a failure not shown to be the mutant's: one more run of the suite on the mutant decides.
+UNCONFIRMED = "unconfirmed"
+# How a FLAKY's reason ends. FLAKY fails the run as an ERROR does: nobody has shown that a test notices the mutant.
+MEND = "; mark or mend that test, then run python3 -m tools.mutants again"
 
 
-def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = ()) -> tuple:
+def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only: str = None) -> tuple:
     """Run the tests in `cwd` to the first failure: (exit status, output), the status None if it timed out.
 
     The tests named in `first` run on their own before the rest: when they pass, or none is named, the whole suite
-    runs, so a mutant they miss is still read by every test.
+    runs, so a mutant they miss is still read by every test. The one test, or class, named in `only` runs alone.
     """
+    if only:
+        return _unittest(cwd, timeout, ["-q", "-f", only])
     if first:
         status, output = _unittest(cwd, timeout, ["-q", "-f", *first])
         if status != 0:
             return status, output
-    return _unittest(cwd, timeout, ["discover", "-q", "-f", "tests"])
+    # From the top, as verify.py discovers them: a test's id is then its dotted path, as `first` and `only` name it.
+    return _unittest(cwd, timeout, ["discover", "-q", "-f", "-s", "tests", "-t", "."])
 
 
 def _unittest(cwd: pathlib.Path, timeout: float, args: list) -> tuple:
@@ -1379,24 +1656,138 @@ def verdict(status, output: str) -> tuple:
     return "ERROR", "exit status %d and no test failed, ending %r%s" % (status, last, AGAIN)
 
 
-def attempt(mutant: tuple, root: pathlib.Path, run) -> tuple:
-    """Break one rule in a fresh copy of `root` and run the tests there: (outcome, why)."""
+def failed_test(output: str):
+    """The id of the one test that failed in `output`, as unittest takes it to run that test alone; else None."""
+    found = set()
+    for method, where in FAILURE_LINE.findall(output):
+        if method == "setUpClass" or where.endswith("." + method):
+            found.add(where)
+        else:
+            found.add(where + "." + method)
+    return found.pop() if len(found) == 1 else None
+
+
+def confirm(output: str, work: pathlib.Path, run, broken, unbroken) -> tuple:
+    """Is the failure in `output` the mutant's? ("killed", ""), (UNCONFIRMED, why) or ("ERROR", why).
+
+    The test that failed runs alone twice more in `work`: on the mutant, where it must fail again, and, once `unbroken`
+    has put the file back, on the unbroken code, where it must pass; `broken` then breaks it again. Only both tell a
+    failure the mutant causes from one already broken and from one caused by load, and both are in the same copy, so
+    a test that fails in any copy, with no .git or under the system's temporary directory, fails on both.
+    """
+    test = failed_test(output)
+    if test is None:
+        return "ERROR", "the one test that failed cannot be read from the output%s" % AGAIN
+    again = verdict(*run(work, only=test))
+    unbroken()
+    if again[0] == "ERROR":
+        return again
+    before = verdict(*run(work, only=test))
+    broken()
+    if before[0] == "ERROR":
+        return before
+    if again[0] == "killed" and before[0] == "SURVIVED":
+        return "killed", ""
+    if before[0] != "SURVIVED":
+        return UNCONFIRMED, "%s failed on the unbroken code too%s" % (test, MEND)
+    return UNCONFIRMED, "%s passed when run again on the mutant%s" % (test, MEND)
+
+
+class Broken(RuntimeError):
+    """A worker's copy no longer holds what the tree does: it is never lent again."""
+
+
+class Trees:
+    """The copies of `root` the workers run in: one made for each worker, and lent to one mutant at a time.
+
+    A copy is made once, not for every mutant: hundreds of copies wrote hundreds of gigabytes in an afternoon.
+    """
+
+    def __init__(self, root: pathlib.Path, where: str):
+        self.root, self.where, self.free = root, where, []
+
+    @contextlib.contextmanager
+    def lent(self):
+        try:
+            work = self.free.pop()      # one step, so no two workers are lent one copy
+        except IndexError:
+            work = pathlib.Path(tempfile.mkdtemp(dir=self.where)) / "repo"
+            walk.copy(self.root, work)
+        kept = True
+        try:
+            yield work
+        except Broken:
+            kept = False
+            raise
+        finally:
+            if kept:
+                self.free.append(work)
+
+
+# Each mutant's text is given its own time, past the file's own, so that Python never takes the bytecode it compiled
+# from one mutant, or from the unbroken file, for another of the same size.
+STAMPS = iter(range(1, 2 ** 31))     # next() on it is one step, whichever worker asks
+
+
+def attempt(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tuple:
+    """Break one rule in a worker's copy of `root` and run the tests there: (outcome, why).
+
+    A failure kills the mutant only once `confirm` shows it is the mutant's. One that is not runs the suite once more
+    on the mutant: a pass is SURVIVED, and a second failure that is not the mutant's is FLAKY. However the runs end,
+    the file's own bytes are written back and read again before the copy is lent to another mutant.
+    """
+    if trees is None:
+        with tempfile.TemporaryDirectory() as where:
+            return attempt(mutant, root, run, Trees(root, where))
     name, rel, old, new, *first = mutant
-    with tempfile.TemporaryDirectory() as tmp:
-        work = pathlib.Path(tmp) / "repo"
-        walk.copy(root, work)
+    with trees.lent() as work:
         target = work / rel
-        text = target.read_text()
+        try:
+            original = target.read_bytes()
+        except OSError as err:
+            raise Broken("%s could not be read in this copy: %s" % (rel, err)) from None
+        if original != (root / rel).read_bytes():
+            raise Broken("%s in this copy is not the tree's: a mutant before this one left it changed" % rel)
+        text = original.decode()
         if text.count(old) != 1:
             return "STALE", "the code it mutates has changed"
-        target.write_text(text.replace(old, new))
-        return verdict(*(run(work, first=first[0]) if first else run(work)))
+        mutated, stamp = text.replace(old, new).encode(), os.stat(str(target)).st_mtime_ns
+
+        def put(data: bytes, at: int) -> None:
+            try:
+                target.write_bytes(data)
+                os.utime(str(target), ns=(at, at))
+                same = target.read_bytes() == data
+            except OSError as err:
+                raise Broken("%s could not be written in this copy: %s" % (rel, err)) from None
+            if not same:
+                raise Broken("%s in this copy does not read back as written" % rel)
+
+        def broken() -> None:
+            put(mutated, stamp + next(STAMPS) * 10 ** 9)
+
+        def unbroken() -> None:
+            put(original, stamp)
+        broken()
+        try:
+            named = {"first": first[0]} if first else {}
+            for _ in range(2):
+                status, output = run(work, **named)
+                outcome, why = verdict(status, output)
+                if outcome != "killed":
+                    return outcome, why
+                outcome, why = confirm(output, work, run, broken, unbroken)
+                if outcome != UNCONFIRMED:
+                    return outcome, why
+            return "FLAKY", why
+        finally:
+            unbroken()
 
 
-def guarded(mutant: tuple, root: pathlib.Path, run) -> tuple:
+def guarded(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tuple:
     """`attempt`, with anything it raises made an ERROR for this mutant, so that the others still report."""
     try:
-        return attempt(mutant, root, run)
+        return attempt(mutant, root, run, trees)
     except Exception as err:    # a failed copy, read or run; never a kill
         return "ERROR", "the run failed with %s: %s%s" % (type(err).__name__, err, AGAIN)
 
@@ -1437,9 +1828,12 @@ def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: in
               % (" (%s)" % why if why else ""))
         return 1
     killed = 0
-    # One run to a CPU. map() hands the results back in the order of `mutants`, however the runs finish.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers or os.cpu_count() or 1) as pool:
-        results = pool.map(lambda mutant: guarded(mutant, root, run), mutants)
+    # One run to a CPU, and no more than WORKERS: each holds a copy of the tree and runs the suite in it. map() hands
+    # the results back in the order of `mutants`, however the runs finish.
+    with tempfile.TemporaryDirectory() as made, \
+            concurrent.futures.ThreadPoolExecutor(max_workers=workers or min(os.cpu_count() or 1, WORKERS)) as pool:
+        trees = Trees(root, made)
+        results = pool.map(lambda mutant: guarded(mutant, root, run, trees), mutants)
         for mutant, (outcome, why) in zip(mutants, results):
             print("%-9s %s%s" % (outcome, mutant[0], " (%s)" % why if why else ""), flush=True)
             killed += outcome == "killed"
