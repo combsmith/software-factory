@@ -9,7 +9,7 @@ changes none of them (decision 0028).
 `decide` is the issue's Admission: the Controller's acts, and the one Run admitted, with its own schema,
 `issue-decision/1`. It asks the brakes before every act and Run, as decide.py does, and edits neither (decision 0031).
 It wraps `_decide` as decide.py does: a wait past its State's limit in lifecycle/issue.json shows `stale`, counted
-from when the issue last moved, which `moved_at` reads from the issue's own facts.
+from when the issue last moved, which `moved_at` reads from the issue's own facts (decision 0034).
 """
 from __future__ import annotations
 
@@ -615,7 +615,7 @@ def _wanted(facts, state, reason, evidence, mine, intents):
 
 
 def moved_at(facts: dict, runs: list, config: dict, now: str):
-    """When the issue last moved, or None if no time can be read (design §4.1).
+    """When the issue last moved, or None if no time can be read (design §4.1, decision 0034).
 
     The newest time a writer, a named App or the Factory moved it, read from the issue's own facts: its present life
     began, its content changed, a person with write access acted or commented, a person or an App `issues.label_apps`

@@ -585,7 +585,7 @@ ISSUE = [
     ("apply writes when nothing is admitted", ISSUE_PY,
      'again.get("admit") is not None and again.get("admit") == admitted.get("admit")',
      'again.get("admit") == admitted.get("admit")', ISSUE_TESTS),
-    # An issue's wait past its State's limit (design §4.1, decision 0031).
+    # An issue's wait past its State's limit (design §4.1, decision 0034).
     ("an issue never goes stale", ISSUE_PY,
      '    if (d["attention"] in t.MAY_GO_STALE and d["reason"] not in t.SCOPE_DEFERRALS\n', "    if (False\n",
      ISSUE_TESTS),

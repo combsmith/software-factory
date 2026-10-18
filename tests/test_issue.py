@@ -1361,7 +1361,7 @@ class Apply(unittest.TestCase):
         self.assertFalse(issue.still_admitted(decide(facts()), decide(facts())))
 
 
-# An issue's wait past its State's limit (design §4.1, decision 0031). Each boundary from both sides.
+# An issue's wait past its State's limit (design §4.1, decision 0034). Each boundary from both sides.
 START = at(0)
 DEPENDABOT = {"kind": "app", "name": "dependabot[bot]", "can_write": True}
 
