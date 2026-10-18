@@ -216,7 +216,8 @@ IN_PLACE = {"sed": ({"-e", "--expression", "-f", "--file", "-l", "--line-length"
             "perl": ({"-e", "-E", "-I", "-l", "-0"}, {"-e", "-E"})}
 # A brace that expands, {a,b} or {1..9}: the hook reads each word it gives, up to BRACE_MOST of them; past that, a
 # range of digits as a digit and any other brace as a wildcard.
-BRACE = re.compile(r"\{[^{}]*(?:,|\.\.)[^{}]*\}")
+# Up to the first comma or `..` no other one is read, so the match cannot backtrack across them (SonarCloud S8786).
+BRACE = re.compile(r"\{(?:[^{},.]|\.(?!\.))*(?:,|\.\.)[^{}]*\}")
 NUMBERS = re.compile(r"\{-?\d+\.\.-?\d+(?:\.\.-?\d+)?\}")
 RANGE = re.compile(r"^(-?\d+|[a-zA-Z])\.\.(-?\d+|[a-zA-Z])(?:\.\.(-?\d+))?$")
 BRACE_MOST = 64

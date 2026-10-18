@@ -136,6 +136,18 @@ class Identity(unittest.TestCase):
     def setUpClass(cls):
         cls.here, cls.bad, cls.path = repo(), repo(name="Someone Else", email="someone@example.com"), programs("git", "gh")
 
+
+    @wall_clock
+    def test_an_unclosed_brace_is_read_in_linear_time(self):
+        # A long command with a brace that never closes must not use up the hook's budget backtracking (S8786).
+        start = time.monotonic()
+        self.assertIsNone(identity.BRACE.search("{" + "a," * 20000))
+        self.assertLess(time.monotonic() - start, 0.5)
+        self.assertEqual(identity.BRACE.search("x{a,b}y").group(), "{a,b}")
+        self.assertEqual(identity.BRACE.search("{1..3}").group(), "{1..3}")
+        self.assertEqual(identity.BRACE.search("{a.b,c}").group(), "{a.b,c}")
+        self.assertIsNone(identity.BRACE.search("{a.b}"))
+
     def codes(self, command, cwd=None, path=None, seconds=identity.DEADLINE, **extra) -> str:
         found = identity.check(bash(command, cwd or self.here), environment(path or self.path, **extra), seconds)
         return " ".join("%s: %s." % problem for problem in found)
