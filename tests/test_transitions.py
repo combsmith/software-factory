@@ -152,6 +152,13 @@ BASES = {
     "approver_is_author_or_last_pusher": base([reviewed()], last_pusher=CONFIG["approver"]),
     "attempts_exhausted": base(failures(LIMITS["max_attempts"]), checks=GREEN),
     "attempts_exhausted, of approvals": base([reviewed()] + failures(LIMITS["max_attempts"], "issue-approval")),
+    # The simulator's seed 297: a review admitted on a list read one Run short, past its attempts. The item is held
+    # while it runs, so `apply` writes nothing and the Run is superseded: it never reports, and the Hold stays.
+    "attempts_exhausted, with a review Run": base(
+        failures(LIMITS["max_attempts"]) + [dict(reviewed(minute=25, name="r9"), status="in_progress", conclusion=None)]),
+    "attempts_exhausted, of approvals, with a Run": base(
+        [reviewed()] + failures(LIMITS["max_attempts"], "issue-approval")
+        + [dict(reviewed(minute=25, name="r9"), status="in_progress", conclusion=None)]),
     "run_ceiling": base([reviewed()] + failures(LIMITS["max_runs_per_item"] - 1, outcome="environment"),
                         threads=[thread()]),
     "run_ceiling, one Run short": base([reviewed()] + failures(LIMITS["max_runs_per_item"] - 2, outcome="environment"),

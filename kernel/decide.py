@@ -117,18 +117,17 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     wanted = _wanted_run(state, reason, config)
     if in_progress(mine):
         # No Run in flight lowers a count: attempts, rounds and the Run ceiling count completed Runs, and only a
-        # writer's action renews them. So a count the completed Runs have spent holds the item, whatever Run waits.
-        # Only a Hold is taken: anything else, a Pause's deferral among them, waits for the Run (decision 0003). So
-        # does the act ceiling, which counts acts and stops nothing but an act: none is decided while a Run waits.
+        # writer's action renews them. So a count the completed Runs have spent holds the item, whatever Run waits and
+        # whatever would defer, a Pause among them: the ceilings are asked alone (decision 0003). The act ceiling is
+        # not, since it counts acts and stops nothing but an act, and none is decided while a Run waits.
         done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]
-        limits = config["limits"]
-        made = None
-        if state == t.CONVERGED:
-            made = brakes.on_act(_decision, facts, state, evidence, context, _action(reason), done, limits)
+        held = None
+        if state == t.CONVERGED and _action(reason) == "issue_approval":
+            held = brakes.approval_ceilings(_decision, facts, done, config["limits"])
         elif wanted is not None:
-            made = brakes.on_run(_decision, facts, state, evidence, context, wanted[1], done, limits)
-        if made and made["outcome"] == t.HOLD and made["reason"] != "act_ceiling":
-            return made
+            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"])
+        if held:
+            return held
         return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
 
     if state == t.CONVERGED:

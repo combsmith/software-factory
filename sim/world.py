@@ -84,8 +84,10 @@ ON_THE_LIST = {"role": "tests/test_decide.py", "dependency": ".github/workflows/
 OFF_THE_LIST = {"role": "docs/lessons.md", "dependency": "docs/requirements.txt", "maintainer": "docs/glossary.md"}
 # On one seed in three, under faults, a review's Result leaves a criterion of its rubric uncovered half the time, which
 # `apply` refuses before any Effect: the Run fails by a fault of the item (decision 0029). The Factory's own behaviour,
-# not GitHub's, so it carries no marker. By the seed alone, so every other world stays as it was. On every seed, the
-# first 40 seeds that a local run and the mutation check use would no longer reach every path the other tests ask for.
+# not GitHub's, so it carries no marker. By the seed alone, so every other world stays as it was. On every seed, all 300
+# hold, but the first 40, which a local run and the mutation check use, no longer reach every path the other tests ask
+# for: test_invariants_hold_under_faults sees no approval stopped, and
+# test_the_seeds_serve_items_with_an_acceptance_contract_and_without no acceptance_evidence_missing.
 UNCOVERED_SEEDS, UNCOVERED = 3, 0.5
 
 
