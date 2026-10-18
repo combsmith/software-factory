@@ -2,7 +2,7 @@
 
 The States a Work item can be in and the transitions between them, as data. One file for each
 type of Work item. A pull request's State names are the codes in `kernel/terms.py`; an issue's
-join them when the Kernel derives an issue's State, which it does not yet.
+are the codes in `kernel/issue.py`, which shares `held` and `not_served` with them.
 
 | Rule | Held by |
 |---|---|
