@@ -188,7 +188,8 @@ CASES = [
     ("review 2, finding 3: the same issue seen by apply, its own Run left out, after the label was removed",
      facts(label_events=[labelled(READY), unlabelled(READY)]), [], "new"),
     # The two the issue counts beyond the model's 33.
-    ("a Factory ready whose Run record has expired: the time alone is read", facts(label_events=READIED), [], "ready"),
+    ("a Factory ready whose Run record has expired: nothing shows what was judged", facts(label_events=READIED), [],
+     "triage"),
     ("a ready a person removed", facts(label_events=READIED + [unlabelled(READY, minute=7)]), JUDGED, "triage"),
 ]
 # The one case whose Consumer entry serves nothing, by its place in CASES.
@@ -276,6 +277,7 @@ class Unreadable(unittest.TestCase):
                dict(good, opener={"kind": "human", "name": "x"}), dict(good, open="yes"), dict(good, draft=None),
                dict(good, empty=0), dict(good, merged_at="soon", closed_at=at(5), open=False),
                dict(good, closed_at=at(5)), dict(good, merged_at=at(5)), dict(good, open=False),
+               dict(good, open=False, closed_at="2026-10-11"), dict(good, open=False, closed_at=at(5), merged_at=1),
                dict(good, label_events=[dict(labelled(HOLD), by=None)]), dict(good, label_events=None), "11"]
         no_class = dict(good)
         del no_class["class"]
@@ -284,7 +286,8 @@ class Unreadable(unittest.TestCase):
                 d = derive(f)
                 self.assertEqual((d["state"], d["reason"]), (None, "linked_unreadable"), entry)
         self.assertEqual(derive(facts(linked=None))["reason"], "linked_unreadable")
-        # The other side: closed unmerged, merged, and a stranger's pull request are read.
+        # The other side: the first number, closed unmerged, merged, and a stranger's pull request are read.
+        self.assertEqual(state(facts(linked=[pr(number=1)])), "in_review")
         self.assertEqual(state(facts(linked=[pr(is_open=False, closed=5)])), "new")
         self.assertEqual(state(facts(linked=[pr(is_open=False, merged=5)])), "done")
         self.assertEqual(state(facts(linked=[strangers()])), "new")
@@ -306,14 +309,67 @@ class Unreadable(unittest.TestCase):
                 self.assertEqual((d["state"], d["reason"]), (None, "content_unreadable"), over)
 
     def test_what_cannot_be_read_is_read_in_its_order(self):
-        f = facts(label_events=None, linked=None, life_started_at=None, content_id=None)
+        f = facts(state=None, label_events=None, label_names=None, linked=None, life_started_at=None, content_id=None,
+                  type=1)
+        cfg = config(served_from="today")
+        order = (("state", "open", "state_unreadable"), ("label_events", [], "label_unreadable"),
+                 ("label_names", [], "label_unreadable"), ("linked", [], "linked_unreadable"),
+                 ("life_started_at", at(0), "life_unreadable"), ("content_id", THIS, "content_unreadable"),
+                 ("type", None, "type_unreadable"))
+        for field, readable, reason in order:
+            self.assertEqual(derive(f, cfg=cfg)["reason"], reason, field)
+            f = dict(f, **{field: readable})
+        self.assertEqual(derive(f, cfg=cfg)["reason"], "issues_unreadable")
+        self.assertEqual(derive(f)["reason"], "acceptance_due")
+        broken = facts(state=None, label_events=None, complete={"timeline": True, "linked": True, "runs": False})
+        self.assertEqual(derive(broken, cfg=cfg)["reason"], "facts_incomplete")
+
+    def test_an_unreadable_state_defers(self):
+        for value in ("merged", "OPEN", None, 1):
+            for f in (facts(state=value), facts(state=value, linked=[pr(is_open=False, merged=5)])):
+                d = derive(f)
+                self.assertEqual((d["state"], d["reason"]), (None, "state_unreadable"), value)
+        f = facts()
+        del f["state"]
+        self.assertEqual(derive(f)["reason"], "state_unreadable")
+        self.assertEqual(state(facts(state="closed")), "declined")
+
+    def test_unreadable_label_names_defer(self):
+        for value in (None, "epic", [None], [""], [1], {"epic": True}):
+            d = derive(facts(label_names=value))
+            self.assertEqual((d["state"], d["reason"]), (None, "label_unreadable"), value)
+        f = facts()
+        del f["label_names"]
         self.assertEqual(derive(f)["reason"], "label_unreadable")
-        self.assertEqual(derive(dict(f, label_events=[]))["reason"], "linked_unreadable")
-        self.assertEqual(derive(dict(f, label_events=[], linked=[]))["reason"], "life_unreadable")
-        self.assertEqual(derive(dict(f, label_events=[], linked=[], life_started_at=at(0)))["reason"],
-                         "content_unreadable")
-        self.assertEqual(derive(dict(f, complete={"timeline": True, "linked": True, "runs": False}))["reason"],
-                         "facts_incomplete")
+        for value in ([], ["bug"]):
+            self.assertEqual(state(facts(label_names=value)), "new", value)
+
+    def test_an_unreadable_type_defers(self):
+        for value in ("", 1, ["Epic"]):
+            d = derive(facts(type=value))
+            self.assertEqual((d["state"], d["reason"]), (None, "type_unreadable"), value)
+        f = facts()
+        del f["type"]
+        self.assertEqual(derive(f)["reason"], "type_unreadable")
+        for value in (None, "Bug"):
+            self.assertEqual(state(facts(type=value)), "new", value)
+
+    def test_an_issues_block_that_cannot_be_read_defers(self):
+        missing = copy.deepcopy(CONFIG)
+        del missing["issues"]
+        apps = SERVED["label_apps"]
+        for cfg in (missing, dict(config(), issues=None), dict(config(), issues=[]),
+                    config(served_from="2026-10-11"), config(served_from=1),
+                    config(left_out_labels=None), config(left_out_labels=[1]), config(left_out_labels="epic"),
+                    config(left_out_types=None), config(left_out_types=[""]),
+                    config(label_apps=None), config(label_apps={}), config(label_apps={"factory:triage": None}),
+                    config(label_apps={"factory:ready": None}), config(label_apps=dict(apps, **{"factory:ready": ""})),
+                    config(label_apps=dict(apps, **{"factory:triage": 1}))):
+            for f in (facts(), facts(state="closed")):
+                d = derive(f, cfg=cfg)
+                self.assertEqual((d["state"], d["reason"]), (None, "issues_unreadable"), cfg.get("issues"))
+        self.assertEqual(derive(facts(), cfg=copy.deepcopy(CONFIG))["reason"], "left_out")
+        self.assertEqual(state(facts(), cfg=config(label_apps={"factory:triage": None, "factory:ready": None})), "new")
 
 
 class Done(unittest.TestCase):
@@ -367,8 +423,7 @@ class NotServed(unittest.TestCase):
                           "label_apps": {"factory:triage": None, "factory:ready": None}})
         d = derive(facts(label_events=[labelled(READY)]), cfg=copy.deepcopy(CONFIG))
         self.assertEqual((d["state"], d["reason"]), ("not_served", "left_out"))
-        for cfg in (config(served_from=None), config(served_from="2026-10-11")):
-            self.assertEqual(state(facts(), cfg=cfg), "not_served")
+        self.assertEqual(state(facts(), cfg=config(served_from=None)), "not_served")
 
     def test_an_issue_whose_life_began_before_the_date_served_is_left_out(self):
         for start, want in (("2026-10-11T11:59:59Z", "new"), (at(0), "new"), ("2026-10-11T12:00:01Z", "not_served")):
@@ -394,6 +449,14 @@ class NotServed(unittest.TestCase):
         for by in (CONTROLLER, OTHER_APP):
             events = [labelled(HANDS_OFF, minute=3), unlabelled(HANDS_OFF, by, 3)]
             self.assertEqual(state(facts(label_events=events)), "not_served", by)
+
+    def test_only_a_persons_removal_of_hands_off_in_that_second_is_a_tie(self):
+        # A removal of an earlier placement, at another second, ties with nothing.
+        events = [labelled(HANDS_OFF, minute=0), unlabelled(HANDS_OFF, minute=1), labelled(HANDS_OFF, minute=3)]
+        self.assertEqual(state(facts(label_events=events)), "not_served")
+        # Nor does a person's removal of another label in that second.
+        events = [labelled(HOLD, minute=1), unlabelled(HOLD, minute=3), labelled(HANDS_OFF, minute=3)]
+        self.assertEqual(state(facts(label_events=events)), "not_served")
 
     def test_hands_off_on_the_linked_draft_and_only_the_draft(self):
         self.assertEqual(state(facts(linked=[agents(draft=True, events=[labelled(HANDS_OFF)])])), "not_served")
@@ -461,6 +524,30 @@ class Accepted(unittest.TestCase):
         self.assertEqual(state(outsiders(label_events=events + [unlabelled(ADMIT, minute=13)])), "new")
         self.assertEqual(state(outsiders(label_events=events + [unlabelled(ADMIT, CONTROLLER, 13)])), "triage")
 
+    def test_acceptance_lapses_only_once_it_held_and_work_began_in_this_life(self):
+        # Never admitted by a person: a label, anyone's, or a linked pull request only waits.
+        for f in (outsiders(label_events=[labelled(READY, OTHER_APP, 3)]), outsiders(label_events=[labelled(READY)]),
+                  outsiders(label_events=[labelled(TRIAGE, CONTROLLER, 2)]), outsiders(linked=[agents(draft=True)]),
+                  outsiders(label_events=[labelled(ADMIT, OTHER_APP, 1), labelled(TRIAGE, CONTROLLER, 2)])):
+            self.assertEqual(derive(f)["reason"], "not_accepted", f["label_events"])
+        admit = [labelled(ADMIT)]
+        for label, by, want in ((READY, WRITER, "acceptance_lapsed"), (READY, READINESS, "acceptance_lapsed"),
+                                (TRIAGE, CONTROLLER, "acceptance_lapsed"), (TRIAGE, COLLEAGUE, "acceptance_lapsed"),
+                                (READY, OTHER_APP, "not_accepted"), (TRIAGE, READINESS, "not_accepted"),
+                                (TRIAGE, OUTSIDER, "not_accepted")):
+            f = outsiders(content_changed_at=at(9), label_events=admit + [labelled(label, by, 2)])
+            self.assertEqual(derive(f)["reason"], want, (label, by))
+        # A label from an earlier life, at the reopening, or since removed, is no work begun in this one.
+        for added in (2, 5):
+            f = outsiders(life_started_at=at(5), reopened_last_by="writer", content_changed_at=at(9),
+                          label_events=admit + [labelled(READY, minute=added)])
+            self.assertEqual(derive(f)["reason"], "not_accepted", added)
+        f = outsiders(content_changed_at=at(9), label_events=admit + [labelled(READY, minute=2), unlabelled(READY, minute=3)])
+        self.assertEqual(derive(f)["reason"], "not_accepted")
+        # Adds in one second, a person's and another App's, are read the way that stops: no work begun.
+        f = outsiders(content_changed_at=at(9), label_events=admit + [labelled(READY, minute=2), labelled(READY, OTHER_APP, 2)])
+        self.assertEqual(derive(f)["reason"], "not_accepted")
+
     def test_acceptance_lapsed_after_work_began_is_told_apart(self):
         lapsed = outsiders(content_changed_at=at(9), label_events=[labelled(ADMIT), labelled(TRIAGE, CONTROLLER, 2)])
         self.assertEqual(derive(lapsed)["reason"], "acceptance_lapsed")
@@ -522,13 +609,13 @@ class Counts(unittest.TestCase):
                           (READY, MACHINE), (READY, {"kind": "lens", "name": "pr-review", "can_write": True})):
             self.assertEqual(state(facts(label_events=[labelled(label, by)])), "new", (label, by))
         lens = dict(READINESS, kind="lens")
-        self.assertEqual(state(facts(label_events=[labelled(READY, lens)])), "ready")
+        self.assertEqual(state(facts(label_events=[labelled(READY, lens, 5)]), JUDGED), "ready")
 
     def test_only_an_app_is_read_as_the_declared_app(self):
         cfg = config(label_apps={"factory:triage": None, "factory:ready": "readiness"})
         for kind, want in (("app", "ready"), ("lens", "ready"), ("human", "new")):
             by = {"kind": kind, "name": "readiness", "can_write": False}
-            self.assertEqual(state(facts(label_events=[labelled(READY, by)]), cfg=cfg), want, kind)
+            self.assertEqual(state(facts(label_events=[labelled(READY, by)]), [run(minute=0)], cfg), want, kind)
 
     def test_no_app_counts_until_it_is_declared(self):
         cfg = config(label_apps={"factory:triage": None, "factory:ready": None})
@@ -553,29 +640,39 @@ class Counts(unittest.TestCase):
         self.assertEqual(state(facts(content_changed_at=at(5), label_events=[labelled(TRIAGE, CONTROLLER, 1)])),
                          "triage")
 
-    def test_a_factory_ready_counts_only_for_the_content_its_run_judged(self):
+    def test_a_factory_ready_counts_only_for_the_content_its_readiness_run_judged(self):
+        self.assertEqual(state(facts(label_events=READIED), JUDGED), "ready")
         self.assertEqual(state(facts(label_events=READIED), [run(content=OTHER)]), "triage")
         self.assertEqual(state(facts(label_events=READIED), [run(content=OTHER, minute=2), run(minute=4, name="r2")]),
                          "ready")
         self.assertEqual(state(facts(label_events=READIED), [run(minute=2), run(content=OTHER, minute=4, name="r2")]),
                          "triage")
-        # The Run that completed just before the label: one started after it, or still running, is not it.
+        # The latest readiness Run that started no later than the label: one started after it is not it.
         self.assertEqual(state(facts(label_events=READIED), [run(), run(content=OTHER, minute=6, name="r2")]), "ready")
-        self.assertEqual(state(facts(label_events=READIED), [run(), run(content=OTHER, minute=5, name="r2",
-                                                                         status="in_progress")]), "ready")
         self.assertEqual(state(facts(label_events=READIED), [run(), run(content=OTHER, minute=5, name="r2")]), "triage")
         # Two that started in the same second must both have judged this content.
         self.assertEqual(state(facts(label_events=READIED), [run(), run(content=OTHER, name="r2")]), "triage")
         self.assertEqual(state(facts(label_events=READIED), [run(), run(name="r2")]), "ready")
         # Another issue's Run is not this one's.
-        self.assertEqual(state(facts(label_events=READIED), [dict(run(content=OTHER), item=dict(ITEM, number=8))]),
-                         "ready")
+        elsewhere = dict(run(minute=4, name="r2"), item=dict(ITEM, number=8))
+        self.assertEqual(state(facts(label_events=READIED), [run(content=OTHER, minute=3), elsewhere]), "triage")
         # A person's ready is a person's verdict, whatever a Run judged.
         self.assertEqual(state(facts(label_events=[labelled(READY, minute=5)]), [run(content=OTHER)]), "ready")
 
-    def test_a_factory_ready_whose_run_record_has_expired_is_read_by_its_time(self):
-        self.assertEqual(state(facts(label_events=READIED)), "ready")
-        self.assertEqual(state(facts(content_changed_at=at(5), label_events=READIED)), "triage")
+    def test_only_a_readiness_run_judges_and_only_once_it_has_completed(self):
+        # The readiness Run judged other content; a later Run of another Intent judged this one: not judged here.
+        other_intent = run(intent="investigate-issue", minute=4, name="r2", role="business-analyst")
+        self.assertEqual(state(facts(label_events=READIED), [run(content=OTHER, minute=2), other_intent]), "triage")
+        self.assertEqual(state(facts(label_events=READIED), [other_intent]), "triage")
+        # A readiness Run still running has judged nothing, nor has one queued, whatever an earlier one judged.
+        for status in ("in_progress", "queued"):
+            self.assertEqual(state(facts(label_events=READIED), [run(status=status)]), "triage", status)
+            self.assertEqual(state(facts(label_events=READIED), [run(minute=2), run(status=status, name="r2")]),
+                             "triage", status)
+
+    def test_a_factory_ready_whose_run_record_has_expired_does_not_count(self):
+        self.assertEqual(state(facts(label_events=READIED)), "triage")
+        self.assertEqual(state(facts(label_events=READIED), JUDGED), "ready")
 
     def test_any_removal_at_or_after_the_latest_add_ends_ready_and_triage(self):
         for by in (WRITER, CONTROLLER, OTHER_APP, OUTSIDER):
@@ -589,6 +686,21 @@ class Counts(unittest.TestCase):
     def test_the_latest_add_is_the_one_read(self):
         self.assertEqual(state(facts(label_events=[labelled(READY, minute=1), labelled(READY, OTHER_APP, 2)])), "new")
         self.assertEqual(state(facts(label_events=[labelled(READY, OTHER_APP, 1), labelled(READY, minute=2)])), "ready")
+
+    def test_adds_in_one_second_are_read_the_way_that_stops_work_whatever_their_order(self):
+        person, app = labelled(READY, minute=5), labelled(READY, OTHER_APP, 5)
+        for events in ([person, app], [app, person]):
+            self.assertEqual(state(facts(label_events=events)), "new", events)
+        # Beside the declared App's, a person's add does not excuse the App's from its readiness Run.
+        declared_app = labelled(READY, READINESS, 5)
+        for events in ([person, declared_app], [declared_app, person]):
+            self.assertEqual(state(facts(label_events=events)), "new", events)
+            self.assertEqual(state(facts(label_events=events), JUDGED), "ready", events)
+        both = [person, labelled(READY, COLLEAGUE, 5)]
+        self.assertEqual(state(facts(label_events=both)), "ready")
+        triage = [labelled(TRIAGE, CONTROLLER, 2), labelled(TRIAGE, OUTSIDER, 2)]
+        for events in (triage, triage[::-1]):
+            self.assertEqual(state(facts(label_events=events)), "new", events)
 
 
 if __name__ == "__main__":

@@ -33,7 +33,12 @@ REOPENED_BY = ("writer", "other", "never")
 CLASSES = ("agent", "maintainer", "dependency", "outside")
 # The kinds a declared Factory App may be read as: the Bot account of an App, a Lens's or any other.
 APP_KINDS = ("app", "lens")
-# The Intent of the opening Run, which creates the work's branch and its draft pull request.
+# What GitHub says of an issue: open, or closed.
+ISSUE_STATES = ("open", "closed")
+# The Intents of an issue's Runs that its State reads, as their run records name them. The issue's decision, which
+# admits them, uses these codes. The readiness Run judges whether the issue is ready for this content, and its `apply`
+# adds factory:ready. The opening Run creates the work's branch and its draft pull request.
+JUDGE_READINESS = "judge-readiness"
 OPENING = "open-pull-request"
 
 
@@ -97,16 +102,41 @@ def readable_content(facts: dict) -> bool:
             and all(c in t.HEX_DIGITS for c in cid[len(t.CONTENT_PREFIX):]) and is_time(facts.get("content_changed_at")))
 
 
-def latest_add(events: list, name: str):
-    """The event that added `name`, factory:triage or factory:ready, most lately, or None if none did or any removal
-    came at or after it: these labels let work go, so a removal in the same second stops it."""
+def readable_names(names) -> bool:
+    """Every label's name the issue carries, as a list of names: the Consumer entry may leave any of them out."""
+    return isinstance(names, list) and all(isinstance(name, str) and name != "" for name in names)
+
+
+def readable_type(facts: dict) -> bool:
+    """The issue's type, a name or null where it has none, given and never defaulted: the Consumer entry may leave it
+    out."""
+    return "type" in facts and (facts["type"] is None or (isinstance(facts["type"], str) and facts["type"] != ""))
+
+
+def readable_issues(config: dict) -> bool:
+    """Whether the configuration's `issues` block can be read whole: a date or null, two lists of names, and for each
+    label that lets work go an App's name or null. Null serves nothing and declares nobody; anything else could."""
+    issues = config.get("issues")
+    if not (isinstance(issues, dict) and (issues.get("served_from") is None or is_time(issues.get("served_from")))
+            and readable_names(issues.get("left_out_labels")) and readable_names(issues.get("left_out_types"))):
+        return False
+    apps = issues.get("label_apps")
+    return isinstance(apps, dict) and all(
+        name in apps and (apps[name] is None or (isinstance(apps[name], str) and apps[name] != ""))
+        for name in (LABEL_TRIAGE, LABEL_READY))
+
+
+def latest_adds(events: list, name: str) -> list:
+    """The events that added `name`, factory:triage or factory:ready, in the latest second any did; none if none did, or
+    if any removal came at or after them: these labels let work go, so a removal in the same second stops it. Which of
+    two adds in one second came last cannot be told, so every one of them is read, and each must count."""
     adds = [ev for ev in events if ev["label"] == name and ev["action"] == "labeled"]
     if not adds:
-        return None
-    last = max(adds, key=lambda ev: ev["at"])
-    if any(ev["label"] == name and ev["action"] == "unlabeled" and ev["at"] >= last["at"] for ev in events):
-        return None
-    return last
+        return []
+    last = max(ev["at"] for ev in adds)
+    if any(ev["label"] == name and ev["action"] == "unlabeled" and ev["at"] >= last for ev in events):
+        return []
+    return [ev for ev in adds if ev["at"] == last]
 
 
 def declared(by: dict, name: str, config: dict) -> bool:
@@ -116,15 +146,17 @@ def declared(by: dict, name: str, config: dict) -> bool:
     return app is not None and by["kind"] in APP_KINDS and by["name"] == app
 
 
-def judged_here(placed: dict, facts: dict, runs: list) -> bool:
-    """Whether the Run that completed just before the Factory added factory:ready was admitted for the issue's present
-    content. Runs that started in the same second as the label are among them, and all must agree. Once the record has
-    expired the time alone is read: a label that did not count will long since have been removed."""
-    before = [r for r in runs_on(runs, facts) if r["status"] == "completed" and r["started_at"] <= placed["at"]]
-    if not before:
-        return True
-    last = max(r["started_at"] for r in before)
-    return all(r["content_id"] == facts["content_id"] for r in before if r["started_at"] == last)
+def judged_here(at: str, facts: dict, runs: list) -> bool:
+    """Whether the readiness Run behind a factory:ready the Factory added at `at` judged the issue's present content:
+    the latest readiness Run on the issue that started no later than the label completed, for this content. Runs that
+    started in that one second must all have. One still running has judged nothing, and with no record, as once it has
+    expired, nothing shows the content was judged: the label does not count, and the issue stays in triage."""
+    mine = [r for r in runs_on(runs, facts) if r["intent"] == JUDGE_READINESS and r["started_at"] <= at]
+    if not mine:
+        return False
+    last = max(r["started_at"] for r in mine)
+    return all(r["status"] == "completed" and r["content_id"] == facts["content_id"]
+               for r in mine if r["started_at"] == last)
 
 
 def counts(facts: dict, runs: list, config: dict, name: str) -> bool:
@@ -133,24 +165,33 @@ def counts(facts: dict, runs: list, config: dict, name: str) -> bool:
     It was added by a person with write access, or by the Factory App declared for it. factory:triage and
     factory:ready were added in the issue's present life; a person's admission outlasts a reopening. factory:ready and
     factory:admit were added after the content last changed. A factory:ready the Factory added counts only for the
-    content its Run judged. A label added in the same second as an edit or a reopening does not count.
+    content its readiness Run judged. A label added in the same second as an edit or a reopening does not count.
     """
     if name == t.LABEL_ADMIT:
-        placed = standing_labels(facts).get(name)
+        standing = standing_labels(facts).get(name)
+        placed = [] if standing is None else [standing]
     else:
-        placed = latest_add(facts["label_events"], name)
-    if placed is None:
+        placed = latest_adds(facts["label_events"], name)
+    if not placed:
         return False
-    by = placed["by"]
-    if not (is_person(by) or declared(by, name, config)):
+    at = placed[0]["at"]
+    if not all(is_person(ev["by"]) or declared(ev["by"], name, config) for ev in placed):
         return False
-    if name != t.LABEL_ADMIT and placed["at"] <= facts["life_started_at"]:
+    if name != t.LABEL_ADMIT and at <= facts["life_started_at"]:
         return False
-    if name != LABEL_TRIAGE and placed["at"] <= facts["content_changed_at"]:
+    if name != LABEL_TRIAGE and at <= facts["content_changed_at"]:
         return False
-    if name == LABEL_READY and not is_person(by) and not judged_here(placed, facts, runs):
+    if name == LABEL_READY and not all(is_person(ev["by"]) for ev in placed) and not judged_here(at, facts, runs):
         return False
     return True
+
+
+def added_in_this_life(facts: dict, config: dict, name: str) -> bool:
+    """Whether factory:triage or factory:ready stands as added in the present life by a person with write access or the
+    App declared for it, whatever else it needs to count."""
+    placed = latest_adds(facts["label_events"], name)
+    return (bool(placed) and placed[0]["at"] > facts["life_started_at"]
+            and all(is_person(ev["by"]) or declared(ev["by"], name, config) for ev in placed))
 
 
 def admitted_once(entry: dict) -> bool:
@@ -177,16 +218,24 @@ def served(facts: dict, config: dict) -> bool:
     start = issues["served_from"]
     if not is_time(start) or facts["life_started_at"] < start:
         return False
-    if facts.get("type") in issues["left_out_types"]:
+    if facts["type"] in issues["left_out_types"]:
         return False
-    names = facts.get("label_names")
-    return isinstance(names, list) and not any(label in issues["left_out_labels"] for label in names)
+    return not any(label in issues["left_out_labels"] for label in facts["label_names"])
 
 
 def accepted(facts: dict, runs: list, config: dict) -> bool:
     """Accepted: served, and opened by a person with write access, or factory:admit counts on it (I-42). Whether the
     Consumer entry serves it is row 3, read before this; so rows 6 to 9 are reached only by an accepted issue."""
-    return facts["author_can_write"] is True or counts(facts, runs, config, t.LABEL_ADMIT)
+    return facts.get("author_can_write") is True or counts(facts, runs, config, t.LABEL_ADMIT)
+
+
+def work_began(facts: dict, links: list, config: dict) -> bool:
+    """Whether acceptance lapsed after work began, which the Maintainer is told: a person once admitted the issue, so
+    acceptance held, and it has a linked pull request, or carries factory:triage or factory:ready added in this life by
+    a person or the App declared for it. An issue never accepted only waits."""
+    if not admitted_once(facts):
+        return False
+    return bool(links) or any(added_in_this_life(facts, config, name) for name in (LABEL_TRIAGE, LABEL_READY))
 
 
 def placed_by_a_person(labels: dict, facts: dict) -> bool:
@@ -212,7 +261,11 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     gaps = unread_lists(facts)
     if gaps:
         return out(None, "facts_incomplete", gaps)
+    if facts.get("state") not in ISSUE_STATES:
+        return out(None, "state_unreadable", [])
     if not readable_events(facts.get("label_events"), config):
+        return out(None, "label_unreadable", [])
+    if not readable_names(facts.get("label_names")):
         return out(None, "label_unreadable", [])
     if not (isinstance(facts.get("linked"), list) and all(readable_link(p, config) for p in facts["linked"])):
         return out(None, "linked_unreadable", [])
@@ -220,6 +273,11 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         return out(None, "life_unreadable", [])
     if not readable_content(facts):
         return out(None, "content_unreadable", [])
+    if not readable_type(facts):
+        return out(None, "type_unreadable", [])
+    # What the Consumer entry says of issues is read whole too: a block that cannot be read could serve any issue.
+    if not readable_issues(config):
+        return out(None, "issues_unreadable", [])
 
     links = [p for p in facts["linked"] if is_linked(p)]
     open_links = [p for p in links if p["open"]]
@@ -247,10 +305,9 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         return out(t.HELD, "human_hold", stops)
     if len(open_links) > 1:
         return out(t.HELD, "linked_twice", [str(p["number"]) for p in open_links])
-    # Row 5. Work began if it carries a label that lets work go, or has a linked pull request: the Maintainer is told.
+    # Row 5. If acceptance lapsed after work began, the Maintainer is told.
     if not accepted(facts, runs, config):
-        began = links or any(latest_add(facts["label_events"], name) for name in (LABEL_TRIAGE, LABEL_READY))
-        return out(NEW, "acceptance_lapsed" if began else "not_accepted", [])
+        return out(NEW, "acceptance_lapsed" if work_began(facts, links, config) else "not_accepted", [])
     # Rows 6 and 7.
     if open_links and not open_links[0]["draft"]:
         return out(IN_REVIEW, "linked_ready", [str(open_links[0]["number"])])

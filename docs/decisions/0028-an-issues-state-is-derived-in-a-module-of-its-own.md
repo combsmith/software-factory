@@ -30,10 +30,21 @@ ends them: they let work go, so a removal stops it. The flags of `complete` are 
 Every value is null or empty: no issue is served, and only a person's label counts, until the
 Maintainer turns issues on.
 
-A list read short defers with `facts_incomplete`, and a label event, a linked pull request, the
-issue's life or its content that cannot be read defers with a code of its own, before row 1, for a
-closed issue too. In the same second the reading that stops work wins: a merge at the start of a
-life is `done`, and a label added at an edit or a reopening does not count.
+A list read short defers with `facts_incomplete`, and a state, a label event or name, a linked pull
+request, the issue's life, its content, its type or the `issues` block that cannot be read defers
+with a code of its own, before row 1, for a closed issue too. In the same second the reading that
+stops work wins: a merge at the start of a life is `done`, a label added at an edit or a reopening
+does not count, and of two adds in one second each must count, whatever their order.
+
+A `factory:ready` the Factory added counts only if the latest Run of the readiness Intent,
+`judge-readiness`, that started no later than the label completed for the issue's present content.
+One still running, or none, as once its record has expired, means nothing shows the content was
+judged: the label does not count, and the issue stays in `triage`. The Intents an issue's State
+reads, `judge-readiness` and the opening Run's `open-pull-request`, are codes in `kernel/issue.py`,
+which the issue's decision adopts.
+
+Which pull requests are linked is read from the `class` the port gives each, as for a pull request:
+the port must get the class right, and the Kernel does not check it against the opener.
 
 The Run ceiling of row 4 is not derived here. The brakes count it (decision 0003), and the issue's
 decision will ask them, as the pull request's does.
@@ -60,3 +71,7 @@ fails closed. The Run ceiling stays with the brakes because they count it and no
 | No issue is served until the Maintainer turns issues on, and no App's label counts until it is declared | `tests/test_issue.py::test_no_issue_is_served_until_the_maintainer_turns_issues_on`, `tests/test_issue.py::test_no_app_counts_until_it_is_declared` |
 | A merge at the start of a life is done, and a label at an edit or a reopening does not count | `tests/test_issue.py::test_a_merge_at_the_start_of_a_life_is_done_and_one_before_it_is_not`, `tests/test_issue.py::test_triage_and_ready_count_only_in_the_present_life` |
 | Any removal at or after the latest add ends `factory:triage` and `factory:ready` | `tests/test_issue.py::test_any_removal_at_or_after_the_latest_add_ends_ready_and_triage` |
+| Adds in one second are read the way that stops work, whatever their order | `tests/test_issue.py::test_adds_in_one_second_are_read_the_way_that_stops_work_whatever_their_order` |
+| Only a completed readiness Run of this content lets the Factory's `factory:ready` count; an expired record does not | `tests/test_issue.py::test_only_a_readiness_run_judges_and_only_once_it_has_completed`, `tests/test_issue.py::test_a_factory_ready_whose_run_record_has_expired_does_not_count` |
+| A state, label names, a type or an `issues` block that cannot be read defers | `tests/test_issue.py::test_an_unreadable_state_defers`, `tests/test_issue.py::test_unreadable_label_names_defer`, `tests/test_issue.py::test_an_unreadable_type_defers`, `tests/test_issue.py::test_an_issues_block_that_cannot_be_read_defers` |
+| Acceptance lapses only once it held and work began in this life | `tests/test_issue.py::test_acceptance_lapses_only_once_it_held_and_work_began_in_this_life` |
