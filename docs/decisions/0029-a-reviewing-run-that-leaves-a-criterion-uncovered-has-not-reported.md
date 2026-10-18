@@ -23,7 +23,9 @@ is passed over. A rubric that cannot be read, or paths not read whole, are `unre
 
 The path syntax gains one form: `**` as a whole name stands for any run of names, none included.
 `matches` reads it, and the session hooks' matcher reads it alike, so the rubric's `**/*.py` reaches
-a Python file at any depth. `kernel/coverage.py` is a protected path.
+a Python file at any depth. No path the hooks protect or report may use it yet: where a command
+writes below a directory, the hooks read each name of a path as one name. `kernel/coverage.py` is a
+protected path.
 
 `apply` asks `covered` before any Effect. An uncovered Result ends its Run with conclusion `failure`
 and outcome `item`: those are the run record's fields that say so, and no field is added. An
@@ -74,6 +76,7 @@ usage, not coverage, so coverage has its own schema now.
 | `finding` needs a Finding that cites the criterion, and a Finding that cites one needs the verdict `finding` | `tests/test_coverage.py::test_a_finding_verdict_needs_a_finding_that_cites_it` |
 | A rubric that cannot be read, or paths not read whole, are unreadable, never covered | `tests/test_coverage.py::test_an_unreadable_rubric_is_unreadable_never_covered` |
 | `**` as a whole name stands for any run of names, none included, in the Kernel's matcher and the hooks' alike, on the rubric's patterns too | `tests/test_tools.py::test_two_stars_as_a_whole_name_stand_for_any_run_of_names`, `tests/test_tools.py::test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus` |
+| A protected or reported path with `**` as a whole name is refused by the hooks, until their reading of a directory that holds a protected path reads it | `tests/test_hooks.py::test_a_protected_or_reported_path_with_two_stars_is_refused` |
 | The coverage example is covered against the rubric, the Finding example and the paths of the facts example; the counter-example, valid to the schema, is refused by `covered` | `examples/invalid/coverage.a-criterion-that-applies-left-out.json`, `tests/test_tools.py::test_a_coverage_that_leaves_a_criterion_uncovered_is_caught` |
 | Under faults, a review is now and then uncovered; it is admitted again and, at its attempts, held. An approval or a merge has a review of that content that succeeded by every required model Lens, a Lens's thread comes only from one that succeeded, and uncovered review Runs since a writer acted are at most `max_attempts` | `tests/test_simulator.py::test_the_seeds_serve_a_review_that_left_a_criterion_uncovered`, `tests/test_simulator.py::test_invariants_hold_under_faults` |
 | `apply` calls `covered` before any Effect, and ends an uncovered Run `failure` and `item`, an unreadable one `failure` and `environment` | waiting on `harness/` |

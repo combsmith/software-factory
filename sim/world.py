@@ -84,7 +84,10 @@ ON_THE_LIST = {"role": "tests/test_decide.py", "dependency": ".github/workflows/
 OFF_THE_LIST = {"role": "docs/lessons.md", "dependency": "docs/requirements.txt", "maintainer": "docs/glossary.md"}
 # On one seed in six, under faults, a review's Result leaves a criterion of its rubric uncovered half the time, which
 # `apply` refuses before any Effect: the Run fails by a fault of the item (decision 0029). The Factory's own behaviour,
-# not GitHub's, so it carries no marker. By the seed alone, so every other world stays as it was.
+# not GitHub's, so it carries no marker. By the seed alone, so every other world stays as it was. The spread is narrowed
+# for "Kernel: spent attempts hold the item even while a refused Run is queued" (issue 158): on more seeds, a Run list
+# missing its newest Run admits a review past its attempts, and the State leaves the Hold while that Run waits. The fix
+# for that issue widens it again.
 UNCOVERED_SEEDS, UNCOVERED = 6, 0.5
 
 

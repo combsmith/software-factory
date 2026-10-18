@@ -62,8 +62,14 @@ class Coverage(unittest.TestCase):
             self.assertEqual(covered(RUBRIC, every() + extra, [], KERNEL), ("covered", []), extra)
         # An entry for a criterion the rubric does not have is uncovered: by its id, or `unreadable` when it is none.
         self.assertEqual(covered(RUBRIC, every(entry("PR-9")), [], KERNEL), ("uncovered", ["PR-9"]))
-        for said in ("pr-9", "PR-", "a sentence", None, 7):
+        for said in ("pr-9", "PR-", "a sentence", None, 7, "-1", "PR-prose from outside", "PR-9x", "PR9"):
             self.assertEqual(covered(RUBRIC, every() + [entry(said)], [], KERNEL), ("uncovered", ["unreadable"]), said)
+        # Each is named once, however often it is given.
+        self.assertEqual(covered(RUBRIC, every() + [entry("PR-9"), entry("PR-9")], [], KERNEL), ("uncovered", ["PR-9"]))
+        self.assertEqual(covered(RUBRIC, every() + [entry(None), entry(7), "x"], [], KERNEL),
+                         ("uncovered", ["unreadable"]))
+        self.assertEqual(covered(RUBRIC, every() + [entry("PR-9"), entry("PR-8")], [], KERNEL),
+                         ("uncovered", ["PR-9", "PR-8"]))
         self.assertEqual(covered(RUBRIC, every() + ["PR-1"], [], KERNEL), ("uncovered", ["unreadable"]))
         # Coverage or Findings that are no list report on nothing.
         for said, found in ((None, []), ({"PR-1": "met"}, []), (every(), None)):
@@ -119,13 +125,15 @@ class Coverage(unittest.TestCase):
         # The Factory's fault, never the item's: whatever the Result says, nothing is read as covered.
         broken = [None, [], {}, {"criteria": []}, {"criteria": "PR-1"}, {"criteria": [None]},
                   {"criteria": [{"statement": "no id"}]}, {"criteria": [{"id": "pr-1"}]}, {"criteria": [{"id": 1}]},
-                  {"criteria": [{"id": "PR-1"}, {"id": "PR-1"}]}]
+                  {"criteria": [{"id": "PR-1"}, {"id": "PR-1"}]}, {"criteria": [{"id": "-1"}]},
+                  {"criteria": [{"id": "PR-x"}]}]
         for rubric in broken:
             for said in (every(), []):
                 self.assertEqual(covered(rubric, said, [], KERNEL), ("unreadable", []), (rubric, len(said)))
         # So are paths that cannot be read whole, or were not read in full, which the caller gives as None.
-        for paths in (None, "kernel/derive.py", [None], [{"path": "kernel/derive.py"}], [changed("../kernel/x.py")],
-                      [changed("kernel//x.py")], [changed("docs/a.md", "")], [changed(None)]):
+        for paths in ([changed("../kernel/x.py")], [changed("kernel//x.py")], [changed("docs/a.md", "")],
+                      [changed("docs/a.md", "../kernel/x.py")], [changed("docs/a.md"), changed("kernel/../x.py")],
+                      None, "kernel/derive.py", [None], [{"path": "kernel/derive.py"}], [changed(None)]):
             self.assertEqual(covered(RUBRIC, every(), [], paths), ("unreadable", []), paths)
         # The other side: a rubric of one criterion that applies to everything, and no paths at all, are read.
         one = {"criteria": [{"id": "X-1"}]}

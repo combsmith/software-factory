@@ -1977,15 +1977,27 @@ class AReviewThatReported(unittest.TestCase):
                 self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"], d["evidence"]),
                                  (None, "run_unreadable", "defer", "needs_you", ["r9"]), (outcome, len(runs)))
             d = go(facts(queue=True, reviews=APPROVED), REVIEWED + [odd])
-            self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]),
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
                              (None, "run_unreadable", "act", "dequeue"), outcome)
             # One on other content, or another Intent's, is not this review's.
             for other in (dict(odd, content_id="sha256:bbbb"), dict(odd, intent="issue-approval")):
                 d = go(facts(), REVIEWED + [other])
-                self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"), (outcome, other["intent"]))
+                self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"), (outcome, other["intent"]))
+        # Nor is one by a Role no required Lens is, the author's among them, or on an update no model Lens reviews.
+        for role in (CONFIG["author_role"], "someone-else"):
+            d = go(facts(), REVIEWED + [run(role=role, outcome="item", at=at(20), name="r9")])
+            self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"), role)
+        d = go(facts(reviews=APPROVED, **DEPENDENCY), [run(outcome="item", at=at(20), name="r9")])
+        self.assertEqual((d["outcome"], d.get("action")), ("act", "enqueue"))
+        # Nor is one not yet completed, which holds the item as any Run does, nor one that failed by a fault.
+        d = go(facts(), REVIEWED + [dict(run(outcome="item", at=at(20), name="r9"), status="queued")])
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                         ("converged", "approval_due", "nothing", "working"))
+        d = go(facts(), REVIEWED + [run(conclusion="failure", outcome="environment", at=at(20), name="r9")])
+        self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"))
         # The other side: a review that succeeded with no fault named has reported.
         d = go(facts(), REVIEWED)
-        self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
+        self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"))
 
 
 class Ceilings(unittest.TestCase):
