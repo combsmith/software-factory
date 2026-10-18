@@ -85,7 +85,7 @@ PY_READERS = {"unittest": ("", None), "pytest": ("pytest", None), "json.tool": (
 INTERPRETERS = re.compile(r"^(python[\d.]*|node|nodejs|deno|bun|perl|ruby|php|lua|osascript|Rscript|awk|gawk|"
                           r"mawk|nawk|bash|sh|zsh|dash|ksh|fish|source|\.)$")
 # Programs that write the paths of a list they read on stdin, or into the directory they run in.
-FEEDERS = {"xargs", "parallel"}
+FEEDERS = shell.FEEDERS
 FEED_VALUED = shell.FEED_VALUED
 # Prefixes and wrappers, and the options of theirs that take the next word, are read as shell.py reads them, for
 # both hooks (shell.past_prefixes, shell.past_wrapper).

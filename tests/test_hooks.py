@@ -491,7 +491,7 @@ class Identity(unittest.TestCase):
             self.assertIn("command_unreadable", self.refused(command), command)
         git_on_path = os.path.join(self.path, "git")
         for command in ("nice git push", "nice -n 5 git push", 'command git push origin "$(git branch --show-current)"',
-                        "f() { echo hi; }; git push", "alias g=git; git push", "timeout 60 git push",
+                        "f() { echo hi; }; git push", "alias ll='ls -la'; git push", "timeout 60 git push",
                         "timeout -s KILL 60 git push", "env A=1 git push", "nohup git push", "time git push",
                         "time -p git push", "stdbuf -oL git push", "caffeinate -i git push", "nice nohup env A=1 git push",
                         "if git push; then echo ok; fi", '"$(which git)" push', "G=$(which git); $G push", "G=git; $G push",
@@ -520,6 +520,80 @@ class Identity(unittest.TestCase):
             self.assertIn("a shell reads a script the hook cannot see", self.refused(command), command)
         # ...and the commit after it is read as the commit.
         self.assertIn("commit_identity_not_maintainer", self.refused("gitleaks git . && git commit -m x", self.bad))
+
+    def test_an_alias_whose_value_runs_git_or_gh_is_refused(self):
+        # Decision 0030: an alias's value is code, so a name whose value runs git is a git the command may redefine.
+        for command in ("alias g=git; git push", "alias g=git\ng push", "alias g=git; g commit -m x",
+                        "alias g='nice git'; g push", "alias p='git push'; p", "alias g=/usr/bin/git; g push",
+                        "alias g=\\\\git; g push", "builtin alias g=gh; g pr create", "alias -g G=git; G push",
+                        "alias x=command; x git push", "aliases[g]=git; g push", "galiases[g]=git; g push",
+                        "bash -c 'alias g=git; g push'", 'alias g="$G"; git push', 'alias g="$(echo git)"; g push'):
+            self.assertIn("an alias whose value runs git", self.refused(command), command)
+        # Prose that spells the case out, and an alias that runs neither, define nothing that runs git.
+        for command in ("alias ll='ls -la'; git push", "alias g=git; g status", "echo alias g=git; git push",
+                        'git commit -m "alias g=git, then g push, is refused"',
+                        'git commit -m "aliases[g]=git is refused too"', "git commit -m aliases[g]=git",
+                        "gh pr create --title x --body 'alias g=git; g push'",
+                        "grep -rn 'alias g=git' docs; git commit -m x"):
+            self.assertEqual(self.codes(command), "", command)
+
+    def test_a_git_fed_its_command_by_xargs_is_refused(self):
+        # Decision 0030: under a wrapper that feeds git its input, a git given no command runs one the hook cannot see.
+        for command in ("echo push | xargs git", "echo commit -m x | xargs git", "printf 'push\\n' | parallel git",
+                        "xargs -a verbs git", "xargs git -C . < verbs", "nice xargs git < verbs",
+                        "xargs -n 1 git < verbs"):
+            self.assertIn("git_command_unknown", self.refused(command, folder(), programs()), command)
+        for command in ("git ls-files -z | xargs -0 git add", "xargs git add < files", "git --version", "git",
+                        "echo push | xargs echo git", "grep -n 'xargs git' docs"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+        for command in ('git commit -m "echo push | xargs git is refused"',
+                        "gh pr create --title x --body 'echo push | xargs git'"):
+            self.assertEqual(self.codes(command), "", command)
+
+    def test_a_write_into_gits_directory_is_refused_where_the_command_commits_or_pushes(self):
+        # Decision 0030: a redirection, or a word given to a program that is not a reader, whose path has a .git
+        # component once resolved against the directory the hook tracks through cd.
+        main, linked = self.here / ".git", folder()
+        (linked / "hooks").symlink_to(main / "hooks")
+        for command in ("cd .git && printf '[push]\\n\\tdefault = matching\\n' >> config && cd .. && git push",
+                        "cd .git; echo x >> config.worktree; cd ..; git commit -m x",
+                        "cd .git/hooks && cp /tmp/x pre-push && cd ../.. && git push",
+                        "cp /tmp/x .git/hooks/pre-push && git push", "cat /tmp/x > .git/hooks/pre-commit; git commit -m x",
+                        "> .git/hooks/pre-push; git push", "tee .git/hooks/pre-push < /tmp/x; git push",
+                        "chmod +x .git/hooks/pre-push; git push", "ln -s /tmp/x .git/hooks/pre-push; git push",
+                        "cp /tmp/x sub/../.git/hooks/pre-push; git push", "cp /tmp/x .GIT/hooks/pre-push; git push",
+                        "cp --target-directory=.git/hooks /tmp/x; git push", "echo 'gitdir: /tmp/x' > .git; git push",
+                        "H=.git/hooks/pre-push; cp /tmp/x $H; git push", "sh -c 'cp /tmp/x .git/hooks/pre-push'; git push",
+                        # A worktree's absolute path into the main .git, and a link into it.
+                        "cp /tmp/x %s/hooks/pre-push; git push" % main,
+                        "cd %s && cp /tmp/x hooks/pre-push && cd %s && git push" % (linked, self.here)):
+            self.assertIn("git_directory_written", self.refused(command), command)
+        for command in ("cat .git/HEAD; git push", "ls .git/hooks && git push", "grep -rn x .git/HEAD; git commit -m x",
+                        "cd .git && cat HEAD && cd .. && git push", "cd .git && cd .. && git push",
+                        "echo x >> .gitignore && git commit -m x", "cp /tmp/x .github/x; git push",
+                        'git push > "$TMPDIR/log" 2>&1', "echo .git/hooks/pre-push; git push",
+                        # Prose that spells the case out: a commit message, a pull request's body, grep's and echo's words.
+                        'git commit -m "a write to .git/hooks is refused"',
+                        'git commit -m ".git/hooks/pre-push, written in the same command, is refused"',
+                        "git commit -m 'cd .git && printf x >> config && cd .. && git push'",
+                        'gh pr create --title x --body "cp hook .git/hooks/pre-push; git push is refused"',
+                        "grep -rn 'cd .git' docs; git commit -m x", 'echo "x > .git/hooks/pre-push"; git push'):
+            self.assertEqual(self.codes(command), "", command)
+        # A write into git's directory in a command of its own is not this hook's to read.
+        for command in ("cp /tmp/x .git/hooks/post-checkout", "cd .git && printf x >> config"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+
+    def test_a_loops_word_list_is_data_and_its_body_is_read(self):
+        # Decision 0030: the words a loop runs over, and a case's word and patterns, are data.
+        for command in ("for f in docs/git-hooks.md tests/commit-msg.txt; do git show HEAD:$f; done",
+                        "for w in git commit push; do echo $w; done", "for f in git-commit.md; do git log -- $f; done",
+                        "select x in git push; do echo $x; done", 'case "$x" in git-commit) echo y;; esac',
+                        "for f in a b; do\n  for g in git-push.md; do git show HEAD:$g; done\ndone"):
+            self.assertEqual(self.codes(command, folder(), programs()), "", command)
+        self.assertEqual(self.codes("for f in .git/hooks/*; do cat $f; done; git push"), "")
+        for command in ("for f in a b; do git commit -m x; done", "for x in $(git commit -m y); do :; done"):
+            self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
+        self.assertIn("git_directory_written", self.refused("for f in a; do cp x .git/hooks/pre-push; done; git push"))
 
     def test_a_push_refspec_the_hook_cannot_read_is_refused(self):
         # A variable no earlier command set, a command substitution, a wildcard: what the push sends cannot be read.

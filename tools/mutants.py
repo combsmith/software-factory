@@ -62,6 +62,10 @@ IDENTITY_TESTS = "tests.test_hooks.Identity."
 NO_REFSPEC_TESTS = (IDENTITY_TESTS + "test_a_push_with_no_refspec_reads_what_git_would_push",)
 PUSH_SETTING_TESTS = (IDENTITY_TESTS + "test_push_settings_given_in_the_command_are_refused",)
 REDEFINE_TESTS = (IDENTITY_TESTS + "test_a_git_the_command_may_redefine_is_refused",)
+ALIAS_TESTS = (IDENTITY_TESTS + "test_an_alias_whose_value_runs_git_or_gh_is_refused",)
+FEEDER_TESTS = (IDENTITY_TESTS + "test_a_git_fed_its_command_by_xargs_is_refused",)
+GIT_DIRECTORY_TESTS = (IDENTITY_TESTS + "test_a_write_into_gits_directory_is_refused_where_the_command_commits_or_pushes",)
+LOOP_TESTS = (IDENTITY_TESTS + "test_a_loops_word_list_is_data_and_its_body_is_read",)
 
 MUTANTS = [
     ("incomplete facts are trusted", "kernel/derive.py",
@@ -1214,6 +1218,32 @@ MUTANTS = [
      '"/" not in word or _on_path(word, here, env)', "True", REDEFINE_TESTS),
     ("a program held in a variable is not counted", "tools/hooks/identity.py",
      "if program is not None and _expands(words[program]) else", "if False else", REDEFINE_TESTS),
+    ("an alias whose value runs git is not counted", "tools/hooks/identity.py",
+     "    if shell.aliased(quoted, REDEFINABLE):\n", "    if False:\n", ALIAS_TESTS),
+    ("an alias's value the hook cannot read is read as one that runs no git", "tools/hooks/shell.py",
+     '            if "$" in value or "`" in value:\n                found.add(_unquoted(name))\n                continue\n',
+     "", ALIAS_TESTS),
+    ("a word that only looks like zsh's alias table is read as one", "tools/hooks/shell.py",
+     "for m in map(TABLE_ALIAS.match, words[:at]) if m]", "for m in map(TABLE_ALIAS.match, words) if m]", ALIAS_TESTS),
+    ("git fed its command by xargs is read as given none", "tools/hooks/identity.py",
+     "            if not sub and set(map(os.path.basename, before)) & shell.FEEDERS:\n", "            if False:\n",
+     FEEDER_TESTS),
+    ("a redirection into git's directory is not read", "tools/hooks/identity.py",
+     '        inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], here, "a redirection")\n',
+     "", GIT_DIRECTORY_TESTS),
+    ("a reader's words are read as a write into git's directory", "tools/hooks/identity.py",
+     "        if program not in TEXT_ONLY:    # a word with a space in it is prose, never a path\n", "        if True:\n",
+     GIT_DIRECTORY_TESTS),
+    ("prose is read as a path into git's directory", "tools/hooks/identity.py",
+     '[w for w in words[start + 1:] if not re.search(r"\\s", w)]', "words[start + 1:]", GIT_DIRECTORY_TESTS),
+    ("a path is not resolved against the directory cd leads to", "tools/hooks/identity.py",
+     "            seen += [joined, os.path.realpath(joined)]\n", "            seen += []\n", GIT_DIRECTORY_TESTS),
+    ("a link into git's directory is not followed", "tools/hooks/identity.py",
+     "seen += [joined, os.path.realpath(joined)]", "seen += [joined]", GIT_DIRECTORY_TESTS),
+    ("git's directory is read in one case", "tools/hooks/identity.py",
+     "part.casefold() == GIT_DIRECTORY", "part == GIT_DIRECTORY", GIT_DIRECTORY_TESTS),
+    ("a loop's word list is read as a command", "tools/hooks/identity.py",
+     "        if at is None and program in DATA_HEADS:\n", "        if False:\n", LOOP_TESTS),
 ]
 
 

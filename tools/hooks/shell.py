@@ -573,6 +573,8 @@ RESERVED = PREFIXES - set(PREFIXED)
 # The options of xargs and parallel that take the next word, and those of npx and its like.
 FEED_VALUED = {"-I", "-L", "-n", "-P", "-s", "-d", "-E", "-a", "--max-args", "--max-procs", "--delimiter",
                "--arg-file", "--max-lines", "--replace", "--eof", "-j", "--jobs"}
+# The wrappers that give the program they run words read from their input, which the command's words do not show.
+FEEDERS = {"xargs", "parallel"}
 NPX_VALUED = {"-p", "--package", "--cache", "--userconfig", "--registry", "-w", "--workspace"}
 # What runs the program its words name, after its own: for each, its options that take the next word as their value,
 # and how many words that are not options come before the program (timeout's duration, chroot's new root). The first
@@ -765,6 +767,37 @@ def defined(text: str, spend=None) -> set:
         if command in ("hash", "enable"):
             names |= {w.split("=", 1)[0] for w in args if not w.startswith("-")}
     return names
+
+
+# zsh's table of aliases, as a word the shell runs: aliases[g]=git, its key quoted or not, and those it holds disabled.
+TABLE_ALIAS = re.compile(r"^(?:dis_)?g?aliases\[([^]]*)\]\+?=(.*)$", re.S)
+
+
+def aliased(text: str, names: set, spend=None) -> set:
+    """The names the command makes an alias for a value that runs one of `names`: a value that holds one of them as a
+    word (by its base name: /usr/bin/git is git), in its text or in a script it runs, by alias or zsh's aliases[g]=,
+    as the words the shell runs give them; or a value the hook cannot read, which expands a variable or a command, or
+    cannot be split. An alias's value is code, so `alias g=git` then `g push` on a later line is a push. Prose that says
+    alias g=git, in a commit message or given to any other program, defines nothing. Raises ValueError or
+    RecursionError when the text cannot be split."""
+    found = set()
+    for words, _ in commands(text, spend):
+        at = 0      # zsh's table is set where an assignment stands, before the command: anywhere else it is a word
+        while at < len(words) and (ASSIGNMENT.match(words[at]) or TABLE_ALIAS.match(words[at])):
+            at += 1
+        given = aliases(words) + [(m.group(1), m.group(2)) for m in map(TABLE_ALIAS.match, words[:at]) if m]
+        for name, value in given:
+            if "$" in value or "`" in value:
+                found.add(_unquoted(name))
+                continue
+            try:
+                held = [w for inner, _ in commands(value, spend) for w in inner]
+            except ValueError:
+                found.add(_unquoted(name))
+                continue
+            if {os.path.basename(_unquoted(w)) for w in held} & names:
+                found.add(_unquoted(name))
+    return found
 
 
 # The built-ins that write or export a variable a word names, and env, which sets one for the program it runs.

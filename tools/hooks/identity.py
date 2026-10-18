@@ -28,8 +28,10 @@ protected.py calls too: a mirror, every remote's remote.*.push and push.default,
 that names no remote goes; a push setting given in the command is refused (decision 0024). So is a
 git the command may redefine, in a command that commits or pushes: a function or an alias for git,
 gh or what runs them, PATH set, git named by a path to another file, or git run under a prefix or a
-wrapper not on shell.AS_IS (decision 0024). This guards against mistakes; the Stop check and the
-rulesets are the boundary. Run as `python3 -I` on this file; see
+wrapper not on shell.AS_IS (decision 0024); an alias whose value runs git or gh; and, in such a
+command, a write into git's directory, by a redirection or a word given to a program that is not a
+reader. git given no command by xargs or parallel is refused always. A loop's word list is data
+(decision 0030). This guards against mistakes; the Stop check and the rulesets are the boundary. Run as `python3 -I` on this file; see
 after_edit.py.
 """
 from __future__ import annotations
@@ -171,6 +173,12 @@ REDEFINABLE = {"git", "gh", "builtin", "which", "type", "whence"} | shell.AS_IS
 # gh's commands that write, as WRITE_TEXT names them, given to a program the hook cannot read.
 GH_WRITES = {"pr", "release", "api"}
 RUNS_GIT = shell.WRAPPERS | shell.PREFIXES
+# Reserved words whose own words are data: a loop's word list, a case's word and its patterns. Only what the body runs
+# is read, as a command of its own.
+DATA_HEADS = {"for", "select", "case"}
+# git's directory, as a path's component: a write into it, in a command that commits or pushes, may change what git
+# runs or where a push goes (decision 0030).
+GIT_DIRECTORY = ".git"
 WILDCARD = re.compile(r"[*?\[]")
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 IDENT = re.compile(r"^(.*) <(.*)> \d+ [+-]\d{4}$")
@@ -248,17 +256,19 @@ def _gh_kind(words: list) -> str:
 def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
     """(calls, always, inline). A call is (tool, directory, words after the tool's options, kind).
 
-    `always` refuses whatever the command does: what cannot be read. `inline` refuses only a command
-    that commits, pushes or writes: an identity set in the command itself. `text` is the command as the
-    shell reads it, and `env` the hook's own environment, whose PATH names the git and gh it reads.
+    `commands` are shell.commands's: (words, [(operator, target)]). `always` refuses whatever the command does: what
+    cannot be read. `inline` refuses only a command that commits, pushes or writes: an identity set in the command
+    itself, or a write into git's directory. `text` is the command as the shell reads it, and `env` the hook's own
+    environment, whose PATH names the git and gh it reads.
     """
     here = pathlib.Path(cwd) if cwd else None
     values, present, branches = shell.environment(text)     # what the command leaves in the environment, fail-closed
     calls, always, inline = [], [], []
     blind = _redefined(text)        # a git the command may redefine is one the hook cannot read (decision 0024)
-    for raw, targets in commands:
+    for raw, redirections in commands:
         # A word is read with what the command set unconditionally put in for each variable it holds.
-        words, targets = [expand(w, values) for w in raw], [expand(t, values) for t in targets]
+        words, targets = [expand(w, values) for w in raw], [expand(t, values) for _, t in redirections]
+        inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], here, "a redirection")
         inline += [("identity_set_in_command", "%s is set in the command; the hook reads only what is configured"
                     % w.split("=")[0]) for w in words if ENVIRONMENT.match(w)]
         inline += [("identity_set_in_command", "the command touches git's configuration (%s); change it in a command "
@@ -270,12 +280,16 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
             continue
         runs = _program(words)      # past reserved words, prefixes and wrappers: time bash, if sh, nice sh
         at = runs if runs is not None and os.path.basename(words[runs]) in ("git", "gh") else None
+        start = runs if runs is not None else 0
+        program = os.path.basename(words[start])
+        if at is None and program in DATA_HEADS:
+            continue        # a loop's word list is data: what its body runs is a command of its own
+        if program not in TEXT_ONLY:    # a word with a space in it is prose, never a path
+            inline += _git_directory([w for w in words[start + 1:] if not re.search(r"\s", w)], here, program)
         local = _local(words, at)
         named = present | local     # the environment git runs with: persisted, and set for it alone
         if local & {"PATH", "path"}:
             blind.append("the command sets PATH, so git or gh may be another program")
-        start = runs if runs is not None else 0
-        program = os.path.basename(words[start])
         if program in SHELLS_AND_SOURCE and not _given_c(words[start + 1:]):
             blind.append("a shell reads a script the hook cannot see")
         runner = _runner(words, at, here, env or {})
@@ -289,7 +303,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
                 always.append(("command_unreadable", "`%s` looks like a commit or push the hook cannot read as one"
                                % program))
             continue
-        tool, rest = os.path.basename(words[at]), words[at + 1:]
+        tool, rest, before = os.path.basename(words[at]), words[at + 1:], words[:at]
         where, i, settings = here, 0, []
         while i < len(rest) and rest[i].startswith("-"):
             option, given, value = rest[i].partition("=")
@@ -329,7 +343,10 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
                 always.append(("command_unreadable", "a remote is held in a variable or a command the hook cannot "
                                                      "read"))
             kind = ("push" if sub == "push" else "commit") if sub in WRITES else ""
-            if sub and sub not in WRITES | RUNNERS | OTHERS:
+            if not sub and set(map(os.path.basename, before)) & shell.FEEDERS:
+                always.append(("git_command_unknown", "git is given no command but what xargs or parallel feeds it "
+                                                      "from its input, which the hook cannot read"))
+            elif sub and sub not in WRITES | RUNNERS | OTHERS:
                 always.append(("git_command_unknown", "git %s is not a command the hook knows; it may be an alias, "
                                                       "which the hook cannot read" % sub))
             elif sub in RUNNERS and WRITE_TEXT.search(" ".join(words)):
@@ -350,11 +367,35 @@ def _redefined(text: str) -> list:
     reasons, quoted = [], _quoted(shell.without_heredocs(text))
     if shell.defined(quoted) & REDEFINABLE:
         reasons.append("the command defines a function or an alias for git, gh or what runs them")
+    if shell.aliased(quoted, REDEFINABLE):
+        reasons.append("the command defines an alias whose value runs git, gh or what runs them")
     if shell.sets("PATH", quoted) or shell.sets("path", quoted):
         reasons.append("the command sets PATH, so git or gh may be another program")
     if "*" in shell.touched(text):
         reasons.append("the command writes a variable it names at run time, or evals or sources, which may set PATH")
     return reasons
+
+
+def _git_directory(paths: list, here, given: str) -> list:
+    """Why a command that commits or pushes is refused for writing into git's directory (decision 0030): each of
+    `paths` that has a `.git` component, as it is written or once resolved against `here`, the directory the hook
+    tracks through cd: `..` and links taken out, in any case. An option's value after `=` is read too. A word is a path
+    from its start or a `/` only, so "a write to .git/hooks" is none; a word the hook cannot expand is left alone."""
+    found = []
+    for path in paths:
+        path = path.partition("=")[2] if path.startswith("-") else path
+        if not path or _expands(path):
+            continue
+        path = os.path.expanduser(path)
+        seen = [os.path.normpath(path)]
+        if here is not None or os.path.isabs(path):
+            joined = os.path.normpath(os.path.join(str(here or ""), path))
+            seen += [joined, os.path.realpath(joined)]
+        if any(part.casefold() == GIT_DIRECTORY for each in seen for part in each.split(os.sep)):
+            found.append(("git_directory_written", "%s names a path in git's directory, which may change what git runs "
+                                                   "or where a push goes; make the write in a command of its own"
+                          % given))
+    return found
 
 
 def _given_c(args: list) -> bool:
@@ -930,7 +971,7 @@ def check(payload: dict, env: dict, seconds: float = DEADLINE) -> list:
     read = shell.WHICH.sub(lambda m: m.group(1) if os.path.basename(m.group(1)) in ("git", "gh") else m.group(0),
                            command)
     try:
-        commands = shell.simple_commands(_quoted(shell.without_heredocs(read)))
+        commands = shell.commands(_quoted(shell.without_heredocs(read)))
     except ValueError as err:
         # The command cannot be split into words. If it names git or gh at all, what it does cannot be read.
         if re.search(r"(?<![\w.-])(git|gh)(?![\w.-])", command):
