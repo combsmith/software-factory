@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "What the Kernel decided for one issue in one pass: kernel/issue.py's decide.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "item",
+    "state",
+    "reason",
+    "evidence",
+    "attention",
+    "outcome"
+  ],
+  "properties": {
+    "schema": {
+      "const": "issue-decision/1"
+    },
+    "item": {
+      "$ref": "#/$defs/item"
+    },
+    "state": {
+      "enum": [
+        "new",
+        "triage",
+        "ready",
+        "in_progress",
+        "in_review",
+        "held",
+        "not_served",
+        "done",
+        "declined",
+        null
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "pattern": "^[a-z_]+$"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "attention": {
+      "enum": [
+        "needs_you",
+        "failed",
+        "review",
+        "ready",
+        "working",
+        "stale",
+        "none"
+      ]
+    },
+    "outcome": {
+      "enum": [
+        "nothing",
+        "defer",
+        "hold",
+        "act",
+        "admit"
+      ]
+    },
+    "action": {
+      "description": "The Controller's act: accept the issue by adding factory:triage, remove a factory:triage or factory:ready that no longer counts, or place factory:hold when unmerged closes pass their bound",
+      "enum": [
+        "accept",
+        "remove_label",
+        "place_hold"
+      ]
+    },
+    "label": {
+      "description": "The label remove_label removes",
+      "enum": [
+        "factory:triage",
+        "factory:ready"
+      ]
+    },
+    "content_id": {
+      "$ref": "#/$defs/content_id"
+    },
+    "admit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "intent",
+        "content_id"
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "intent": {
+          "enum": [
+            "investigate-issue",
+            "judge-readiness",
+            "open-pull-request"
+          ]
+        },
+        "content_id": {
+          "$ref": "#/$defs/content_id"
+        },
+        "branch_head": {
+          "description": "The opening Run's alone: the branch head it was admitted for, or null where the branch does not exist yet",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "type",
+        "number"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "pattern": "^[^/]+/[^/]+$"
+        },
+        "type": {
+          "const": "issue"
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "content_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{4,64}$"
+    }
+  }
+}
