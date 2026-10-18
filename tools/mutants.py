@@ -67,6 +67,16 @@ ALIAS_TESTS = (IDENTITY_TESTS + "test_an_alias_whose_value_runs_git_or_gh_is_ref
 FEEDER_TESTS = (IDENTITY_TESTS + "test_a_git_fed_its_command_by_xargs_is_refused",)
 GIT_DIRECTORY_TESTS = (IDENTITY_TESTS + "test_a_write_into_gits_directory_is_refused_where_the_command_commits_or_pushes",)
 LOOP_TESTS = (IDENTITY_TESTS + "test_a_loops_word_list_is_data_and_its_body_is_read",)
+# Decision 0032: a write resolved where and when the shell makes it, and a reading cut short refused.
+LONG_LOOP_TESTS = (IDENTITY_TESTS + "test_a_loop_too_long_to_read_that_writes_through_its_variable_is_refused",)
+LOST_TESTS = (IDENTITY_TESTS + "test_a_write_after_the_hook_loses_the_directory_is_read_in_every_directory_the_command_"
+                               "stood_in",)
+STANDS_TESTS = (IDENTITY_TESTS + "test_a_writer_that_names_no_output_writes_where_it_stands",)
+PATTERN_TESTS = (IDENTITY_TESTS + "test_a_substitution_in_a_case_pattern_runs_where_the_pattern_stands",)
+TAR_TESTS = (IDENTITY_TESTS + "test_tars_old_style_bundle_is_read_as_tar_reads_it",)
+ALIASED_TESTS = (IDENTITY_TESTS + "test_an_alias_for_a_feeder_a_shell_source_or_eval_is_read_as_its_value",)
+BRACKET_TESTS = (IDENTITY_TESTS + "test_a_bracket_expression_is_read_as_the_shell_matches_it",)
+QUOTED_TESTS = (IDENTITY_TESTS + "test_a_substitution_in_double_quotes_is_read_with_quotes_of_its_own",)
 
 # Where the boundary cases of decision 0029 are.
 REPORTED = "tests.test_decide.AReviewThatReported."
@@ -1907,7 +1917,7 @@ MUTANTS = ISSUE + [
      "            if not sub and set(map(os.path.basename, before)) & shell.FEEDERS:\n", "            if False:\n",
      FEEDER_TESTS),
     ("a redirection into git's directory is not read", "tools/hooks/identity.py",
-     '        inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], here, "a redirection",\n'
+     '        inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], places, "a redirection",\n'
      "                                 loops)\n", "", GIT_DIRECTORY_TESTS),
     ("every program's words are read as writes into git's directory", "tools/hooks/identity.py",
      "    if program not in PATH_WRITERS:\n        return []\n", "    if program not in PATH_WRITERS:\n        return args\n",
@@ -1964,13 +1974,51 @@ MUTANTS = ISSUE + [
      '            in_pattern = cases > 0 and (";;" in token or ";&" in token)\n', "            in_pattern = False\n",
      LOOP_TESTS),
     ("a substitution in a case's pattern is not read", "tools/hooks/shell.py",
-     "    for word in patterns:       # a pattern runs nothing, but a substitution in it does\n",
-     "    for word in []:\n", LOOP_TESTS),
+     "        if words is None:       # a pattern runs nothing, but a substitution in it does, where the pattern stands\n"
+     "            for script in _substituted(targets):\n                out += commands(script, spend, texts)\n",
+     "        if words is None:\n", LOOP_TESTS),
     ("a quoted ;; or ) is read as punctuation", "tools/hooks/shell.py",
      '    held = _held(without_heredocs(text).replace("\\\\\\n", " "))     # only an unquoted ; ) or > is punctuation\n',
      '    held = without_heredocs(text).replace("\\\\\\n", " ")\n', LOOP_TESTS),
     ("a case that never ends is read as one that does", "tools/hooks/shell.py",
      '    if cases or in_pattern:\n        raise ValueError("a case is never ended")\n', "", LOOP_TESTS),
+    # Decision 0032.
+    ("a loop too long to read is read short", "tools/hooks/identity.py",
+     "        if len(bound) > LOOP_MOST:\n            return None\n", "", LONG_LOOP_TESTS),
+    ("a write after popd is read as written", "tools/hooks/identity.py",
+     "            places = list(dict.fromkeys(stood if target is None else",
+     "            places = list(dict.fromkeys([None] if target is None else", LOST_TESTS),
+    ("popd is read as a cd to the home directory", "tools/hooks/identity.py",
+     '    if words[0] == "popd" or re.fullmatch(', "    if re.fullmatch(", LOST_TESTS),
+    ("a writer that names no output writes nothing", "tools/hooks/identity.py",
+     "            written.append(HERE)        # its words name no output: it writes where it stands\n", "            pass\n",
+     STANDS_TESTS),
+    ("a writer's output named by another option is still read as where it stands", "tools/hooks/identity.py",
+     "and not _gave(given, names) and written == named:", "and written == named:", STANDS_TESTS),
+    ("a substitution in a case's pattern is read before every command", "tools/hooks/shell.py",
+     "                found.append((None, token))\n", "                found.insert(0, (None, token))\n", PATTERN_TESTS),
+    ("tar's old-style bundle is not read", "tools/hooks/identity.py",
+     '    if program == "tar" and args and re.fullmatch(r"[A-Za-z]+", args[0]):\n', "    if False:\n", TAR_TESTS),
+    ("tar's old-style bundle is read as a dashed one", "tools/hooks/identity.py",
+     "        args = _old_style(args, valued | destinations)\n", '        args = ["-" + args[0]] + args[1:]\n', TAR_TESTS),
+    ("an alias is not read as its value where its name runs", "tools/hooks/identity.py",
+     "    commands = _unaliased(commands, shell.alias_values(_quoted(shell.without_heredocs(text))))\n", "",
+     ALIASED_TESTS),
+    ("eval reached through an alias reads no script", "tools/hooks/identity.py",
+     'SHELLS_AND_SOURCE = shell.SHELLS | {"source", ".", "eval"}', 'SHELLS_AND_SOURCE = shell.SHELLS | {"source", "."}',
+     ALIASED_TESTS),
+    ("a range in a bracket is read as its two ends and a dash", "tools/hooks/identity.py",
+     'items.append("%s-%s" % (re.escape(low), re.escape(high)))',
+     'items.append("%s\\\\-%s" % (re.escape(low), re.escape(high)))', BRACKET_TESTS),
+    ("a class the hook cannot read is read as matching nothing", "tools/hooks/identity.py",
+     'unread = unread or pattern[j + 1] != ":" or name not in CLASSES', 'unread = unread or pattern[j + 1] != ":"',
+     BRACKET_TESTS),
+    ("a substitution in double quotes is kept with its quotes unescaped", "tools/hooks/identity.py",
+     '            out.append("$(%s)" % text[i + 2:end].replace("\\\\", "\\\\\\\\").replace(\'"\', \'\\\\"\'))\n',
+     "            out.append(text[i:end + 1])\n", QUOTED_TESTS),
+    ("a quoted paren in a substitution ends it", "tools/hooks/shell.py",
+     "            j = _balanced(word, i + 2, \")\")     # a ( or ) a quote of the script's own holds is data: '%s)'\n",
+     '            j = word.find(")", i) + 1 or len(word)\n', QUOTED_TESTS),
 ]
 
 

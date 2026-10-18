@@ -31,7 +31,11 @@ gh or what runs them, PATH set, git named by a path to another file, or git run 
 wrapper not on shell.AS_IS (decision 0024); and, in such a command, a write into git's directory,
 by a redirection or a path a program of PATH_WRITERS is given. An alias whose value runs git or gh,
 and git given no command by xargs or parallel, are refused always. A loop's word list and a case's
-patterns are data (decision 0030). This guards against mistakes; the Stop check and the rulesets are the boundary. Run as `python3 -I` on this file; see
+patterns are data (decision 0030). A write is read where and when the shell makes it: after popd or
+cd -, in every directory the command has stood in; by a writer that names no output, where it stands;
+by a substitution in a case's pattern, where the pattern stands; and through tar's old-style bundle,
+an alias for a feeder, a shell, source or eval, and a bracket expression as the shell reads them. A
+loop too long to read is one the hook cannot read (decision 0032). This guards against mistakes; the Stop check and the rulesets are the boundary. Run as `python3 -I` on this file; see
 after_edit.py.
 """
 from __future__ import annotations
@@ -82,7 +86,9 @@ PUSH_VALUED = {"-o", "--push-option", "--receive-pack", "--exec", "--repo"}
 # Programs that print their words and run none of them, so a commit or push in their text is only text.
 TEXT_ONLY = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "cat", "head", "tail", "wc", "ls", "less", "sort",
              "uniq", "cut", "tr", "diff", "test", "[", "true", "false"}
-SHELLS_AND_SOURCE = shell.SHELLS | {"source", "."}     # without -c, these run a script the hook cannot see
+# Without -c, these run a script the hook cannot see. eval's own words are read by shell.commands, but not where an alias
+# names it (decision 0032).
+SHELLS_AND_SOURCE = shell.SHELLS | {"source", ".", "eval"}
 WRITE_TEXT = re.compile(r"\bgit\b[\s\S]*\b(%s)\b|\bgh\b[\s\S]*\b(pr|release|api)\b" % "|".join(sorted(WRITES)))
 # Set in the command, each of these changes who git or gh says you are.
 ENVIRONMENT = re.compile(r"^(GIT_AUTHOR_\w*|GIT_COMMITTER_\w*|GIT_CONFIG\w*|GIT_DIR|GIT_WORK_TREE|GIT_ASKPASS|"
@@ -180,36 +186,43 @@ DATA_HEADS = {"for", "select", "case"}
 # runs or where a push goes (decision 0030).
 GIT_DIRECTORY = ".git"
 # The programs that write the paths they are given, as (which operands they write, their options that take the next
-# word, their options whose value is a path they write). "last" writes the last operand, the destination; "all" every
-# operand; "first" the first; "none" only an option's value. Any other program's words are not writes into git's
+# word, their options whose value is a path they write, where they write when their words name no output). "last"
+# writes the last operand, the destination; "all" every operand; "first" the first; "none" only an option's value. The
+# fourth column is None for a writer whose words always name its output; else (its options of which one must be given,
+# or none when it is empty; its options that name where it writes instead): given those, and none of these, and no
+# operand it writes, it writes where it stands (decision 0032). Any other program's words are not writes into git's
 # directory: find's -path, fd's -E and tree's -I are patterns, and a reader's operand, git's own -F among them, is read.
 TARGET = {"-t", "--target-directory"}
 PATH_WRITERS = {
-    "cp": ("last", {"-S", "--suffix"}, TARGET), "mv": ("last", {"-S", "--suffix"}, TARGET),
-    "ln": ("last", {"-S", "--suffix"}, TARGET), "ditto": ("last", set(), set()),
-    "install": ("last", {"-m", "--mode", "-o", "--owner", "-g", "--group", "-S", "--suffix"}, TARGET),
+    "cp": ("last", {"-S", "--suffix"}, TARGET, None), "mv": ("last", {"-S", "--suffix"}, TARGET, None),
+    "ln": ("last", {"-S", "--suffix"}, TARGET, None), "ditto": ("last", set(), set(), None),
+    "install": ("last", {"-m", "--mode", "-o", "--owner", "-g", "--group", "-S", "--suffix"}, TARGET, None),
     "rsync": ("last", {"-e", "--rsh", "--exclude", "--include", "--filter", "-f", "--exclude-from", "--include-from",
                        "--files-from", "--rsync-path", "--chmod", "--chown", "-M", "--remote-option", "--password-file",
                        "--compare-dest", "--copy-dest", "--link-dest"},
-              {"--backup-dir", "--partial-dir", "-T", "--temp-dir", "--log-file", "--write-batch", "--only-write-batch"}),
-    "scp": ("last", {"-c", "-F", "-i", "-J", "-l", "-o", "-P", "-S", "-D", "-X"}, set()),
-    "tee": ("all", set(), set()), "touch": ("all", {"-d", "--date", "-r", "--reference", "-t"}, set()),
-    "mkdir": ("all", {"-m", "--mode"}, set()), "chmod": ("all", {"--reference"}, set()),
-    "chown": ("all", {"--reference", "--from"}, set()), "chgrp": ("all", {"--reference", "--from"}, set()),
-    "truncate": ("all", {"-s", "--size", "-r", "--reference"}, set()),
+              {"--backup-dir", "--partial-dir", "-T", "--temp-dir", "--log-file", "--write-batch", "--only-write-batch"},
+              None),
+    "scp": ("last", {"-c", "-F", "-i", "-J", "-l", "-o", "-P", "-S", "-D", "-X"}, set(), None),
+    "tee": ("all", set(), set(), None), "touch": ("all", {"-d", "--date", "-r", "--reference", "-t"}, set(), None),
+    "mkdir": ("all", {"-m", "--mode"}, set(), None), "chmod": ("all", {"--reference"}, set(), None),
+    "chown": ("all", {"--reference", "--from"}, set(), None), "chgrp": ("all", {"--reference", "--from"}, set(), None),
+    "truncate": ("all", {"-s", "--size", "-r", "--reference"}, set(), None),
     "tar": ("none", {"-T", "--files-from", "-X", "--exclude-from", "--exclude", "-b", "--blocking-factor", "-H",
                      "--format", "-I", "--use-compress-program", "-N", "--newer"},
-            {"-C", "--directory", "-f", "--file"}),
+            {"-C", "--directory", "-f", "--file"}, ({"-x", "--extract", "--get"}, {"-C", "--directory"})),
     "curl": ("none", {"-d", "--data", "-H", "--header", "-u", "--user", "-X", "--request", "-F", "--form", "-A",
                       "--user-agent", "-e", "--referer", "-b", "--cookie", "-K", "--config", "-m", "--max-time"},
              {"-o", "--output", "--output-dir", "-D", "--dump-header", "-c", "--cookie-jar", "--trace", "--trace-ascii",
-              "--stderr"}),
+              "--stderr"}, ({"-O", "--remote-name", "--remote-name-all", "-J", "--remote-header-name"}, {"--output-dir"})),
     "wget": ("none", {"-e", "--execute", "-U", "--user-agent", "--header"},
-             {"-O", "--output-document", "-P", "--directory-prefix", "-o", "--output-file", "-a", "--append-output"}),
-    "unzip": ("none", {"-x"}, {"-d"}),
+             {"-O", "--output-document", "-P", "--directory-prefix", "-o", "--output-file", "-a", "--append-output"},
+             (set(), {"-O", "--output-document", "-P", "--directory-prefix"})),
+    "unzip": ("none", {"-x"}, {"-d"}, (set(), {"-d"})),
     "patch": ("first", {"-p", "--strip", "-i", "--input", "-F", "--fuzz", "-r", "--reject-file", "-B", "--prefix",
-                        "-D", "--ifdef", "-z", "--suffix", "-V"}, {"-o", "--output", "-d", "--directory"}),
+                        "-D", "--ifdef", "-z", "--suffix", "-V"}, {"-o", "--output", "-d", "--directory"},
+              (set(), {"-o", "--output", "-d", "--directory"})),
 }
+HERE = "."      # where a writer that names no output writes: the directory it stands in
 # Programs that write their operands only in place (-i): their options that take the next word, and those whose value
 # is the script, so that the first operand is a file and not the script.
 IN_PLACE = {"sed": ({"-e", "--expression", "-f", "--file", "-l", "--line-length"}, {"-e", "--expression", "-f", "--file"}),
@@ -266,9 +279,45 @@ class Reader:
 
 def _join(here, path: str):
     """Where `cd path` or `git -C path` leads from `here`; None when it cannot be told from the words."""
-    if here is None or "$" in path or "`" in path or (path.startswith("~") and not re.match(r"~(/|$)", path)):
+    if "$" in path or "`" in path or (path.startswith("~") and not re.match(r"~(/|$)", path)):
         return None
-    return here / os.path.expanduser(path)
+    path = os.path.expanduser(path)
+    if os.path.isabs(path):
+        return pathlib.Path(path)
+    return None if here is None else here / path
+
+
+def _directory(words: list):
+    """The directory cd or pushd (words[0]) goes to, past its options: `~` for none. None where the shell takes it
+    from a stack the hook does not keep (decision 0032): popd, pushd with no directory or with +N or -N, and cd - or
+    cd +N."""
+    args = words[1:]
+    while args and re.fullmatch(r"-[A-Za-z@]+", args[0]):
+        args = args[1:]
+    args = args[1:] if args[:1] == ["--"] else args
+    target = args[0] if args else ""
+    if words[0] == "popd" or re.fullmatch(r"[+-]\d*", target) or (words[0] == "pushd" and not target):
+        return None
+    return target or "~"
+
+
+def _unaliased(commands: list, table: dict, seen: frozenset = frozenset()) -> list:
+    """`commands` with each alias the command defines (`table`, from shell.alias_values) read as its value where its
+    name stands as the program, as zsh expands it: so that an alias for xargs, a shell, source or eval is read as that
+    program (decision 0032). Its value's commands run in turn, the words before the name going to the first and those
+    after it to the last; an alias already read in a command is not read again."""
+    out = []
+    for words, redirections in commands:
+        at, _ = shell.past_prefixes(words)
+        name = words[at] if at is not None and at < len(words) else None
+        if name not in table or name in seen:
+            out.append((words, redirections))
+            continue
+        value = list(table[name])
+        value[0] = (words[:at] + value[0][0], value[0][1])
+        value[-1] = (value[-1][0] + words[at + 1:], value[-1][1] + redirections)
+        out += _unaliased(value, table, seen | {name})
+    return out
 
 
 def _gh_kind(words: list) -> str:
@@ -305,17 +354,19 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
     environment, whose PATH names the git and gh it reads.
     """
     here = pathlib.Path(cwd) if cwd else None
+    places, stood = [here], [here]  # where a relative write may land, and every directory the command has stood in
     values, present, branches = shell.environment(text)     # what the command leaves in the environment, fail-closed
     calls, always, inline = [], [], []
     blind = _redefined(text)        # a git the command may redefine is one the hook cannot read (decision 0024)
     if shell.aliased(_quoted(shell.without_heredocs(text)), REDEFINABLE):
         always.append(("command_unreadable", "the command defines an alias whose value runs git, gh or what runs them "
                                              "(decision 0030)"))
+    commands = _unaliased(commands, shell.alias_values(_quoted(shell.without_heredocs(text))))
     loops = _loops(commands, values)
     for raw, redirections in commands:
         # A word is read with what the command set unconditionally put in for each variable it holds.
         words, targets = [expand(w, values) for w in raw], [expand(t, values) for _, t in redirections]
-        inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], here, "a redirection",
+        inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], places, "a redirection",
                                  loops)
         inline += [("identity_set_in_command", "%s is set in the command; the hook reads only what is configured"
                     % w.split("=")[0]) for w in words if ENVIRONMENT.match(w)]
@@ -323,8 +374,13 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
                                                "of its own" % w) for w in words + targets if GIT_CONFIG_FILE.search(w)]
         if not words:
             continue
-        if raw[0] in ("cd", "pushd"):
-            here = _join(here, raw[1]) if len(raw) > 1 and raw[1] != "-" else None
+        if raw[0] in ("cd", "pushd", "popd"):
+            target = _directory(words)
+            # The hook keeps no stack: where the shell takes the directory from one, the command may stand in any
+            # directory it has stood in, and what it writes or commits is read in each (decision 0032).
+            places = list(dict.fromkeys(stood if target is None else [_join(place, target) for place in places]))
+            stood += places
+            here = places[0] if len(places) == 1 else None
             continue
         runs = _program(words)      # past reserved words, prefixes and wrappers: time bash, if sh, nice sh
         at = runs if runs is not None and os.path.basename(words[runs]) in ("git", "gh") else None
@@ -332,7 +388,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
         program = os.path.basename(words[start])
         if at is None and program in DATA_HEADS:
             continue        # a loop's word list is data: what its body runs is a command of its own
-        inline += _git_directory(_written(program, words[start + 1:]), here, program, loops)
+        inline += _git_directory(_written(program, words[start + 1:]), places, program, loops)
         local = _local(words, at)
         named = present | local     # the environment git runs with: persisted, and set for it alone
         if local & {"PATH", "path"}:
@@ -351,7 +407,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
                                % program))
             continue
         tool, rest, before = os.path.basename(words[at]), words[at + 1:], words[:at]
-        where, i, settings = here, 0, []
+        wheres, i, settings = places, 0, []
         while i < len(rest) and rest[i].startswith("-"):
             option, given, value = rest[i].partition("=")
             if option in (GIT_VALUED if tool == "git" else GH_VALUED) and not given:
@@ -361,7 +417,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
             if tool != "git":
                 continue
             if option == "-C":
-                where = _join(where, value)
+                wheres = list(dict.fromkeys(_join(where, value) for where in wheres))
             elif option in ("-c", "--config-env"):
                 settings.append((option, value))
             elif option in ("--git-dir", "--work-tree"):
@@ -374,7 +430,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
         words = rest[i:]
         if tool == "git":
             sub = words[0] if words else ""
-            if sub == "push" and where == here:       # the branch the shell is on, where the push runs, is HEAD
+            if sub == "push" and wheres == places:    # the branch the shell is on, where the push runs, is HEAD
                 words = [sub] + [_branch_word(w, values, branches) for w in words[1:]]
             for option, value in settings:
                 always += _setting(option, value)
@@ -400,7 +456,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
                 always.append(("command_unreadable", "git %s runs a command the hook cannot read" % sub))
         else:
             kind = _gh_kind(words)
-        calls.append((tool, where, words, kind))
+        calls += [(tool, where, words, kind) for where in wheres]
     said = " ".join(w for words, _ in commands for w in words)     # as the shell runs it: g''it push is git push
     if blind and (WRITE_TEXT.search(text) or WRITE_TEXT.search(said) or any(kind for _, _, _, kind in calls)):
         always += [("command_unreadable", "%s, in a command that names a commit or push" % why)
@@ -422,20 +478,26 @@ def _redefined(text: str) -> list:
     return reasons
 
 
-def _git_directory(paths: list, here, given: str, loops: dict) -> list:
+def _git_directory(paths: list, places: list, given: str, loops: dict) -> list:
     """Why a command that commits or pushes is refused for writing into git's directory (decision 0030): each of
     `paths`, the places a redirection or a program of PATH_WRITERS writes, that has a component naming `.git`, as it is
-    written or once resolved against `here`, the directory the hook tracks through cd: `..` and links taken out, in any
-    case, a wildcard or a brace that may expand to it, and a loop's variable read as each word the loop runs over. A
-    path the hook cannot expand is left alone, so that `git push > "$TMPDIR/log"` passes."""
+    written or once resolved against each of `places`, where the hook tracks the command through cd (decision 0032):
+    `..` and links taken out, in any case, a wildcard or a brace that may expand to it, and a loop's variable read as
+    each word the loop runs over, or, past LOOP_MOST of them, refused. A path the hook cannot expand is left alone, so
+    that `git push > "$TMPDIR/log"` passes."""
     found = []
     for written in paths:
-        hits = False
-        for unbraced in _bound(written, loops):
+        hits, bound = False, _bound(written, loops)
+        if bound is None:
+            found.append(("git_directory_written", "%s writes a path through a loop's variable, and the loop runs over "
+                                                   "more words than the hook reads (%d), so where it writes cannot be "
+                                                   "read; make the write in a command of its own" % (given, LOOP_MOST)))
+            continue
+        for unbraced in bound:
             if not unbraced or _expands(unbraced):
                 continue
             expanded, exact = _braced(unbraced)
-            for path in expanded:
+            for path, here in [(p, h) for p in expanded for h in places]:
                 path = os.path.expanduser(path)
                 seen = [os.path.normpath(path)]
                 if here is not None or os.path.isabs(path):
@@ -476,18 +538,53 @@ def _globbed(pattern: str) -> bool:
     """Whether a shell pattern for one name matches `.git`."""
     out, i = [], 0
     while i < len(pattern):
-        c, end = pattern[i], pattern.find("]", i + 2) if pattern[i] == "[" else -1
+        c, bracket = pattern[i], _bracket(pattern, i) if pattern[i] == "[" else None
         if c in "*?":
             out.append(".*" if c == "*" else ".")
-        elif end > 0:
-            body = pattern[i + 1:end]
-            negated = body[:1] in ("!", "^")
-            out.append("[%s%s]" % ("^" if negated else "", re.escape(body[1:] if negated else body)))
-            i = end
+        elif bracket is not None:
+            out.append(bracket[0])
+            i = bracket[1] - 1
         else:
             out.append(re.escape(c))
         i += 1
     return re.fullmatch("".join(out), GIT_DIRECTORY, re.S) is not None
+
+
+# A POSIX class in a bracket expression, as the letters and the dot of `.git` it holds, in any case (decision 0032).
+CLASSES = {"alpha": "a-z", "alnum": "a-z", "lower": "a-z", "upper": "a-z", "word": "a-z", "graph": "a-z.",
+           "print": "a-z.", "punct": ".", "xdigit": "a-f", "digit": "", "space": "", "blank": "", "cntrl": ""}
+
+
+def _bracket(pattern: str, i: int):
+    """(a regular expression for the bracket expression that starts at pattern[i], the index past it), as the shell
+    reads one: `!` or `^` negates it, a `]` first is a letter, a range stays a range (.gi[s-u]), and a POSIX class
+    ([:alpha:]) is the letters it holds. One the hook cannot read, an unknown class, an equivalence class or a collating
+    symbol, or a range it cannot order, may match anything: `.`. None when it never closes, and `[` is a letter."""
+    j = i + 1 + (pattern[i + 1:i + 2] in ("!", "^"))
+    negated, items, unread, first = j > i + 1, [], False, j
+    while j < len(pattern):
+        c = pattern[j]
+        if c == "]" and j > first:
+            if unread or not "".join(items):
+                return "." if unread or negated else "(?!)", j + 1      # (?!) matches nothing
+            return "[%s%s]" % ("^" if negated else "", "".join(items)), j + 1
+        if c == "[" and pattern[j + 1:j + 2] in (":", "=", "."):
+            end = pattern.find(pattern[j + 1] + "]", j + 2)
+            if end < 0:
+                return None
+            name = pattern[j + 2:end]
+            unread = unread or pattern[j + 1] != ":" or name not in CLASSES
+            items.append(re.escape(CLASSES.get(name, "")).replace("\\-", "-"))
+            j = end + 2
+        elif pattern[j + 1:j + 2] == "-" and pattern[j + 2:j + 3] not in ("", "]"):
+            low, high = c, pattern[j + 2]
+            unread = unread or low > high
+            items.append("%s-%s" % (re.escape(low), re.escape(high)))
+            j += 3
+        else:
+            items.append(re.escape(c))
+            j += 1
+    return None
 
 
 def _expansions(word: str, most: int = None):
@@ -553,15 +650,18 @@ def _first_brace(word: str, most: int):
     return None
 
 
-def _bound(path: str, loops: dict) -> list:
+def _bound(path: str, loops: dict):
     """`path` with each loop variable it holds put in, as each word its loop runs over: a loop's word list is data to
-    read as commands, but its words are what the variable holds in the body. At most LOOP_MOST paths."""
+    read as commands, but its words are what the variable holds in the body. None when they are more than LOOP_MOST:
+    a reading the hook would cut short is one it cannot read (decision 0032)."""
     out = [path]
     for name, words in loops.items():
         held, bound = re.compile(r"\$(?:\{%s\}|%s(?!\w))" % (re.escape(name), re.escape(name))), []
         for each in out:
             bound += [held.sub(lambda _, w=word: w, each) for word in words] if held.search(each) else [each]
-        out = bound[:LOOP_MOST]
+        if len(bound) > LOOP_MOST:
+            return None
+        out = bound
     return out
 
 
@@ -593,11 +693,34 @@ def _written(program: str, args: list) -> list:
         return operands if set(given) & scripts else operands[1:]
     if program not in PATH_WRITERS:
         return []
-    which, valued, destinations = PATH_WRITERS[program]
+    which, valued, destinations, stands = PATH_WRITERS[program]
+    if program == "tar" and args and re.fullmatch(r"[A-Za-z]+", args[0]):
+        args = _old_style(args, valued | destinations)
     operands, named, given = _options(args, valued, destinations)
     if which == "last" and set(given) & TARGET:
         return named        # -t names the destination: every operand is a source
-    return named + {"last": operands[-1:], "all": operands, "first": operands[:1], "none": []}[which]
+    written = named + {"last": operands[-1:], "all": operands, "first": operands[:1], "none": []}[which]
+    if stands is not None:
+        needs, names = stands
+        if (not needs or _gave(given, needs)) and not _gave(given, names) and written == named:
+            written.append(HERE)        # its words name no output: it writes where it stands
+    return [path for path in written if path != "-"]       # - is the standard output, or input
+
+
+def _gave(given: list, options: set) -> bool:
+    """Whether a program was given one of `options`: a long one by any prefix getopt takes."""
+    return any(shell.spelt(option, name) for option in given for name in options)
+
+
+def _old_style(args: list, takes: set) -> list:
+    """tar's words with its first, a bundle with no dash, read as tar reads it: each letter an option, and each that
+    takes a value takes the next word in turn, so `tar xfC h.tar .git` is `tar -x -f h.tar -C .git`."""
+    out, rest = [], list(args[1:])
+    for letter in args[0]:
+        out.append("-" + letter)
+        if "-" + letter in takes and rest:
+            out.append(rest.pop(0))
+    return out + rest
 
 
 def _options(args: list, valued: set, destinations: set) -> tuple:
@@ -831,7 +954,8 @@ def _quoted(text: str) -> str:
             end = _closed(text, i + 2, ")")
             if end is None:
                 return text
-            out.append(text[i:end + 1])
+            # A script of its own, whose quotes are its own: escaped, as below, so that shlex keeps the word whole.
+            out.append("$(%s)" % text[i + 2:end].replace("\\", "\\\\").replace('"', '\\"'))
             i = end + 1
             continue
         elif quote == '"':
