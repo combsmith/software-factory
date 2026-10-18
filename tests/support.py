@@ -46,7 +46,10 @@ def pending(test):
     return unittest.expectedFailure(test)
 
 
-def facts(**over) -> dict:
+def facts(armed=True, **over) -> dict:
+    """Facts for one pull request, with `over` in place of the defaults. Where `acceptance` is a contract a person
+    approved, the facts also hold that person's approving review on the commit it names (armed), as GitHub does, unless
+    `armed` is False: an approval with no such review is the port's word alone."""
     f = {
         "schema": "facts/1", "item": dict(ITEM), "state": "open", "is_draft": False,
         "class": "maintainer", "author": "don-petry", "last_pusher": "don-petry",
@@ -61,7 +64,24 @@ def facts(**over) -> dict:
         "read_at": "2026-10-11T12:59:00Z",
     }
     f.update(over)
+    approval = arming(f["acceptance"]) if armed else None
+    if approval is not None:
+        f["reviews"] = [approval] + list(f["reviews"])
     return f
+
+
+def arming(acceptance):
+    """The review a person gave the acceptance contract they approved, on the commit it names, before the head was
+    pushed and of earlier content: or None where `acceptance` names no person's approval."""
+    approved = acceptance.get("approved") if isinstance(acceptance, dict) else None
+    if not (isinstance(approved, dict) and isinstance(approved.get("by"), dict) and approved["by"].get("kind") == "human"
+            and approved["by"].get("can_write") is True and isinstance(approved.get("commit"), str)
+            and approved["commit"] != ""
+            and not str(approved["by"].get("name")).endswith("[bot]")):
+        return None
+    by = approved["by"]
+    return review(kind=by["kind"], name=by["name"], content=ARMED_CONTENT, commit=approved["commit"],
+                  at="2026-10-11T11:00:00Z")
 
 
 def changed(path, previous=None) -> dict:
@@ -122,16 +142,34 @@ def review(state="approved", kind="machine_user", name="donpetry-bot", can_write
             "content_id": content, "submitted_at": at, "dismissed_by": dismissed_by, "dismissed_from": dismissed_from}
 
 
-def contract(criteria=("AC-1", "AC-2"), results=()) -> dict:
-    """An item's acceptance contract as the facts carry it: its criteria by id, never their statements, and each result
-    read for one, with the content it was given on. By default, two criteria and no results yet. Whether it was read in
-    full is `complete.acceptance`."""
-    return {"criteria": list(criteria), "results": [dict(e) for e in results]}
+# The digest of the acceptance contract and every path it protects (§3.13), in a content id's form: by default the one
+# a person approved, and the one at the head.
+DIGEST = "sha256:" + "c0de" * 16
+# The commit a person approved the contract at, and its content: the first commit on the work's branch (§4.8).
+COMMIT = "c0"
+ARMED_CONTENT = "sha256:c0c0"
+# The required deterministic Lens that reports a criterion of kind `test`, and its check, as a result carries it.
+VERIFY = next(lens for lens in CONFIG["required_lenses"]["deterministic"]
+              if lens["lens"] == CONFIG["acceptance_reporters"]["test"])
+REPORTER = {"name": VERIFY["check"], "app_id": VERIFY["app_id"], "workflow": VERIFY["workflow"]}
 
 
-def evidence(criterion="AC-1", result="passing", content="sha256:aaaa") -> dict:
-    """One result for one criterion. By default, AC-1 passing on this content."""
-    return {"criterion": criterion, "content_id": content, "result": result}
+def contract(criteria=("AC-1", "AC-2"), results=(), by=MAINTAINER, head=DIGEST) -> dict:
+    """An item's acceptance contract as the facts carry it: the contract a person approved, its digest at the head, and
+    each result read for a criterion. The approved contract gives each criterion by id and kind, never its statement: a
+    criterion given by id alone is of kind `test`, and one given as (id, kind) is of that kind. By default, two
+    criteria, which the Maintainer approved at DIGEST on COMMIT, unchanged at the head, and no results yet. `by` None: no person
+    approved it. `head` None: the head carries none. Whether it was read in full is `complete.acceptance`."""
+    listed = [{"id": c, "kind": "test"} if isinstance(c, str) else {"id": c[0], "kind": c[1]} for c in criteria]
+    approved = None if by is None else {"digest": DIGEST, "commit": COMMIT, "by": dict(by), "criteria": listed}
+    return {"approved": approved, "head": head, "results": [dict(e) for e in results]}
+
+
+def evidence(criterion="AC-1", result="passing", content="sha256:aaaa", check=None) -> dict:
+    """One result for one criterion, with the check that reported it. By default, AC-1 passing on this content, from
+    the check of the Lens that reports a criterion of kind `test`."""
+    return {"criterion": criterion, "content_id": content, "result": result,
+            "check": dict(REPORTER if check is None else check)}
 
 
 def config(**over) -> dict:

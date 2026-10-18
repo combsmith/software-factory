@@ -404,10 +404,12 @@ def readable_actor(actor, facts: dict, config: dict) -> bool:
 
 
 def unreadable_reviews(facts: dict, config: dict) -> bool:
-    """Whether a review cannot be read whole: its author, state or time, or who dismissed it and what it was.
+    """Whether a review cannot be read whole: its author, state or time, the commit and content it was given on, or
+    who dismissed it and what it was, each of which is there even where it is null.
 
-    Any of them could be a request for changes from a person with write access, so nothing
-    may converge on it; a missing fact is never given a default (I-13).
+    Any of them could be a request for changes from a person with write access, or a person's approval of the
+    acceptance contract or of this content, so nothing may converge on it; a missing fact is never given a default
+    (I-13).
     """
     for rv in facts["reviews"]:
         if not isinstance(rv, dict) or rv.get("state") not in t.REVIEW_STATES:
@@ -415,6 +417,12 @@ def unreadable_reviews(facts: dict, config: dict) -> bool:
         if not readable_actor(rv.get("by"), facts, config):
             return True
         if not is_time(rv.get("submitted_at")):
+            return True
+        if not (isinstance(rv.get("commit"), str) and rv["commit"] != ""):
+            return True
+        if not in_form(rv.get("content_id"), t.CONTENT_PREFIX, t.HEX_DIGITS):
+            return True
+        if "dismissed_by" not in rv or "dismissed_from" not in rv:
             return True
         # Who dismissed a review, and what it was, belong to a dismissed review alone: the schema cannot say so.
         if rv["state"] != "dismissed" and (rv.get("dismissed_by") is not None or rv.get("dismissed_from") is not None):
@@ -534,19 +542,47 @@ def in_form(value, prefix: str, digits: str) -> bool:
             and all(c in digits for c in value[len(prefix):]))
 
 
-def readable_contract(contract, content: str) -> bool:
-    """Whether an acceptance contract, as the facts carry it, can be read whole: at least one criterion, each an id in
-    its form given once, and every result an object naming a criterion and a content in their forms. A result on
-    `content`, this content, must name a criterion the contract has and say a word the Kernel knows: otherwise it was
-    misread. Only this content's results are judged, so one on earlier content is not read further: a criterion the
-    contract no longer lists, as after a waiver or a revision, is no misreading there. Whether it was read in full is
-    `complete.acceptance`, read with the other flags."""
-    if not isinstance(contract, dict):
+def readable_criteria(criteria) -> bool:
+    """Whether the criteria of an approved contract can be read whole: at least one, each an object with an id in its
+    form, given once, and a kind the Kernel knows. The kind says who may report a criterion's result (reporter)."""
+    if not (isinstance(criteria, list) and criteria and all(isinstance(c, dict) for c in criteria)):
         return False
-    criteria, results = contract.get("criteria"), contract.get("results")
-    if not (isinstance(criteria, list) and criteria and all(in_form(c, t.CRITERION_PREFIX, t.DIGITS) for c in criteria)):
+    ids = [c.get("id") for c in criteria]
+    if not all(in_form(i, t.CRITERION_PREFIX, t.DIGITS) for i in ids) or len(set(ids)) != len(ids):
         return False
-    if len(set(criteria)) != len(criteria) or not isinstance(results, list):
+    return all(c.get("kind") in t.CRITERION_KINDS for c in criteria)
+
+
+def is_digest(value) -> bool:
+    """Whether `value` is an acceptance contract's digest in its one form: `sha256:` and a whole SHA-256, in lower-case
+    hexadecimal (t.DIGEST_SHAPE). A digest cut short, or padded, could be read as the one approved."""
+    return in_form(value, t.CONTENT_PREFIX, t.HEX_DIGITS) and len(value) == len(t.DIGEST_SHAPE)
+
+
+def readable_approval(approved, facts: dict, config: dict) -> bool:
+    """Whether the contract a person approved can be read whole: None, where nobody has approved one; or its digest
+    (is_digest), the commit the approving review was given on, who approved it (readable_actor), and its criteria
+    (readable_criteria)."""
+    if approved is None:
+        return True
+    return (isinstance(approved, dict) and is_digest(approved.get("digest"))
+            and isinstance(approved.get("commit"), str) and approved["commit"] != ""
+            and readable_actor(approved.get("by"), facts, config) and readable_criteria(approved.get("criteria")))
+
+
+def readable_contract(contract, facts: dict, config: dict) -> bool:
+    """Whether an acceptance contract, as the facts carry it, can be read whole: the contract a person approved, or
+    None (readable_approval); its digest at the head, in a content id's form, or None where the head carries none; and
+    every result an object naming a criterion and a content in their forms. None of the three is given a default: a
+    contract that says nothing of its approval or its head is not one that nobody approved or that was deleted. A
+    result on this content is read further once the contract is known to count (misread_results). Whether it was read
+    in full is `complete.acceptance`, read with the other flags."""
+    if not (isinstance(contract, dict) and all(name in contract for name in ("approved", "head", "results"))):
+        return False
+    if not readable_approval(contract["approved"], facts, config):
+        return False
+    head, results = contract["head"], contract["results"]
+    if not (head is None or is_digest(head)) or not isinstance(results, list):
         return False
     for ev in results:
         if not isinstance(ev, dict):
@@ -555,34 +591,159 @@ def readable_contract(contract, content: str) -> bool:
             return False
         if not in_form(ev.get("criterion"), t.CRITERION_PREFIX, t.DIGITS):
             return False
+    return True
+
+
+def misread_results(contract: dict, content: str) -> bool:
+    """Whether a result on `content`, this content, was misread: it names a criterion the approved contract does not,
+    says a word the Kernel does not know, or carries no check that reported it. Only this content's results are judged,
+    so one on earlier content is not read further: a criterion the contract no longer lists, as after a waiver or a
+    revision, is no misreading there. The contract must be readable, and approved (readable_contract)."""
+    ids = [c["id"] for c in contract["approved"]["criteria"]]
+    for ev in contract["results"]:
         if ev["content_id"] != content:
             continue
-        if ev["criterion"] not in criteria or ev.get("result") not in t.EVIDENCE_RESULTS:
-            return False
-    return True
+        if ev["criterion"] not in ids or ev.get("result") not in t.EVIDENCE_RESULTS:
+            return True
+        if not isinstance(ev.get("check"), dict):
+            return True
+    return False
+
+
+def readable_reporters(config: dict) -> bool:
+    """Whether the configuration's `acceptance_reporters` can be read: a map from a kind of criterion to the name of a
+    Lens, or to None. Missing, or of any other shape, it could make a kind reported by anyone, or by nobody it names
+    (I-13). A kind it leaves out has no reporter (reporter)."""
+    reporters = config.get("acceptance_reporters")
+    return isinstance(reporters, dict) and all(name is None or isinstance(name, str) for name in reporters.values())
+
+
+def reporter(kind: str, config: dict):
+    """The required deterministic Lens whose check alone reports a criterion of `kind`, as the configuration's
+    `acceptance_reporters` names it, or None where no check may: a kind it names no Lens for, or names none at all.
+    Only a person passes a criterion of kind human, whatever the configuration says (I-10)."""
+    if kind == t.HUMAN_KIND:
+        return None
+    name = config["acceptance_reporters"].get(kind)
+    return next((lens for lens in config["required_lenses"]["deterministic"] if lens["lens"] == name), None)
+
+
+def foreign_results(contract: dict, facts: dict, config: dict) -> list:
+    """Each result on this content that the check of its criterion's reporter did not report, as evidence.
+
+    Any App with checks: write can report a result, the implementing Role's own among them, and GitHub Actions runs any
+    job a pull request adds: no Role judges its own work (I-10). A result is read as the facts read a check, by
+    reports_for, from the Lens the configuration names for its criterion's kind (reporter). One from another App is
+    given as `<criterion>:from_app:<id>`, from the Lens's App and another workflow file as
+    `<criterion>:from_workflow:<path>`, and from both under another check's name as `<criterion>:from_another_check`,
+    in foreign_checks' forms; one for a kind no check reports, whoever reported it, as `<criterion>:no_reporter`. The
+    contract must be readable, and approved; earlier content is not judged."""
+    kinds = {c["id"]: c["kind"] for c in contract["approved"]["criteria"]}
+    out = []
+    for ev in contract["results"]:
+        if ev["content_id"] != facts["content_id"]:
+            continue
+        lens, check = reporter(kinds[ev["criterion"]], config), ev["check"]
+        if lens is None:
+            said = "%s:no_reporter" % ev["criterion"]
+        elif reports_for(ev["check"], lens):
+            continue
+        elif not from_its_app(check, lens):
+            shown = check.get("app_id")
+            said = "%s:from_app:%s" % (ev["criterion"], shown if type(shown) is int else "unreadable")
+        elif not from_its_workflow(check, lens):
+            said = "%s:from_workflow:%s" % (ev["criterion"], shown_path(check.get("workflow"), config))
+        else:
+            said = "%s:from_another_check" % ev["criterion"]
+        if said not in out:
+            out.append(said)
+    return out
+
+
+def contract_reading(facts: dict, config: dict):
+    """What the acceptance contract's own identity says, as a reading, or None where it lets the item be read on.
+
+    The contract that counts is the one a person approved, at one commit (§3.13, decision 0007): the head is the
+    author's. So a contract no person approved, the machine user's or an App's approval among them, is a Hold; and so
+    is a head whose contract differs from the approved one, a deleted one included, since a digest covers every path
+    the contract protects (I-29, I-30). Before them, a contract that cannot be read; after them, a result on this
+    content that was misread, or that its criterion's reporter did not report (foreign_results). Each admits nothing.
+    Whether there is a contract at all is the linked issue's, never the head's: null is no contract, read in full. A
+    fact read from outside is never given a default, so facts with no `acceptance` at all are unreadable."""
+    unreadable = {"state": None, "reason": "acceptance_unreadable", "evidence": []}
+    if "acceptance" not in facts:
+        return unreadable
+    contract = facts["acceptance"]
+    if contract is None:
+        return None
+    if not readable_reporters(config):
+        return {"state": None, "reason": "acceptance_reporters_unreadable", "evidence": []}
+    if not readable_contract(contract, facts, config):
+        return unreadable
+    approved = contract["approved"]
+    if approved is None or not is_person(approved["by"]):
+        return {"state": t.HELD, "reason": "contract_not_approved", "evidence": []}
+    if not approval_stands(approved, facts):
+        return {"state": t.HELD, "reason": "contract_not_approved", "evidence": []}
+    if contract["head"] != approved["digest"]:
+        return {"state": t.HELD, "reason": "contract_changed", "evidence": []}
+    if misread_results(contract, facts["content_id"]):
+        return unreadable
+    impostors = foreign_results(contract, facts, config)
+    if impostors:
+        return {"state": None, "reason": "acceptance_unreadable", "evidence": impostors}
+    return None
+
+
+def approval_stands(approved: dict, facts: dict) -> bool:
+    """Whether the approval the facts say a person gave the contract is a review GitHub holds: by that person, with
+    write access, approving, on the commit the contract was approved at, and not dismissed by a person. An App's
+    dismissal, a stale one among them, ends nothing a person did (L-17). The reviews must be readable
+    (unreadable_reviews). Otherwise the approval is the port's word alone, and no person approved anything."""
+    for rv in facts["reviews"]:
+        theirs = is_person(rv["by"]) and rv["by"]["name"] == approved["by"]["name"]
+        if theirs and rv["commit"] == approved["commit"] and (
+                rv["state"] == "approved" or (rv["dismissed_from"] == "approved" and not is_person(rv["dismissed_by"]))):
+            return True
+    return False
+
+
+def confirmed_by_a_person(facts: dict) -> bool:
+    """Whether a person approved this content in a review that stands: one such review confirms every criterion of kind
+    human there (the Maintainer's ruling of 2026-10-17). It stands until a person dismisses it: a dismissal by an App, a
+    Lens's App or the machine user ends nothing a person did (L-17), as it ends no request for changes (gate). It
+    approves no content: only the approver's does (standing_approval). A person objects with a request for changes,
+    which gates, so a human criterion never fails."""
+    return any(is_person(rv["by"]) and rv["content_id"] == facts["content_id"]
+               and (rv["state"] == "approved"
+                    or (rv["dismissed_from"] == "approved" and not is_person(rv["dismissed_by"])))
+               for rv in facts["reviews"])
 
 
 def acceptance_reading(facts: dict) -> tuple:
     """What Convergence's fourth condition says (§4.2 item 4, §4.8, I-31), as (reading, criteria): 'none' where the item
-    has no acceptance contract, 'unreadable', 'failing' with the criteria that failed, 'missing' with those that have no
-    passing evidence, or 'passing'.
+    has no acceptance contract, 'failing' with the criteria that failed, 'missing' with those that have no passing
+    evidence, or 'passing'. The contract is read first, and counts (contract_reading).
 
-    Only a result given on this content counts. A failure on it is read first, as a failed check is: any failing result
-    for a criterion fails it, whatever else was given for it. A fact read from outside is never given a default, so
-    facts with no `acceptance` at all are unreadable, never "no contract"."""
-    if "acceptance" not in facts:
-        return "unreadable", []
+    Only a result given on this content counts, from its criterion's reporter. A failure on it is read first, as a
+    failed check is: any failing result for a criterion fails it, whatever else was given for it. A criterion of kind
+    human passes only on a person's approval of this content (confirmed_by_a_person), and never fails."""
     contract = facts["acceptance"]
     if contract is None:
         return "none", []
-    if not readable_contract(contract, facts["content_id"]):
-        return "unreadable", []
-    said = {c: {ev["result"] for ev in contract["results"] if ev["criterion"] == c
-                and ev["content_id"] == facts["content_id"]} for c in contract["criteria"]}
-    fails = [c for c in contract["criteria"] if "failing" in said[c]]
+    criteria, person = contract["approved"]["criteria"], confirmed_by_a_person(facts)
+    said = {}
+    for c in criteria:
+        if c["kind"] == t.HUMAN_KIND:
+            said[c["id"]] = {"passing"} if person else set()
+        else:
+            said[c["id"]] = {ev["result"] for ev in contract["results"] if ev["criterion"] == c["id"]
+                             and ev["content_id"] == facts["content_id"]}
+    ids = [c["id"] for c in criteria]
+    fails = [c for c in ids if "failing" in said[c]]
     if fails:
         return "failing", fails
-    lacking = [c for c in contract["criteria"] if "passing" not in said[c]]
+    lacking = [c for c in ids if "passing" not in said[c]]
     if lacking:
         return "missing", lacking
     return "passing", []
@@ -687,6 +848,12 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     foreign = foreign_checks(facts["checks"], config)
     if foreign:
         return {"state": t.VERIFYING, "reason": "check_unreadable", "evidence": foreign}
+    # Then the acceptance contract's own identity, before anything admits a Run (I-29): one no person approved, or one
+    # changed since, is a Hold, and one that cannot be read, or a result from anyone but its reporter, defers. Each
+    # admits nothing, so it is read before a conflict and before any Lens's failure, which admit the author's fix Run.
+    stop = contract_reading(facts, config)
+    if stop is not None:
+        return stop
     # GitHub works the merge state out after a push. Until it has, it is unknown, and unreadable.
     mergeable = facts.get("mergeable")
     if mergeable is False:
@@ -738,12 +905,10 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
             return {"state": t.ADJUDICATING, "reason": "proposals_await_owner", "evidence": for_owner}
         return {"state": t.ADDRESSING, "reason": "awaiting_human", "evidence": sorted(turns)}
 
-    # Then the acceptance contract, where the item has one: every criterion has passing evidence on this content (I-31).
-    # Nothing read before it depends on it, so an unreadable contract hides no other reading; it only never converges.
-    # None of the three is a wait a queued item is read past: the merge queue knows nothing of the contract.
+    # Then the acceptance contract's evidence, where the item has one: every criterion has passing evidence on this
+    # content (I-31). The contract itself was read above. Neither reading is a wait a queued item is read past: the
+    # merge queue knows nothing of the contract.
     said, criteria = acceptance_reading(facts)
-    if said == "unreadable":
-        return {"state": None, "reason": "acceptance_unreadable", "evidence": []}
     if said == "failing":
         return {"state": t.ADDRESSING, "reason": "acceptance_failed", "evidence": criteria}
     if said == "missing":

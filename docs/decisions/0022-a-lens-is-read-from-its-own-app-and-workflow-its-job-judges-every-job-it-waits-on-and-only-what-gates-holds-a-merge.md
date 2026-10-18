@@ -1,14 +1,7 @@
 # 0022. A Lens is read from its own App and workflow, its job judges every job it waits on, and only what gates holds a merge
 
-Status: accepted. Replaces `docs/decisions/0018-a-lens-is-read-from-its-own-app-and-workflow-and-only-what-gates-holds-a-merge.md`,
-and keeps all of it: the Maintainer's ruling of 2026-10-14 on a Finding that does not gate
-("Kernel: what happens to a Finding that does not gate", issue 55); the ruling on "The Apps'
-permissions as data, before any is registered" (issue 20) that a Lens is read only from the App
-that reports it ("Kernel: a Lens is read only from the App that reports it", issue 60); and the ruling
-on "A Lens run by GitHub Actions is read only from its own workflow file" (issue 97). It adds the
-Maintainer's ruling of 2026-10-16 on "CI: the mutation run in parallel shards, inside the required
-check" (issue 112): a Lens's job may have one job-level `if:`, exactly `always()`, beside a `needs:`
-that names every other job in its file, and it then passes only when every one of those passed.
+Status: replaced by `docs/decisions/0026-a-lens-is-read-from-its-own-app-and-workflow-its-job-judges-every-job-it-waits-on-and-only-what-gates-holds-a-merge.md`,
+which holds the rule in force and its boundaries.
 
 ## Decision
 
@@ -136,6 +129,6 @@ A job left out of its `needs:` is a check nobody requires, so it needs every oth
 | A wait for evidence is a wait in `verifying`, and goes stale past its limit | `tests/test_decide.py::test_a_wait_for_acceptance_evidence_goes_stale` |
 | The port reads the contract at the head, and each result for a criterion with the content it ran on, from the check that gave it | waiting on `adapters/` |
 | The port reports the latest result per criterion per check suite | waiting on `adapters/` |
-| A result counts only from the App the configuration allows for its criterion's kind; never from the author's Role. Issue 108, "Kernel: acceptance evidence from the right reporter, against the approved contract" | waiting on `adapters/` |
-| The contract read is the one the Maintainer approved, unchanged since; no fix Run on a contract not yet approved (I-29), in the same story | waiting on `harness/` |
+| A result counts only from the App the configuration allows for its criterion's kind; never from the author's Role. Issue 108, "Kernel: acceptance evidence from the right reporter, against the approved contract" | `tests/test_decide.py::test_a_result_counts_only_from_the_reporter_its_kind_names`, `tests/test_decide.py::test_a_kind_with_no_reporter_cannot_pass`, `tests/test_decide.py::test_a_human_criterion_is_passed_only_by_a_persons_approval_of_this_content` |
+| The contract read is the one the Maintainer approved, unchanged since; no fix Run on a contract not yet approved (I-29), in the same story | `tests/test_decide.py::test_a_contract_no_person_approved_is_a_hold`, `tests/test_decide.py::test_a_contract_changed_since_its_approval_is_a_hold`, `tests/test_decide.py::test_no_run_is_admitted_on_a_contract_not_approved` |
 | No manifest names another Role's output as a trigger | waiting on `roles/` |

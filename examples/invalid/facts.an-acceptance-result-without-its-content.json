@@ -155,24 +155,55 @@
   "queue": false,
   "acts_since_writer": 2,
   "acceptance": {
-    "criteria": [
-      "AC-1",
-      "AC-2"
-    ],
+    "approved": {
+      "digest": "sha256:c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de",
+      "commit": "1a2b3c4",
+      "by": {
+        "kind": "human",
+        "name": "a-colleague",
+        "can_write": true
+      },
+      "criteria": [
+        {
+          "id": "AC-1",
+          "kind": "test"
+        },
+        {
+          "id": "AC-2",
+          "kind": "test"
+        }
+      ]
+    },
+    "head": "sha256:c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de",
     "results": [
       {
         "criterion": "AC-1",
         "content_id": "sha256:4b1a",
-        "result": "failing"
+        "result": "failing",
+        "check": {
+          "name": "verify",
+          "app_id": 15368,
+          "workflow": ".github/workflows/verify.yml"
+        }
       },
       {
         "criterion": "AC-1",
-        "result": "passing"
+        "result": "passing",
+        "check": {
+          "name": "verify",
+          "app_id": 15368,
+          "workflow": ".github/workflows/verify.yml"
+        }
       },
       {
         "criterion": "AC-2",
         "content_id": "sha256:5d0c",
-        "result": "passing"
+        "result": "passing",
+        "check": {
+          "name": "verify",
+          "app_id": 15368,
+          "workflow": ".github/workflows/verify.yml"
+        }
       }
     ]
   },

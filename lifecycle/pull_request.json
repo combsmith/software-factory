@@ -950,6 +950,12 @@
       "to": "queued",
       "by": "lens",
       "bound": "max_runs_per_item"
+    },
+    {
+      "from": "verifying",
+      "to": "converged",
+      "by": "human",
+      "bound": null
     }
   ]
 }
