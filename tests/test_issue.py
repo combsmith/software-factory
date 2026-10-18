@@ -1100,6 +1100,28 @@ class Investigation(unittest.TestCase):
         # Under a Pause, a Run in flight is still only working.
         self.assertEqual(decide(TRIAGED, [queued], ctx=context(paused=True))["attention"], "working")
 
+    def test_under_a_pause_a_spent_count_holds_the_issue_with_a_run_in_flight_or_none(self):  # decision 0003
+        # A Hold of the brakes is a reading and no act, and a Pause leaves each item where it is: under a Pause, or one
+        # that cannot be read, spent attempts hold the issue as they do without one, whether or not a Run waits.
+        tries = LIMITS["max_attempts"]
+        queued = investigated(status="queued", minute=20, name="q1")
+        spent = [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(tries)]
+        for paused, why in ((True, "paused"), (None, "pause_unreadable")):
+            for flight in ([], [queued]):
+                d = decide(TRIAGED, spent + flight, ctx=context(paused=paused))
+                self.assertEqual((d["state"], what(d), d["attention"]),
+                                 ("held", ("hold", "attempts_exhausted", None), "needs_you"), (paused, flight))
+            # The other side: one attempt short, the Pause defers the investigation, and a Run in flight keeps it working.
+            d = decide(TRIAGED, spent[:-1], ctx=context(paused=paused))
+            self.assertEqual((d["state"], what(d)), ("triage", ("defer", why, None)), paused)
+            d = decide(TRIAGED, spent[:-1] + [queued], ctx=context(paused=paused))
+            self.assertEqual((d["state"], what(d), d["attention"]), ("triage", ("nothing", "triage", None), "working"))
+            # The act ceiling holds a new issue's acceptance under a Pause too; one act short, the Pause defers it.
+            d = decide(facts(acts_since_writer=LIMITS["max_acts_per_item"]), ctx=context(paused=paused))
+            self.assertEqual((d["state"], what(d)), ("held", ("hold", "act_ceiling", None)), paused)
+            d = decide(facts(acts_since_writer=LIMITS["max_acts_per_item"] - 1), ctx=context(paused=paused))
+            self.assertEqual((d["state"], what(d)), ("new", ("defer", why, None)), paused)
+
     def test_the_pause_capacity_and_concurrency_defer_a_run(self):
         self.assertEqual(what(decide(TRIAGED, ctx=context(paused=True))), ("defer", "paused", None))
         for ctx, want in ((context(model_deferred_until="2026-10-11T13:00:01Z"), ("defer", "capacity", None)),
