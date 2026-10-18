@@ -2303,6 +2303,16 @@ class Ceilings(unittest.TestCase):
                 self.assertEqual((d["state"], d["outcome"], d["reason"]), ("converged", "defer", "acts_unreadable"),
                                  (reviews, value))
 
+    def test_under_a_pause_an_unreadable_count_of_acts_defers_for_the_pause(self):  # I-13, decision 0003
+        # A count of acts that cannot be read holds nothing, so it is read after the Pause: the item defers for the
+        # Pause, or for one that cannot be read, and only with no Pause for the count.
+        for reviews in ([], APPROVED):
+            for value in (None, -1, True):
+                for paused, why in ((True, "paused"), (None, "pause_unreadable"), (False, "acts_unreadable")):
+                    d = go(facts(reviews=reviews, acts_since_writer=value), REVIEWED, ctx=context(paused=paused))
+                    self.assertEqual((d["state"], d["outcome"], d["reason"]), ("converged", "defer", why),
+                                     (reviews, value, paused))
+
     def test_the_act_ceiling_stops_acts_and_nothing_else(self):
         # A Run is bounded by the Run ceiling. A Hold is an act that stops work: counted, and never refused.
         over = LIMITS["max_acts_per_item"] + 1

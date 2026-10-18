@@ -2002,6 +2002,11 @@ MUTANTS = ISSUE + [
      *moved_after("kernel/brakes.py",
                   '    if readable and acts >= limits["max_acts_per_item"]:\n'
                   '        return _decision(facts, t.HELD, "act_ceiling", [], t.HOLD)\n', "        return stopped\n")),
+    ("an unreadable count of acts defers before the Pause", "kernel/brakes.py",
+     *moved_after("kernel/brakes.py",
+                  "    stopped = paused(_decision, facts, state, evidence, context)\n"
+                  "    if stopped:\n        return stopped\n",
+                  '        return _decision(facts, state, "acts_unreadable", evidence, t.DEFER)\n')),
     ("the Run ceiling holds an item that wants no Run", "kernel/decide.py",
      '    if reason == "check_unreadable":\n',
      '    if reason == "check_unreadable":\n'
