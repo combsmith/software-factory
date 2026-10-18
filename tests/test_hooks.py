@@ -527,10 +527,18 @@ class Identity(unittest.TestCase):
                         "alias g='nice git'; g push", "alias p='git push'; p", "alias g=/usr/bin/git; g push",
                         "alias g=\\\\git; g push", "builtin alias g=gh; g pr create", "alias -g G=git; G push",
                         "alias x=command; x git push", "aliases[g]=git; g push", "galiases[g]=git; g push",
-                        "bash -c 'alias g=git; g push'", 'alias g="$G"; git push', 'alias g="$(echo git)"; g push'):
+                        "bash -c 'alias g=git; g push'", 'alias g="$G"; git push', 'alias g="$(echo git)"; g push',
+                        # Its value as the shell reads it, quotes taken out, whatever the words that use it show.
+                        "alias g=g''it\ng push", "alias g=gi\\t\ng push", "alias g=git\ng pu''sh",
+                        "alias h=gh\nh p''r merge 1", "aliases[g]='nice g''it'; g pu''sh", "alias g=git; g status",
+                        # A value that cannot be split is one the hook cannot read.
+                        "alias g=\"git 'unclosed\"; git push"):
             self.assertIn("an alias whose value runs git", self.refused(command), command)
+        self.assertIn("an alias whose value runs git", self.refused("alias g=git", folder(), programs()))
+        # A commit or a push the hook cannot read is named in the words the shell runs, its quotes taken out.
+        self.assertIn("a shell reads a script", self.refused("source ./x.sh gi''t pu''sh", folder(), programs()))
         # Prose that spells the case out, and an alias that runs neither, define nothing that runs git.
-        for command in ("alias ll='ls -la'; git push", "alias g=git; g status", "echo alias g=git; git push",
+        for command in ("alias ll='ls -la'; git push", "echo alias g=git; git push",
                         'git commit -m "alias g=git, then g push, is refused"',
                         'git commit -m "aliases[g]=git is refused too"', "git commit -m aliases[g]=git",
                         "gh pr create --title x --body 'alias g=git; g push'",
@@ -551,8 +559,8 @@ class Identity(unittest.TestCase):
             self.assertEqual(self.codes(command), "", command)
 
     def test_a_write_into_gits_directory_is_refused_where_the_command_commits_or_pushes(self):
-        # Decision 0030: a redirection, or a word given to a program that is not a reader, whose path has a .git
-        # component once resolved against the directory the hook tracks through cd.
+        # Decision 0030: a redirection, or a path a program that writes is given, that names .git once resolved against
+        # the directory the hook tracks through cd, through a wildcard, a brace or a loop's variable too.
         main, linked = self.here / ".git", folder()
         (linked / "hooks").symlink_to(main / "hooks")
         for command in ("cd .git && printf '[push]\\n\\tdefault = matching\\n' >> config && cd .. && git push",
@@ -566,9 +574,31 @@ class Identity(unittest.TestCase):
                         "H=.git/hooks/pre-push; cp /tmp/x $H; git push", "sh -c 'cp /tmp/x .git/hooks/pre-push'; git push",
                         # A worktree's absolute path into the main .git, and a link into it.
                         "cp /tmp/x %s/hooks/pre-push; git push" % main,
-                        "cd %s && cp /tmp/x hooks/pre-push && cd %s && git push" % (linked, self.here)):
+                        "cd %s && cp /tmp/x hooks/pre-push && cd %s && git push" % (linked, self.here),
+                        # A writer's target, by any spelling getopt takes, and the writers that are not cp.
+                        "cp -t .git/hooks /tmp/x; git push", "cp -rt .git/hooks /tmp/x; git push",
+                        "cp --target=.git/hooks /tmp/x; git push", "xargs -I{} cp {} .git/hooks/ < f; git push",
+                        "tar -xzf /tmp/a.tgz -C .git/hooks; git push", "tar -cf .git/x.tar src; git push",
+                        "dd if=/tmp/x of=.git/hooks/post-checkout; git push", "rsync -a /tmp/x .git/hooks/; git push",
+                        "install -m 755 /tmp/x .git/hooks/post-checkout; git push", "mkdir -p .git/x; git push",
+                        "sed -i 's/a/b/' .git/description; git push", "sed -i -e 's/a/b/' .git/description; git push",
+                        "perl -pi -e 's/a/b/' .git/description; git push",
+                        # A wildcard or a brace the shell may expand to .git, and a loop's variable bound to it.
+                        "cp /tmp/x .gi?/hooks/pre-push && git push", "cp /tmp/x .gi[t]/hooks/ && git push",
+                        "cp /tmp/x .g*/hooks/ && git push", "cp /tmp/x .{git,x}/hooks/ && git push",
+                        "cd .gi? && echo x >> config; cd ..; git push",
+                        "for H in .git/hooks/pre-push; do cp /tmp/x $H; done; git push",
+                        'for H in a .git/hooks/x; do cp /tmp/x "${H}"; done; git push'):
             self.assertIn("git_directory_written", self.refused(command), command)
         for command in ("cat .git/HEAD; git push", "ls .git/hooks && git push", "grep -rn x .git/HEAD; git commit -m x",
+                        # A pattern, a reader's operand or git's own words, naming .git, write nothing into it.
+                        "find . -not -path '*/.git/*' -name x; git commit -m x",
+                        "find . -path ./.git -prune -o -print; git commit -m x", "fd -E .git x; git commit -m x",
+                        "tree -I .git; git commit -m x", "rsync -a --exclude .git src/ dst/; git push",
+                        "git commit -F .git/MERGE_MSG", "git commit --amend -F .git/COMMIT_EDITMSG",
+                        "sed -n 1p .git/HEAD && git push", "awk '{print}' .git/HEAD && git push",
+                        "stat .git/HEAD; du -sh .git; git push", "cp .git/HEAD /tmp/x; git push",
+                        "cp /tmp/x */hooks/ && git push", "for H in a b; do cp /tmp/x $H; done; git push",
                         "cd .git && cat HEAD && cd .. && git push", "cd .git && cd .. && git push",
                         "echo x >> .gitignore && git commit -m x", "cp /tmp/x .github/x; git push",
                         'git push > "$TMPDIR/log" 2>&1', "echo .git/hooks/pre-push; git push",
@@ -588,10 +618,17 @@ class Identity(unittest.TestCase):
         for command in ("for f in docs/git-hooks.md tests/commit-msg.txt; do git show HEAD:$f; done",
                         "for w in git commit push; do echo $w; done", "for f in git-commit.md; do git log -- $f; done",
                         "select x in git push; do echo $x; done", 'case "$x" in git-commit) echo y;; esac',
-                        "for f in a b; do\n  for g in git-push.md; do git show HEAD:$g; done\ndone"):
+                        "for f in a b; do\n  for g in git-push.md; do git show HEAD:$g; done\ndone",
+                        # Every arm's pattern is data, on any line, with its alternatives.
+                        'case "$x" in\n git-commit) echo y;;\nesac', 'case "$x" in a) echo a;; git-commit) echo y;; esac',
+                        'case "$x" in\n a) echo a;;\n git-commit|git-push) echo y;;\n (git-merge) echo z;;\n *) :\nesac',
+                        'case "$x" in a);; git-commit) :;; esac; echo done'):
             self.assertEqual(self.codes(command, folder(), programs()), "", command)
         self.assertEqual(self.codes("for f in .git/hooks/*; do cat $f; done; git push"), "")
-        for command in ("for f in a b; do git commit -m x; done", "for x in $(git commit -m y); do :; done"):
+        for command in ("for f in a b; do git commit -m x; done", "for x in $(git commit -m y); do :; done",
+                        # What an arm runs, and a substitution in a case's word or pattern, are read.
+                        'case "$x" in a) git commit -m x;; esac', 'case "$x" in\n a) :;;\n b) git commit -m x\nesac',
+                        'case "$(git commit -m y)" in a) :;; esac', 'case x in "$(git commit -m y)") :;; esac'):
             self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
         self.assertIn("git_directory_written", self.refused("for f in a; do cp x .git/hooks/pre-push; done; git push"))
 

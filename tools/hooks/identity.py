@@ -28,10 +28,10 @@ protected.py calls too: a mirror, every remote's remote.*.push and push.default,
 that names no remote goes; a push setting given in the command is refused (decision 0024). So is a
 git the command may redefine, in a command that commits or pushes: a function or an alias for git,
 gh or what runs them, PATH set, git named by a path to another file, or git run under a prefix or a
-wrapper not on shell.AS_IS (decision 0024); an alias whose value runs git or gh; and, in such a
-command, a write into git's directory, by a redirection or a word given to a program that is not a
-reader. git given no command by xargs or parallel is refused always. A loop's word list is data
-(decision 0030). This guards against mistakes; the Stop check and the rulesets are the boundary. Run as `python3 -I` on this file; see
+wrapper not on shell.AS_IS (decision 0024); and, in such a command, a write into git's directory,
+by a redirection or a path a program of PATH_WRITERS is given. An alias whose value runs git or gh,
+and git given no command by xargs or parallel, are refused always. A loop's word list and a case's
+patterns are data (decision 0030). This guards against mistakes; the Stop check and the rulesets are the boundary. Run as `python3 -I` on this file; see
 after_edit.py.
 """
 from __future__ import annotations
@@ -179,6 +179,44 @@ DATA_HEADS = {"for", "select", "case"}
 # git's directory, as a path's component: a write into it, in a command that commits or pushes, may change what git
 # runs or where a push goes (decision 0030).
 GIT_DIRECTORY = ".git"
+# The programs that write the paths they are given, as (which operands they write, their options that take the next
+# word, their options whose value is a path they write). "last" writes the last operand, the destination; "all" every
+# operand; "first" the first; "none" only an option's value. Any other program's words are not writes into git's
+# directory: find's -path, fd's -E and tree's -I are patterns, and a reader's operand, git's own -F among them, is read.
+TARGET = {"-t", "--target-directory"}
+PATH_WRITERS = {
+    "cp": ("last", {"-S", "--suffix"}, TARGET), "mv": ("last", {"-S", "--suffix"}, TARGET),
+    "ln": ("last", {"-S", "--suffix"}, TARGET), "ditto": ("last", set(), set()),
+    "install": ("last", {"-m", "--mode", "-o", "--owner", "-g", "--group", "-S", "--suffix"}, TARGET),
+    "rsync": ("last", {"-e", "--rsh", "--exclude", "--include", "--filter", "-f", "--exclude-from", "--include-from",
+                       "--files-from", "--rsync-path", "--chmod", "--chown", "-M", "--remote-option", "--password-file",
+                       "--compare-dest", "--copy-dest", "--link-dest"},
+              {"--backup-dir", "--partial-dir", "-T", "--temp-dir", "--log-file", "--write-batch", "--only-write-batch"}),
+    "scp": ("last", {"-c", "-F", "-i", "-J", "-l", "-o", "-P", "-S", "-D", "-X"}, set()),
+    "tee": ("all", set(), set()), "touch": ("all", {"-d", "--date", "-r", "--reference", "-t"}, set()),
+    "mkdir": ("all", {"-m", "--mode"}, set()), "chmod": ("all", {"--reference"}, set()),
+    "chown": ("all", {"--reference", "--from"}, set()), "chgrp": ("all", {"--reference", "--from"}, set()),
+    "truncate": ("all", {"-s", "--size", "-r", "--reference"}, set()),
+    "tar": ("none", {"-T", "--files-from", "-X", "--exclude-from", "--exclude", "-b", "--blocking-factor", "-H",
+                     "--format", "-I", "--use-compress-program", "-N", "--newer"},
+            {"-C", "--directory", "-f", "--file"}),
+    "curl": ("none", {"-d", "--data", "-H", "--header", "-u", "--user", "-X", "--request", "-F", "--form", "-A",
+                      "--user-agent", "-e", "--referer", "-b", "--cookie", "-K", "--config", "-m", "--max-time"},
+             {"-o", "--output", "--output-dir", "-D", "--dump-header", "-c", "--cookie-jar", "--trace", "--trace-ascii",
+              "--stderr"}),
+    "wget": ("none", {"-e", "--execute", "-U", "--user-agent", "--header"},
+             {"-O", "--output-document", "-P", "--directory-prefix", "-o", "--output-file", "-a", "--append-output"}),
+    "unzip": ("none", {"-x"}, {"-d"}),
+    "patch": ("first", {"-p", "--strip", "-i", "--input", "-F", "--fuzz", "-r", "--reject-file", "-B", "--prefix",
+                        "-D", "--ifdef", "-z", "--suffix", "-V"}, {"-o", "--output", "-d", "--directory"}),
+}
+# Programs that write their operands only in place (-i): their options that take the next word, and those whose value
+# is the script, so that the first operand is a file and not the script.
+IN_PLACE = {"sed": ({"-e", "--expression", "-f", "--file", "-l", "--line-length"}, {"-e", "--expression", "-f", "--file"}),
+            "perl": ({"-e", "-E", "-I", "-l", "-0"}, {"-e", "-E"})}
+# A brace that expands, {a,b} or {1..9}: the hook reads it as a wildcard, as protected.py does.
+BRACE = re.compile(r"\{[^{}]*(?:,|\.\.)[^{}]*\}")
+LOOP_MOST = 256     # paths a loop variable is read as, at most
 WILDCARD = re.compile(r"[*?\[]")
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 IDENT = re.compile(r"^(.*) <(.*)> \d+ [+-]\d{4}$")
@@ -265,10 +303,15 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
     values, present, branches = shell.environment(text)     # what the command leaves in the environment, fail-closed
     calls, always, inline = [], [], []
     blind = _redefined(text)        # a git the command may redefine is one the hook cannot read (decision 0024)
+    if shell.aliased(_quoted(shell.without_heredocs(text)), REDEFINABLE):
+        always.append(("command_unreadable", "the command defines an alias whose value runs git, gh or what runs them "
+                                             "(decision 0030)"))
+    loops = _loops(commands, values)
     for raw, redirections in commands:
         # A word is read with what the command set unconditionally put in for each variable it holds.
         words, targets = [expand(w, values) for w in raw], [expand(t, values) for _, t in redirections]
-        inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], here, "a redirection")
+        inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], here, "a redirection",
+                                 loops)
         inline += [("identity_set_in_command", "%s is set in the command; the hook reads only what is configured"
                     % w.split("=")[0]) for w in words if ENVIRONMENT.match(w)]
         inline += [("identity_set_in_command", "the command touches git's configuration (%s); change it in a command "
@@ -284,8 +327,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
         program = os.path.basename(words[start])
         if at is None and program in DATA_HEADS:
             continue        # a loop's word list is data: what its body runs is a command of its own
-        if program not in TEXT_ONLY:    # a word with a space in it is prose, never a path
-            inline += _git_directory([w for w in words[start + 1:] if not re.search(r"\s", w)], here, program)
+        inline += _git_directory(_written(program, words[start + 1:]), here, program, loops)
         local = _local(words, at)
         named = present | local     # the environment git runs with: persisted, and set for it alone
         if local & {"PATH", "path"}:
@@ -354,7 +396,8 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
         else:
             kind = _gh_kind(words)
         calls.append((tool, where, words, kind))
-    if blind and (WRITE_TEXT.search(text) or any(kind for _, _, _, kind in calls)):
+    said = " ".join(w for words, _ in commands for w in words)     # as the shell runs it: g''it push is git push
+    if blind and (WRITE_TEXT.search(text) or WRITE_TEXT.search(said) or any(kind for _, _, _, kind in calls)):
         always += [("command_unreadable", "%s, in a command that names a commit or push" % why)
                    for why in dict.fromkeys(blind)]
     return calls, always, inline
@@ -367,8 +410,6 @@ def _redefined(text: str) -> list:
     reasons, quoted = [], _quoted(shell.without_heredocs(text))
     if shell.defined(quoted) & REDEFINABLE:
         reasons.append("the command defines a function or an alias for git, gh or what runs them")
-    if shell.aliased(quoted, REDEFINABLE):
-        reasons.append("the command defines an alias whose value runs git, gh or what runs them")
     if shell.sets("PATH", quoted) or shell.sets("path", quoted):
         reasons.append("the command sets PATH, so git or gh may be another program")
     if "*" in shell.touched(text):
@@ -376,26 +417,136 @@ def _redefined(text: str) -> list:
     return reasons
 
 
-def _git_directory(paths: list, here, given: str) -> list:
+def _git_directory(paths: list, here, given: str, loops: dict) -> list:
     """Why a command that commits or pushes is refused for writing into git's directory (decision 0030): each of
-    `paths` that has a `.git` component, as it is written or once resolved against `here`, the directory the hook
-    tracks through cd: `..` and links taken out, in any case. An option's value after `=` is read too. A word is a path
-    from its start or a `/` only, so "a write to .git/hooks" is none; a word the hook cannot expand is left alone."""
+    `paths`, the places a redirection or a program of PATH_WRITERS writes, that has a component naming `.git`, as it is
+    written or once resolved against `here`, the directory the hook tracks through cd: `..` and links taken out, in any
+    case, a wildcard or a brace that may expand to it, and a loop's variable read as each word the loop runs over. A
+    path the hook cannot expand is left alone, so that `git push > "$TMPDIR/log"` passes."""
     found = []
-    for path in paths:
-        path = path.partition("=")[2] if path.startswith("-") else path
-        if not path or _expands(path):
-            continue
-        path = os.path.expanduser(path)
-        seen = [os.path.normpath(path)]
-        if here is not None or os.path.isabs(path):
-            joined = os.path.normpath(os.path.join(str(here or ""), path))
-            seen += [joined, os.path.realpath(joined)]
-        if any(part.casefold() == GIT_DIRECTORY for each in seen for part in each.split(os.sep)):
-            found.append(("git_directory_written", "%s names a path in git's directory, which may change what git runs "
-                                                   "or where a push goes; make the write in a command of its own"
-                          % given))
+    for written in paths:
+        for path in _bound(written, loops):
+            if not path or _expands(path):
+                continue
+            path = os.path.expanduser(path)
+            seen = [os.path.normpath(path)]
+            if here is not None or os.path.isabs(path):
+                joined = os.path.normpath(os.path.join(str(here or ""), path))
+                seen += [joined, os.path.realpath(joined)]
+            if any(_names_git(part) for each in seen for part in each.split(os.sep)):
+                found.append(("git_directory_written", "%s writes a path in git's directory, which may change what git "
+                                                       "runs or where a push goes; make the write in a command of its own"
+                              % given))
+                break
     return found
+
+
+def _names_git(part: str) -> bool:
+    """Whether one component of a path may name git's directory, in any case: `.git`, or a wildcard or a brace the
+    shell may expand to it (.gi?, .g*, .gi[t], .{git,x}). A wildcard matches a leading dot only when the dot is
+    written, as the shell's does."""
+    part = part.casefold()
+    if part == GIT_DIRECTORY:
+        return True
+    if not re.search(r"[*?\[{]", part) or not part.startswith((".", "{")):
+        return False
+    while BRACE.search(part):
+        part = BRACE.sub("*", part)
+    pattern, i = [], 0
+    while i < len(part):
+        c, end = part[i], part.find("]", i + 2) if part[i] == "[" else -1
+        if c in "*?":
+            pattern.append(".*" if c == "*" else ".")
+        elif end > 0:
+            body = part[i + 1:end]
+            negated = body[:1] in ("!", "^")
+            pattern.append("[%s%s]" % ("^" if negated else "", re.escape(body[1:] if negated else body)))
+            i = end
+        else:
+            pattern.append(re.escape(c))
+        i += 1
+    return re.fullmatch("".join(pattern), GIT_DIRECTORY, re.S) is not None
+
+
+def _bound(path: str, loops: dict) -> list:
+    """`path` with each loop variable it holds put in, as each word its loop runs over: a loop's word list is data to
+    read as commands, but its words are what the variable holds in the body. At most LOOP_MOST paths."""
+    out = [path]
+    for name, words in loops.items():
+        held, bound = re.compile(r"\$(?:\{%s\}|%s(?!\w))" % (re.escape(name), re.escape(name))), []
+        for each in out:
+            bound += [held.sub(lambda _, w=word: w, each) for word in words] if held.search(each) else [each]
+        out = bound[:LOOP_MOST]
+    return out
+
+
+def _loops(commands: list, values: dict) -> dict:
+    """{name: the words a for or select loop over it runs over, the variables the command set put in}. A loop with no
+    `in` runs over the positional parameters, which the hook cannot read."""
+    loops = {}
+    for words, _ in commands:
+        rest = words
+        while rest and rest[0] in shell.NEUTRAL | shell.CLOSERS | {"if", "while", "until", "{"}:
+            rest = rest[1:]
+        if rest[:1] in (["for"], ["select"]) and len(rest) > 1:
+            listed = rest[3:] if rest[2:3] == ["in"] else ["$@"]
+            loops.setdefault(rest[1], []).extend(expand(w, values) for w in listed)
+    return loops
+
+
+def _written(program: str, args: list) -> list:
+    """The paths `program`, given `args`, writes: by PATH_WRITERS, an option of its that names one (`-t DIR`,
+    `--target-directory=DIR`, `-fFILE`, a bundle ending in one), and dd's of=; by IN_PLACE, sed's and perl's files when
+    -i is given. Any other program writes none of its words."""
+    if program == "dd":
+        return [w[3:] for w in args if w.startswith("of=")]
+    if program in IN_PLACE:
+        valued, scripts = IN_PLACE[program]
+        operands, _, given = _options(args, valued, set())
+        if not any(o == "-i" or shell.spelt(o, "--in-place") for o in given):
+            return []
+        return operands if set(given) & scripts else operands[1:]
+    if program not in PATH_WRITERS:
+        return []
+    which, valued, destinations = PATH_WRITERS[program]
+    operands, named, _ = _options(args, valued, destinations)
+    return named + {"last": operands[-1:], "all": operands, "first": operands[:1], "none": []}[which]
+
+
+def _options(args: list, valued: set, destinations: set) -> tuple:
+    """(operands, the values of the options of `destinations`, every option given) of a program's words, as getopt
+    reads them: a long option by any prefix, its value attached by `=` or the next word; a bundle of short ones, which
+    ends at its first that takes a value, what follows it in the bundle, or the next word, being that value; `--`."""
+    operands, named, given, i, takes = [], [], [], 0, valued | destinations
+    while i < len(args):
+        word = args[i]
+        if word == "--":
+            operands += args[i + 1:]
+            break
+        if word.startswith("--"):
+            option, attached, value = word.partition("=")
+            option = next((o for o in sorted(takes) if o.startswith("--") and shell.spelt(option, o)), option)
+            given.append(option)
+            if option in takes and not attached:
+                i += 1
+                value = args[i] if i < len(args) else ""
+            if option in destinations:
+                named.append(value)
+        elif word.startswith("-") and word != "-":
+            for at, letter in enumerate(word[1:], 1):
+                given.append("-" + letter)
+                if "-" + letter in takes:
+                    value = word[at + 1:]
+                    if not value:
+                        i += 1
+                        value = args[i] if i < len(args) else ""
+                    if "-" + letter in destinations:
+                        named.append(value)
+                    break
+        else:
+            operands.append(word)
+        i += 1
+    return operands, named, given
 
 
 def _given_c(args: list) -> bool:

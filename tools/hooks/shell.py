@@ -103,24 +103,47 @@ def commands(text: str, spend=None, texts: list = None) -> list:
     lex = shlex.shlex(without_heredocs(text).replace("\\\n", " "), posix=True, punctuation_chars=PUNCTUATION)
     lex.whitespace, lex.whitespace_split, lex.commenters = " \t\r", True, ""
     found, words, targets, operator = [], [], [], None
+    # A case's patterns are data, in every arm: from `in`, and from each ;; or ;&, to the ) that ends the pattern.
+    patterns, arm, cases, in_pattern = [], [], 0, False
     for token in lex:
-        if token and all(c in PUNCTUATION for c in token):
+        punctuation = bool(token) and all(c in PUNCTUATION for c in token)
+        if in_pattern:
+            if punctuation and ")" in token:
+                in_pattern, arm = ";;" in token or ";&" in token, []      # `);;` ends an arm with no body
+            elif not punctuation and token == "esac" and not arm:
+                cases, in_pattern = cases - 1, False
+            elif not punctuation:
+                arm.append(token)
+                patterns.append(token)
+            continue
+        if punctuation:
             if "<" in token or ">" in token:
                 if words and words[-1].isdigit():
                     words.pop()     # the 2 of 2>&1
                 operator = (operator or "") + token     # the next word is where it goes, not an argument
-            elif words or targets:
+                continue
+            if words or targets:
                 found.append((words, targets))
                 words, targets = [], []
+            in_pattern = cases > 0 and (";;" in token or ";&" in token)
             continue
         if operator is not None:
             targets.append((operator, token))
             operator = None
             continue
+        if token == "esac" and cases and not words:
+            cases -= 1
+            continue
         words.append(token)
+        if token == "in" and words[-3:-2] == ["case"] and set(words[:-3]) <= OPENERS | NEUTRAL:
+            found.append((words, targets))      # case WORD in: what follows, to a ), is a pattern
+            words, targets, cases, in_pattern = [], [], cases + 1, True
     if words or targets:
         found.append((words, targets))
     out = []
+    for word in patterns:       # a pattern runs nothing, but a substitution in it does
+        for script in _substituted(word):
+            out += commands(script, spend, texts)
     for words, targets in found:
         out.append((words, targets))
         out += _inner(words, spend, texts)
