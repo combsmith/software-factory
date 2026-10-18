@@ -2512,7 +2512,7 @@ class Mutants(unittest.TestCase):
 
     def test_a_test_that_fails_only_in_a_copy_kills_nothing(self):
         # The checkout has a .git, and a copy has none: the test fails on every mutant and passes where the tests were
-        # first run, so only a copy left unbroken shows it is not the mutant's.
+        # first run, so only the unbroken code in the same copy shows it is not the mutant's.
         root = suite_of("    def test_x(self):\n        self.assertTrue(os.path.exists('.git'))\n",
                         {"k.py": "rule\n", ".git/HEAD": "ref: refs/heads/main\n"})
         with contextlib.redirect_stdout(io.StringIO()) as said:
@@ -2520,6 +2520,41 @@ class Mutants(unittest.TestCase):
         self.assertEqual((code, said.getvalue().splitlines()),
                          (1, ["FLAKY     anything (tests.test_x.T.test_x failed on the unbroken code too%s)" % MEND,
                               "0 of 1 mutants killed"]))
+
+    def test_a_mutant_leaves_no_trace_in_the_copy_the_next_one_is_lent(self):
+        # However its runs end, a crash or a hang among them, a mutant's file is put back byte for byte, and the next
+        # mutant is lent the same copy: one is made for each worker, not one for each mutant.
+        root = tree({"k.py": "rule\n"})
+        seen = []
+
+        def run(work, first=(), only=None):
+            said = (work / "k.py").read_bytes()
+            seen.append((work, said))
+            if said == b"crashes\n":
+                raise OSError("the runner died")
+            if said == b"hangs\n":
+                return None, ""
+            return (0, "OK\n") if said == b"rule\n" else (1, FAILS_A_TEST)
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            code = mutants.main(mutate("crashes", "hangs", "breaks", "breaks too"), root, run, 1)
+        self.assertEqual((code, said.getvalue().splitlines()), (1, [
+            "ERROR     crashes (the run failed with OSError: the runner died%s)" % AGAIN,
+            "ERROR     hangs (the run took longer than %d s%s)" % (mutants.TIMEOUT, AGAIN),
+            "killed    breaks", "killed    breaks too", "2 of 4 mutants killed"]))
+        self.assertEqual(len({work for work, _ in seen} - {root}), 1, "one copy, lent to each mutant in turn")
+        self.assertEqual([text for work, text in seen if work != root],
+                         [b"crashes\n", b"hangs\n", b"breaks\n", b"breaks\n", b"rule\n", b"breaks too\n", b"breaks too\n",
+                          b"rule\n"], "each mutant found the file as the tree has it, and its unbroken side too")
+        # A copy left changed is an ERROR for the mutant it is lent to, and is never lent again.
+        trees = mutants.Trees(root, tempfile.mkdtemp(dir=SCRATCH.name))
+        with trees.lent() as left:
+            (left / "k.py").write_text("rule\nleft\n")
+        outcome, why = mutants.guarded(mutate("next")[0], root, run, trees)
+        self.assertEqual(outcome, "ERROR")
+        self.assertIn("k.py in this copy is not the tree's", why)
+        self.assertEqual(mutants.guarded(mutate("next")[0], root, run, trees), ("killed", ""))
+        self.assertNotEqual(seen[-1][0], left, "a fresh copy was made in its place")
+        self.assertEqual(min(os.cpu_count() or 1, mutants.WORKERS), min(os.cpu_count() or 1, 4))
 
     def test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check(self):
         code, lines, calls = self.check({"x": (0, 1, FAILS_A_TEST), "x alone": PASSES, "y": (0, 1, FAILS_A_TEST)},

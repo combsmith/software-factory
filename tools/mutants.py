@@ -6,6 +6,7 @@ is a rule nothing is checking. Run with `python3 -m tools.mutants`.
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import os
 import pathlib
 import re
@@ -68,7 +69,8 @@ UNBROKEN_TESTS = (RUNNER + "test_a_test_that_fails_on_the_unbroken_code_too_kill
 FLAKY_TESTS = (RUNNER + "test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check",)
 LINE_TESTS = (RUNNER + "test_the_failing_test_is_read_from_the_line_each_python_prints",)
 CLOCK_TESTS = (RUNNER + "test_every_test_timed_by_the_wall_clock_is_marked_and_skipped_when_mutating",)
-COPY_TESTS = (RUNNER + "test_a_test_that_fails_only_in_a_copy_kills_nothing",)
+KILL_TESTS = (RUNNER + "test_a_failure_the_mutant_causes_kills_it",)
+TRACE_TESTS = (RUNNER + "test_a_mutant_leaves_no_trace_in_the_copy_the_next_one_is_lent",)
 NAMED_TESTS = (RUNNER + "test_the_tests_a_mutant_names_run_first_and_the_whole_suite_after_them",)
 
 MUTANTS = [
@@ -364,10 +366,10 @@ MUTANTS = [
     ("a failure is not run again on the mutant", "tools/mutants.py",
      "    again = verdict(*run(work," " only=test))\n", '    again = ("killed", "")\n', UNRELATED_TESTS + FLAKY_TESTS),
     ("a failure is not run again on the unbroken code", "tools/mutants.py",
-     "    before = verdict(*run(unbroken," " only=test))\n", '    before = ("SURVIVED", "")\n', UNBROKEN_TESTS),
+     "    before = verdict(*run(work," " only=test))\n", '    before = ("SURVIVED", "")\n', UNBROKEN_TESTS),
     ("an unconfirmed failure is taken as a kill", "tools/mutants.py",
-     "            if outcome != UNCONFIRMED:\n" "                return outcome, why\n",
-     '            return ("killed", "") if outcome == UNCONFIRMED else (outcome, why)\n',
+     "                if outcome != UNCONFIRMED:\n" "                    return outcome, why\n",
+     '                return ("killed", "") if outcome == UNCONFIRMED else (outcome, why)\n',
      UNRELATED_TESTS + UNBROKEN_TESTS),
     ("an unconfirmed failure is FLAKY with no second run", "tools/mutants.py",
      "        for _ in range" "(2):\n", "        for _ in range(1):\n", UNRELATED_TESTS),
@@ -383,8 +385,15 @@ MUTANTS = [
      'r"^={70}' '\\n(?:FAIL|ERROR)', 'r"^(?:FAIL|ERROR)', LINE_TESTS),
     ("two tests that failed are read as one", "tools/mutants.py",
      "found.pop() if len(found)" " == 1 else None", "found.pop() if found else None", LINE_TESTS),
-    ("the unbroken code is run where it was checked out, not in a copy", "tools/mutants.py",
-     "confirm(output, work," " unbroken, run)", "confirm(output, work, root, run)", COPY_TESTS),
+    ("the unbroken side is run on the mutant", "tools/mutants.py",
+     "    unbroken()\n" "    before = ", "    before = ", KILL_TESTS),
+    ("a mutant's file is not put back", "tools/mutants.py",
+     "        finally:\n" "            unbroken()\n", "        finally:\n            pass\n", TRACE_TESTS),
+    ("a copy left changed is lent again", "tools/mutants.py",
+     "        if original != (root / rel)" ".read_bytes():\n", "        if False:\n", TRACE_TESTS),
+    ("a copy is made for every mutant", "tools/mutants.py",
+     "            work = self.free" ".pop()      # one step", "            work = self.free[:0].pop()      # one step",
+     TRACE_TESTS),
     ("a test named to run alone runs with every other", "tools/mutants.py",
      "    if" " only:\n", "    if False:\n", NAMED_TESTS),
     ("a confirmation that hangs or crashes is read as a disagreement", "tools/mutants.py",
@@ -1276,6 +1285,7 @@ MUTANTS = [
 ]
 
 
+WORKERS = 4        # runs at once, at most, unless told: each is a whole run of the suite, in a copy of its own
 TIMEOUT = 600      # seconds for one run of the suite. A run that takes longer is an ERROR, never a kill
 # What unittest prints last when a test failed or raised. Without it, the run broke some other way.
 FAILED = re.compile(r"^FAILED \((?:failures|errors)=", re.M)
@@ -1348,18 +1358,21 @@ def failed_test(output: str):
     return found.pop() if len(found) == 1 else None
 
 
-def confirm(output: str, work: pathlib.Path, unbroken: pathlib.Path, run) -> tuple:
+def confirm(output: str, work: pathlib.Path, run, broken, unbroken) -> tuple:
     """Is the failure in `output` the mutant's? ("killed", ""), (UNCONFIRMED, why) or ("ERROR", why).
 
-    The test that failed runs alone twice more: on the mutant in `work`, where it must fail again, and on the unbroken
-    code in `unbroken`, a copy made as `work` was, where it must pass. Only both tell a failure the mutant causes from
-    one already broken, or broken only in a copy, and from one caused by load.
+    The test that failed runs alone twice more in `work`: on the mutant, where it must fail again, and, once `unbroken`
+    has put the file back, on the unbroken code, where it must pass; `broken` then breaks it again. Only both tell a
+    failure the mutant causes from one already broken and from one caused by load, and both are in the same copy, so
+    a test that fails in any copy, with no .git or under the system's temporary directory, fails on both.
     """
     test = failed_test(output)
     if test is None:
         return "ERROR", "the one test that failed cannot be read from the output%s" % AGAIN
     again = verdict(*run(work, only=test))
-    before = verdict(*run(unbroken, only=test))
+    unbroken()
+    before = verdict(*run(work, only=test))
+    broken()
     for outcome, why in (again, before):
         if outcome == "ERROR":
             return outcome, why
@@ -1370,41 +1383,98 @@ def confirm(output: str, work: pathlib.Path, unbroken: pathlib.Path, run) -> tup
     return UNCONFIRMED, "%s passed when run again on the mutant%s" % (test, MEND)
 
 
-def attempt(mutant: tuple, root: pathlib.Path, run) -> tuple:
-    """Break one rule in a fresh copy of `root` and run the tests there: (outcome, why).
+class Broken(RuntimeError):
+    """A worker's copy no longer holds what the tree does: it is never lent again."""
 
-    A failure kills the mutant only once `confirm` shows it is the mutant's, against a second copy left unbroken: a
-    test that fails in any copy, with no .git or under the system's temporary directory, then fails there too. One
-    that is not runs the suite once more on the mutant: a pass is SURVIVED, and a second failure that is not the
-    mutant's is FLAKY.
+
+class Trees:
+    """The copies of `root` the workers run in: one made for each worker, and lent to one mutant at a time.
+
+    A copy is made once, not for every mutant: hundreds of copies wrote hundreds of gigabytes in an afternoon.
     """
+
+    def __init__(self, root: pathlib.Path, where: str):
+        self.root, self.where, self.free = root, where, []
+
+    @contextlib.contextmanager
+    def lent(self):
+        try:
+            work = self.free.pop()      # one step, so no two workers are lent one copy
+        except IndexError:
+            work = pathlib.Path(tempfile.mkdtemp(dir=self.where)) / "repo"
+            walk.copy(self.root, work)
+        kept = True
+        try:
+            yield work
+        except Broken:
+            kept = False
+            raise
+        finally:
+            if kept:
+                self.free.append(work)
+
+
+# Each mutant's text is given its own time, past the file's own, so that Python never takes the bytecode it compiled
+# from one mutant, or from the unbroken file, for another of the same size.
+STAMPS = iter(range(1, 2 ** 31))     # next() on it is one step, whichever worker asks
+
+
+def attempt(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tuple:
+    """Break one rule in a worker's copy of `root` and run the tests there: (outcome, why).
+
+    A failure kills the mutant only once `confirm` shows it is the mutant's. One that is not runs the suite once more
+    on the mutant: a pass is SURVIVED, and a second failure that is not the mutant's is FLAKY. However the runs end,
+    the file's own bytes are written back and read again before the copy is lent to another mutant.
+    """
+    if trees is None:
+        with tempfile.TemporaryDirectory() as where:
+            return attempt(mutant, root, run, Trees(root, where))
     name, rel, old, new, *first = mutant
-    with tempfile.TemporaryDirectory() as tmp:
-        work = pathlib.Path(tmp) / "repo"
-        walk.copy(root, work)
+    with trees.lent() as work:
         target = work / rel
-        text = target.read_text()
+        original = target.read_bytes()
+        if original != (root / rel).read_bytes():
+            raise Broken("%s in this copy is not the tree's: a mutant before this one left it changed" % rel)
+        text = original.decode()
         if text.count(old) != 1:
             return "STALE", "the code it mutates has changed"
-        target.write_text(text.replace(old, new))
-        unbroken = pathlib.Path(tmp) / "unbroken"
-        walk.copy(root, unbroken)
-        named = {"first": first[0]} if first else {}
-        for _ in range(2):
-            status, output = run(work, **named)
-            outcome, why = verdict(status, output)
-            if outcome != "killed":
-                return outcome, why
-            outcome, why = confirm(output, work, unbroken, run)
-            if outcome != UNCONFIRMED:
-                return outcome, why
-        return "FLAKY", why
+        mutated, stamp = text.replace(old, new).encode(), os.stat(str(target)).st_mtime_ns
+
+        def put(data: bytes, at: int) -> None:
+            try:
+                target.write_bytes(data)
+                os.utime(str(target), ns=(at, at))
+                same = target.read_bytes() == data
+            except OSError as err:
+                raise Broken("%s could not be written in this copy: %s" % (rel, err)) from None
+            if not same:
+                raise Broken("%s in this copy does not read back as written" % rel)
+
+        def broken() -> None:
+            put(mutated, stamp + next(STAMPS) * 10 ** 9)
+
+        def unbroken() -> None:
+            put(original, stamp)
+        broken()
+        try:
+            named = {"first": first[0]} if first else {}
+            for _ in range(2):
+                status, output = run(work, **named)
+                outcome, why = verdict(status, output)
+                if outcome != "killed":
+                    return outcome, why
+                outcome, why = confirm(output, work, run, broken, unbroken)
+                if outcome != UNCONFIRMED:
+                    return outcome, why
+            return "FLAKY", why
+        finally:
+            unbroken()
 
 
-def guarded(mutant: tuple, root: pathlib.Path, run) -> tuple:
+def guarded(mutant: tuple, root: pathlib.Path, run, trees: Trees = None) -> tuple:
     """`attempt`, with anything it raises made an ERROR for this mutant, so that the others still report."""
     try:
-        return attempt(mutant, root, run)
+        return attempt(mutant, root, run, trees)
     except Exception as err:    # a failed copy, read or run; never a kill
         return "ERROR", "the run failed with %s: %s%s" % (type(err).__name__, err, AGAIN)
 
@@ -1445,9 +1515,12 @@ def main(mutants: list = None, root: pathlib.Path = ROOT, run=suite, workers: in
               % (" (%s)" % why if why else ""))
         return 1
     killed = 0
-    # One run to a CPU. map() hands the results back in the order of `mutants`, however the runs finish.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers or os.cpu_count() or 1) as pool:
-        results = pool.map(lambda mutant: guarded(mutant, root, run), mutants)
+    # One run to a CPU, and no more than WORKERS: each holds a copy of the tree and runs the suite in it. map() hands
+    # the results back in the order of `mutants`, however the runs finish.
+    with tempfile.TemporaryDirectory() as made, \
+            concurrent.futures.ThreadPoolExecutor(max_workers=workers or min(os.cpu_count() or 1, WORKERS)) as pool:
+        trees = Trees(root, made)
+        results = pool.map(lambda mutant: guarded(mutant, root, run, trees), mutants)
         for mutant, (outcome, why) in zip(mutants, results):
             print("%-9s %s%s" % (outcome, mutant[0], " (%s)" % why if why else ""), flush=True)
             killed += outcome == "killed"

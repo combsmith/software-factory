@@ -9,9 +9,10 @@ Maintainer may overturn it in review.
 A run of the suite on a mutant stops at its first failure, as before. That failure kills the mutant
 only once it is confirmed: `tools/mutants.py` reads the one test that failed from unittest's output,
 runs that test alone on the mutant, where it must fail again, and alone on the unbroken code, where
-it must pass. The unbroken code is a second copy, made as the mutant's is, with no `.git` and under
-the system's temporary directory: a test that fails in any copy and passes in the checkout fails
-there too, so a change cannot make its own mutants look killed that way. If either run disagrees, the failure is unconfirmed, and the suite runs once more on
+it must pass. The unbroken code is the same copy with the file's own bytes written back, with no
+`.git` and under the system's temporary directory as the mutant is: a test that fails in any copy
+and passes in the checkout fails there too, so a change cannot make its own mutants look killed
+that way. If either run disagrees, the failure is unconfirmed, and the suite runs once more on
 the mutant: a pass is `SURVIVED`, a confirmed failure is `killed`, and a second unconfirmed failure
 is `FLAKY`, which names the test and whether it passed again on the mutant or failed on the unbroken
 code too. `FLAKY` is not counted as killed, so it fails the run as an `ERROR` does. The tests a
@@ -31,6 +32,13 @@ mutant names first still run first, only for speed.
   only spends a budget of nothing is not marked, since load only makes a spent budget more certain.
 
 The unbroken suite's first run stays as it is: if it fails, the check stops before any mutant.
+
+Each worker copies the tree once, and at most four run at once unless told otherwise. A mutant is
+written into the one file it breaks, with a time of its own past the file's so that no bytecode
+compiled from another is taken for it, and however its runs end the file's own bytes and time are
+written back and read again. A copy whose file does not read back, or that a mutant is lent with a
+file that is not the tree's, is an `ERROR` for that mutant and is never lent again. A copy for every
+mutant wrote hundreds of gigabytes in an afternoon and stopped the machine.
 
 ## Why
 
@@ -66,7 +74,8 @@ budgets get mutants; and a test that kills only when the whole suite runs, if on
 |---|---|
 | A failure kills a mutant once its test fails again alone on the mutant and passes alone on the unbroken code | `tests/test_tools.py::test_a_failure_the_mutant_causes_kills_it` |
 | A mutant whose only failure is an unrelated test, which passes when run again, is `SURVIVED` | `tests/test_tools.py::test_a_mutant_whose_only_failure_is_unrelated_survives` |
-| A test that fails only in a copy, with no `.git`, kills nothing: the unbroken code it passes on is a copy too | `tests/test_tools.py::test_a_test_that_fails_only_in_a_copy_kills_nothing` |
+| A test that fails only in a copy, with no `.git`, kills nothing: the unbroken code it passes on is the same copy | `tests/test_tools.py::test_a_test_that_fails_only_in_a_copy_kills_nothing` |
+| A worker's copy is made once and lent to each mutant in turn, its file put back byte for byte after a crash or a hang; a copy left changed is an `ERROR` and is not lent again | `tests/test_tools.py::test_a_mutant_leaves_no_trace_in_the_copy_the_next_one_is_lent` |
 | A test that fails alone on the unbroken code too kills nothing | `tests/test_tools.py::test_a_test_that_fails_on_the_unbroken_code_too_kills_nothing` |
 | Two unconfirmed failures are `FLAKY`, which is not counted as killed and fails the run; a confirmation that times out is an `ERROR` | `tests/test_tools.py::test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check` |
 | The test is read from the line each Python prints under unittest's rule, a subtest's and `setUpClass`'s among them; a line not read is an `ERROR` | `tests/test_tools.py::test_the_failing_test_is_read_from_the_line_each_python_prints` |
