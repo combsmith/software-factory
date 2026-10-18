@@ -34,7 +34,8 @@ everything a trial leaves in it: its runs, logs and artifacts.
   App, a workflow's token) runs in a workflow in the canary or at the Maintainer's own terminal.
   P-13 asks the vendor's CLI, not GitHub: `tools/trial_p13_cli.sh` runs it at the pinned version,
   on a configuration directory the Maintainer logged in to the Factory's subscription, and leaves
-  only redacted answers, without the model's text, in a new directory outside the repo.
+  only redacted answers, without the model's text, in a new directory outside the repo. Its
+  fixture records `repo` as null and asks as `subscription` (decision 0034).
 - **Real credentials wait.** Nothing stores a real credential until P-3's fixture has the verdict
   `pass`, which means a secret restricted to the default branch was unreadable from a work
   branch. Until then a secret's value is a dummy. No long-lived credential is put in the canary.

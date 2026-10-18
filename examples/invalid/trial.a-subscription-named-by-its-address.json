@@ -1,0 +1,74 @@
+{
+  "schema": "trial/1",
+  "trial": "P-13",
+  "question": "Does the vendor CLI return validated structured output and usage in headless mode on the subscription credential, at a pinned version?",
+  "pass": "Yes",
+  "repo": null,
+  "ran_at": "2026-10-18T18:01:19Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the subscription the CLI is logged in to, under a configuration directory of its own",
+          "address": "account@example.com"
+        },
+        "via": "cli",
+        "call": "claude -p TASK --json-schema SCHEMA --output-format json",
+        "headers": {},
+        "body": {
+          "prompt": "Return the Result of run r_1 as the structured output.",
+          "json_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schema",
+              "run",
+              "status"
+            ],
+            "properties": {
+              "schema": {
+                "const": "result/1"
+              },
+              "run": {
+                "type": "string",
+                "pattern": "^r_[a-z0-9]+$"
+              },
+              "status": {
+                "enum": [
+                  "completed",
+                  "incomplete",
+                  "failed",
+                  "refused",
+                  "superseded"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": {
+          "type": "result",
+          "subtype": "success",
+          "is_error": false,
+          "usage": {
+            "input_tokens": 2,
+            "output_tokens": 40
+          },
+          "structured_output": {
+            "schema": "result/1",
+            "run": "r_1",
+            "status": "completed"
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].response.body.modelUsage.some-model.inputTokens"
+  ],
+  "verdict": "pass"
+}
