@@ -226,9 +226,10 @@ PATH_WRITERS = {
               (set(), {"-o", "--output", "-d", "--directory"})),
 }
 HERE = "."      # where a writer that names no output writes: the directory it stands in
-# The writers whose output option given `-` writes the standard output: to any other program, and as an operand, `-` is
-# a path like any other, which may be a link into git's directory.
-STDOUT_DASH = {"curl", "wget"}
+# The writers whose output options given `-` write the standard output, and their options that name a directory, to
+# which `-` is a path. To any other program, and as an operand, `-` is a path like any other, which may be a link into
+# git's directory.
+STDOUT_DASH = {"curl": {"--output-dir"}, "wget": {"-P", "--directory-prefix"}}
 # tar by its other names, and its modes: which of its places it writes depends on them (_tar).
 TARS = {"tar", "gtar", "bsdtar"}
 PATH_WRITERS.update({name: PATH_WRITERS["tar"] for name in TARS})
@@ -793,8 +794,9 @@ def _written(program: str, args: list) -> list:
     operands, named, given = _options(args, valued, destinations)
     if which == "last" and set(given) & TARGET:
         return named        # -t names the destination: every operand is a source
-    if program in STDOUT_DASH:
-        named = [path for path in named if path != "-"]     # curl -o - and wget -O - write the standard output
+    if program in STDOUT_DASH:      # curl -o - and wget -O - write the standard output; --output-dir - is a directory
+        directories = _options(args, (valued | destinations) - STDOUT_DASH[program], STDOUT_DASH[program])[1]
+        named = [path for path in named if path != "-"] + [path for path in directories if path == "-"]
     written = named + {"last": operands[-1:], "all": operands, "first": operands[:1], "none": []}[which]
     if stands is not None:
         needs, names = stands

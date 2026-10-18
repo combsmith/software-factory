@@ -2002,6 +2002,8 @@ MUTANTS = ISSUE + [
      "                scoped.append((here, places, stood))\n", "                pass\n", PATTERN_TESTS),
     ("- is the standard output to every writer", "tools/hooks/identity.py",
      "    return written\n", '    return [path for path in written if path != "-"]\n', STANDS_TESTS),
+    ("a directory named - is read as the standard output", "tools/hooks/identity.py",
+     ' + [path for path in directories if path == "-"]', "", STANDS_TESTS),
     ("tar -f - is read as a path", "tools/hooks/identity.py",
      '    archives = [path for path in values({"-f", "--file"}) if path != "-"]',
      '    archives = values({"-f", "--file"})', STANDS_TESTS),

