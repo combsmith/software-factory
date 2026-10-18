@@ -1,15 +1,16 @@
 # trials/
 
 What GitHub was seen to do. Each file is the fixture of one platform trial from section 6 of the
-design: what was sent to GitHub in the canary repo, combsmith/software-factory-canary, and what
-came back, with every credential removed. The fake GitHub in `sim/` is held to these
-(`sim/grounding.py`). How a trial is run is the skill `.claude/skills/run-a-platform-trial/SKILL.md`.
+design: what was sent to GitHub in the canary repo, combsmith/software-factory-canary, or of the
+org itself for a trial about the org and its Apps, and what came back, with every credential
+removed. The fake GitHub in `sim/` is held to these (`sim/grounding.py`). How a trial is run is
+the skill `.claude/skills/run-a-platform-trial/SKILL.md`.
 `python3 -m tools.check_trials` checks this folder alone, before a fixture is added to git.
 
 | Rule | Held by |
 |---|---|
 | A fixture is `<trial>.json` or `<trial>.<what>.json`, validates against `schemas/trial.schema.json`, and records the trial it is named for. Nothing else is kept here | `tests/test_tools.py::test_a_fixture_that_is_misnamed_or_invalid_is_caught` |
-| The trial ran in the canary repo | `examples/invalid/trial.run-outside-the-canary.json` |
+| The trial ran in the canary repo, or of the org `combsmith` for a trial about the org and its Apps; nowhere else | `examples/invalid/trial.run-outside-the-canary.json`, `examples/invalid/trial.neither-the-canary-nor-the-org.json` |
 | No credential: no field named for one at any depth, no string shaped like one, plainly or in base64. Delete it and list where in `removed` | `tests/test_tools.py::test_a_credential_in_a_fixture_is_caught` |
 | A header is kept only if `HEADERS` in `tools/check_trials.py` names it | `tests/test_tools.py::test_a_header_a_fixture_may_not_keep_is_caught` |
 | The examples of a fixture, counter-examples too, and this file hold no credential either | `tests/test_tools.py::test_every_example_of_a_fixture_and_the_folder_notes_are_scanned` |

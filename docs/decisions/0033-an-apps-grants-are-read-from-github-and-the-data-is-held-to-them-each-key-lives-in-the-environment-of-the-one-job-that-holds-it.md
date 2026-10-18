@@ -22,7 +22,8 @@ only the passing fixture is kept. If GitHub cannot grant what the data asks, the
 pull request, with an issue against the design. The first two reads are kept in
 `trials/P-39.grants.json` with a verdict of their own, and the third in a fixture of its own,
 P-39.reach.json, since a fixture must carry a verdict and the reach is read later, elsewhere. P-39
-passes only if both do.
+passes only if both do. Its reads are of the org and its Apps, not of a repo, so its fixtures record
+`repo` as the org, `combsmith`: the trial schema accepts the canary or the org, and nothing else.
 
 `config/apps.json` gives each App its `app_id` and a `key` of `{environment, secret}`, a name and
 never a value. `tools/check_apps.py` holds each App's permissions and levels to what P-39 recorded
@@ -54,4 +55,5 @@ runs unattended, and P-3 showed that the branch policy holds.
 | No two Apps keep their keys in one environment | `tests/test_tools.py::test_two_apps_whose_keys_share_an_environment_are_caught` |
 | A key is named by its environment and its secret, in an environment a job holds | `examples/invalid/apps.a-key-in-an-environment-no-job-holds.json` |
 | A fixture of P-39 holds no credential and no header a fixture may not keep | `tools/check_trials.py` |
+| A fixture's `repo` is the canary or the org, never another | `examples/invalid/trial.neither-the-canary-nor-the-org.json` |
 | Only the job that holds a key names its environment | waiting on `harness/` |

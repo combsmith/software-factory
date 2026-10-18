@@ -22,8 +22,9 @@ everything a trial leaves in it: its runs, logs and artifacts.
   `GH_REPO=combsmith/software-factory-canary` for every command of the trial, and name no other
   repo. P-8 needs twelve repos, P-11 the control room and the hub, P-19 a separate public repo,
   P-30 the Factory's own repo, and P-31 every repo an App is installed on: for these, stop and
-  raise it with the Maintainer before anything runs. The fixture's schema accepts the canary
-  alone, so such a trial needs that decided first.
+  raise it with the Maintainer before anything runs. The fixture's schema accepts the canary,
+  or the org `combsmith` for a trial about the org and its Apps alone, such as P-39 (decision
+  0033), so any other trial outside the canary needs that decided first.
 - **Nothing here reads the canary.** Only a document, a fixture, the fixture's example and its
   schema name it here, and so does `config/apps.json`, which declares where the Apps are
   installed and which nothing runs. `tools/check_trials.py` refuses any other file that names

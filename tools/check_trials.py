@@ -1,6 +1,7 @@
 """The fixtures of the platform trials, and the fake GitHub's grounding in them (design, sections 4.5 and 6).
 
-A fixture in `trials/` is what one trial sent to GitHub in the canary repo and what came back,
+A fixture in `trials/` is what one trial sent to GitHub in the canary repo, or of the org itself for a
+trial about the org and its Apps (decision 0033), and what came back,
 with every credential removed. It validates against `schemas/trial.schema.json`, and nothing else
 is kept there. A credential is refused here and not by the schema, which cannot express it:
 `tools/redact_trial.py` applies the same rules to a raw capture before anyone reads it.

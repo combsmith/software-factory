@@ -35,8 +35,11 @@
       "minLength": 1
     },
     "repo": {
-      "description": "Every trial runs in the canary repo.",
-      "const": "combsmith/software-factory-canary"
+      "description": "Where the trial ran: the canary repo, or the org itself for a trial about the org and its Apps, such as P-39 (decision 0033). Nothing else.",
+      "enum": [
+        "combsmith/software-factory-canary",
+        "combsmith"
+      ]
     },
     "ran_at": {
       "$ref": "#/$defs/time"
