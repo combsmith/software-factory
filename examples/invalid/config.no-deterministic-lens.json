@@ -46,5 +46,14 @@
     "max_diff_lines": 4000,
     "max_acts_per_item": 6,
     "max_path_length": 255
+  },
+  "issues": {
+    "served_from": null,
+    "left_out_labels": [],
+    "left_out_types": [],
+    "label_apps": {
+      "factory:triage": null,
+      "factory:ready": null
+    }
   }
 }

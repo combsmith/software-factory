@@ -534,11 +534,11 @@ An issue has facts of its own (§4.1, the issue Lifecycle):
 | `type`, `label_names`, `assignees` | The issue's type, every label's name, and who it is assigned to |
 | `life_started_at`, `reopened_last_by` | When it was opened, or last reopened by a person with write access; and whether its latest reopening was by such a person, by someone else, or never happened |
 | `content_id`, `content_changed_at` | A hash of the title and body, computed by the port, and when either last changed |
-| `labels` | For each control label: who added it, whether that actor is a person with write access or a declared Factory App, and when. Who last removed it, of what kind, and when |
-| `linked` | Each pull request that closes it: number, opening actor and kind, whether an outsider's is admitted, open, draft, merged or closed and when, whether its diff was empty, head branch, whether it carries a Hold, and who last changed its draft flag. For an open draft, that pull request's own facts as above |
+| `label_events` | Every `labeled` and `unlabeled` event on the timeline, as on a pull request: the label, who added or removed it (kind, name and write access), and when. The control labels are read from them alone; every other label is in `label_names` |
+| `linked` | Each pull request that closes it: number, `class` as the port gives it for a pull request, opening actor, open, draft, `merged_at`, `closed_at`, whether its diff was empty, and its own `label_events`, from which its Hold, hands-off and whether a person once admitted it are read |
 | `role_comments` | For each Factory App that has commented: the time of its latest comment |
 | `last_writer_action_at`, `last_writer_comment_at` | The last action on the issue by a person with write access, and that person's last comment |
-| `complete`, `read_at` | As for a pull request |
+| `complete`, `read_at` | As for a pull request; `complete` says whether the `timeline`, the `linked` pull requests and the `runs` were read in full |
 
 No field holds prose. Thread and comment bodies are read by the port into a separate `texts` set,
 keyed by id and labelled with a trust class. An issue's body is classed by its author alone;

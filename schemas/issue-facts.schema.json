@@ -1,0 +1,319 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Issue facts: what GitHub holds about one issue, read in one pass. No prose.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "item",
+    "state",
+    "author",
+    "author_can_write",
+    "type",
+    "label_names",
+    "assignees",
+    "life_started_at",
+    "reopened_last_by",
+    "content_id",
+    "content_changed_at",
+    "label_events",
+    "linked",
+    "role_comments",
+    "last_writer_action_at",
+    "last_writer_comment_at",
+    "complete",
+    "read_at"
+  ],
+  "properties": {
+    "schema": {
+      "const": "issue-facts/1"
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "type",
+        "number"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "pattern": "^[^/]+/[^/]+$"
+        },
+        "type": {
+          "const": "issue"
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "state": {
+      "enum": [
+        "open",
+        "closed"
+      ]
+    },
+    "author": {
+      "type": "string",
+      "minLength": 1
+    },
+    "author_can_write": {
+      "description": "Whether the actor that opened the issue has write access, read with one named credential",
+      "type": "boolean"
+    },
+    "type": {
+      "description": "The issue's type as GitHub names it, or null where it has none. The Consumer entry may leave a type out",
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "label_names": {
+      "description": "The name of every label the issue carries now, which the Consumer entry may leave out. The control labels are read from label_events alone",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "assignees": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "life_started_at": {
+      "description": "When the issue was opened, or last reopened by a person with write access: the start of its present life",
+      "$ref": "#/$defs/time"
+    },
+    "reopened_last_by": {
+      "description": "Who reopened the issue last: a person with write access, anyone else, or nobody, as it was never reopened",
+      "enum": [
+        "writer",
+        "other",
+        "never"
+      ]
+    },
+    "content_id": {
+      "description": "A hash of the issue's title and body, computed by the port. Comments are not content",
+      "$ref": "#/$defs/content_id"
+    },
+    "content_changed_at": {
+      "description": "When the title or the body last changed, or the issue was opened",
+      "$ref": "#/$defs/time"
+    },
+    "label_events": {
+      "description": "Every labeled and unlabeled event on the issue's timeline, with who added or removed the label and when, read with the timeline, so complete.timeline says whether they were read in full. The port gives them as the timeline lists them. The Kernel reads factory:hold, factory:hands-off and factory:admit as on a pull request, and factory:triage and factory:ready from their latest add, which any removal at or after it ends",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/label_event"
+      }
+    },
+    "linked": {
+      "description": "Each pull request that closes the issue, whoever opened it: the Kernel works out which are linked (I-39). complete.linked says whether every one was read",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "number",
+          "class",
+          "opener",
+          "open",
+          "draft",
+          "merged_at",
+          "closed_at",
+          "empty",
+          "label_events"
+        ],
+        "properties": {
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "class": {
+            "description": "As the port works it out for a pull request",
+            "enum": [
+              "agent",
+              "maintainer",
+              "dependency",
+              "outside"
+            ]
+          },
+          "opener": {
+            "$ref": "#/$defs/actor"
+          },
+          "open": {
+            "type": "boolean"
+          },
+          "draft": {
+            "type": "boolean"
+          },
+          "merged_at": {
+            "description": "When it merged; null unless it did",
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+          },
+          "closed_at": {
+            "description": "When it closed, merged or not; null while it is open",
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+          },
+          "empty": {
+            "description": "Whether its diff was empty",
+            "type": "boolean"
+          },
+          "label_events": {
+            "description": "The pull request's own label events, as on the issue. Its Hold, hands-off, and whether a person once admitted it, are read from them",
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/label_event"
+            }
+          }
+        }
+      }
+    },
+    "role_comments": {
+      "description": "For each Factory App that has commented, the time of its latest comment",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "by",
+          "at"
+        ],
+        "properties": {
+          "by": {
+            "type": "string",
+            "minLength": 1
+          },
+          "at": {
+            "$ref": "#/$defs/time"
+          }
+        }
+      }
+    },
+    "last_writer_action_at": {
+      "description": "The last action on the issue by a person with write access",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "last_writer_comment_at": {
+      "description": "That person's last comment",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "complete": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timeline",
+        "linked",
+        "runs"
+      ],
+      "properties": {
+        "timeline": {
+          "description": "Whether the timeline behind label_events was read in full",
+          "type": "boolean"
+        },
+        "linked": {
+          "description": "Whether every pull request that closes the issue, and each one's label events, was read",
+          "type": "boolean"
+        },
+        "runs": {
+          "description": "Whether the list of run records the pass read was whole",
+          "type": "boolean"
+        }
+      }
+    },
+    "read_at": {
+      "$ref": "#/$defs/time"
+    }
+  },
+  "$defs": {
+    "label_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "action",
+        "by",
+        "at"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "enum": [
+            "labeled",
+            "unlabeled"
+          ]
+        },
+        "by": {
+          "$ref": "#/$defs/actor"
+        },
+        "at": {
+          "$ref": "#/$defs/time"
+        }
+      }
+    },
+    "actor": {
+      "description": "Who acted, of what kind, and whether they have write access, as in a pull request's facts. A person is human with write access; nobody else is",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "name",
+        "can_write"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "human",
+            "lens",
+            "app",
+            "machine_user"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "can_write": {
+          "type": "boolean"
+        }
+      }
+    },
+    "time": {
+      "description": "UTC, to the second, each field in its range. That the day is one its month has, the Kernel checks",
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "content_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{4,64}$"
+    }
+  }
+}

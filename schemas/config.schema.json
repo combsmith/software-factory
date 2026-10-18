@@ -11,7 +11,8 @@
     "status_on_item",
     "check_conclusions",
     "acceptance_reporters",
-    "limits"
+    "limits",
+    "issues"
   ],
   "properties": {
     "approver": {
@@ -209,6 +210,70 @@
           "description": "The longest path of a workflow file a Decision's evidence shows. A longer one, or one not in the form a Lens's workflow takes, is shown as unreadable",
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "issues": {
+      "description": "Which issues the Factory serves, and whose labels count on them (design §4.1, the issue Lifecycle). Each null fails closed: with no date no issue is served, and with no App declared for a label only a person's counts. The Maintainer turns issues on",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "served_from",
+        "left_out_labels",
+        "left_out_types",
+        "label_apps"
+      ],
+      "properties": {
+        "served_from": {
+          "description": "An issue whose present life began before this time is not served",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+        },
+        "left_out_labels": {
+          "description": "An issue that carries any of these labels is not served",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "left_out_types": {
+          "description": "An issue of any of these types is not served",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "label_apps": {
+          "description": "The name of the one Factory App whose factory:triage, and whose factory:ready, counts beside a person's",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "factory:triage",
+            "factory:ready"
+          ],
+          "properties": {
+            "factory:triage": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "factory:ready": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            }
+          }
         }
       }
     }

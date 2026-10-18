@@ -1,0 +1,91 @@
+{
+  "schema": "issue-facts/1",
+  "item": {
+    "repo": "combsmith/software-factory",
+    "type": "issue",
+    "number": 41
+  },
+  "state": "open",
+  "author": "don-petry",
+  "author_can_write": true,
+  "type": "Task",
+  "label_names": [
+    "kernel",
+    "factory:triage"
+  ],
+  "assignees": [
+    "don-petry"
+  ],
+  "life_started_at": "2026-10-11T09:00:00Z",
+  "reopened_last_by": "never",
+  "content_id": "sha256:41c1",
+  "content_changed_at": "2026-10-11T09:30:00Z",
+  "label_events": [
+    {
+      "label": "factory:triage",
+      "action": "labeled",
+      "by": {
+        "kind": "app",
+        "name": "combsmith-sf-controller[bot]",
+        "can_write": true
+      },
+      "at": "2026-10-11T09:31:00Z"
+    }
+  ],
+  "linked": [
+    {
+      "number": 146,
+      "opener": {
+        "kind": "app",
+        "name": "combsmith-sf-dev-lead[bot]",
+        "can_write": true
+      },
+      "open": true,
+      "draft": true,
+      "merged_at": null,
+      "closed_at": null,
+      "empty": false,
+      "label_events": []
+    },
+    {
+      "number": 140,
+      "class": "outside",
+      "opener": {
+        "kind": "human",
+        "name": "stranger",
+        "can_write": false
+      },
+      "open": false,
+      "draft": false,
+      "merged_at": null,
+      "closed_at": "2026-10-11T10:00:00Z",
+      "empty": false,
+      "label_events": [
+        {
+          "label": "factory:admit",
+          "action": "labeled",
+          "by": {
+            "kind": "human",
+            "name": "don-petry",
+            "can_write": true
+          },
+          "at": "2026-10-11T09:45:00Z"
+        }
+      ]
+    }
+  ],
+  "role_comments": [
+    {
+      "by": "combsmith-sf-controller[bot]",
+      "at": "2026-10-11T09:31:00Z"
+    }
+  ],
+  "last_writer_action_at": "2026-10-11T09:30:00Z",
+  "last_writer_comment_at": null,
+  "complete": {
+    "timeline": true,
+    "linked": true,
+    "runs": true
+  },
+  "read_at": "2026-10-11T12:00:00Z"
+}
