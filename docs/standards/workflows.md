@@ -9,7 +9,7 @@ An org standard is cited from combsmith/.github at commit 9e2daad, by file and h
 
 ```yaml
 # The required check, `factory / verify`: it passes only when `make verify` and every shard of the mutation check pass on the commit, with the history tools/check_decisions.py compares it with.
-# About 350 mutants, in six shards, take about 5 minutes a shard, so the whole runs in 8 to 9, `checks` the longest leg. Six stay under 15 minutes to about 800 mutants: add a shard before then.
+# About 450 mutants, in six shards, take about 6 minutes a shard, each kill confirmed by two runs of one test, so the whole runs in 8 to 9, `checks` the longest leg. Six stay under 15 minutes to about 800 mutants: add a shard before then.
 # `verify` checks out the base, never the head, and runs the base's tools/needs_passed.py, so a change cannot make its own verdict pass: decision 0023.
 name: factory
 on:
