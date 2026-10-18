@@ -1902,6 +1902,8 @@ MUTANTS = ISSUE + [
     ("a deferral hides a spent approval count while a Run waits", "kernel/decide.py",
      "held = brakes.approval_ceilings(_decision, facts, done, config[\"limits\"])",
      "held = brakes.on_act(_decision, facts, state, evidence, context, _action(reason), done, config[\"limits\"])"),
+    ("spent rounds wait behind a Run in flight", "kernel/decide.py",
+     'wanted[1], done, config["limits"])', 'wanted[1], done, dict(config["limits"], max_rounds=len(done) + 1))'),
     ("a deferral hides a spent count of Runs while a Run waits", "kernel/decide.py",
      "held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config[\"limits\"])",
      "held = brakes.on_run(_decision, facts, state, evidence, context, wanted[1], done, config[\"limits\"])"),

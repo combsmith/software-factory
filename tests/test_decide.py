@@ -2105,6 +2105,26 @@ class Ceilings(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
                          ("converged", "approved", "nothing", "working"))
 
+    def test_spent_rounds_hold_the_item_while_a_run_waits(self):  # I-14
+        # An item whose owner's rulings are at `max_rounds` is held while another Run is queued or in progress, as with
+        # none in flight. One round short, the Run in flight keeps it working.
+        rounds = LIMITS["max_rounds"]
+        laps = [r for i in range(rounds) for r in (run(intent="adjudicate-findings", at=at(20 + 2 * i), name="o%d" % i),
+                                                   run(role="dev-lead", intent="fix-findings", at=at(21 + 2 * i),
+                                                       name="a%d" % i))]
+        short = [r for r in laps if r["run"] not in ("o%d" % (rounds - 1), "a%d" % (rounds - 1))]
+        for status in ("queued", "in_progress"):
+            waiting = dict(run(intent="adjudicate-findings", status="in_progress", at=at(40), name="o9"), status=status)
+            d = go(facts(threads=[thread()]), REVIEWED + laps + [waiting])
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("held", "max_rounds", "hold", "needs_you"), status)
+            d = go(facts(threads=[thread()]), REVIEWED + short + [waiting])
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("adjudicating", "proposals_await_owner", "nothing", "working"), status)
+        # The other side of the Run in flight: with none, the same rounds hold it and one short admits a ruling.
+        self.assertEqual(go(facts(threads=[thread()]), REVIEWED + laps)["reason"], "max_rounds")
+        self.assertEqual(go(facts(threads=[thread()]), REVIEWED + short)["admit"]["intent"], "adjudicate-findings")
+
     def test_a_run_in_flight_is_held_by_the_completed_runs_alone(self):  # I-8
         # The Run ceiling counts the Runs that completed: the tenth Run, admitted with nine completed, is not held at
         # the ceiling it was admitted under. Ten completed hold the item while another waits.
