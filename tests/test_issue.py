@@ -1546,6 +1546,22 @@ class Stale(unittest.TestCase):
         # The other side: read whole, the draft holds the issue in progress.
         self.assertEqual(decide(facts(linked=[good]))["state"], "in_progress")
 
+    def test_a_link_that_closed_before_it_opened_defers(self):
+        # Each time is a real moment, but a close before the opening is no chronology: read, its opening would be the
+        # issue's newest movement, and hold off its staleness.
+        then = minutes_after(MOVED, 2)
+        closed = dict(agents(is_open=False, closed=0), opened_at=minutes_after(then, 1), closed_at=then)
+        merged = dict(agents(is_open=False, merged=0), opened_at=minutes_after(then, 1), merged_at=then, closed_at=then)
+        for entry in (closed, merged):
+            for f in (dict(WAITING, linked=[entry]), dict(WAITING, state="closed", linked=[entry])):
+                d = decide(f, ctx=PASSING, now=minutes_after(MOVED, limit("triage") + 1))
+                self.assertEqual((d["state"], what(d)), (None, ("defer", "linked_unreadable", None)), entry)
+        # The other side: a close in the second it opened, or after it, is read.
+        for opened in (then, MOVED):
+            d = decide(dict(WAITING, linked=[dict(closed, opened_at=opened)]), ctx=PASSING,
+                       now=minutes_after(then, limit("triage")))
+            self.assertEqual((d["state"], what(d), d["attention"]), ("triage", ("admit", "triage", INVESTIGATE), "ready"))
+
     def test_a_lifecycle_whose_limit_cannot_be_read_shows_the_wait_as_stale(self):  # §4.1
         now = minutes_after(MOVED, 1)
         own = decide(WAITING, ctx=PASSING, now=now)

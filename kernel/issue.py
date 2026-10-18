@@ -151,7 +151,7 @@ def readable_events(events, config: dict) -> bool:
 
 def readable_link(entry, config: dict) -> bool:
     """Whether a pull request that closes the issue can be read whole. Each says when it opened. An open one has neither
-    closed nor merged; one that is not open says when it closed, and a merge closes it too."""
+    closed nor merged; one that is not open says when it closed, no earlier than it opened, and a merge closes it too."""
     if not (isinstance(entry, dict) and type(entry.get("number")) is int and entry["number"] >= 1
             and entry.get("class") in CLASSES and whole_actor(entry.get("opener"), config)
             and all(type(entry.get(flag)) is bool for flag in ("open", "draft", "empty"))):
@@ -161,6 +161,9 @@ def readable_link(entry, config: dict) -> bool:
     if not all(entry.get(when, "") is None or is_time(entry.get(when)) for when in ("merged_at", "closed_at")):
         return False
     if entry["open"] != (entry["closed_at"] is None) or (entry["open"] and entry["merged_at"] is not None):
+        return False
+    # A close before the opening is no chronology: its opening, read as the newest movement, would hold off staleness.
+    if entry["closed_at"] is not None and entry["closed_at"] < entry["opened_at"]:
         return False
     return readable_events(entry.get("label_events"), config)
 

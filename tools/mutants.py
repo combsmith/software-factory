@@ -645,6 +645,11 @@ ISSUE = [
      "any(declared(by, name, config) for name in (LABEL_TRIAGE,))", ISSUE_TESTS),
     ("an issue with no time before now raises", ISSUE_PY,
      "    return max(readable) if readable else None\n", "    return max(readable)\n", ISSUE_TESTS),
+    ("a link that closed before it opened is read", ISSUE_PY,
+     '    if entry["closed_at"] is not None and entry["closed_at"] < entry["opened_at"]:\n', "    if False:\n",
+     ISSUE_TESTS),
+    ("a link that closed in the second it opened cannot be read", ISSUE_PY,
+     'entry["closed_at"] < entry["opened_at"]', 'entry["closed_at"] <= entry["opened_at"]', ISSUE_TESTS),
     ("an issue's context that cannot be read raises", ISSUE_PY,
      'context.get("passes_since") if isinstance(context, dict) else None', 'context.get("passes_since")', ISSUE_TESTS),
 ]
