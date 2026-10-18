@@ -1583,6 +1583,12 @@ MUTANTS = ISSUE + [
      '"/" not in word or _on_path(word, here, env)', "True", REDEFINE_TESTS),
     ("a program held in a variable is not counted", "tools/hooks/identity.py",
      "if program is not None and _expands(words[program]) else", "if False else", REDEFINE_TESTS),
+    ("a spent count waits behind a Run in flight", "kernel/decide.py",
+     '        if made and made["outcome"] == t.HOLD and made["reason"] != "act_ceiling":\n', "        if False:\n"),
+    ("a Run in flight counts toward the ceiling", "kernel/decide.py",
+     'done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]', "done = since_writer(mine, facts)"),
+    ("the act ceiling holds an item while a Run waits", "kernel/decide.py",
+     ' and made["reason"] != "act_ceiling":\n', ":\n"),
 ]
 
 
