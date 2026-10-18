@@ -28,8 +28,10 @@ protected.py calls too: a mirror, every remote's remote.*.push and push.default,
 that names no remote goes; a push setting given in the command is refused (decision 0024). So is a
 git the command may redefine, in a command that commits or pushes: a function or an alias for git,
 gh or what runs them, PATH set, git named by a path to another file, or git run under a prefix or a
-wrapper not on shell.AS_IS (decision 0024). This guards against mistakes; the Stop check and the
-rulesets are the boundary. Run as `python3 -I` on this file; see
+wrapper not on shell.AS_IS (decision 0024); and, in such a command, a write into git's directory,
+by a redirection or a path a program of PATH_WRITERS is given. An alias whose value runs git or gh,
+and git given no command by xargs or parallel, are refused always. A loop's word list and a case's
+patterns are data (decision 0030). This guards against mistakes; the Stop check and the rulesets are the boundary. Run as `python3 -I` on this file; see
 after_edit.py.
 """
 from __future__ import annotations
@@ -171,6 +173,55 @@ REDEFINABLE = {"git", "gh", "builtin", "which", "type", "whence"} | shell.AS_IS
 # gh's commands that write, as WRITE_TEXT names them, given to a program the hook cannot read.
 GH_WRITES = {"pr", "release", "api"}
 RUNS_GIT = shell.WRAPPERS | shell.PREFIXES
+# Reserved words whose own words are data: a loop's word list, a case's word and its patterns. Only what the body runs
+# is read, as a command of its own.
+DATA_HEADS = {"for", "select", "case"}
+# git's directory, as a path's component: a write into it, in a command that commits or pushes, may change what git
+# runs or where a push goes (decision 0030).
+GIT_DIRECTORY = ".git"
+# The programs that write the paths they are given, as (which operands they write, their options that take the next
+# word, their options whose value is a path they write). "last" writes the last operand, the destination; "all" every
+# operand; "first" the first; "none" only an option's value. Any other program's words are not writes into git's
+# directory: find's -path, fd's -E and tree's -I are patterns, and a reader's operand, git's own -F among them, is read.
+TARGET = {"-t", "--target-directory"}
+PATH_WRITERS = {
+    "cp": ("last", {"-S", "--suffix"}, TARGET), "mv": ("last", {"-S", "--suffix"}, TARGET),
+    "ln": ("last", {"-S", "--suffix"}, TARGET), "ditto": ("last", set(), set()),
+    "install": ("last", {"-m", "--mode", "-o", "--owner", "-g", "--group", "-S", "--suffix"}, TARGET),
+    "rsync": ("last", {"-e", "--rsh", "--exclude", "--include", "--filter", "-f", "--exclude-from", "--include-from",
+                       "--files-from", "--rsync-path", "--chmod", "--chown", "-M", "--remote-option", "--password-file",
+                       "--compare-dest", "--copy-dest", "--link-dest"},
+              {"--backup-dir", "--partial-dir", "-T", "--temp-dir", "--log-file", "--write-batch", "--only-write-batch"}),
+    "scp": ("last", {"-c", "-F", "-i", "-J", "-l", "-o", "-P", "-S", "-D", "-X"}, set()),
+    "tee": ("all", set(), set()), "touch": ("all", {"-d", "--date", "-r", "--reference", "-t"}, set()),
+    "mkdir": ("all", {"-m", "--mode"}, set()), "chmod": ("all", {"--reference"}, set()),
+    "chown": ("all", {"--reference", "--from"}, set()), "chgrp": ("all", {"--reference", "--from"}, set()),
+    "truncate": ("all", {"-s", "--size", "-r", "--reference"}, set()),
+    "tar": ("none", {"-T", "--files-from", "-X", "--exclude-from", "--exclude", "-b", "--blocking-factor", "-H",
+                     "--format", "-I", "--use-compress-program", "-N", "--newer"},
+            {"-C", "--directory", "-f", "--file"}),
+    "curl": ("none", {"-d", "--data", "-H", "--header", "-u", "--user", "-X", "--request", "-F", "--form", "-A",
+                      "--user-agent", "-e", "--referer", "-b", "--cookie", "-K", "--config", "-m", "--max-time"},
+             {"-o", "--output", "--output-dir", "-D", "--dump-header", "-c", "--cookie-jar", "--trace", "--trace-ascii",
+              "--stderr"}),
+    "wget": ("none", {"-e", "--execute", "-U", "--user-agent", "--header"},
+             {"-O", "--output-document", "-P", "--directory-prefix", "-o", "--output-file", "-a", "--append-output"}),
+    "unzip": ("none", {"-x"}, {"-d"}),
+    "patch": ("first", {"-p", "--strip", "-i", "--input", "-F", "--fuzz", "-r", "--reject-file", "-B", "--prefix",
+                        "-D", "--ifdef", "-z", "--suffix", "-V"}, {"-o", "--output", "-d", "--directory"}),
+}
+# Programs that write their operands only in place (-i): their options that take the next word, and those whose value
+# is the script, so that the first operand is a file and not the script.
+IN_PLACE = {"sed": ({"-e", "--expression", "-f", "--file", "-l", "--line-length"}, {"-e", "--expression", "-f", "--file"}),
+            "perl": ({"-e", "-E", "-I", "-l", "-0"}, {"-e", "-E"})}
+# A brace that expands, {a,b} or {1..9}: the hook reads each word it gives, up to BRACE_MOST of them; past that, a
+# range of digits as a digit and any other brace as a wildcard.
+# Up to the first comma or `..` no other one is read, so the match cannot backtrack across them (SonarCloud S8786).
+BRACE = re.compile(r"\{(?:[^{},.]|\.(?!\.))*(?:,|\.\.)[^{}]*\}")
+NUMBERS = re.compile(r"\{-?\d+\.\.-?\d+(?:\.\.-?\d+)?\}")
+RANGE = re.compile(r"^(-?\d+|[a-zA-Z])\.\.(-?\d+|[a-zA-Z])(?:\.\.(-?\d+))?$")
+BRACE_MOST = 64
+LOOP_MOST = 256     # paths a loop variable is read as, at most
 WILDCARD = re.compile(r"[*?\[]")
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 IDENT = re.compile(r"^(.*) <(.*)> \d+ [+-]\d{4}$")
@@ -248,17 +299,24 @@ def _gh_kind(words: list) -> str:
 def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
     """(calls, always, inline). A call is (tool, directory, words after the tool's options, kind).
 
-    `always` refuses whatever the command does: what cannot be read. `inline` refuses only a command
-    that commits, pushes or writes: an identity set in the command itself. `text` is the command as the
-    shell reads it, and `env` the hook's own environment, whose PATH names the git and gh it reads.
+    `commands` are shell.commands's: (words, [(operator, target)]). `always` refuses whatever the command does: what
+    cannot be read. `inline` refuses only a command that commits, pushes or writes: an identity set in the command
+    itself, or a write into git's directory. `text` is the command as the shell reads it, and `env` the hook's own
+    environment, whose PATH names the git and gh it reads.
     """
     here = pathlib.Path(cwd) if cwd else None
     values, present, branches = shell.environment(text)     # what the command leaves in the environment, fail-closed
     calls, always, inline = [], [], []
     blind = _redefined(text)        # a git the command may redefine is one the hook cannot read (decision 0024)
-    for raw, targets in commands:
+    if shell.aliased(_quoted(shell.without_heredocs(text)), REDEFINABLE):
+        always.append(("command_unreadable", "the command defines an alias whose value runs git, gh or what runs them "
+                                             "(decision 0030)"))
+    loops = _loops(commands, values)
+    for raw, redirections in commands:
         # A word is read with what the command set unconditionally put in for each variable it holds.
-        words, targets = [expand(w, values) for w in raw], [expand(t, values) for t in targets]
+        words, targets = [expand(w, values) for w in raw], [expand(t, values) for _, t in redirections]
+        inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], here, "a redirection",
+                                 loops)
         inline += [("identity_set_in_command", "%s is set in the command; the hook reads only what is configured"
                     % w.split("=")[0]) for w in words if ENVIRONMENT.match(w)]
         inline += [("identity_set_in_command", "the command touches git's configuration (%s); change it in a command "
@@ -270,12 +328,15 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
             continue
         runs = _program(words)      # past reserved words, prefixes and wrappers: time bash, if sh, nice sh
         at = runs if runs is not None and os.path.basename(words[runs]) in ("git", "gh") else None
+        start = runs if runs is not None else 0
+        program = os.path.basename(words[start])
+        if at is None and program in DATA_HEADS:
+            continue        # a loop's word list is data: what its body runs is a command of its own
+        inline += _git_directory(_written(program, words[start + 1:]), here, program, loops)
         local = _local(words, at)
         named = present | local     # the environment git runs with: persisted, and set for it alone
         if local & {"PATH", "path"}:
             blind.append("the command sets PATH, so git or gh may be another program")
-        start = runs if runs is not None else 0
-        program = os.path.basename(words[start])
         if program in SHELLS_AND_SOURCE and not _given_c(words[start + 1:]):
             blind.append("a shell reads a script the hook cannot see")
         runner = _runner(words, at, here, env or {})
@@ -289,7 +350,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
                 always.append(("command_unreadable", "`%s` looks like a commit or push the hook cannot read as one"
                                % program))
             continue
-        tool, rest = os.path.basename(words[at]), words[at + 1:]
+        tool, rest, before = os.path.basename(words[at]), words[at + 1:], words[:at]
         where, i, settings = here, 0, []
         while i < len(rest) and rest[i].startswith("-"):
             option, given, value = rest[i].partition("=")
@@ -329,7 +390,10 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
                 always.append(("command_unreadable", "a remote is held in a variable or a command the hook cannot "
                                                      "read"))
             kind = ("push" if sub == "push" else "commit") if sub in WRITES else ""
-            if sub and sub not in WRITES | RUNNERS | OTHERS:
+            if not sub and set(map(os.path.basename, before)) & shell.FEEDERS:
+                always.append(("git_command_unknown", "git is given no command but what xargs or parallel feeds it "
+                                                      "from its input, which the hook cannot read"))
+            elif sub and sub not in WRITES | RUNNERS | OTHERS:
                 always.append(("git_command_unknown", "git %s is not a command the hook knows; it may be an alias, "
                                                       "which the hook cannot read" % sub))
             elif sub in RUNNERS and WRITE_TEXT.search(" ".join(words)):
@@ -337,7 +401,8 @@ def _calls(commands: list, cwd, text: str, env: dict = None) -> tuple:
         else:
             kind = _gh_kind(words)
         calls.append((tool, where, words, kind))
-    if blind and (WRITE_TEXT.search(text) or any(kind for _, _, _, kind in calls)):
+    said = " ".join(w for words, _ in commands for w in words)     # as the shell runs it: g''it push is git push
+    if blind and (WRITE_TEXT.search(text) or WRITE_TEXT.search(said) or any(kind for _, _, _, kind in calls)):
         always += [("command_unreadable", "%s, in a command that names a commit or push" % why)
                    for why in dict.fromkeys(blind)]
     return calls, always, inline
@@ -355,6 +420,220 @@ def _redefined(text: str) -> list:
     if "*" in shell.touched(text):
         reasons.append("the command writes a variable it names at run time, or evals or sources, which may set PATH")
     return reasons
+
+
+def _git_directory(paths: list, here, given: str, loops: dict) -> list:
+    """Why a command that commits or pushes is refused for writing into git's directory (decision 0030): each of
+    `paths`, the places a redirection or a program of PATH_WRITERS writes, that has a component naming `.git`, as it is
+    written or once resolved against `here`, the directory the hook tracks through cd: `..` and links taken out, in any
+    case, a wildcard or a brace that may expand to it, and a loop's variable read as each word the loop runs over. A
+    path the hook cannot expand is left alone, so that `git push > "$TMPDIR/log"` passes."""
+    found = []
+    for written in paths:
+        hits = False
+        for unbraced in _bound(written, loops):
+            if not unbraced or _expands(unbraced):
+                continue
+            expanded, exact = _braced(unbraced)
+            for path in expanded:
+                path = os.path.expanduser(path)
+                seen = [os.path.normpath(path)]
+                if here is not None or os.path.isabs(path):
+                    joined = os.path.normpath(os.path.join(str(here or ""), path))
+                    seen += [joined, os.path.realpath(joined)]
+                parts = [part for each in seen for part in each.split(os.sep)]
+                hits = hits or any(_names_git(part) if exact else _globbed(part.casefold()) for part in parts)
+        if hits:
+            found.append(("git_directory_written", "%s writes a path in git's directory, which may change what git "
+                                                   "runs or where a push goes; make the write in a command of its own"
+                          % given))
+    return found
+
+
+def _names_git(part: str) -> bool:
+    """Whether one component of a path, its braces expanded, may name git's directory, in any case: `.git`, or a
+    wildcard the shell may expand to it (.gi?, .g*, .gi[t]). A wildcard matches a leading dot only when the dot is
+    written, as the shell's does."""
+    part = part.casefold()
+    return part == GIT_DIRECTORY or bool(re.search(r"[*?\[]", part) and part.startswith(".") and _globbed(part))
+
+
+def _braced(path: str) -> tuple:
+    """(the paths the brace expansions in `path` give, whether they are exact). Past BRACE_MOST, one path in which a
+    range of digits stands for a digit, which .git holds none of, and any other brace for a wildcard, which may be
+    anything, even a leading dot: not exact."""
+    names = _expansions(path)
+    if names is not None:
+        return names, True
+    while NUMBERS.search(path):
+        path = NUMBERS.sub("0", path)
+    while BRACE.search(path):
+        path = BRACE.sub("*", path)
+    return [path], False
+
+
+def _globbed(pattern: str) -> bool:
+    """Whether a shell pattern for one name matches `.git`."""
+    out, i = [], 0
+    while i < len(pattern):
+        c, end = pattern[i], pattern.find("]", i + 2) if pattern[i] == "[" else -1
+        if c in "*?":
+            out.append(".*" if c == "*" else ".")
+        elif end > 0:
+            body = pattern[i + 1:end]
+            negated = body[:1] in ("!", "^")
+            out.append("[%s%s]" % ("^" if negated else "", re.escape(body[1:] if negated else body)))
+            i = end
+        else:
+            out.append(re.escape(c))
+        i += 1
+    return re.fullmatch("".join(out), GIT_DIRECTORY, re.S) is not None
+
+
+def _expansions(word: str, most: int = None):
+    """Each word the brace expansions in `word` give, as bash expands them: {a,b}, nested, and {1..9}, {1..9..2} or
+    {a..e}; a brace that is neither is left as it stands. None when they would be more than `most` (BRACE_MOST)."""
+    most = BRACE_MOST if most is None else most
+    out, todo = [], [word]
+    while todo:
+        each = todo.pop()
+        found = _first_brace(each, most)
+        if found is None:
+            out.append(each)
+        elif found[2] is None:
+            return None
+        else:
+            start, end, alternatives = found
+            todo += [each[:start] + alternative + each[end:] for alternative in alternatives]
+        if len(out) + len(todo) > most:
+            return None
+    return out
+
+
+def _first_brace(word: str, most: int):
+    """(where the first brace expansion in `word` starts, where it ends, what it expands to, None when that is more
+    than `most`), or None when `word` holds none."""
+    start = word.find("{")
+    while start >= 0:
+        depth, i, commas = 0, start, []
+        while i < len(word):
+            if word[i] == "\\":
+                i += 1
+            elif word[i] == "{":
+                depth += 1
+            elif word[i] == "}":
+                depth -= 1
+                if not depth:
+                    break
+            elif word[i] == "," and depth == 1:
+                commas.append(i)
+            i += 1
+        if i >= len(word):
+            return None
+        body = word[start + 1:i]
+        if commas:
+            cuts = [start] + commas + [i]
+            return start, i + 1, [word[a + 1:b] for a, b in zip(cuts, cuts[1:])]
+        ranged = RANGE.match(body)
+        if ranged:
+            low, high, step = ranged.group(1), ranged.group(2), abs(int(ranged.group(3) or 1)) or 1
+            if low.isalpha() != high.isalpha():
+                pass
+            elif low.isalpha():
+                a, b = ord(low), ord(high)
+                if abs(b - a) // step + 1 > most:
+                    return start, i + 1, None
+                return start, i + 1, [chr(c) for c in range(a, b + (1 if b >= a else -1), step if b >= a else -step)]
+            else:
+                a, b = int(low), int(high)
+                if abs(b - a) // step + 1 > most:
+                    return start, i + 1, None
+                return start, i + 1, [str(n) for n in range(a, b + (1 if b >= a else -1), step if b >= a else -step)]
+        start = word.find("{", start + 1)
+    return None
+
+
+def _bound(path: str, loops: dict) -> list:
+    """`path` with each loop variable it holds put in, as each word its loop runs over: a loop's word list is data to
+    read as commands, but its words are what the variable holds in the body. At most LOOP_MOST paths."""
+    out = [path]
+    for name, words in loops.items():
+        held, bound = re.compile(r"\$(?:\{%s\}|%s(?!\w))" % (re.escape(name), re.escape(name))), []
+        for each in out:
+            bound += [held.sub(lambda _, w=word: w, each) for word in words] if held.search(each) else [each]
+        out = bound[:LOOP_MOST]
+    return out
+
+
+def _loops(commands: list, values: dict) -> dict:
+    """{name: the words a for or select loop over it runs over, the variables the command set put in}. A loop with no
+    `in` runs over the positional parameters, which the hook cannot read."""
+    loops = {}
+    for words, _ in commands:
+        rest = words
+        while rest and rest[0] in shell.NEUTRAL | shell.CLOSERS | {"if", "while", "until", "{"}:
+            rest = rest[1:]
+        if rest[:1] in (["for"], ["select"]) and len(rest) > 1:
+            listed = rest[3:] if rest[2:3] == ["in"] else ["$@"]
+            loops.setdefault(rest[1], []).extend(expand(w, values) for w in listed)
+    return loops
+
+
+def _written(program: str, args: list) -> list:
+    """The paths `program`, given `args`, writes: by PATH_WRITERS, an option of its that names one (`-t DIR`,
+    `--target-directory=DIR`, `-fFILE`, a bundle ending in one), and dd's of=; by IN_PLACE, sed's and perl's files when
+    -i is given. Any other program writes none of its words."""
+    if program == "dd":
+        return [w[3:] for w in args if w.startswith("of=")]
+    if program in IN_PLACE:
+        valued, scripts = IN_PLACE[program]
+        operands, _, given = _options(args, valued, set())
+        if not any(o == "-i" or shell.spelt(o, "--in-place") for o in given):
+            return []
+        return operands if set(given) & scripts else operands[1:]
+    if program not in PATH_WRITERS:
+        return []
+    which, valued, destinations = PATH_WRITERS[program]
+    operands, named, given = _options(args, valued, destinations)
+    if which == "last" and set(given) & TARGET:
+        return named        # -t names the destination: every operand is a source
+    return named + {"last": operands[-1:], "all": operands, "first": operands[:1], "none": []}[which]
+
+
+def _options(args: list, valued: set, destinations: set) -> tuple:
+    """(operands, the values of the options of `destinations`, every option given) of a program's words, as getopt
+    reads them: a long option by any prefix, its value attached by `=` or the next word; a bundle of short ones, which
+    ends at its first that takes a value, what follows it in the bundle, or the next word, being that value; `--`."""
+    operands, named, given, i, takes = [], [], [], 0, valued | destinations
+    while i < len(args):
+        word = args[i]
+        if word == "--":
+            operands += args[i + 1:]
+            break
+        if word.startswith("--"):
+            option, attached, value = word.partition("=")
+            option = next((o for o in sorted(takes) if o.startswith("--") and shell.spelt(option, o)), option)
+            given.append(option)
+            if option in takes and not attached:
+                i += 1
+                value = args[i] if i < len(args) else ""
+            if option in destinations:
+                named.append(value)
+        elif word.startswith("-") and word != "-":
+            for at, letter in enumerate(word[1:], 1):
+                given.append("-" + letter)
+                if "-" + letter in takes:
+                    value = word[at + 1:]
+                    if not value:
+                        i += 1
+                        value = args[i] if i < len(args) else ""
+                    if "-" + letter in destinations:
+                        named.append(value)
+                    break
+        else:
+            operands.append(word)
+        i += 1
+    return operands, named, given
 
 
 def _given_c(args: list) -> bool:
@@ -930,7 +1209,7 @@ def check(payload: dict, env: dict, seconds: float = DEADLINE) -> list:
     read = shell.WHICH.sub(lambda m: m.group(1) if os.path.basename(m.group(1)) in ("git", "gh") else m.group(0),
                            command)
     try:
-        commands = shell.simple_commands(_quoted(shell.without_heredocs(read)))
+        commands = shell.commands(_quoted(shell.without_heredocs(read)))
     except ValueError as err:
         # The command cannot be split into words. If it names git or gh at all, what it does cannot be read.
         if re.search(r"(?<![\w.-])(git|gh)(?![\w.-])", command):

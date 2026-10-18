@@ -1938,6 +1938,68 @@ class Acceptance(unittest.TestCase):
                          "contract_changed")
 
 
+class AReviewThatReported(unittest.TestCase):
+    """A required model Lens has reported on this content only through a Run of its review of it that succeeded
+    (decision 0029). A Run whose Result left a criterion of its rubric uncovered failed, by a fault of the item."""
+
+    def test_a_review_run_that_failed_has_not_reported(self):  # I-37
+        for conclusion in ("failure", "timed_out", "cancelled"):
+            failed = [run(conclusion=conclusion, outcome="item", name="u0")]
+            d = go(facts(), failed)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("admit")),
+                             ("verifying", "awaiting_review", "admit", REVIEW_IT), conclusion)
+            # A later review of the same content that succeeded has reported.
+            d = go(facts(), failed + [run(at=at(20), name="r2")])
+            self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"), conclusion)
+        # Each such Run is an attempt: at the limit since a writer acted, the item is held with their ids.
+        failed = [run(conclusion="failure", outcome="item", at=at(10 + i), name="u%d" % i)
+                  for i in range(LIMITS["max_attempts"])]
+        d = go(facts(), failed)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"], d["evidence"]),
+                         ("held", "attempts_exhausted", "hold", "needs_you", [r["run"] for r in failed]))
+        self.assertEqual(go(facts(), failed[1:]).get("admit"), REVIEW_IT)
+        # One that failed with no outcome has not reported either. It is no attempt, so the Run ceiling bounds it.
+        unread = [run(conclusion="failure", outcome=None, at=at(10 + i), name="n%d" % i)
+                  for i in range(LIMITS["max_runs_per_item"])]
+        d = go(facts(), unread[:LIMITS["max_attempts"]])
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("admit")),
+                         ("verifying", "awaiting_review", "admit", REVIEW_IT))
+        d = go(facts(), unread)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "run_ceiling", "hold"))
+
+    def test_a_review_that_succeeded_with_a_fault_is_unreadable(self):  # I-13
+        # A Run that succeeded and names whose fault its failure was contradicts itself: no report is read from it,
+        # beside a review that reported or not, and it takes a queued item out.
+        for outcome in ("item", "capacity", "environment", "superseded"):
+            odd = run(outcome=outcome, at=at(20), name="r9")
+            for runs in ([odd], REVIEWED + [odd]):
+                d = go(facts(), runs)
+                self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"], d["evidence"]),
+                                 (None, "run_unreadable", "defer", "needs_you", ["r9"]), (outcome, len(runs)))
+            d = go(facts(queue=True, reviews=APPROVED), REVIEWED + [odd])
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
+                             (None, "run_unreadable", "act", "dequeue"), outcome)
+            # One on other content, or another Intent's, is not this review's.
+            for other in (dict(odd, content_id="sha256:bbbb"), dict(odd, intent="issue-approval")):
+                d = go(facts(), REVIEWED + [other])
+                self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"), (outcome, other["intent"]))
+        # Nor is one by a Role no required Lens is, the author's among them, or on an update no model Lens reviews.
+        for role in (CONFIG["author_role"], "someone-else"):
+            d = go(facts(), REVIEWED + [run(role=role, outcome="item", at=at(20), name="r9")])
+            self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"), role)
+        d = go(facts(reviews=APPROVED, **DEPENDENCY), [run(outcome="item", at=at(20), name="r9")])
+        self.assertEqual((d["outcome"], d.get("action")), ("act", "enqueue"))
+        # Nor is one not yet completed, which holds the item as any Run does, nor one that failed by a fault.
+        d = go(facts(), REVIEWED + [dict(run(outcome="item", at=at(20), name="r9"), status="queued")])
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                         ("converged", "approval_due", "nothing", "working"))
+        d = go(facts(), REVIEWED + [run(conclusion="failure", outcome="environment", at=at(20), name="r9")])
+        self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"))
+        # The other side: a review that succeeded with no fault named has reported.
+        d = go(facts(), REVIEWED)
+        self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"))
+
+
 class Ceilings(unittest.TestCase):
     def test_one_writer_per_item(self):  # I-2
         for status in ("in_progress", "queued"):     # a Run waiting for a runner holds the item too
