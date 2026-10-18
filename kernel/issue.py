@@ -659,8 +659,8 @@ def overdue(lifecycle, state: str, moved, passes_since, now: str) -> bool:
         return False
     limits = lifecycle.get("stale_after_minutes")
     cap = limits.get(state) if isinstance(limits, dict) else None
-    # A bool is no number of minutes; and only a finite number less itself is 0, never NaN or an infinity.
-    if not (type(cap) in (int, float) and cap - cap == 0):
+    # A bool is no number of minutes; and NaN or an infinity is never less than infinity in size.
+    if not (type(cap) in (int, float) and abs(cap) < float("inf")):
         return True
     return stale(lifecycle, state, moved, passes_since, now)
 
