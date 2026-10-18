@@ -1989,7 +1989,9 @@ class Trials(unittest.TestCase):
             self.assertTrue(check_trials.run(clone({"sim/grounding.py": broken})), broken)
 
     def test_verify_prints_every_rule_no_fixture_grounds(self):
-        codes = [rule[0] for rule in check_trials.rules()]
+        listed = check_trials.rules()
+        codes = [code for code, _, _, fixture in listed if fixture is None]
+        grounded = [code for code, _, _, fixture in listed if fixture is not None]
         self.assertTrue(codes)
         self.assertEqual(len(check_trials.unverified()), len(codes))
         ran = {}
@@ -2011,6 +2013,8 @@ class Trials(unittest.TestCase):
             verify.failed, verify.unittest.TextTestRunner = real
         for code in codes:
             self.assertIn("unverified: " + code, said.getvalue())
+        for code in grounded:
+            self.assertNotIn("unverified: %s:" % code, said.getvalue())
 
     def test_the_check_runs_alone_before_anything_is_added(self):
         with contextlib.redirect_stdout(io.StringIO()) as said:
