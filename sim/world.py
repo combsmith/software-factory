@@ -83,13 +83,13 @@ DEPENDABOT = "dependabot[bot]"
 ON_THE_LIST = {"role": "tests/test_decide.py", "dependency": ".github/workflows/verify.yml",
                "maintainer": "config/defaults.json"}
 OFF_THE_LIST = {"role": "docs/lessons.md", "dependency": "docs/requirements.txt", "maintainer": "docs/glossary.md"}
-# On one seed in three, under faults, a review's Result leaves a criterion of its rubric uncovered half the time, which
-# `apply` refuses before any Effect: the Run fails by a fault of the item (decision 0029). The Factory's own behaviour,
-# not GitHub's, so it carries no marker. By the seed alone, so every other world stays as it was. On every seed, all 300
-# hold, but the first 40, which a local run and the mutation check use, no longer reach every path the other tests ask
-# for: test_invariants_hold_under_faults sees no approval stopped, and
-# test_the_seeds_serve_items_with_an_acceptance_contract_and_without no acceptance_evidence_missing.
-UNCOVERED_SEEDS, UNCOVERED = 3, 0.5
+# On every seed, under faults, a review's Result leaves a criterion of its rubric uncovered half the time, which `apply`
+# refuses before any Effect: the Run fails by a fault of the item (decision 0029). The Factory's own behaviour, not
+# GitHub's, so it carries no marker. Every seed, so that any world can find what it breaks, as seed 297 found a Pause
+# hiding a spent count (issue 158); and half the time, so that a review is held at its attempts within the first 40.
+# A review retried that often ends each world late, so a Pause falls due with an approval, and the reporter gives its
+# result after the review, by design and not by timing (issue 168).
+UNCOVERED_SEEDS, UNCOVERED = 1, 0.5
 
 
 class Broken(AssertionError):
@@ -507,6 +507,14 @@ class World:
                                                         "check": dict(REPORTER)})
         wrong = validate(facts, FACTS_SCHEMA)
         self.check(not wrong, "facts are valid: %s" % "; ".join(wrong))
+        if self.pause_from is not None and self.minute < self.pause_from:
+            # On a seed that pauses, the Pause falls due with an approval, where it matters most (I-7): a pass before the
+            # seed's minute whose Decision, asked with no Pause on the facts it read, issues the approval starts the
+            # Pause there, for the seed's span and with the seed's reading.
+            free = decide(facts, runs, self.unpaused(), CONFIG, self.now())
+            if free["outcome"] == t.ACT and free["action"] == "issue_approval":
+                self.pause_from = self.minute
+                self.note("the Pause began as an approval fell due")
         d = decide(facts, runs, self.context(), CONFIG, self.now())
         wrong = validate(d, DECISION_SCHEMA)
         self.check(not wrong, "every Decision is valid: %s" % "; ".join(wrong))
@@ -877,6 +885,11 @@ class World:
         lacking = [c for c in tested if c not in given]
         if not lacking:
             return False
+        if self.faults and not self.reviewed(self.runs, self.cid()):
+            # The reporter's check can be queued behind a model's review: while faults are on, it gives its result on
+            # this content only once every required model Lens has reviewed the content and succeeded.
+            # GitHub: a_result_can_come_after_the_review
+            return False
         criterion = lacking[int(self.judge.random() * len(lacking))]
         result = "failing" if self.faults and self.judge.random() < 0.15 else "passing"
         self.results.append({"criterion": criterion, "content_id": self.cid(), "result": result, "check": dict(REPORTER)})
@@ -1185,8 +1198,10 @@ class World:
         for _ in range(steps):
             self.step()
         # The person who approves the contract approves it again at the head, and the content the Factory settled on,
-        # which confirms each criterion of kind human, until neither waits for them; a deleted contract stays held.
-        for _ in range(3):
+        # which confirms each criterion of kind human, until neither waits for them; a deleted contract stays held. Each
+        # confirmation is a writer's action, after which a Lens's thread can change the content again: five, the
+        # person's patience once faults stop (issue 168).
+        for _ in range(5):
             if not self.awaits_a_person():
                 break
             self.minute += 1

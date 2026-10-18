@@ -339,6 +339,69 @@ class Simulation(unittest.TestCase):
             w.paused(f, spent[:-1], d)
             self.assertEqual(w.stopped, ["admit"], reading)
 
+    def test_the_pause_falls_due_with_an_approval(self):  # I-7, decision 0003
+        # On a seed that pauses, a pass before the Pause that would issue the approval, asked with no Pause, starts the
+        # Pause there: the approval is what it holds back.
+        def reviewed(w):
+            w.checks = dict.fromkeys(w.checks, "success")
+            for lens in world.CONFIG["required_lenses"]["model"]:
+                w.runs.append({"run": "r%d" % len(w.runs), "item": dict(world.ITEM), "role": lens,
+                               "intent": "review-change", "content_id": w.cid(), "status": "completed",
+                               "conclusion": "success", "outcome": None, "started_at": w.now()})
+            w.minute += 1
+            w.starts()
+            return w
+
+        w = World(20, faults=False, people=False)
+        self.assertIn(w.seed % 5, world.PAUSES)
+        self.assertTrue(w.pause_reading)
+        reviewed(w)
+        w.pause_from = w.minute + 10
+        w.poll()
+        self.assertEqual(w.pause_from, w.minute)
+        self.assertEqual(w.trace[-1].split(" ", 1)[1], "pass: converged paused -> defer")
+        self.assertEqual((w.stopped, w.reviews), (["issue_approval"], []))
+        # The other side: a seed with no Pause gets none, and the approval is issued.
+        w = reviewed(World(2, faults=False, people=False))
+        w.poll()
+        self.assertEqual((w.pause_from, w.stopped), (None, []))
+        self.assertEqual([rv["by"]["kind"] for rv in w.reviews], ["machine_user"])
+        # Nor does a pass that would admit a Run move the Pause: the Run is admitted.
+        w = World(20, faults=False, people=False)
+        w.checks = dict.fromkeys(w.checks, "success")
+        w.minute += 1
+        w.starts()
+        w.pause_from = w.minute + 10
+        w.poll()
+        self.assertEqual((w.pause_from, w.stopped), (w.minute + 10, []))
+        self.assertEqual([r["intent"] for r in w.runs], ["review-change"])
+
+    def test_the_reporter_can_come_after_the_review(self):  # I-31
+        # Under faults, the reporter gives no result for a criterion lacking one on this content until every required
+        # model Lens has reviewed that content and succeeded: its check can be queued behind the review.
+        class Never:
+            def random(self):
+                return 0.99
+
+        def contract(faults):
+            w = World(10, faults=faults, people=False)
+            self.assertIsNotNone(w.criteria)
+            w.judge = Never()
+            return w
+
+        w = contract(True)
+        self.assertEqual((w.gives_evidence(), w.results), (False, []))
+        for lens in world.CONFIG["required_lenses"]["model"]:
+            w.runs.append({"run": "r%d" % len(w.runs), "item": dict(world.ITEM), "role": lens,
+                           "intent": "review-change", "content_id": w.cid(), "status": "completed",
+                           "conclusion": "success", "outcome": None, "started_at": w.now()})
+        self.assertTrue(w.gives_evidence())
+        self.assertEqual([(ev["content_id"], ev["result"]) for ev in w.results], [(w.cid(), "passing")])
+        # The other side: with faults off, the reporter gives it at once.
+        w = contract(False)
+        self.assertTrue(w.gives_evidence())
+        self.assertEqual([(ev["content_id"], ev["result"]) for ev in w.results], [(w.cid(), "passing")])
+
     def test_a_dequeue_at_the_act_ceiling_is_the_one_act_past_it(self):  # I-8
         # A required check fails after the item entered the queue, with the acts since a writer at the ceiling. The
         # dequeue stops work, so it is made, and takes the count one past the ceiling.

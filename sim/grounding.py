@@ -98,6 +98,8 @@ RULES = (
      "it: the check run's name, the id of its App and the path of its workflow file, as a check is read", (), None),
     ("any_app_gives_a_result_for_any_criterion", "Any App with checks: write, and any job GitHub Actions runs, can give "
      "a result for any criterion of the contract, one only a person passes among them", (), None),
+    ("a_result_can_come_after_the_review", "A reporter's check can give its result for a criterion only after a model "
+     "Lens's review of the same content, its job queued behind the review's", (), None),
     ("a_contract_approval_stays_on_its_commit", "The contract a person approved is read at the commit of the newest "
      "approving review by a person; an approval an App dismisses, as stale or not, stays on its commit, and the "
      "timeline says who dismissed it", ("P-38",), None),
