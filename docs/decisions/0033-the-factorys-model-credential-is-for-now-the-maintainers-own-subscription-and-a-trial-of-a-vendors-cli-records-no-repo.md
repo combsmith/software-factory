@@ -1,4 +1,4 @@
-# 0034. The Factory's model credential is, for now, the Maintainer's own subscription; a trial of a vendor's CLI records no repo
+# 0033. The Factory's model credential is, for now, the Maintainer's own subscription; a trial of a vendor's CLI records no repo
 
 Status: accepted. Taken as a working ruling on 2026-10-18, which the Maintainer may overturn in review, for
 "Trial P-13: the model CLI returns validated structured output on the subscription" (issue 15).

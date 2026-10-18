@@ -17,4 +17,4 @@ came back, with every credential removed. The fake GitHub in `sim/` is held to t
 | Nothing reads the canary at run time: only a document, a fixture, its example and schema, and the Apps' installs in `config/apps.json` name it. A fixture arrives by pull request | `tests/test_tools.py::test_code_that_reads_the_canary_is_caught` |
 | A fixture keeps GitHub's words as said, so it alone may name a model or the proof of concept's private repo | `tests/test_tools.py::test_only_a_fixture_may_name_a_model_or_the_proof_of_concept` |
 | A rule of the fake grounded here names a valid fixture of a trial that asks it | `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate` |
-| A trial of a vendor's CLI, as P-13, records `repo` null and asks as `subscription`, never named by its address (decision 0034) | `examples/trial.a-vendors-cli.json`, `examples/invalid/trial.a-subscription-named-by-its-address.json` |
+| A trial of a vendor's CLI, as P-13, records `repo` null and asks as `subscription`, never named by its address (decision 0033) | `examples/trial.a-vendors-cli.json`, `examples/invalid/trial.a-subscription-named-by-its-address.json` |

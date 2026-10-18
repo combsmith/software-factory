@@ -35,7 +35,7 @@
       "minLength": 1
     },
     "repo": {
-      "description": "Where the trial ran: the canary repo, or null for a trial that asks a vendor's CLI and not GitHub, such as P-13 (decision 0034).",
+      "description": "Where the trial ran: the canary repo, or null for a trial that asks a vendor's CLI and not GitHub, such as P-13 (decision 0033).",
       "enum": [
         "combsmith/software-factory-canary",
         null
