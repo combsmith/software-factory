@@ -89,12 +89,14 @@ def simple_commands(text: str) -> list:
     return [(words, [target for _, target in redirections]) for words, redirections in commands(text)]
 
 
-def commands(text: str, spend=None, texts: list = None) -> list:
+def commands(text: str, spend=None, texts: list = None, scopes: bool = False) -> list:
     """Each simple command in `text`, as (words, [(operator, target)]), read as simple_commands reads it.
 
     An operator holding '>' writes its target; one holding only '<' reads it. `spend`, if given, is called
     before each script is read, and may raise to stop a reading that has run over its budget. `texts`, if
     given, gets each script read: `text`, and every script it runs (sh -c, eval, a command substitution).
+    With `scopes`, the commands a substitution in a case's pattern runs come between SCOPE's two marks, which
+    no command can spell: they run in a subshell, so a cd among them is theirs alone (decision 0032).
     """
     if spend:
         spend()
@@ -104,8 +106,9 @@ def commands(text: str, spend=None, texts: list = None) -> list:
     lex = shlex.shlex(held, posix=True, punctuation_chars=PUNCTUATION)
     lex.whitespace, lex.whitespace_split, lex.commenters = " \t\r", True, ""
     found, words, targets, operator = [], [], [], None
-    # A case's patterns are data, in every arm: from `in`, and from each ;; or ;&, to the ) that ends the pattern.
-    patterns, arm, cases, in_pattern = [], [], 0, False
+    # A case's patterns are data, in every arm: from `in`, and from each ;; or ;&, to the ) that ends the pattern. Each is
+    # kept in its place among the commands as (None, pattern), so that a substitution in it is read where it runs.
+    arm, cases, in_pattern = [], 0, False
     for read in lex:
         punctuation, token = bool(read) and all(c in PUNCTUATION for c in read), read.translate(RETURNED)
         if in_pattern:
@@ -117,7 +120,7 @@ def commands(text: str, spend=None, texts: list = None) -> list:
                 cases, in_pattern = cases - 1, False
             elif not punctuation:
                 arm.append(token)
-                patterns.append(token)
+                found.append((None, token))
             continue
         if punctuation:
             if "<" in token or ">" in token:
@@ -146,16 +149,22 @@ def commands(text: str, spend=None, texts: list = None) -> list:
     if cases or in_pattern:
         raise ValueError("a case is never ended")
     out = []
-    for word in patterns:       # a pattern runs nothing, but a substitution in it does
-        for script in _substituted(word):
-            out += commands(script, spend, texts)
     for words, targets in found:
+        if words is None:       # a pattern runs nothing, but a substitution in it does, where the pattern stands
+            for script in _substituted(targets):
+                read = commands(script, spend, texts, scopes)
+                out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read
+            continue
         out.append((words, targets))
         out += _inner(words, spend, texts)
         for word in words:
             for script in _substituted(word):
-                out += commands(script, spend, texts)
+                out += commands(script, spend, texts, scopes)
     return [(words, targets) for words, targets in out if words or targets]
+
+
+# The marks commands(scopes=True) puts around what a case pattern's substitution runs: no words, so no command spells one.
+SCOPE = ((None, "("), (None, ")"))
 
 
 # Each character that ends a word or a command, as it stands while a quote or a backslash holds it: one of the Unicode
@@ -249,11 +258,12 @@ def _substituted(word: str) -> list:
     scripts, i = [], 0
     while i < len(word):
         if word.startswith("$(", i):
-            depth, j = 1, i + 2
-            while j < len(word) and depth:
-                depth += {"(": 1, ")": -1}.get(word[j], 0)
-                j += 1
-            scripts.append(word[i + 2:j - 1] if not depth else word[i + 2:])
+            j = _balanced(word, i + 2, ")")     # a ( or ) a quote of the script's own holds is data: '%s)'
+            if word[j - 1:j] != ")":
+                # It never closes as the shell reads it, which only data a quote held may do: read to its first ), as
+                # though a # began no comment, so that what it holds is still read.
+                j = _balanced(word, i + 2, ")", comments=False)
+            scripts.append(word[i + 2:j - 1] if word[j - 1:j] == ")" else word[i + 2:])
             i = j
         elif word[i] == "`":
             end = word.find("`", i + 1)
@@ -279,10 +289,11 @@ CURRENT_BRANCH = re.compile(r"^\$\(\s*git\s+(branch\s+--show-current|rev-parse\s
                             r"symbolic-ref\s+((-q|--quiet)\s+)?--short\s+HEAD)\s*\)$")
 
 
-def _balanced(text: str, i: int, close: str) -> int:
+def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
     """The index just past where a run opened before `i` closes: a ) that may hold nested $( ), or a ` or }.
-    Quotes inside are skipped. Runs to the end of the text when it never closes."""
-    depth, quote = 0, None
+    Quotes inside are skipped, and so are a parameter expansion's `${...}` and, in a `( )` and with `comments`, a
+    comment (decision 0032). Runs to the end of the text when it never closes."""
+    depth, quote, start = 0, None, i
     while i < len(text):
         c = text[i]
         if quote:
@@ -291,7 +302,12 @@ def _balanced(text: str, i: int, close: str) -> int:
             i += 1
         elif c in "'\"":
             quote = c
-        elif close == ")" and text.startswith("$(", i):
+        elif text.startswith("${", i):
+            i = _balanced(text, i + 2, "}") - 1
+        elif comments and close == ")" and c == "#" and (i == start or text[i - 1] in " \t\n;&|()"):
+            end = text.find("\n", i)        # a comment runs to the end of its line
+            i = (len(text) if end < 0 else end) - 1
+        elif text.startswith("$(", i):      # a substitution nested in any run, ${...} too, is its own
             i = _balanced(text, i + 2, ")") - 1
         elif c == close and (close != ")" or depth == 0):
             return i + 1
@@ -560,6 +576,8 @@ def trusted_assignments(text: str) -> list:
     events, depth, balanced = [], 0, True
     functions = {a or b for a, b in re.findall(
         r"(?:^|[\s;&|(){}])(?:function\s+(%s)|(%s)\s*\(\s*\))" % (NAME, NAME), stripped)}
+    named = GIT_OR_GH.search(stripped)      # where git or gh is first named: searched once, not before every segment
+    named = len(stripped) if named is None else named.start()
     for words, before, after, start in segs:
         if not words:
             continue
@@ -585,7 +603,7 @@ def trusted_assignments(text: str) -> list:
             used = re.search(r"\$\{?%s(?!\w)" % re.escape(name), stripped[:start])
             events.append(("set", name, value) if trusted and not used else ("maybe", name, None))
         events += [("maybe", word.split("=", 1)[0], None) for word in maybe]
-        if trusted and not GIT_OR_GH.search(stripped[:start]):
+        if trusted and named >= start:
             events += [("unset", name, None) for name in unset]
     if depth != 0 or not balanced:
         return [("maybe", name, None) for kind, name, _ in events if kind != "unset"]
@@ -858,7 +876,27 @@ def expands(code: str) -> bool:
     return False
 
 
-def aliased(text: str, names: set, spend=None) -> set:
+def alias_values(text: str, spend=None) -> dict:
+    """{name: [each value it is given, as (the simple commands it runs, whether it ends in a blank), and None where it
+    is unaliased]} of each alias the command defines whose value the hook can read, as aliased reads them, so that a
+    hook can read the alias where its name runs (decision 0032). The order the shell defines them in is not kept: a
+    name given more than one value, or unaliased, is read as each wherever it runs."""
+    values = {}
+    aliased(text, set(), spend, values)
+    for words, _ in commands(text, spend):
+        _, command, args = _leading(words)
+        if command == "unalias":
+            names = list(values) if "-a" in args else [_unquoted(w) for w in args if not w.startswith("-")]
+            for name in names:
+                if name in values and None not in values[name]:
+                    values[name].append(None)
+    for name, each in values.items():
+        if len(each) > 1 and None not in each:
+            each.append(None)       # before its first definition, too, the name is itself
+    return values
+
+
+def aliased(text: str, names: set, spend=None, values: dict = None) -> set:
     """The names the command makes an alias for a value that runs one of `names`: a value that holds one of them as a
     word (by its base name: /usr/bin/git is git), in its text or in a script it runs, by alias or zsh's aliases[g]=,
     as the words the shell runs give them; or a value the hook cannot read, which expands a variable or a command, or
@@ -876,11 +914,13 @@ def aliased(text: str, names: set, spend=None) -> set:
                 found.add(_unquoted(name))
                 continue
             try:
-                held = [w for inner, _ in commands(value, spend) for w in inner]
+                read = commands(value, spend)
             except ValueError:
                 found.add(_unquoted(name))
                 continue
-            if {os.path.basename(_unquoted(w)) for w in held} & names:
+            if values is not None and read:     # `values`, if given, gets each value that can be read
+                values.setdefault(_unquoted(name), []).append((read, value[-1:] in (" ", "\t")))
+            if {os.path.basename(_unquoted(w)) for inner, _ in read for w in inner} & names:
                 found.add(_unquoted(name))
     return found
 
