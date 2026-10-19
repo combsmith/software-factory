@@ -155,6 +155,30 @@
     },
     {
       "from": "in_progress",
+      "to": "ready",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_review",
+      "to": "ready",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_progress",
+      "to": "triage",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_review",
+      "to": "triage",
+      "by": "human",
+      "bound": null
+    },
+    {
+      "from": "in_progress",
       "to": "held",
       "by": "factory",
       "bound": null
@@ -194,6 +218,36 @@
       "to": "held",
       "by": "human",
       "bound": null
+    },
+    {
+      "from": "new",
+      "to": "held",
+      "by": "platform",
+      "bound": "person"
+    },
+    {
+      "from": "triage",
+      "to": "held",
+      "by": "platform",
+      "bound": "person"
+    },
+    {
+      "from": "ready",
+      "to": "held",
+      "by": "platform",
+      "bound": "person"
+    },
+    {
+      "from": "in_progress",
+      "to": "held",
+      "by": "platform",
+      "bound": "person"
+    },
+    {
+      "from": "in_review",
+      "to": "held",
+      "by": "platform",
+      "bound": "person"
     },
     {
       "from": "held",
@@ -326,6 +380,36 @@
       "to": "new",
       "by": "human",
       "bound": null
+    },
+    {
+      "from": "in_progress",
+      "to": "new",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "triage",
+      "to": "new",
+      "by": "stranger",
+      "bound": "person"
+    },
+    {
+      "from": "ready",
+      "to": "new",
+      "by": "stranger",
+      "bound": "person"
+    },
+    {
+      "from": "in_progress",
+      "to": "new",
+      "by": "stranger",
+      "bound": "person"
+    },
+    {
+      "from": "held",
+      "to": "new",
+      "by": "stranger",
+      "bound": "person"
     },
     {
       "from": "new",
