@@ -134,6 +134,14 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
                 found.append((None, [token]))       # a list, so that no quoted pattern is read as a mark
             continue
         if punctuation:
+            if scopes and "(" in token and ("<" in token or ">" in token):
+                # <( or >(: a process of its own, whose commands are read between SCOPE's marks (decision 0040); its
+                # ) is marked below, as any ) is.
+                if words or targets:
+                    found.append((words, targets))
+                    words, targets = [], []
+                found.append(SCOPE[0])
+                continue
             if "<" in token or ">" in token:
                 if words and words[-1].isdigit():
                     words.pop()     # the 2 of 2>&1
@@ -379,11 +387,12 @@ def _inner(words: list, spend=None, texts: list = None, marked: bool = False, sc
     """The commands of a script run by this one: `bash -c '...'` or `eval ...`, also after env, xargs or sudo; and
     the command string of `flock -c`, `script -c`, `runuser -c`, `su -c` and `env -S`. `words` are as the shell gives
     them, with no LIVE mark: the script is read again as text. With `scopes`, a shell's or a program's script, which
-    runs in a process of its own, comes between SCOPE's marks; eval's and env -S's run in this shell (decision 0040)."""
+    runs in a process of its own, comes between SCOPE's marks; eval's and env -S's run in this shell, read flat but
+    with the marks of what they hold (decision 0040)."""
     for at, word in enumerate(words):
         name = os.path.basename(word)
         if name == "eval":
-            return commands(" ".join(words[at + 1:]), spend, texts, marked=marked)
+            return commands(" ".join(words[at + 1:]), spend, texts, scopes, marked)
         if name == "env":       # -S's string is split into the words of the command env runs, before the rest
             for i in range(at + 1, len(words)):
                 if not words[i].startswith("-") and "=" not in words[i] and words[i - 1] not in ENV_VALUED:
@@ -391,7 +400,7 @@ def _inner(words: list, spend=None, texts: list = None, marked: bool = False, sc
                 script, taken = _value(words, i, "S", ("--split-string",), True)
                 if script is not None:
                     rest = words[i + 1 + taken:]
-                    return commands(" ".join([script] + [shlex.quote(w) for w in rest]), spend, texts, marked=marked)
+                    return commands(" ".join([script] + [shlex.quote(w) for w in rest]), spend, texts, scopes, marked)
         if name in SHELLS or name in STRINGS:
             script = script_of(words, at)
             if script is None:

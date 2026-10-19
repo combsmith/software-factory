@@ -1483,7 +1483,7 @@ MUTANTS = ISSUE + [
      '    if "acceptance" not in facts:\n        return None\n'),
     ("an item given twice is accepted where items are unique", "tools/jsonschema_lite.py",
      'if schema.get("uniqueItems") is True and ', "if False and "),
-    # Decision 0040: a Result asks and names no one; what one Run carries holds codes.
+    # Decision 0038: a Result asks and names no one; what one Run carries holds codes.
     ("a referenced schema is read against the referrer's root", "tools/jsonschema_lite.py",
      "        root = schemas[kind]        # its own references are read in it, not in the referrer\n", "",
      (SCHEMA_TESTS + "test_a_reference_to_another_schema_is_followed",)),
@@ -2641,6 +2641,12 @@ MUTANTS = ISSUE + [
      'shell.commands(" ".join(spliced), spend, marked=True)', OWN_CD_TESTS),
     ("a quoted pattern is read as a mark", "tools/hooks/shell.py",
      "                found.append((None, [token]))", "                found.append((None, token))", PLACED_TESTS),
+    ("a process substitution's ( opens no scope", "tools/hooks/shell.py",
+     '            if scopes and "(" in token and ("<" in token or ">" in token):\n', "            if False:\n",
+     OWN_CD_TESTS),
+    ("eval's script is read without scopes", "tools/hooks/shell.py",
+     '            return commands(" ".join(words[at + 1:]), spend, texts, scopes, marked)\n',
+     '            return commands(" ".join(words[at + 1:]), spend, texts, marked=marked)\n', OWN_CD_TESTS),
 ]
 
 

@@ -425,8 +425,9 @@ def _placed(commands: list, index: int, words: list, outer: int, cdpath: bool) -
     args = args[1:] if args[:1] == ["--"] else args
     if letters - CD_OPTIONS[words[0]] or len(args) > 1:
         return False
-    return not (cdpath and args and words[0] != "popd" and not args[0].startswith(("/", "~", "."))
-                and args[0] not in PREVIOUS)
+    # CDPATH is not searched for an operand that starts with /, ~, ./ or ../, or is . or ..; .git is searched for.
+    plain = not args or args[0].startswith(("/", "~", "./", "../")) or args[0] in (".", "..") or args[0] in PREVIOUS
+    return not (cdpath and words[0] != "popd" and not plain)
 
 
 def _join_mark(commands: list, index: int, step: int):
@@ -1004,7 +1005,10 @@ def _given(program: str, runs, args: list) -> list:
         if word.startswith("--") and "=" in word:
             places.append(word.partition("=")[2])
         elif word.startswith("-") and not word.startswith("--"):
-            places += [word[i:] for i in range(2, len(word))]
+            # Only a suffix that begins where a . or a wildcard may begin the first component can name .git: the
+            # rest are read once, as the word, so a long bundle is read in linear time (decision 0032).
+            head = len(word.partition("/")[0])
+            places += [word[i:] for i in range(2, min(len(word), head)) if word[i] in ".*?[{$"]
     return places + [HERE]
 
 

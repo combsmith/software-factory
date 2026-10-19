@@ -788,7 +788,7 @@ class Identity(unittest.TestCase):
         for cd in ("if true; then cd .git; fi", "{ cd .git; }", "builtin cd .git", "command cd .git", "time cd .git",
                    "! cd .git", "f() { cd .git; }; f", "true | cd .git", "cd .git &", "false || cd .git",
                    "while false; do cd .git; done", "while false\ndo\ncd .git\ndone", "cd sub .git", "cd -Z .git",
-                   "CDPATH=.git; cd hooks", "CDP''ATH=.git; cd hooks", "cd .git; cd /tmp | true",
+                   "CDPATH=.git; cd hooks", "CDP''ATH=.git; cd hooks", "CDPATH=x; cd .git", "cd .git; cd /tmp | true",
                    "eval 'x=1' || cd .git"):
             for after in ("; cp /tmp/x config; git -C %s push" % self.here, "; git commit -m x"):
                 self.assertIn("directory_unreadable", self.refused(cd + after), cd + after)
@@ -808,7 +808,9 @@ class Identity(unittest.TestCase):
         # the command stands where it stood, and what runs inside is read where the cd leads.
         (self.here / "sub").mkdir(exist_ok=True)
         for inner in ("(cd /tmp)", "x=$(cd /tmp)", "echo $(cd /tmp)", "echo `cd /tmp`", "cat <(cd /tmp)",
-                      "sh -c 'cd /tmp'", "x='$(cd ..)'", "alias out='(cd ..)'\nout", "trap '$(cd /tmp)' EXIT"):
+                      "sh -c 'cd /tmp'", "x='$(cd ..)'", "alias out='(cd ..)'\nout", "trap '$(cd /tmp)' EXIT",
+                      # A process substitution's ( opens a scope, so its ) closes that one, not the subshell's.
+                      "(true <(x); cd /tmp)", "eval '(cd /tmp)'", "eval 'false || cd /tmp'"):
             command = "cd .git; %s; cp /tmp/x config; git -C %s push" % (inner, self.here)
             self.assertIn("git_directory_written", self.refused(command), command)
         for command in ('ROOT=$(cd "$(dirname "$0")" && pwd); git commit -m x', "(cd %s && make); git commit -m x" % self.bad,
@@ -816,7 +818,7 @@ class Identity(unittest.TestCase):
                         "sh -c 'cd /tmp && ls'; git commit -m x"):
             self.assertEqual(self.codes(command), "", command)
         for command in ("(cd %s && git commit -m x)" % self.bad, "echo $(cd %s; git commit -m x)" % self.bad,
-                        "bash -c 'cd %s && git commit -m x'" % self.bad):
+                        "bash -c 'cd %s && git commit -m x'" % self.bad, "cat <(cd %s && git commit -m x)" % self.bad):
             self.assertIn("commit_identity_not_maintainer", self.refused(command), command)
         self.assertIn("git_directory_written", self.refused("(cd .git; cp /tmp/x config); git -C %s push" % self.here))
         self.as_data("(cd /tmp); cp /tmp/x config", "x=$(cd .git)")
@@ -1051,6 +1053,7 @@ class Identity(unittest.TestCase):
         # Decision 0032: an alias read again and again, an unclosed [ again and again, and cd - again and again.
         bomb = "alias a0=:\n" + "".join("alias a%d='a%d;a%d'\n" % (n, n - 1, n - 1) for n in range(1, 23)) + "a22; git push"
         for command, code in ((bomb, "command_unreadable"), ("cp /tmp/x ." + "[a" * 8000 + "; git push", ""),
+                              ("mytool -" + "a" * 20000 + "; git push", ""),
                               ("cd .git; " + "cd -;" * 16000 + " cd %s; git push" % self.here, ""),
                               ("pushd a; " + "".join("popd; pushd d%d; " % n for n in range(40)) + "git push",
                                "more directories than the hook reads")):
