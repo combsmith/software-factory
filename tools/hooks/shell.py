@@ -1152,17 +1152,19 @@ SETTERS = {"export", "declare", "typeset", "local", "readonly", "read", "mapfile
            "unset", "let", "env"}
 
 
-def sets(name: str, text: str, spend=None) -> bool:
-    """Whether the command may set the variable `name`, read from the words the shell runs, in its text and in each
-    script it runs: an assignment before a command, alone, or given to a wrapper (NAME=, NAME+=, NAME[i]=); the name
-    given to a built-in that writes or exports it (export, declare, read, printf -v, unset and the like); a for or a
-    select over it; and ${NAME:=v} or arithmetic anywhere. A quoted word given to any other program is data: a commit
-    message that says NAME= sets nothing. Raises ValueError or RecursionError when the text cannot be split."""
-    if name in assigned_elsewhere(text):
+def sets(name, text: str, spend=None) -> bool:
+    """Whether the command may set the variable `name`, or any of a set of names given in its place, read in one pass
+    from the words the shell runs, in its text and in each script it runs: an assignment before a command, alone, or
+    given to a wrapper (NAME=, NAME+=, NAME[i]=); the name given to a built-in that writes or exports it (export,
+    declare, read, printf -v, unset and the like); a for or a select over it; and ${NAME:=v} or arithmetic anywhere. A
+    quoted word given to any other program is data: a commit message that says NAME= sets nothing. Raises ValueError
+    or RecursionError when the text cannot be split."""
+    names = {name} if isinstance(name, str) else set(name)
+    if names & assigned_elsewhere(text):
         return True
-    assigns = re.compile(r"^%s(?:\[[^]]*\])?\+?=" % re.escape(name))
+    assigns = re.compile(r"^(?:%s)(?:\[[^]]*\])?\+?=" % "|".join(map(re.escape, sorted(names))))
     for words, _ in commands(text, spend):
-        if words[:1] in (["for"], ["select"]) and words[1:2] == [name]:
+        if words[:1] in (["for"], ["select"]) and words[1:2] and words[1] in names:
             return True
         at = 0
         while at < len(words):
@@ -1174,7 +1176,7 @@ def sets(name: str, text: str, spend=None) -> bool:
                 at += 1
             elif command in SETTERS:
                 given = _printf_targets(words[at + 1:]) if command == "printf" else words[at + 1:]
-                if any(assigns.match(w) or w == name for w in given):
+                if any(assigns.match(w) or w in names for w in given):
                     return True
                 break       # this command sets other names: a later one may set this
             elif command in WRAPPED:

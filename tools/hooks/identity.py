@@ -627,7 +627,7 @@ def _redefined(text: str) -> list:
         reasons.append("the command defines a function or an alias for git, gh or what runs them")
     if shell.sets("PATH", quoted) or shell.sets("path", quoted):
         reasons.append("the command sets PATH, so git or gh may be another program")
-    if any(shell.sets(name, quoted) for name in sorted(LOADER_VARIABLES)):     # as PATH is: spelt however
+    if shell.sets(LOADER_VARIABLES, quoted):       # as PATH is, spelt however, and in one reading of the words
         reasons.append("the command sets a dynamic linker's variable, so git or gh may run other code")
     if "*" in shell.touched(text):
         reasons.append("the command writes a variable it names at run time, or evals or sources, which may set PATH")
