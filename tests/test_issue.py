@@ -1319,9 +1319,98 @@ class Opening(unittest.TestCase):
         self.assertEqual((d["state"], what(d)), ("held", ("hold", "attempts_exhausted", None)))
         undeclared = decide(ready, [opening()], cfg=config(intents=intents(opening=None)))
         self.assertEqual((what(undeclared), undeclared["attention"]), (("nothing", "opening_run", None), "working"))
-        # The brakes' Hold on a Run in flight does not wait on its Intent being declared.
+        # With the opening Intent undeclared, the issue wants no opening Run, and with none in flight it reads
+        # intent_undeclared: so its spent attempts hold nothing while the opening Run waits either (decision 0003).
+        d = decide(ready, spent, cfg=config(intents=intents(opening=None)))
+        self.assertEqual((d["state"], what(d), d["attention"]),
+                         ("ready", ("nothing", "intent_undeclared", None), "needs_you"))
         d = decide(ready, spent + [opening(status="queued")], cfg=config(intents=intents(opening=None)))
-        self.assertEqual((d["state"], what(d)), ("held", ("hold", "attempts_exhausted", None)))
+        self.assertEqual((d["state"], what(d), d["attention"]),
+                         ("in_progress", ("nothing", "opening_run", None), "working"))
+
+
+class WantedRun(unittest.TestCase):
+    """While a Run is in flight, the attempts and the Run ceiling are asked about the Run the issue's State wants, found
+    as with none in flight, and not about the Run in flight; an issue that wants no Run is not held by them (decision
+    0003). Every Run here starts after a person with write access last acted, so each counts."""
+
+    CEILING = LIMITS["max_runs_per_item"]
+
+    def reading(self, f, runs, ctx=None, cfg=None) -> tuple:
+        d = decide(f, runs, ctx=ctx, cfg=cfg)
+        return d["state"], d["reason"], d["outcome"], d["attention"]
+
+    def test_the_ceilings_are_asked_about_the_run_the_issue_wants(self):
+        # An outsider's admitted issue in triage, investigated. Its readiness Run was admitted twice, the second time
+        # by a pass that did not see the first (P-22, P-17), and the first failed: the ceiling is reached. Then the
+        # outsider edits the issue, its acceptance lapses, and it wants no Run.
+        events = [labelled(ADMIT, WRITER, 1), labelled(TRIAGE, CONTROLLER, 2)]
+        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="environment", role="readiness")
+                                      for i in range(self.CEILING - 1)]
+        queued = run(status="queued", minute=21, name="q1")
+        ended = dict(queued, status="completed", conclusion="failure", outcome="environment")
+        before = outsiders(label_events=events, last_writer_action_at=at(1), role_comments=[comment(ANALYST, 3)])
+        edited = dict(before, content_id=OTHER, content_changed_at=at(25))
+        self.assertEqual(len(settled), self.CEILING)
+        for paused in (False, True, None):
+            self.assertEqual(self.reading(edited, settled + [queued], ctx=context(paused=paused)),
+                             ("new", "acceptance_lapsed", "nothing", "working"), paused)
+        for runs in (settled, settled + [ended]):
+            self.assertEqual(self.reading(edited, runs), ("new", "acceptance_lapsed", "nothing", "needs_you"))
+        # The other side: without the edit, the issue still wants a verdict, and the ceiling holds it.
+        for paused in (False, True, None):
+            for runs in (settled + [queued], settled):
+                self.assertEqual(self.reading(before, runs, ctx=context(paused=paused)),
+                                 ("held", "run_ceiling", "hold", "needs_you"), (paused, len(runs)))
+
+    def test_the_issues_own_example_wants_no_verdict_once_a_person_removed_ready(self):  # issue 171
+        # As the issue gives it. Its last_writer_action_at cannot happen: the person who removed factory:ready acted
+        # at minute 31, after which none of these Runs would count. It stands as a boundary of what the Kernel reads.
+        f = facts(label_events=ACCEPTED + [labelled(READY, minute=30), unlabelled(READY, minute=31)])
+        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="environment", role="readiness")
+                                      for i in range(self.CEILING - 1)]
+        queued = run(status="queued", minute=40, name="q1")
+        ended = dict(queued, status="completed", conclusion="failure", outcome="environment")
+        for paused in (False, True, None):
+            self.assertEqual(self.reading(f, settled + [queued], ctx=context(paused=paused)),
+                             ("triage", "triage", "nothing", "working"), paused)
+        for runs in (settled, settled + [ended]):
+            self.assertEqual(self.reading(f, runs), ("triage", "ready_removed", "nothing", "needs_you"))
+
+    def test_an_issue_in_new_wants_no_run_while_one_waits(self):
+        spent = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(self.CEILING)]
+        queued = investigated(status="queued", minute=20, name="q1")
+        self.assertEqual(self.reading(facts(), spent + [queued]), ("new", "acceptance_due", "nothing", "working"))
+        self.assertEqual(what(decide(facts(), spent)), ("act", "acceptance_due", "accept"))
+
+    def test_the_run_ceiling_holds_no_issue_that_wants_no_run(self):
+        spent = [failed(INVESTIGATE, 4 + i, "e%d" % i, outcome="environment") for i in range(self.CEILING)]
+        queued = run(status="queued", minute=20, name="q1")
+        verdict = [investigated(), run()] + spent[:-2]
+        statementless = outsiders(label_events=[labelled(ADMIT), labelled(READY, minute=2)])
+        wanting_none = (
+            ("in review", facts(linked=[pr()]), spent, None, ("in_review", "linked_ready", "nothing")),
+            ("a linked draft", facts(linked=[agents(draft=True)]), spent, None,
+             ("in_progress", "linked_draft", "nothing")),
+            ("judged", TRIAGED, verdict, None, ("triage", "judged", "nothing")),
+            ("no statement", statementless, spent, None, ("ready", "no_statement", "nothing")),
+            ("intents unreadable", TRIAGED, spent, config(intents=None), ("triage", "intents_unreadable", "defer")),
+        )
+        for name, f, settled, cfg, alone in wanting_none:
+            self.assertEqual(len(settled), self.CEILING, name)
+            self.assertEqual(self.reading(f, settled, cfg=cfg)[:3], alone, name)
+            state, reason, outcome, attention = self.reading(f, settled + [queued], cfg=cfg)
+            self.assertEqual((state, outcome, attention), (alone[0], "nothing", "working"), name)
+        # The other side: an issue that wants a Run is held at the ceiling while another waits.
+        ready = facts(label_events=READIED_BY_A_PERSON)
+        wanting = (
+            ("an investigation", TRIAGED, spent, investigated(status="queued", minute=20, name="q1")),
+            ("a verdict", TRIAGED, [investigated()] + spent[:-1], queued),
+            ("the opening Run", ready, spent, queued),
+            ("the opening Run, in flight", ready, spent, opening(status="queued")),
+        )
+        for name, f, settled, flying in wanting:
+            self.assertEqual(self.reading(f, settled + [flying]), ("held", "run_ceiling", "hold", "needs_you"), name)
 
 
 class Apply(unittest.TestCase):

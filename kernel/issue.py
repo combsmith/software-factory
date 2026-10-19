@@ -624,6 +624,22 @@ def _wanted(facts, state, reason, evidence, mine, intents):
     return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
 
 
+def _run_wanted(facts, state, reason, evidence, mine, config):
+    """`_wanted`'s answer, read the same with a Run in flight or none: the Run the State calls for, as (role, intent,
+    what else its admission carries), or the Decision that admits none. In review or with a linked draft none is
+    wanted; nor while the Intents cannot be read whole, or two of them share a Role or an App."""
+    if state == IN_REVIEW or reason == "linked_draft":
+        return _decision(facts, state, reason, evidence, t.NOTHING)
+    intents = config["issues"].get("intents")
+    if not readable_intents(intents):
+        return _decision(facts, state, "intents_unreadable", evidence, t.DEFER)
+    if shares_a_role(intents):
+        return _decision(facts, state, "intents_share_a_role", evidence, t.DEFER)
+    if shares_an_app(intents):
+        return _decision(facts, state, "intents_share_an_app", evidence, t.DEFER)
+    return _wanted(facts, state, reason, evidence, mine, intents)
+
+
 def moved_at(facts: dict, runs: list, config: dict, now: str):
     """When the issue last moved, or None if no time can be read (design §4.1, decision 0034).
 
@@ -718,29 +734,22 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         return _decision(facts, state, "writer_unreadable", evidence, t.DEFER)
 
     # A Run in flight admits nothing, and nothing it has written is read until it completes: its comment or its label
-    # would move the Intent on. The brakes' Hold still applies, the one they would have made of each Run in flight,
-    # which is left out of its own count, since it was admitted under the ceiling (decision 0003).
+    # would move the Intent on. The attempts and the Run ceiling are still asked, on their own and not the Pause, about
+    # the Run the State wants, found as with none in flight; the completed Runs alone are counted, since the Run in
+    # flight was admitted under the ceiling. Where no Run is wanted, none is asked (decision 0003).
     limits = config["limits"]
     flight = in_progress(mine)
+    wanted = None if state == NEW else _run_wanted(facts, state, reason, evidence, mine, config)
     if flight:
-        done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]
-        for r in flight:
-            brake = brakes.on_run(_decision, facts, state, evidence, context, r["intent"], done, limits)
-            if brake and brake["outcome"] == t.HOLD:
-                return brake
+        held = None
+        if isinstance(wanted, tuple):
+            done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]
+            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits)
+        if held:
+            return held
         return _decision(facts, state, reason, evidence, t.NOTHING, working=True)
     if state == NEW:
         return _accept(facts, state, reason, evidence, mine, context, config)
-    if state == IN_REVIEW or reason == "linked_draft":
-        return _decision(facts, state, reason, evidence, t.NOTHING)
-    intents = config["issues"].get("intents")
-    if not readable_intents(intents):
-        return _decision(facts, state, "intents_unreadable", evidence, t.DEFER)
-    if shares_a_role(intents):
-        return _decision(facts, state, "intents_share_a_role", evidence, t.DEFER)
-    if shares_an_app(intents):
-        return _decision(facts, state, "intents_share_an_app", evidence, t.DEFER)
-    wanted = _wanted(facts, state, reason, evidence, mine, intents)
     if isinstance(wanted, dict):
         return wanted
     role, intent, carried = wanted

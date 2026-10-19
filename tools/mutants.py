@@ -96,6 +96,11 @@ NAMED_TESTS = (RUNNER + "test_the_tests_a_mutant_names_run_first_and_the_whole_s
 # An issue's State (kernel/issue.py, decision 0028), in a list of its own so that the pull request's work, which adds
 # to MUTANTS below, never touches the same lines. Each is run against tests.test_issue first.
 ISSUE_PY, ISSUE_TESTS = "kernel/issue.py", ("tests.test_issue",)
+# What an issue's Run in flight counts, and the ceilings asked of the Run its State wants; and the exploration of an
+# issue's changes of State, which a mutant may name as a second killer.
+ISSUE_DONE = '            done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]\n'
+ISSUE_CEILINGS = "            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits)\n"
+ISSUE_EXPLORED = "tests.test_transitions.AnyLifecycle.test_an_issue_explored_is_held_to_the_issue_lifecycle"
 ISSUE = [
     # What is read short or cannot be read, before row 1.
     ("an issue's lists read short are trusted", ISSUE_PY,
@@ -533,17 +538,28 @@ ISSUE = [
     ("an issue's Run is not braked", ISSUE_PY,
      "    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)\n"
      "    if brake:\n        return brake\n", "", ISSUE_TESTS),
-    ("a Run in flight hides the brakes' Hold", ISSUE_PY,
-     '            if brake and brake["outcome"] == t.HOLD:\n                return brake\n', "", ISSUE_TESTS),
-    ("the brakes are asked of another Intent than the Run in flight's", ISSUE_PY,
-     'context, r["intent"], done, limits)', "context, INVESTIGATE, done, limits)", ISSUE_TESTS),
-    ("a Run in flight is counted against itself", ISSUE_PY,
-     '        done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]\n',
-     "        done = since_writer(mine, facts)\n", ISSUE_TESTS),
-    ("a Pause is taken for the Hold of a Run in flight", ISSUE_PY,
-     'if brake and brake["outcome"] == t.HOLD:', "if brake:", ISSUE_TESTS),
+    # Issue 171: while a Run is in flight, the ceilings are asked about the Run the State wants (decision 0003).
+    ("an issue's ceilings are asked about the Run in flight", ISSUE_PY,
+     "        if isinstance(wanted, tuple):\n" + ISSUE_DONE + ISSUE_CEILINGS,
+     "        if True:\n" + ISSUE_DONE + ISSUE_CEILINGS.replace("wanted[1]", 'flight[0]["intent"]'),
+     ISSUE_TESTS + (ISSUE_EXPLORED,)),
+    ("the Run ceiling holds an issue that wants no Run while a Run waits", ISSUE_PY,
+     "        if isinstance(wanted, tuple):\n" + ISSUE_DONE + ISSUE_CEILINGS,
+     "        if True:\n" + ISSUE_DONE
+     + ISSUE_CEILINGS.replace("wanted[1]", '(wanted[1] if isinstance(wanted, tuple) else "")'), ISSUE_TESTS),
+    ("an issue's ceilings are asked of another Intent", ISSUE_PY,
+     "wanted[1], done, limits)", "INVESTIGATE, done, limits)", ISSUE_TESTS),
+    ("a Run in flight is counted against itself", ISSUE_PY, ISSUE_DONE,
+     "            done = since_writer(mine, facts)\n", ISSUE_TESTS),
+    ("a Pause is read for a Run in flight", ISSUE_PY, ISSUE_CEILINGS,
+     "            held = brakes.on_run(_decision, facts, state, evidence, context, wanted[1], done, limits)\n",
+     ISSUE_TESTS),
+    ("a Run in flight hides the brakes' Hold", ISSUE_PY, "        if held:\n            return held\n", "",
+     ISSUE_TESTS),
     ("a Run in flight on an issue does not stop another", ISSUE_PY,
-     "    if flight:\n        done =", "    if False:\n        done =", ISSUE_TESTS),
+     "    if flight:\n        held = None\n", "    if False:\n        held = None\n", ISSUE_TESTS),
+    ("an issue in new wants a Run while a Run waits", ISSUE_PY,
+     "wanted = None if state == NEW else _run_wanted(", "wanted = _run_wanted(", ISSUE_TESTS),
     ("an issue's capacity unread is trusted", ISSUE_PY,
      "    if until is not None and not (is_time(until) and is_time(now)):\n", "    if False:\n", ISSUE_TESTS),
     ("the provider's deferral does not defer an issue's Run", ISSUE_PY,
