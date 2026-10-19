@@ -1,0 +1,12 @@
+# Must be rejected. The tick probe's `exit 0` is spared in that one file, held to its hash, and nowhere else.
+name: tick-probe
+on:
+  schedule:
+    - cron: '2,17,32,47 * * * *'
+permissions: {}
+jobs:
+  tick:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: exit 0

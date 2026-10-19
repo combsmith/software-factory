@@ -1,0 +1,20 @@
+# Trial P-8, second half (issue 25): how often a scheduled tick arrives in this repo. It does nothing but exist, so the
+# times its runs started can be read a day later, recorded as trials/P-8.ticks.json and set against W-2 (design §7.3).
+# Its three lines are staggered five minutes apart, each every fifteen minutes, so together every five, the finest a
+# schedule allows (§7.3), and none at minute 0. No file pins the poller's lines yet; these are the ones it is measured on.
+# GitHub refuses a step with neither run: nor uses:, so its one step is `exit 0`: it reads, writes and fetches nothing.
+# tools/check_workflows.py exempts it from the rule `install` alone, by name, and holds it to this text by its hash.
+# It is removed, with its entry there, when the trial is recorded, unless the verdict says to keep watching.
+name: tick-probe
+on:
+  schedule:
+    - cron: '2,17,32,47 * * * *'
+    - cron: '7,22,37,52 * * * *'
+    - cron: '12,27,42,57 * * * *'
+permissions: {}
+jobs:
+  tick:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: exit 0
