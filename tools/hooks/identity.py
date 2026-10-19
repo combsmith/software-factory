@@ -1,6 +1,9 @@
-"""PreToolUse on Bash: a commit, a push or a write to GitHub here is made as the Maintainer, or it is refused.
+"""PreToolUse on Bash: a guard that catches a session's honest mistake early, when a commit, a push or a write to
+GitHub here would not be the Maintainer's. It is a helper, not a rule enforcer: it reads words, not the identity git
+will use, so a spelling built to hide git, gh or `.git` is out of its scope, left to the Stop check, the rulesets and,
+until an identity check off the shell is built (issue 204), the Maintainer's reading of each pull request.
 
-Three identities must be the Maintainer's (§9.12): the commit's author and committer, which come
+Three identities should be the Maintainer's (§9.12): the commit's author and committer, which come
 from git's configuration in each clone, and the account that pushes or writes to GitHub, which comes
 from gh. The Maintainer is in `config/hooks.json`; the machine user is the approver in
 `config/defaults.json`, which approves and does nothing else (decision 0005). The hook reads what is
@@ -40,7 +43,7 @@ loop too long to read is one the hook cannot read (decision 0032). A word is rea
 program that prints its words, and read where another program may run it later; a comment is dropped; $'...' is the text it decodes to; a command the hook cannot split, a ( touching a word among them, is refused
 whatever it names; an alias is read as its value's text in place of its name; a variable the hook reads, in an
 expansion it does not read as plain, may be anything; and wget's -e and tar's --one-top-level name places written.
-This guards against mistakes; the Stop check and the rulesets are the boundary. Run as `python3 -I` on this file; see
+This guards against mistakes; identity is enforced not here but by issue 204's check. Run as `python3 -I` on this file; see
 after_edit.py.
 """
 from __future__ import annotations
@@ -398,8 +401,7 @@ def _evaluated(commands: list, spend, table: dict = None) -> list:
     or given to a program that is not git, gh or one of TEXT_ONLY (trap '$(...)' EXIT). A commit message, a pull
     request's body, grep, echo and printf keep them as text (issue 174). What they run is read with the command's
     aliases (`table`, shell.alias_values) read in it, as _unaliased reads them. Raises ValueError when one cannot be
-    split and, its $'...' decoded and its quotes and backslashes taken out, names git or gh, or its aliases cannot be
-    read."""
+    split and, its quotes and backslashes taken out, names git or gh, or its aliases cannot be read."""
     out = []
     for words, redirections in commands:
         out.append((words, redirections))
@@ -414,7 +416,7 @@ def _evaluated(commands: list, spend, table: dict = None) -> list:
             except ValueError:
                 # Most are text a quote holds, sed's code spans among them: one that cannot be split is refused only
                 # when, its quotes and backslashes taken out, it names git or gh.
-                if shell.GIT_OR_GH.search(re.sub(r"[\\'\"]", "", shell.decoded(script))):
+                if shell.GIT_OR_GH.search(re.sub(r"[\\'\"]", "", script)):
                     raise
                 continue
             try:

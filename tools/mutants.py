@@ -82,7 +82,7 @@ BUDGET_TESTS = (IDENTITY_TESTS + "test_a_reading_that_would_run_on_is_cut_short_
 # Issue 174: a word is read as the shell reads it.
 WORD_TESTS = (IDENTITY_TESTS + "test_a_substitution_a_quote_holds_and_a_comment_are_data",)
 SPLIT_TESTS = (IDENTITY_TESTS + "test_a_command_that_cannot_be_split_is_refused_whatever_it_names",)
-ANSI_TESTS = (IDENTITY_TESTS + "test_ansi_c_quoting_is_read_as_the_shell_decodes_it",)
+ANSI_TESTS = (IDENTITY_TESTS + "test_ansi_c_quoting_holding_a_backslash_is_refused",)
 ALIAS_TEXT_TESTS = (IDENTITY_TESTS + "test_an_alias_is_read_as_its_text_in_place_of_its_name",)
 EXPANSION_TESTS = (IDENTITY_TESTS + "test_a_variable_in_an_expansion_the_hook_does_not_read_may_be_anything",)
 WHOLE_TESTS = (IDENTITY_TESTS + "test_a_listed_writer_is_read_whole",)
@@ -2337,14 +2337,17 @@ MUTANTS = ISSUE + [
      '            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1] if wanted else "", done,'
      ' config["limits"])\n'),
     # Issue 174's second fix round.
-    ("a variable set to $'...' holds its escapes", "tools/hooks/shell.py",
-     "            word.append(decoded)\n", '            word.append("$" + decoded)\n', ANSI_TESTS),
+    ("a variable set to $'...' with a backslash is read, not refused", "tools/hooks/shell.py",
+     "            word.append(text[i + 2:end - 1])\n            started = True\n            i = end\n",
+     "            word.append(text[i + 2:ansi_end(text, i + 2)])\n            started = True\n            i += 2\n",
+     ANSI_TESTS),
     ("a writer's option held in a variable is read as a path", "tools/hooks/identity.py",
      "[written(w, values) for w in raw[start + 1:]]", "raw[start + 1:]", EXPANSION_TESTS),
     ("zsh's flags hide the variable in a ${...}", "tools/hooks/identity.py",
      'r"(?:\\([^()]*\\))*[!#~=^+]*([A-Za-z_]\\w*)"', 'r"[!#]?([A-Za-z_]\\w*)"', EXPANSION_TESTS),
     ("a ( or ) in a ${...} splits the word", "tools/hooks/shell.py",
-     '            if i < braces and (c in PUNCTUATION or text.startswith("$(", i)):\n', "            if False:\n",
+     '            if i < braces and (c in PUNCTUATION or c == "`" or text.startswith("$(", i)):\n',
+     "            if False:\n",
      EXPANSION_TESTS),
     ("a substitution a quote holds is read before the aliases", "tools/hooks/identity.py",
      "    table = {}\n    try:\n        table = shell.alias_values(_quoted(shell.without_heredocs(text)), spend)\n"
@@ -2362,8 +2365,6 @@ MUTANTS = ISSUE + [
     ("an alias in a held script is not read", "tools/hooks/identity.py",
      "                read = _unaliased(read, table, spend=spend) if table else read\n", "                pass\n",
      LATER_TESTS),
-    ("a held script's $'...' is not decoded before git is looked for", "tools/hooks/identity.py",
-     "shell.decoded(script)", "script", LATER_TESTS),
     ("a process substitution's ) is read as a command's end", "tools/hooks/shell.py",
      'opened.append((words, first, word) if text[i - 1:i] in ("<", ">", "$") and i else None)', "opened.append(None)",
      SPLIT_TESTS),
@@ -2386,13 +2387,8 @@ MUTANTS = ISSUE + [
      'not in TEXT_ONLY | {"git", "gh"})', 'not in {"git", "gh"})', LATER_TESTS),
     ("git's words are read for what a quote holds", "tools/hooks/identity.py",
      'not in TEXT_ONLY | {"git", "gh"})', "not in TEXT_ONLY)", LATER_TESTS),
-    ("an octal escape is read past eight bits", "tools/hooks/shell.py",
-     "chr(int(octal, 8) & 0xFF)", "chr(int(octal, 8))", ANSI_TESTS),
-    ("a NUL is read as part of the word", "tools/hooks/shell.py",
-     '            return "".join(out).partition("\\0")[0], i + 1\n', '            return "".join(out), i + 1\n',
-     ANSI_TESTS),
-    ("an escape zsh reads otherwise is read as bash reads it", "tools/hooks/shell.py",
-     "        elif other in ZSH_ONLY:\n", "        elif False:\n", ANSI_TESTS),
+    ("a $'...' that holds a backslash is read", "tools/hooks/shell.py",
+     "            raise ValueError(ANSI_REFUSED)\n", "            i += 1\n", ANSI_TESTS),
     ("a backslash in double quotes is kept before $ and a backtick", "tools/hooks/shell.py",
      "            if quote == '\"' and after in ESCAPED:\n", "            if False:\n", BACKSLASH_TESTS),
     ("a backtick's escaped backtick is kept escaped", "tools/hooks/identity.py",
@@ -2418,11 +2414,11 @@ MUTANTS = ISSUE + [
      "_git_directory(_written(program, words[start + 1:])",
      EXPANSION_TESTS),
     ("a held script that cannot be split is passed though it names git", "tools/hooks/identity.py",
-     "                if shell.GIT_OR_GH.search(re.sub(r\"[\\\\'\\\"]\", \"\", shell.decoded(script))):\n                    raise\n",
+     "                if shell.GIT_OR_GH.search(re.sub(r\"[\\\\'\\\"]\", \"\", script)):\n                    raise\n",
      "",
      LATER_TESTS),
     ("a held script that cannot be split is refused though it names no git", "tools/hooks/identity.py",
-     "                if shell.GIT_OR_GH.search(re.sub(r\"[\\\\'\\\"]\", \"\", shell.decoded(script))):\n",
+     "                if shell.GIT_OR_GH.search(re.sub(r\"[\\\\'\\\"]\", \"\", script)):\n",
      "                if True:\n",
      LATER_TESTS),
     # Issue 174, rulings 1 to 6: a word is read as the shell reads it.
@@ -2439,9 +2435,10 @@ MUTANTS = ISSUE + [
      "    except ValueError as err:\n"
      '        if not re.search(r"(?<![\\w.-])(git|gh)(?![\\w.-])", command):\n            return []\n'
      "        # The command cannot be split into words, so whatever it names", SPLIT_TESTS),
-    ("$'...' is read as $ and a quoted word", "tools/hooks/shell.py",
-     "            if c == \"$\" and text.startswith(\"$'\", i):\n                decoded, i = ansi(text, i + 2)\n",
-     "            if False:\n                decoded, i = ansi(text, i + 2)\n", ANSI_TESTS),
+    ("$'...' is read as a bare $ and a single quote", "tools/hooks/shell.py",
+     "            if c == \"$\" and text.startswith(\"$'\", i):\n                # $'...' with a backslash is refused",
+     "            if False and text.startswith(\"$'\", i):\n                # $'...' with a backslash is refused",
+     ANSI_TESTS),
     ("a ( touching a word splits it", "tools/hooks/shell.py",
      "                if i >= arithmetic and (_touches(text, i) if not starts else not _opens(text, i, starts, words)):\n",
      "                if False:\n", SPLIT_TESTS),

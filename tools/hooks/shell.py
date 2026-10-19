@@ -201,12 +201,9 @@ ENDS = ";&|()\n"
 WORD_ENDS = " \t\r" + ENDS
 # Reserved words after which the next word is a command again: a ( there opens a subshell or an arithmetic command.
 AGAIN = {"if", "then", "else", "elif", "while", "until", "do", "!", "{", "time", "for"}
-# The escapes of $'...' that bash keeps and zsh takes the backslash out of, which may then spell .git (issue 174).
-ZSH_ONLY = set(".giGIT/")
-# A backslash's escape in $'...', as bash and zsh decode it.
-ANSI = re.compile(r"\\(?:([abeEfnrtv\\'\"?])|([0-7]{1,3})|x([0-9A-Fa-f]{1,2})|u([0-9A-Fa-f]{1,4})|U([0-9A-Fa-f]{1,8})|"
-                  r"c(.)|(.))", re.S)
-ANSI_LETTERS = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "v": "\v"}
+# How a $'...' with a backslash is refused: the hook decodes none, so bash and zsh cannot read it differently from the
+# hook (issue 174, ruling R1). Its message says to write any message to a file.
+ANSI_REFUSED = "a $'...' holds a backslash, which the hook does not decode; write any message to a file and use -F"
 
 
 def unmarked(word: str) -> str:
@@ -214,63 +211,16 @@ def unmarked(word: str) -> str:
     return word.translate(UNLIVE)
 
 
-def ansi(text: str, i: int) -> tuple:
-    """(the text a $'...' whose body starts at text[i] decodes to, the index past its closing quote), as bash decodes
-    it: \\xHH, \\uHHHH, \\NNN (to eight bits), \\cX, \\e, \\' and the rest; an escape it does not know keeps its
-    backslash; and a NUL ends the word, as it ends a C string. Raises ValueError when it never closes, and where an
-    escape bash keeps and zsh takes the backslash out of may spell .git under zsh (ZSH_ONLY)."""
-    out = []
-    while i < len(text):
-        c = text[i]
-        if c == "'":
-            return "".join(out).partition("\0")[0], i + 1
-        if c != "\\":
-            out.append(c)
-            i += 1
-            continue
-        found = ANSI.match(text, i)
-        if found is None:
-            raise ValueError("No escaped character")
-        letter, octal, hexa, short, long, control, other = found.groups()
-        if letter:
-            out.append(ANSI_LETTERS.get(letter, letter))
-        elif octal:
-            out.append(chr(int(octal, 8) & 0xFF))       # \564 is t: an octal byte has eight bits
-        elif hexa or short or long:
-            out.append(chr(int(hexa or short or long, 16)))
-        elif control:
-            out.append("\x7f" if control == "?" else chr(ord(control) & 0x1F))
-        elif other in ZSH_ONLY:
-            raise ValueError("$'...' holds an escape bash and zsh read differently")
-        else:
-            out.append("\\" + other)
-        i = found.end()
-    raise ValueError("No closing quotation")
-
-
-def decoded(text: str) -> str:
-    """`text` with each $'...' the text it decodes to (ansi), wherever it stands. Raises ValueError as ansi does."""
-    out, i = [], 0
-    while i < len(text):
-        if text.startswith("$'", i):
-            text_of, i = ansi(text, i + 2)
-            out.append(text_of)
-            continue
-        out.append(text[i])
-        i += 1
-    return "".join(out)
-
-
-def ansi_end(text: str, i: int):
-    """The index past the closing quote of a $'...' whose body starts at text[i], or None when it never closes."""
+def ansi_end(text: str, i: int) -> int:
+    """The index past the closing quote of a $'...' whose body starts at text[i]. Raises ValueError when the body holds
+    a backslash (ANSI_REFUSED: the hook decodes none, ruling R1) or when it never closes."""
     while i < len(text):
         if text[i] == "\\":
-            i += 2
-        elif text[i] == "'":
+            raise ValueError(ANSI_REFUSED)
+        if text[i] == "'":
             return i + 1
-        else:
-            i += 1
-    return None
+        i += 1
+    raise ValueError("No closing quotation")
 
 
 def _literal(text: str) -> str:
@@ -332,16 +282,18 @@ def _held(text: str) -> str:
                 end = text.find("\n", i)
                 i = len(text) if end < 0 else end
                 continue
-            if i < braces and (c in PUNCTUATION or text.startswith("$(", i)):
-                # In a ${...} each is part of the word, zsh's ${(L)f} too, and a substitution in it runs.
+            if i < braces and (c in PUNCTUATION or c == "`" or text.startswith("$(", i)):
+                # In a ${...} each is part of the word, zsh's ${(L)f} too, and a substitution in it runs: ${x:-`cmd`}.
                 out.append(LIVE[c] if c == "`" or c == "$" else HOLDS[c])
                 starts, comments, word = False, False, word + c
                 i += 1
                 continue
             if c == "$" and text.startswith("$'", i):
-                decoded, i = ansi(text, i + 2)
-                out.append(_literal(decoded))
+                # $'...' with a backslash is refused (ansi_end, ruling R1); with none it is a single-quoted word.
+                end = ansi_end(text, i + 2)
+                out.append(_literal(text[i + 2:end - 1]))
                 starts, comments, word = False, False, word + "'"
+                i = end
                 continue
             if c == "$" and text.startswith('$"', i):
                 i += 1
@@ -616,10 +568,11 @@ def segments(text: str) -> list:
             started = True
             i += 2
             continue
-        if text.startswith("$'", i):    # $'...' is the text it decodes to (issue 174)
-            decoded, i = ansi(text, i + 2)
-            word.append(decoded)
+        if text.startswith("$'", i):    # $'...' with a backslash is refused (ansi_end); with none it is single-quoted
+            end = ansi_end(text, i + 2)
+            word.append(text[i + 2:end - 1])
             started = True
+            i = end
             continue
         if c in "'\"":
             quote = c

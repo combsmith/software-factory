@@ -1015,22 +1015,22 @@ class Identity(unittest.TestCase):
             self.assertEqual(self.codes(command), "", command)
         self.assertIn("commit_identity_not_maintainer", self.refused("echo $(( $(git commit -m x) + 1 ))", self.bad))
 
-    def test_ansi_c_quoting_is_read_as_the_shell_decodes_it(self):
-        # Issue 174's ruling 3: $'...' is the text it decodes to, and $"..." is "...".
+    def test_ansi_c_quoting_holding_a_backslash_is_refused(self):
+        # Issue 174's ruling R1: the hook decodes no $'...', so bash and zsh cannot read one differently from it. A
+        # $'...' that holds a backslash is one the hook cannot split; a message with an escape goes in a file (-F).
         for command in ("cp /tmp/x $'.gi\\x74'/hooks/x; git push", "cp /tmp/x $'\\056git'/hooks/x; git push",
-                        "cp /tmp/x $'.g\\u0069t'/hooks/x; git push", 'cp /tmp/x $".git"/hooks/x; git push',
-                        "cp /tmp/x $'.gi\\'t'/hooks/x $'\\x2egit'; git push",
-                        # An octal escape is one byte, and a NUL ends the word.
-                        "cp /tmp/x $'.gi\\564'/hooks/x; git push", "cp /tmp/x $'\\456git'/hooks/x; git push",
-                        "cp /tmp/x $'.git\\0zz'/hooks/x; git push", "cp /tmp/x $'.git\\x00/zz'; git push"):
-            self.assertIn("git_directory_written", self.refused(command), command)
-        # An escape bash keeps and zsh takes the backslash out of, which may spell .git, cannot be read.
-        for command in ("cp /tmp/x $'.\\git'/hooks/x; git push", "cp /tmp/x $'\\.git/x'; git push"):
+                        "cp /tmp/x $'.gi\\564'/hooks/x; git push", "cp /tmp/x $'.git\\0zz'/hooks/x; git push",
+                        "cp /tmp/x $'.\\git'/hooks/x; git push", "x=$'\\x67it'; $x commit -m x",
+                        # Honest messages with an escape are refused too, at the cost the Maintainer accepted.
+                        "git commit -m $'one\\n\\ntwo'", "printf $'%s\\n' a; git push", "git commit -m $'it\\'s done'"):
             self.assertIn("command_unreadable", self.refused(command), command)
-        # A variable set to $'...' holds the text it decodes to.
-        self.assertIn("commit_identity_not_maintainer", self.refused("x=$'\\x67it'; $x commit -m x", self.bad))
-        for command in ("git commit -m $'it\\'s done'", "git commit -m $'one\\n\\ntwo'", "printf $'%s\\n' a; git push",
-                        "git commit -m $'a (b) \\x60c\\x60 $(d)'", "echo $'\\cA\\e\\z\\101'; git push"):
+        # A $'...' with no backslash is a single-quoted word, and $"..." is "...", in a word and set in a variable.
+        for command in ("cp /tmp/x $'.git'/hooks/x; git push", 'cp /tmp/x $".git"/hooks/x; git push',
+                        "f=$'.git'; cp /tmp/x $f/hooks/x; git push"):
+            self.assertIn("git_directory_written", self.refused(command), command)
+        self.assertIn("commit_identity_not_maintainer", self.refused("x=$'git'; $x commit -m x", self.bad))
+        for command in ("git commit -m $'a plain title'", "echo $'no escape here'; git push",
+                        'git commit -m "$(printf \'%s\' $\'plain\')"'):
             self.assertEqual(self.codes(command), "", command)
 
     def test_an_alias_is_read_as_its_text_in_place_of_its_name(self):
@@ -1090,9 +1090,9 @@ class Identity(unittest.TestCase):
         # Issue 174's rulings 1 to 6, and the review rule 9(b): ordinary commands, shaped as a session writes them,
         # pass. Every later rule adds its must-pass cases here.
         for command in (
-                # A commit message by -m: code spans in double quotes, $'...' and parentheses.
+                # A commit message by -m: code spans in double quotes, a plain $'...' and parentheses.
                 'git commit -m "Read \\`x\\` (and \\`y\\`) before \\`git push\\`"',
-                "git commit -m $'Title (x)\\n\\nBody with `code` and $(none)'",
+                "git commit -m $'Title (x) plain'",
                 'git commit -m "fix(hooks): read \\`\\$x\\` as data" -m "Second (paragraph)."',
                 # By -F from a file and from a here-document, and by a here-document's substitution.
                 "git commit -F /tmp/msg", "git commit -F - <<'EOF'\nTitle (x)\n\nRun `make` then $(git push)\nEOF",
@@ -1114,9 +1114,9 @@ class Identity(unittest.TestCase):
 
     @wall_clock
     def test_the_readings_issue_174_adds_run_in_linear_time(self):
-        # Each new reading is one pass: a comment, $'...', escaped backticks, ( and ${...} again and again.
+        # Each new reading is one pass: a comment, a $'...' refused at its backslash, escaped backticks, ( and ${...}.
         for command, code in (("# " + "x" * 200000 + "\ngit commit -m x", ""),
-                              ("git commit -m $'" + "\\x41\\'" * 20000 + "'", ""),
+                              ("git commit -m $'" + "\\x41\\'" * 20000 + "'", "command_unreadable"),
                               ('git commit -m "' + "\\`x\\` " * 20000 + '"', ""),
                               ("arr=(" + "a " * 20000 + "); f() { :; }; echo $((1)); git push", ""),
                               ("for f in a; do cp /tmp/x " + "${f%}" * 5000 + "; done; git push",
