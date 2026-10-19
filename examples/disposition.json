@@ -1,0 +1,7 @@
+{
+  "finding": "f_9c1e",
+  "decision": {
+    "result": "rejected",
+    "reason": "fix_incomplete"
+  }
+}

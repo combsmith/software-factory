@@ -65,6 +65,8 @@ PUSH_SETTING_TESTS = (IDENTITY_TESTS + "test_push_settings_given_in_the_command_
 REDEFINE_TESTS = (IDENTITY_TESTS + "test_a_git_the_command_may_redefine_is_refused",)
 ALIAS_TESTS = (IDENTITY_TESTS + "test_an_alias_whose_value_runs_git_or_gh_is_refused",)
 FEEDER_TESTS = (IDENTITY_TESTS + "test_a_git_fed_its_command_by_xargs_is_refused",)
+SCHEMA_TESTS = "tests.test_tools.Validator."
+CODES_TESTS = ("tests.test_tools.Examples.test_a_string_that_is_neither_a_code_nor_a_body_is_caught",)
 GIT_DIRECTORY_TESTS = (IDENTITY_TESTS + "test_a_write_into_gits_directory_is_refused_where_the_command_commits_or_pushes",)
 LOOP_TESTS = (IDENTITY_TESTS + "test_a_loops_word_list_is_data_and_its_body_is_read",)
 # Decision 0032: a write resolved where and when the shell makes it, and a reading cut short refused.
@@ -1479,6 +1481,43 @@ MUTANTS = ISSUE + [
      '    if "acceptance" not in facts:\n        return None\n'),
     ("an item given twice is accepted where items are unique", "tools/jsonschema_lite.py",
      'if schema.get("uniqueItems") is True and ', "if False and "),
+    # Decision 0038: a Result asks and names no one; what one Run carries holds codes.
+    ("a referenced schema is read against the referrer's root", "tools/jsonschema_lite.py",
+     "        root = schemas[kind]        # its own references are read in it, not in the referrer\n", "",
+     (SCHEMA_TESTS + "test_a_reference_to_another_schema_is_followed",)),
+    ("a reference to a schema not given accepts anything", "tools/jsonschema_lite.py",
+     '            raise SchemaError("%s refers to a schema that was not given" % ref)\n',
+     "            return {}, root\n", (SCHEMA_TESTS + "test_a_reference_to_a_schema_not_given_is_refused",)),
+    ("a reference that comes round to itself recurses without bound", "tools/jsonschema_lite.py",
+     "        if id(target) in chain:\n", "        if False:\n",
+     (SCHEMA_TESTS + "test_a_reference_that_comes_round_to_itself_is_refused",)),
+    ("a keyword beside a reference is read as a promise", "tools/jsonschema_lite.py",
+     "        if beside:\n", "        if False:\n",
+     (SCHEMA_TESTS + "test_a_reference_with_keywords_beside_it_is_refused",)),
+    ("a free string in a Run's schema passes", "tools/check_examples.py",
+     '    if strings and not ("enum" in schema or "const" in schema or _anchored(schema.get("pattern"))):\n',
+     "    if False:\n", CODES_TESTS),
+    ("a reference the walk cannot follow is passed over", "tools/check_examples.py",
+     '            return ["schema %s cannot be followed at %s: %s" % (kind, path, err)]\n', "            return []\n",
+     CODES_TESTS),
+    ("a reference cycle in a branch no example takes is passed over", "tools/check_examples.py",
+     "        if id(target) in active:\n", "        if False:\n", CODES_TESTS),
+    ("a keyword beside a reference in a branch no example takes is passed over", "tools/check_examples.py",
+     '            return ["schema %s has %s beside a $ref at %s; a $ref stands alone" % (kind, sorted(beside), path)]\n',
+     "            pass\n", CODES_TESTS),
+    ("a pattern with no opening anchor is anchored", "tools/check_examples.py",
+     ' or not pattern.startswith("^")', "", CODES_TESTS),
+    ("a pattern with no closing anchor is anchored", "tools/check_examples.py",
+     ' or not pattern.endswith("$")', "", CODES_TESTS),
+    ("a pattern with an alternative outside the anchors is anchored", "tools/check_examples.py",
+     '        elif c == "|" and depth == 0:\n            return False\n', "", CODES_TESTS),
+    ("a pattern that ends in an escaped dollar is anchored", "tools/check_examples.py",
+     "            if i == len(pattern) - 2:\n                return False", "            if False:\n                return False",
+     CODES_TESTS),
+    ("a raised Finding may carry a category nobody owns", "tools/check_authority.py",
+     '    for field, held in (("category", known), ("severity", set(finding["properties"]["severity"]["enum"]))):\n',
+     "    for field, held in ():\n",
+     ("tests.test_tools.Authority.test_a_raised_finding_with_a_category_nobody_owns_is_caught",)),
     ("an acceptance contract read short is trusted", "kernel/derive.py",
      "[name for name in t.READ_IN_FULL if flags.get(name) is not True]",
      '[name for name in t.READ_IN_FULL if name != "acceptance" and flags.get(name) is not True]'),

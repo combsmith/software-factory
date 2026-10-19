@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "run-name/1: the name the Controller gives a Run's workflow run, which is what says which item a counted Run is on: repo and item, Intent, Role, the full content id and the Run id, each copied from the Task.",
+  "type": "string",
+  "pattern": "^sf [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]* [a-z][a-z-]*[a-z] [a-z][a-z-]*[a-z] sha256:[0-9a-f]{4,64} r_[0-9A-Z]{6,26}$"
+}

@@ -31,24 +31,49 @@ def _is(value, name: str) -> bool:
     return isinstance(value, TYPES[name])
 
 
-def _resolve(ref: str, root: dict) -> dict:
+FILE = re.compile(r"^([a-z][a-z0-9-]*)\.schema\.json(#.*)?$")
+
+
+def _resolve(ref: str, root: dict, schemas: dict = None) -> tuple:
+    """(the schema `ref` names, the root its own references are read against).
+
+    `#/$defs/<name>` is read in `root`. `<kind>.schema.json`, with `#/$defs/<name>` or nothing after it, is read in
+    `schemas`, the mapping of kind to schema the caller passed, and that schema is the root of what it references.
+    A reference with no mapping, or to a kind the mapping lacks, is a SchemaError: nothing is read from a file.
+    """
+    named = FILE.match(ref)
+    if named:
+        kind, fragment = named.group(1), named.group(2) or "#"
+        if schemas is None or kind not in schemas:
+            raise SchemaError("%s refers to a schema that was not given" % ref)
+        root = schemas[kind]        # its own references are read in it, not in the referrer
+        if fragment == "#":
+            return root, root
+        ref = fragment
     if not ref.startswith("#/$defs/"):
-        raise SchemaError("only local $defs references are supported: %s" % ref)
+        raise SchemaError("only $defs references, local or by file, are supported: %s" % ref)
     name = ref[len("#/$defs/"):]
     try:
-        return root["$defs"][name]
-    except KeyError:
+        return root["$defs"][name], root
+    except (KeyError, TypeError):
         raise SchemaError("unresolved reference: %s" % ref)
 
 
-def validate(value, schema: dict, root: dict = None, path: str = "$") -> list:
-    """Return a list of error strings; empty means valid."""
+def validate(value, schema: dict, root: dict = None, path: str = "$", schemas: dict = None, chain: tuple = ()) -> list:
+    """Return a list of error strings; empty means valid. `schemas` maps a kind to the schema a `$ref` by file names.
+    `chain` is the references followed so far at this value, so that a reference that comes round to itself is refused."""
     root = schema if root is None else root
     unknown = set(schema) - KEYWORDS - ANNOTATIONS
     if unknown:
         raise SchemaError("unsupported keyword(s) at %s: %s" % (path, sorted(unknown)))
     if "$ref" in schema:
-        return validate(value, _resolve(schema["$ref"], root), root, path)
+        beside = set(schema) - ANNOTATIONS - {"$ref"}
+        if beside:
+            raise SchemaError("a $ref stands alone, and at %s it has %s beside it" % (path, sorted(beside)))
+        target, root = _resolve(schema["$ref"], root, schemas)
+        if id(target) in chain:
+            raise SchemaError("%s comes round to itself at %s" % (schema["$ref"], path))
+        return validate(value, target, root, path, schemas, chain + (id(target),))
 
     errors = []
     if "type" in schema:
@@ -76,7 +101,7 @@ def validate(value, schema: dict, root: dict = None, path: str = "$") -> list:
             errors.append("%s: an item is given twice" % path)
         if "items" in schema:
             for i, item in enumerate(value):
-                errors += validate(item, schema["items"], root, "%s[%d]" % (path, i))
+                errors += validate(item, schema["items"], root, "%s[%d]" % (path, i), schemas)
     if isinstance(value, dict):
         props = schema.get("properties", {})
         for name in schema.get("required", []):
@@ -85,9 +110,9 @@ def validate(value, schema: dict, root: dict = None, path: str = "$") -> list:
         extra = schema.get("additionalProperties", True)
         for name, item in value.items():
             if name in props:
-                errors += validate(item, props[name], root, "%s.%s" % (path, name))
+                errors += validate(item, props[name], root, "%s.%s" % (path, name), schemas)
             elif extra is False:
                 errors.append("%s: unexpected %s" % (path, name))
             elif isinstance(extra, dict):
-                errors += validate(item, extra, root, "%s.%s" % (path, name))
+                errors += validate(item, extra, root, "%s.%s" % (path, name), schemas)
     return errors

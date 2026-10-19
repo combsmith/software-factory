@@ -186,6 +186,59 @@ class Validator(unittest.TestCase):
         self.assertEqual(validate("empty_diff", code), [])
         self.assertTrue(validate("empty_diff\n", code))
 
+    def test_a_reference_to_another_schema_is_followed(self):  # decision 0038
+        part = {"type": "object", "additionalProperties": False, "required": ["code"],
+                "properties": {"code": {"$ref": "#/$defs/code"}},
+                "$defs": {"code": {"type": "string", "pattern": "^[a-z_]+$"}, "kind": {"enum": ["a", "b"]}}}
+        # The referrer has $defs of the same names and other shapes: a reference read against the wrong root shows.
+        whole = {"type": "object", "additionalProperties": False,
+                 "properties": {"part": {"$ref": "part.schema.json"}, "kind": {"$ref": "part.schema.json#/$defs/kind"}},
+                 "$defs": {"code": {"type": "string", "pattern": "^[A-Z]+$"}, "kind": {"enum": ["c"]}}}
+        schemas = {"part": part, "whole": whole}
+        self.assertEqual(validate({"part": {"code": "fix_incomplete"}, "kind": "a"}, whole, schemas=schemas), [])
+        self.assertEqual(validate({"part": {"code": "FIX"}}, whole, schemas=schemas),
+                         ["$.part.code: does not match ^[a-z_]+$"])
+        self.assertEqual(validate({"kind": "c"}, whole, schemas=schemas), ["$.kind: 'c' is not one of ['a', 'b']"])
+        self.assertEqual(validate({"part": {"code": "fix_incomplete", "by": "x"}}, whole, schemas=schemas),
+                         ["$.part: unexpected by"])
+
+    def test_a_reference_to_a_schema_not_given_is_refused(self):  # decision 0038
+        by_file = {"type": "object", "properties": {"a": {"$ref": "part.schema.json"}}, "additionalProperties": False}
+        with self.assertRaises(SchemaError):
+            validate({"a": {}}, by_file)
+        with self.assertRaises(SchemaError):
+            validate({"a": {}}, by_file, schemas={"other": {"type": "object", "additionalProperties": False}})
+        with self.assertRaises(SchemaError):
+            validate({}, {"$ref": "part.schema.json#/$defs/x"}, schemas={"part": {"$defs": {}}})
+        with self.assertRaises(SchemaError):
+            validate({}, {"$ref": "../part.schema.json"}, schemas={"part": {}})
+        # A mapping that has it, by file or by fragment, is followed; nothing is read from disk for it.
+        given = {"part": {"type": "object", "additionalProperties": False, "$defs": {"x": {"const": 1}}}}
+        self.assertEqual(validate({"a": {}}, by_file, schemas=given), [])
+        self.assertEqual(validate(1, {"$ref": "part.schema.json#/$defs/x"}, schemas=given), [])
+
+    def test_a_reference_that_comes_round_to_itself_is_refused(self):  # decision 0038
+        # A cycle of references consumes no value, so it would recurse without bound: it is refused as a SchemaError,
+        # not left to crash. A reference reached again under a deeper value is not a cycle.
+        schemas = {"a": {"$ref": "b.schema.json"}, "b": {"$ref": "a.schema.json"}}
+        with self.assertRaises(SchemaError):
+            validate({}, schemas["a"], schemas=schemas)
+        local = {"$defs": {"x": {"$ref": "#/$defs/x"}}, "$ref": "#/$defs/x"}
+        with self.assertRaises(SchemaError):
+            validate(1, local)
+        nested = {"type": "array", "items": {"$ref": "#/$defs/n"},
+                  "$defs": {"n": {"type": "array", "items": {"$ref": "#/$defs/n"}}}}
+        self.assertEqual(validate([[[]]], nested), [])
+        self.assertTrue(validate([[1]], nested))
+
+    def test_a_reference_with_keywords_beside_it_is_refused(self):  # decision 0038
+        # The validator reads a $ref and nothing beside it, so a keyword beside one would be a promise nothing enforces.
+        schema = {"$ref": "#/$defs/s", "enum": ["only"], "$defs": {"s": {"type": "string"}}}
+        with self.assertRaises(SchemaError):
+            validate("anything", schema)
+        self.assertEqual(validate("anything", {"$ref": "#/$defs/s", "title": "an annotation is not a keyword",
+                                               "$defs": {"s": {"type": "string"}}}), [])
+
     def test_a_schema_that_accepts_unknown_fields_is_caught(self):
         self.assertEqual(check_examples._open({"type": "object", "properties": {"a": {"type": "object"}}}),
                          ["$", "$.properties.a"])
@@ -225,6 +278,68 @@ class Examples(unittest.TestCase):
                                                          ".json": whole})), "was accepted, and must be rejected"))
         problems = check_examples.run(clone({"examples/finding.json": "{}"}))
         self.assertTrue(caught(problems, "coverage.json: $: uncovered PR-3"))
+
+    def test_a_string_that_is_neither_a_code_nor_a_body_is_caught(self):  # decision 0038
+        # What one Run carries holds codes: a bare string, or a pattern not anchored at both ends, is text. The walk is
+        # asked directly, since every mutant runs the whole suite; the check is run from its front door once.
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
+                   for p in (ROOT / "schemas").glob("*.schema.json")}
+
+        def free(kind: str, schema: dict) -> list:
+            return check_examples._free(schema, dict(schemas, **{kind: schema}), schema, kind, "$", set())
+
+        def disposition(**fields) -> dict:
+            bare = copy.deepcopy(schemas["disposition"])
+            for name, value in fields.items():
+                (bare["properties"]["decision"]["properties"] if name == "reason" else bare["properties"])[name] = value
+            return bare
+
+        # A pattern anchored only in its writing is not anchored: an alternative outside the anchors, or an escaped $.
+        for loose in ({"type": "string"}, {"type": "string", "pattern": "[a-z_]+"}, {"type": ["string", "null"]}, {},
+                      {"type": "string", "pattern": "^fixed$|b$"}, {"type": "string", "pattern": "^[a-z]+\\$"}):
+            self.assertTrue(caught(free("disposition", disposition(reason=loose)),
+                                   "schema disposition admits text at $.decision.reason"), loose)
+        problems = check_examples.run(clone({"schemas/disposition.schema.json":
+                                             json.dumps(disposition(reason={"type": "string"}))}))
+        self.assertTrue(caught(problems, "schema disposition admits text at $.decision.reason"))
+        # A string in a schema a Run's schema reaches by reference is held the same way.
+        coverage = copy.deepcopy(schemas["coverage"])
+        del coverage["items"]["properties"]["reason"]["pattern"]
+        result = schemas["result"]
+        problems = check_examples._free(result, dict(schemas, coverage=coverage), result, "result", "$", set())
+        self.assertTrue(caught(problems, "schema coverage admits text at $.coverage[].reason"))
+        # A property named body is text, and passes: the Effect's comments, annotations and review body are.
+        for kind in check_examples.CODES_ONLY:
+            self.assertEqual(free(kind, schemas[kind]), [], kind)
+        self.assertEqual(check_examples._free({"type": "object", "additionalProperties": False,
+                                               "properties": {"body": {"type": "string"}}}, {}, {}, "x", "$", set()), [])
+        # A reference the walk cannot follow is a problem too: validate() follows one only where a value reaches it.
+        # So are a reference that comes round to itself, and a keyword beside one, in a branch no example takes.
+        self.assertTrue(caught(free("disposition", disposition(note={"$ref": "nope.schema.json"})),
+                               "schema disposition cannot be followed at $.note"))
+        looped = disposition(note={"$ref": "#/$defs/loop"})
+        looped["$defs"] = {"loop": {"$ref": "#/$defs/loop"}}
+        self.assertTrue(caught(free("disposition", looped), "schema disposition comes round to itself at $.note"))
+        self.assertTrue(caught(free("disposition", disposition(note={"$ref": "effect.schema.json", "enum": ["only"]})),
+                               "schema disposition has ['enum'] beside a $ref at $.note"))
+        for held in ("^(item|PRRT_[A-Za-z0-9_-]+)$", "^[^\\s]+$", "^a\\|b$", "^[|$]+$", "^(a|(b|c))$"):
+            self.assertTrue(check_examples._anchored(held), held)
+        for loose in ("^fixed$|b$", "^[a-z]+\\$", "^a|b$", "a$", "^a", "^(a|b)$|^c$", None, 3):
+            self.assertFalse(check_examples._anchored(loose), loose)
+
+    def test_each_effect_type_is_requested_by_its_own_list(self):  # decision 0038
+        # With no oneOf, one list for each type is the only shape in which "a resolve_thread with no thread" is refused.
+        effect = json.loads((ROOT / "schemas" / "effect.schema.json").read_text())
+        self.assertEqual(sorted(effect["$defs"]["type"]["enum"]), sorted(effect["properties"]))
+        self.assertEqual(effect["required"] if "required" in effect else [], [])
+        for name, listed in sorted(effect["properties"].items()):
+            self.assertEqual(listed["type"], "array", name)
+            self.assertIs(listed["items"]["additionalProperties"], False, name)
+            self.assertIn("id", listed["items"]["required"], name)
+        # The Controller's acts are never a Result's Effects, and a review carries no event: approval is the act Run's.
+        for act in ("add_label", "remove_label", "assign", "enqueue_merge", "dequeue_merge"):
+            self.assertNotIn(act, effect["properties"])
+        self.assertNotIn("event", effect["properties"]["submit_review"]["items"]["properties"])
 
     def test_only_success_can_pass_a_check(self):  # I-27, L-07
         # The configuration may say what a conclusion means, but never that one with no verdict has passed.
@@ -481,6 +596,22 @@ class Authority(unittest.TestCase):
         # A schema with no category on a thread is a problem reported, not one raised.
         del facts["properties"]["threads"]["items"]["properties"]["category"]
         self.assertTrue(caught(check_authority.run(self.table, facts=facts), "a thread in the facts carries no category"))
+
+    def test_a_raised_finding_with_a_category_nobody_owns_is_caught(self):  # decision 0038
+        result = json.loads((ROOT / "schemas" / "result.schema.json").read_text())
+        raised = result["$defs"]["raised"]["properties"]
+        raised["category"]["enum"].remove("security")
+        raised["category"]["enum"].append("style")
+        raised["severity"]["enum"].append("trivial")
+        problems = check_authority.run(self.table, result=result)
+        self.assertTrue(caught(problems, "a raised Finding may carry the category style, and no Finding record can"))
+        self.assertTrue(caught(problems, "a Finding record may carry the category security, and no raised Finding can"))
+        self.assertTrue(caught(problems, "a raised Finding may carry the severity trivial, and no Finding record can"))
+        del raised["category"]["enum"]
+        del raised["severity"]
+        problems = check_authority.run(self.table, result=result)
+        self.assertTrue(caught(problems, "a raised Finding in a Result carries no category"))
+        self.assertTrue(caught(problems, "a raised Finding in a Result carries no severity"))
 
     def test_the_kernel_reads_the_categories_and_severities_a_finding_carries(self):
         for name, value in (("CATEGORIES", terms.CATEGORIES[1:]), ("SEVERITIES", terms.SEVERITIES + ("critical",))):
