@@ -47,7 +47,7 @@ CDPATH set in the command; any other cd (behind a keyword or a prefix, in a pipe
 body, after ||) loses the directory, so a commit, a push or a relative write after it is directory_unreadable. A cd
 in a subshell, a substitution or a shell's -c script is that process's own. cd - after a placed cd goes back to where
 the command stood. In a command that commits or pushes, a program the hook does not read may write each word it is
-given, and where it stands; one of DATA_ONLY writes nothing (decision 0039). A word is read as the shell reads it
+given, and where it stands; one of DATA_ONLY writes nothing (decision 0040). A word is read as the shell reads it
 (decision 0032's Boundaries, issue 174): a substitution a single quote or a backslash holds is text to git, gh and a
 program that prints its words, and read where another program may run it later; a comment is dropped; a $'...'
 holding a backslash is refused on sight, since the hook decodes none; a command the hook cannot split, a ( touching a
@@ -249,7 +249,7 @@ PATH_WRITERS = {
 }
 HERE = "."      # where a writer that names no output writes: the directory it stands in
 # Programs whose words are data, in a command that commits or pushes: they write no file. Every other program the hook
-# does not read may write each word it is given, and where it stands (decision 0039). A closed list: a false refusal
+# does not read may write each word it is given, and where it stands (decision 0040). A closed list: a false refusal
 # by a reader is fixed by adding the reader here.
 DATA_ONLY = (TEXT_ONLY - {"sort", "uniq"}) | {
     "[[", ":", "stat", "du", "file", "realpath", "readlink", "basename", "dirname", "od", "strings", "cmp", "fd",
@@ -261,7 +261,7 @@ DATA_ONLY = (TEXT_ONLY - {"sort", "uniq"}) | {
 # find's output options, each a word of its own: the next word is a place written; every other word of find's is data.
 # tree's -o is read by PATH_WRITERS, attached or bundled as getopt reads it.
 FIND_OUTPUTS = {"find": {"-fprint", "-fprint0", "-fls", "-fprintf"}}
-# Where a command stands is read through cd, pushd and popd (decisions 0032 and 0039).
+# Where a command stands is read through cd, pushd and popd (decisions 0032 and 0040).
 CD_WORDS = ("cd", "pushd", "popd")
 CDPATH = frozenset({"CDPATH", "cdpath"})
 CD_OPTIONS = {"cd": set("LPe@qs"), "pushd": set("nq"), "popd": set("nq")}
@@ -272,7 +272,7 @@ STDOUT_DASH = {"curl": {"--output-dir"}, "wget": {"-P", "--directory-prefix"}}
 # tar by its other names, and its modes: which of its places it writes depends on them (_tar).
 TARS = {"tar", "gtar", "bsdtar"}
 PATH_WRITERS.update({name: PATH_WRITERS["tar"] for name in TARS})
-# tree writes its listing to -o's file alone; its operands and patterns are data (decision 0039).
+# tree writes its listing to -o's file alone; its operands and patterns are data (decision 0040).
 PATH_WRITERS["tree"] = ("none", {"-L", "-P", "-I", "-H", "-T", "--filelimit", "--charset", "--sort", "--timefmt",
                                   "--infofile", "--gitfile", "--fromfile", "--metafirst"}, {"-o"}, None)
 TAR_EXTRACTS = {"-x", "--extract", "--get"}
@@ -292,7 +292,7 @@ TAR_BSD_VALUED = {"-b", "--block-size", "-I", "-T", "--files-from", "-X", "--exc
 # is the script, so that the first operand is a file and not the script.
 IN_PLACE = {"sed": ({"-e", "--expression", "-f", "--file", "-l", "--line-length"}, {"-e", "--expression", "-f", "--file"}),
             "perl": ({"-e", "-E", "-I", "-l", "-0"}, {"-e", "-E"})}
-# awk reads its operands, and gawk's -i inplace rewrites them (decision 0039): the same reading as sed's -i.
+# awk reads its operands, and gawk's -i inplace rewrites them (decision 0040): the same reading as sed's -i.
 IN_PLACE.update({name: ({"-f", "--file", "-v", "--assign", "-F", "--field-separator", "-i", "--include", "-l",
                          "--load", "-e", "--source"}, {"-f", "--file", "-e", "--source"})
                  for name in ("awk", "gawk", "mawk", "nawk")})
@@ -410,7 +410,7 @@ def _opened(words: list, depth: int) -> int:
 
 
 def _placed(commands: list, index: int, words: list, outer: int, cdpath: bool) -> bool:
-    """Whether the hook can place the cd, pushd or popd at commands[index] exactly (decision 0039): it is at the top
+    """Whether the hook can place the cd, pushd or popd at commands[index] exactly (decision 0040): it is at the top
     level of a plain `;`, newline or `&&` sequence, not after `||`, not in a pipeline or a background job (a shell.JOINS
     mark beside it says so), and not inside a compound command's body (`outer`, the compounds opened before it); its
     options are ones the hook knows and it is given one operand at most; and no CDPATH or cdpath set in the command may
@@ -623,7 +623,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         if raw[0] in CD_WORDS:
             if not _placed(commands, index, words, outer, cdpath):
                 # A cd the hook cannot place exactly loses the directory, so a commit, a push or a relative write after
-                # it is directory_unreadable (decision 0039).
+                # it is directory_unreadable (decision 0040).
                 here, places, stood, previous = None, [None], [None], None
                 continue
             target = _directory(words)
@@ -634,7 +634,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
             else:
                 # The hook keeps no stack: where the shell takes the directory from one, the command may stand in any
                 # directory it has stood in, and what it writes or commits is read in each (decision 0032).
-                # popd, and pushd with no directory or +N, leave OLDPWD a place the hook does not know (decision 0039).
+                # popd, and pushd with no directory or +N, leave OLDPWD a place the hook does not know (decision 0040).
                 previous = places if target is not None else None
                 places = list(dict.fromkeys(stood if target is None else [_join(place, target) for place in places]))
             stood = list(dict.fromkeys(stood + places))
@@ -988,7 +988,7 @@ def _loops(commands: list, values: dict) -> dict:
 
 
 def _given(program: str, runs, args: list) -> list:
-    """The places a program may write, given its words (decision 0039): what _written reads for a writer the hook
+    """The places a program may write, given its words (decision 0040): what _written reads for a writer the hook
     knows; the next word after find's or tree's output options; none for git, gh, cd, a program of DATA_ONLY, or a
     command that runs no program (`runs` is None: an assignment alone, command -v); and for any other program, each of
     its words, each option's =value, what follows each letter of a bundle of short options, and where it stands."""
@@ -1011,7 +1011,7 @@ def _given(program: str, runs, args: list) -> list:
 def _written(program: str, args: list) -> list:
     """The paths `program`, given `args`, writes: by PATH_WRITERS, an option of its that names one (`-t DIR`,
     `--target-directory=DIR`, `-fFILE`, a bundle ending in one), and dd's of=; by IN_PLACE, sed's and perl's files when
-    -i is given. Any other program writes none of its words here; _given reads them (decision 0039)."""
+    -i is given. Any other program writes none of its words here; _given reads them (decision 0040)."""
     if program == "dd":
         return [w[3:] for w in args if w.startswith("of=")]
     if program in IN_PLACE:

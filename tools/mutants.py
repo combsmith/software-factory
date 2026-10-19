@@ -86,7 +86,7 @@ WORD_TESTS = (IDENTITY_TESTS + "test_a_substitution_a_quote_holds_and_a_comment_
 SPLIT_TESTS = (IDENTITY_TESTS + "test_a_command_that_cannot_be_split_is_refused_whatever_it_names",)
 ANSI_TESTS = (IDENTITY_TESTS + "test_ansi_c_quoting_holding_a_backslash_is_refused",)
 FOUR_MORE_TESTS = (IDENTITY_TESTS + "test_four_more_ways_to_redefine_git_are_refused",)
-# Decision 0039: where the shell may stand, and a program the hook does not read.
+# Decision 0040: where the shell may stand, and a program the hook does not read.
 PLACED_TESTS = (IDENTITY_TESTS + "test_a_cd_the_hook_cannot_place_exactly_loses_the_directory",)
 OWN_CD_TESTS = (IDENTITY_TESTS + "test_a_subshells_cd_is_its_own",)
 CD_MINUS_TESTS = (IDENTITY_TESTS + "test_cd_minus_goes_back_to_the_place_before_the_last_cd",)
@@ -1481,7 +1481,7 @@ MUTANTS = ISSUE + [
      '    if "acceptance" not in facts:\n        return None\n'),
     ("an item given twice is accepted where items are unique", "tools/jsonschema_lite.py",
      'if schema.get("uniqueItems") is True and ', "if False and "),
-    # Decision 0039: a Result asks and names no one; what one Run carries holds codes.
+    # Decision 0040: a Result asks and names no one; what one Run carries holds codes.
     ("a referenced schema is read against the referrer's root", "tools/jsonschema_lite.py",
      "        root = schemas[kind]        # its own references are read in it, not in the referrer\n", "",
      (SCHEMA_TESTS + "test_a_reference_to_another_schema_is_followed",)),
@@ -2566,7 +2566,7 @@ MUTANTS = ISSUE + [
      FOUR_MORE_TESTS),
     ("--rcfile's value is read as an option", "tools/hooks/identity.py",
      'i += 2 if word in ("--rcfile", "--init-file") else 1', "i += 1", FOUR_MORE_TESTS),
-    # Decision 0039: where the shell may stand, and a program the hook does not read.
+    # Decision 0040: where the shell may stand, and a program the hook does not read.
     ("a cd behind a keyword or a prefix is placed where it stood", "tools/hooks/identity.py",
      "        if program in CD_WORDS and raw[0] != program:\n", "        if False:\n", PLACED_TESTS),
     ("a cd in a pipeline or a background job, or after ||, is placed exactly", "tools/hooks/identity.py",
