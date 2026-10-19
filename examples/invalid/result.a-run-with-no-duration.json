@@ -1,0 +1,24 @@
+{
+  "schema": "result/1",
+  "run": "r_01JA7R",
+  "release": "factory/v0.3.1",
+  "status": "failed",
+  "reason": "result_invalid",
+  "dispositions": [],
+  "findings": [],
+  "effects": {},
+  "coverage": [],
+  "usage": {
+    "engine": "claude-cli",
+    "engine_version": "2.1.302",
+    "model": "claude-opus",
+    "session": "3e5b7d91-0c2a-4f6e-8b1d-9a7c5e3f2b60",
+    "input_tokens": null,
+    "cache_creation_input_tokens": null,
+    "cache_read_input_tokens": null,
+    "output_tokens": null,
+    "turns": null,
+    "cost_usd": null,
+    "seconds": null
+  }
+}

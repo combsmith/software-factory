@@ -55,19 +55,25 @@ def _resolve(ref: str, root: dict, schemas: dict = None) -> tuple:
     name = ref[len("#/$defs/"):]
     try:
         return root["$defs"][name], root
-    except KeyError:
+    except (KeyError, TypeError):
         raise SchemaError("unresolved reference: %s" % ref)
 
 
-def validate(value, schema: dict, root: dict = None, path: str = "$", schemas: dict = None) -> list:
-    """Return a list of error strings; empty means valid. `schemas` maps a kind to the schema a `$ref` by file names."""
+def validate(value, schema: dict, root: dict = None, path: str = "$", schemas: dict = None, chain: tuple = ()) -> list:
+    """Return a list of error strings; empty means valid. `schemas` maps a kind to the schema a `$ref` by file names.
+    `chain` is the references followed so far at this value, so that a reference that comes round to itself is refused."""
     root = schema if root is None else root
     unknown = set(schema) - KEYWORDS - ANNOTATIONS
     if unknown:
         raise SchemaError("unsupported keyword(s) at %s: %s" % (path, sorted(unknown)))
     if "$ref" in schema:
+        beside = set(schema) - ANNOTATIONS - {"$ref"}
+        if beside:
+            raise SchemaError("a $ref stands alone, and at %s it has %s beside it" % (path, sorted(beside)))
         target, root = _resolve(schema["$ref"], root, schemas)
-        return validate(value, target, root, path, schemas)
+        if id(target) in chain:
+            raise SchemaError("%s comes round to itself at %s" % (schema["$ref"], path))
+        return validate(value, target, root, path, schemas, chain + (id(target),))
 
     errors = []
     if "type" in schema:

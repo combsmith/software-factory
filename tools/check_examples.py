@@ -52,8 +52,36 @@ def _open(schema, path: str = "$") -> list:
     return out
 
 
+def _anchored(pattern) -> bool:
+    """Whether `pattern` holds the whole string: it opens with ^, closes with an unescaped $, and no alternative at
+    its top level escapes those anchors. An escaped $ or a top-level | is a way of writing ^...$ that holds nothing."""
+    if not isinstance(pattern, str) or not pattern.startswith("^") or not pattern.endswith("$"):
+        return False
+    depth, in_class, i = 0, False, 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\":
+            if i == len(pattern) - 2:
+                return False        # the closing $ is escaped: a literal, not an anchor
+            i += 2
+            continue
+        if in_class:
+            in_class = c != "]"
+        elif c == "[":
+            in_class = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif c == "|" and depth == 0:
+            return False
+        i += 1
+    return True
+
+
 def _free(schema, schemas: dict, root, kind: str, path: str, seen: set) -> list:
-    """Where `schema`, of the kind named, admits a string that no enum, const or anchored pattern holds."""
+    """What is wrong with `schema`, of the kind named, as the schema of what one Run carries: where it admits a string
+    that no enum, const or anchored pattern holds, and a reference it makes that cannot be followed."""
     if not isinstance(schema, dict) or (kind, id(schema)) in seen:
         return []
     seen.add((kind, id(schema)))
@@ -61,18 +89,18 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set) -> list:
     if isinstance(ref, str):
         try:
             target, target_root = _resolve(ref, root, schemas)
-        except SchemaError:
-            return []       # validate() reports a reference that cannot be followed, in every example of this kind
+        except SchemaError as err:
+            # validate() follows a reference only where a value reaches it; one in a branch no example takes is caught here.
+            return ["schema %s cannot be followed at %s: %s" % (kind, path, err)]
         named = FILE.match(ref)
         return _free(target, schemas, target_root, named.group(1) if named else kind, path, seen)
     out = []
     kinds = schema.get("type")
     kinds = kinds if isinstance(kinds, list) else [kinds]
     strings = "string" in kinds or (kinds == [None] and not ("enum" in schema or "const" in schema))
-    pattern = schema.get("pattern")
-    anchored = isinstance(pattern, str) and pattern.startswith("^") and pattern.endswith("$")
-    if strings and not ("enum" in schema or "const" in schema or anchored):
-        out.append(path)
+    if strings and not ("enum" in schema or "const" in schema or _anchored(schema.get("pattern"))):
+        out.append("schema %s admits text at %s; a string a Run carries is a code, unless it is named %s"
+                   % (kind, path, TEXT_FIELD))
     for name, prop in schema.get("properties", {}).items():
         if name != TEXT_FIELD:
             out += _free(prop, schemas, root, kind, "%s.%s" % (path, name), seen)
@@ -119,9 +147,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         if kind not in schemas:
             problems.append("schema %s is missing, and what one Run carries is held to codes" % kind)
             continue
-        for where in _free(schemas[kind], schemas, schemas[kind], kind, "$", set()):
-            problems.append("schema %s admits text at %s; a string a Run carries is a code, unless it is named %s"
-                            % (kind, where, TEXT_FIELD))
+        problems += _free(schemas[kind], schemas, schemas[kind], kind, "$", set())
     for path in sorted((root / "examples").glob("*.json")):
         kind = path.name.split(".")[0]
         if kind not in schemas:

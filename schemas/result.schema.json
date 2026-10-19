@@ -136,10 +136,7 @@
           "minimum": 0
         },
         "seconds": {
-          "type": [
-            "number",
-            "null"
-          ],
+          "type": "number",
           "minimum": 0
         }
       }
@@ -169,7 +166,7 @@
           "properties": {
             "path": {
               "type": "string",
-              "pattern": "^[^\\s]+$"
+              "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$"
             },
             "start_line": {
               "type": "integer",
@@ -240,7 +237,7 @@
                 },
                 "key": {
                   "type": "string",
-                  "pattern": "^[^\\s]+$"
+                  "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$"
                 }
               }
             }
