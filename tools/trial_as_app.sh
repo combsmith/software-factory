@@ -179,8 +179,8 @@ token=$(printf 'Authorization: Bearer %s\n' "$jwt" |
     python3 -I -c '
 import json, sys
 text = sys.stdin.read().replace("\r\n", "\n")
-# The last blank line ends the headers: a proxy's own "Connection established" block comes before GitHub's, and a
-# JSON body holds no blank line.
+# The last blank line ends the headers: a proxy prints its own "Connection established" block before the one
+# from GitHub, and a JSON body holds no blank line.
 head, gap, body = text.rpartition("\n\n")
 try:
     data = json.loads(body)
