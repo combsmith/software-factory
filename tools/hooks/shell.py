@@ -71,8 +71,11 @@ def without_heredocs(text: str) -> str:
                 stack.append("code")
             elif c == ")" and len(stack) > 1:
                 stack.pop()
-            elif c == "#" and (i == 0 or line[i - 1] in " \t;&|("):
-                break       # a comment runs to the end of the line
+            elif c == "#" and (i == 0 or line[i - 1] in " \t;&|()"):
+                # A comment runs to the end of the line, one after a subshell's ) too: (echo A)# <<EOF opens no
+                # here-document. After a substitution's ), $(x)#y, the # is in a word, and a here-document after it
+                # is not seen here: its body is read as commands, which reads more, never less.
+                break
             elif line.startswith("<<", i) and not line.startswith("<<<", i):
                 found = HEREDOC.match(line, i)
                 if found:
@@ -244,6 +247,19 @@ def ansi(text: str, i: int) -> tuple:
     raise ValueError("No closing quotation")
 
 
+def decoded(text: str) -> str:
+    """`text` with each $'...' the text it decodes to (ansi), wherever it stands. Raises ValueError as ansi does."""
+    out, i = [], 0
+    while i < len(text):
+        if text.startswith("$'", i):
+            text_of, i = ansi(text, i + 2)
+            out.append(text_of)
+            continue
+        out.append(text[i])
+        i += 1
+    return "".join(out)
+
+
 def ansi_end(text: str, i: int):
     """The index past the closing quote of a $'...' whose body starts at text[i], or None when it never closes."""
     while i < len(text):
@@ -294,6 +310,7 @@ def _held(text: str) -> str:
     # Where an arithmetic command or expansion, (( or $((, and a ${...}, that began ends: what they hold is their own.
     arithmetic = braces = 0
     words, first, word = 0, None, ""        # the words the simple command has so far, its first, and the one being read
+    opened = []     # for each ( not yet closed, where the command stood before it, if it stands in a word: <( >( $(
     while i < len(text):
         c = text[i]
         if c == "\\" and quote != "'":
@@ -314,6 +331,12 @@ def _held(text: str) -> str:
                 end = text.find("\n", i)
                 i = len(text) if end < 0 else end
                 continue
+            if i < braces and (c in PUNCTUATION or text.startswith("$(", i)):
+                # In a ${...} each is part of the word, zsh's ${(L)f} too, and a substitution in it runs.
+                out.append(LIVE[c] if c == "`" or c == "$" else HOLDS[c])
+                starts, comments, word = False, False, word + c
+                i += 1
+                continue
             if text.startswith("$'", i):
                 decoded, i = ansi(text, i + 2)
                 out.append(_literal(decoded))
@@ -327,16 +350,26 @@ def _held(text: str) -> str:
             if c == "(" and i >= arithmetic and i >= braces and (
                     _touches(text, i) if not starts else not _opens(text, i, starts, words)):
                 raise ValueError("a ( in a word is a pattern the hook does not read")
-            if c in " \t\r" + ENDS and word:
-                words += 1
-                first = word if words == 1 else first
-                if word in AGAIN or (word == "in" and first == "case"):
-                    words = 0       # the next word is a command again
-                word = ""
-            if c in ENDS:
-                words, first = 0, None
-            elif c not in " \t\r<>":
-                word += c
+            # A process substitution's or a command substitution's ( and ) stand in a word: after its ), the command
+            # goes on where it was. Any other ) ends what it closed, and what follows is a command again.
+            kept = None
+            if c == "(":
+                opened.append((words, first, word) if text[i - 1:i] in ("<", ">", "$") and i else None)
+            elif c == ")" and opened:
+                kept = opened.pop()
+            if kept is not None:
+                words, first, word = kept[0], kept[1], kept[2] + c
+            else:
+                if c in " \t\r" + ENDS and word:
+                    words += 1
+                    first = word if words == 1 else first
+                    if word in AGAIN or (word == "in" and first == "case"):
+                        words = 0       # the next word is a command again
+                    word = ""
+                if c in ENDS:
+                    words, first = 0, None
+                elif c not in " \t\r<>":
+                    word += c
             quote = c if c in "'\"" else None
             out.append(c)
             starts = c in BREAKS and c != ")"       # a ) may end a substitution inside a word: $(x)#y is one word
@@ -533,10 +566,11 @@ def segments(text: str) -> list:
 
     A here-document's body is data and is left out first. A segment is the run between top-level `;`, newline,
     `&&`, `||`, `|` and `&`; a newline right after `&&`, `||` or `|` continues the list, as the shell reads it.
-    Quotes (`$'...'` with its escapes too), `( )`, `$( )`, `${ }` and backticks are opaque, so a separator inside
-    one does not split, and a backslash before a newline joins the lines. Each segment's words are built as the
-    shell would: quotes are removed, but a command substitution, a parameter expansion or a subshell inside a word
-    is kept whole, so an assignment's value can be told apart from a command it runs.
+    Quotes, `( )`, `$( )`, `${ }` and backticks are opaque, so a separator inside one does not split, and a
+    backslash before a newline joins the lines. Each segment's words are built as the shell would: quotes are
+    removed and `$'...'` is the text it decodes to (issue 174), but a command substitution, a parameter expansion or a
+    subshell inside a word is kept whole, so an assignment's value can be told apart from a command it runs. Raises
+    ValueError, too, for a `$'...'` that never closes or that bash and zsh read differently (ansi).
     """
     text = without_heredocs(text)
     out, words, word, started, before, i, quote, start = [], [], [], False, "", 0, None, 0
@@ -560,9 +594,9 @@ def segments(text: str) -> list:
         c = text[i]
         if quote:
             started = True
-            if c == ("'" if quote == "ansi" else quote):
+            if c == quote:
                 quote = None
-            elif c == "\\" and quote in ('"', "ansi") and i + 1 < len(text):
+            elif c == "\\" and quote == '"' and i + 1 < len(text):
                 word.append(text[i + 1])
                 i += 2
                 continue
@@ -578,9 +612,10 @@ def segments(text: str) -> list:
             started = True
             i += 2
             continue
-        if text.startswith("$'", i):
-            quote, started = "ansi", True       # $'...': a backslash escapes, \' among them
-            i += 2
+        if text.startswith("$'", i):    # $'...' is the text it decodes to (issue 174)
+            decoded, i = ansi(text, i + 2)
+            word.append(decoded)
+            started = True
             continue
         if c in "'\"":
             quote = c

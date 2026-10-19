@@ -2035,7 +2035,7 @@ MUTANTS = ISSUE + [
      "            if not sub and set(map(os.path.basename, before)) & shell.FEEDERS:\n", "            if False:\n",
      FEEDER_TESTS),
     ("a redirection into git's directory is not read", "tools/hooks/identity.py",
-     '        inline += _git_directory([t for op, t in redirections if ">" in op], places, "a redirection",\n'
+     '        inline += _git_directory([written(t, values) for op, t in redirections if ">" in op], places, "a redirection",\n'
      "                                 loops, spend)\n", "", GIT_DIRECTORY_TESTS),
     ("every program's words are read as writes into git's directory", "tools/hooks/identity.py",
      "    if program not in PATH_WRITERS:\n        return []\n", "    if program not in PATH_WRITERS:\n        return args\n",
@@ -2169,8 +2169,7 @@ MUTANTS = ISSUE + [
     ("tar's -f is read as written in every mode", "tools/hooks/identity.py",
      "(archives if changes else [])", "archives", TAR_TESTS),
     ("an alias is not read as its value where its name runs", "tools/hooks/identity.py",
-     "        commands = _unaliased(commands, shell.alias_values(_quoted(shell.without_heredocs(text)), spend), spend=spend)\n",
-     "        pass\n", ALIASED_TESTS),
+     "        commands = _unaliased(commands, table, spend=spend)\n", "        pass\n", ALIASED_TESTS),
     ("an alias whose value ends in a blank leaves the next word as it is", "tools/hooks/identity.py",
      '            while value[-1:] in (" ", "\\t") and tail[:1]', "            while False and tail[:1]", ALIASED_TESTS),
     ("a script an aliased shell or eval is given is not read", "tools/hooks/identity.py",
@@ -2236,6 +2235,39 @@ MUTANTS = ISSUE + [
      "        else:\n"
      '            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1] if wanted else "", done,'
      ' config["limits"])\n'),
+    # Issue 174's second fix round.
+    ("a variable set to $'...' holds its escapes", "tools/hooks/shell.py",
+     "            word.append(decoded)\n", '            word.append("$" + decoded)\n', ANSI_TESTS),
+    ("a writer's option held in a variable is read as a path", "tools/hooks/identity.py",
+     "[written(w, values) for w in raw[start + 1:]]", "raw[start + 1:]", EXPANSION_TESTS),
+    ("zsh's flags hide the variable in a ${...}", "tools/hooks/identity.py",
+     'r"(?:\\([^()]*\\))*[!#~=^+]*([A-Za-z_]\\w*)"', 'r"[!#]?([A-Za-z_]\\w*)"', EXPANSION_TESTS),
+    ("a ( or ) in a ${...} splits the word", "tools/hooks/shell.py",
+     '            if i < braces and (c in PUNCTUATION or text.startswith("$(", i)):\n', "            if False:\n",
+     EXPANSION_TESTS),
+    ("a substitution a quote holds is read before the aliases", "tools/hooks/identity.py",
+     "    table = {}\n    try:\n        table = shell.alias_values(_quoted(shell.without_heredocs(text)), spend)\n"
+     "        commands = _unaliased(commands, table, spend=spend)\n"
+     "    except (Unreadable, ValueError) as err:\n"
+     "        always.append((\"command_unreadable\", \"the command's aliases cannot be read (%s)\" % err))\n"
+     "    # After the aliases, so that an alias for trap or eval is read as the program it runs.\n"
+     "    commands = _evaluated(commands, spend, table)\n",
+     "    table, commands = {}, _evaluated(commands, spend)\n    try:\n"
+     "        table = shell.alias_values(_quoted(shell.without_heredocs(text)), spend)\n"
+     "        commands = _unaliased(commands, table, spend=spend)\n"
+     "    except (Unreadable, ValueError) as err:\n"
+     "        always.append((\"command_unreadable\", \"the command's aliases cannot be read (%s)\" % err))\n",
+     LATER_TESTS),
+    ("an alias in a held script is not read", "tools/hooks/identity.py",
+     "                read = _unaliased(read, table, spend=spend) if table else read\n", "                pass\n",
+     LATER_TESTS),
+    ("a held script's $'...' is not decoded before git is looked for", "tools/hooks/identity.py",
+     "shell.decoded(script)", "script", LATER_TESTS),
+    ("a process substitution's ) is read as a command's end", "tools/hooks/shell.py",
+     'opened.append((words, first, word) if text[i - 1:i] in ("<", ">", "$") and i else None)', "opened.append(None)",
+     SPLIT_TESTS),
+    ("a # after a subshell's ) is read as a word before a here-document", "tools/hooks/shell.py",
+     'line[i - 1] in " \\t;&|()"', 'line[i - 1] in " \\t;&|("', COMMENT_START_TESTS),
     # Issue 174's fix round.
     ("a # in a ${...} begins a comment", "tools/hooks/shell.py",
      '            if c == "#" and comments and i >= braces:\n', '            if c == "#" and comments:\n',
@@ -2250,7 +2282,7 @@ MUTANTS = ISSUE + [
      "            reached = set(range(min(reached), last + 1))\n",
      "            reached = {at + 1 for at in reached if at < last}\n", GIT_DIRECTORY_TESTS),
     ("a substitution a quote holds is never read where a program may run it later", "tools/hooks/identity.py",
-     "    commands = _evaluated(commands, spend)\n", "", LATER_TESTS),
+     "    commands = _evaluated(commands, spend, table)\n", "", LATER_TESTS),
     ("a program that prints its words reads what a quote holds", "tools/hooks/identity.py",
      'not in TEXT_ONLY | {"git", "gh"})', 'not in {"git", "gh"})', LATER_TESTS),
     ("git's words are read for what a quote holds", "tools/hooks/identity.py",
@@ -2283,13 +2315,16 @@ MUTANTS = ISSUE + [
     ("a variable read by a subscript is read as one the command may change", "tools/hooks/shell.py",
      'r"(?:^|[\\s;&|()}`])(%s)\\["', 'r"(?:^|[\\s;&|(){}`])(%s)\\["', EXPANSION_TESTS),
     ("a path written is read with the command's variables put in first", "tools/hooks/identity.py",
-     "_git_directory(_written(program, raw[start + 1:])", "_git_directory(_written(program, words[start + 1:])",
+     "_git_directory(_written(program, [written(w, values) for w in raw[start + 1:]])",
+     "_git_directory(_written(program, words[start + 1:])",
      EXPANSION_TESTS),
     ("a held script that cannot be split is passed though it names git", "tools/hooks/identity.py",
-     "                if shell.GIT_OR_GH.search(re.sub(r\"[\\\\'\\\"]\", \"\", script)):\n                    raise\n", "",
+     "                if shell.GIT_OR_GH.search(re.sub(r\"[\\\\'\\\"]\", \"\", shell.decoded(script))):\n                    raise\n",
+     "",
      LATER_TESTS),
     ("a held script that cannot be split is refused though it names no git", "tools/hooks/identity.py",
-     "                if shell.GIT_OR_GH.search(re.sub(r\"[\\\\'\\\"]\", \"\", script)):\n", "                if True:\n",
+     "                if shell.GIT_OR_GH.search(re.sub(r\"[\\\\'\\\"]\", \"\", shell.decoded(script))):\n",
+     "                if True:\n",
      LATER_TESTS),
     # Issue 174, rulings 1 to 6: a word is read as the shell reads it.
     ("a substitution a single quote or a backslash holds is read", "tools/hooks/shell.py",

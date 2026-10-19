@@ -392,12 +392,14 @@ def _unaliased(commands: list, table: dict, seen: frozenset = frozenset(), budge
     return out
 
 
-def _evaluated(commands: list, spend) -> list:
+def _evaluated(commands: list, spend, table: dict = None) -> list:
     """`commands`, as shell.commands(marked=True) gives them, each followed by what the substitutions a quote held in its
     words run, where a program may run them later: in a command that only assigns (x='$(...)', read by eval or $((x))),
     or given to a program that is not git, gh or one of TEXT_ONLY (trap '$(...)' EXIT). A commit message, a pull
-    request's body, grep, echo and printf keep them as text (issue 174). Raises ValueError when one cannot be split
-    and, its quotes and backslashes taken out, names git or gh."""
+    request's body, grep, echo and printf keep them as text (issue 174). What they run is read with the command's
+    aliases (`table`, shell.alias_values) read in it, as _unaliased reads them. Raises ValueError when one cannot be
+    split and, its $'...' decoded and its quotes and backslashes taken out, names git or gh, or its aliases cannot be
+    read."""
     out = []
     for words, redirections in commands:
         out.append((words, redirections))
@@ -412,10 +414,14 @@ def _evaluated(commands: list, spend) -> list:
             except ValueError:
                 # Most are text a quote holds, sed's code spans among them: one that cannot be split is refused only
                 # when, its quotes and backslashes taken out, it names git or gh.
-                if shell.GIT_OR_GH.search(re.sub(r"[\\'\"]", "", script)):
+                if shell.GIT_OR_GH.search(re.sub(r"[\\'\"]", "", shell.decoded(script))):
                     raise
                 continue
-            out += _evaluated(read, spend)
+            try:
+                read = _unaliased(read, table, spend=spend) if table else read
+            except Unreadable as err:
+                raise ValueError(str(err)) from None
+            out += _evaluated(read, spend, table)
     return out
 
 
@@ -473,11 +479,14 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
     if shell.aliased(_quoted(shell.without_heredocs(text)), REDEFINABLE):
         always.append(("command_unreadable", "the command defines an alias whose value runs git, gh or what runs them "
                                              "(decision 0030)"))
-    commands = _evaluated(commands, spend)
+    table = {}
     try:
-        commands = _unaliased(commands, shell.alias_values(_quoted(shell.without_heredocs(text)), spend), spend=spend)
+        table = shell.alias_values(_quoted(shell.without_heredocs(text)), spend)
+        commands = _unaliased(commands, table, spend=spend)
     except (Unreadable, ValueError) as err:
         always.append(("command_unreadable", "the command's aliases cannot be read (%s)" % err))
+    # After the aliases, so that an alias for trap or eval is read as the program it runs.
+    commands = _evaluated(commands, spend, table)
     # Each command's words as the shell gives them, and as shell.commands marked them, which only _bare reads.
     commands = [(None, redirections, None) if marked is None else (
         [shell.unmarked(w) for w in marked], [(op, shell.unmarked(t)) for op, t in redirections], marked)
@@ -494,8 +503,9 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
             continue
         # A word is read with what the command set unconditionally put in for each variable it holds.
         words, targets = [expand(w, values) for w in raw], [expand(t, values) for _, t in redirections]
-        # A path written is read as written: _git_directory puts in what the command set, and reads ${f%.py} and $f:r.
-        inline += _git_directory([t for op, t in redirections if ">" in op], places, "a redirection",
+        # A path written is read with what the command set put in, but where a zsh modifier or a subscript follows the
+        # variable ($f:r, $f[1]): _git_directory reads those, and ${f%.py}, as a wildcard.
+        inline += _git_directory([written(t, values) for op, t in redirections if ">" in op], places, "a redirection",
                                  loops, spend)
         inline += [("identity_set_in_command", "%s is set in the command; the hook reads only what is configured"
                     % w.split("=")[0]) for w in words if ENVIRONMENT.match(w)]
@@ -521,7 +531,8 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         program = os.path.basename(words[start])
         if at is None and program in DATA_HEADS:
             continue        # a loop's word list is data: what its body runs is a command of its own
-        inline += _git_directory(_written(program, raw[start + 1:]), places, program, loops, spend)
+        inline += _git_directory(_written(program, [written(w, values) for w in raw[start + 1:]]), places, program,
+                                 loops, spend)
         local = _local(words, at)
         named = present | local     # the environment git runs with: persisted, and set for it alone
         if local & {"PATH", "path"}:
@@ -826,7 +837,7 @@ def _wildcarded(path: str, names) -> tuple:
             continue
         end = shell._balanced(path, i + 2, "}")
         body = path[i + 2:end - 1] if path[end - 1:end] == "}" else None
-        named = re.match(r"[!#]?([A-Za-z_]\w*)", body or "")
+        named = re.match(r"(?:\([^()]*\))*[!#~=^+]*([A-Za-z_]\w*)", body or "")      # zsh's ${(L)f}, ${~f}
         if named and named.group(1) in names and body != named.group(1):
             out.append("*")
             wild = True
@@ -1081,6 +1092,16 @@ def remote_helper(sub: str, words: list, given: list) -> bool:
     if any("ext::" in w.casefold() for w in words):
         return True
     return sub in TAKES_REMOTE and any(REMOTE_HELPER.match(w.partition("=")[2] if w[:2] == "--" else w) for w in given)
+
+
+# A variable as `expand` puts it in, but not where zsh's modifier or a subscript follows it.
+PLAIN_VARIABLE = re.compile(r"\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*)(?![\w:\[]))")
+
+
+def written(word: str, values: dict) -> str:
+    """A word a writer is given, with each variable the command set to a plain value put in, as `expand` puts it in,
+    but where zsh's modifier or a subscript follows it ($f:r, $f[1,4]): that one _wildcarded reads (issue 174)."""
+    return PLAIN_VARIABLE.sub(lambda m: values.get(m.group(1) or m.group(2), m.group(0)), word)
 
 
 def expand(word: str, values: dict) -> str:

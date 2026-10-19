@@ -948,7 +948,9 @@ class Identity(unittest.TestCase):
         # Issue 174's fix round: a # in a ${...}, after a carriage return, or after < or >, begins no comment, so what
         # follows it on the line is read.
         for command in ("echo ${x- #}; git commit -m x", "echo ${x:+ #} ${y//#/a}; git commit -m x",
-                        "echo A\r# ; git commit -m x", "echo >#x; git commit -m x", "echo hi >#x\ngit commit -m x"):
+                        "echo A\r# ; git commit -m x", "echo >#x; git commit -m x", "echo hi >#x\ngit commit -m x",
+                        # After a subshell's ), a # begins a comment, and a << in it opens no here-document.
+                        "(echo A)# <<EOF\ngit commit -m x\nEOF"):
             self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
         self.assertIn("git_directory_written", self.refused("echo ${x:+ #}; cd .git; cp /tmp/x config; git -C %s push"
                                                             % self.here))
@@ -965,6 +967,11 @@ class Identity(unittest.TestCase):
                                                             % self.here))
         # One that cannot be split is refused where it names git or gh, and is text where it does not: sed's code spans.
         self.assertIn("command_unreadable", self.refused("trap '$(echo (x); g\"\"it push)' EXIT"))
+        self.assertIn("command_unreadable", self.refused("trap '$($'\\''\\x67it'\\'' push; echo (x))' EXIT"))
+        # An alias is read first: one for trap runs what it is given later, and one in the script is read there too.
+        for command in ("alias echo=trap\necho '$(cd .git; cp /tmp/x config)' EXIT; git -C %s push" % self.here,
+                        "alias e=eval\ntrap '$(e \"cp /tmp/x .git/config\")' EXIT; git push"):
+            self.assertIn("git_directory_written", self.refused(command), command)
         self.assertEqual(self.codes("sed -i 's/`f(x)` (a)/`g(y)` (b)/' notes.md; git commit -m x"), "")
         # A commit message, a body, grep, echo and printf keep it as text.
         held = "'$(cd .git; cp /tmp/x config)'"
@@ -991,7 +998,7 @@ class Identity(unittest.TestCase):
                         "cp /tmp/x .git/hooks/x@(a|b); git push", "ls *(.); git push",
                         # A ( that begins an argument is a zsh glob group, and (( in a word is no arithmetic.
                         "cp /tmp/a (.git|x)/hooks/y; git push", "cp /tmp/x .g((i|x))t/config; git push",
-                        "cp /tmp/x .g((i|i))t/config; git push",
+                        "cp /tmp/x .g((i|i))t/config; git push", "cp <(true) (.git|x)/config; git push",
                         # Arithmetic nested deeper than the hook reads.
                         'echo "' + "$(( " * 900 + "1" + " ))" * 900 + '"; git push'):
             self.assertIn("command_unreadable", self.refused(command, folder(), programs()), command[:60])
@@ -1019,6 +1026,8 @@ class Identity(unittest.TestCase):
         # An escape bash keeps and zsh takes the backslash out of, which may spell .git, cannot be read.
         for command in ("cp /tmp/x $'.\\git'/hooks/x; git push", "cp /tmp/x $'\\.git/x'; git push"):
             self.assertIn("command_unreadable", self.refused(command), command)
+        # A variable set to $'...' holds the text it decodes to.
+        self.assertIn("commit_identity_not_maintainer", self.refused("x=$'\\x67it'; $x commit -m x", self.bad))
         for command in ("git commit -m $'it\\'s done'", "git commit -m $'one\\n\\ntwo'", "printf $'%s\\n' a; git push",
                         "git commit -m $'a (b) \\x60c\\x60 $(d)'", "echo $'\\cA\\e\\z\\101'; git push"):
             self.assertEqual(self.codes(command), "", command)
@@ -1052,7 +1061,10 @@ class Identity(unittest.TestCase):
                         "for f in .git.x; do cp /tmp/x $f:r/config; done; git push",
                         "f=.git.x; cp /tmp/x $f:r/config; git push", "f=.gitx; cp /tmp/x $f[1,4]/config; git push",
                         "for f in .git.x; do cp /tmp/x ${f:r}/config; done; git push",
-                        "x=.git; cp /tmp/x ${x[0]}/config; git push"):
+                        "x=.git; cp /tmp/x ${x[0]}/config; git push", "f=.GIT; cp /tmp/x ${(L)f}/config; git push",
+                        "f=.git; cp /tmp/x ${~f}/config; git push",
+                        # A writer's option held in a variable the command set is read as the option.
+                        "o=-t; cp $o .git/hooks /tmp/x; git push"):
             self.assertIn("git_directory_written", self.refused(command), command)
         for command in ('for f in a.py b.py; do cp "$f" "dist/${f%.py}.bak"; done; git commit -m x',
                         'cp x "$TMPDIR/${HOME##*/}.log"; git push', "x=a; cp /tmp/a out/${x%}.txt; git push",
