@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "disposition/1: one half of a Disposition on one Finding, in the Result of the Run that made it: the author's proposal or the owner's decision. Who made it and on what content are the Task's; apply checks that exactly one half is given, and that it is the half this Run's Role may make.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "finding"
+  ],
+  "properties": {
+    "finding": {
+      "type": "string",
+      "pattern": "^f_[0-9a-f]{4,64}$"
+    },
+    "proposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome"
+      ],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "fixed",
+            "declined",
+            "deferred",
+            "not_applicable"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "^[a-z_]+$"
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result"
+      ],
+      "properties": {
+        "result": {
+          "enum": [
+            "accepted",
+            "rejected"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "^[a-z_]+$"
+        }
+      }
+    }
+  }
+}

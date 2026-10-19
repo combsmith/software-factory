@@ -1,0 +1,109 @@
+{
+  "schema": "result/1",
+  "run": "r_01JA6Z",
+  "release": "factory/v0.3.1",
+  "status": "completed",
+  "reason": null,
+  "dispositions": [],
+  "findings": [
+    {
+      "ref": "n1",
+      "location": {
+        "path": "kernel/decide.py",
+        "start_line": 88,
+        "end_line": 94
+      },
+      "category": "functional",
+      "severity": "major",
+      "criterion": "PR-3",
+      "adopted_from": {
+        "lens": "coderabbit",
+        "surface": {
+          "type": "thread",
+          "key": "PRRT_kw1"
+        }
+      },
+      "source": {
+        "lens": "pr-review",
+        "kind": "role",
+        "actor": "combsmith-sf-pr-review[bot]"
+      }
+    },
+    {
+      "ref": "n2",
+      "location": {
+        "path": "tests/test_decide.py",
+        "start_line": 410,
+        "end_line": 410
+      },
+      "category": "delivery",
+      "severity": "minor",
+      "criterion": null
+    }
+  ],
+  "effects": {
+    "submit_review": [
+      {
+        "id": "e1",
+        "comments": [
+          {
+            "finding": "n1",
+            "body": "parse() reads the first item before it checks that the list has one; return early on an empty list."
+          }
+        ],
+        "body": null
+      }
+    ],
+    "create_check_run": [
+      {
+        "id": "e2",
+        "annotations": [
+          {
+            "finding": "n2",
+            "body": "The new test asserts that no error was raised, not the Decision."
+          }
+        ]
+      }
+    ]
+  },
+  "coverage": [
+    {
+      "criterion": "PR-1",
+      "verdict": "met",
+      "reason": null
+    },
+    {
+      "criterion": "PR-2",
+      "verdict": "met",
+      "reason": null
+    },
+    {
+      "criterion": "PR-3",
+      "verdict": "finding",
+      "reason": null
+    },
+    {
+      "criterion": "PR-4",
+      "verdict": "met",
+      "reason": null
+    },
+    {
+      "criterion": "PR-5",
+      "verdict": "not_applicable",
+      "reason": "no_rule_added"
+    }
+  ],
+  "usage": {
+    "engine": "claude-cli",
+    "engine_version": "2.1.302",
+    "model": "claude-opus",
+    "session": "7f3a9c2e-5b1d-4e8a-9c6f-2d4b8a1e0f37",
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 20475,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 194,
+    "turns": 2,
+    "cost_usd": 0.167688,
+    "seconds": 2.714
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "schema": "result/1",
+  "run": "r_01JA7Q",
+  "release": "factory/v0.3.1",
+  "status": "completed",
+  "reason": null,
+  "dispositions": [
+    {
+      "finding": "f_9c1e",
+      "decision": {
+        "result": "accepted"
+      }
+    },
+    {
+      "finding": "f_22ab",
+      "decision": {
+        "result": "rejected",
+        "reason": "fix_incomplete"
+      }
+    }
+  ],
+  "findings": [],
+  "effects": {
+    "resolve_thread": [
+      {
+        "id": "e1",
+        "thread": "PRRT_kw1"
+      }
+    ]
+  },
+  "coverage": [],
+  "usage": {
+    "engine": "claude-cli",
+    "engine_version": "2.1.302",
+    "model": "claude-opus",
+    "session": "0c81d4b6-2a7e-4f19-8e3d-6b5a9f2c1d84",
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 20475,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 194,
+    "turns": 2,
+    "cost_usd": 0.167688,
+    "seconds": 2.714
+  }
+}

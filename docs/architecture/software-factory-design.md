@@ -322,7 +322,7 @@ for contract tests, so one schema has three uses.
 | `changed_paths` | One record for each file in that diff, as many as `diff_size` counts files, each by its own path once, from the top of the repo, with `previous`, the path a renamed or copied file had before, null for any other change. A list of another length, a record not in that shape, or a path with an empty, `.` or `..` name, is unreadable, `paths_unreadable`, for the Maintainer. The Kernel matches each against the protected paths and the Lenses' inputs, and never shows one (§4.2, decision 0020) |
 | `label_events` | Every `labeled` and `unlabeled` event on the timeline: the label, who added or removed it (kind, name and write access), and when |
 | `reviews` | Who submitted it (`by`: kind, name and whether that actor has write access, as a thread's opening actor), state (`approved`, `changes_requested`, `commented` or `dismissed`, as GitHub holds it now), commit, `content_id`, `submitted_at`; and, from the timeline, `dismissed_by`: who dismissed it, of what kind and with what access, and `dismissed_from`: what it was before (`approved`, `changes_requested` or `commented`). Both are null unless it was dismissed |
-| `threads` | Thread id, path, line, when it was opened, resolved, outdated, opening actor and resolving actor, each with its kind and whether it has write access (the resolving actor null unless resolved); and the Finding's `category` and `severity`. For a required Lens's thread both come from that Lens's own Finding record, in its Run's `result.json` (§3.10), joined by `surface.key`, never from the comment text, which anyone with write access can edit. A person's thread is `human`, with no severity; an Advisory reviewer's, which no Finding record names, has neither |
+| `threads` | Thread id, path, line, when it was opened, resolved, outdated, opening actor and resolving actor, each with its kind and whether it has write access (the resolving actor null unless resolved); and the Finding's `category` and `severity`. For a required Lens's thread both come from that Lens's own Finding record, in its Run's `applied.json` (§3.7, §3.10), joined by `surface.key`, never from the comment text, which anyone with write access can edit. A person's thread is `human`, with no severity; an Advisory reviewer's, which no Finding record names, has neither |
 | `checks` | Name exactly as GitHub gives it, the id of the App that reported it (`app_id`, the check run's `app.id`), the workflow file that ran it (`workflow`, the `path` of its check suite's workflow run, such as `.github/workflows/verify.yml`; null for a check no workflow ran), conclusion as GitHub gives it (or the check's status while it has not concluded), completion time, annotation count |
 | `alerts` | Tool, rule, alert number, state, severity, path |
 | `queue` | Merge-queue membership |
@@ -583,7 +583,7 @@ started from a Decision in it, and from nothing else (§3.5). And the control ro
   "content_id": "sha256:5d0c",
   "findings": ["f_9c1e", "f_22ab"],
   "texts": [
-    { "id": "thread:PRRT_kw1", "trust": "advisory", "source": "coderabbitai", "body": "..." },
+    { "id": "thread:PRRT_kw1", "trust": "advisory", "source": "coderabbitai[bot]", "body": "..." },
     { "id": "issue:body", "trust": "maintainer", "source": "don-petry", "body": "..." }
   ],
   "limits": { "turns": 20, "repair_turns": 2, "seconds": 900, "cost_ceiling_usd": 1.5 },
@@ -612,22 +612,37 @@ has spent. It is not an input to Admission.
   "run": "r_01JA7Q",
   "release": "factory/v0.3.1",
   "status": "completed",
+  "reason": null,
   "dispositions": [
     { "finding": "f_9c1e", "decision": { "result": "accepted" } },
     { "finding": "f_22ab", "decision": { "result": "rejected", "reason": "fix_incomplete" } }
   ],
   "findings": [],
-  "effects": [ { "type": "resolve_thread", "thread": "PRRT_kw1" } ],
-  "bundle": null,
-  "preflight": [],
-  "usage": { "engine": "claude-cli", "model": "recorded-by-harness", "input_tokens": 41200, "output_tokens": 2100, "cost_usd": 0.42, "seconds": 310, "session": "s_7f" }
+  "effects": { "resolve_thread": [ { "id": "e1", "thread": "PRRT_kw1" } ] },
+  "coverage": [],
+  "usage": { "engine": "claude-cli", "engine_version": "2.1.302", "model": "recorded-by-harness", "session": "7f3a9c2e-5b1d-4e8a-9c6f-2d4b8a1e0f37",
+             "input_tokens": 2, "cache_creation_input_tokens": 20475, "cache_read_input_tokens": 0, "output_tokens": 194,
+             "turns": 2, "cost_usd": 0.17, "seconds": 2.7 }
 }
 ```
 
-`status` is `completed`, `incomplete`, `failed`, `refused` or `superseded`. A Result has no field for a commit
-hash: code changes are local commits handed over as a bundle, and `apply` writes the hash after it
-has pushed and read back. `usage` is filled by the Harness from the CLI's own output, including for
-a Run that failed.
+A Result holds what the Role judged, and only that (decision 0038). The Engine writes `schema`,
+`run`, `status`, `reason`, `dispositions`, `findings`, `effects` and `coverage`. `status` is
+`completed`, `incomplete` or `refused` from the Engine; `failed` and `superseded` are written only
+by the Harness or `apply`. `reason` is a code, null when the Run completed. The Harness fills
+`release` and `usage`, the latter from the CLI's own answer: the engine and its version, the model,
+the session, each count of tokens as the CLI reports them (P-13: the input tokens alone are a
+fraction of what was read; the tokens written to and read from the cache are the rest), the turns,
+the cost and the seconds. For a Run the CLI never answered the counts are null and `seconds` is
+the measured duration; the Harness names the model and the session before the call, so both are
+known. An answer that does not validate is not a Result: the Harness writes the whole Result
+itself, `failed` with the reason `result_invalid`, empty lists and `usage`. A Result has no field
+for a Role, an App, an actor, a `content_id` or a commit hash: each is the Task's, so a model
+cannot claim one, and code changes are local commits handed over as a bundle, whose hash `apply`
+writes after it has pushed and read back. `bundle` and `preflight` come with the author Intents;
+a field added later is optional, or the major version goes up. The Harness hands the CLI a copy of
+`result/1` with its references resolved, the fields the Harness fills removed, `status` narrowed
+to what the Engine may write and `effects` narrowed to the Task's `permitted_effects`.
 
 ### 3.6 Effect
 
@@ -647,6 +662,17 @@ that it has already happened.
 | `assign`, `request_review` | The assignee or requested reviewer being present | Yes |
 | `add_reaction` | The reaction by this App on that comment | Yes |
 | `comment` | None | **No** |
+
+A Result asks for its Effects as one list for each type, `effect/1`: `submit_review`,
+`create_check_run`, `resolve_thread` and `comment` in slice 1, each item with an `id`, `e1`, `e2`
+and so on, from which `create_check_run`'s `external_id` is built. The other types come with the
+Intents that need them. `add_label`, `remove_label`, `assign`, `enqueue_merge` and `dequeue_merge`
+are the Controller's acts and never a Result's Effects. A `submit_review` names, for each comment,
+the raised Finding it posts (§3.7) and has no event and no commit: `apply` submits it as a comment
+on the commit the Decision admitted, so a Role's review never approves. The name and the
+conclusion of a check run are `apply`'s, from the Task's Role and how the Run ended. One list for
+each type is the shape in which a `resolve_thread` with no thread is something the schema refuses,
+and it fixes the order in which `apply` writes.
 
 For `comment`, the Result artifact is the intent record: it lists the Effect before `apply`
 starts. `apply` uploads the comment's node id after it posts. On recovery an intended comment with
@@ -693,8 +719,16 @@ There is no Effect that starts a Run. Only Admission does that.
   any other category, is reported as an annotation on its Lens's check run (`surface.type`
   `annotation`), never as a thread, and has no Disposition (§4.3). The Harness refuses a Result
   that posts one on a thread.
-- A thread's category and severity in the facts are read from this record, joined to the thread by
-  `surface.key`, never from the comment text: anyone with write access can edit a comment (§3.3).
+- A Role raises a Finding in its Result as `{ref, location, category, severity, criterion, adopted_from}`,
+  with `ref` local to that Result, `n1`, `n2` and so on, and no `id`, `source`, `surface` or
+  `content_id`: its surface does not exist until `apply` posts it, and the rest is the Task's. The
+  one Effect that posts it names its `ref`: a review comment for a Finding that gates, an
+  annotation for one that does not (§4.3). After `apply` reads the posted surface back, it writes
+  this record whole into `applied.json`, its `id` from the source and the surface key, its `source`
+  from the Task's Role and its App, and its `content_id` from the Task (decision 0038).
+- A thread's category and severity in the facts are read from this record, in `applied.json`,
+  joined to the thread by `surface.key`, never from the comment text: anyone with write access can
+  edit a comment (§3.3).
 - Category and severity are always fields. A deterministic tool supplies them. A Role supplies them
   for its own Findings. A third-party reviewer that writes them only as prose gets them by
   **adoption**: `pr-review` is given that reviewer's Finding as input and, if it agrees, raises a
@@ -706,17 +740,19 @@ There is no Effect that starts a Run. Only Admission does that.
 ### 3.8 Disposition
 
 ```json
-{
-  "finding": "f_9c1e",
-  "content_id": "sha256:5d0c",
-  "proposal": { "outcome": "fixed", "by": "dev-lead" },
-  "decision": { "result": "accepted", "by": "pr-review" }
-}
+{ "finding": "f_9c1e", "proposal": { "outcome": "fixed" } }
+```
+
+```json
+{ "finding": "f_9c1e", "decision": { "result": "rejected", "reason": "fix_incomplete" } }
 ```
 
 A Disposition has two halves, made by two different Roles. The author proposes `fixed`, `declined`,
 `deferred` or `not_applicable`. The owner of the Finding's category decides `accepted` or
-`rejected`.
+`rejected`. Each half may carry a reason, a code. A half in a Result says neither who made it nor
+on what content: both are the Task's, and a schema that let a model write `by` would let it say
+who it is (decision 0038). The schema cannot say that exactly one half is given, nor which half
+this Run's Role may make, so `apply` checks both against the Task's Role and the authority table.
 
 It is not kept as a record of its own. Each half travels in the Result of the Run that made it, and
 `apply` checks it when it acts: it will not resolve a `security` thread on a decision of declined
@@ -760,11 +796,15 @@ A Run is one workflow run. Its record has two parts, both kept by GitHub.
 the hub's own head commit cannot:
 
 ```text
-sf combsmith/markets#521 fix-review-findings dev-lead c:5d0c r:01JA7Q
+sf combsmith/markets#521 fix-review-findings dev-lead sha256:5d0c r_01JA7Q
 ```
 
-That is the repo and item, the Intent, the Role, the short `content_id` and the Run id. Status,
-conclusion, start and end times and the attempt number come from Actions.
+That is the repo and item, the Intent, the Role, the full `content_id` and the Run id, each copied
+from the Task, in the form `run-name/1` (`schemas/run-name.schema.json`). The content id is whole,
+because the records port fills the run record's `content_id` from the name and the Kernel compares
+it with the facts'; a shortened one would never match. Whether GitHub bounds a run-name's length
+is not yet tried: with a 64-digit content id and a 26-character Run id the name is about 160
+characters. Status, conclusion, start and end times and the attempt number come from Actions.
 
 **Which run records count.** A pass accepts a run record only if it is a run of the Factory's own
 workflow file, from the default branch, started by a schedule or a dispatch, in the Factory repo.
@@ -784,8 +824,9 @@ before they run.
 
 **The artifacts.** `result.json` is the Result of §3.5, uploaded by `run` with its digest. The
 commit bundle travels beside it. `applied.json` is uploaded by `apply` and lists each Effect with
-what was read back. `outcome.json` is a few bytes written by a final step: how the Run ended and
-whose fault it was. Nothing is handed from job to job through the log: the log is shared with
+what was read back, and each Finding it posted as the record of §3.7, which is where the facts
+port reads a thread's category and severity from. `outcome.json` is a few bytes written by a final
+step: how the Run ended and whose fault it was. Nothing is handed from job to job through the log: the log is shared with
 whatever the model prints, and Actions rewrites it when it masks secrets.
 
 A Run that dies before it uploads anything still has a run record, and counts as an attempt

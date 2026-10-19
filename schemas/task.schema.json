@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "task/1: everything one Run needs, built by the Harness from the Decision that admitted it. No field comes from a model; only a text's body is text, and it goes to the model as data and to nothing else.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run",
+    "release",
+    "role",
+    "intent",
+    "item",
+    "content_id",
+    "findings",
+    "texts",
+    "limits",
+    "tier",
+    "permitted_effects",
+    "result_schema"
+  ],
+  "properties": {
+    "schema": {
+      "const": "task/1"
+    },
+    "run": {
+      "type": "string",
+      "pattern": "^r_[0-9A-Z]{6,26}$"
+    },
+    "release": {
+      "type": "string",
+      "pattern": "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z-]*[a-z]$"
+    },
+    "intent": {
+      "type": "string",
+      "pattern": "^[a-z][a-z-]*[a-z]$"
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "type",
+        "number"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "type": {
+          "enum": [
+            "pull_request",
+            "issue"
+          ]
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "content_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{4,64}$"
+    },
+    "findings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^f_[0-9a-f]{4,64}$"
+      }
+    },
+    "texts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "trust",
+          "source",
+          "body"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z]+:[A-Za-z0-9_-]+$"
+          },
+          "trust": {
+            "enum": [
+              "maintainer",
+              "role",
+              "advisory",
+              "outside"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9-]+(\\[bot\\])?$"
+          },
+          "body": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "turns",
+        "repair_turns",
+        "seconds",
+        "cost_ceiling_usd"
+      ],
+      "properties": {
+        "turns": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "repair_turns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cost_ceiling_usd": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "tier": {
+      "enum": [
+        "standard",
+        "deep"
+      ]
+    },
+    "permitted_effects": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "effect.schema.json#/$defs/type"
+      }
+    },
+    "result_schema": {
+      "const": "result/1"
+    }
+  }
+}
