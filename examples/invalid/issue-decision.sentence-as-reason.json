@@ -1,0 +1,13 @@
+{
+  "schema": "issue-decision/1",
+  "item": {
+    "repo": "combsmith/software-factory",
+    "type": "issue",
+    "number": 42
+  },
+  "state": "triage",
+  "reason": "The issue looks ready to me.",
+  "evidence": [],
+  "attention": "needs_you",
+  "outcome": "nothing"
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "issue-decision/1",
+  "item": {
+    "repo": "combsmith/software-factory",
+    "type": "issue",
+    "number": 42
+  },
+  "state": "triage",
+  "reason": "label_not_counted",
+  "evidence": [
+    "factory:ready"
+  ],
+  "attention": "ready",
+  "outcome": "act",
+  "action": "remove_label",
+  "label": "factory:ready",
+  "content_id": "sha256:42c1"
+}

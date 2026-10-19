@@ -2,8 +2,8 @@
 
 Every decision the Factory makes, as pure functions. `derive.py` works out the State of a pull request and answers "where does this item stand": its tests run in order and the first that applies wins.
 A queued item is read as if it were not, and stays only if that reading is approved. `decide.py` answers "what now". `terms.py` holds the codes. `gate.py` holds the gate: which open Findings hold a pull request, and the severities that gate.
-`brakes.py` is the Kernel's half of the brakes (decision 0003): Admission refuses at a ceiling or under a Pause, and `decide.py` asks the brakes before every act and Run. `issue.py` derives an issue's State from its own facts (decision 0028).
-Design §2.2's Brakes, outside `kernel/` and holding when Factory code is broken, wait on `controller/`. Only `brakes.py` and `gate.py` are protected paths in `config/hooks.json`; the rest of the Kernel is reported at a stop.
+`brakes.py` is the Kernel's half of the brakes (decision 0003): Admission refuses at a ceiling or under a Pause, and `decide.py` asks the brakes before every act and Run. `issue.py` derives an issue's State and decides on it (decisions 0028, 0031, 0034, 0037).
+`coverage.py` says whether a reviewing Result covers its rubric (decision 0029). Brakes, outside `kernel/`, wait on `controller/`. Only `brakes.py`, `gate.py` and `coverage.py` are protected paths; the rest of the Kernel is reported at a stop.
 
 | Rule | Held by |
 |---|---|
@@ -27,8 +27,7 @@ and take "not held yet" out of the documents `make verify` names. `python3 -m un
 2. The rule: the line in `derive.py` that returns the reason `empty_diff`.
 3. The mutant: the entry "an empty diff converges" in `tools/mutants.py`. It names the file, the
    exact text of the rule, and what to put in its place. The text must appear once in the file.
-   A rule that acts in two places gets a mutant for each; one that changes an existing line gets a
-   mutant that puts the old line back.
+   A rule that acts in two places gets a mutant for each; one that changes an existing line gets a mutant that puts the old line back.
 
 Then, only if your rule needs it:
 

@@ -1,9 +1,11 @@
 """The fixtures of the platform trials, and the fake GitHub's grounding in them (design, sections 4.5 and 6).
 
-A fixture in `trials/` is what one trial sent to GitHub in the canary repo and what came back,
-with every credential removed. It validates against `schemas/trial.schema.json`, and nothing else
-is kept there. A credential is refused here and not by the schema, which cannot express it:
-`tools/redact_trial.py` applies the same rules to a raw capture before anyone reads it.
+A fixture in `trials/` is what one trial sent to GitHub in the canary repo, or of the org itself for a
+trial about the org and its Apps (decision 0035), and what came back, with every credential removed.
+`repo` is the org exactly when every call is of the org or its Apps. It validates against
+`schemas/trial.schema.json`, and nothing else is kept there. A credential is refused here and not by
+the schema, which cannot express it: `tools/redact_trial.py` applies the same rules to a raw capture
+before anyone reads it.
 
 Each rule the fake GitHub applies is listed in `sim/grounding.py` and marked where `sim/world.py`
 applies it. A fixture named there must exist and be valid. A rule with no fixture is unverified,
@@ -32,6 +34,11 @@ from tools.jsonschema_lite import validate
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Named in data and in documents. Anything else that names it could read it.
 CANARY = "software-factory-" + "canary"
+# A trial about the org and its Apps records the org as its repo, and only such a trial: one whose every call is a
+# REST call of an App, of the org, or of an installation, with no segment that climbs out of it (decision 0035).
+ORG = "combsmith"
+ORG_CALL = re.compile(r"^[A-Z]+ /(apps/|orgs/%s/|installation/)" % ORG)
+CLIMBS = re.compile(r"(^|/)\.{1,2}(/|$)|%2e", re.I)
 FIXTURE = re.compile(r"^(P-[1-9][0-9]*)(\.[a-z0-9-]+)?\.json$")
 TRIAL = re.compile(r"^P-[1-9][0-9]*$")
 CODE = re.compile(r"^[a-z_]+$")
@@ -120,6 +127,66 @@ def _credentials(value, where: str) -> list:
     return out
 
 
+def _askers(data) -> list:
+    """(path, what is wrong) for who asked, and of what, beyond what the schema can say (decisions 0033, 0035).
+
+    A trial of a vendor's CLI ran in no repo: `repo` is null exactly when every request is made as
+    `subscription`. A trial about the org and its Apps records the org: `repo` is `combsmith` exactly
+    when every call is of an App, the org or an installation. And an asker is named in words, never by
+    an address, which could tie the fixture to an account at a vendor.
+    """
+    out = []
+    exchanges = data.get("exchanges") if isinstance(data, dict) else None
+    exchanges = exchanges if isinstance(exchanges, list) else []
+    kinds = []
+    for i, exchange in enumerate(exchanges):
+        request = exchange.get("request") if isinstance(exchange, dict) else None
+        asker = request.get("as") if isinstance(request, dict) else None
+        asker = asker if isinstance(asker, dict) else {}
+        kinds.append(asker.get("kind"))
+        if "@" in str(asker.get("name", "")):
+            out.append(("exchanges[%d].request.as.name" % i, "looks like an address; name the account in words, "
+                        "never by its address"))
+    if isinstance(data, dict) and "repo" in data:
+        if data["repo"] is None:
+            for i, kind in enumerate(kinds):
+                if kind != "subscription":
+                    out.append(("exchanges[%d].request.as.kind" % i, "is %s, and repo is null; only a trial of a "
+                                "vendor's CLI, every request of it made as subscription, records no repo" % kind))
+        else:
+            for i, kind in enumerate(kinds):
+                if kind == "subscription":
+                    out.append(("exchanges[%d].request.as.kind" % i, "is subscription, and repo is %s; a trial of a "
+                                "vendor's CLI ran in no repo, so its repo is null" % data["repo"]))
+            out += _org(data["repo"], exchanges)
+    return out
+
+
+def _of_org(request) -> bool:
+    """Whether a request is a REST call of an App, of the org or of an installation, whose path climbs nowhere."""
+    request = request if isinstance(request, dict) else {}
+    call = request.get("call")
+    if request.get("via") != "rest" or not isinstance(call, str) or not ORG_CALL.match(call):
+        return False
+    path = call.split(" ", 1)[1].split("?", 1)[0]
+    return not CLIMBS.search(path)
+
+
+def _org(repo, exchanges: list) -> list:
+    """(path, what is wrong) when `repo` is the org and a call is not of the org or its Apps, or the other way round."""
+    requests = [exchange.get("request") if isinstance(exchange, dict) else None for exchange in exchanges]
+    calls = [_of_org(request) for request in requests]
+    if repo == ORG:
+        return [("exchanges[%d].request.call" % i, "is not a REST call of the org or its Apps, and repo is %s; only a "
+                 "trial whose every call is a REST call of an App, the org or an installation, with no segment that "
+                 "climbs out of it, records the org" % ORG)
+                for i, of_org in enumerate(calls) if not of_org]
+    if calls and all(calls):
+        return [("repo", "is %s, and every call is of the org or its Apps; such a trial records the org, %s"
+                 % (repo, ORG))]
+    return []
+
+
 def _headers(data) -> list:
     """(path, what is wrong) for each header of an exchange that a fixture may not keep."""
     out = []
@@ -175,6 +242,8 @@ def _fixtures(root: pathlib.Path, schema: dict, problems: list) -> dict:
         wrong = ["%s: %s" % (rel, err) for err in validate(data, schema)]
         if not wrong and data["trial"] != name.group(1):
             wrong.append("%s: records trial %s; a fixture is named for its trial" % (rel, data["trial"]))
+        if not wrong:
+            wrong += ["%s: %s %s" % (rel, where, what) for where, what in _askers(data)]
         wrong += ["%s: %s %s" % (rel, where, what) for where, what in _credentials(data, "") + _headers(data)]
         problems += wrong
         if not wrong:
@@ -183,7 +252,8 @@ def _fixtures(root: pathlib.Path, schema: dict, problems: list) -> dict:
 
 
 def _examples(root: pathlib.Path) -> list:
-    """The examples of a fixture, counter-examples too, hold no credential either."""
+    """The examples of a fixture, counter-examples too, hold no credential either; an example names its askers as a
+    fixture must."""
     problems = []
     for path in walk.files(root, "examples"):
         if not (path.name.startswith("trial") and path.suffix == ".json"):
@@ -193,7 +263,10 @@ def _examples(root: pathlib.Path) -> list:
             data = _load(path)
         except (OSError, ValueError):
             continue        # check_examples reports it
-        problems += ["%s: %s %s" % (rel, where, what) for where, what in _credentials(data, "") + _headers(data)]
+        found = _credentials(data, "") + _headers(data)
+        if "invalid" not in path.relative_to(root).parts:
+            found += _askers(data)
+        problems += ["%s: %s %s" % (rel, where, what) for where, what in found]
     return problems
 
 

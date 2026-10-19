@@ -214,6 +214,18 @@ class Examples(unittest.TestCase):
     def test_an_example_that_does_not_validate_is_caught(self):
         self.assertTrue(caught(check_examples.run(clone({"examples/decision.json": "{}"})), "decision.json: $: missing"))
 
+    def test_a_coverage_that_leaves_a_criterion_uncovered_is_caught(self):  # decision 0029
+        # Valid to its schema, a coverage example is judged by kernel/coverage.py too, against the rubric, the Finding
+        # example and the paths the facts example changes: no schema can say every criterion that applies is there.
+        left = (ROOT / "examples" / "invalid" / "coverage.a-criterion-that-applies-left-out.json").read_text()
+        whole = (ROOT / "examples" / "coverage.json").read_text()
+        self.assertTrue(caught(check_examples.run(clone({"examples/coverage.json": left})),
+                               "coverage.json: $: uncovered PR-4"))
+        self.assertTrue(caught(check_examples.run(clone({"examples/invalid/coverage.a-criterion-that-applies-left-out"
+                                                         ".json": whole})), "was accepted, and must be rejected"))
+        problems = check_examples.run(clone({"examples/finding.json": "{}"}))
+        self.assertTrue(caught(problems, "coverage.json: $: uncovered PR-3"))
+
     def test_only_success_can_pass_a_check(self):  # I-27, L-07
         # The configuration may say what a conclusion means, but never that one with no verdict has passed.
         schema = json.loads((ROOT / "schemas" / "config.schema.json").read_text())
@@ -276,6 +288,29 @@ class Lifecycle(unittest.TestCase):
         lc = copy.deepcopy(check_lifecycle.load("issue"))
         lc["transitions"].append({"from": "not_served", "to": "ready", "by": "factory", "bound": None})
         self.assertTrue(caught(check_lifecycle.check(lc), "only a person takes a Work item out of not_served"))
+
+    def test_only_a_person_or_a_strangers_change_left_to_a_person_leaves_a_person_only_state(self):  # decision 0037
+        # An outsider's edit makes an issue's acceptance lapse, from a Hold of the brakes too, and the issue then waits
+        # for a person: the issue's Lifecycle declares it, bound by a person, and passes.
+        lc = check_lifecycle.load("issue")
+        limits = json.loads((ROOT / "config" / "defaults.json").read_text())["limits"]
+        self.assertIn(("held", "new", "stranger", check_lifecycle.PERSON),
+                      {(tr["from"], tr["to"], tr["by"], tr["bound"]) for tr in lc["transitions"]})
+        self.assertEqual(check_lifecycle.check(lc, limits), [])
+        # No one else leaves it: neither the platform nor a Lens.
+        for by in ("platform", "lens"):
+            tr = {"from": "held", "to": "new", "by": by, "bound": check_lifecycle.PERSON}
+            problems = check_lifecycle.check(dict(lc, transitions=lc["transitions"] + [tr]), limits)
+            self.assertTrue(caught(problems, "held is left by %s; only a person takes a Work item out of held" % by),
+                            problems)
+        # And a stranger's change names the bound person, out of a person-only State or any other.
+        for start in ("held", "triage"):
+            for bound in (None, "max_attempts"):
+                transitions = [dict(tr, bound=bound) if (tr["from"], tr["by"]) == (start, "stranger") else tr
+                               for tr in lc["transitions"]]
+                problems = check_lifecycle.check(dict(lc, transitions=transitions), limits)
+                self.assertTrue(caught(problems, "%s -> new by stranger names the bound %s; what a stranger starts"
+                                                 " only a person ends" % (start, bound)), problems)
 
     def test_an_undeclared_person_only_state_is_caught(self):
         lc = dict(check_lifecycle.load(), person_only_exits=["limbo"])
@@ -493,10 +528,170 @@ class Apps(unittest.TestCase):
     def setUp(self):
         self.table = json.loads((ROOT / "config" / "apps.json").read_text())
         self.apps, self.needs = self.table["apps"], self.table["needs"]
+        self.fixture = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        self.reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
+        installations = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS]
+        self.listed = installations[0]["response"]["body"]["installations"]
+        self.installed = {i["app_slug"]: i for i in self.listed}
+        self.registered = {e["response"]["body"]["slug"]: e["response"]["body"] for e in self.fixture["exchanges"]
+                           if e["request"]["call"].startswith(check_apps.REGISTRATION)}
+        self.reached = {e["request"]["as"]["name"]: e["response"]["body"] for e in self.reach["exchanges"]}
 
-    def check(self) -> list:
+    def check(self, **leave_out) -> list:
         facts = (ROOT / "schemas" / "facts.schema.json").read_text()
-        return check_apps.run(tree({"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts}))
+        files = {"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts,
+                 "trials/P-39.grants.json": json.dumps(self.fixture), "trials/P-39.reach.json": json.dumps(self.reach)}
+        return check_apps.run(tree({rel: text for rel, text in files.items() if rel not in leave_out.get("files", ())}))
+
+    def test_the_data_is_held_to_what_github_granted_each_app(self):
+        # P-39 recorded each installation's permissions. The data must name exactly those, at the same levels: a
+        # permission GitHub granted that the data leaves out, one the data names that was not granted, and a level
+        # that differs are each caught, and so is an app_id whose installation is another App's, or none.
+        self.assertEqual(self.check(), [])
+        self.installed["combsmith-sf-controller"]["permissions"]["issues"] = "read"
+        self.installed["combsmith-sf-reader"]["permissions"].pop("checks")
+        self.apps["pr-review"]["permissions"]["contents"]["level"] = "write"
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: issues is absent in the data and read as GitHub granted it"))
+        self.assertTrue(caught(problems, "reader: checks is read in the data and absent as GitHub granted it"))
+        self.assertTrue(caught(problems, "pr-review: contents is write in the data and read as GitHub granted it"))
+        self.setUp()
+        self.apps["controller"]["app_id"] = self.apps["reader"]["app_id"]
+        self.apps["reader"]["app_id"] = 1
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: App 5364151 is installed as combsmith-sf-reader"))
+        self.assertTrue(caught(problems, "reader: trials/P-39.grants.json records no installation of App 1"))
+
+    def test_an_installation_with_events_or_on_every_repo_is_caught(self):
+        # Decision 0035: P-39 passes only if each installation receives no event and is on selected repos.
+        self.installed["combsmith-sf-controller"]["events"] = ["push"]
+        self.installed["combsmith-sf-reader"]["repository_selection"] = "all"
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: its installation in trials/P-39.grants.json receives the "
+                                         "events ['push']"))
+        self.assertTrue(caught(problems, "reader: its installation in trials/P-39.grants.json has the selection all"))
+        self.assertFalse(caught(problems, "pr-review:"))
+
+    def test_the_registration_is_held_to_the_data_as_the_installation_is(self):
+        # What the App is registered with is what a new installation accepts, so it too is held to the data.
+        self.registered["combsmith-sf-controller"]["permissions"]["contents"] = "write"
+        self.registered["combsmith-sf-reader"]["events"] = ["pull_request"]
+        self.registered["combsmith-sf-pr-review"]["id"] = 1
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: contents is read in the data and write as the App is "
+                                         "registered in trials/P-39.grants.json"))
+        self.assertTrue(caught(problems, "reader: the App is registered in trials/P-39.grants.json for the events "
+                                         "['pull_request']"))
+        self.assertTrue(caught(problems, "pr-review: combsmith-sf-pr-review is registered as App 1"))
+        self.setUp()
+        self.fixture["exchanges"] = [e for e in self.fixture["exchanges"]
+                                     if e["request"]["call"] != "GET /apps/combsmith-sf-reader"]
+        problems = self.check()
+        self.assertTrue(caught(problems, "reader: no fixture of trial P-39 records GET /apps/combsmith-sf-reader"))
+        self.assertFalse(caught(problems, "controller: no fixture"))
+
+    def test_a_fixture_of_p39_that_failed_is_not_trusted(self):
+        # Only a passing fixture is kept, and no App's key is stored until P-39 passes.
+        self.fixture["verdict"] = "fail"
+        self.reach["verdict"] = "fail"
+        problems = self.check()
+        self.assertTrue(caught(problems, "trials/P-39.grants.json: its verdict is fail"))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: its verdict is fail"))
+
+    def test_the_repos_each_installation_reaches_are_exactly_installed_on(self):
+        # P-39's reach fixture is held to installed_on, and without it which repos an App reaches is unread.
+        self.reached["combsmith-sf-controller"]["repository_selection"] = "all"
+        self.reached["combsmith-sf-controller"]["repositories"] = []
+        self.reached["combsmith-sf-controller"]["total_count"] = 0
+        self.apps["reader"]["installed_on"] = self.apps["reader"]["installed_on"][:1]
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: its installation reaches repos by the selection all in "
+                                         "trials/P-39.reach.json"))
+        self.assertTrue(caught(problems, "controller: its installation reaches no repo in trials/P-39.reach.json"))
+        self.assertTrue(caught(problems, "reader: its installation reaches combsmith/software-factory, combsmith/%s in "
+                                         "trials/P-39.reach.json, and installed_on names combsmith/software-factory;"
+                                         % check_trials.CANARY))
+        self.setUp()
+        problems = self.check(files=("trials/P-39.reach.json",))
+        for app in ("controller", "pr-review", "reader"):
+            self.assertTrue(caught(problems, "%s: no fixture of trial P-39 records GET /installation/repositories read "
+                                             "as combsmith-sf-%s" % (app, app)))
+
+    def test_a_read_github_refused_is_not_trusted(self):
+        # A read answered with anything but 200 holds nothing GitHub granted, even when its body matches the data.
+        exchange = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS][0]
+        exchange["response"]["status"] = 403
+        self.reach["exchanges"][0]["response"]["status"] = 401
+        problems = self.check()
+        self.assertTrue(caught(problems, "trials/P-39.grants.json: its read GET /orgs/combsmith/installations was "
+                                         "answered 403, not 200"))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: its read GET /installation/repositories?per_page=100 "
+                                         "was answered 401, not 200"))
+        self.assertTrue(caught(problems, "controller: no fixture of trial P-39 records GET /installation/repositories"))
+
+    def test_an_app_listed_twice_among_the_installations_is_caught(self):
+        # A record that lists one App twice cannot be trusted, whichever copy agrees with the data.
+        twin = json.loads(json.dumps(self.installed["combsmith-sf-controller"]))
+        twin["permissions"]["contents"] = "write"
+        self.listed.insert(0, twin)
+        self.fixture["exchanges"][3]["response"]["body"]["total_count"] += 1
+        problems = self.check()
+        self.assertTrue(caught(problems, "trials/P-39.grants.json: its read GET /orgs/combsmith/installations lists "
+                                         "App 5364130 more than once"))
+        self.assertTrue(caught(problems, "no fixture of trial P-39 in trials/ records GET /orgs/combsmith/installations"))
+
+    def test_a_list_not_read_whole_is_not_trusted(self):
+        # One page of more, a count the list falls short of, or one repo listed twice, is not the whole of what an
+        # installation reaches, nor of the org's installations.
+        self.reach["exchanges"][0]["response"]["headers"]["link"] = '<https://api.github.com/x?page=2>; rel="next"'
+        self.reached["combsmith-sf-pr-review"]["total_count"] = 3
+        repos = self.reached["combsmith-sf-reader"]["repositories"]
+        repos[1] = json.loads(json.dumps(repos[0]))
+        self.fixture["exchanges"][3]["response"]["body"]["total_count"] = 18
+        problems = self.check()
+        call = "its read GET /installation/repositories?per_page=100"
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: %s has a link header, so it is one page of more"
+                                         % call))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: %s lists 2 of the 3 it counts" % call))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: %s lists combsmith/software-factory more than once"
+                                         % call))
+        self.assertTrue(caught(problems, "trials/P-39.grants.json: its read GET /orgs/combsmith/installations lists "
+                                         "17 of the 18 it counts"))
+        for app in ("controller", "pr-review", "reader"):
+            self.assertTrue(caught(problems, "%s: no fixture of trial P-39 records GET /installation/repositories"
+                                             % app))
+
+    def test_with_no_record_of_what_github_granted_the_data_is_not_trusted(self):
+        facts = (ROOT / "schemas" / "facts.schema.json").read_text()
+        problems = check_apps.run(tree({"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts}))
+        self.assertTrue(caught(problems, "no fixture of trial P-39 in trials/ records GET /orgs/combsmith/installations"))
+        self.fixture["exchanges"] = [e for e in self.fixture["exchanges"]
+                                     if e["request"]["call"] != check_apps.INSTALLATIONS]
+        self.assertTrue(caught(self.check(), "no fixture of trial P-39"))
+
+    def test_each_apps_key_is_kept_in_the_environment_of_the_job_that_holds_it(self):
+        # A job that names an environment reads every secret in it. With the Controller's and the reader's keys
+        # swapped, run, which reads untrusted text, would hold the Controller's key, which writes check runs.
+        apps = self.apps
+        apps["controller"]["key"], apps["reader"]["key"] = apps["reader"]["key"], apps["controller"]["key"]
+        self.apps["pr-review"]["key"]["secret"] = "REVIEW_APP_KEY"
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: its key is kept in factory-run, and the poller job holds it"))
+        self.assertTrue(caught(problems, "reader: its key is kept in factory-poller, and the run job holds it"))
+        self.assertTrue(caught(problems, "controller: its key is kept as READER_APP_KEY; name it CONTROLLER_APP_KEY"))
+        self.assertTrue(caught(problems, "reader: its key is kept as CONTROLLER_APP_KEY; name it READER_APP_KEY"))
+        self.assertTrue(caught(problems, "pr-review: its key is kept as REVIEW_APP_KEY; name it PR_REVIEW_APP_KEY"))
+        self.assertFalse(caught(problems, "pr-review: its key is kept in"))
+        self.setUp()
+        del self.apps["pr-review"]["key"]
+        self.assertTrue(caught(self.check(), "pr-review: names no environment its key is kept in"))
+
+    def test_every_roles_key_is_kept_in_applys_environment_and_they_may_share_it(self):
+        # apply holds each Role's App key (design §4.9), so a second Role's App shares its environment.
+        self.apps["author"] = {"key": {"environment": "factory-apply", "secret": "AUTHOR_APP_KEY"}}
+        self.assertEqual(check_apps._keys(self.apps), [])
+        self.apps["author"]["key"]["environment"] = "factory-run"
+        self.assertTrue(caught(check_apps._keys(self.apps), "author: its key is kept in factory-run, and the apply job"))
 
     def test_no_app_may_change_a_workflow_or_upload_to_code_scanning(self):
         # GitHub refuses an App's push under .github/workflows/ without `workflows`, and with `security_events: write`
@@ -539,7 +734,7 @@ class Apps(unittest.TestCase):
 
     def test_a_grant_for_a_need_that_is_waiting_is_caught(self):
         self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("read:facts.queue")
-        self.assertTrue(caught(self.check(), "controller: pull_requests serves read:facts.queue, which waits on issue 26"))
+        self.assertTrue(caught(self.check(), "controller: pull_requests serves read:facts.queue, which waits on issue 185"))
 
     def test_a_write_need_held_by_two_apps_is_caught(self):
         self.apps["controller"]["permissions"]["pull_requests"] = {"level": "write", "needs": ["effect:comment"]}
@@ -1140,6 +1335,22 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": other}))),
                                "ci.yml: [runner]"))
 
+    def test_the_tick_probe_is_exempt_from_install_alone(self):
+        # Trial P-8 (issue 25): GitHub refuses a step that runs nothing, so the probe's one step is `exit 0`.
+        probe = (ROOT / ".github" / "workflows" / "tick-probe.yml").read_text()
+        self.assertEqual(check_workflows.EXEMPT["tick-probe.yml"][0], ("install",))
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/tick-probe.yml": probe}))),
+                                "tick-probe.yml"))
+        more = probe.replace("      - run: exit 0\n", "      - run: exit 0\n      - run: curl https://example.invalid\n")
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/tick-probe.yml": more}))),
+                               "tick-probe.yml is exempt from a rule, so it is held word for word"))
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/probe.yml": probe}))),
+                               "probe.yml: [install]"))
+        granted = probe.replace("permissions: {}", "permissions: write-all")
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/tick-probe.yml": granted}))),
+                               "tick-probe.yml: [permissions]"))
+
     def test_the_secret_scan_reads_the_bases_configuration(self):
         # gitleaks 8.30.1 reads the .gitleaksignore it is told of, and also the one at the top of what it scans, so the
         # scan deletes the head's and reads its rules from a checkout of the base: a change cannot widen the allowlist it
@@ -1351,13 +1562,18 @@ class TheList(unittest.TestCase):
     Kernel is given as `protected_paths` (decision 0020)."""
 
     HOOKS = json.loads((ROOT / "config" / "hooks.json").read_text())
+    # The paths each criterion of the review's rubric applies to, read with the same matcher (decision 0029).
+    RUBRIC = [p for c in json.loads((ROOT / "config" / "rubric-pr-review.json").read_text())["criteria"]
+              for p in c.get("applies_when", {}).get("paths", [])]
 
     def test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus(self):
         # Only the two matchers can drift, so they are held to each other: on every file in the repo, and on paths made
         # from each pattern, its wildcard standing for nothing, a letter or more than one name, in any case, below it,
-        # beside it and above it.
+        # beside it and above it. The rubric's patterns are among them, and `**` as a whole name.
         data = protected.load()
         patterns = [p for p, _ in data["protected"] + data["reported"]] + ["a/*", "*.json", "x*y*z/", "a*/b*/", "*"]
+        patterns += self.RUBRIC + ["**", "**/", "a/**/b*/", "**/a/**", "a**b/c", "**/**/x"]
+        self.assertLessEqual({"**/*.py", "kernel/**", "**/AGENTS.md"}, set(self.RUBRIC))
         corpus = {p.relative_to(ROOT).as_posix() for p in walk.files(ROOT)}
         for pattern in patterns:
             for star in ("", "x", "x/y", "a.b", "*"):
@@ -1371,6 +1587,20 @@ class TheList(unittest.TestCase):
             whole = protected.entries([(pattern, "")])[0][3]
             for path in corpus:
                 self.assertEqual(derive.matches(pattern, path), bool(whole.match(path.casefold())), (pattern, path))
+
+    def test_two_stars_as_a_whole_name_stand_for_any_run_of_names(self):  # decision 0029
+        # `**` as a whole name stands for any run of names, none included; within a name it is two wildcards, each
+        # within that name. The hooks read it alike (test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus).
+        for pattern, path, fits in (("**/*.py", "a.py", True), ("**/*.py", "a/b/c.py", True), ("**/*.py", "a/b.txt", False),
+                                    ("kernel/**", "kernel", True), ("kernel/**", "kernel/a/b.py", True),
+                                    ("kernel/**", "kernels/a.py", False), ("**/AGENTS.md", "AGENTS.md", True),
+                                    ("**/AGENTS.md", "a/b/AGENTS.md", True), ("**/AGENTS.md", "a/xAGENTS.md", False),
+                                    ("a/**/b", "a/b", True), ("a/**/b", "a/x/y/b", True), ("a/**/b", "a/x/y/c", False),
+                                    ("a**b", "ab", True), ("a**b", "axyb", True), ("a**b", "ax/yb", False),
+                                    ("docs/**/", "docs/a/b.md", True), ("docs/**/", "doc/a.md", False)):
+            self.assertEqual(derive.matches(pattern, path), fits, (pattern, path))
+            whole = protected.entries([(pattern, "")])[0][3]
+            self.assertEqual(bool(whole.match(path.casefold())), fits, (pattern, path))
 
     def test_the_kernel_is_given_every_protected_path_and_lens_input(self):
         want = [e["path"] for e in self.HOOKS["protected"]] + [e["path"] for e in self.HOOKS["lens_inputs"]]
@@ -1856,9 +2086,9 @@ def fixture(**fields) -> str:
 GROUNDING = (ROOT / "sim" / "grounding.py").read_text()
 
 
-def grounded(fixture_path: str, trials: str = '("P-28",)') -> str:
-    """sim/grounding.py with the rule P-28 asks grounded by `fixture_path`, and asked by `trials`."""
-    rule = '("P-28",), None)'
+def grounded(fixture_path: str, trials: str = '("P-18",)') -> str:
+    """sim/grounding.py with the rule P-18 asks grounded by `fixture_path`, and asked by `trials`."""
+    rule = '("P-18",), None)'
     assert GROUNDING.count(rule) == 1
     return GROUNDING.replace(rule, '%s, "%s")' % (trials, fixture_path))
 
@@ -1947,6 +2177,87 @@ class Trials(unittest.TestCase):
         self.assertTrue(caught(problems, "examples/trial.json: note holds something shaped like a credential"))
         self.assertTrue(caught(problems, "trials/AGENTS.md: holds something shaped like a credential"))
 
+    def test_a_null_repo_goes_with_a_subscription_and_nothing_else(self):
+        # Decision 0033. The schema cannot tie the two together, so the check does, both ways.
+        vendor = json.loads((ROOT / "examples" / "trial.a-vendors-cli.json").read_text())
+        self.assertEqual(check_trials.run(clone({"trials/P-13.json": json.dumps(vendor)})), [])
+        problems = check_trials.run(clone({"trials/P-12.json": fixture(repo=None)}))
+        self.assertTrue(caught(problems, "trials/P-12.json: exchanges[0].request.as.kind is app, and repo is null"))
+        self.assertTrue(caught(problems, "trials/P-12.json: exchanges[1].request.as.kind is app, and repo is null"))
+        inside = dict(vendor, repo="combsmith/" + check_trials.CANARY)
+        problems = check_trials.run(clone({"trials/P-13.json": json.dumps(inside)}))
+        self.assertTrue(caught(problems, "trials/P-13.json: exchanges[0].request.as.kind is subscription, and repo is"))
+        mixed = json.loads(json.dumps(vendor))
+        mixed["exchanges"].append(json.loads(json.dumps(mixed["exchanges"][0])))
+        mixed["exchanges"][1]["request"]["as"] = {"kind": "person", "name": "don-petry"}
+        problems = check_trials.run(clone({"trials/P-13.json": json.dumps(mixed)}))
+        self.assertTrue(caught(problems, "exchanges[1].request.as.kind is person, and repo is null"))
+        self.assertFalse(caught(problems, "exchanges[0].request.as.kind"))
+        problems = check_trials.run(clone({"examples/trial.json": fixture(repo=None)}))
+        self.assertTrue(caught(problems, "examples/trial.json: exchanges[0].request.as.kind is app, and repo is null"))
+
+    def test_the_org_is_the_repo_exactly_when_every_call_is_of_the_org_or_its_apps(self):
+        # Decision 0035, both ways: a fixture of the org asks nothing of a repo, and one that asks only of the org
+        # and its Apps records the org.
+        reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
+        self.assertEqual(check_trials.run(clone({"trials/P-39.reach.json": json.dumps(reach)})), [])
+        of_a_repo = json.loads(json.dumps(reach))
+        of_a_repo["exchanges"][1]["request"]["call"] = "GET /repos/combsmith/software-factory/installation"
+        problems = check_trials.run(clone({"trials/P-39.reach.json": json.dumps(of_a_repo)}))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: exchanges[1].request.call is not a REST call of the org "
+                                         "or its Apps, and repo is combsmith"))
+        self.assertFalse(caught(problems, "exchanges[0].request.call"))
+        in_the_canary = dict(reach, repo="combsmith/" + check_trials.CANARY)
+        problems = check_trials.run(clone({"trials/P-39.reach.json": json.dumps(in_the_canary)}))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: repo is combsmith/%s, and every call is of the org "
+                                         "or its Apps" % check_trials.CANARY))
+        problems = check_trials.run(clone({"examples/trial.json": fixture(repo="combsmith")}))
+        self.assertTrue(caught(problems, "examples/trial.json: exchanges[0].request.call is not a REST call of the org"))
+
+    def test_a_fixture_of_the_org_asks_by_rest_of_this_org_alone_and_climbs_nowhere(self):
+        # Another org, a GraphQL query whose call looks like an App's, and a path that climbs out of /apps/ are each
+        # a call of something else; the fixture's own calls are not.
+        reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
+        reach["exchanges"] += [json.loads(json.dumps(reach["exchanges"][0])) for _ in range(4)]
+        reach["exchanges"][3]["request"]["call"] = "GET /orgs/other-org/installations"
+        reach["exchanges"][4]["request"]["via"] = "graphql"
+        reach["exchanges"][4]["request"]["call"] = "GET /apps/combsmith-sf-reader"
+        reach["exchanges"][5]["request"]["call"] = "GET /apps/../repos/combsmith/software-factory"
+        reach["exchanges"][6]["request"]["call"] = "GET /installation/%2E%2E/repos/combsmith/software-factory"
+        self.assertEqual([where for where, _ in check_trials._askers(reach)],
+                         ["exchanges[%d].request.call" % i for i in (3, 4, 5, 6)])
+        reach["exchanges"][3]["request"]["call"] = "GET /orgs/combsmith/installations?per_page=100"
+        reach["exchanges"][4]["request"]["via"] = "rest"
+        self.assertEqual([where for where, _ in check_trials._askers(reach)],
+                         ["exchanges[5].request.call", "exchanges[6].request.call"])
+
+    def test_a_call_of_a_repo_in_a_fixture_of_the_org_is_one_problem_whoever_asked(self):
+        # The pairing is read once for the fixture, not once for each exchange, and an asker that cannot be read
+        # neither hides it nor repeats it. The schema refuses such an asker first, so the pairing is read directly.
+        reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
+        reach["exchanges"][2]["request"]["call"] = "GET /repos/combsmith/software-factory/installation"
+        self.assertEqual([where for where, _ in check_trials._askers(reach)], ["exchanges[2].request.call"])
+        reach["exchanges"][0]["request"]["as"] = "combsmith-sf-controller"
+        reach["exchanges"][1]["request"]["as"] = None
+        org = [where for where, what in check_trials._askers(reach) if "is not a REST call of the org or its Apps" in what]
+        self.assertEqual(org, ["exchanges[2].request.call"])
+        problems = check_trials.run(clone({"trials/P-39.reach.json": json.dumps(reach)}))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: $.exchanges[0].request.as: expected object"))
+
+    def test_an_asker_named_by_an_address_is_caught(self):
+        # Decision 0033: a fixture names who asked in words, never by an address that ties it to an account.
+        vendor = json.loads((ROOT / "examples" / "trial.a-vendors-cli.json").read_text())
+        vendor["exchanges"][0]["request"]["as"]["name"] = "account@example.com"
+        problems = check_trials.run(clone({"trials/P-13.json": json.dumps(vendor),
+                                           "examples/trial.a-vendors-cli.json": json.dumps(vendor)}))
+        for where in ("trials/P-13.json", "examples/trial.a-vendors-cli.json"):
+            self.assertTrue(caught(problems, where + ": exchanges[0].request.as.name looks like an address"), where)
+        data = json.loads(fixture())
+        data["exchanges"][1]["request"]["as"]["name"] = "combsmith-sf-trial@users.noreply.github.com"
+        problems = check_trials.run(clone({"trials/P-12.json": json.dumps(data)}))
+        self.assertTrue(caught(problems, "trials/P-12.json: exchanges[1].request.as.name looks like an address"))
+        self.assertFalse(caught(problems, "exchanges[0].request.as.name"))
+
     def test_code_that_reads_the_canary_is_caught(self):
         name = "combsmith/" + check_trials.CANARY
         root = clone({"tools/fetch.py": "REPO = %r\n" % name, ".github/workflows/trial.yml": "repository: %s\n" % name,
@@ -1963,22 +2274,22 @@ class Trials(unittest.TestCase):
             self.assertFalse(caught(problems, where), where)
 
     def test_a_fixture_named_for_a_rule_must_exist_and_validate(self):
-        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json")}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-28.json does not exist"))
-        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json"), "trials/P-28.json": "{}"}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-28.json is not a valid fixture"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-18.json")}))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-18.json does not exist"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-18.json"), "trials/P-18.json": "{}"}))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-18.json is not a valid fixture"))
         problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-12.json"), "trials/P-12.json": fixture()}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-12.json records P-12, and P-28 asks this"))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-12.json records P-12, and P-18 asks this"))
         problems = check_trials.run(clone({"sim/grounding.py": grounded("examples/trial.json")}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: examples/trial.json is not a fixture in trials/"))
-        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json", "()"),
-                                           "trials/P-28.json": fixture(trial="P-28")}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: no trial asks this; add one to section 6 first"))
-        root = clone({"sim/grounding.py": grounded("trials/P-28.json", '("P-7", "P-28")'),
-                      "trials/P-28.json": fixture(trial="P-28")})
+        self.assertTrue(caught(problems, "a_killed_job_times_out: examples/trial.json is not a fixture in trials/"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-18.json", "()"),
+                                           "trials/P-18.json": fixture(trial="P-18")}))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: no trial asks this; add one to section 6 first"))
+        root = clone({"sim/grounding.py": grounded("trials/P-18.json", '("P-7", "P-18")'),
+                      "trials/P-18.json": fixture(trial="P-18")})
         self.assertEqual(check_trials.run(root), [])
-        self.assertFalse(caught(check_trials.unverified(root), "the_pusher_is_the_last_pusher"))
-        self.assertTrue(caught(check_trials.unverified(), "the_pusher_is_the_last_pusher"))
+        self.assertFalse(caught(check_trials.unverified(root), "a_killed_job_times_out"))
+        self.assertTrue(caught(check_trials.unverified(), "a_killed_job_times_out"))
 
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()

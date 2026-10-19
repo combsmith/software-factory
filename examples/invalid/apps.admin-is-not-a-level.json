@@ -91,7 +91,7 @@
       "level": "read"
     },
     "read:facts.queue": {
-      "waits_on": "issue 26, whose canary trial records what reading membership of the queue takes"
+      "waits_on": "issue 185, whose canary trial P-2 records what reading membership of the queue takes"
     },
     "read:facts.content_id": {
       "permission": "contents",
@@ -133,6 +133,11 @@
   "apps": {
     "controller": {
       "name": "combsmith-sf-controller",
+      "app_id": 5364130,
+      "key": {
+        "environment": "factory-poller",
+        "secret": "CONTROLLER_APP_KEY"
+      },
       "installed_on": [
         "combsmith/software-factory",
         "combsmith/software-factory-canary"
@@ -186,6 +191,11 @@
     },
     "pr-review": {
       "name": "combsmith-sf-pr-review",
+      "app_id": 5364144,
+      "key": {
+        "environment": "factory-apply",
+        "secret": "PR_REVIEW_APP_KEY"
+      },
       "installed_on": [
         "combsmith/software-factory",
         "combsmith/software-factory-canary"
@@ -217,6 +227,11 @@
     },
     "reader": {
       "name": "combsmith-sf-reader",
+      "app_id": 5364151,
+      "key": {
+        "environment": "factory-run",
+        "secret": "READER_APP_KEY"
+      },
       "installed_on": [
         "combsmith/software-factory",
         "combsmith/software-factory-canary"

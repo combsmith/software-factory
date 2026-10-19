@@ -12,8 +12,13 @@ SCHEMA = ROOT / "schemas" / "lifecycle.schema.json"
 # A limit on size or on the whole org is not among them. A new counter in the Kernel is added here.
 PER_ITEM = ("max_runs_per_item", "max_attempts", "max_rounds", "max_acts_per_item", "max_unmerged_closes")
 # The bound that is no counter: only a person ends what the transition starts. A Hold a label holds stands until a
-# person removes it, whoever placed it, so a transition into `held` that no person makes may name it, and nothing else.
+# person removes it, whoever placed it, so a transition into `held` that no person makes may name it, and so may a
+# stranger's change, below; nothing else.
 PERSON = "person"
+# Someone with no write access: an outsider who edits the issue they opened. Only a person admits it again, so a
+# change a stranger makes is bound by a person, and it may leave a State only a person leaves, since the issue then
+# waits on a person (decision 0037).
+STRANGER = "stranger"
 
 
 def load(name: str = "pull_request") -> dict:
@@ -84,13 +89,16 @@ def check(lc: dict, limits: dict = None, schema: dict = None) -> list:
             problems.append("a terminal state has a way out: %s" % tr["from"])
         if tr["from"] == "held" and tr["by"] == "factory":     # L-02
             problems.append("the Factory makes no transition out of a Hold: held -> %s is by factory" % tr["to"])
-        if tr["from"] in gated and tr["by"] != "human":
-            problems.append("%s is left by %s; only a person takes a Work item out of %s"
-                            % (tr["from"], tr["by"], tr["from"]))
+        if tr["from"] in gated and tr["by"] not in ("human", STRANGER):
+            problems.append("%s is left by %s; only a person takes a Work item out of %s, or a stranger's change that"
+                            " leaves it to a person" % (tr["from"], tr["by"], tr["from"]))
+        if tr["by"] == STRANGER and tr["bound"] != PERSON:
+            problems.append("%s -> %s by stranger names the bound %s; what a stranger starts only a person ends, so"
+                            " its bound is person" % (tr["from"], tr["to"], tr["bound"]))
         if tr["bound"] == PERSON:
-            if tr["to"] != "held" or tr["by"] == "human":
-                problems.append("the bound person is only for a Hold that no person makes, not %s -> %s by %s"
-                                % (tr["from"], tr["to"], tr["by"]))
+            if (tr["to"] != "held" or tr["by"] == "human") and tr["by"] != STRANGER:
+                problems.append("the bound person is only for a Hold that no person makes, or a stranger's change,"
+                                " not %s -> %s by %s" % (tr["from"], tr["to"], tr["by"]))
         elif tr["bound"] is not None and tr["bound"] not in PER_ITEM:
             problems.append("the bound %s is not a limit the Kernel counts for each item; a bound is one of %s"
                             % (tr["bound"], ", ".join(PER_ITEM)))

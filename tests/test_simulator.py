@@ -42,6 +42,18 @@ def queued() -> World:
     return w
 
 
+def reviewed(w: World) -> World:
+    """The world with every check passing and every model Lens's review of this content succeeded."""
+    w.checks = dict.fromkeys(w.checks, "success")
+    for lens in world.CONFIG["required_lenses"]["model"]:
+        w.runs.append({"run": "r%d" % len(w.runs), "item": dict(world.ITEM), "role": lens, "intent": "review-change",
+                       "content_id": w.cid(), "status": "completed", "conclusion": "success", "outcome": None,
+                       "started_at": w.now()})
+    w.minute += 1
+    w.starts()
+    return w
+
+
 class Simulation(unittest.TestCase):
     def test_invariants_hold_under_faults(self):
         made, stopped, readings, writers = set(), set(), set(), set()
@@ -287,6 +299,86 @@ class Simulation(unittest.TestCase):
         w.platform()
         self.assertEqual(w.pr_state, "merged")
 
+    def test_a_run_listed_unnamed_admits_nothing(self):  # I-46, decision 0036
+        # On a seed that lists a new Run unnamed, the pass after its admission reads it among the unidentified Runs and
+        # not among the Runs it can name. It may be the Run in flight here, so that pass admits no second review.
+        w = World(11, faults=False, people=False)
+        self.assertEqual(w.seed % world.UNNAMED_EVERY, world.UNNAMED)
+        w.checks = dict.fromkeys(w.checks, "success")
+        w.minute += 1
+        w.starts()
+        w.poll()
+        self.assertEqual([(r["intent"], r["status"]) for r in w.runs], [("review-change", "queued")])
+        w.minute += 1
+        w.poll()
+        self.assertEqual(w.trace[-1].split(" ", 1)[1], "pass: verifying run_unidentified -> defer")
+        self.assertEqual((len(w.runs), w.unnamed_passes), (1, 1))
+        # The pass after it reads the Run by its name, which keeps the item working.
+        w.minute += 1
+        w.poll()
+        self.assertEqual((w.trace[-1].split(" ", 1)[1], len(w.runs)), ("pass: verifying awaiting_review -> nothing", 1))
+        # The other side: a seed that lists every Run by its name never reads one unidentified.
+        w = World(2, faults=False, people=False)
+        w.checks = dict.fromkeys(w.checks, "success")
+        w.minute += 1
+        w.starts()
+        w.poll()
+        w.minute += 1
+        w.poll()
+        self.assertEqual((w.unnamed_passes, w.trace[-1].split(" ", 1)[1]),
+                         (0, "pass: verifying awaiting_review -> nothing"))
+        # A Kernel that read an unidentified Run as nobody's would admit a second review: the invariant breaks.
+        w = World(11, faults=False, people=False)
+        w.checks = dict.fromkeys(w.checks, "success")
+        w.minute += 1
+        w.starts()
+        w.poll()
+        w.minute += 1
+        with mock.patch.object(world, "decide", lambda f, r, c, cfg, now: decide(f, r, dict(c, unidentified_runs=[]),
+                                                                                 cfg, now)):
+            self.assertRaisesRegex(world.Broken, "I-46", w.poll)
+
+    def test_an_approval_listed_unnamed_is_not_issued_again(self):  # I-46, decision 0036
+        # On the same seed an approval's run is read unnamed at the next pass. One that did not land is not yet counted
+        # there, so the item still reads as due an approval: that pass defers it, and the pass after issues it again.
+        w = reviewed(World(11, faults=False, people=False, approval_fails="item"))
+        w.poll()
+        # The approval's run is in flight, as on GitHub seconds later: a record the decision reads unnamed never completed.
+        approval = w.runs[-1]
+        self.assertEqual((approval["intent"], approval["status"], approval["conclusion"]),
+                         (terms.ISSUE_APPROVAL, "in_progress", None))
+        w.finish_run()
+        self.assertEqual(approval["status"], "in_progress")
+        w.minute += 1
+        w.poll()
+        self.assertEqual(w.trace[-1].split(" ", 1)[1], "pass: converged run_unidentified -> defer")
+        self.assertEqual(len([r for r in w.runs if r["intent"] == terms.ISSUE_APPROVAL]), 1)
+        # Once that pass has read the list, the run's end is recorded.
+        self.assertEqual((approval["status"], approval["conclusion"], approval["outcome"]), ("completed", "failure", "item"))
+        w.minute += 1
+        w.poll()
+        self.assertEqual(len([r for r in w.runs if r["intent"] == terms.ISSUE_APPROVAL]), 2)
+        # A Kernel that let the approval through while its run is unnamed breaks the invariant.
+        w = reviewed(World(11, faults=False, people=False, approval_fails="item"))
+        w.poll()
+        w.minute += 1
+        with mock.patch.object(world, "decide", lambda f, r, c, cfg, now: decide(f, r, dict(c, unidentified_runs=[]),
+                                                                                 cfg, now)):
+            self.assertRaisesRegex(world.Broken, "I-46", w.poll)
+
+    def test_the_seeds_list_a_new_run_unnamed(self):  # I-46, decision 0036
+        # On one seed in eight a Run is listed unnamed at the pass after its admission, and that pass defers what it
+        # would admit or approve; every invariant holds throughout.
+        unnamed, deferred = False, False
+        for seed in SEEDS:
+            w = World(seed)
+            for _ in range(250):
+                w.step()
+            unnamed = unnamed or w.unnamed_passes > 0
+            deferred = deferred or any(line.endswith("run_unidentified -> defer") for line in w.trace)
+            self.assertTrue(w.unnamed_passes == 0 or seed % world.UNNAMED_EVERY == world.UNNAMED, seed)
+        self.assertTrue(unnamed and deferred, (unnamed, deferred))
+
     def test_a_pause_admits_nothing_and_stops_every_act(self):  # decision 0003
         # A Hold added to a queued item would take it out. Under a Pause, or one that cannot be read, the dequeue defers
         # and the item is the Maintainer's to see; the first pass after the Pause takes it out.
@@ -305,6 +397,160 @@ class Simulation(unittest.TestCase):
         w.caused(w.while_queued("hold") or "human")
         with mock.patch.object(world, "decide", lambda f, r, c, cfg, now: decide(f, r, dict(c, paused=False), cfg, now)):
             self.assertRaises(world.Broken, w.poll)
+
+    def test_under_a_pause_a_spent_count_shows(self):  # decision 0003, issues 158 and 169
+        # Seed 297's Runs: a review superseded, three that failed by a fault of the item, and a fourth waiting or none.
+        # A Hold of the brakes is a reading and no act, so a count already spent holds the item under a Pause, or one
+        # that cannot be read, as it does without one: the Hold shows through unchanged, with a Run in flight or none.
+        def review(name, minute, status="completed", conclusion="failure", outcome="item"):
+            return {"run": name, "item": dict(world.ITEM), "role": "pr-review", "intent": "review-change",
+                    "content_id": w.cid(), "status": status, "conclusion": conclusion, "outcome": outcome,
+                    "started_at": w.at(minute)}
+
+        for reading, status in ((True, "queued"), (None, "in_progress")):
+            w = World(2, faults=False, people=False)
+            w.checks = dict.fromkeys(w.checks, "success")
+            w.minute += 6
+            spent = [review("r0", 1, outcome="superseded")] + [review("r%d" % i, 1 + i) for i in (1, 2, 3)]
+            waiting = review("r4", 5, status=status, conclusion=None, outcome=None)
+            w.pause_from, w.pause_reading = w.minute, reading
+            f, ctx = w.facts(), w.context()
+            why = "paused" if reading else "pause_unreadable"
+            for runs in (spent + [waiting], spent):
+                d = decide(f, runs, ctx, world.CONFIG, w.now())
+                self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "attempts_exhausted", "hold"),
+                                 (reading, len(runs)))
+                w.paused(f, runs, d)
+                self.assertEqual(w.stopped, [], reading)   # the Pause held nothing back: the count did
+                # A Kernel that let the Pause hide the Hold breaks the invariant, with a Run in flight or none.
+                self.assertRaises(world.Broken, w.paused, f, runs,
+                                  dict(d, state="verifying", outcome="defer", reason=why, evidence=["pr-review"]))
+            # One attempt short, the Pause defers the review it would admit, and that is what it held back.
+            d = decide(f, spent[:-1], ctx, world.CONFIG, w.now())
+            self.assertEqual((d["outcome"], d["reason"]), ("defer", why))
+            w.paused(f, spent[:-1], d)
+            self.assertEqual(w.stopped, ["admit"], reading)
+
+    def test_the_pause_falls_due_with_an_approval(self):  # I-7, decision 0003
+        # On a seed that pauses, a pass before the Pause that would issue the approval, asked with no Pause, starts the
+        # Pause there: the approval is what it holds back.
+        w = World(20, faults=False, people=False)
+        self.assertIn(w.seed % 5, world.PAUSES)
+        self.assertTrue(w.pause_reading)
+        reviewed(w)
+        w.pause_from = w.minute + 10
+        w.poll()
+        self.assertEqual(w.pause_from, w.minute)
+        self.assertEqual(w.trace[-1].split(" ", 1)[1], "pass: converged paused -> defer")
+        self.assertEqual((w.stopped, w.reviews), (["issue_approval"], []))
+        # The other side: a seed with no Pause gets none, and the approval is issued.
+        w = reviewed(World(2, faults=False, people=False))
+        w.poll()
+        self.assertEqual((w.pause_from, w.stopped), (None, []))
+        self.assertEqual([rv["by"]["kind"] for rv in w.reviews], ["machine_user"])
+        # Nor does a pass that would admit a Run, enqueue, or hold the item on a Hold the facts establish move the Pause.
+        w = World(20, faults=False, people=False)
+        w.checks = dict.fromkeys(w.checks, "success")
+        w.minute += 1
+        w.starts()
+        w.pause_from = w.minute + 10
+        w.poll()
+        self.assertEqual((w.pause_from, w.stopped), (w.minute + 10, []))
+        self.assertEqual([r["intent"] for r in w.runs], ["review-change"])
+        w = reviewed(World(20, faults=False, people=False))
+        w.reviews.append({"by": dict(world.MACHINE), "state": "approved", "commit": "c1", "content_id": w.cid(),
+                          "submitted_at": w.now(), "dismissed_by": None, "dismissed_from": None})
+        w.starts()
+        w.pause_from = w.minute + 10
+        w.poll()
+        self.assertEqual((w.pause_from, w.stopped, w.queue), (w.minute + 10, [], True))
+        w = reviewed(World(20, faults=False, people=False))
+        w.label(terms.LABEL_HOLD, world.MAINTAINER)
+        w.starts()
+        w.pause_from = w.minute + 10
+        w.poll()
+        self.assertEqual((w.pause_from, w.trace[-1].split(" ", 1)[1]), (w.minute + 10, "pass: held human_hold -> hold"))
+
+    def test_the_pause_falls_due_with_a_spent_count(self):  # decision 0003, issues 158 and 169
+        # Three reviews of this content failed by a fault of the item: the count is spent. On a seed that pauses, a pass
+        # before the Pause that holds the item on it starts the Pause there, and the Hold shows through it.
+        w = World(20, faults=False, people=False)
+        w.checks = dict.fromkeys(w.checks, "success")
+        for i in (1, 2, 3):
+            w.runs.append({"run": "r%d" % i, "item": dict(world.ITEM), "role": "pr-review", "intent": "review-change",
+                           "content_id": w.cid(), "status": "completed", "conclusion": "failure", "outcome": "item",
+                           "started_at": w.at(i)})
+        w.minute += 6
+        w.starts()
+        w.pause_from = w.minute + 10
+        w.poll()
+        self.assertEqual(w.pause_from, w.minute)
+        self.assertEqual(w.trace[-1].split(" ", 1)[1], "pass: held attempts_exhausted -> hold")
+        self.assertEqual((w.paused_passes, w.stopped), (1, []))
+
+    def test_what_a_pause_holds_back_as_it_begins_is_checked(self):  # I-6, I-20
+        # A Kernel that would issue the approval on a held item, or on facts read short, and that under the Pause defers
+        # as a converged item would: the pass that starts the Pause checks what it holds back, as every Decision is.
+        def careless(f, r, c, cfg, now):
+            free = decide(f, r, dict(c, paused=False), cfg, now)
+            if free["state"] in (terms.HELD, None):
+                if c.get("paused") is False:
+                    return dict(free, state=terms.CONVERGED, reason="approval_due", outcome=terms.ACT,
+                                action="issue_approval", content_id=f["content_id"])
+                return dict(free, state=terms.CONVERGED, reason="paused", outcome=terms.DEFER, evidence=[])
+            return decide(f, r, c, cfg, now)
+
+        for case, invariant in (("hold", "I-6"), ("short", "I-20")):
+            w = reviewed(World(20, faults=False, people=False))
+            if case == "hold":
+                w.label(terms.LABEL_HOLD, world.MAINTAINER)
+            else:
+                read = w.facts
+                w.facts = lambda: dict(read(), complete=dict(read()["complete"], reviews=False))
+            w.pause_from = w.minute + 10
+            with mock.patch.object(world, "decide", careless):
+                self.assertRaisesRegex(world.Broken, invariant, w.poll)
+
+    def test_the_evidence_expires_as_the_approval_falls_due(self):  # I-31
+        # On a seed with a contract, under faults, the reporter's result on this content expires with its artifact once
+        # on each content, as the approval falls due: the pass reads the criterion lacking, and waits for it.
+        class Never:
+            def random(self):
+                return 0.99
+
+        def due(faults):
+            w = reviewed(World(17, faults=faults, people=False))
+            self.assertEqual((w.criteria, w.pause_from), (["AC-1"], None))
+            w.rng = w.judge = Never()
+            if not w.agreed():
+                w.confirm()
+            w.results.append({"criterion": "AC-1", "content_id": w.cid(), "result": "passing",
+                              "check": dict(world.REPORTER)})
+            w.minute += 1
+            w.starts()
+            return w
+
+        def approved(w):
+            return [rv["content_id"] for rv in w.reviews if rv["by"] == world.MACHINE]
+
+        w = due(True)
+        w.poll()
+        self.assertEqual((w.results, approved(w)), ([], []))
+        self.assertEqual(w.trace[-1].split(" ", 1)[1], "pass: verifying acceptance_evidence_missing -> nothing")
+        # The reporter gives it again, and on the same content it does not expire twice: the approval is issued.
+        self.assertTrue(w.gives_evidence())
+        w.poll()
+        self.assertEqual((len(w.results), approved(w)), (1, [w.cid()]))
+        # The other side: with faults off, nothing expires, and the approval is issued at once.
+        w = due(False)
+        w.poll()
+        self.assertEqual((len(w.results), approved(w)), (1, [w.cid()]))
+        # Nor does anything expire where no approval falls due: the review is admitted, and the result stays.
+        w = due(True)
+        w.runs = []
+        w.starts()
+        w.poll()
+        self.assertEqual((len(w.results), [r["intent"] for r in w.runs]), (1, ["review-change"]))
 
     def test_a_dequeue_at_the_act_ceiling_is_the_one_act_past_it(self):  # I-8
         # A required check fails after the item entered the queue, with the acts since a writer at the ceiling. The
@@ -380,6 +626,34 @@ class Simulation(unittest.TestCase):
         self.assertEqual(reasons, set(held))
         self.assertEqual(notes, set(happened))
         self.assertTrue(behind and merged)
+
+    def test_the_seeds_serve_a_review_that_left_a_criterion_uncovered(self):  # I-37, decision 0029
+        # Now and then a review's Result leaves a criterion of its rubric uncovered: `apply` refuses it, so its Run fails
+        # by a fault of the item and opens no thread. The same Lens's review of the same content is admitted again, and
+        # at its attempts the item is held with those Runs as evidence; every invariant holds throughout.
+        again, exhausted, noted = False, False, False
+
+        def uncovered(r: dict) -> bool:
+            return r["intent"] == "review-change" and (r["conclusion"], r["outcome"]) == ("failure", "item")
+
+        def recording(f, r, c, cfg, now):
+            nonlocal exhausted
+            d = decide(f, r, c, cfg, now)
+            if d["reason"] == "attempts_exhausted":
+                ran = {x["run"]: x for x in r}
+                exhausted = exhausted or any(uncovered(ran[e]) for e in d["evidence"])
+            return d
+
+        with mock.patch.object(world, "decide", recording):
+            for seed in SEEDS:
+                w = World(seed)
+                for _ in range(250):
+                    w.step()
+                noted = noted or any("left a criterion uncovered" in line for line in w.trace)
+                again = again or any(uncovered(r) and any(x["intent"] == "review-change" and x["role"] == r["role"]
+                                                          and x["content_id"] == r["content_id"] for x in w.runs[i + 1:])
+                                     for i, r in enumerate(w.runs))
+        self.assertTrue(noted and again and exhausted, (noted, again, exhausted))
 
     def test_a_queued_item_whose_evidence_is_gone_is_taken_out_before_it_merges(self):  # I-31
         # GitHub's merge queue knows nothing of the contract. The evidence a queued item converged on is gone, as an

@@ -12,6 +12,7 @@
     {"path": "config/defaults.json", "is": "the brakes' limits, the required Lenses and the approver"},
     {"path": "kernel/brakes.py", "is": "the brakes: the Pause, the Run ceiling and the loop counts"},
     {"path": "kernel/gate.py", "is": "the gate: the gate function and the severities that gate"},
+    {"path": "kernel/coverage.py", "is": "coverage: whether a reviewing Result reports on every criterion of its rubric that applies"},
     {"path": "sim/world.py", "is": "the invariants"},
     {"path": "tests/test_simulator.py", "is": "the simulator's fixed seeds"},
     {"path": ".github/", "is": "the workflows and the code owners"},

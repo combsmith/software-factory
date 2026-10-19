@@ -40,8 +40,10 @@ NONE = "none"
 # a `working` item, so neither ever is.
 MAY_GO_STALE = frozenset({REVIEW, READY})
 # Deferrals that hold the whole scope, each one cause that health reports once (§4.6), so an item they defer is never
-# stale: a Pause, read or not, the model provider's deferral (`capacity`), capacity unread, and the org's limit on Runs.
-SCOPE_DEFERRALS = frozenset({"paused", "pause_unreadable", "capacity", "capacity_unreadable", "concurrency"})
+# stale: a Pause, read or not, the model provider's deferral (`capacity`), capacity unread, the org's limit on Runs, and
+# a Run listed before its run-name, which may be on any item (decision 0036).
+SCOPE_DEFERRALS = frozenset({"paused", "pause_unreadable", "capacity", "capacity_unreadable", "concurrency",
+                             "run_unidentified"})
 
 # A Finding's categories, as the authority table names them, and its severities: schemas/facts.schema.json names
 # them too, and a thread from a required Lens with any other, or none, cannot be read.
@@ -104,11 +106,23 @@ FEBRUARY = 2
 READ_IN_FULL = ("acceptance", "changed_paths", "checks", "diff", "reviews", "runs", "threads", "timeline")
 
 # A path the pull request changes, and a protected path or Lens's input in config/hooks.json, are names joined by this.
-# In a pattern, the wildcard stands for any part of one name, and a final separator for everything below it. A name
-# that is one of these cannot be read: it would make a path empty, start or end it with the separator, or climb.
+# In a pattern, the wildcard stands for any part of one name, two as a whole name for any run of names, none included,
+# and a final separator for everything below it. A name that is one of these cannot be read: it would make a path
+# empty, start or end it with the separator, or climb.
 SEPARATOR = "/"
 WILDCARD = "*"
+ANY_NAMES = "**"
 NOT_A_NAME = ("", ".", "..")
+
+# What a reviewing Result says of each criterion of its rubric that applies (schemas/coverage.schema.json): met, a
+# Finding that cites it, or not applicable with a reason that is a code. A criterion's id is capital letters, a hyphen
+# and digits, as schemas/rubric.schema.json gives it, and a code is lower-case letters and underscores.
+VERDICTS = ("met", "finding", "not_applicable")
+FINDING = "finding"
+NOT_APPLICABLE = "not_applicable"
+CAPITALS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+HYPHEN = "-"
+CODE_CHARS = "abcdefghijklmnopqrstuvwxyz_"
 
 # Labels: the human's input vocabulary.
 LABEL_HOLD = "factory:hold"
