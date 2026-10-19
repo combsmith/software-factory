@@ -79,6 +79,13 @@ BRACKET_TESTS = (IDENTITY_TESTS + "test_a_bracket_expression_is_read_as_the_shel
 QUOTED_TESTS = (IDENTITY_TESTS + "test_a_substitution_in_double_quotes_is_read_with_quotes_of_its_own",)
 COMMENT_TESTS = (IDENTITY_TESTS + "test_a_comment_or_a_parameter_expansion_in_a_substitution_does_not_end_it",)
 BUDGET_TESTS = (IDENTITY_TESTS + "test_a_reading_that_would_run_on_is_cut_short_and_refused",)
+# Issue 174: a word is read as the shell reads it.
+WORD_TESTS = (IDENTITY_TESTS + "test_a_substitution_a_quote_holds_and_a_comment_are_data",)
+SPLIT_TESTS = (IDENTITY_TESTS + "test_a_command_that_cannot_be_split_is_refused_whatever_it_names",)
+ANSI_TESTS = (IDENTITY_TESTS + "test_ansi_c_quoting_is_read_as_the_shell_decodes_it",)
+ALIAS_TEXT_TESTS = (IDENTITY_TESTS + "test_an_alias_is_read_as_its_text_in_place_of_its_name",)
+EXPANSION_TESTS = (IDENTITY_TESTS + "test_a_variable_in_an_expansion_the_hook_does_not_read_may_be_anything",)
+WHOLE_TESTS = (IDENTITY_TESTS + "test_a_listed_writer_is_read_whole",)
 
 # Where the boundary cases of decision 0029 are.
 REPORTED = "tests.test_decide.AReviewThatReported."
@@ -1984,7 +1991,7 @@ MUTANTS = ISSUE + [
      '            elif punctuation and "(" in token:\n                arm.append("(")         # a pattern has begun: '
      "(esac) is a pattern, not the case's end\n", "", LOOP_TESTS),
     ("a loop's variable is not read as the words it runs over", "tools/hooks/identity.py",
-     "    loops = _loops([c for c in commands if c[0] is not None], values)\n", "    loops = {}\n", GIT_DIRECTORY_TESTS),
+     "    loops = _loops([c[:2] for c in commands if c[0] is not None], values)\n", "    loops = {}\n", GIT_DIRECTORY_TESTS),
     ("a loop's word list is read as a command", "tools/hooks/identity.py",
      "        if at is None and program in DATA_HEADS:\n", "        if False:\n", LOOP_TESTS),
     ("a case's first pattern is read as a command", "tools/hooks/shell.py",
@@ -1995,7 +2002,7 @@ MUTANTS = ISSUE + [
      LOOP_TESTS),
     ("a substitution in a case's pattern is not read", "tools/hooks/shell.py",
      "        if words is None:       # a pattern runs nothing, but a substitution in it does, where the pattern stands\n"
-     "            for script in _substituted(targets):\n                read = commands(script, spend, texts, scopes)\n"
+     "            for script in _substituted(targets):\n                read = commands(script, spend, texts, scopes, marked)\n"
      "                out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read\n",
      "        if words is None:\n", LOOP_TESTS),
     ("a cd in a case pattern's substitution moves the command", "tools/hooks/identity.py",
@@ -2011,7 +2018,7 @@ MUTANTS = ISSUE + [
      '    if words[0] in ("pushd", "popd") and any("n" in option for option in options):\n', "    if False:\n",
      LOST_TESTS),
     ("a quoted ;; or ) is read as punctuation", "tools/hooks/shell.py",
-     '    held = _held(without_heredocs(text).replace("\\\\\\n", " "))     # only an unquoted ; ) or > is punctuation\n',
+     "    held = _held(without_heredocs(text))     # only an unquoted ; ) or > is punctuation\n",
      '    held = without_heredocs(text).replace("\\\\\\n", " ")\n', LOOP_TESTS),
     ("a case that never ends is read as one that does", "tools/hooks/shell.py",
      '    if cases or in_pattern:\n        raise ValueError("a case is never ended")\n', "", LOOP_TESTS),
@@ -2060,24 +2067,24 @@ MUTANTS = ISSUE + [
     ("a substitution nested in ${...} is read as part of it", "tools/hooks/shell.py",
      '        elif text.startswith("$(", i):      # a substitution nested in any run, ${...} too, is its own\n',
      '        elif close == ")" and text.startswith("$(", i):\n', COMMENT_TESTS),
-    ("the next word's alias leaves its redirections behind", "tools/hooks/identity.py",
-     "            value[-1] = (last + tail, value[-1][1] + more + redirections)\n",
-     "            value[-1] = (last + tail, value[-1][1] + redirections)\n", ALIASED_TESTS),
+    ("an aliased command leaves its redirections behind", "tools/hooks/identity.py",
+     '                "%s %s" % (operator, shell.requoted(target)) for operator, target in redirections\n',
+     '                "%s %s" % (operator, shell.requoted(target)) for operator, target in []\n', ALIAS_TEXT_TESTS),
     ("a name's last value is the only one read", "tools/hooks/shell.py",
-     "                values.setdefault(_unquoted(name), []).append((read, value[-1:] in (\" \", \"\\t\")))\n",
-     "                values[_unquoted(name)] = [(read, value[-1:] in (\" \", \"\\t\"))]\n", ALIASED_TESTS),
+     "                values.setdefault(_unquoted(name), []).append(value)\n",
+     "                values[_unquoted(name)] = [value]\n", ALIASED_TESTS),
     ("tar's -C is read as written in every mode", "tools/hooks/identity.py",
      "    return ((directories if extracts else []) + here +", "    return (directories + here +", TAR_TESTS),
     ("tar's -f is read as written in every mode", "tools/hooks/identity.py",
      "(archives if changes else [])", "archives", TAR_TESTS),
     ("an alias is not read as its value where its name runs", "tools/hooks/identity.py",
-     "        commands = _unaliased(commands, shell.alias_values(_quoted(shell.without_heredocs(text)), spend))\n",
+     "        commands = _unaliased(commands, shell.alias_values(_quoted(shell.without_heredocs(text)), spend), spend=spend)\n",
      "        pass\n", ALIASED_TESTS),
     ("an alias whose value ends in a blank leaves the next word as it is", "tools/hooks/identity.py",
-     "        while trailing and tail[:1]", "        while False and tail[:1]", ALIASED_TESTS),
+     '            while value[-1:] in (" ", "\\t") and tail[:1]', "            while False and tail[:1]", ALIASED_TESTS),
     ("a script an aliased shell or eval is given is not read", "tools/hooks/identity.py",
-     "                out += [each] + _unaliased(shell._inner(each[0]), table, read, budget)     # sh -c, eval, an alias\n",
-     "                out += [each]\n", ALIASED_TESTS),
+     'out += _unaliased(shell.commands(" ".join(spliced), spend, marked=True), table,',
+     'out += _unaliased(shell.commands(" ".join(spliced), spend, marked=True)[:1], table,', ALIASED_TESTS),
     ("aliases are read without end", "tools/hooks/identity.py",
      "    budget[0] -= 1\n", "    budget[0] -= 0\n", ALIASED_TESTS),
     ("the command is read with no budget", "tools/hooks/identity.py",
@@ -2106,8 +2113,8 @@ MUTANTS = ISSUE + [
      '            out.append("$(%s)" % text[i + 2:end].replace("\\\\", "\\\\\\\\").replace(\'"\', \'\\\\"\'))\n',
      "            out.append(text[i:end + 1])\n", QUOTED_TESTS),
     ("a quoted paren in a substitution ends it", "tools/hooks/shell.py",
-     "            j = _balanced(word, i + 2, \")\")     # a ( or ) a quote of the script's own holds is data: '%s)'\n",
-     '            j = word.find(")", i) + 1 or len(word)\n', QUOTED_TESTS),
+     "            j = _balanced(plain, i + 2, \")\")     # a ( or ) a quote of the script's own holds is data: '%s)'\n",
+     '            j = plain.find(")", i) + 1 or len(plain)\n', QUOTED_TESTS),
     ("a spent count waits behind the Pause", "kernel/brakes.py",
      *moved_after("kernel/brakes.py",
                   "    held = run_ceilings(_decision, facts, evidence, intent, recent, limits)\n"
@@ -2138,6 +2145,47 @@ MUTANTS = ISSUE + [
      "        else:\n"
      '            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1] if wanted else "", done,'
      ' config["limits"])\n'),
+    # Issue 174, rulings 1 to 6: a word is read as the shell reads it.
+    ("a substitution a single quote or a backslash holds is read", "tools/hooks/shell.py",
+     "    spans, i, plain = [], 0, unmarked(word)\n",
+     "    spans, i, plain = [], 0, unmarked(word)\n"
+     '    word = plain.replace("$(", LIVE["$"] + "(").replace("`", LIVE["`"])\n', WORD_TESTS),
+    ("a comment is read as words", "tools/hooks/shell.py",
+     '            if c == "#" and starts:\n', "            if False:\n", WORD_TESTS),
+    ("a command that cannot be split passes unless it names git", "tools/hooks/identity.py",
+     "    except ValueError as err:\n        # The command cannot be split into words, so whatever it names",
+     "    except ValueError as err:\n"
+     '        if not re.search(r"(?<![\\w.-])(git|gh)(?![\\w.-])", command):\n            return []\n'
+     "        # The command cannot be split into words, so whatever it names", SPLIT_TESTS),
+    ("$'...' is read as $ and a quoted word", "tools/hooks/shell.py",
+     "            if text.startswith(\"$'\", i):\n                decoded, i = ansi(text, i + 2)\n",
+     "            if False:\n                decoded, i = ansi(text, i + 2)\n", ANSI_TESTS),
+    ("a ( touching a word splits it", "tools/hooks/shell.py",
+     '            if c == "(" and not starts and i >= arithmetic and _touches(text, i):\n', "            if False:\n",
+     SPLIT_TESTS),
+    ("an arithmetic command's ( is read as a pattern", "tools/hooks/shell.py",
+     " and not starts and i >= arithmetic and _touches(", " and not starts and _touches(", SPLIT_TESTS),
+    ("an arithmetic expansion is read as a command", "tools/hooks/shell.py",
+     '            if plain.startswith("$((", i) and plain[j - 2:j] == "))":\n', "            if False:\n", SPLIT_TESTS),
+    ("an alias is spliced as commands, not text", "tools/hooks/identity.py",
+     '            out += _unaliased(shell.commands(" ".join(spliced), spend, marked=True), table, read, budget, spend)\n',
+     "            value = shell.commands(value, spend, marked=True) or [([], [])]\n"
+     "            value[0] = (words[:at] + value[0][0], value[0][1])\n"
+     "            value[-1] = (value[-1][0] + tail, value[-1][1] + redirections)\n"
+     "            out += _unaliased(value, table, read, budget, spend)\n", ALIAS_TEXT_TESTS),
+    ("a variable in an expansion the hook does not read is left alone", "tools/hooks/identity.py",
+     "        for unbraced, wild in map(lambda each: _wildcarded(each, loops), bound):\n",
+     "        for unbraced, wild in map(lambda each: (each, False), bound):\n", EXPANSION_TESTS),
+    ("a variable the command set is not read in an expansion", "tools/hooks/identity.py",
+     "    loops = {name: [value] for name, value in values.items()}\n", "    loops = {}\n", EXPANSION_TESTS),
+    ("wget's -e is data", "tools/hooks/identity.py",
+     '        named += [value.partition("=")[2].strip() for value in _options(args, valued - WGET_EXECUTE, WGET_EXECUTE)[1]]\n',
+     "        pass\n", WHOLE_TESTS),
+    ("tar's --one-top-level is not read", "tools/hooks/identity.py",
+     '    tops = [os.path.join(base, top) for base in directories or [""] for top in tops] if extracts else []\n',
+     "    tops = []\n", WHOLE_TESTS),
+    ("tar's --one-top-level is read only by its whole name", "tools/hooks/identity.py",
+     'if shell.spelt(option, "--one-top-level")', 'if option == "--one-top-level"', WHOLE_TESTS),
 ]
 
 

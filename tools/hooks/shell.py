@@ -53,12 +53,18 @@ def without_heredocs(text: str) -> str:
                     stack.pop()
             elif c == "\\":
                 i += 1
+            elif top == "ansi":
+                if c == "'":
+                    stack.pop()
             elif top == "double":
                 if c == '"':
                     stack.pop()
                 elif line.startswith("$(", i):
                     stack.append("code")
                     i += 1
+            elif line.startswith("$'", i):
+                stack.append("ansi")        # $'...', in which a backslash escapes, \' among them
+                i += 1
             elif c in "'\"":
                 stack.append("single" if c == "'" else "double")
             elif c == "(":
@@ -89,7 +95,7 @@ def simple_commands(text: str) -> list:
     return [(words, [target for _, target in redirections]) for words, redirections in commands(text)]
 
 
-def commands(text: str, spend=None, texts: list = None, scopes: bool = False) -> list:
+def commands(text: str, spend=None, texts: list = None, scopes: bool = False, marked: bool = False) -> list:
     """Each simple command in `text`, as (words, [(operator, target)]), read as simple_commands reads it.
 
     An operator holding '>' writes its target; one holding only '<' reads it. `spend`, if given, is called
@@ -97,12 +103,14 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False) ->
     given, gets each script read: `text`, and every script it runs (sh -c, eval, a command substitution).
     With `scopes`, the commands a substitution in a case's pattern runs come between SCOPE's two marks, which
     no command can spell: they run in a subshell, so a cd among them is theirs alone (decision 0032).
+    A substitution is read only where the shell runs one: a single quote or a backslash holds it as text
+    (issue 174). With `marked`, each word keeps the LIVE marks of the substitutions the shell runs in it.
     """
     if spend:
         spend()
     if texts is not None:
         texts.append(text)
-    held = _held(without_heredocs(text).replace("\\\n", " "))     # only an unquoted ; ) or > is punctuation
+    held = _held(without_heredocs(text))     # only an unquoted ; ) or > is punctuation
     lex = shlex.shlex(held, posix=True, punctuation_chars=PUNCTUATION)
     lex.whitespace, lex.whitespace_split, lex.commenters = " \t\r", True, ""
     found, words, targets, operator = [], [], [], None
@@ -152,14 +160,15 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False) ->
     for words, targets in found:
         if words is None:       # a pattern runs nothing, but a substitution in it does, where the pattern stands
             for script in _substituted(targets):
-                read = commands(script, spend, texts, scopes)
+                read = commands(script, spend, texts, scopes, marked)
                 out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read
             continue
-        out.append((words, targets))
-        out += _inner(words, spend, texts)
+        plain = [unmarked(word) for word in words]
+        out.append((words, targets) if marked else (plain, [(op, unmarked(target)) for op, target in targets]))
+        out += _inner(plain, spend, texts, marked)
         for word in words:
             for script in _substituted(word):
-                out += commands(script, spend, texts, scopes)
+                out += commands(script, spend, texts, scopes, marked)
     return [(words, targets) for words, targets in out if words or targets]
 
 
@@ -171,30 +180,126 @@ SCOPE = ((None, "("), (None, ")"))
 # private use area, so that shlex reads it as part of a word and never as punctuation. It is given back in every word.
 HOLDS = {c: chr(0xE000 + ord(c)) for c in PUNCTUATION}
 RETURNED = {ord(held): c for c, held in HOLDS.items()}
+# The $ of a $( and a backtick that the shell runs, in double quotes, as each stands in a word commands reads: so that a
+# substitution a single quote or a backslash holds is told from one the shell runs, once the quotes are gone (issue
+# 174). commands(marked=True) keeps them in the words it gives; unmarked() gives the text back.
+LIVE = {c: chr(0xE100 + ord(c)) for c in "$`"}
+UNLIVE = {ord(mark): c for c, mark in LIVE.items()}
+# What comes before a word: where a # begins a comment, and a ( is the shell's own.
+BREAKS = " \t\r\n;&|()<>"
+# A backslash's escape in $'...', as bash and zsh decode it.
+ANSI = re.compile(r"\\(?:([abeEfnrtv\\'\"?])|([0-7]{1,3})|x([0-9A-Fa-f]{1,2})|u([0-9A-Fa-f]{1,4})|U([0-9A-Fa-f]{1,8})|"
+                  r"c(.)|(.))", re.S)
+ANSI_LETTERS = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "v": "\v"}
+
+
+def unmarked(word: str) -> str:
+    """`word` with each LIVE mark made the `$` or backtick it marks."""
+    return word.translate(UNLIVE)
+
+
+def ansi(text: str, i: int) -> tuple:
+    """(the text a $'...' whose body starts at text[i] decodes to, the index past its closing quote), as bash decodes
+    it: \\xHH, \\uHHHH, \\NNN, \\cX, \\e, \\' and the rest; an escape it does not know keeps its backslash. Raises
+    ValueError when it never closes."""
+    out = []
+    while i < len(text):
+        c = text[i]
+        if c == "'":
+            return "".join(out), i + 1
+        if c != "\\":
+            out.append(c)
+            i += 1
+            continue
+        found = ANSI.match(text, i)
+        if found is None:
+            raise ValueError("No escaped character")
+        letter, octal, hexa, short, long, control, other = found.groups()
+        if letter:
+            out.append(ANSI_LETTERS.get(letter, letter))
+        elif octal or hexa or short or long:
+            out.append(chr(int(octal, 8) if octal else int(hexa or short or long, 16)))
+        elif control:
+            out.append("\x7f" if control == "?" else chr(ord(control) & 0x1F))
+        else:
+            out.append("\\" + other)
+        i = found.end()
+    raise ValueError("No closing quotation")
+
+
+def ansi_end(text: str, i: int):
+    """The index past the closing quote of a $'...' whose body starts at text[i], or None when it never closes."""
+    while i < len(text):
+        if text[i] == "\\":
+            i += 2
+        elif text[i] == "'":
+            return i + 1
+        else:
+            i += 1
+    return None
+
+
+def _literal(text: str) -> str:
+    """`text` spelt so that shlex reads it as one literal word, each character of PUNCTUATION held."""
+    if any(ord(c) in RETURNED or ord(c) in UNLIVE for c in text):
+        raise ValueError("the command decodes to a character the reader keeps for what a quote holds")
+    held = text.translate({ord(c): mark for c, mark in HOLDS.items()})
+    return "\\'".join("'%s'" % part for part in held.split("'"))
+
+
+def _touches(text: str, i: int) -> bool:
+    """Whether the unquoted ( at text[i], after a word, is one the hook cannot read: a zsh alternation or glob
+    qualifier, or an extglob (.g(i|x)t, *(.), @(a|b)). The shell's own are not: $( and $((, =( with NAME=( and
+    NAME+=(, and a function's NAME()."""
+    return text[i - 1] not in "$=" and text[i + 1:i + 2] != ")"
 
 
 def _held(text: str) -> str:
-    """`text` with each character of PUNCTUATION that a quote or a backslash holds made its HOLDS, as shlex in posix
-    mode reads quotes: a backslash outside single quotes holds the next character, and nothing ends a single quote but
-    another. Raises ValueError where what a quote holds cannot be told: a quote or a backslash left open, or text that
-    already holds a character of HOLDS."""
-    if any(ord(c) in RETURNED for c in text):
+    """`text` as shlex in posix mode should read it, as the shell reads it: each character of PUNCTUATION that a quote
+    or a backslash holds made its HOLDS; a $( or a backtick the shell runs in double quotes marked with LIVE; a comment,
+    from an unquoted # that begins a word to the end of its line, left out; $'...' as the text it decodes to, and $"..."
+    as "..."; and a backslash before a newline, outside single quotes, taken out with it. Raises ValueError where what a quote holds cannot be told: a quote or a backslash left
+    open, text that already holds a character of HOLDS or LIVE, or a ( touching a word (_touches)."""
+    if any(ord(c) in RETURNED or ord(c) in UNLIVE for c in text):
         raise ValueError("the command holds a character the reader keeps for what a quote holds")
-    out, quote, i = [], None, 0
+    out, quote, i, starts = [], None, 0, True       # starts: the next character begins a word
+    arithmetic = 0      # where an arithmetic expansion or command that began, (( or $((, ends: its ( are its own
     while i < len(text):
         c = text[i]
         if c == "\\" and quote != "'":
             if i + 1 >= len(text):
                 raise ValueError("No escaped character")
-            out.append(c + HOLDS.get(text[i + 1], text[i + 1]))
+            after = text[i + 1]
+            if after != "\n":       # a backslash before a newline is a line continuation: the two lines are one
+                out.append(c + HOLDS.get(after, after))
+            starts = starts and after == "\n"
             i += 2
             continue
         if quote is None:
+            if c == "#" and starts:
+                end = text.find("\n", i)
+                i = len(text) if end < 0 else end
+                continue
+            if text.startswith("$'", i):
+                decoded, i = ansi(text, i + 2)
+                out.append(_literal(decoded))
+                starts = False
+                continue
+            if text.startswith('$"', i):
+                i += 1
+                continue
+            if text.startswith("((", i) and i >= arithmetic:
+                arithmetic = _balanced(text, i + 1, ")")
+            if c == "(" and not starts and i >= arithmetic and _touches(text, i):
+                raise ValueError("a ( touching a word is a pattern the hook does not read")
             quote = c if c in "'\"" else None
             out.append(c)
+            starts = c in BREAKS and c != ")"       # a ) may end a substitution inside a word: $(x)#y is one word
         elif c == quote:
             quote = None
             out.append(c)
+        elif quote == '"' and (c == "`" or text.startswith("$(", i)):
+            out.append(LIVE[c])
         else:
             out.append(HOLDS.get(c, c))
         i += 1
@@ -203,13 +308,14 @@ def _held(text: str) -> str:
     return "".join(out)
 
 
-def _inner(words: list, spend=None, texts: list = None) -> list:
+def _inner(words: list, spend=None, texts: list = None, marked: bool = False) -> list:
     """The commands of a script run by this one: `bash -c '...'` or `eval ...`, also after env, xargs or sudo; and
-    the command string of `flock -c`, `script -c`, `runuser -c`, `su -c` and `env -S`."""
+    the command string of `flock -c`, `script -c`, `runuser -c`, `su -c` and `env -S`. `words` are as the shell gives
+    them, with no LIVE mark: the script is read again as text."""
     for at, word in enumerate(words):
         name = os.path.basename(word)
         if name == "eval":
-            return commands(" ".join(words[at + 1:]), spend, texts)
+            return commands(" ".join(words[at + 1:]), spend, texts, marked=marked)
         if name == "env":       # -S's string is split into the words of the command env runs, before the rest
             for i in range(at + 1, len(words)):
                 if not words[i].startswith("-") and "=" not in words[i] and words[i - 1] not in ENV_VALUED:
@@ -217,10 +323,10 @@ def _inner(words: list, spend=None, texts: list = None) -> list:
                 script, taken = _value(words, i, "S", ("--split-string",), True)
                 if script is not None:
                     rest = words[i + 1 + taken:]
-                    return commands(" ".join([script] + [shlex.quote(w) for w in rest]), spend, texts)
+                    return commands(" ".join([script] + [shlex.quote(w) for w in rest]), spend, texts, marked=marked)
         if name in SHELLS or name in STRINGS:
             script = script_of(words, at)
-            return [] if script is None else commands(script, spend, texts)
+            return [] if script is None else commands(script, spend, texts, marked=marked)
     return []
 
 
@@ -253,25 +359,47 @@ def _value(words: list, i: int, letter: str, longs: tuple, attached: bool) -> tu
     return None, False
 
 
-def _substituted(word: str) -> list:
-    """The scripts of each $(...) and `...` inside one word, as a quoted word keeps them."""
-    scripts, i = [], 0
+def substitutions(word: str) -> list:
+    """(where it starts, where it ends, its script) of each substitution the shell runs in one word, as commands(marked=
+    True) gives it: a $(...) or `...` that LIVE marks. One a single quote or a backslash held is text (issue 174)."""
+    spans, i, plain = [], 0, unmarked(word)
     while i < len(word):
-        if word.startswith("$(", i):
-            j = _balanced(word, i + 2, ")")     # a ( or ) a quote of the script's own holds is data: '%s)'
-            if word[j - 1:j] != ")":
+        if word[i] == LIVE["$"]:
+            j = _balanced(plain, i + 2, ")")     # a ( or ) a quote of the script's own holds is data: '%s)'
+            if plain[j - 1:j] != ")":
                 # It never closes as the shell reads it, which only data a quote held may do: read to its first ), as
                 # though a # began no comment, so that what it holds is still read.
-                j = _balanced(word, i + 2, ")", comments=False)
-            scripts.append(word[i + 2:j - 1] if word[j - 1:j] == ")" else word[i + 2:])
+                j = _balanced(plain, i + 2, ")", comments=False)
+            if plain.startswith("$((", i) and plain[j - 2:j] == "))":
+                # An arithmetic expansion runs no command, but a substitution inside it runs.
+                spans += [(i + 3 + start, i + 3 + end, script) for start, end, script in substitutions(word[i + 3:j - 2])]
+            else:
+                spans.append((i, j, plain[i + 2:j - 1] if plain[j - 1:j] == ")" else plain[i + 2:]))
             i = j
-        elif word[i] == "`":
-            end = word.find("`", i + 1)
-            scripts.append(word[i + 1:end] if end > 0 else word[i + 1:])
+        elif word[i] == LIVE["`"]:
+            end = word.find(LIVE["`"], i + 1)
+            spans.append((i, len(word) if end < 0 else end + 1, plain[i + 1:end] if end > 0 else plain[i + 1:]))
             i = len(word) if end < 0 else end + 1
         else:
             i += 1
-    return scripts
+    return spans
+
+
+def _substituted(word: str) -> list:
+    """The scripts of each substitution the shell runs inside one word (substitutions)."""
+    return [script for _, _, script in substitutions(word)]
+
+
+def requoted(word: str) -> str:
+    """`word`, as commands(marked=True) gives it, spelt so that commands reads it again as the same word: each
+    substitution the shell runs in it as one in double quotes, and the rest held by single quotes."""
+    out, last = [], 0
+    for start, end, script in substitutions(word):
+        if start > last:
+            out.append(shlex.quote(word[last:start]))
+        out.append('"$(%s)"' % script.replace("\\", "\\\\").replace('"', '\\"'))
+        last = end
+    return "".join(out + ([shlex.quote(word[last:])] if last < len(word) or not out else []))
 
 
 # ---- which assignments the shell runs unconditionally, at the top level of a plain ;/newline sequence
@@ -300,6 +428,8 @@ def _balanced(text: str, i: int, close: str, comments: bool = True) -> int:
             quote = None if c == quote else quote
         elif c == "\\":
             i += 1
+        elif text.startswith("$'", i):
+            i = (ansi_end(text, i + 2) or len(text)) - 1        # $'...', in which a backslash escapes
         elif c in "'\"":
             quote = c
         elif text.startswith("${", i):
@@ -877,10 +1007,10 @@ def expands(code: str) -> bool:
 
 
 def alias_values(text: str, spend=None) -> dict:
-    """{name: [each value it is given, as (the simple commands it runs, whether it ends in a blank), and None where it
-    is unaliased]} of each alias the command defines whose value the hook can read, as aliased reads them, so that a
-    hook can read the alias where its name runs (decision 0032). The order the shell defines them in is not kept: a
-    name given more than one value, or unaliased, is read as each wherever it runs."""
+    """{name: [the text of each value it is given, an empty one too, and None where it is unaliased]} of each alias the
+    command defines whose value the hook can read, as aliased reads them, so that a hook can read the alias's text in
+    place of its name where it runs, as the shell expands it (decision 0032, issue 174). The order the shell defines
+    them in is not kept: a name given more than one value, or unaliased, is read as each wherever it runs."""
     values = {}
     aliased(text, set(), spend, values)
     for words, _ in commands(text, spend):
@@ -918,8 +1048,8 @@ def aliased(text: str, names: set, spend=None, values: dict = None) -> set:
             except ValueError:
                 found.add(_unquoted(name))
                 continue
-            if values is not None and read:     # `values`, if given, gets each value that can be read
-                values.setdefault(_unquoted(name), []).append((read, value[-1:] in (" ", "\t")))
+            if values is not None:      # `values`, if given, gets the text of each value that can be read, '' too
+                values.setdefault(_unquoted(name), []).append(value)
             if {os.path.basename(_unquoted(w)) for inner, _ in read for w in inner} & names:
                 found.add(_unquoted(name))
     return found
