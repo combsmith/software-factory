@@ -140,14 +140,16 @@ Held by: `examples/workflows/invalid/expression.text-run-as-a-command.yml`, `exa
 ```
 
 A `run:` line is `make` and a target, or `python3 -m` and a module of this repo, and nothing
-else: no install, download, condition or swallowed failure. One workflow is exempt, by name and
-held by its hash: the org's secret scan, which downloads gitleaks. It differs from the org's text in
-two things: the download is held to HTTPS, and it reads its rules, `.gitleaks.toml` and
+else: no install, download, condition or swallowed failure. Two workflows are exempt, each by name
+and held by its hash. One is the org's secret scan, which downloads gitleaks. It differs from the
+org's text in two things: the download is held to HTTPS, and it reads its rules, `.gitleaks.toml` and
 `.gitleaksignore`, from a checkout of the base, never from the head it scans, which can neither hide
-a file with `.gitattributes` nor pass over one with `gitleaks:allow` (decision 0023).
+a file with `.gitattributes` nor pass over one with `gitleaks:allow` (decision 0023). The other is
+trial P-8's tick probe, whose one step is `exit 0`: GitHub refuses a step that runs nothing. It goes
+when the trial is recorded, unless the verdict says to keep watching.
 
 Org standard: the org's AGENTS.md, "Decision Logic Lives in a Pure, Tested Script". Stricter here: a limit of ten lines, and nothing fetched but by push-protection.md, "Required CI job", which runs as the org wrote it.
-Held by: `examples/workflows/invalid/length.logic-in-a-workflow.yml`, `examples/workflows/invalid/install.fetched-at-run-time.yml`, `examples/workflows/invalid/install.a-decision-in-shell.yml`, `tests/test_tools.py::test_an_exempt_workflow_is_held_word_for_word`, `tests/test_tools.py::test_the_secret_scan_reads_the_bases_configuration`
+Held by: `examples/workflows/invalid/length.logic-in-a-workflow.yml`, `examples/workflows/invalid/install.fetched-at-run-time.yml`, `examples/workflows/invalid/install.a-decision-in-shell.yml`, `examples/workflows/invalid/install.a-step-that-only-exits.yml`, `tests/test_tools.py::test_an_exempt_workflow_is_held_word_for_word`, `tests/test_tools.py::test_the_secret_scan_reads_the_bases_configuration`, `tests/test_tools.py::test_the_tick_probe_is_exempt_from_install_alone`
 
 ## A required check always reports
 

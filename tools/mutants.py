@@ -1082,6 +1082,10 @@ MUTANTS = ISSUE + [
      "        if not actions and rel is not None:\n", "        if False:\n"),
     ("a job may be granted security-events: write", "tools/check_workflows.py",
      'e["key"] == "security-events" and e["value"] == "write"', "False"),
+    # Issue 25: trial P-8's tick probe is spared the rule install, and no other.
+    ("the tick probe is exempt from more than install", "tools/check_workflows.py",
+     '"tick-probe.yml": (("install",),', '"tick-probe.yml": (("install", "permissions"),',
+     ("tests.test_tools.Workflows.test_the_tick_probe_is_exempt_from_install_alone",)),
     ("an App may hold a permission no Factory App may", "tools/check_apps.py",
      "            if name in NEVER:\n", "            if False:\n"),
     ("an App may hold workflows", "tools/check_apps.py",

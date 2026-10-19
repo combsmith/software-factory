@@ -1335,6 +1335,22 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": other}))),
                                "ci.yml: [runner]"))
 
+    def test_the_tick_probe_is_exempt_from_install_alone(self):
+        # Trial P-8 (issue 25): GitHub refuses a step that runs nothing, so the probe's one step is `exit 0`.
+        probe = (ROOT / ".github" / "workflows" / "tick-probe.yml").read_text()
+        self.assertEqual(check_workflows.EXEMPT["tick-probe.yml"][0], ("install",))
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/tick-probe.yml": probe}))),
+                                "tick-probe.yml"))
+        more = probe.replace("      - run: exit 0\n", "      - run: exit 0\n      - run: curl https://example.invalid\n")
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/tick-probe.yml": more}))),
+                               "tick-probe.yml is exempt from a rule, so it is held word for word"))
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/probe.yml": probe}))),
+                               "probe.yml: [install]"))
+        granted = probe.replace("permissions: {}", "permissions: write-all")
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/tick-probe.yml": granted}))),
+                               "tick-probe.yml: [permissions]"))
+
     def test_the_secret_scan_reads_the_bases_configuration(self):
         # gitleaks 8.30.1 reads the .gitleaksignore it is told of, and also the one at the top of what it scans, so the
         # scan deletes the head's and reads its rules from a checkout of the base: a change cannot widen the allowlist it
