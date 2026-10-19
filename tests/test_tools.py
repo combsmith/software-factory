@@ -1978,6 +1978,39 @@ class Trials(unittest.TestCase):
         self.assertTrue(caught(problems, "examples/trial.json: note holds something shaped like a credential"))
         self.assertTrue(caught(problems, "trials/AGENTS.md: holds something shaped like a credential"))
 
+    def test_a_null_repo_goes_with_a_subscription_and_nothing_else(self):
+        # Decision 0033. The schema cannot tie the two together, so the check does, both ways.
+        vendor = json.loads((ROOT / "examples" / "trial.a-vendors-cli.json").read_text())
+        self.assertEqual(check_trials.run(clone({"trials/P-13.json": json.dumps(vendor)})), [])
+        problems = check_trials.run(clone({"trials/P-12.json": fixture(repo=None)}))
+        self.assertTrue(caught(problems, "trials/P-12.json: exchanges[0].request.as.kind is app, and repo is null"))
+        self.assertTrue(caught(problems, "trials/P-12.json: exchanges[1].request.as.kind is app, and repo is null"))
+        inside = dict(vendor, repo="combsmith/" + check_trials.CANARY)
+        problems = check_trials.run(clone({"trials/P-13.json": json.dumps(inside)}))
+        self.assertTrue(caught(problems, "trials/P-13.json: exchanges[0].request.as.kind is subscription, and repo is"))
+        mixed = json.loads(json.dumps(vendor))
+        mixed["exchanges"].append(json.loads(json.dumps(mixed["exchanges"][0])))
+        mixed["exchanges"][1]["request"]["as"] = {"kind": "person", "name": "don-petry"}
+        problems = check_trials.run(clone({"trials/P-13.json": json.dumps(mixed)}))
+        self.assertTrue(caught(problems, "exchanges[1].request.as.kind is person, and repo is null"))
+        self.assertFalse(caught(problems, "exchanges[0].request.as.kind"))
+        problems = check_trials.run(clone({"examples/trial.json": fixture(repo=None)}))
+        self.assertTrue(caught(problems, "examples/trial.json: exchanges[0].request.as.kind is app, and repo is null"))
+
+    def test_an_asker_named_by_an_address_is_caught(self):
+        # Decision 0033: a fixture names who asked in words, never by an address that ties it to an account.
+        vendor = json.loads((ROOT / "examples" / "trial.a-vendors-cli.json").read_text())
+        vendor["exchanges"][0]["request"]["as"]["name"] = "account@example.com"
+        problems = check_trials.run(clone({"trials/P-13.json": json.dumps(vendor),
+                                           "examples/trial.a-vendors-cli.json": json.dumps(vendor)}))
+        for where in ("trials/P-13.json", "examples/trial.a-vendors-cli.json"):
+            self.assertTrue(caught(problems, where + ": exchanges[0].request.as.name looks like an address"), where)
+        data = json.loads(fixture())
+        data["exchanges"][1]["request"]["as"]["name"] = "combsmith-sf-trial@users.noreply.github.com"
+        problems = check_trials.run(clone({"trials/P-12.json": json.dumps(data)}))
+        self.assertTrue(caught(problems, "trials/P-12.json: exchanges[1].request.as.name looks like an address"))
+        self.assertFalse(caught(problems, "exchanges[0].request.as.name"))
+
     def test_code_that_reads_the_canary_is_caught(self):
         name = "combsmith/" + check_trials.CANARY
         root = clone({"tools/fetch.py": "REPO = %r\n" % name, ".github/workflows/trial.yml": "repository: %s\n" % name,
