@@ -789,7 +789,7 @@ class Identity(unittest.TestCase):
                    "! cd .git", "f() { cd .git; }; f", "true | cd .git", "cd .git &", "false || cd .git",
                    "while false; do cd .git; done", "while false\ndo\ncd .git\ndone", "cd sub .git", "cd -Z .git",
                    "CDPATH=.git; cd hooks", "CDP''ATH=.git; cd hooks", "CDPATH=x; cd .git", "cd .git; cd /tmp | true",
-                   "eval 'x=1' || cd .git"):
+                   "eval 'x=1' || cd .git", "cd .git; eval 'false || cd /tmp'"):
             for after in ("; cp /tmp/x config; git -C %s push" % self.here, "; git commit -m x"):
                 self.assertIn("directory_unreadable", self.refused(cd + after), cd + after)
         # A cd placed exactly moves the command, in an && chain too, and a plain path after a lost one stays lost.
@@ -810,7 +810,7 @@ class Identity(unittest.TestCase):
         for inner in ("(cd /tmp)", "x=$(cd /tmp)", "echo $(cd /tmp)", "echo `cd /tmp`", "cat <(cd /tmp)",
                       "sh -c 'cd /tmp'", "x='$(cd ..)'", "alias out='(cd ..)'\nout", "trap '$(cd /tmp)' EXIT",
                       # A process substitution's ( opens a scope, so its ) closes that one, not the subshell's.
-                      "(true <(x); cd /tmp)", "eval '(cd /tmp)'", "eval 'false || cd /tmp'"):
+                      "(true <(x); cd /tmp)", "eval '(cd /tmp)'"):
             command = "cd .git; %s; cp /tmp/x config; git -C %s push" % (inner, self.here)
             self.assertIn("git_directory_written", self.refused(command), command)
         for command in ('ROOT=$(cd "$(dirname "$0")" && pwd); git commit -m x', "(cd %s && make); git commit -m x" % self.bad,

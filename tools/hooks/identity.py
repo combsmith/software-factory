@@ -255,9 +255,10 @@ DATA_ONLY = (TEXT_ONLY - {"sort", "uniq"}) | {
     "[[", ":", "stat", "du", "file", "realpath", "readlink", "basename", "dirname", "od", "strings", "cmp", "fd",
     "pwd", "type", "which", "whence", "hash", "alias", "unalias", "export", "unset", "set", "shift", "local", "declare",
     "typeset", "readonly", "return", "break", "continue", "exit", "wait", "jobs", "bg", "fg", "kill", "trap", "umask",
-    "ulimit", "times", "read", "let", "getopts", "shopt", "setopt", "unsetopt", "sleep", "id", "whoami", "date", "uname",
+    "ulimit", "times", "read", "let", "getopts", "shopt", "setopt", "unsetopt", "eval", "sleep", "id", "whoami", "date",
+    "uname",
     "hostname", "md5", "md5sum", "shasum", "sha256sum", "jq", "hexdump", "column", "tac", "rev", "nl", "fold", "paste",
-    "comm", "join", "seq", "yes"}
+    "comm", "join", "seq", "yes"}       # eval's words are the script _inner reads as commands of their own
 # find's output options, each a word of its own: the next word is a place written; every other word of find's is data.
 # tree's -o is read by PATH_WRITERS, attached or bundled as getopt reads it.
 FIND_OUTPUTS = {"find": {"-fprint", "-fprint0", "-fls", "-fprintf"}}
