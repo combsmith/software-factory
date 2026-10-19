@@ -83,6 +83,7 @@ BUDGET_TESTS = (IDENTITY_TESTS + "test_a_reading_that_would_run_on_is_cut_short_
 WORD_TESTS = (IDENTITY_TESTS + "test_a_substitution_a_quote_holds_and_a_comment_are_data",)
 SPLIT_TESTS = (IDENTITY_TESTS + "test_a_command_that_cannot_be_split_is_refused_whatever_it_names",)
 ANSI_TESTS = (IDENTITY_TESTS + "test_ansi_c_quoting_holding_a_backslash_is_refused",)
+FOUR_MORE_TESTS = (IDENTITY_TESTS + "test_four_more_ways_to_redefine_git_are_refused",)
 ALIAS_TEXT_TESTS = (IDENTITY_TESTS + "test_an_alias_is_read_as_its_text_in_place_of_its_name",)
 EXPANSION_TESTS = (IDENTITY_TESTS + "test_a_variable_in_an_expansion_the_hook_does_not_read_may_be_anything",)
 WHOLE_TESTS = (IDENTITY_TESTS + "test_a_listed_writer_is_read_whole",)
@@ -2504,6 +2505,17 @@ MUTANTS = ISSUE + [
      "    tops = []\n", WHOLE_TESTS),
     ("tar's --one-top-level is read only by its whole name", "tools/hooks/identity.py",
      'if shell.spelt(option, "--one-top-level")', 'if option == "--one-top-level"', WHOLE_TESTS),
+    # Issue 181: four more ways to redefine git.
+    ("a shell's attached option value is read as flags", "tools/hooks/identity.py",
+     '"c" in (flags[:valued.start()] if valued else flags)', '"c" in flags', FOUR_MORE_TESTS),
+    ("autoload defines nothing", "tools/hooks/shell.py",
+     'LOADERS = ("autoload", "functions")\n', 'LOADERS = ("functions",)\n', FOUR_MORE_TESTS),
+    ("typeset -f defines nothing", "tools/hooks/shell.py",
+     'command in ("typeset", "declare") and any(DECLARES_F.match(a) for a in args)', "False", FOUR_MORE_TESTS),
+    ("a dynamic linker's variable is left alone", "tools/hooks/identity.py",
+     "for name in sorted(LOADER_VARIABLES))", "for name in ())", FOUR_MORE_TESTS),
+    ("printf's every word is read as a name it sets", "tools/hooks/shell.py",
+     'if command == "printf" else words[at + 1:]', "if False else words[at + 1:]", FOUR_MORE_TESTS),
 ]
 
 

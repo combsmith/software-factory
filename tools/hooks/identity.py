@@ -31,8 +31,10 @@ refspec, or no remote, is read from git's configuration, once, by push_configura
 protected.py calls too: a mirror, every remote's remote.*.push and push.default, and where a push
 that names no remote goes; a push setting given in the command is refused (decision 0024). So is a
 git the command may redefine, in a command that commits or pushes: a function or an alias for git,
-gh or what runs them, PATH set, git named by a path to another file, or git run under a prefix or a
-wrapper not on shell.AS_IS (decision 0024); and, in such a command, a write into git's directory,
+gh or what runs them, PATH or a dynamic linker's variable set, git named by a path to another file, or git
+run under a prefix or a wrapper not on shell.AS_IS (decision 0024; a name given to autoload, functions or
+typeset -f is defined, and a shell's attached option value is never read as -c, issue 181); and, in such a
+command, a write into git's directory,
 by a redirection or a path a program of PATH_WRITERS is given. An alias whose value runs git or gh,
 and git given no command by xargs or parallel, are refused always. A loop's word list and a case's
 patterns are data (decision 0030). A write is read where and when the shell makes it: after popd or
@@ -187,6 +189,10 @@ SETS_LOCALLY = {"env", "sudo"}
 # A name the command may define so that it runs in place of git or gh: they, and the words that run them as they are.
 # $(which git) is read as the git on PATH, so which, type and whence, which say where it is, are among them.
 REDEFINABLE = {"git", "gh", "builtin", "which", "type", "whence"} | shell.AS_IS
+# The dynamic linker's variables: set anywhere in a command that writes, as PATH is, they may make git or gh run other
+# code (issue 181). A closed list; a variable not on it is left alone.
+LOADER_VARIABLES = {"LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
+                    "DYLD_FRAMEWORK_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_FALLBACK_FRAMEWORK_PATH"}
 # gh's commands that write, as WRITE_TEXT names them, given to a program the hook cannot read.
 GH_WRITES = {"pr", "release", "api"}
 RUNS_GIT = shell.WRAPPERS | shell.PREFIXES
@@ -621,6 +627,8 @@ def _redefined(text: str) -> list:
         reasons.append("the command defines a function or an alias for git, gh or what runs them")
     if shell.sets("PATH", quoted) or shell.sets("path", quoted):
         reasons.append("the command sets PATH, so git or gh may be another program")
+    if any(name in text and shell.sets(name, quoted) for name in sorted(LOADER_VARIABLES)):
+        reasons.append("the command sets a dynamic linker's variable, so git or gh may run other code")
     if "*" in shell.touched(text):
         reasons.append("the command writes a variable it names at run time, or evals or sources, which may set PATH")
     return reasons
@@ -982,13 +990,21 @@ def _options(args: list, valued: set, destinations: set) -> tuple:
 
 
 def _given_c(args: list) -> bool:
-    """Whether a shell's own options, the words before its first operand, hold -c: alone or bundled (-lc, -ec). A word
-    past them is the script or its arguments (bash x.sh -c), and -o and +o take the next word as their value."""
+    """Whether a shell's own options, the words before its first operand, hold -c: alone or bundled before an option
+    that takes a value (-lc, -ec, -co). A word past them is the script or its arguments (bash x.sh -c). -o, +o, -O and
+    +O take a value: the rest of their bundle where one is attached (-oemacs), else the next word; an attached value is
+    never read as flags (issue 181)."""
     i = 0
     while i < len(args) and args[i][:1] in ("-", "+") and args[i] not in ("-", "--"):
-        if args[i][:1] == "-" and args[i][1:2] != "-" and "c" in args[i]:
+        word = args[i]
+        if word[1:2] == "-":        # a long option, which takes no next word
+            i += 1
+            continue
+        flags = word[1:]
+        valued = re.search("[oO]", flags)
+        if word[0] == "-" and "c" in (flags[:valued.start()] if valued else flags):
             return True
-        i += 2 if args[i] in ("-o", "+o", "-O", "+O") else 1
+        i += 2 if valued and valued.end() == len(flags) else 1
     return False
 
 
