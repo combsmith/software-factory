@@ -56,7 +56,7 @@ ACTIONS_APP = 15368
 # and it is held to its text by a hash taken with the pins left out: to change it, change this.
 EXEMPT = {
     "ci.yml": (("install",), "d926b2135508f3799b02cfc2741d6017435399f8ec054c3f171dcd79236ba627"),    # the org's secret scan downloads gitleaks
-    "tick-probe.yml": (("install",), "72eac4ba9df76bb59c8af74e49afc8da2723e076d257698cb569585c1c86121c"),    # trial P-8: a step runs something, so `exit 0`
+    "tick-probe.yml": (("install",), "72eac4ba9df76bb59c8af74e49afc8da2723e076d257698cb569585c1c86121c"),    # trial P-8: GitHub refuses a step that runs nothing
 }
 MAX_RUN_LINES = 10
 ENTRY = re.compile(r"^( *)(- )?([A-Za-z_][\w-]*):(?: (.*))?$")

@@ -1338,6 +1338,7 @@ class Workflows(unittest.TestCase):
     def test_the_tick_probe_is_exempt_from_install_alone(self):
         # Trial P-8 (issue 25): GitHub refuses a step that runs nothing, so the probe's one step is `exit 0`.
         probe = (ROOT / ".github" / "workflows" / "tick-probe.yml").read_text()
+        self.assertEqual(check_workflows.EXEMPT["tick-probe.yml"][0], ("install",))
         base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
         self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/tick-probe.yml": probe}))),
                                 "tick-probe.yml"))
