@@ -419,7 +419,7 @@ names a file, no other Lens names one, and the file exists, runs on both `pull_r
 with no `strategy.matrix` or `uses:`, either of which would leave the Lens waiting. Its one job-level
 `if:` is exactly `always()`, and only beside a `needs:` that names every other job in its file: any
 other `if:` can skip the job, and GitHub passes a required check that is skipped. So `verify` needs
-`checks`, which runs `make verify`, and `mutants`, six shards of the mutation check, and runs
+`checks`, which runs `make verify`, and `mutants`, the shards of the mutation check, and runs
 `tools/needs_passed.py` on `${{ toJSON(needs) }}`, which fails it unless each ended `success`
 (decision 0026).
 
