@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "applied/1: what apply did with one Result, uploaded by apply: each Effect it met, in the order applied, with what was read back, and the finding/1 of each Finding it posted, with its surface's key as read back. No text: bodies stay in the Result, which run names.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run",
+    "release",
+    "effects",
+    "findings"
+  ],
+  "properties": {
+    "schema": {
+      "const": "applied/1"
+    },
+    "run": {
+      "type": "string",
+      "pattern": "^r_[0-9A-Z]{6,26}$"
+    },
+    "release": {
+      "type": "string",
+      "pattern": "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "effects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "state",
+          "key",
+          "reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^e[0-9]{1,3}$"
+          },
+          "type": {
+            "$ref": "effect.schema.json#/$defs/type"
+          },
+          "state": {
+            "enum": [
+              "applied",
+              "already_applied",
+              "refused",
+              "failed"
+            ]
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Za-z0-9_=:-]+$"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-z_]+$"
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "finding.schema.json"
+      }
+    }
+  }
+}

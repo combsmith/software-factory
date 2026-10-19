@@ -4,6 +4,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
+    "schema",
     "maintainer",
     "protected",
     "reported",
@@ -13,6 +14,9 @@
     "settings"
   ],
   "properties": {
+    "schema": {
+      "const": "hooks/1"
+    },
     "maintainer": {
       "type": "object",
       "additionalProperties": false,

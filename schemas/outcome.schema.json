@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "outcome/1: the few bytes a Run's final step writes: how the Run ended and whose fault it was, in the run record's codes; null for a Run that succeeded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run",
+    "release",
+    "outcome",
+    "reason"
+  ],
+  "properties": {
+    "schema": {
+      "const": "outcome/1"
+    },
+    "run": {
+      "type": "string",
+      "pattern": "^r_[0-9A-Z]{6,26}$"
+    },
+    "release": {
+      "type": "string",
+      "pattern": "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "outcome": {
+      "enum": [
+        "item",
+        "capacity",
+        "environment",
+        "superseded",
+        null
+      ]
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-z_]+$"
+    }
+  }
+}

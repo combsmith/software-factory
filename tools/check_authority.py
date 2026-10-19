@@ -16,7 +16,7 @@ def _folded(name: str) -> str:
     return name.strip().casefold()
 
 
-def run(authority: dict = None, config: dict = None, facts: dict = None, result: dict = None) -> list:
+def run(authority: dict = None, config: dict = None, facts: dict = None, result: dict = None, role: dict = None) -> list:
     a = json.loads((ROOT / "config" / "authority.json").read_text()) if authority is None else authority
     c = json.loads((ROOT / "config" / "defaults.json").read_text()) if config is None else config
     problems = []
@@ -71,6 +71,19 @@ def run(authority: dict = None, config: dict = None, facts: dict = None, result:
             problems.append("a raised Finding may carry the %s %s, and no Finding record can" % (field, name))
         for name in sorted(held - set(raised[field]["enum"])):
             problems.append("a Finding record may carry the %s %s, and no raised Finding can" % (field, name))
+    # A Role manifest names what it owns, shadows and raises in the Finding's categories, and no others.
+    m = json.loads((ROOT / "schemas" / "role.schema.json").read_text()) if role is None else role
+    named = {"owns": m.get("properties", {}).get("owns"), "shadows": m.get("properties", {}).get("shadows"),
+             "raises": m.get("properties", {}).get("lens", {}).get("properties", {}).get("raises")}
+    for field, held in sorted(named.items()):
+        listed = held.get("items", {}).get("enum") if isinstance(held, dict) else None
+        if not isinstance(listed, list):
+            problems.append("a Role manifest's %s names no category" % field)
+            continue
+        for name in sorted(set(listed) - known):
+            problems.append("a Role manifest may %s the category %s, and no Finding can carry it" % (field.rstrip("s"), name))
+        for name in sorted(known - set(listed)):
+            problems.append("a Finding may carry the category %s, and no Role manifest can %s it" % (name, field.rstrip("s")))
     if set(terms.CATEGORIES) != known:
         problems.append("the Kernel reads the categories %s, and a Finding carries %s"
                         % (sorted(terms.CATEGORIES), sorted(known)))

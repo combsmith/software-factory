@@ -67,6 +67,8 @@ ALIAS_TESTS = (IDENTITY_TESTS + "test_an_alias_whose_value_runs_git_or_gh_is_ref
 FEEDER_TESTS = (IDENTITY_TESTS + "test_a_git_fed_its_command_by_xargs_is_refused",)
 SCHEMA_TESTS = "tests.test_tools.Validator."
 CODES_TESTS = ("tests.test_tools.Examples.test_a_string_that_is_neither_a_code_nor_a_body_is_caught",)
+ENVELOPE_TESTS = ("tests.test_tools.Examples.test_a_schema_without_its_envelope_is_caught",)
+FEED_TESTS = ("tests.test_tools.Examples.test_every_reason_that_needs_a_person_says_what_is_asked",)
 GIT_DIRECTORY_TESTS = (IDENTITY_TESTS + "test_a_write_into_gits_directory_is_refused_where_the_command_commits_or_pushes",)
 LOOP_TESTS = (IDENTITY_TESTS + "test_a_loops_word_list_is_data_and_its_body_is_read",)
 # Decision 0032: a write resolved where and when the shell makes it, and a reading cut short refused.
@@ -1509,6 +1511,19 @@ MUTANTS = ISSUE + [
     ("a pattern that ends in an escaped dollar is anchored", "tools/check_examples.py",
      "            if i == len(pattern) - 2:\n                return False", "            if False:\n                return False",
      CODES_TESTS),
+    # Decision 0039: one envelope, on what crosses a boundary whole.
+    ("a document without its release passes", "tools/check_examples.py",
+     '        for name in (identity, "release"):\n', "        for name in (identity,):\n", ENVELOPE_TESTS),
+    ("a schema in no class passes", "tools/check_examples.py",
+     '        return ["schema %s is in no class of ENVELOPE; name it a document, a record, a part or a data file" % kind]\n',
+     "        return []\n", ENVELOPE_TESTS),
+    ("a part may carry a schema", "tools/check_examples.py",
+     '        if "schema" in props:\n', "        if False:\n", ENVELOPE_TESTS),
+    ("text is let through under any name", "tools/check_examples.py",
+     "        if name not in (TEXT_FIELD, UNTRUSTED_FIELD):\n", "        if False:\n",
+     ("tests.test_tools.Examples.test_text_is_let_through_only_untrusted_or_in_a_body",)),
+    ("a reason that needs a person may have no question", "tools/check_examples.py",
+     "    for reason in sorted(needs - set(reasons)):\n", "    for reason in ():\n", FEED_TESTS),
     ("a raised Finding may carry a category nobody owns", "tools/check_authority.py",
      '    for field, held in (("category", known), ("severity", set(finding["properties"]["severity"]["enum"]))):\n',
      "    for field, held in ():\n",

@@ -273,9 +273,18 @@ on that log surviving.
 
 ### 3.1 The catalogue
 
-Every message carries `schema` (name and major version), an identifier, and the `release` that
-produced it.
-A reader rejects a major version it does not know. Messages are JSON. Files a person edits are shown
+The envelope is carried by what crosses a boundary whole, once, and everything inside it is
+versioned by it (decision 0039). Each schema is in one of four classes. A **document** crosses a
+boundary whole, written by a Release at run time, and carries `schema` (name and major version),
+its identity and the `release` that produced it: a Task, a Result, `applied.json` and
+`outcome.json` (identity `run`), the pass record and the feed's two files (identity `pass`). A
+**record** travels inside a document and is also given alone to a reader, the Kernel, a replay or a
+join, and carries `schema` alone: its identity and Release are its document's (the facts, a
+Decision, a Finding). A **part** is only ever inside another, by reference, and carries nothing (an
+Effect, a Disposition, coverage, the run-name, a run record, a feed item). A **data** file a person
+edits carries `schema`; its identity is its path and its Release the commit (the configuration, the
+Lifecycles, the authority table, a Role manifest, a rubric, an acceptance contract, a fixture). A
+reader rejects a major version it does not know. Messages are JSON. Files a person edits are shown
 here as YAML because it reads more easily; in the repo they are JSON, since the standard library
 has no YAML parser and nothing third-party runs in the Factory.
 
@@ -552,8 +561,6 @@ receives them.
 ```json
 {
   "schema": "decision/1",
-  "id": "d_01JA7P",
-  "release": "factory/v0.3.1",
   "item": { "repo": "combsmith/software-factory", "type": "pull_request", "number": 42 },
   "outcome": "admit",
   "reason": "blocking_findings_proposed",
@@ -566,9 +573,18 @@ receives them.
 `outcome` is one of `nothing`, `defer`, `hold`, `transition`, `admit`. `reason` is an enumerated
 code, never a sentence; the sentence a person reads is rendered from it.
 
-Every pass uploads a **pass record**: the facts it read and the Decisions it made. It serves three
-purposes. Any decision can be replayed on a laptop from exactly what the Kernel saw. A Run is
-started from a Decision in it, and from nothing else (§3.5). And the control room is built from it.
+Every pass uploads a **pass record**, `pass/1` (`schemas/pass.schema.json`): the time it gave the
+Kernel, the whole context (`paused`, `active_runs`, `model_deferred_until`, `passes_since` and
+`unidentified_runs`, every key always present, since a key left out reads differently from null),
+every run record it read, once for the pass, each read's `date` and `age` from GitHub, and, in one
+list for pull requests and one for issues, each item's facts, its Decision and the Run id the
+Controller minted for an admission or an approval, or null. The configuration is not copied: it is
+the data at `release`. A Decision carries no id and no Release of its own: both are the pass's. The
+record serves three purposes. Any decision can be replayed on a laptop from exactly what the Kernel
+saw, with the Release's own data files. A Run is started from a Decision in it, and from nothing
+else (§3.5): the Harness finds the Decision that admitted it by its Run id, and the pass record is
+the one place the Decision and that id meet. And the control room is built from it. There is no
+title anywhere in it: the facts have no field for one.
 
 ### 3.5 Task and Result
 
@@ -697,7 +713,6 @@ There is no Effect that starts a Run. Only Admission does that.
 {
   "schema": "finding/1",
   "id": "f_9c1e",
-  "release": "factory/v0.3.1",
   "source": { "lens": "pr-review", "kind": "role", "actor": "combsmith-sf-pr-review[bot]" },
   "surface": { "type": "thread", "key": "PRRT_kw7" },
   "location": { "path": "kernel/admission.py", "start_line": 88, "end_line": 94 },
@@ -823,11 +838,15 @@ different workflow file and a different event, so it is ignored. Fork workflows 
 before they run.
 
 **The artifacts.** `result.json` is the Result of §3.5, uploaded by `run` with its digest. The
-commit bundle travels beside it. `applied.json` is uploaded by `apply` and lists each Effect with
-what was read back, and each Finding it posted as the record of §3.7, which is where the facts
-port reads a thread's category and severity from. `outcome.json` is a few bytes written by a final
-step: how the Run ended and whose fault it was. Nothing is handed from job to job through the log: the log is shared with
-whatever the model prints, and Actions rewrites it when it masks secrets.
+commit bundle travels beside it. `applied.json`, `applied/1` (`schemas/applied.schema.json`), is
+uploaded by `apply` and lists each Effect it met, in the order applied, with its state (`applied`,
+`already_applied`, `refused` or `failed`), the node id read back and a reason code, and each
+Finding it posted as the record of §3.7, which is where the facts port reads a thread's category
+and severity from. `outcome.json`, `outcome/1` (`schemas/outcome.schema.json`), is a few bytes
+written by a final step: how the Run ended and whose fault it was, in the run record's codes, and a
+reason code. Neither holds text: bodies stay in the Result, which both point at by `run`. Nothing
+is handed from job to job through the log: the log is shared with whatever the model prints, and
+Actions rewrites it when it masks secrets.
 
 A Run that dies before it uploads anything still has a run record, and counts as an attempt
 subject to the fault classes below. Its
@@ -2320,35 +2339,52 @@ board. It is also not where a chat session's output is made terser; that is a se
 
 ```json
 {
-  "schema": "view-item/1",
   "item": { "repo": "combsmith/software-factory", "type": "pull_request", "number": 42 },
   "state": "held",
-  "reason": "max_rounds_reached",
+  "reason": "attempts_exhausted",
   "attention": "needs_you",
+  "evidence": ["r_01JA6Z", "r_01JA6Y", "r_01JA6X"],
   "next_actor": "maintainer",
   "decision_required": {
-    "question": "rounds_exhausted",
-    "choices": ["grant_another_round", "accept_as_is", "close"],
-    "evidence": ["finding:f_22ab", "run:r_01JA7Q"]
+    "question": "allowance_spent",
+    "choices": ["renew_allowance", "close"],
+    "evidence": ["r_01JA6Z", "r_01JA6Y", "r_01JA6X"]
   },
   "content_id": "sha256:5d0c",
   "age_hours": 19.5,
-  "attempts": { "fix-review-findings": 3, "adjudicate-findings": 3 },
-  "runs": 9,
+  "attempts": [ { "intent": "fix-findings", "count": 3 }, { "intent": "review-change", "count": 1 } ],
+  "runs": 4,
   "cost_usd": 4.8,
-  "sources": ["run:r_01JA6Z", "run:r_01JA7Q"],
-  "url": "https://github.com/combsmith/software-factory/pull/42"
+  "sources": ["r_01JA6X", "r_01JA6Y", "r_01JA6Z"],
+  "url": "https://github.com/combsmith/software-factory/pull/42",
+  "untrusted": { "title": "Kernel: read the queue before the gate" }
 }
 ```
 
-The page reads these files directly and is rebuilt only when its own code changes.
+`view/meta.json` is `view-meta/1` and `view/items.json` is `view-items/1`, each a document
+carrying the pass that wrote it, so the page can tell a matched pair from two files written by
+different passes. An item is a part, `view-item` (`schemas/view-item.schema.json`), with no
+`schema` of its own. The page reads these files directly and is rebuilt only when its own code
+changes.
 
 The feed carries no free text from outside. An item is a repo and a number, and reasons are codes.
-A title is a separate field marked untrusted. The page shows it as text. A lens that feeds a model,
-such as a board inside a Claude session, drops it: that session holds the Maintainer's own
-permissions, and a pull-request title is something a stranger writes.
+The title is the one text on the feed, and it sits under `untrusted`, so anything that reads the
+feed sees it marked. The facts port's one query for the item returns it, and the port hands it to
+the view port beside the facts, never in them: `facts/1` and `issue-facts/1` have no field for a
+title, so neither the Kernel nor a replay ever sees one. The page shows it as text. A lens that
+feeds a model, such as a board inside a Claude session, drops `untrusted` whole: that session holds
+the Maintainer's own permissions, and a pull-request title is something a stranger writes.
 
-`question` and `choices` are enumerated codes. The sentence a person reads is rendered from them.
+`next_actor` and `decision_required` are read from the Decision's codes through one table,
+`config/feed.json` (`feed/1`), and from nothing else; the Kernel gives nothing new. The next actor
+is read in order: a Decision about to admit or act is the Factory's; then by attention class,
+`needs_you` the Maintainer's, `working` the Factory's, `failed` the author's, `none` nobody's; and
+`review`, `ready` and `stale` by State, `verifying` and `adjudicating` a Lens's, `queued` the
+platform's, any other the Factory's. `decision_required` is null unless the attention is
+`needs_you`; then the table's row for the reason gives `question` and `choices`, and `evidence` is
+the Decision's. `question` and `choices` are enumerated codes, and a choice is something a person
+does in GitHub. The sentence a person reads is rendered from them. `tools/check_examples.py` holds
+the table to the Kernel: every reason the Kernel gives `needs_you` has one row, and no other does.
 
 Attention classes, in the order the page lists them:
 

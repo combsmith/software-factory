@@ -1,0 +1,335 @@
+{
+  "schema": "feed/1",
+  "next_actor": {
+    "by_outcome": [
+      {
+        "outcome": [
+          "admit",
+          "act"
+        ],
+        "actor": "factory"
+      }
+    ],
+    "by_attention": [
+      {
+        "attention": "needs_you",
+        "actor": "maintainer"
+      },
+      {
+        "attention": "working",
+        "actor": "factory"
+      },
+      {
+        "attention": "failed",
+        "actor": "author"
+      },
+      {
+        "attention": "none",
+        "actor": "nobody"
+      },
+      {
+        "attention": "review",
+        "actor": "by_state"
+      },
+      {
+        "attention": "ready",
+        "actor": "by_state"
+      },
+      {
+        "attention": "stale",
+        "actor": "by_state"
+      }
+    ],
+    "by_state": {
+      "rows": [
+        {
+          "state": "verifying",
+          "actor": "lens"
+        },
+        {
+          "state": "adjudicating",
+          "actor": "lens"
+        },
+        {
+          "state": "queued",
+          "actor": "platform"
+        }
+      ],
+      "default": "factory"
+    }
+  },
+  "decision_required": [
+    {
+      "reason": "attempts_exhausted",
+      "question": "allowance_spent",
+      "choices": [
+        "renew_allowance",
+        "close"
+      ]
+    },
+    {
+      "reason": "run_ceiling",
+      "question": "allowance_spent",
+      "choices": [
+        "renew_allowance",
+        "close"
+      ]
+    },
+    {
+      "reason": "max_rounds",
+      "question": "allowance_spent",
+      "choices": [
+        "renew_allowance",
+        "close"
+      ]
+    },
+    {
+      "reason": "act_ceiling",
+      "question": "allowance_spent",
+      "choices": [
+        "renew_allowance",
+        "close"
+      ]
+    },
+    {
+      "reason": "human_hold",
+      "question": "held_by_you",
+      "choices": [
+        "end_hold",
+        "close"
+      ]
+    },
+    {
+      "reason": "outside_not_admitted",
+      "question": "admit_outside_work",
+      "choices": [
+        "admit",
+        "close"
+      ]
+    },
+    {
+      "reason": "too_large",
+      "question": "too_large",
+      "choices": [
+        "split_the_change",
+        "close"
+      ]
+    },
+    {
+      "reason": "empty_diff",
+      "question": "nothing_to_review",
+      "choices": [
+        "renew_allowance",
+        "close"
+      ]
+    },
+    {
+      "reason": "human_finding",
+      "question": "a_person_is_asked",
+      "choices": [
+        "resolve_thread",
+        "close"
+      ]
+    },
+    {
+      "reason": "awaiting_human",
+      "question": "a_person_is_asked",
+      "choices": [
+        "resolve_thread",
+        "close"
+      ]
+    },
+    {
+      "reason": "approver_is_author_or_last_pusher",
+      "question": "approval_does_not_count",
+      "choices": [
+        "approve",
+        "close"
+      ]
+    },
+    {
+      "reason": "contract_not_approved",
+      "question": "contract_needs_approval",
+      "choices": [
+        "approve_contract",
+        "close"
+      ]
+    },
+    {
+      "reason": "contract_changed",
+      "question": "contract_needs_approval",
+      "choices": [
+        "approve_contract",
+        "close"
+      ]
+    },
+    {
+      "reason": "check_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "review_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "thread_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "label_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "acceptance_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "paths_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "protected_paths_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "acceptance_reporters_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "run_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "issues_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "intents_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "paused",
+      "question": "paused",
+      "choices": [
+        "end_pause"
+      ]
+    },
+    {
+      "reason": "pause_unreadable",
+      "question": "paused",
+      "choices": [
+        "end_pause"
+      ]
+    },
+    {
+      "reason": "unmerged_closes",
+      "question": "closes_without_a_merge",
+      "choices": [
+        "end_hold",
+        "close"
+      ]
+    },
+    {
+      "reason": "linked_twice",
+      "question": "linked_twice",
+      "choices": [
+        "close",
+        "renew_allowance"
+      ]
+    },
+    {
+      "reason": "acceptance_lapsed",
+      "question": "acceptance_lapsed",
+      "choices": [
+        "admit",
+        "close"
+      ]
+    },
+    {
+      "reason": "triage_stands",
+      "question": "triage_needs_you",
+      "choices": [
+        "renew_allowance",
+        "close"
+      ]
+    },
+    {
+      "reason": "judged",
+      "question": "triage_needs_you",
+      "choices": [
+        "renew_allowance",
+        "close"
+      ]
+    },
+    {
+      "reason": "ready_removed",
+      "question": "triage_needs_you",
+      "choices": [
+        "renew_allowance",
+        "close"
+      ]
+    },
+    {
+      "reason": "no_statement",
+      "question": "statement_missing",
+      "choices": [
+        "renew_allowance",
+        "close"
+      ]
+    },
+    {
+      "reason": "intent_undeclared",
+      "question": "configuration_needs_you",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "intents_share_a_role",
+      "question": "configuration_needs_you",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
+      "reason": "intents_share_an_app",
+      "question": "configuration_needs_you",
+      "choices": [
+        "fix_the_source"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "schema": "outcome/1",
+  "run": "r_01JA7R",
+  "release": "factory/v0.3.1",
+  "outcome": "item",
+  "reason": "The Result did not validate."
+}
