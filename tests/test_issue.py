@@ -1550,7 +1550,7 @@ class Stale(unittest.TestCase):
         # The other side: read whole, the draft holds the issue in progress.
         self.assertEqual(decide(facts(linked=[good]))["state"], "in_progress")
 
-    def test_a_link_that_closed_or_merged_before_it_opened_defers(self):
+    def test_a_link_whose_opening_merge_and_close_are_out_of_order_defers(self):
         # Each time is a real moment, but a close before the opening is no chronology: read, its opening would be the
         # issue's newest movement, and hold off its staleness.
         then = minutes_after(MOVED, 2)
@@ -1558,7 +1558,9 @@ class Stale(unittest.TestCase):
         merged = dict(agents(is_open=False, merged=0), opened_at=minutes_after(then, 1), merged_at=then, closed_at=then)
         # A merge before the opening, though the close is after it: read, the issue would be done.
         merged_first = dict(merged, closed_at=minutes_after(then, 2))
-        for entry in (closed, merged_first, merged):
+        # A merge after the close, though both are after the opening: a merge closes it, so it cannot come later.
+        merged_late = dict(merged, opened_at=MOVED, merged_at=minutes_after(then, 1))
+        for entry in (closed, merged_first, merged, merged_late):
             for f in (dict(WAITING, linked=[entry]), dict(WAITING, state="closed", linked=[entry])):
                 d = decide(f, ctx=PASSING, now=minutes_after(MOVED, limit("triage") + 1))
                 self.assertEqual((d["state"], what(d)), (None, ("defer", "linked_unreadable", None)), entry)
@@ -1567,11 +1569,12 @@ class Stale(unittest.TestCase):
             d = decide(dict(WAITING, linked=[dict(closed, opened_at=opened)]), ctx=PASSING,
                        now=minutes_after(then, limit("triage")))
             self.assertEqual((d["state"], what(d), d["attention"]), ("triage", ("admit", "triage", INVESTIGATE), "ready"))
-        # And a merge in the second it opened, or after it, is read: the issue is done.
-        for opened in (then, MOVED):
-            d = decide(dict(WAITING, linked=[dict(merged_first, opened_at=opened)]), ctx=PASSING,
-                       now=minutes_after(then, limit("triage")))
-            self.assertEqual((d["state"], what(d)), ("done", ("nothing", "merged", None)))
+        # And a merge in the second it opened, or after it, and in the second it closed, or before it, is read: the issue
+        # is done. A merge and its close in one second is the usual case.
+        for entry in (dict(merged_first, opened_at=then), dict(merged_first, opened_at=MOVED),
+                      dict(merged, opened_at=MOVED), dict(merged, opened_at=then)):
+            d = decide(dict(WAITING, linked=[entry]), ctx=PASSING, now=minutes_after(then, limit("triage")))
+            self.assertEqual((d["state"], what(d)), ("done", ("nothing", "merged", None)), entry)
 
     def test_a_lifecycle_whose_limit_cannot_be_read_shows_the_wait_as_stale(self):  # §4.1
         now = minutes_after(MOVED, 1)
