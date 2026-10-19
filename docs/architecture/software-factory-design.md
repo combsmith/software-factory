@@ -771,7 +771,7 @@ workflow file, from the default branch, started by a schedule or a dispatch, in 
 The name is a label for people and is never what identifies a Run. Nor does it ever make a record
 count: it is what says which item a counted Run is on. Until GitHub lists the name (P-17: up to
 3.7 s after the dispatch), the Run is unidentified: the records port reports its GitHub id apart
-from the Runs it can name, and it defers every admission (I-46, decision 0035). Only a record
+from the Runs it can name, and it defers every admission (I-46, decision 0036). Only a record
 started by a `workflow_dispatch` of a Role's workflow, with an item in its input, can be
 unidentified, and only while its name is not yet listed. A run started by a schedule, a successor
 pass dispatched with no item, and the pass's own run are the poller's, not a Run on an item: they
@@ -1048,7 +1048,7 @@ attention class becomes `stale` (§8.4), and the State, the reason and the outco
 `review` and `ready` go stale. A `needs_you` item already reaches a person, and a Run holds a
 `working` one, so the limits read are those of `verifying`, `adjudicating`, `converged` and `queued`.
 Nor does a deferral that holds the whole scope: `paused`, `pause_unreadable`, the model provider's
-deferral `capacity`, `capacity_unreadable`, `concurrency` and `run_unidentified` (decision 0035) are each one cause, which health reports
+deferral `capacity`, `capacity_unreadable`, `concurrency` and `run_unidentified` (decision 0036) are each one cause, which health reports
 once (§4.6), and the item keeps the attention it had. A Lens that stays silent once the deferral ends
 goes stale as usual.
 
@@ -1953,7 +1953,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-14 | Can a job with no permissions and no cache action write the default-branch cache scope? | Cannot |
 | P-15 | Do the retained Advisory reviewers review a pull request authored by an App? | Each one does, or is not counted as a Lens on such pull requests |
 | P-16 | How long are run records, logs and artifacts kept in a public repo? | 90 days |
-| P-17 | Is a run's name set when the run is created, and visible for a run whose job never started? Can recent runs of one workflow be listed and matched by name within the request budget? | Yes to both. **Failed** on 2026-10-18 (`trials/P-17.json`): listed at once, named within 3.7 s; decision 0035 covers the window |
+| P-17 | Is a run's name set when the run is created, and visible for a run whose job never started? Can recent runs of one workflow be listed and matched by name within the request budget? | Yes to both. **Failed** on 2026-10-18 (`trials/P-17.json`): listed at once, named within 3.7 s; decision 0036 covers the window |
 | P-18 | Does a final step still run, and upload partial usage, when a job times out or is cancelled? | Yes, or duration is the only estimate |
 | P-19 | Can a static page in a separate public repo be published from files the Controller writes? | Yes |
 | P-20 | Does an event that anyone may cause, such as starring a repo, still start a workflow, and how often may it? | Yes, often enough for a tick every minute or two |
@@ -2082,7 +2082,7 @@ late or not at all.
   ticks then only restart a broken chain. An item deferred because a Run is unidentified (§3.10) is
   not due sooner: the records port has already read the list again 5 s later, so a record still
   unnamed is not the normal lag, and passes chained on it would feed themselves without bound (W-7).
-  The next pass comes at the next tick or nudge (decision 0035).
+  The next pass comes at the next tick or nudge (decision 0036).
 - The Factory's own writes cannot run away. A nudge asks for a pass; whether a Run is admitted is
   still Admission's decision, under the brakes.
 - One pass is the only decider, so an org-wide limit is a decision inside one process. No lease and

@@ -299,7 +299,7 @@ class Simulation(unittest.TestCase):
         w.platform()
         self.assertEqual(w.pr_state, "merged")
 
-    def test_a_run_listed_unnamed_admits_nothing(self):  # I-46, decision 0035
+    def test_a_run_listed_unnamed_admits_nothing(self):  # I-46, decision 0036
         # On a seed that lists a new Run unnamed, the pass after its admission reads it among the unidentified Runs and
         # not among the Runs it can name. It may be the Run in flight here, so that pass admits no second review.
         w = World(11, faults=False, people=False)
@@ -338,7 +338,7 @@ class Simulation(unittest.TestCase):
                                                                                  cfg, now)):
             self.assertRaisesRegex(world.Broken, "I-46", w.poll)
 
-    def test_an_approval_listed_unnamed_is_not_issued_again(self):  # I-46, decision 0035
+    def test_an_approval_listed_unnamed_is_not_issued_again(self):  # I-46, decision 0036
         # On the same seed an approval's run is read unnamed at the next pass. One that did not land is not yet counted
         # there, so the item still reads as due an approval: that pass defers it, and the pass after issues it again.
         w = reviewed(World(11, faults=False, people=False, approval_fails="item"))
@@ -359,7 +359,7 @@ class Simulation(unittest.TestCase):
                                                                                  cfg, now)):
             self.assertRaisesRegex(world.Broken, "I-46", w.poll)
 
-    def test_the_seeds_list_a_new_run_unnamed(self):  # I-46, decision 0035
+    def test_the_seeds_list_a_new_run_unnamed(self):  # I-46, decision 0036
         # On one seed in eight a Run is listed unnamed at the pass after its admission, and that pass defers what it
         # would admit or approve; every invariant holds throughout.
         unnamed, deferred = False, False

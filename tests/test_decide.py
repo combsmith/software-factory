@@ -2644,7 +2644,7 @@ class Queue(unittest.TestCase):
 
 
 # A run record of the Factory's own workflow, not completed, still listed under the workflow's name: GitHub's run id,
-# from trials/P-17.json. Which item it is on cannot be read (decision 0035).
+# from trials/P-17.json. Which item it is on cannot be read (decision 0036).
 UNNAMED = "39086879694"
 
 

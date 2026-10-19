@@ -1,4 +1,4 @@
-# 0035. A Run listed before its name is unidentified, and defers every admission
+# 0036. A Run listed before its name is unidentified, and defers every admission
 
 Status: accepted. Taken as a working ruling on 2026-10-18, which the Maintainer may overturn in review, for
 "Design: a Run is identified before its run-name is listed (P-17 failed)" (issue 161).
