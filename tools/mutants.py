@@ -545,7 +545,7 @@ ISSUE = [
     ("a Run in flight on an issue does not stop another", ISSUE_PY,
      "    if flight:\n        done =", "    if False:\n        done =", ISSUE_TESTS),
     ("an issue's capacity unread is trusted", ISSUE_PY,
-     '    if until == "unreadable":\n', "    if False:\n", ISSUE_TESTS),
+     "    if until is not None and not (is_time(until) and is_time(now)):\n", "    if False:\n", ISSUE_TESTS),
     ("the provider's deferral does not defer an issue's Run", ISSUE_PY,
      "    if until is not None and until > now:\n", "    if False:\n", ISSUE_TESTS),
     ("a deferral that ends now still defers an issue's Run", ISSUE_PY,
@@ -668,7 +668,7 @@ ISSUE = [
     ("an issue's capacity deadline that is no moment is compared", ISSUE_PY,
      "not (is_time(until) and is_time(now))", "not is_time(now)", ISSUE_TESTS),
     ("an issue's context that cannot be read raises", ISSUE_PY,
-     'context.get("passes_since") if isinstance(context, dict) else None', 'context.get("passes_since")', ISSUE_TESTS),
+     "    known = context if isinstance(context, dict) else {}\n", "    known = context\n", ISSUE_TESTS),
 ]
 
 MUTANTS = ISSUE + [

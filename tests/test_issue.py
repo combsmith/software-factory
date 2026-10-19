@@ -295,6 +295,8 @@ class Unreadable(unittest.TestCase):
                dict(good, empty=0), dict(good, merged_at="soon", closed_at=at(5), open=False),
                dict(good, closed_at=at(5)), dict(good, merged_at=at(5)), dict(good, open=False),
                dict(good, open=False, closed_at="2026-10-11"), dict(good, open=False, closed_at=at(5), merged_at=1),
+               # No moment, though it sorts after the opening, so only the reading of the time refuses it.
+               dict(good, open=False, closed_at="2026-10-11T25:00:00Z"),
                dict(good, label_events=[dict(labelled(HOLD), by=None)]), dict(good, label_events=None), "11"]
         no_class = dict(good)
         del no_class["class"]
@@ -1466,6 +1468,8 @@ class Stale(unittest.TestCase):
         ]
         for name, f, runs, state in sources:
             with self.subTest(name):
+                # The source is the only movement after MOVED: it is when the issue last moved.
+                self.assertEqual(issue.moved_at(f, runs, config(), now), then)
                 d = decide(f, runs, ctx=PASSING, now=minutes_after(then, limit(state)))
                 self.assertEqual((d["state"], d["attention"]), (state, "ready"))
                 d = decide(f, runs, ctx=PASSING, now=minutes_after(then, limit(state) + 1))
@@ -1662,6 +1666,20 @@ class Stale(unittest.TestCase):
         except Exception as e:
             self.fail("a context of None raised %r" % e)
         self.assertEqual((d["state"], d["attention"]), ("in_progress", "ready"))
+        # An issue that wants a Run asks the brakes, which read no Pause in it: every act and Run defers, as under a
+        # Pause that cannot be read, and a deferral of the whole scope is never stale.
+        now = minutes_after(MOVED, limit("triage") + 1)
+        for f, state in ((WAITING, "triage"), (dict(WAITING, label_events=READIED_BY_A_PERSON), "ready"),
+                         (facts(last_writer_action_at=MOVED), "new")):
+            unread = issue.decide(f, [], context(passes_since=START, paused=None), cfg, now)
+            self.assertEqual((unread["state"], what(unread), unread["attention"]),
+                             (state, ("defer", "pause_unreadable", None), "ready"))
+            for ctx in (None, "paused", [], 5):
+                try:
+                    d = issue.decide(f, [], ctx, cfg, now)
+                except Exception as e:  # what is asserted is that it returns at all
+                    self.fail("a context of %r raised %r" % (ctx, e))
+                self.assertEqual(d, unread, (ctx, state))
 
     def test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing(self):  # §4.1
         own = decide(WAITING, ctx=PASSING, now=minutes_after(MOVED, 1))

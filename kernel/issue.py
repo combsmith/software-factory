@@ -672,13 +672,15 @@ def overdue(lifecycle, state: str, moved, passes_since, now: str) -> bool:
 
 def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> dict:
     """Return the Decision for one issue: what, if anything, happens next on it. No I/O, no clock."""
-    d = _decide(facts, runs, context, config, now)
+    # A context that cannot be read says nothing: not whether the Pause holds, which the brakes then read as
+    # unreadable and defer every act and Run, nor the passes, as an unreadable `passes_since` does not.
+    known = context if isinstance(context, dict) else {}
+    d = _decide(facts, runs, known, config, now)
     # A wait past its State's limit, while passes ran, is the Maintainer's to see. Only what they see changes (I-1).
     # A deferral that holds the whole scope is one cause, reported once (§4.6): the issue keeps the attention it had.
-    # A context that cannot be read says nothing of the passes, as an unreadable `passes_since` does not.
-    passes_since = context.get("passes_since") if isinstance(context, dict) else None
     if (d["attention"] in t.MAY_GO_STALE and d["reason"] not in t.SCOPE_DEFERRALS
-            and overdue(config.get("lifecycle"), d["state"], moved_at(facts, runs, config, now), passes_since, now)):
+            and overdue(config.get("lifecycle"), d["state"], moved_at(facts, runs, config, now),
+                        known.get("passes_since"), now)):
         return dict(d, attention=t.STALE)
     return d
 
@@ -745,9 +747,8 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
 
     # Capacity and the org's concurrency are not brakes: they bound no cycle (§4.1), and only defer.
     until = context.get("model_deferred_until", "unreadable")
-    if until == "unreadable":
-        return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
-    # A deadline, or a `now`, that is no moment cannot be compared: the deferral fails closed, and nothing raises.
+    # A deadline missing, or one or a `now` that is no moment, cannot be compared: the deferral fails closed, and
+    # nothing raises.
     if until is not None and not (is_time(until) and is_time(now)):
         return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
     if until is not None and until > now:

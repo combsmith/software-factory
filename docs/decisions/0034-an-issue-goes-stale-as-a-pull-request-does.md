@@ -22,7 +22,8 @@ on it starts, or a linked pull request of the Factory's (`agent`) or of a person
 opens or closes. Nothing else moves it: not a Role's comment, whose Run is counted already, nor an App named nowhere,
 nor a label the Kernel does not read, nor a pull request of any other class, an admitted outsider's or a dependency
 bot's among them. A time that is no real moment, or is later than `now`, is passed over. A `now` that is no moment
-gives no time, and a context that is no mapping says nothing of the passes. Nothing on an issue raises on such a
+gives no time. A context that is no mapping is read as an empty one: it says nothing of the passes, and nothing of the
+Pause, so the brakes defer every act and Run as under a Pause that cannot be read. Nothing on an issue raises on such a
 `now`: a capacity deadline that cannot be compared with `now`, either being no moment, defers the Run with
 `capacity_unreadable`.
 
@@ -63,4 +64,4 @@ staleness shows it.
 | Any App `issues.label_apps` names moves an issue by any control label it adds or removes; an App named nowhere moves nothing | `tests/test_issue.py::test_any_app_the_configuration_names_moves_an_issue_by_any_control_label` |
 | Only the Factory's or a writer's linked pull request moves an issue by opening or closing; an outsider's, even one admitted, moves nothing | `tests/test_issue.py::test_an_outsiders_pull_request_moves_nothing_even_once_admitted` |
 | A `now` that is no moment raises nothing on an issue, and shows a wait as stale; a capacity deadline that cannot be compared with `now` defers the Run as capacity unread | `tests/test_issue.py::test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing` |
-| A context that cannot be read raises nothing on an issue, and says nothing of the passes, as an unreadable `passes_since` does not | `tests/test_issue.py::test_a_context_that_cannot_be_read_says_nothing_of_the_passes` |
+| A context that cannot be read raises nothing on an issue: it says nothing of the passes, as an unreadable `passes_since` does not, and an act or a Run defers as under a Pause that cannot be read | `tests/test_issue.py::test_a_context_that_cannot_be_read_says_nothing_of_the_passes` |
