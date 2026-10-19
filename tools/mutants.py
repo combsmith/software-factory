@@ -86,6 +86,10 @@ ANSI_TESTS = (IDENTITY_TESTS + "test_ansi_c_quoting_is_read_as_the_shell_decodes
 ALIAS_TEXT_TESTS = (IDENTITY_TESTS + "test_an_alias_is_read_as_its_text_in_place_of_its_name",)
 EXPANSION_TESTS = (IDENTITY_TESTS + "test_a_variable_in_an_expansion_the_hook_does_not_read_may_be_anything",)
 WHOLE_TESTS = (IDENTITY_TESTS + "test_a_listed_writer_is_read_whole",)
+# Issue 174's fix round.
+COMMENT_START_TESTS = (IDENTITY_TESTS + "test_a_comment_begins_only_where_the_shell_begins_one",)
+LATER_TESTS = (IDENTITY_TESTS + "test_a_substitution_a_quote_holds_is_read_where_a_program_may_run_it_later",)
+BACKSLASH_TESTS = (IDENTITY_TESTS + "test_a_backslash_in_double_quotes_is_read_as_the_shell_reads_it",)
 
 # Where the boundary cases of decision 0029 are.
 REPORTED = "tests.test_decide.AReviewThatReported."
@@ -2031,7 +2035,7 @@ MUTANTS = ISSUE + [
      "            if not sub and set(map(os.path.basename, before)) & shell.FEEDERS:\n", "            if False:\n",
      FEEDER_TESTS),
     ("a redirection into git's directory is not read", "tools/hooks/identity.py",
-     '        inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], places, "a redirection",\n'
+     '        inline += _git_directory([t for op, t in redirections if ">" in op], places, "a redirection",\n'
      "                                 loops, spend)\n", "", GIT_DIRECTORY_TESTS),
     ("every program's words are read as writes into git's directory", "tools/hooks/identity.py",
      "    if program not in PATH_WRITERS:\n        return []\n", "    if program not in PATH_WRITERS:\n        return args\n",
@@ -2089,7 +2093,7 @@ MUTANTS = ISSUE + [
      LOOP_TESTS),
     ("a substitution in a case's pattern is not read", "tools/hooks/shell.py",
      "        if words is None:       # a pattern runs nothing, but a substitution in it does, where the pattern stands\n"
-     "            for script in _substituted(targets):\n                read = commands(script, spend, texts, scopes, marked)\n"
+     "            for script in _substituted(targets, spend):\n                read = commands(script, spend, texts, scopes, marked)\n"
      "                out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read\n",
      "        if words is None:\n", LOOP_TESTS),
     ("a cd in a case pattern's substitution moves the command", "tools/hooks/identity.py",
@@ -2232,13 +2236,68 @@ MUTANTS = ISSUE + [
      "        else:\n"
      '            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1] if wanted else "", done,'
      ' config["limits"])\n'),
+    # Issue 174's fix round.
+    ("a # in a ${...} begins a comment", "tools/hooks/shell.py",
+     '            if c == "#" and comments and i >= braces:\n', '            if c == "#" and comments:\n',
+     COMMENT_START_TESTS),
+    ("a ( in a ${...} is read as a pattern", "tools/hooks/shell.py",
+     'if c == "(" and i >= arithmetic and i >= braces', 'if c == "(" and i >= arithmetic', COMMENT_START_TESTS),
+    ("a carriage return begins a comment", "tools/hooks/shell.py",
+     'COMMENTS_AFTER = " \\t\\n;&|("', 'COMMENTS_AFTER = " \\t\\r\\n;&|("', COMMENT_START_TESTS),
+    ("a # after < or > begins a comment", "tools/hooks/shell.py",
+     'COMMENTS_AFTER = " \\t\\n;&|("', 'COMMENTS_AFTER = " \\t\\n;&|(<>"', COMMENT_START_TESTS),
+    ("a star in a pattern is read as one letter", "tools/hooks/identity.py",
+     "            reached = set(range(min(reached), last + 1))\n",
+     "            reached = {at + 1 for at in reached if at < last}\n", GIT_DIRECTORY_TESTS),
+    ("a substitution a quote holds is never read where a program may run it later", "tools/hooks/identity.py",
+     "    commands = _evaluated(commands, spend)\n", "", LATER_TESTS),
+    ("a program that prints its words reads what a quote holds", "tools/hooks/identity.py",
+     'not in TEXT_ONLY | {"git", "gh"})', 'not in {"git", "gh"})', LATER_TESTS),
+    ("git's words are read for what a quote holds", "tools/hooks/identity.py",
+     'not in TEXT_ONLY | {"git", "gh"})', "not in TEXT_ONLY)", LATER_TESTS),
+    ("an octal escape is read past eight bits", "tools/hooks/shell.py",
+     "chr(int(octal, 8) & 0xFF)", "chr(int(octal, 8))", ANSI_TESTS),
+    ("a NUL is read as part of the word", "tools/hooks/shell.py",
+     '            return "".join(out).partition("\\0")[0], i + 1\n', '            return "".join(out), i + 1\n',
+     ANSI_TESTS),
+    ("an escape zsh reads otherwise is read as bash reads it", "tools/hooks/shell.py",
+     "        elif other in ZSH_ONLY:\n", "        elif False:\n", ANSI_TESTS),
+    ("a backslash in double quotes is kept before $ and a backtick", "tools/hooks/shell.py",
+     "            if quote == '\"' and after in ESCAPED:\n", "            if False:\n", BACKSLASH_TESTS),
+    ("a backtick's escaped backtick is kept escaped", "tools/hooks/identity.py",
+     '                inner = re.sub(r"\\\\([\\\\`$])", r"\\1", inner)\n', "                pass\n", BACKSLASH_TESTS),
+    ("an alias's escaped $ is read as one that expands", "tools/hooks/shell.py",
+     "        words = [unmarked(w.translate(escaped)) for w in words]\n", "        words = [unmarked(w) for w in words]\n",
+     BACKSLASH_TESTS),
+    ("a ( that begins an argument is read as a subshell", "tools/hooks/shell.py",
+     '    return starts and (words == 0 or text[i - 1] in "<>" or text[i + 1:i + 2] == ")")\n', "    return True\n",
+     SPLIT_TESTS),
+    ("(( in a word is read as arithmetic", "tools/hooks/shell.py",
+     ' and (text[i - 1:i] == "$" or (starts and words == 0)):', ":", SPLIT_TESTS),
+    ("a reserved word is read as an argument", "tools/hooks/shell.py",
+     "                    words = 0       # the next word is a command again\n", "                    pass\n", SPLIT_TESTS),
+    ("arithmetic nests without end", "tools/hooks/shell.py",
+     "                if depth >= NESTED_MOST:\n", "                if False:\n", SPLIT_TESTS),
+    ("zsh's modifier and subscript are read as plain", "tools/hooks/identity.py",
+     "        if bare and bare.group(1) in names:", "        if False:", EXPANSION_TESTS),
+    ("a variable read by a subscript is read as one the command may change", "tools/hooks/shell.py",
+     'r"(?:^|[\\s;&|()}`])(%s)\\["', 'r"(?:^|[\\s;&|(){}`])(%s)\\["', EXPANSION_TESTS),
+    ("a path written is read with the command's variables put in first", "tools/hooks/identity.py",
+     "_git_directory(_written(program, raw[start + 1:])", "_git_directory(_written(program, words[start + 1:])",
+     EXPANSION_TESTS),
+    ("a held script that cannot be split is passed though it names git", "tools/hooks/identity.py",
+     "                if shell.GIT_OR_GH.search(re.sub(r\"[\\\\'\\\"]\", \"\", script)):\n                    raise\n", "",
+     LATER_TESTS),
+    ("a held script that cannot be split is refused though it names no git", "tools/hooks/identity.py",
+     "                if shell.GIT_OR_GH.search(re.sub(r\"[\\\\'\\\"]\", \"\", script)):\n", "                if True:\n",
+     LATER_TESTS),
     # Issue 174, rulings 1 to 6: a word is read as the shell reads it.
     ("a substitution a single quote or a backslash holds is read", "tools/hooks/shell.py",
      "    spans, i, plain = [], 0, unmarked(word)\n",
      "    spans, i, plain = [], 0, unmarked(word)\n"
      '    word = plain.replace("$(", LIVE["$"] + "(").replace("`", LIVE["`"])\n', WORD_TESTS),
     ("a comment is read as words", "tools/hooks/shell.py",
-     '            if c == "#" and starts:\n', "            if False:\n", WORD_TESTS),
+     '            if c == "#" and comments and i >= braces:\n', "            if False:\n", WORD_TESTS),
     ("a command that cannot be split passes unless it names git", "tools/hooks/identity.py",
      "    except ValueError as err:\n        # The command cannot be split into words, so whatever it names",
      "    except ValueError as err:\n"
@@ -2248,10 +2307,9 @@ MUTANTS = ISSUE + [
      "            if text.startswith(\"$'\", i):\n                decoded, i = ansi(text, i + 2)\n",
      "            if False:\n                decoded, i = ansi(text, i + 2)\n", ANSI_TESTS),
     ("a ( touching a word splits it", "tools/hooks/shell.py",
-     '            if c == "(" and not starts and i >= arithmetic and _touches(text, i):\n', "            if False:\n",
-     SPLIT_TESTS),
+     '            if c == "(" and i >= arithmetic and i >= braces and (\n', "            if False and (\n", SPLIT_TESTS),
     ("an arithmetic command's ( is read as a pattern", "tools/hooks/shell.py",
-     " and not starts and i >= arithmetic and _touches(", " and not starts and _touches(", SPLIT_TESTS),
+     'if c == "(" and i >= arithmetic and i >= braces', 'if c == "(" and i >= braces', SPLIT_TESTS),
     ("an arithmetic expansion is read as a command", "tools/hooks/shell.py",
      '            if plain.startswith("$((", i) and plain[j - 2:j] == "))":\n', "            if False:\n", SPLIT_TESTS),
     ("an alias is spliced as commands, not text", "tools/hooks/identity.py",
@@ -2261,8 +2319,8 @@ MUTANTS = ISSUE + [
      "            value[-1] = (value[-1][0] + tail, value[-1][1] + redirections)\n"
      "            out += _unaliased(value, table, read, budget, spend)\n", ALIAS_TEXT_TESTS),
     ("a variable in an expansion the hook does not read is left alone", "tools/hooks/identity.py",
-     "        for unbraced, wild in map(lambda each: _wildcarded(each, loops), bound):\n",
-     "        for unbraced, wild in map(lambda each: (each, False), bound):\n", EXPANSION_TESTS),
+     "        written, wild = _wildcarded(written, loops)",
+     "        wild = False", EXPANSION_TESTS),
     ("a variable the command set is not read in an expansion", "tools/hooks/identity.py",
      "    loops = {name: [value] for name, value in values.items()}\n", "    loops = {}\n", EXPANSION_TESTS),
     ("wget's -e is data", "tools/hooks/identity.py",

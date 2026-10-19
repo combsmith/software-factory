@@ -36,8 +36,8 @@ cd -, in every directory the command has stood in; by a writer that names no out
 by a substitution in a case's pattern, where the pattern stands; and through tar's old-style bundle,
 an alias for a feeder, a shell, source or eval, and a bracket expression as the shell reads them. A
 loop too long to read is one the hook cannot read (decision 0032). A word is read as the shell reads it
-(decision 0032's Boundaries, issue 174): a substitution a single quote or a backslash holds is text, and a comment is
-dropped; $'...' is the text it decodes to; a command the hook cannot split, a ( touching a word among them, is refused
+(decision 0032's Boundaries, issue 174): a substitution a single quote or a backslash holds is text to git, gh and a
+program that prints its words, and read where another program may run it later; a comment is dropped; $'...' is the text it decodes to; a command the hook cannot split, a ( touching a word among them, is refused
 whatever it names; an alias is read as its value's text in place of its name; a variable the hook reads, in an
 expansion it does not read as plain, may be anything; and wget's -e and tar's --one-top-level name places written.
 This guards against mistakes; the Stop check and the rulesets are the boundary. Run as `python3 -I` on this file; see
@@ -392,6 +392,33 @@ def _unaliased(commands: list, table: dict, seen: frozenset = frozenset(), budge
     return out
 
 
+def _evaluated(commands: list, spend) -> list:
+    """`commands`, as shell.commands(marked=True) gives them, each followed by what the substitutions a quote held in its
+    words run, where a program may run them later: in a command that only assigns (x='$(...)', read by eval or $((x))),
+    or given to a program that is not git, gh or one of TEXT_ONLY (trap '$(...)' EXIT). A commit message, a pull
+    request's body, grep, echo and printf keep them as text (issue 174). Raises ValueError when one cannot be split
+    and, its quotes and backslashes taken out, names git or gh."""
+    out = []
+    for words, redirections in commands:
+        out.append((words, redirections))
+        plain = [shell.unmarked(w) for w in words or []]
+        at = _program(plain)
+        if not plain or not (all(ASSIGNMENT.match(w) for w in plain) or (
+                at is not None and os.path.basename(plain[at]) not in TEXT_ONLY | {"git", "gh"})):
+            continue
+        for script in [script for word in words for script in shell.held(word)]:
+            try:
+                read = shell.commands(script, spend, marked=True)
+            except ValueError:
+                # Most are text a quote holds, sed's code spans among them: one that cannot be split is refused only
+                # when, its quotes and backslashes taken out, it names git or gh.
+                if shell.GIT_OR_GH.search(re.sub(r"[\\'\"]", "", script)):
+                    raise
+                continue
+            out += _evaluated(read, spend)
+    return out
+
+
 def _alias(table: dict, name: str, budget: list) -> list:
     """The text of each value `name` is given, or None where it is unaliased; each one alias read of the budget."""
     out = []
@@ -446,6 +473,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
     if shell.aliased(_quoted(shell.without_heredocs(text)), REDEFINABLE):
         always.append(("command_unreadable", "the command defines an alias whose value runs git, gh or what runs them "
                                              "(decision 0030)"))
+    commands = _evaluated(commands, spend)
     try:
         commands = _unaliased(commands, shell.alias_values(_quoted(shell.without_heredocs(text)), spend), spend=spend)
     except (Unreadable, ValueError) as err:
@@ -466,7 +494,8 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
             continue
         # A word is read with what the command set unconditionally put in for each variable it holds.
         words, targets = [expand(w, values) for w in raw], [expand(t, values) for _, t in redirections]
-        inline += _git_directory([expand(t, values) for op, t in redirections if ">" in op], places, "a redirection",
+        # A path written is read as written: _git_directory puts in what the command set, and reads ${f%.py} and $f:r.
+        inline += _git_directory([t for op, t in redirections if ">" in op], places, "a redirection",
                                  loops, spend)
         inline += [("identity_set_in_command", "%s is set in the command; the hook reads only what is configured"
                     % w.split("=")[0]) for w in words if ENVIRONMENT.match(w)]
@@ -492,7 +521,7 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         program = os.path.basename(words[start])
         if at is None and program in DATA_HEADS:
             continue        # a loop's word list is data: what its body runs is a command of its own
-        inline += _git_directory(_written(program, words[start + 1:]), places, program, loops, spend)
+        inline += _git_directory(_written(program, raw[start + 1:]), places, program, loops, spend)
         local = _local(words, at)
         named = present | local     # the environment git runs with: persisted, and set for it alone
         if local & {"PATH", "path"}:
@@ -592,13 +621,14 @@ def _git_directory(paths: list, places: list, given: str, loops: dict, spend=lam
     plain (`${f%.py}`, `${f:-x}`, `${!f}`), may be anything, a leading dot included (issue 174)."""
     found = []
     for written in paths:
+        written, wild = _wildcarded(written, loops)     # before a variable is put in, where it stands with an operator
         hits, bound = False, _bound(written, loops)
         if bound is None:
             found.append(("git_directory_written", "%s writes a path through a loop's variable, and the loop runs over "
                                                    "more words than the hook reads (%d), so where it writes cannot be "
                                                    "read; make the write in a command of its own" % (given, LOOP_MOST)))
             continue
-        for unbraced, wild in map(lambda each: _wildcarded(each, loops), bound):
+        for unbraced in bound:
             if not unbraced or _expands(unbraced):
                 continue
             expanded, exact = _braced(unbraced)
@@ -642,21 +672,21 @@ def _braced(path: str) -> tuple:
 
 
 def _globbed(pattern: str) -> bool:
-    """Whether a shell pattern for one name matches `.git`."""
-    out, i, unclosed = [], 0, False
-    while i < len(pattern):
+    """Whether a shell pattern for one name matches `.git`, read in one pass: each place of `.git` the pattern may have
+    reached so far, a * taking any number of letters, so that no run of stars backtracks (issue 174)."""
+    reached, i, unclosed, last = {0}, 0, False, len(GIT_DIRECTORY)
+    while i < len(pattern) and reached:
         # Past a [ that never closes, no later one is read either: each would scan to the end again (quadratic).
         c, bracket = pattern[i], _bracket(pattern, i) if pattern[i] == "[" and not unclosed else None
         unclosed = unclosed or (c == "[" and bracket is None)
-        if c in "*?":
-            out.append(".*" if c == "*" else ".")
-        elif bracket is not None:
-            out.append(bracket[0])
-            i = bracket[1] - 1
+        if c == "*":
+            reached = set(range(min(reached), last + 1))
         else:
-            out.append(re.escape(c))
+            one = "." if c == "?" else bracket[0] if bracket is not None else re.escape(c)
+            reached = {at + 1 for at in reached if at < last and re.fullmatch(one, GIT_DIRECTORY[at], re.S)}
+            i = bracket[1] - 1 if bracket is not None else i
         i += 1
-    return re.fullmatch("".join(out), GIT_DIRECTORY, re.S) is not None
+    return last in reached and i >= len(pattern)
 
 
 # A POSIX class in a bracket expression, as the letters and the dot of `.git` it holds, in any case (decision 0032).
@@ -774,12 +804,22 @@ def _bound(path: str, loops: dict):
     return out
 
 
+# A variable with zsh's modifier or a subscript after it, unbraced: $f:r, $f:t:r, $f[1,4].
+UNBRACED = re.compile(r"\$([A-Za-z_]\w*)(?:(\[)|(?::[A-Za-z&])+)")
+
+
 def _wildcarded(path: str, names) -> tuple:
     """(`path` with each expansion of a variable of `names` that is not plain, ${f%.py}, ${f:-x}, ${!f}, ${#f} and the
     rest, made a wildcard that may be anything, as a brace past BRACE_MOST is; whether one was). Reading each operator
     is a list without end (issue 174)."""
     out, i, wild = [], 0, False
     while i < len(path):
+        bare = UNBRACED.match(path, i)
+        if bare and bare.group(1) in names:     # zsh's $f:r and $f[1,4]: its modifiers, or its subscript
+            end = path.find("]", bare.end()) + 1 or len(path) if bare.group(2) else bare.end()
+            out.append("*")
+            wild, i = True, end
+            continue
         if not path.startswith("${", i):
             out.append(path[i])
             i += 1
@@ -1104,9 +1144,11 @@ def takes_next(word: str, valued: str, optional: str = "") -> bool:
 def _quoted(text: str) -> str:
     """`text` with each command substitution outside quotes, $(...) or `...`, made one quoted word $(...), as one in
     double quotes is: so that what it gives a command is read as a word that cannot be read, not as words cut off."""
-    out, i, quote = [], 0, None
+    out, i, quote, braces = [], 0, None, 0     # braces: where a ${...} that began ends; a # in it begins no comment
     while i < len(text):
         c = text[i]
+        if quote is None and text.startswith("${", i) and i >= braces:
+            braces = shell._balanced(text, i + 2, "}")
         if quote == "'":
             quote = None if c == "'" else quote
         elif c == "\\":
@@ -1132,7 +1174,7 @@ def _quoted(text: str) -> str:
             continue
         elif c in "'\"":
             quote = c
-        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|("):
+        elif c == "#" and i >= braces and (i == 0 or text[i - 1] in " \t\n;&|("):
             end = text.find("\n", i)
             end = len(text) if end < 0 else end
             out.append(text[i:end])
@@ -1143,6 +1185,8 @@ def _quoted(text: str) -> str:
             if end is None:
                 return text
             inner = text[i + (1 if c == "`" else 2):end]
+            if c == "`":    # in a backtick's script, \`, \$ and \\ are the character: `echo \`git push\`` runs git
+                inner = re.sub(r"\\([\\`$])", r"\1", inner)
             # One double-quoted word holding $(inner): inside it shlex reads only \ and ", so escaping those keeps
             # inner's own quotes literal and the word intact, whatever inner holds.
             out.append('"$(%s)"' % inner.replace("\\", "\\\\").replace('"', '\\"'))

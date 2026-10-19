@@ -944,18 +944,66 @@ class Identity(unittest.TestCase):
                         "eval 'echo $(git commit -m x)'", "gi\\\nt commit -m x"):
             self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
 
+    def test_a_comment_begins_only_where_the_shell_begins_one(self):
+        # Issue 174's fix round: a # in a ${...}, after a carriage return, or after < or >, begins no comment, so what
+        # follows it on the line is read.
+        for command in ("echo ${x- #}; git commit -m x", "echo ${x:+ #} ${y//#/a}; git commit -m x",
+                        "echo A\r# ; git commit -m x", "echo >#x; git commit -m x", "echo hi >#x\ngit commit -m x"):
+            self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
+        self.assertIn("git_directory_written", self.refused("echo ${x:+ #}; cd .git; cp /tmp/x config; git -C %s push"
+                                                            % self.here))
+        # zsh's flags in a ${...} are its own.
+        self.assertEqual(self.codes("echo ${(j:,:)arr} ${(f)x} ${arr[(i)x]}; git push"), "")
+
+    def test_a_substitution_a_quote_holds_is_read_where_a_program_may_run_it_later(self):
+        # Issue 174's fix round: a command that only assigns, and a program that is not git, gh or one that prints its
+        # words, may run a substitution a quote holds later (trap, eval, $((x))), so it is read, as on main.
+        for command in ("trap '$(g\"\"it push)' EXIT", "x='a[$(g\"\"it push)]'; echo $((x))",
+                        "x='$(g\"\"it push)'; eval \"echo $x\"", "make X='`g\"\"it commit -m x`'"):
+            self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
+        self.assertIn("git_directory_written", self.refused("trap '$(cd .git; cp /tmp/x config)' EXIT; git -C %s push"
+                                                            % self.here))
+        # One that cannot be split is refused where it names git or gh, and is text where it does not: sed's code spans.
+        self.assertIn("command_unreadable", self.refused("trap '$(echo (x); g\"\"it push)' EXIT"))
+        self.assertEqual(self.codes("sed -i 's/`f(x)` (a)/`g(y)` (b)/' notes.md; git commit -m x"), "")
+        # A commit message, a body, grep, echo and printf keep it as text.
+        held = "'$(cd .git; cp /tmp/x config)'"
+        for command in ("git commit -m %s", "gh pr create --title x --body %s", "grep -n %s docs", "echo %s",
+                        "printf '%%s\\n' %s", "git commit -m 'a `cd .git; cp /tmp/x config` b' # %s"):
+            command = (command % held) + "; git -C %s push" % self.here
+            self.assertEqual(self.codes(command), "", command)
+
+    def test_a_backslash_in_double_quotes_is_read_as_the_shell_reads_it(self):
+        # Issue 174's fix round: in double quotes the shell takes the backslash out before $ and a backtick, so a script
+        # a shell or eval is given holds a substitution it runs; in backticks, \` is a backtick, so they nest.
+        for command in ("sh -c \"echo \\`g''it push\\`\"", "sh -c \"echo \\$(g''it push)\"",
+                        "bash -c \"x=\\`g''it commit -m x\\`\"", "echo `echo \\`git commit -m x\\``"):
+            self.assertIn("commit_identity_not_maintainer", self.refused(command, self.bad), command)
+        # As data it stays text, and an alias's escaped $ still expands nothing (decision 0030).
+        for command in ('git commit -m "Use \\`jq\\` with \\$HOME"', 'alias g="echo \\$HOME"; git push',
+                        'echo "\\$(git push) is text"; git push'):
+            self.assertEqual(self.codes(command), "", command)
+
     def test_a_command_that_cannot_be_split_is_refused_whatever_it_names(self):
         # Issue 174's ruling 2: git has no end of spellings, so a command the hook cannot split is refused, whatever it
         # names. Ruling 3: a ( touching a word is a zsh pattern or an extglob, which the hook does not read.
         for command in ("echo 'x; g''it push", "echo 'unclosed", "cp /tmp/x .g(i|x)t/hooks/x; git push",
-                        "cp /tmp/x .git/hooks/x@(a|b); git push", "ls *(.); git push"):
-            self.assertIn("command_unreadable", self.refused(command, folder(), programs()), command)
+                        "cp /tmp/x .git/hooks/x@(a|b); git push", "ls *(.); git push",
+                        # A ( that begins an argument is a zsh glob group, and (( in a word is no arithmetic.
+                        "cp /tmp/a (.git|x)/hooks/y; git push", "cp /tmp/x .g((i|x))t/config; git push",
+                        "cp /tmp/x .g((i|i))t/config; git push",
+                        # Arithmetic nested deeper than the hook reads.
+                        'echo "' + "$(( " * 900 + "1" + " ))" * 900 + '"; git push'):
+            self.assertIn("command_unreadable", self.refused(command, folder(), programs()), command[:60])
         # The shell's own forms of ( pass.
         for command in ("f() { :; }; git commit -m x", "arr=(a b); git commit -m x", "arr+=(c); git commit -m x",
                         "diff <(ls) <(ls sub); git commit -m x", "echo $((1+2)); git push", 'git commit -m "fix(hooks): x"',
                         "case $x in (a|b) :;; esac; git push", "(ls x) && git push",
                         # An arithmetic expansion's parentheses are its own, and it runs no command but a substitution.
-                        "echo $((a*(b+1))); git push", 'echo "$((1+(2)))"; git push', "((n=a*(b+1))); git push"):
+                        "echo $((a*(b+1))); git push", 'echo "$((1+(2)))"; git push', "((n=a*(b+1))); git push",
+                        "for ((i=0; i<3; i++)); do echo $i; done; git push", "if (true); then git push; fi",
+                        "while (( i < 3 )); do i=$((i+1)); done; git push", "function f () { :; }; git push",
+                        "n=$((n+1)); echo $(( (n*2) % 3 )); git commit -m x", "exec > >(tee /tmp/log); git push"):
             self.assertEqual(self.codes(command), "", command)
         self.assertIn("commit_identity_not_maintainer", self.refused("echo $(( $(git commit -m x) + 1 ))", self.bad))
 
@@ -963,10 +1011,16 @@ class Identity(unittest.TestCase):
         # Issue 174's ruling 3: $'...' is the text it decodes to, and $"..." is "...".
         for command in ("cp /tmp/x $'.gi\\x74'/hooks/x; git push", "cp /tmp/x $'\\056git'/hooks/x; git push",
                         "cp /tmp/x $'.g\\u0069t'/hooks/x; git push", 'cp /tmp/x $".git"/hooks/x; git push',
-                        "cp /tmp/x $'.gi\\'t'/hooks/x $'\\x2egit'; git push"):
+                        "cp /tmp/x $'.gi\\'t'/hooks/x $'\\x2egit'; git push",
+                        # An octal escape is one byte, and a NUL ends the word.
+                        "cp /tmp/x $'.gi\\564'/hooks/x; git push", "cp /tmp/x $'\\456git'/hooks/x; git push",
+                        "cp /tmp/x $'.git\\0zz'/hooks/x; git push", "cp /tmp/x $'.git\\x00/zz'; git push"):
             self.assertIn("git_directory_written", self.refused(command), command)
+        # An escape bash keeps and zsh takes the backslash out of, which may spell .git, cannot be read.
+        for command in ("cp /tmp/x $'.\\git'/hooks/x; git push", "cp /tmp/x $'\\.git/x'; git push"):
+            self.assertIn("command_unreadable", self.refused(command), command)
         for command in ("git commit -m $'it\\'s done'", "git commit -m $'one\\n\\ntwo'", "printf $'%s\\n' a; git push",
-                        "git commit -m $'a (b) \\x60c\\x60 $(d)'", "echo $'\\cA\\e\\z'; git push"):
+                        "git commit -m $'a (b) \\x60c\\x60 $(d)'", "echo $'\\cA\\e\\z\\101'; git push"):
             self.assertEqual(self.codes(command), "", command)
 
     def test_an_alias_is_read_as_its_text_in_place_of_its_name(self):
@@ -993,10 +1047,16 @@ class Identity(unittest.TestCase):
                         "for f in .git; do cp /tmp/x ${f:-x}/hooks/x; done; git push",
                         "for f in a; do cp /tmp/x ${f:+.git}/hooks/x; done; git push",
                         "x=.git; cp /tmp/a ${x%}/hooks/x; git push", 'x=a; cp /tmp/a "${x/a/.git}/hooks/x"; git push',
-                        "x=a; cp /tmp/a ${!x}/hooks/x; git push"):
+                        "x=a; cp /tmp/a ${!x}/hooks/x; git push",
+                        # zsh's modifiers and subscripts, braced or not.
+                        "for f in .git.x; do cp /tmp/x $f:r/config; done; git push",
+                        "f=.git.x; cp /tmp/x $f:r/config; git push", "f=.gitx; cp /tmp/x $f[1,4]/config; git push",
+                        "for f in .git.x; do cp /tmp/x ${f:r}/config; done; git push",
+                        "x=.git; cp /tmp/x ${x[0]}/config; git push"):
             self.assertIn("git_directory_written", self.refused(command), command)
         for command in ('for f in a.py b.py; do cp "$f" "dist/${f%.py}.bak"; done; git commit -m x',
-                        'cp x "$TMPDIR/${HOME##*/}.log"; git push', "x=a; cp /tmp/a out/${x%}.txt; git push"):
+                        'cp x "$TMPDIR/${HOME##*/}.log"; git push', "x=a; cp /tmp/a out/${x%}.txt; git push",
+                        "for f in a.py; do cp $f $f:r.bak; done; git push"):
             self.assertEqual(self.codes(command), "", command)
 
     def test_a_listed_writer_is_read_whole(self):
@@ -1048,7 +1108,12 @@ class Identity(unittest.TestCase):
                               ("arr=(" + "a " * 20000 + "); f() { :; }; echo $((1)); git push", ""),
                               ("for f in a; do cp /tmp/x " + "${f%}" * 5000 + "; done; git push",
                                "git_directory_written"),
-                              ("alias x='cd .git;'\n" + "x ls\n" * 200 + "git push", "")):
+                              ("alias x='cd .git;'\n" + "x ls\n" * 200 + "git push", ""),
+                              # A run of stars, or of expansions read as one, before a tail that does not match.
+                              ("x=a; cp /tmp/x " + "${x%}" * 320 + "Q/y; git push", ""),
+                              ("cp /tmp/x " + "*" * 320 + "Q/y; git push", ""),
+                              ("cp /tmp/x {1..100000}/" + "*" * 320 + "Q/y; git push", ""),
+                              ('echo "' + "$(( " * 900 + "1" + " ))" * 900 + '"; git push', "command_unreadable")):
             started = time.monotonic()
             said = self.codes(command)
             self.assertLess(time.monotonic() - started, 5, command[:40])
