@@ -40,8 +40,9 @@ by a substitution in a case's pattern, where the pattern stands; and through tar
 an alias for a feeder, a shell, source or eval, and a bracket expression as the shell reads them. A
 loop too long to read is one the hook cannot read (decision 0032). A word is read as the shell reads it
 (decision 0032's Boundaries, issue 174): a substitution a single quote or a backslash holds is text to git, gh and a
-program that prints its words, and read where another program may run it later; a comment is dropped; $'...' is the text it decodes to; a command the hook cannot split, a ( touching a word among them, is refused
-whatever it names; an alias is read as its value's text in place of its name; a variable the hook reads, in an
+program that prints its words, and read where another program may run it later; a comment is dropped; a $'...'
+holding a backslash is refused on sight, since the hook decodes none; a command the hook cannot split, a ( touching a
+word among them, is refused whatever it names; an alias is read as its value's text in place of its name; a variable the hook reads, in an
 expansion it does not read as plain, may be anything; and wget's -e and tar's --one-top-level name places written.
 This guards against mistakes; identity is enforced not here but by issue 204's check. Run as `python3 -I` on this file; see
 after_edit.py.

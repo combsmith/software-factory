@@ -249,7 +249,8 @@ def _held(text: str) -> str:
     """`text` as shlex in posix mode should read it, as the shell reads it: each character of PUNCTUATION that a quote
     or a backslash holds made its HOLDS; a $( or a backtick the shell runs in double quotes marked with LIVE; in double
     quotes, \\$ and \\` made the text they are, marked ESCAPED; a comment, from an unquoted # that begins a word, outside
-    a ${...}, to the end of its line, left out; $'...' as the text it decodes to, and $"..." as "..."; and a backslash
+    a ${...}, to the end of its line, left out; a $'...' with no backslash as a single-quoted word, one with a backslash
+    refused (ansi_end), and $"..." as "..."; and a backslash
     before a newline, outside single quotes, taken out with it. Raises ValueError where what a quote holds cannot be
     told: a quote or a backslash left open, text that already holds a character of HOLDS, LIVE or ESCAPED, or a ( the
     hook does not read, touching a word (_touches) or beginning an argument (_opens). The ( of an arithmetic command or
@@ -524,9 +525,10 @@ def segments(text: str) -> list:
     `&&`, `||`, `|` and `&`; a newline right after `&&`, `||` or `|` continues the list, as the shell reads it.
     Quotes, `( )`, `$( )`, `${ }` and backticks are opaque, so a separator inside one does not split, and a
     backslash before a newline joins the lines. Each segment's words are built as the shell would: quotes are
-    removed and `$'...'` is the text it decodes to (issue 174), but a command substitution, a parameter expansion or a
-    subshell inside a word is kept whole, so an assignment's value can be told apart from a command it runs. Raises
-    ValueError, too, for a `$'...'` that never closes or that bash and zsh read differently (ansi).
+    removed and a `$'...'` with no backslash is a single-quoted word (issue 174), but a command substitution, a parameter
+    expansion or a subshell inside a word is kept whole, so an assignment's value can be told apart from a command it
+    runs. Raises ValueError, too, for a `$'...'` that never closes or holds a backslash, which the hook does not decode
+    (ansi_end).
     """
     text = without_heredocs(text)
     out, words, word, started, before, i, quote, start = [], [], [], False, "", 0, None, 0
