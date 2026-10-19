@@ -31,8 +31,8 @@ the contract short or with a result on this content for a criterion it does not 
 and can withdraw it; a push can edit or delete it; another App or workflow can give a result, and a check one for a criterion only a person passes,
 which on an agent's pull request a person's approval of the content confirms (`tests/test_simulator.py::test_the_seeds_serve_items_with_an_acceptance_contract_and_without`).
 Under faults a result on the content expires as its approval falls due (`tests/test_simulator.py::test_the_evidence_expires_as_the_approval_falls_due`).
-On every seed a review's Result now and then leaves a criterion of its rubric uncovered: its Run fails by a fault of the item and opens no thread,
-and the review is admitted again until its attempts hold the item (`tests/test_simulator.py::test_the_seeds_serve_a_review_that_left_a_criterion_uncovered`).
+On every seed a review's Result now and then leaves a criterion of its rubric uncovered: its Run fails by a fault of the item and opens no thread, and the review is admitted again until its attempts hold the item
+(`tests/test_simulator.py::test_the_seeds_serve_a_review_that_left_a_criterion_uncovered`). On one seed in eight a new Run is listed unnamed for a pass, which neither admits nor approves (`tests/test_simulator.py::test_the_seeds_list_a_new_run_unnamed`).
 A rule about anything else is not exercised here, so its boundary cases are all that hold it. An invariant is a call to `check()` with its name. When a seed finds a fault, the fix goes in the Kernel with a boundary case in `tests/test_decide.py`.
 
 Known to differ from the design: the lane keeps one Run in progress and any number queued

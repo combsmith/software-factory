@@ -79,6 +79,9 @@ def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, conte
     brake = brakes.on_act(_decision, facts, state, evidence, context, action, since, config["limits"])
     if brake:
         return brake
+    # An approval is a Run, so a Run that cannot be told whose it is defers it. An enqueue admits none (decision 0035).
+    if action == "issue_approval" and context.get("unidentified_runs") != []:
+        return _decision(facts, state, "run_unidentified", evidence, t.DEFER)
     return _decision(facts, state, reason, evidence, t.ACT, action=action, content_id=facts["content_id"])
 
 
@@ -159,6 +162,10 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
     if active >= limits["org_max_active_runs"]:
         return _decision(facts, state, "concurrency", evidence, t.DEFER)
+    # A Run listed before its run-name may be the Run in flight on any item, this one among them. Which item it is on
+    # cannot be read, so no Run is admitted until it can be; a list that cannot be read defers too (I-46, decision 0035).
+    if context.get("unidentified_runs") != []:
+        return _decision(facts, state, "run_unidentified", evidence, t.DEFER)
 
     return _decision(facts, state, reason, evidence, t.ADMIT,
                      admit={"role": role, "intent": intent, "content_id": facts["content_id"]})
