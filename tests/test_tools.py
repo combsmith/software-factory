@@ -541,13 +541,29 @@ class Apps(unittest.TestCase):
                                      if e["request"]["call"] != check_apps.INSTALLATIONS]
         self.assertTrue(caught(self.check(), "no fixture of trial P-39"))
 
-    def test_two_apps_whose_keys_share_an_environment_are_caught(self):
-        # A job that names an environment reads every secret in it, so the reader's job would hold a key that writes.
-        self.apps["reader"]["key"]["environment"] = self.apps["controller"]["key"]["environment"]
-        del self.apps["pr-review"]["key"]
+    def test_each_apps_key_is_kept_in_the_environment_of_the_job_that_holds_it(self):
+        # A job that names an environment reads every secret in it. With the Controller's and the reader's keys
+        # swapped, run, which reads untrusted text, would hold the Controller's key, which writes check runs.
+        apps = self.apps
+        apps["controller"]["key"], apps["reader"]["key"] = apps["reader"]["key"], apps["controller"]["key"]
+        self.apps["pr-review"]["key"]["secret"] = "REVIEW_APP_KEY"
         problems = self.check()
-        self.assertTrue(caught(problems, "controller and reader keep their keys in one environment, factory-poller"))
-        self.assertTrue(caught(problems, "pr-review: names no environment its key is kept in"))
+        self.assertTrue(caught(problems, "controller: its key is kept in factory-run, and the poller job holds it"))
+        self.assertTrue(caught(problems, "reader: its key is kept in factory-poller, and the run job holds it"))
+        self.assertTrue(caught(problems, "controller: its key is kept as READER_APP_KEY; name it CONTROLLER_APP_KEY"))
+        self.assertTrue(caught(problems, "reader: its key is kept as CONTROLLER_APP_KEY; name it READER_APP_KEY"))
+        self.assertTrue(caught(problems, "pr-review: its key is kept as REVIEW_APP_KEY; name it PR_REVIEW_APP_KEY"))
+        self.assertFalse(caught(problems, "pr-review: its key is kept in"))
+        self.setUp()
+        del self.apps["pr-review"]["key"]
+        self.assertTrue(caught(self.check(), "pr-review: names no environment its key is kept in"))
+
+    def test_every_roles_key_is_kept_in_applys_environment_and_they_may_share_it(self):
+        # apply holds each Role's App key (design §4.9), so a second Role's App shares its environment.
+        self.apps["author"] = {"key": {"environment": "factory-apply", "secret": "AUTHOR_APP_KEY"}}
+        self.assertEqual(check_apps._keys(self.apps), [])
+        self.apps["author"]["key"]["environment"] = "factory-run"
+        self.assertTrue(caught(check_apps._keys(self.apps), "author: its key is kept in factory-run, and the apply job"))
 
     def test_no_app_may_change_a_workflow_or_upload_to_code_scanning(self):
         # GitHub refuses an App's push under .github/workflows/ without `workflows`, and with `security_events: write`
@@ -590,7 +606,7 @@ class Apps(unittest.TestCase):
 
     def test_a_grant_for_a_need_that_is_waiting_is_caught(self):
         self.apps["controller"]["permissions"]["pull_requests"]["needs"].append("read:facts.queue")
-        self.assertTrue(caught(self.check(), "controller: pull_requests serves read:facts.queue, which waits on issue 26"))
+        self.assertTrue(caught(self.check(), "controller: pull_requests serves read:facts.queue, which waits on issue 185"))
 
     def test_a_write_need_held_by_two_apps_is_caught(self):
         self.apps["controller"]["permissions"]["pull_requests"] = {"level": "write", "needs": ["effect:comment"]}
@@ -2035,6 +2051,24 @@ class Trials(unittest.TestCase):
         self.assertFalse(caught(problems, "exchanges[0].request.as.kind"))
         problems = check_trials.run(clone({"examples/trial.json": fixture(repo=None)}))
         self.assertTrue(caught(problems, "examples/trial.json: exchanges[0].request.as.kind is app, and repo is null"))
+
+    def test_the_org_is_the_repo_exactly_when_every_call_is_of_the_org_or_its_apps(self):
+        # Decision 0036, both ways: a fixture of the org asks nothing of a repo, and one that asks only of the org
+        # and its Apps records the org.
+        reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
+        self.assertEqual(check_trials.run(clone({"trials/P-39.reach.json": json.dumps(reach)})), [])
+        of_a_repo = json.loads(json.dumps(reach))
+        of_a_repo["exchanges"][1]["request"]["call"] = "GET /repos/combsmith/software-factory/installation"
+        problems = check_trials.run(clone({"trials/P-39.reach.json": json.dumps(of_a_repo)}))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: exchanges[1].request.call is not a call of the org "
+                                         "or its Apps, and repo is combsmith"))
+        self.assertFalse(caught(problems, "exchanges[0].request.call"))
+        in_the_canary = dict(reach, repo="combsmith/" + check_trials.CANARY)
+        problems = check_trials.run(clone({"trials/P-39.reach.json": json.dumps(in_the_canary)}))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: repo is combsmith/%s, and every call is of the org "
+                                         "or its Apps" % check_trials.CANARY))
+        problems = check_trials.run(clone({"examples/trial.json": fixture(repo="combsmith")}))
+        self.assertTrue(caught(problems, "examples/trial.json: exchanges[0].request.call is not a call of the org"))
 
     def test_an_asker_named_by_an_address_is_caught(self):
         # Decision 0033: a fixture names who asked in words, never by an address that ties it to an account.

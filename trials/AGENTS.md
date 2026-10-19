@@ -20,4 +20,5 @@ GitHub in `sim/` is held to these (`sim/grounding.py`). How a trial is run is th
 | A fixture keeps GitHub's words as said, so it alone may name a model or the proof of concept's private repo | `tests/test_tools.py::test_only_a_fixture_may_name_a_model_or_the_proof_of_concept` |
 | A rule of the fake grounded here names a valid fixture of a trial that asks it | `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate` |
 | `repo` is null exactly when every request asks as `subscription`, as a trial of a vendor's CLI does (decision 0033) | `tests/test_tools.py::test_a_null_repo_goes_with_a_subscription_and_nothing_else` |
+| `repo` is the org exactly when every call is of an App, the org or an installation (decision 0036) | `tests/test_tools.py::test_the_org_is_the_repo_exactly_when_every_call_is_of_the_org_or_its_apps` |
 | Whoever asked is named in words, never by an address | `tests/test_tools.py::test_an_asker_named_by_an_address_is_caught` |

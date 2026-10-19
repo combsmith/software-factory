@@ -21,11 +21,16 @@ if [ "$#" -ne 4 ]; then
     exit 2
 fi
 root=$(cd "$(dirname "$0")/.." && pwd -P)
-case "$1" in /*) out=$1 ;; *) out=$(pwd -P)/$1 ;; esac
-if [ -e "$out" ]; then
-    echo "trial_p39_reach: $out exists; name a new directory" >&2
+if [ -e "$1" ] || [ -L "$1" ]; then
+    echo "trial_p39_reach: $1 exists; name a new directory" >&2
     exit 2
 fi
+# OUT is read as the file system resolves it, every link and .. followed, before it is held to be outside the repo.
+if ! parent=$(cd "$(dirname -- "$1")" 2>/dev/null && pwd -P); then
+    echo "trial_p39_reach: the directory that would hold $1 does not exist; make it first" >&2
+    exit 2
+fi
+out=$parent/$(basename -- "$1")
 case "$out/" in "$root"/*)
     echo "trial_p39_reach: $out is inside the repo; name a directory outside it" >&2
     exit 2 ;;
@@ -48,9 +53,16 @@ revoke() {
         -H "$ACCEPT" -H "$VERSION" "$API/installation/token"
 }
 
+unrevoked() {
+    echo "trial_p39_reach: $1: revoking its token returned $2, not 204. The token may be live for up to an hour;" \
+        "the Maintainer must revoke it by hand." >&2
+}
+
 finish() {
     if [ -n "$token" ]; then
-        echo "trial_p39_reach: stopped with a token live; revoking it: $(revoke)" >&2
+        status=$(revoke || true)
+        echo "trial_p39_reach: stopped with a token live; revoking it returned $status" >&2
+        [ "$status" = 204 ] || unrevoked "the token live when the script stopped" "$status"
         token=""
     fi
     rm -rf "$scratch"
@@ -95,8 +107,9 @@ reach() {
     fi
     printf 'Authorization: Bearer %s\n' "$token" | curl -sS -i -H @- -H "$ACCEPT" -H "$VERSION" \
         "$API/installation/repositories?per_page=100" | tr -d '\r' > "$scratch/raw-$n"
-    revoked=$(revoke)
+    revoked=$(revoke || true)
     token=""
+    [ "$revoked" = 204 ] || unrevoked "$slug" "$revoked"
     (cd "$root" && python3 -m tools.redact_trial "$scratch/raw-$n" "$out/clean-$n") > "$out/redacted-$n"
     rm -f "$scratch/raw-$n"
     asked="$asked{\"n\": $n, \"app\": \"$app\", \"as\": \"$slug\", \"app_id\": $app_id, \"installation\": $installation,"

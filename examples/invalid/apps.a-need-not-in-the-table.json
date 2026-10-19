@@ -91,7 +91,7 @@
       "level": "read"
     },
     "read:facts.queue": {
-      "waits_on": "issue 26, whose canary trial records what reading membership of the queue takes"
+      "waits_on": "issue 185, whose canary trial P-2 records what reading membership of the queue takes"
     },
     "read:facts.content_id": {
       "permission": "contents",

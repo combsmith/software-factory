@@ -9,7 +9,10 @@ A write permission serves a read of the same permission too, since GitHub's writ
 The data is held to what GitHub granted (decision 0036). Trial P-39's fixture records the org's
 installations as GitHub listed them; each App's permissions and levels here must be exactly those
 of the installation of its `app_id`, and that installation must be of the App so named. Each App's
-key is kept in an environment of its own, since a job that names an environment reads all of it.
+key is kept in the environment of the one job that holds it (design §4.9): the Controller's in the
+poller's, the reader's in `run`'s, and each Role's in `apply`'s. A job that names an environment
+reads every secret in it, so no other job's environment may hold a key, and `run`, which reads
+untrusted text, never holds one that writes. The secret is named for the App.
 """
 from __future__ import annotations
 
@@ -30,6 +33,11 @@ REPO = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$")
 # What trial P-39 recorded of each installation: in trials/P-39.json or a fixture of it such as P-39.grants.json.
 TRIAL = "P-39"
 INSTALLATIONS = "GET /orgs/combsmith/installations"
+# The job that holds each App's key (design §4.9), and the environment each job names (decision 0036). Every App not
+# named here is a Role's, whose key `apply` holds; so several Roles' keys share apply's environment, and nothing else.
+HOLDER = {"controller": "poller", READER: "run"}
+ROLE_HOLDER = "apply"
+ENVIRONMENT = {"poller": "factory-poller", "apply": "factory-apply", "run": "factory-run"}
 
 
 def _installed(root: pathlib.Path) -> tuple:
@@ -84,20 +92,28 @@ def _granted(app: str, entry: dict, fixture: str, installations: dict) -> list:
     return problems
 
 
+def _secret(app: str) -> str:
+    """The name of the secret that holds the App's key: CONTROLLER_APP_KEY for controller."""
+    return re.sub(r"[^A-Z0-9]", "_", app.upper()) + "_APP_KEY"
+
+
 def _keys(apps: dict) -> list:
-    """Two Apps whose keys share an environment: a job that names it would hold both."""
-    problems, held = [], {}
+    """Each App whose key is not kept in the environment of the job that holds it, or not under its own name."""
+    problems = []
     for app, entry in sorted(apps.items()):
         key = entry.get("key") if isinstance(entry, dict) else None
         environment = key.get("environment") if isinstance(key, dict) else None
         if not isinstance(environment, str) or not environment:
-            problems.append("%s: names no environment its key is kept in; give it a key of environment and secret" % app)
+            problems.append("%s: names no environment its key is kept in; give it a key of environment and secret"
+                            % app)
             continue
-        held.setdefault(environment, []).append(app)
-    for environment, holders in sorted(held.items()):
-        if len(holders) > 1:
-            problems.append("%s keep their keys in one environment, %s; a job that names it holds both, so give each "
-                            "App its own" % (" and ".join(holders), environment))
+        job = HOLDER.get(app, ROLE_HOLDER)
+        if environment != ENVIRONMENT[job]:
+            problems.append("%s: its key is kept in %s, and the %s job holds it; a job reads every secret in the "
+                            "environment it names, so keep it in %s" % (app, environment, job, ENVIRONMENT[job]))
+        if key.get("secret") != _secret(app):
+            problems.append("%s: its key is kept as %s; name it %s, for the App"
+                            % (app, key.get("secret"), _secret(app)))
     return problems
 
 

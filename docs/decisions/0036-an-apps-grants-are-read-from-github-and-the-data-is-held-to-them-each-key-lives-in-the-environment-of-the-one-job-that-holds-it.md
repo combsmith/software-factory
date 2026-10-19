@@ -1,7 +1,9 @@
 # 0036. An App's grants are read from GitHub and the data is held to them; each key lives in the environment of the one job that holds it
 
 Status: accepted. Taken as a working ruling on 2026-10-17, which the Maintainer may overturn in review, for
-"Three Apps registered and installed, and their real grants compared with the data" (issue 26).
+"Three Apps registered and installed, and their real grants compared with the data" (issue 26). It
+decides one row of decision 0033 otherwise: a fixture's `repo` is the canary or null, and may now also
+be the org, `combsmith`, for a trial whose every call is of an App, the org or an installation.
 
 ## Decision
 
@@ -24,13 +26,19 @@ pull request, with an issue against the design. The first two reads are kept in
 P-39.reach.json, since a fixture must carry a verdict and the reach is read later, elsewhere. P-39
 passes only if both do. Its reads are of the org and its Apps, not of a repo, so its fixtures record
 `repo` as the org, `combsmith`: the trial schema accepts the canary, the org, or no repo for a
-trial of a vendor's CLI, and nothing else.
+trial of a vendor's CLI, and nothing else. `tools/check_trials.py` pairs the org with what was asked,
+as it pairs no repo with a subscription: `repo` is `combsmith` exactly when every call is of an App
+(`/apps/…`), the org (`/orgs/combsmith/…`) or an installation (`/installation/…`).
 
 `config/apps.json` gives each App its `app_id` and a `key` of `{environment, secret}`, a name and
 never a value. `tools/check_apps.py` holds each App's permissions and levels to what P-39 recorded
 for the installation of that `app_id`, which must be of the App so named; with no such record it
-trusts nothing. It refuses two Apps whose keys share an environment. The trial-author App is not
-Factory data, and its id stays in fixtures.
+trusts nothing. It holds each App's key to the environment of the job that holds it, by a fixed
+map: the Controller's key to the poller's, `factory-poller`; the reader's to `run`'s, `factory-run`;
+and every other App's, each a Role's, to `apply`'s, `factory-apply`, as §4.9 gives `apply` each
+Role's App key. Several Roles' keys may share `factory-apply`, and no other environment holds two.
+The secret is named for the App, as `CONTROLLER_APP_KEY` for `controller`. The trial-author App is
+not Factory data, and its id stays in fixtures.
 
 Each job that holds a key has an environment of its own on the Factory's repo: `factory-poller`
 holds `CONTROLLER_APP_KEY`, `factory-apply` holds `PR_REVIEW_APP_KEY` and `factory-run` holds
@@ -53,8 +61,10 @@ runs unattended, and P-3 showed that the branch policy holds.
 |---|---|
 | Each App's permissions and levels in the data are exactly those GitHub granted the installation of its `app_id`, which is of the App so named | `tests/test_tools.py::test_the_data_is_held_to_what_github_granted_each_app` |
 | With no record of what GitHub granted, the data is not trusted | `tests/test_tools.py::test_with_no_record_of_what_github_granted_the_data_is_not_trusted` |
-| No two Apps keep their keys in one environment | `tests/test_tools.py::test_two_apps_whose_keys_share_an_environment_are_caught` |
+| Each App's key is kept in the environment of the job that holds it, under a secret named for the App: the Controller's and the reader's swapped are refused | `tests/test_tools.py::test_each_apps_key_is_kept_in_the_environment_of_the_job_that_holds_it` |
+| Every Role's App key is kept in `apply`'s environment, which several Roles' keys may share | `tests/test_tools.py::test_every_roles_key_is_kept_in_applys_environment_and_they_may_share_it` |
 | A key is named by its environment and its secret, in an environment a job holds | `examples/invalid/apps.a-key-in-an-environment-no-job-holds.json` |
 | A fixture of P-39 holds no credential and no header a fixture may not keep | `tools/check_trials.py` |
 | A fixture's `repo` may be the org, `combsmith`, as well as the canary; any other name is refused | `examples/invalid/trial.neither-the-canary-nor-the-org.json` |
+| `repo` is the org exactly when every call is of an App, the org or an installation: a fixture of the org that asks of a repo is refused, and so is one that asks only of the org and records the canary | `tests/test_tools.py::test_the_org_is_the_repo_exactly_when_every_call_is_of_the_org_or_its_apps` |
 | Only the job that holds a key names its environment | waiting on `harness/` |
