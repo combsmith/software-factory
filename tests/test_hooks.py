@@ -551,6 +551,46 @@ class Identity(unittest.TestCase):
         # ...and the commit after it is read as the commit.
         self.assertIn("commit_identity_not_maintainer", self.refused("gitleaks git . && git commit -m x", self.bad))
 
+    def test_four_more_ways_to_redefine_git_are_refused(self):
+        # Issue 181 (decision 0024's Boundaries): a shell's attached option value (-oemacs) is a value, never a bundle
+        # holding -c, so the script after it is one the hook cannot see; a name given to autoload or functions, or to
+        # typeset or declare with -f, is one the command defines; a dynamic linker's variable is read as PATH is; and
+        # a definition after a comment holding an apostrophe is read, since the comment is dropped (issue 174).
+        for command in ("zsh -oemacs ./evil.sh; git push", "sh +oemacs x.sh; git commit -m x",
+                        "bash -Oextglob x.sh; git push", "bash -eoc x.sh; git push",
+                        "fpath=(/tmp/f $fpath); autoload -Uz git; git push", "autoload git; git commit -m x",
+                        "builtin autoload gh; gh pr create", "typeset -fu git; git push", "declare -f gh; gh pr create",
+                        "functions -u git; git push", "zsh -c 'autoload git'; git push",
+                        "autoload -Uz nice; nice git push", "autoload 'git'; git push",
+                        "LD_PRELOAD=/tmp/evil.so git push", "DYLD_INSERT_LIBRARIES=/tmp/evil.dylib git push",
+                        "export LD_LIBRARY_PATH=/tmp; git commit -m x", "env DYLD_LIBRARY_PATH=/tmp git push",
+                        "LD_AUDIT=/tmp/a.so gh pr create", "bash -c 'LD_PRELOAD=/x git push'",
+                        "LD_PRELOAD=/tmp/evil.so make; git push", "declare -x DYLD_FRAMEWORK_PATH=/x; git push",
+                        # printf sets the name -v gives it, attached or not, subscripted or not, and nothing else.
+                        "printf -v PATH /x; git push", "printf -vPATH /x; git push", "printf -v LD_PRELOAD /x; git push",
+                        "printf -v 'PATH[1]' /x:; git push",
+                        # bash's --rcfile takes the next word, so this -c is a file's name, not an option.
+                        "bash --rcfile -c ./evil.sh; git push", "bash --init-file -c x.sh; git commit -m x",
+                        # A dynamic linker's variable spelt through quotes is read as PATH is.
+                        "env LD_PRE''LOAD=/tmp/evil.so git push", "export LD_PRE''LOAD=/x; git push",
+                        # A definition after a comment holding an apostrophe is read: the comment is dropped first.
+                        "echo hi # don't\ngit(){ command git push origin side; }\necho 'x'; git push # isn't",
+                        "echo hi # don't\ngit(){ command git push; }\ngit push",
+                        "echo hi # it's\nfunction gh { :; }\ngh pr create"):
+            self.assertIn("command_unreadable", self.refused(command), command)
+        # The value given to -o, and a name given to autoload, typeset or functions that runs no git, are ordinary.
+        for command in ("zsh -o emacs -c 'git push'", "bash -o pipefail -c 'git push'", "sh +o emacs -c 'git push'",
+                        "bash --rcfile rc -c 'git push'"):
+            self.assertNotIn("a shell reads a script", self.codes(command), command)
+        for command in ("autoload -Uz compinit; git push", "typeset -f helper; git push", "functions helper; git push",
+                        "declare -F; git commit -m x", "typeset -i n=1; git push", "typeset -u git; git push",
+                        "LD_PRELOAD=/x git status", "echo LD_PRELOAD=/x; git push",
+                        "printf '%s\\n' 'PATH=/x git push' > /tmp/m; git commit -F /tmp/m",
+                        "printf '%s\\n' PATH=/x > /tmp/m; git commit -F /tmp/m"):
+            self.assertEqual(self.codes(command), "", command)
+        self.as_data("zsh -oemacs ./evil.sh", "autoload -Uz git; LD_PRELOAD=/tmp/evil.so git push", "typeset -fu git",
+                     "DYLD_INSERT_LIBRARIES=/tmp/evil.dylib git push")
+
     def test_an_alias_whose_value_runs_git_or_gh_is_refused(self):
         # Decision 0030: an alias's value is code, so a name whose value runs git is a git the command may redefine.
         for command in ("alias g=git; git push", "alias g=git\ng push", "alias g=git; g commit -m x",
