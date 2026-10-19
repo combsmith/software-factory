@@ -1,0 +1,39 @@
+{
+  "submit_review": [
+    {
+      "id": "e1",
+      "comments": [
+        {
+          "finding": "n1",
+          "body": "parse() reads the first item before it checks that the list has one; return early on an empty list."
+        }
+      ],
+      "body": "One major Finding; the rest of the change reads well."
+    }
+  ],
+  "create_check_run": [
+    {
+      "id": "e2",
+      "annotations": [
+        {
+          "finding": "n2",
+          "body": "The new test asserts that no error was raised, not the Decision."
+        }
+      ],
+      "conclusion": "success"
+    }
+  ],
+  "resolve_thread": [
+    {
+      "id": "e3",
+      "thread": "PRRT_kw1"
+    }
+  ],
+  "comment": [
+    {
+      "id": "e4",
+      "on": "item",
+      "body": "Reviewed at sha256:5d0c; one thread opened."
+    }
+  ]
+}

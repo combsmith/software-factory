@@ -5,7 +5,7 @@ import json
 import pathlib
 
 from kernel.coverage import covered
-from tools.jsonschema_lite import validate
+from tools.jsonschema_lite import FILE, SchemaError, _resolve, validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Data files that are the real thing, not illustrations, and their schema.
@@ -17,6 +17,11 @@ LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lif
 # examples/finding.json, and the paths examples/facts.json changes. No schema can say every criterion that applies is
 # reported on; kernel/coverage.py does.
 COVERAGE_AGAINST = ("config/rubric-pr-review.json", "examples/finding.json", "examples/facts.json")
+# What one Run carries holds codes, never text: a string in these schemas is held by an enum, a const or a pattern
+# anchored at both ends, unless it is a property named `body`. A body goes out to GitHub or in to the model as data, and
+# nothing reads one back into a decision.
+CODES_ONLY = ("task", "result", "effect", "disposition", "run-name")
+TEXT_FIELD = "body"
 
 
 def _once(pairs: list) -> dict:
@@ -44,6 +49,37 @@ def _open(schema, path: str = "$") -> list:
             out.append(path)
         for key, value in schema.items():
             out += _open(value, "%s.%s" % (path, key))
+    return out
+
+
+def _free(schema, schemas: dict, root, kind: str, path: str, seen: set) -> list:
+    """Where `schema`, of the kind named, admits a string that no enum, const or anchored pattern holds."""
+    if not isinstance(schema, dict) or (kind, id(schema)) in seen:
+        return []
+    seen.add((kind, id(schema)))
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        try:
+            target, target_root = _resolve(ref, root, schemas)
+        except SchemaError:
+            return []       # validate() reports a reference that cannot be followed, in every example of this kind
+        named = FILE.match(ref)
+        return _free(target, schemas, target_root, named.group(1) if named else kind, path, seen)
+    out = []
+    kinds = schema.get("type")
+    kinds = kinds if isinstance(kinds, list) else [kinds]
+    strings = "string" in kinds or (kinds == [None] and not ("enum" in schema or "const" in schema))
+    pattern = schema.get("pattern")
+    anchored = isinstance(pattern, str) and pattern.startswith("^") and pattern.endswith("$")
+    if strings and not ("enum" in schema or "const" in schema or anchored):
+        out.append(path)
+    for name, prop in schema.get("properties", {}).items():
+        if name != TEXT_FIELD:
+            out += _free(prop, schemas, root, kind, "%s.%s" % (path, name), seen)
+    if isinstance(schema.get("items"), dict):
+        out += _free(schema["items"], schemas, root, kind, path + "[]", seen)
+    if isinstance(schema.get("additionalProperties"), dict):
+        out += _free(schema["additionalProperties"], schemas, root, kind, path + ".*", seen)
     return out
 
 
@@ -79,13 +115,20 @@ def run(root: pathlib.Path = ROOT) -> list:
     for kind, schema in sorted(schemas.items()):
         for where in _open(schema):
             problems.append("schema %s accepts unknown fields at %s" % (kind, where))
+    for kind in CODES_ONLY:
+        if kind not in schemas:
+            problems.append("schema %s is missing, and what one Run carries is held to codes" % kind)
+            continue
+        for where in _free(schemas[kind], schemas, schemas[kind], kind, "$", set()):
+            problems.append("schema %s admits text at %s; a string a Run carries is a code, unless it is named %s"
+                            % (kind, where, TEXT_FIELD))
     for path in sorted((root / "examples").glob("*.json")):
         kind = path.name.split(".")[0]
         if kind not in schemas:
             problems.append("%s: no schema named %s" % (path.name, kind))
             continue
         value = load(path)
-        errors = validate(value, schemas[kind])
+        errors = validate(value, schemas[kind], schemas=schemas)
         if kind == "coverage" and not errors:
             errors = _uncovered(value, root)
         for err in errors:
@@ -96,7 +139,7 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems.append("invalid/%s: no schema named %s" % (path.name, kind))
             continue
         value = load(path)
-        errors = validate(value, schemas[kind])
+        errors = validate(value, schemas[kind], schemas=schemas)
         if kind == "coverage" and not errors:
             errors = _uncovered(value, root)
         if not errors:
@@ -111,7 +154,7 @@ def run(root: pathlib.Path = ROOT) -> list:
         if kind not in schemas:
             problems.append("%s: no schema named %s" % (rel, kind))
             continue
-        for err in validate(load(root / rel), schemas[kind]):
+        for err in validate(load(root / rel), schemas[kind], schemas=schemas):
             problems.append("%s: %s" % (rel, err))
     for folder in ("config", "lifecycle"):
         for path in sorted((root / folder).glob("*.json")):

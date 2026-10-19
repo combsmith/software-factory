@@ -16,7 +16,7 @@ def _folded(name: str) -> str:
     return name.strip().casefold()
 
 
-def run(authority: dict = None, config: dict = None, facts: dict = None) -> list:
+def run(authority: dict = None, config: dict = None, facts: dict = None, result: dict = None) -> list:
     a = json.loads((ROOT / "config" / "authority.json").read_text()) if authority is None else authority
     c = json.loads((ROOT / "config" / "defaults.json").read_text()) if config is None else config
     problems = []
@@ -60,6 +60,17 @@ def run(authority: dict = None, config: dict = None, facts: dict = None) -> list
         problems.append("a thread may carry the category %s, and no Finding can" % name)
     for name in sorted(known - on_threads):
         problems.append("a Finding may carry the category %s, and no thread can" % name)
+    # A Role raises a Finding in its Result, in the same terms as the Finding record apply writes from it.
+    r = json.loads((ROOT / "schemas" / "result.schema.json").read_text()) if result is None else result
+    raised = r.get("$defs", {}).get("raised", {}).get("properties", {})
+    for field, held in (("category", known), ("severity", set(finding["properties"]["severity"]["enum"]))):
+        if not isinstance(raised.get(field), dict) or not isinstance(raised[field].get("enum"), list):
+            problems.append("a raised Finding in a Result carries no %s" % field)
+            continue
+        for name in sorted(set(raised[field]["enum"]) - held):
+            problems.append("a raised Finding may carry the %s %s, and no Finding record can" % (field, name))
+        for name in sorted(held - set(raised[field]["enum"])):
+            problems.append("a Finding record may carry the %s %s, and no raised Finding can" % (field, name))
     if set(terms.CATEGORIES) != known:
         problems.append("the Kernel reads the categories %s, and a Finding carries %s"
                         % (sorted(terms.CATEGORIES), sorted(known)))

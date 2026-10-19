@@ -25,6 +25,7 @@ to do is to ask, in a form a schema can refuse.
 | No job holds both an LLM credential and a credential that can write to GitHub | waiting on `harness/` |
 | No job that holds a write credential executes code from the Work item's branch | waiting on `harness/` |
 | A Result that fails validation applies no Effect, and its schema has no field for a commit hash | waiting on `harness/` |
+| A Result's schema has no field for a commit, a Role, an actor or a content id | `examples/invalid/result.carries-a-commit-hash.json`, `examples/invalid/disposition.names-who-decided.json` |
 | `apply` re-reads the Work item before any Effect, and writes nothing if it is held, paused, closed or changed | waiting on `harness/` |
 | `apply` refuses a change under `.github/`, to code owners, or to a Consumer's setup and test commands, unless a manifest permits it and a person approved | waiting on `harness/` |
 | `run` and `verify` declare no permissions and use no cache | waiting on `harness/` |
