@@ -1,4 +1,4 @@
-# 0036. An App's grants are read from GitHub and the data is held to them; each key lives in the environment of the one job that holds it
+# 0035. An App's grants are read from GitHub and the data is held to them; each key lives in the environment of the one job that holds it
 
 Status: accepted. Taken as a working ruling on 2026-10-17, which the Maintainer may overturn in review, for
 "Three Apps registered and installed, and their real grants compared with the data" (issue 26). It

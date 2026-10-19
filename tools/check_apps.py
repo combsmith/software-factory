@@ -6,7 +6,7 @@ the Controller makes that is not an Effect; `read:` is something read. The table
 No App holds `workflows` or `security_events` (NEVER).
 A write permission serves a read of the same permission too, since GitHub's write includes read.
 
-The data is held to what GitHub granted (decision 0036). Trial P-39's fixture records the org's
+The data is held to what GitHub granted (decision 0035). Trial P-39's fixture records the org's
 installations as GitHub listed them; each App's permissions and levels here must be exactly those
 of the installation of its `app_id`, and that installation must be of the App so named. Each App's
 key is kept in the environment of the one job that holds it (design §4.9): the Controller's in the
@@ -33,7 +33,7 @@ REPO = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$")
 # What trial P-39 recorded of each installation: in trials/P-39.json or a fixture of it such as P-39.grants.json.
 TRIAL = "P-39"
 INSTALLATIONS = "GET /orgs/combsmith/installations"
-# The job that holds each App's key (design §4.9), and the environment each job names (decision 0036). Every App not
+# The job that holds each App's key (design §4.9), and the environment each job names (decision 0035). Every App not
 # named here is a Role's, whose key `apply` holds; so several Roles' keys share apply's environment, and nothing else.
 HOLDER = {"controller": "poller", READER: "run"}
 ROLE_HOLDER = "apply"

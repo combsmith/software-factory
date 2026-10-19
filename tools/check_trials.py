@@ -1,7 +1,7 @@
 """The fixtures of the platform trials, and the fake GitHub's grounding in them (design, sections 4.5 and 6).
 
 A fixture in `trials/` is what one trial sent to GitHub in the canary repo, or of the org itself for a
-trial about the org and its Apps (decision 0036), and what came back, with every credential removed.
+trial about the org and its Apps (decision 0035), and what came back, with every credential removed.
 `repo` is the org exactly when every call is of the org or its Apps. It validates against
 `schemas/trial.schema.json`, and nothing else is kept there. A credential is refused here and not by
 the schema, which cannot express it: `tools/redact_trial.py` applies the same rules to a raw capture
@@ -35,7 +35,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Named in data and in documents. Anything else that names it could read it.
 CANARY = "software-factory-" + "canary"
 # A trial about the org and its Apps records the org as its repo, and only such a trial: one whose every call is of
-# an App, of the org, or of an installation (decision 0036).
+# an App, of the org, or of an installation (decision 0035).
 ORG = "combsmith"
 ORG_CALL = re.compile(r"^[A-Z]+ /(apps/|orgs/%s/|installation/)" % ORG)
 FIXTURE = re.compile(r"^(P-[1-9][0-9]*)(\.[a-z0-9-]+)?\.json$")
@@ -127,7 +127,7 @@ def _credentials(value, where: str) -> list:
 
 
 def _askers(data) -> list:
-    """(path, what is wrong) for who asked, and of what, beyond what the schema can say (decisions 0033, 0036).
+    """(path, what is wrong) for who asked, and of what, beyond what the schema can say (decisions 0033, 0035).
 
     A trial of a vendor's CLI ran in no repo: `repo` is null exactly when every request is made as
     `subscription`. A trial about the org and its Apps records the org: `repo` is `combsmith` exactly

@@ -2053,7 +2053,7 @@ class Trials(unittest.TestCase):
         self.assertTrue(caught(problems, "examples/trial.json: exchanges[0].request.as.kind is app, and repo is null"))
 
     def test_the_org_is_the_repo_exactly_when_every_call_is_of_the_org_or_its_apps(self):
-        # Decision 0036, both ways: a fixture of the org asks nothing of a repo, and one that asks only of the org
+        # Decision 0035, both ways: a fixture of the org asks nothing of a repo, and one that asks only of the org
         # and its Apps records the org.
         reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
         self.assertEqual(check_trials.run(clone({"trials/P-39.reach.json": json.dumps(reach)})), [])
