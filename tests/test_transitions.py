@@ -26,8 +26,11 @@ import json
 import marshal
 import unittest
 
+from kernel import issue
 from kernel import terms as t
 from kernel.decide import decide
+from kernel.derive import standing_labels
+from tests import test_issue as issue_facts
 from tests.support import (CONFIG, GREEN, MAINTAINER, OTHER_APP, REPORTER, ROOT, context, contract, evidence, facts,
                            labelled, review, run, thread)
 from tests.support import changed as a_file
@@ -1022,32 +1025,259 @@ class Transitions(unittest.TestCase):
         self.assertEqual({by for _, _, by in made}, {"human", "lens", "factory", "platform"})
 
 
+# ---- an issue (design §4.1), explored as a pull request is: real facts, built with tests/test_issue.py's builders, and
+# every change anyone can make to them, judged by the Kernel's own `issue.decide`. Its facts and its changes are its
+# own, so they are written here apart from the pull request's.
+
+ISSUE_CONFIG = issue_facts.config()
+
+
+def issue_item(f: dict, runs=()) -> dict:
+    return {"facts": f, "runs": [copy.deepcopy(r) for r in runs], "minute": FIRST_MOVE, "admits": {}}
+
+
+def issue_kernel(item: dict, runs=None) -> dict:
+    """The Kernel's Decision on an issue, issues served and every Intent declared; `runs` in place of its own."""
+    when = now(item)
+    return issue.decide(item["facts"], item["runs"] if runs is None else runs, context(passes_since=when),
+                        ISSUE_CONFIG, when)
+
+
+def issue_spent(intent: str, count: int, role: str, first: int = 4) -> list:
+    """`count` Runs of `intent` that failed for the environment: each spends, and none is an attempt."""
+    return [issue_facts.failed(intent, first + i, "s%d" % i, outcome="environment", role=role) for i in range(count)]
+
+
+ISSUE_RUNS = LIMITS["max_runs_per_item"]
+INVESTIGATED = [issue_facts.investigated()]
+# A writer's issue triaged and investigated, and an outsider's the Maintainer admitted, triaged and investigated.
+TRIAGED_ISSUE = issue_facts.facts(label_events=issue_facts.ACCEPTED)
+INVESTIGATED_ISSUE = issue_facts.facts(label_events=issue_facts.ACCEPTED,
+                                       role_comments=[issue_facts.comment(issue_facts.ANALYST, 3)])
+OUTSIDERS_ISSUE = issue_facts.outsiders(
+    label_events=[issue_facts.labelled(issue_facts.ADMIT, issue_facts.WRITER, 1),
+                  issue_facts.labelled(issue_facts.TRIAGE, issue_facts.CONTROLLER, 2)],
+    last_writer_action_at=issue_facts.at(1), role_comments=[issue_facts.comment(issue_facts.ANALYST, 3)])
+ISSUE_BASES = {
+    "a writer's issue, new": issue_item(issue_facts.facts()),
+    "triage, before any investigation": issue_item(TRIAGED_ISSUE),
+    "triage, investigated": issue_item(INVESTIGATED_ISSUE, INVESTIGATED),
+    "triage, investigated, one Run short of the ceiling": issue_item(
+        INVESTIGATED_ISSUE, INVESTIGATED + issue_spent(issue_facts.JUDGE, ISSUE_RUNS - 2, "readiness")),
+    "triage, one investigation attempt short": issue_item(TRIAGED_ISSUE, [
+        issue_facts.failed(issue_facts.INVESTIGATE, 1 + i, "f%d" % i) for i in range(LIMITS["max_attempts"] - 1)]),
+    "ready by a person's label, one Run short": issue_item(
+        issue_facts.facts(label_events=issue_facts.READIED_BY_A_PERSON),
+        issue_spent(issue_facts.OPEN, ISSUE_RUNS - 1, "dev-lead")),
+    "an outsider's admitted issue, investigated, one Run short": issue_item(
+        OUTSIDERS_ISSUE, INVESTIGATED + issue_spent(issue_facts.JUDGE, ISSUE_RUNS - 2, "readiness")),
+    "new, one act short": issue_item(issue_facts.facts(acts_since_writer=LIMITS["max_acts_per_item"] - 1)),
+    # The Factory's pull request open and ready on an issue a person triaged and readied: a person who removes
+    # factory:ready and closes it unmerged sends the issue back to triage.
+    "in review, triaged and ready": issue_item(issue_facts.facts(
+        label_events=issue_facts.ACCEPTED + issue_facts.READIED_BY_A_PERSON, linked=[issue_facts.agents()])),
+}
+
+
+def issue_label(item: dict, name: str, by: dict, action: str = "labeled") -> dict:
+    f = item["facts"]
+    f["label_events"].append({"label": name, "action": action, "by": dict(by), "at": now(item)})
+    names = [n for n in f["label_names"] if n != name]
+    f["label_names"] = names + [name] if action == "labeled" else names
+    return item
+
+
+def issue_stands(item: dict, name: str) -> bool:
+    """Whether the label `name` is on the issue, so that it can be removed and not added again."""
+    if name in t.CONTROL_LABELS:
+        return name in standing_labels(item["facts"])
+    return bool(issue.latest_adds(item["facts"]["label_events"], name))
+
+
+def a_writers(fn):
+    """A change a person with write access makes: their action renews every count (I-8, I-28)."""
+    def change(item):
+        item = fn(item)
+        if item is not None:
+            item["facts"].update(last_writer_action_at=now(item), acts_since_writer=0)
+        return item
+    return change
+
+
+def writer_labels(name: str, action: str):
+    def change(item):
+        if issue_stands(item, name) == (action == "labeled"):
+            return None
+        return issue_label(item, name, issue_facts.WRITER, action)
+    return a_writers(change)
+
+
+def writer_comments(item: dict) -> dict:
+    item["facts"]["last_writer_comment_at"] = now(item)
+    return item
+
+
+def linked_pull_request(how: str):
+    """A person marks the linked draft ready, closes the linked pull request unmerged, or merges it."""
+    def change(item):
+        live = [p for p in item["facts"]["linked"] if p["open"]]
+        if not live or (how == "ready" and not live[0]["draft"]) or (how == "merge" and live[0]["draft"]):
+            return None
+        p = live[0]
+        if how == "ready":
+            p["draft"] = False
+        else:
+            p.update(open=False, closed_at=now(item), merged_at=now(item) if how == "merge" else None)
+        return item
+    return a_writers(change)
+
+
+def outsider_edits(item: dict):
+    """The outsider who opened the issue edits it: new content, from now."""
+    f = item["facts"]
+    if f["author"]["can_write"]:
+        return None
+    f.update(content_id="sha256:%04x" % (0xe000 + item["minute"]), content_changed_at=now(item))
+    return item
+
+
+def issue_queues(item: dict, admit: dict) -> dict:
+    name = "q%d" % len(item["runs"])
+    item["runs"].append({"run": name, "item": dict(item["facts"]["item"]), "role": admit["role"],
+                         "intent": admit["intent"], "content_id": admit["content_id"], "status": "queued",
+                         "conclusion": None, "outcome": None, "started_at": now(item)})
+    item["admits"][name] = admit
+    return item
+
+
+def controller_does(item: dict):
+    """The Controller admits the Run the Kernel asks for, or makes the act it asks for, each act counted."""
+    d = issue_kernel(item)
+    if d["outcome"] == t.ADMIT:
+        return issue_queues(item, d["admit"])
+    if d["outcome"] != t.ACT:
+        return None
+    item["facts"]["acts_since_writer"] += 1
+    if d["action"] == issue.ACCEPT:
+        return issue_label(item, issue.LABEL_TRIAGE, issue_facts.CONTROLLER)
+    if d["action"] == issue.REMOVE_LABEL:
+        return issue_label(item, d["label"], issue_facts.CONTROLLER, "unlabeled")
+    return issue_label(item, t.LABEL_HOLD, issue_facts.CONTROLLER)
+
+
+def admitted_again(item: dict):
+    """A Run listed late, or without its name, is not seen by the next pass, which admits it again (P-22, P-17): with
+    the newest Run in flight left out, the Kernel admits the same Intent."""
+    live = [r for r in item["runs"] if r["status"] != "completed"]
+    if not live:
+        return None
+    newest = live[-1]
+    d = issue_kernel(item, [r for r in item["runs"] if r is not newest])
+    if d["outcome"] != t.ADMIT or d["admit"]["intent"] != newest["intent"]:
+        return None
+    return issue_queues(item, d["admit"])
+
+
+def issue_run_ends(how: str):
+    """The oldest Run in flight ends. One that succeeds passes through `apply`'s question, with its own Run left out
+    (I-38): unless the Kernel admits the same Run again, it concludes as superseded, and otherwise its Effects are made."""
+    def change(item):
+        live = [r for r in item["runs"] if r["status"] != "completed"]
+        if not live:
+            return None
+        r = live[0]
+        if how != "success":
+            r.update(status="completed", conclusion="failure", outcome=how)
+            return item
+        again = issue_kernel(item, [x for x in item["runs"] if x is not r])
+        if not issue.still_admitted({"admit": item["admits"][r["run"]]}, again):
+            r.update(status="completed", conclusion="failure", outcome="superseded")
+            return item
+        r.update(status="completed", conclusion="success")
+        f = item["facts"]
+        if r["intent"] == issue.INVESTIGATE:
+            app = issue_facts.ANALYST["name"]
+            f["role_comments"] = [c for c in f["role_comments"] if c["by"] != app] + [{"by": app, "at": now(item)}]
+        elif r["intent"] == issue.JUDGE_READINESS:
+            issue_label(item, issue.LABEL_READY, issue_facts.READINESS)
+        else:
+            f["linked"].append(dict(issue_facts.agents(number=20 + len(f["linked"]), draft=True),
+                                    opened_at=now(item)))
+        return item
+    return change
+
+
+ISSUE_MOVES = [Move("a person adds %s" % name, "human", writer_labels(name, "labeled"))
+               for name in (issue.LABEL_READY, issue.LABEL_TRIAGE, t.LABEL_HOLD)] + \
+              [Move("a person removes %s" % name, "human", writer_labels(name, "unlabeled"))
+               for name in (issue.LABEL_READY, issue.LABEL_TRIAGE, t.LABEL_HOLD)] + [
+    Move("a person comments", "human", a_writers(writer_comments)),
+    Move("a person marks the linked draft ready", "human", linked_pull_request("ready")),
+    Move("a person closes the linked pull request", "human", linked_pull_request("close")),
+    Move("a person merges the linked pull request", "human", linked_pull_request("merge")),
+    Move("the outsider edits the issue", "stranger", outsider_edits),
+    Move("another App adds factory:hold", "platform",
+         lambda item: None if issue_stands(item, t.LABEL_HOLD) else issue_label(item, t.LABEL_HOLD,
+                                                                                issue_facts.OTHER_APP)),
+    Move("the Controller does what the Kernel asks", "factory", controller_does),
+    Move("a Run listed late is admitted again", "factory", admitted_again),
+    Move("the oldest Run in flight succeeds", "factory", issue_run_ends("success")),
+    Move("the oldest Run in flight fails for the issue", "factory", issue_run_ends("item")),
+    Move("the oldest Run in flight fails for the environment", "factory", issue_run_ends("environment")),
+]
+# The Holds of the brakes, which are readings: an outsider's edit, after which the issue is not accepted, reads past
+# them, as it never reads past a Hold a label or more than one open link makes.
+BRAKES_HOLDS = {"run_ceiling", "attempts_exhausted", "act_ceiling"}
+# The real case of issue 171: the outsider's issue one Run short of the ceiling, its readiness Run admitted twice and
+# the first failing, which reaches the ceiling; then the outsider edits it while the second waits.
+REAL_CASE = ("an outsider's admitted issue, investigated, one Run short",
+             ("the Controller does what the Kernel asks", "a Run listed late is admitted again",
+              "the oldest Run in flight fails for the environment", "the outsider edits the issue"))
+
+
 class AnyLifecycle(unittest.TestCase):
-    """The exploration and the comparison serve any Lifecycle. An issue's needs only its own facts, changes and judge,
-    once the Kernel derives an issue's State."""
+    """The exploration and the comparison serve any Lifecycle: an issue's needs only its own facts, changes and
+    judge."""
 
-    def test_an_issue_explored_is_held_to_the_issue_lifecycle(self):
+    def test_an_issue_explored_is_held_to_the_issue_lifecycle(self):  # I-12, decision 0003
         lc = check_lifecycle.load("issue")
-
-        def becomes(state, *starts):
-            def change(item):
-                return dict(item, state=state) if item["state"] in starts else None
-            return change
+        for name, item in ISSUE_BASES.items():
+            self.assertEqual(validate(item["facts"], issue_facts.SCHEMA), [], name)
+        seen = {}
 
         def judge(item):
-            return {"state": item["state"], "reason": item["state"]}
+            d = issue_kernel(item)
+            seen[key(item)] = (d["state"], d["reason"], d["outcome"], d["attention"])
+            return d
 
-        moves = [Move("the Controller triages it", "factory", becomes("triage", "new"), whole=True),
-                 Move("a person declines it", "human", becomes("declined", "new", "triage"), whole=True)]
-        made, _ = explore({"new": {"state": "new"}}, moves, judge)
-        self.assertEqual(sorted(made), [("new", "declined", "human"), ("new", "triage", "factory"),
-                                        ("triage", "declined", "human")])
-        self.assertEqual(check_lifecycle.undeclared(lc, made), [])
-        # The other side: the Factory may not decline an issue.
-        moves.append(Move("the Factory declines it", "factory", becomes("declined", "new", "triage"), whole=True))
-        made, _ = explore({"new": {"state": "new"}}, moves, judge)
-        self.assertEqual(check_lifecycle.undeclared(lc, made), [("new", "declined", "factory"),
-                                                                ("triage", "declined", "factory")])
+        made, _ = explore(ISSUE_BASES, ISSUE_MOVES, judge, depth=4)
+        # Every change of State anyone makes is declared, with who makes it: an outsider's too.
+        missing = check_lifecycle.undeclared(lc, made)
+        self.assertEqual(missing, [], "\n".join("%s -> %s by %s: %s" % (*m, example(made[m])) for m in missing))
+        self.assertEqual({by for _, _, by in made}, {"human", "factory", "platform", "stranger"})
+        # A person who closes the ready pull request unmerged, factory:ready removed, sends the issue back to triage.
+        self.assertIn(("linked_ready", "triage"), made[("in_review", "triage", "human")])
+        # An outsider moves an issue only to new, its acceptance lapsed, which needs a person: only a person admits it
+        # again. It may so leave a Hold of the brakes (decision 0037), and never a Hold a label or a link makes.
+        strangers = {(m, before, after) for m, pairs in made.items() if m[2] == "stranger" for before, after in pairs}
+        self.assertTrue(strangers)
+        self.assertEqual({(m[1], after) for m, _, after in strangers}, {("new", "acceptance_lapsed")})
+        self.assertIn("acceptance_lapsed", issue.NEEDS_YOU_REASONS)
+        self.assertLessEqual({before for m, before, _ in strangers if m[0] == t.HELD}, BRAKES_HOLDS)
+        self.assertEqual({tr["bound"] for tr in lc["transitions"] if tr["by"] == "stranger"}, {check_lifecycle.PERSON})
+        # The real case is explored, and read as the Run the issue wants: while its second Run waits the issue is held
+        # at the Run ceiling, and once the outsider edits it, it wants no Run and is held by nothing.
+        name, steps = REAL_CASE
+        item, readings = ISSUE_BASES[name], []
+        moves = {m.name: m for m in ISSUE_MOVES}
+        for step in steps:
+            item = moves[step].make(item)
+            self.assertIn(key(item), seen, step)
+            readings.append(seen[key(item)])
+        self.assertEqual(readings, [("triage", "triage", "nothing", "working"), ("triage", "triage", "nothing", "working"),
+                                    ("held", "run_ceiling", "hold", "needs_you"),
+                                    ("new", "acceptance_lapsed", "nothing", "working")])
+        self.assertIn(("run_ceiling", "acceptance_lapsed"), made[("held", "new", "stranger")])
 
     def test_a_transition_declared_by_someone_else_is_undeclared(self):
         for name in ("pull_request", "issue"):

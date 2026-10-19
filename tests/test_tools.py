@@ -289,6 +289,29 @@ class Lifecycle(unittest.TestCase):
         lc["transitions"].append({"from": "not_served", "to": "ready", "by": "factory", "bound": None})
         self.assertTrue(caught(check_lifecycle.check(lc), "only a person takes a Work item out of not_served"))
 
+    def test_only_a_person_or_a_strangers_change_left_to_a_person_leaves_a_person_only_state(self):  # decision 0037
+        # An outsider's edit makes an issue's acceptance lapse, from a Hold of the brakes too, and the issue then waits
+        # for a person: the issue's Lifecycle declares it, bound by a person, and passes.
+        lc = check_lifecycle.load("issue")
+        limits = json.loads((ROOT / "config" / "defaults.json").read_text())["limits"]
+        self.assertIn(("held", "new", "stranger", check_lifecycle.PERSON),
+                      {(tr["from"], tr["to"], tr["by"], tr["bound"]) for tr in lc["transitions"]})
+        self.assertEqual(check_lifecycle.check(lc, limits), [])
+        # No one else leaves it: neither the platform nor a Lens.
+        for by in ("platform", "lens"):
+            tr = {"from": "held", "to": "new", "by": by, "bound": check_lifecycle.PERSON}
+            problems = check_lifecycle.check(dict(lc, transitions=lc["transitions"] + [tr]), limits)
+            self.assertTrue(caught(problems, "held is left by %s; only a person takes a Work item out of held" % by),
+                            problems)
+        # And a stranger's change names the bound person, out of a person-only State or any other.
+        for start in ("held", "triage"):
+            for bound in (None, "max_attempts"):
+                transitions = [dict(tr, bound=bound) if (tr["from"], tr["by"]) == (start, "stranger") else tr
+                               for tr in lc["transitions"]]
+                problems = check_lifecycle.check(dict(lc, transitions=transitions), limits)
+                self.assertTrue(caught(problems, "%s -> new by stranger names the bound %s; what a stranger starts"
+                                                 " only a person ends" % (start, bound)), problems)
+
     def test_an_undeclared_person_only_state_is_caught(self):
         lc = dict(check_lifecycle.load(), person_only_exits=["limbo"])
         problems = check_lifecycle.check(lc)
