@@ -2665,9 +2665,22 @@ class UnidentifiedRuns(unittest.TestCase):
         missing = context()
         del missing["unidentified_runs"]
         for ctx in (missing, context(unidentified_runs=None), context(unidentified_runs=UNNAMED),
-                    context(unidentified_runs={})):
+                    context(unidentified_runs={}), context(unidentified_runs=""), context(unidentified_runs=())):
             d = go(facts(), ctx=ctx)
             self.assertEqual((d["reason"], d["outcome"]), ("run_unidentified", "defer"), ctx.get("unidentified_runs"))
+
+    def test_a_list_of_unidentified_runs_that_cannot_be_read_defers_an_approval(self):  # I-13, I-46
+        # An approval is a Run: a list that is missing, or is not a list, defers it as a Run would be.
+        missing = context()
+        del missing["unidentified_runs"]
+        for ctx in (missing, context(unidentified_runs=None), context(unidentified_runs={}),
+                    context(unidentified_runs=""), context(unidentified_runs=())):
+            d = go(facts(), REVIEWED, ctx=ctx)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
+                             ("converged", "run_unidentified", "defer", None), ctx.get("unidentified_runs", "missing"))
+        # The other side: an empty list lets the approval through.
+        d = go(facts(), REVIEWED, ctx=context(unidentified_runs=[]))
+        self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"))
 
     def test_an_unidentified_run_is_asked_after_the_brakes(self):  # I-8, I-7, decision 0003
         # At the Run ceiling the Hold shows, and under a Pause the Pause defers: each before an unidentified Run.

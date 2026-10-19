@@ -771,7 +771,11 @@ workflow file, from the default branch, started by a schedule or a dispatch, in 
 The name is a label for people and is never what identifies a Run. Nor does it ever make a record
 count: it is what says which item a counted Run is on. Until GitHub lists the name (P-17: up to
 3.7 s after the dispatch), the Run is unidentified: the records port reports its GitHub id apart
-from the Runs it can name, and it defers every admission (I-46, decision 0035). A pull request from a fork runs
+from the Runs it can name, and it defers every admission (I-46, decision 0035). Only a record
+started by a `workflow_dispatch` of a Role's workflow, with an item in its input, can be
+unidentified, and only while its name is not yet listed. A run started by a schedule, a successor
+pass dispatched with no item, and the pass's own run are the poller's, not a Run on an item: they
+are never unidentified. A pull request from a fork runs
 its own workflow inside this repo and could give that run any name and any artifacts; it is a
 different workflow file and a different event, so it is ignored. Fork workflows also need approval
 before they run.
@@ -1044,7 +1048,7 @@ attention class becomes `stale` (§8.4), and the State, the reason and the outco
 `review` and `ready` go stale. A `needs_you` item already reaches a person, and a Run holds a
 `working` one, so the limits read are those of `verifying`, `adjudicating`, `converged` and `queued`.
 Nor does a deferral that holds the whole scope: `paused`, `pause_unreadable`, the model provider's
-deferral `capacity`, `capacity_unreadable` and `concurrency` are each one cause, which health reports
+deferral `capacity`, `capacity_unreadable`, `concurrency` and `run_unidentified` (decision 0035) are each one cause, which health reports
 once (§4.6), and the item keeps the attention it had. A Lens that stays silent once the deferral ends
 goes stale as usual.
 
@@ -1575,7 +1579,7 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 | I-43 | After a linked pull request closes unmerged, at most `max_unmerged_closes` further linked pull requests are opened before a person with write access acts | FR-18 |
 | I-44 | An issue's State is given by exactly one row of its derivation, and no issue admits two Runs at once | FR-16 |
 | I-45 | Nothing that changes a protected path or a Lens's input is approved, enqueued, left in the merge queue or merged without every model Lens's review of that head, whatever its class | §4.2, §5.1 |
-| I-46 | No Run is admitted and no approval issued while a run record of the Factory's own workflow, not completed, cannot be told whose it is | §3.10 |
+| I-46 | No Run is admitted and no approval issued while a run record of a Role's workflow, dispatched for an item and not completed, cannot be told whose it is; the poller's own runs, scheduled or dispatched with no item, never count as such | §3.10 |
 
 ### 4.5 The simulator
 

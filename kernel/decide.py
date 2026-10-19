@@ -122,7 +122,8 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         # No Run in flight lowers a count: attempts, rounds and the Run ceiling count completed Runs, and only a
         # writer's action renews them. So a count the completed Runs have spent holds the item, whatever Run waits and
         # whatever would defer, a Pause among them: the ceilings are asked alone (decision 0003). The act ceiling is
-        # not, since it counts acts and stops nothing but an act, and none is decided while a Run waits.
+        # not, since it counts acts and stops nothing but an act, and none is decided while a Run is seen to wait. One
+        # listed before its name is not seen, so an enqueue can go ahead beside it; I-38 bounds that (decision 0035).
         done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]
         held = None
         if state == t.CONVERGED and _action(reason) == "issue_approval":

@@ -338,6 +338,27 @@ class Simulation(unittest.TestCase):
                                                                                  cfg, now)):
             self.assertRaisesRegex(world.Broken, "I-46", w.poll)
 
+    def test_an_approval_listed_unnamed_is_not_issued_again(self):  # I-46, decision 0035
+        # On the same seed an approval's run is read unnamed at the next pass. One that did not land is not yet counted
+        # there, so the item still reads as due an approval: that pass defers it, and the pass after issues it again.
+        w = reviewed(World(11, faults=False, people=False, approval_fails="item"))
+        w.poll()
+        self.assertEqual([r["intent"] for r in w.runs][-1], terms.ISSUE_APPROVAL)
+        w.minute += 1
+        w.poll()
+        self.assertEqual(w.trace[-1].split(" ", 1)[1], "pass: converged run_unidentified -> defer")
+        self.assertEqual(len([r for r in w.runs if r["intent"] == terms.ISSUE_APPROVAL]), 1)
+        w.minute += 1
+        w.poll()
+        self.assertEqual(len([r for r in w.runs if r["intent"] == terms.ISSUE_APPROVAL]), 2)
+        # A Kernel that let the approval through while its run is unnamed breaks the invariant.
+        w = reviewed(World(11, faults=False, people=False, approval_fails="item"))
+        w.poll()
+        w.minute += 1
+        with mock.patch.object(world, "decide", lambda f, r, c, cfg, now: decide(f, r, dict(c, unidentified_runs=[]),
+                                                                                 cfg, now)):
+            self.assertRaisesRegex(world.Broken, "I-46", w.poll)
+
     def test_the_seeds_list_a_new_run_unnamed(self):  # I-46, decision 0035
         # On one seed in eight a Run is listed unnamed at the pass after its admission, and that pass defers what it
         # would admit or approve; every invariant holds throughout.

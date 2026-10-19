@@ -86,6 +86,11 @@ REPORTED = "tests.test_decide.AReviewThatReported."
 UNIDENTIFIED = "tests.test_decide.UnidentifiedRuns."
 RUN_BRAKES = ("    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts),"
               " limits)\n    if brake:\n        return brake\n")
+ACT_BRAKES = ('    brake = brakes.on_act(_decision, facts, state, evidence, context, action, since, config["limits"])\n'
+              "    if brake:\n        return brake\n")
+# The deferral for an unidentified Run: the first after the brakes it follows, in decide.py's _act and _decide, and in
+# issue.py's decide.
+UNIDENTIFIED_DEFERS = '        return _decision(facts, state, "run_unidentified", evidence, t.DEFER)\n'
 COVERAGE = "tests.test_coverage.Coverage."
 RUNNER = "tests.test_tools.Mutants."
 UNRELATED_TESTS = (RUNNER + "test_a_mutant_whose_only_failure_is_unrelated_survives",)
@@ -563,6 +568,12 @@ ISSUE = [
     # Decision 0035: a Run listed before its run-name defers every admission.
     ("an unidentified Run admits an issue's Run", ISSUE_PY,
      '    if context.get("unidentified_runs") != []:\n', "    if False:\n",
+     ("tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run",)),
+    ("an issue's unreadable list of unidentified Runs is read as empty", ISSUE_PY,
+     '    if context.get("unidentified_runs") != []:\n', '    if context.get("unidentified_runs"):\n',
+     ("tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run",)),
+    ("an unidentified Run hides an issue's Hold", ISSUE_PY,
+     *moved_after(ISSUE_PY, RUN_BRAKES, UNIDENTIFIED_DEFERS),
      ("tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run",)),
     ("an issue's admission names no content", ISSUE_PY,
      '{"role": role, "intent": intent, "content_id": facts["content_id"]}', '{"role": role, "intent": intent}',
@@ -1765,13 +1776,19 @@ MUTANTS = ISSUE + [
     ("an unidentified Run lets an approval through", "kernel/decide.py",
      '    if action == "issue_approval" and context.get("unidentified_runs") != []:\n', "    if False:\n",
      (UNIDENTIFIED + "test_an_unidentified_run_defers_an_approval",)),
+    ("an unreadable list of unidentified Runs lets an approval through", "kernel/decide.py",
+     '    if action == "issue_approval" and context.get("unidentified_runs") != []:\n',
+     '    if action == "issue_approval" and context.get("unidentified_runs"):\n',
+     (UNIDENTIFIED + "test_a_list_of_unidentified_runs_that_cannot_be_read_defers_an_approval",)),
+    ("an unidentified Run hides an approval's Hold", "kernel/decide.py",
+     *moved_after("kernel/decide.py", ACT_BRAKES, UNIDENTIFIED_DEFERS),
+     (UNIDENTIFIED + "test_an_unidentified_run_defers_an_approval",)),
     ("an unidentified Run defers an enqueue", "kernel/decide.py",
      '    if action == "issue_approval" and context.get("unidentified_runs") != []:\n',
      '    if context.get("unidentified_runs") != []:\n',
      (UNIDENTIFIED + "test_an_unidentified_run_stops_no_enqueue_and_no_dequeue",)),
     ("an unidentified Run hides a Hold", "kernel/decide.py",
-     *moved_after("kernel/decide.py", RUN_BRAKES, '        return _decision(facts, state, "run_unidentified", evidence,'
-                                                  ' t.DEFER)\n'),
+     *moved_after("kernel/decide.py", RUN_BRAKES, UNIDENTIFIED_DEFERS),
      (UNIDENTIFIED + "test_an_unidentified_run_is_asked_after_the_brakes",)),
     ("an unidentified Run's deferral goes stale", "kernel/terms.py",
      ',\n                             "run_unidentified"})', "})",

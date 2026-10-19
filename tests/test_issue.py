@@ -1169,10 +1169,14 @@ class UnidentifiedRuns(unittest.TestCase):
         # Nothing is defaulted: a list that is missing, or is not a list, defers as one with a Run would.
         missing = context()
         del missing["unidentified_runs"]
-        for ctx in (missing, context(unidentified_runs=None), context(unidentified_runs=UNNAMED)):
+        for ctx in (missing, context(unidentified_runs=None), context(unidentified_runs=UNNAMED),
+                    context(unidentified_runs={}), context(unidentified_runs=""), context(unidentified_runs=())):
             self.assertEqual(what(decide(TRIAGED, ctx=ctx)), ("defer", "run_unidentified", None),
-                             ctx.get("unidentified_runs"))
-        # The brakes are asked first: under a Pause the Pause defers.
+                             ctx.get("unidentified_runs", "missing"))
+        # The brakes are asked first: spent attempts hold the issue, and under a Pause the Pause defers.
+        spent = [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(LIMITS["max_attempts"])]
+        d = decide(TRIAGED, spent, ctx=context(unidentified_runs=[UNNAMED]))
+        self.assertEqual((d["state"], what(d)), ("held", ("hold", "attempts_exhausted", None)))
         d = decide(TRIAGED, ctx=context(paused=True, unidentified_runs=[UNNAMED]))
         self.assertEqual(what(d), ("defer", "paused", None))
 
