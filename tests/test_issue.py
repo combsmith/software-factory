@@ -1154,6 +1154,42 @@ class Investigation(unittest.TestCase):
             self.assertEqual(decide(f)["outcome"], "defer", name)
 
 
+# A run record of the Factory's own workflow, not completed, still listed under the workflow's name: GitHub's run id,
+# from trials/P-17.json. Which item it is on cannot be read (decision 0036).
+UNNAMED = "39086879694"
+
+
+class UnidentifiedRuns(unittest.TestCase):
+    """A Run listed before its run-name may be the Run in flight on this issue: it defers every admission (I-46)."""
+
+    def test_an_unidentified_run_defers_an_issues_run(self):  # I-46, I-13
+        d = decide(TRIAGED, ctx=context(unidentified_runs=[UNNAMED]))
+        self.assertEqual((d["state"], what(d)), ("triage", ("defer", "run_unidentified", None)))
+        self.assertEqual(what(decide(TRIAGED, ctx=context(unidentified_runs=[]))), ("admit", "triage", INVESTIGATE))
+        # Nothing is defaulted: a list that is missing, or is not a list, defers as one with a Run would.
+        missing = context()
+        del missing["unidentified_runs"]
+        for ctx in (missing, context(unidentified_runs=None), context(unidentified_runs=UNNAMED),
+                    context(unidentified_runs={}), context(unidentified_runs=""), context(unidentified_runs=())):
+            self.assertEqual(what(decide(TRIAGED, ctx=ctx)), ("defer", "run_unidentified", None),
+                             ctx.get("unidentified_runs", "missing"))
+        # The brakes are asked first: spent attempts hold the issue, and under a Pause the Pause defers.
+        spent = [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(LIMITS["max_attempts"])]
+        d = decide(TRIAGED, spent, ctx=context(unidentified_runs=[UNNAMED]))
+        self.assertEqual((d["state"], what(d)), ("held", ("hold", "attempts_exhausted", None)))
+        d = decide(TRIAGED, ctx=context(paused=True, unidentified_runs=[UNNAMED]))
+        self.assertEqual(what(d), ("defer", "paused", None))
+
+    def test_an_unidentified_run_stops_no_acceptance_and_no_hold(self):  # I-46, I-43
+        # Accepting admits no Run, and placing a Hold stops work: neither waits for the name.
+        unnamed = context(unidentified_runs=[UNNAMED])
+        d = decide(facts(), ctx=unnamed)
+        self.assertEqual((d["state"], what(d)), ("new", ("act", "acceptance_due", "accept")))
+        past = facts(label_events=READIED_BY_A_PERSON, linked=closed_links(2, 3))
+        d = decide(past, ctx=unnamed)
+        self.assertEqual((d["state"], what(d)), ("ready", ("act", "unmerged_closes", "place_hold")))
+
+
 class WhatARunWrites(unittest.TestCase):
     """What a Run in flight has written is read only once it completes, and a Role's comment or label stands in for
     its Runs only once every record of them has expired."""
@@ -1565,6 +1601,7 @@ class Stale(unittest.TestCase):
             ("capacity", "ready", TRIAGED, [], {"model_deferred_until": minutes_after(late, 1)}, config()),
             ("capacity_unreadable", "ready", TRIAGED, [], {"active_runs": None}, config()),
             ("concurrency", "ready", TRIAGED, [], {"active_runs": LIMITS["org_max_active_runs"]}, config()),
+            ("run_unidentified", "ready", TRIAGED, [], {"unidentified_runs": [UNNAMED]}, config()),
         ]
         for reason, attention, f, runs, over, cfg in cases:
             with self.subTest(reason):
