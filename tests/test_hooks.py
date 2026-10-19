@@ -566,12 +566,21 @@ class Identity(unittest.TestCase):
                         "export LD_LIBRARY_PATH=/tmp; git commit -m x", "env DYLD_LIBRARY_PATH=/tmp git push",
                         "LD_AUDIT=/tmp/a.so gh pr create", "bash -c 'LD_PRELOAD=/x git push'",
                         "LD_PRELOAD=/tmp/evil.so make; git push", "declare -x DYLD_FRAMEWORK_PATH=/x; git push",
-                        # printf sets the name -v gives it, attached or not, and nothing else.
-                        "printf -v PATH /x; git push", "printf -vPATH /x; git push", "printf -v LD_PRELOAD /x; git push"):
+                        # printf sets the name -v gives it, attached or not, subscripted or not, and nothing else.
+                        "printf -v PATH /x; git push", "printf -vPATH /x; git push", "printf -v LD_PRELOAD /x; git push",
+                        "printf -v 'PATH[1]' /x:; git push",
+                        # bash's --rcfile takes the next word, so this -c is a file's name, not an option.
+                        "bash --rcfile -c ./evil.sh; git push", "bash --init-file -c x.sh; git commit -m x",
+                        # A dynamic linker's variable spelt through quotes is read as PATH is.
+                        "env LD_PRE''LOAD=/tmp/evil.so git push", "export LD_PRE''LOAD=/x; git push",
+                        # A definition after a comment holding an apostrophe is read: the comment is dropped first.
+                        "echo hi # don't\ngit(){ command git push origin side; }\necho 'x'; git push # isn't",
+                        "echo hi # don't\ngit(){ command git push; }\ngit push",
+                        "echo hi # it's\nfunction gh { :; }\ngh pr create"):
             self.assertIn("command_unreadable", self.refused(command), command)
-        self.refused("echo hi # don't\ngit(){ command git push origin side; }\necho 'x'; git push # isn't")
         # The value given to -o, and a name given to autoload, typeset or functions that runs no git, are ordinary.
-        for command in ("zsh -o emacs -c 'git push'", "bash -o pipefail -c 'git push'", "sh +o emacs -c 'git push'"):
+        for command in ("zsh -o emacs -c 'git push'", "bash -o pipefail -c 'git push'", "sh +o emacs -c 'git push'",
+                        "bash --rcfile rc -c 'git push'"):
             self.assertNotIn("a shell reads a script", self.codes(command), command)
         for command in ("autoload -Uz compinit; git push", "typeset -f helper; git push", "functions helper; git push",
                         "declare -F; git commit -m x", "typeset -i n=1; git push", "typeset -u git; git push",

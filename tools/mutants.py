@@ -2516,6 +2516,11 @@ MUTANTS = ISSUE + [
      "for name in sorted(LOADER_VARIABLES))", "for name in ())", FOUR_MORE_TESTS),
     ("printf's every word is read as a name it sets", "tools/hooks/shell.py",
      'if command == "printf" else words[at + 1:]', "if False else words[at + 1:]", FOUR_MORE_TESTS),
+    ("a comment in a script's text hides a definition", "tools/hooks/shell.py",
+     '        if quote is None and c == "#" and (i == 0 or script[i - 1] in COMMENTS_AFTER):\n', "        if False:\n",
+     FOUR_MORE_TESTS),
+    ("--rcfile's value is read as an option", "tools/hooks/identity.py",
+     'i += 2 if word in ("--rcfile", "--init-file") else 1', "i += 1", FOUR_MORE_TESTS),
 ]
 
 

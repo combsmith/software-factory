@@ -987,13 +987,19 @@ def _scripts(text: str, spend=None) -> tuple:
 def _masked(script: str) -> str:
     """`script` with its quotes taken out and what they hold made one word: each character that would end a word or a
     command is `_`. A name stays as the shell reads it ('git'() is git()); prose in a commit message is one word, never
-    a definition. A script a quote holds that runs (sh -c '...', eval, "$(...)") is read as a script of its own."""
+    a definition. A comment, from an unquoted # that begins a word (after COMMENTS_AFTER) to its line's end, is left
+    out, as commands() leaves it out, so an apostrophe in it holds nothing (issue 181). A script a quote holds that
+    runs (sh -c '...', eval, "$(...)") is read as a script of its own."""
     out, quote, i = [], None, 0
     while i < len(script):
         c = script[i]
         if quote is None and c == "\\" and i + 1 < len(script):
             out.append(script[i:i + 2])
             i += 2
+            continue
+        if quote is None and c == "#" and (i == 0 or script[i - 1] in COMMENTS_AFTER):
+            end = script.find("\n", i)
+            i = len(script) if end < 0 else end
             continue
         if quote is None and c in "'\"":
             quote = c
@@ -1182,8 +1188,8 @@ def sets(name: str, text: str, spend=None) -> bool:
 
 
 def _printf_targets(args: list) -> list:
-    """The names printf is given to write into, by -v NAME or -vNAME among its options; every other word printf is
-    given is text it prints, never a name it sets (issue 181)."""
+    """The names printf is given to write into, by -v NAME or -vNAME among its options, a subscript taken off; every
+    other word printf is given is text it prints, never a name it sets (issue 181)."""
     names, i = [], 0
     while i < len(args) and args[i].startswith("-") and args[i] != "--":
         if args[i] == "-v" and i + 1 < len(args):
@@ -1192,7 +1198,7 @@ def _printf_targets(args: list) -> list:
         elif args[i].startswith("-v"):
             names.append(args[i][2:])
         i += 1
-    return names
+    return [re.sub(r"\[.*\]$", "", name) for name in names]      # PATH[1] is PATH, as an assignment's subscript is
 
 
 def set_anywhere(name: str, text: str) -> bool:

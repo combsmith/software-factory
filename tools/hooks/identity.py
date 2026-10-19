@@ -627,7 +627,7 @@ def _redefined(text: str) -> list:
         reasons.append("the command defines a function or an alias for git, gh or what runs them")
     if shell.sets("PATH", quoted) or shell.sets("path", quoted):
         reasons.append("the command sets PATH, so git or gh may be another program")
-    if any(name in text and shell.sets(name, quoted) for name in sorted(LOADER_VARIABLES)):
+    if any(shell.sets(name, quoted) for name in sorted(LOADER_VARIABLES)):     # as PATH is: spelt however
         reasons.append("the command sets a dynamic linker's variable, so git or gh may run other code")
     if "*" in shell.touched(text):
         reasons.append("the command writes a variable it names at run time, or evals or sources, which may set PATH")
@@ -992,13 +992,13 @@ def _options(args: list, valued: set, destinations: set) -> tuple:
 def _given_c(args: list) -> bool:
     """Whether a shell's own options, the words before its first operand, hold -c: alone or bundled before an option
     that takes a value (-lc, -ec, -co). A word past them is the script or its arguments (bash x.sh -c). -o, +o, -O and
-    +O take a value: the rest of their bundle where one is attached (-oemacs), else the next word; an attached value is
-    never read as flags (issue 181)."""
+    +O take a value: the rest of their bundle where one is attached (-oemacs), else the next word; so do bash's
+    --rcfile and --init-file. A value is never read as flags (issue 181)."""
     i = 0
     while i < len(args) and args[i][:1] in ("-", "+") and args[i] not in ("-", "--"):
         word = args[i]
-        if word[1:2] == "-":        # a long option, which takes no next word
-            i += 1
+        if word[1:2] == "-":        # a long option: bash's --rcfile and --init-file take the next word, no other does
+            i += 2 if word in ("--rcfile", "--init-file") else 1
             continue
         flags = word[1:]
         valued = re.search("[oO]", flags)
