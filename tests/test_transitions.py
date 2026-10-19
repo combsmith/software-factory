@@ -227,14 +227,16 @@ def kernel(pr: dict) -> dict:
     return decide(pr["facts"], pr["runs"], ctx, CONFIG, now(pr))
 
 
-# Facts for the reasons that keep the State they were given: a Pause, capacity, concurrency and a count of acts that
-# cannot be read. They change no State, so they are not explored; each must still be given.
+# Facts for the reasons that keep the State they were given: a Pause, capacity, concurrency, a Run that cannot be told
+# whose it is and a count of acts that cannot be read. They change no State, so they are not explored; each must still
+# be given.
 STILL = {
     "paused": dict(base([reviewed()]), context={"paused": True}),
     "pause_unreadable": dict(base([reviewed()]), context={"paused": None}),
     "capacity": dict(base(), context={"model_deferred_until": "2099-01-01T00:00:00Z"}),
     "capacity_unreadable": dict(base(), context={"active_runs": None}),
     "concurrency": dict(base(), context={"active_runs": CONFIG["limits"]["org_max_active_runs"]}),
+    "run_unidentified": dict(base(), context={"unidentified_runs": ["39086879694"]}),
     # A count the facts schema refuses, which the Kernel still reads as unreadable.
     "acts_unreadable": base([reviewed()], acts_since_writer=None),
     # A result on this content for a criterion the contract does not name: no State, so nothing to explore from.

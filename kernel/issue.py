@@ -763,6 +763,10 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
     if active >= limits["org_max_active_runs"]:
         return _decision(facts, state, "concurrency", evidence, t.DEFER)
+    # A Run listed before its run-name may be the Run in flight on this issue. Which item it is on cannot be read, so no
+    # Run is admitted until it can be; a list that cannot be read defers too (I-46, decision 0036).
+    if context.get("unidentified_runs") != []:
+        return _decision(facts, state, "run_unidentified", evidence, t.DEFER)
 
     admit = dict({"role": role, "intent": intent, "content_id": facts["content_id"]}, **carried)
     return _decision(facts, state, reason, evidence, t.ADMIT, admit=admit)
