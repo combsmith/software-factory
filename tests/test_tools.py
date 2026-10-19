@@ -280,39 +280,48 @@ class Examples(unittest.TestCase):
         self.assertTrue(caught(problems, "coverage.json: $: uncovered PR-3"))
 
     def test_a_string_that_is_neither_a_code_nor_a_body_is_caught(self):  # decision 0038
-        # What one Run carries holds codes: a bare string, or a pattern not anchored at both ends, is text.
+        # What one Run carries holds codes: a bare string, or a pattern not anchored at both ends, is text. The walk is
+        # asked directly, since every mutant runs the whole suite; the check is run from its front door once.
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
+                   for p in (ROOT / "schemas").glob("*.schema.json")}
+
+        def free(kind: str, schema: dict) -> list:
+            return check_examples._free(schema, dict(schemas, **{kind: schema}), schema, kind, "$", set())
+
+        def disposition(**fields) -> dict:
+            bare = copy.deepcopy(schemas["disposition"])
+            for name, value in fields.items():
+                (bare["properties"]["decision"]["properties"] if name == "reason" else bare["properties"])[name] = value
+            return bare
+
         # A pattern anchored only in its writing is not anchored: an alternative outside the anchors, or an escaped $.
         for loose in ({"type": "string"}, {"type": "string", "pattern": "[a-z_]+"}, {"type": ["string", "null"]}, {},
                       {"type": "string", "pattern": "^fixed$|b$"}, {"type": "string", "pattern": "^[a-z]+\\$"}):
-            bare = json.loads((ROOT / "schemas" / "disposition.schema.json").read_text())
-            bare["properties"]["decision"]["properties"]["reason"] = loose
-            problems = check_examples.run(clone({"schemas/disposition.schema.json": json.dumps(bare)}))
-            self.assertTrue(caught(problems, "schema disposition admits text at $.decision.reason"), loose)
+            self.assertTrue(caught(free("disposition", disposition(reason=loose)),
+                                   "schema disposition admits text at $.decision.reason"), loose)
+        problems = check_examples.run(clone({"schemas/disposition.schema.json":
+                                             json.dumps(disposition(reason={"type": "string"}))}))
+        self.assertTrue(caught(problems, "schema disposition admits text at $.decision.reason"))
         # A string in a schema a Run's schema reaches by reference is held the same way.
-        coverage = json.loads((ROOT / "schemas" / "coverage.schema.json").read_text())
+        coverage = copy.deepcopy(schemas["coverage"])
         del coverage["items"]["properties"]["reason"]["pattern"]
-        problems = check_examples.run(clone({"schemas/coverage.schema.json": json.dumps(coverage)}))
+        result = schemas["result"]
+        problems = check_examples._free(result, dict(schemas, coverage=coverage), result, "result", "$", set())
         self.assertTrue(caught(problems, "schema coverage admits text at $.coverage[].reason"))
         # A property named body is text, and passes: the Effect's comments, annotations and review body are.
-        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
-                   for p in (ROOT / "schemas").glob("*.schema.json")}
         for kind in check_examples.CODES_ONLY:
-            self.assertEqual(check_examples._free(schemas[kind], schemas, schemas[kind], kind, "$", set()), [], kind)
+            self.assertEqual(free(kind, schemas[kind]), [], kind)
         self.assertEqual(check_examples._free({"type": "object", "additionalProperties": False,
                                                "properties": {"body": {"type": "string"}}}, {}, {}, "x", "$", set()), [])
         # A reference the walk cannot follow is a problem too: validate() follows one only where a value reaches it.
-        loose = json.loads((ROOT / "schemas" / "disposition.schema.json").read_text())
-        loose["properties"]["note"] = {"$ref": "nope.schema.json"}
-        problems = check_examples.run(clone({"schemas/disposition.schema.json": json.dumps(loose)}))
-        self.assertTrue(caught(problems, "schema disposition cannot be followed at $.note"))
         # So are a reference that comes round to itself, and a keyword beside one, in a branch no example takes.
-        loose["properties"]["note"] = {"$ref": "#/$defs/loop"}
-        loose["$defs"] = {"loop": {"$ref": "#/$defs/loop"}}
-        problems = check_examples.run(clone({"schemas/disposition.schema.json": json.dumps(loose)}))
-        self.assertTrue(caught(problems, "schema disposition comes round to itself at $.note"))
-        loose["properties"]["note"] = {"$ref": "effect.schema.json", "enum": ["only"]}
-        problems = check_examples.run(clone({"schemas/disposition.schema.json": json.dumps(loose)}))
-        self.assertTrue(caught(problems, "schema disposition has ['enum'] beside a $ref at $.note"))
+        self.assertTrue(caught(free("disposition", disposition(note={"$ref": "nope.schema.json"})),
+                               "schema disposition cannot be followed at $.note"))
+        looped = disposition(note={"$ref": "#/$defs/loop"})
+        looped["$defs"] = {"loop": {"$ref": "#/$defs/loop"}}
+        self.assertTrue(caught(free("disposition", looped), "schema disposition comes round to itself at $.note"))
+        self.assertTrue(caught(free("disposition", disposition(note={"$ref": "effect.schema.json", "enum": ["only"]})),
+                               "schema disposition has ['enum'] beside a $ref at $.note"))
         for held in ("^(item|PRRT_[A-Za-z0-9_-]+)$", "^[^\\s]+$", "^a\\|b$", "^[|$]+$", "^(a|(b|c))$"):
             self.assertTrue(check_examples._anchored(held), held)
         for loose in ("^fixed$|b$", "^[a-z]+\\$", "^a|b$", "a$", "^a", "^(a|b)$|^c$", None, 3):
