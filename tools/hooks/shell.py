@@ -196,8 +196,9 @@ BREAKS = " \t\n;&|()<>"
 # What a # that begins a comment comes after. After < or >, the shell's comment leaves a redirection with no target,
 # which it refuses to run, so the hook reads the # as a word, as it did before (issue 174).
 COMMENTS_AFTER = " \t\n;&|("
-# What ends a command, so that the next word is a command again.
+# What ends a command, so that the next word is a command again; and what ends a word, too.
 ENDS = ";&|()\n"
+WORD_ENDS = " \t\r" + ENDS
 # Reserved words after which the next word is a command again: a ( there opens a subshell or an arithmetic command.
 AGAIN = {"if", "then", "else", "elif", "while", "until", "do", "!", "{", "time", "for"}
 # The escapes of $'...' that bash keeps and zsh takes the backslash out of, which may then spell .git (issue 174).
@@ -325,7 +326,7 @@ def _held(text: str) -> str:
             i += 2
             continue
         if quote is None:
-            if text.startswith("${", i) and i >= braces:
+            if c == "$" and i >= braces and text.startswith("${", i):
                 braces = _balanced(text, i + 2, "}")
             if c == "#" and comments and i >= braces:
                 end = text.find("\n", i)
@@ -337,30 +338,29 @@ def _held(text: str) -> str:
                 starts, comments, word = False, False, word + c
                 i += 1
                 continue
-            if text.startswith("$'", i):
+            if c == "$" and text.startswith("$'", i):
                 decoded, i = ansi(text, i + 2)
                 out.append(_literal(decoded))
                 starts, comments, word = False, False, word + "'"
                 continue
-            if text.startswith('$"', i):
+            if c == "$" and text.startswith('$"', i):
                 i += 1
                 continue
-            if text.startswith("((", i) and i >= arithmetic and (text[i - 1:i] == "$" or (starts and words == 0)):
-                arithmetic = _balanced(text, i + 1, ")")
-            if c == "(" and i >= arithmetic and i >= braces and (
-                    _touches(text, i) if not starts else not _opens(text, i, starts, words)):
-                raise ValueError("a ( in a word is a pattern the hook does not read")
             # A process substitution's or a command substitution's ( and ) stand in a word: after its ), the command
             # goes on where it was. Any other ) ends what it closed, and what follows is a command again.
             kept = None
             if c == "(":
+                if text.startswith("((", i) and i >= arithmetic and (text[i - 1:i] == "$" or (starts and words == 0)):
+                    arithmetic = _balanced(text, i + 1, ")")
+                if i >= arithmetic and (_touches(text, i) if not starts else not _opens(text, i, starts, words)):
+                    raise ValueError("a ( in a word is a pattern the hook does not read")
                 opened.append((words, first, word) if text[i - 1:i] in ("<", ">", "$") and i else None)
             elif c == ")" and opened:
                 kept = opened.pop()
             if kept is not None:
                 words, first, word = kept[0], kept[1], kept[2] + c
             else:
-                if c in " \t\r" + ENDS and word:
+                if c in WORD_ENDS and word:
                     words += 1
                     first = word if words == 1 else first
                     if word in AGAIN or (word == "in" and first == "case"):
@@ -443,6 +443,8 @@ def substitutions(word: str, spend=None, depth: int = 0) -> list:
     True) gives it: a $(...) or `...` that LIVE marks. One a single quote or a backslash held is text (issue 174).
     `spend`, if given, is called before each arithmetic expansion is read; past NESTED_MOST of them, one in another, it
     raises ValueError: a reading the hook would cut short is one it cannot read."""
+    if LIVE["$"] not in word and LIVE["`"] not in word:
+        return []       # most words hold none: read in one step, not a letter at a time
     spans, i, plain = [], 0, unmarked(word)
     while i < len(word):
         if word[i] == LIVE["$"]:
@@ -484,6 +486,8 @@ def held(word: str) -> list:
     True) gives it: text the shell does not run where it stands, but which a program given it may run later (trap,
     eval, an arithmetic expansion of a variable). Those the shell runs, and what they hold, are left out: they are
     read where they run."""
+    if "$(" not in word and "`" not in word and ESCAPED["$"] not in word and ESCAPED["`"] not in word:
+        return []       # most words hold none: read in one step, not a letter at a time
     text = list(word)
     for start, end, _ in substitutions(word):
         text[start:end] = " " * (end - start)

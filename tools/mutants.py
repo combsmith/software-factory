@@ -2272,8 +2272,6 @@ MUTANTS = ISSUE + [
     ("a # in a ${...} begins a comment", "tools/hooks/shell.py",
      '            if c == "#" and comments and i >= braces:\n', '            if c == "#" and comments:\n',
      COMMENT_START_TESTS),
-    ("a ( in a ${...} is read as a pattern", "tools/hooks/shell.py",
-     'if c == "(" and i >= arithmetic and i >= braces', 'if c == "(" and i >= arithmetic', COMMENT_START_TESTS),
     ("a carriage return begins a comment", "tools/hooks/shell.py",
      'COMMENTS_AFTER = " \\t\\n;&|("', 'COMMENTS_AFTER = " \\t\\r\\n;&|("', COMMENT_START_TESTS),
     ("a # after < or > begins a comment", "tools/hooks/shell.py",
@@ -2328,9 +2326,11 @@ MUTANTS = ISSUE + [
      LATER_TESTS),
     # Issue 174, rulings 1 to 6: a word is read as the shell reads it.
     ("a substitution a single quote or a backslash holds is read", "tools/hooks/shell.py",
+     '    if LIVE["$"] not in word and LIVE["`"] not in word:\n'
+     "        return []       # most words hold none: read in one step, not a letter at a time\n"
      "    spans, i, plain = [], 0, unmarked(word)\n",
-     "    spans, i, plain = [], 0, unmarked(word)\n"
-     '    word = plain.replace("$(", LIVE["$"] + "(").replace("`", LIVE["`"])\n', WORD_TESTS),
+     '    word = unmarked(word).replace("$(", LIVE["$"] + "(").replace("`", LIVE["`"])\n'
+     "    spans, i, plain = [], 0, unmarked(word)\n", WORD_TESTS),
     ("a comment is read as words", "tools/hooks/shell.py",
      '            if c == "#" and comments and i >= braces:\n', "            if False:\n", WORD_TESTS),
     ("a command that cannot be split passes unless it names git", "tools/hooks/identity.py",
@@ -2339,12 +2339,13 @@ MUTANTS = ISSUE + [
      '        if not re.search(r"(?<![\\w.-])(git|gh)(?![\\w.-])", command):\n            return []\n'
      "        # The command cannot be split into words, so whatever it names", SPLIT_TESTS),
     ("$'...' is read as $ and a quoted word", "tools/hooks/shell.py",
-     "            if text.startswith(\"$'\", i):\n                decoded, i = ansi(text, i + 2)\n",
+     "            if c == \"$\" and text.startswith(\"$'\", i):\n                decoded, i = ansi(text, i + 2)\n",
      "            if False:\n                decoded, i = ansi(text, i + 2)\n", ANSI_TESTS),
     ("a ( touching a word splits it", "tools/hooks/shell.py",
-     '            if c == "(" and i >= arithmetic and i >= braces and (\n', "            if False and (\n", SPLIT_TESTS),
+     "                if i >= arithmetic and (_touches(text, i) if not starts else not _opens(text, i, starts, words)):\n",
+     "                if False:\n", SPLIT_TESTS),
     ("an arithmetic command's ( is read as a pattern", "tools/hooks/shell.py",
-     'if c == "(" and i >= arithmetic and i >= braces', 'if c == "(" and i >= braces', SPLIT_TESTS),
+     "                if i >= arithmetic and (_touches(", "                if (_touches(", SPLIT_TESTS),
     ("an arithmetic expansion is read as a command", "tools/hooks/shell.py",
      '            if plain.startswith("$((", i) and plain[j - 2:j] == "))":\n', "            if False:\n", SPLIT_TESTS),
     ("an alias is spliced as commands, not text", "tools/hooks/identity.py",

@@ -998,10 +998,11 @@ class Identity(unittest.TestCase):
                         "cp /tmp/x .git/hooks/x@(a|b); git push", "ls *(.); git push",
                         # A ( that begins an argument is a zsh glob group, and (( in a word is no arithmetic.
                         "cp /tmp/a (.git|x)/hooks/y; git push", "cp /tmp/x .g((i|x))t/config; git push",
-                        "cp /tmp/x .g((i|i))t/config; git push", "cp <(true) (.git|x)/config; git push",
-                        # Arithmetic nested deeper than the hook reads.
-                        'echo "' + "$(( " * 900 + "1" + " ))" * 900 + '"; git push'):
+                        "cp /tmp/x .g((i|i))t/config; git push", "cp <(true) (.git|x)/config; git push"):
             self.assertIn("command_unreadable", self.refused(command, folder(), programs()), command[:60])
+        # Arithmetic nested deeper than the hook reads is one it cannot read, said so at once, not past its budget.
+        self.assertIn("nested deeper than the hook reads", self.refused(
+            'echo "' + "$(( " * 900 + "1" + " ))" * 900 + '"; git push', folder(), programs()))
         # The shell's own forms of ( pass.
         for command in ("f() { :; }; git commit -m x", "arr=(a b); git commit -m x", "arr+=(c); git commit -m x",
                         "diff <(ls) <(ls sub); git commit -m x", "echo $((1+2)); git push", 'git commit -m "fix(hooks): x"',
