@@ -2087,10 +2087,12 @@ GROUNDING = (ROOT / "sim" / "grounding.py").read_text()
 
 
 def grounded(fixture_path: str, trials: str = '("P-18",)') -> str:
-    """sim/grounding.py with the rule P-18 asks grounded by `fixture_path`, and asked by `trials`."""
+    """sim/grounding.py with the rule P-18 asks grounded by `fixture_path`, a path or a tuple of them written as a
+    literal, and asked by `trials`."""
     rule = '("P-18",), None)'
     assert GROUNDING.count(rule) == 1
-    return GROUNDING.replace(rule, '%s, "%s")' % (trials, fixture_path))
+    literal = fixture_path if fixture_path.startswith("(") else '"%s"' % fixture_path
+    return GROUNDING.replace(rule, '%s, %s)' % (trials, literal))
 
 
 TAIL = "A" * 36
@@ -2290,6 +2292,36 @@ class Trials(unittest.TestCase):
         self.assertEqual(check_trials.run(root), [])
         self.assertFalse(caught(check_trials.unverified(root), "a_killed_job_times_out"))
         self.assertTrue(caught(check_trials.unverified(), "a_killed_job_times_out"))
+
+    def test_a_rule_may_be_grounded_by_a_tuple_of_fixtures_each_held_to_the_same_rules(self):
+        # The last pusher is read from a person's push (P-28.json) and from an App's (P-28.app.json): one rule, two
+        # fixtures, each of which must exist, validate and record a trial that asks the rule.
+        both = grounded('("trials/P-18.json", "trials/P-18.app.json")')
+        root = clone({"sim/grounding.py": both, "trials/P-18.json": fixture(trial="P-18"),
+                      "trials/P-18.app.json": fixture(trial="P-18")})
+        self.assertEqual(check_trials.run(root), [])
+        self.assertFalse(caught(check_trials.unverified(root), "a_killed_job_times_out"))
+        problems = check_trials.run(clone({"sim/grounding.py": both, "trials/P-18.json": fixture(trial="P-18")}))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-18.app.json does not exist"))
+        problems = check_trials.run(clone({"sim/grounding.py": both, "trials/P-18.json": fixture(trial="P-18"),
+                                           "trials/P-18.app.json": fixture(trial="P-12")}))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-18.app.json is not a valid fixture"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("()"), "trials/P-18.json": fixture(trial="P-18")}))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: an empty tuple grounds nothing; write None"))
+
+    def test_the_approval_trials_ground_the_rules_they_asked(self):
+        # The sitting of 2026-10-19: P-7 passed with the App's push and the machine user's approval of it, and P-28
+        # read the App's push; the rule P-7 contradicts stays unverified (sim/AGENTS.md, "Known to differ").
+        by_code = {code: (trials, fixture) for code, _, trials, fixture in check_trials.rules()}
+        self.assertEqual(by_code["an_app_pushes_to_the_head"], (("P-7",), "trials/P-7.json"))
+        self.assertEqual(by_code["the_machine_users_approval_counts"], (("P-7",), "trials/P-7.json"))
+        self.assertEqual(by_code["the_pusher_is_the_last_pusher"], (("P-28",), ("trials/P-28.json", "trials/P-28.app.json")))
+        self.assertEqual(by_code["an_approval_survives_a_push"], (("P-7", "P-29"), None))
+        self.assertTrue(caught(check_trials.unverified(), "an_approval_survives_a_push"))
+        for name in ("P-1", "P-7", "P-7.maintainer-pushed", "P-24", "P-28.app"):
+            data = json.loads((ROOT / "trials" / ("%s.json" % name)).read_text())
+            self.assertEqual(data["verdict"], "pass", name)
+            self.assertEqual(data["ran_at"][:10], "2026-10-19", name)
 
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
