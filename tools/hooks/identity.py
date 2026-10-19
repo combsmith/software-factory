@@ -292,6 +292,10 @@ TAR_BSD_VALUED = {"-b", "--block-size", "-I", "-T", "--files-from", "-X", "--exc
 # is the script, so that the first operand is a file and not the script.
 IN_PLACE = {"sed": ({"-e", "--expression", "-f", "--file", "-l", "--line-length"}, {"-e", "--expression", "-f", "--file"}),
             "perl": ({"-e", "-E", "-I", "-l", "-0"}, {"-e", "-E"})}
+# awk reads its operands, and gawk's -i inplace rewrites them (decision 0039): the same reading as sed's -i.
+IN_PLACE.update({name: ({"-f", "--file", "-v", "--assign", "-F", "--field-separator", "-i", "--include", "-l",
+                         "--load", "-e", "--source"}, {"-f", "--file", "-e", "--source"})
+                 for name in ("awk", "gawk", "mawk", "nawk")})
 # A brace that expands, {a,b} or {1..9}: the hook reads each word it gives, up to BRACE_MOST of them; past that, a
 # range of digits as a digit and any other brace as a wildcard.
 # Up to the first comma or `..` no other one is read, so the match cannot backtrack across them (SonarCloud S8786).
@@ -590,7 +594,9 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         for marked, redirections in commands]
     scoped = []     # where the command stood when each subshell it is in began
     loops = _loops([c[:2] for c in commands if c[0] is not None], values)
-    cdpath = shell.sets(CDPATH, _quoted(shell.without_heredocs(text)))
+    # Read only where the text names it, plainly or through quotes: one more reading of a long command costs seconds.
+    cdpath = bool(re.search(r"(?i)cdpath", re.sub(r"[\\'\"]", "", text))) and shell.sets(CDPATH, _quoted(
+        shell.without_heredocs(text)))
     previous, depth = None, 0   # where the command stood before its last placed cd, for cd -; compounds opened
     for index, (raw, redirections, marked) in enumerate(commands):
         spend()

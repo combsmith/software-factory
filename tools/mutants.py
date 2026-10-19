@@ -2577,7 +2577,7 @@ MUTANTS = ISSUE + [
     ("zsh's two-operand cd, and an option the hook does not know, are read as a plain cd", "tools/hooks/identity.py",
      "    if letters - CD_OPTIONS[words[0]] or len(args) > 1:\n", "    if False:\n", PLACED_TESTS),
     ("CDPATH set in the command is ignored", "tools/hooks/identity.py",
-     "    cdpath = shell.sets(CDPATH, _quoted(shell.without_heredocs(text)))\n", "    cdpath = False\n", PLACED_TESTS),
+     "shell.sets(CDPATH, _quoted(\n        shell.without_heredocs(text)))\n", "False\n", PLACED_TESTS),
     ("a subshell's cd moves the command", "tools/hooks/shell.py",
      '            out.append(SCOPE[0] if one == "(" else SCOPE[1])\n', "            pass\n", OWN_CD_TESTS),
     ("a substitution's cd moves the command", "tools/hooks/shell.py",

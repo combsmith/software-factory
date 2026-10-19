@@ -788,7 +788,8 @@ class Identity(unittest.TestCase):
         for cd in ("if true; then cd .git; fi", "{ cd .git; }", "builtin cd .git", "command cd .git", "time cd .git",
                    "! cd .git", "f() { cd .git; }; f", "true | cd .git", "cd .git &", "false || cd .git",
                    "while false; do cd .git; done", "while false\ndo\ncd .git\ndone", "cd sub .git", "cd -Z .git",
-                   "CDPATH=.git; cd hooks", "cd .git; cd /tmp | true", "eval 'x=1' || cd .git"):
+                   "CDPATH=.git; cd hooks", "CDP''ATH=.git; cd hooks", "cd .git; cd /tmp | true",
+                   "eval 'x=1' || cd .git"):
             for after in ("; cp /tmp/x config; git -C %s push" % self.here, "; git commit -m x"):
                 self.assertIn("directory_unreadable", self.refused(cd + after), cd + after)
         # A cd placed exactly moves the command, in an && chain too, and a plain path after a lost one stays lost.
@@ -852,6 +853,7 @@ class Identity(unittest.TestCase):
                         "node x.js --out=.git/hooks/x; git push", "nice python3 x.py .git/config; git push",
                         "G=mytool; $G .git/hooks/x; git push", "mytool -x.git/hooks/x; git push",
                         "cd .git/hooks; xxd -r -p /tmp/h pre-push; git -C %s push" % self.here,
+                        "gawk -i inplace '{print}' .git/HEAD; git push",
                         "tree -o.git/hooks/x; git push", "tree -ao .git/hooks/x; git push"):
             self.assertIn("git_directory_written", self.refused(command), command)
         for command in ("[ -d .git ] && git commit -m x", "test -f .git/MERGE_HEAD || git commit -m x", "ls .git && git push",
@@ -862,6 +864,7 @@ class Identity(unittest.TestCase):
                         "make verify && git push", "python3 -m tools.check_repo && git commit -m x", "stat .git/HEAD; git push",
                         "du -sh .git; git push", "cat .git/HEAD; git commit -m x", "x=1; git push", "echo .git/x; git push",
                         "[[ -d .git ]] && git push", "realpath .git; git push", "jq .a f.json; git push",
+                        "awk '{print}' .git/HEAD && git push", "awk -F: '{print $1}' .git/HEAD; git commit -m x",
                         "tree -L 2 .git; git push", "case x in '|') true;; esac; git commit -m x",
                         "case x in '(') :;; esac; git push"):
             self.assertEqual(self.codes(command), "", command)
