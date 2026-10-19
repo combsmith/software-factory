@@ -22,7 +22,8 @@ import time
 import unittest
 from unittest import mock
 
-from kernel import derive, terms
+from kernel import decide as decide_module, derive, issue, terms
+from kernel.decide import decide
 from sim import world
 from tests import support
 from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_lifecycle,
@@ -327,6 +328,191 @@ class Examples(unittest.TestCase):
         for loose in ("^fixed$|b$", "^[a-z]+\\$", "^a|b$", "a$", "^a", "^(a|b)$|^c$", None, 3):
             self.assertFalse(check_examples._anchored(loose), loose)
 
+    def test_a_schema_without_its_envelope_is_caught(self):  # decision 0039
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
+                   for p in (ROOT / "schemas").glob("*.schema.json")}
+        for kind, schema in sorted(schemas.items()):
+            self.assertEqual(check_examples._envelope(kind, schema), [], kind)
+        self.assertEqual(set(schemas), set(check_examples.ENVELOPE))
+        # A document carries schema, its identity and release; a record or a data file schema alone; a part nothing.
+        doc = copy.deepcopy(schemas["outcome"])
+        del doc["properties"]["release"]
+        doc["required"].remove("release")
+        self.assertTrue(caught(check_examples._envelope("outcome", doc), "is a document and does not require release"))
+        for run in ({"type": "string"}, {"type": ["string", "null"], "pattern": "^r_[0-9A-Z]{6,26}$"},
+                    {"pattern": "^r_[0-9A-Z]{6,26}$"}):
+            doc = copy.deepcopy(schemas["outcome"])
+            doc["properties"]["run"] = run
+            self.assertTrue(caught(check_examples._envelope("outcome", doc), "identity, run, is a string with a pattern"),
+                            run)
+        doc = copy.deepcopy(schemas["outcome"])
+        del doc["properties"]["release"]["type"]
+        self.assertTrue(caught(check_examples._envelope("outcome", doc), "release is a string in the Factory's release"))
+        doc = copy.deepcopy(schemas["outcome"])
+        doc["properties"]["schema"] = {"const": "result/1"}
+        self.assertTrue(caught(check_examples._envelope("outcome", doc), "not a const naming outcome"))
+        part = copy.deepcopy(schemas["effect"])
+        part["properties"]["schema"] = {"const": "effect/1"}
+        self.assertTrue(caught(check_examples._envelope("effect", part), "is a part, and carries a schema field"))
+        part = copy.deepcopy(schemas["effect"])
+        part["properties"]["release"] = {"type": "string", "pattern": check_examples.RELEASE}
+        self.assertTrue(caught(check_examples._envelope("effect", part), "is a part, and carries a release"))
+        for kind in ("decision", "config"):
+            loose = copy.deepcopy(schemas[kind])
+            loose["properties"]["release"] = {"type": "string"}
+            self.assertTrue(caught(check_examples._envelope(kind, loose), "carries a release"))
+            loose = copy.deepcopy(schemas[kind])
+            loose["required"].remove("schema")
+            self.assertTrue(caught(check_examples._envelope(kind, loose), "does not require its schema field"))
+        self.assertTrue(caught(check_examples._envelope("verdict", {"type": "object"}), "is in no class of ENVELOPE"))
+        # From the front door: a schema in no class, and a class naming a kind with no schema.
+        root = clone({"schemas/verdict.schema.json": '{"type": "object", "additionalProperties": false}'})
+        self.assertTrue(caught(check_examples.run(root), "schema verdict is in no class of ENVELOPE"))
+        with mock.patch.dict(check_examples.ENVELOPE, {"verdict": "part"}):
+            self.assertTrue(caught(check_examples.run(), "ENVELOPE names verdict, and there is no such schema"))
+
+    def test_text_is_let_through_only_untrusted_or_in_a_body(self):  # decision 0039
+        marked = {"type": "object", "additionalProperties": False, "required": ["untrusted"],
+                  "properties": {"untrusted": {"type": "object", "additionalProperties": False,
+                                               "properties": {"title": {"type": "string"}}}}}
+        self.assertEqual(check_examples._free(marked, {}, marked, "view-item", "$", set()), [])
+        beside = copy.deepcopy(marked)
+        beside["properties"]["title"] = {"type": "string"}
+        self.assertTrue(caught(check_examples._free(beside, {}, beside, "view-item", "$", set()),
+                               "schema view-item admits text at $.title"))
+        # The feed's own schema holds its title so, and nothing else on it is text.
+        schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
+                   for p in (ROOT / "schemas").glob("*.schema.json")}
+        item = schemas["view-item"]
+        self.assertEqual(check_examples._free(item, schemas, item, "view-item", "$", set()), [])
+        self.assertEqual(sorted(item["properties"]["untrusted"]["properties"]), ["title"])
+        # Only the feed marks text untrusted: the same property in a Task, which goes to the model, is caught. And a
+        # body is one string: an object of strings under that name is caught too.
+        self.assertTrue(caught(check_examples._free(marked, {}, marked, "task", "$", set()),
+                               "schema task admits text at $.untrusted.title"))
+        boxed = {"type": "object", "additionalProperties": False,
+                 "properties": {"body": {"type": "object", "additionalProperties": False,
+                                         "properties": {"note": {"type": "string"}}}}}
+        self.assertTrue(caught(check_examples._free(boxed, {}, boxed, "task", "$", set()),
+                               "schema task admits text at $.body.note"))
+        for kind in check_examples.CODES_ONLY:
+            if kind != check_examples.UNTRUSTED_KIND:
+                self.assertNotIn("untrusted", schemas[kind].get("properties", {}), kind)
+
+    def test_the_example_pass_record_replays(self):  # decision 0039, decision 0002
+        # Every Decision in the pass record is the Kernel's own answer on the facts, runs, context and time it holds,
+        # with the Release's data files: the record is enough to replay a pass on a laptop.
+        record = json.loads((ROOT / "examples" / "pass.json").read_text())
+        issues = dict(support.CONFIG, lifecycle=json.loads((ROOT / "lifecycle" / "issue.json").read_text()))
+        self.assertTrue(record["pull_requests"] and record["issues"])
+        for entry in record["pull_requests"]:
+            self.assertEqual(decide(entry["facts"], record["runs"], record["context"], support.CONFIG, record["now"]),
+                             entry["decision"])
+        for entry in record["issues"]:
+            self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], issues, record["now"]),
+                             entry["decision"])
+        # A Run id stands beside an admission or an approval, which is a Run, and is null anywhere else.
+        for entry in record["pull_requests"] + record["issues"]:
+            minted = entry["decision"]["outcome"] == "admit" or entry["decision"].get("action") == "issue_approval"
+            self.assertEqual(entry["run"] is not None, minted, entry["decision"])
+
+    def test_the_pass_record_holds_the_kernels_whole_context(self):  # decision 0039
+        context = json.loads((ROOT / "schemas" / "pass.schema.json").read_text())["$defs"]["context"]
+        self.assertEqual(set(context["properties"]), set(support.context()))
+        self.assertEqual(set(context["required"]), set(support.context()))
+        self.assertIs(context["additionalProperties"], False)
+
+    def test_the_feed_shows_only_what_a_decision_can_say(self):  # decision 0039
+        item = json.loads((ROOT / "schemas" / "view-item.schema.json").read_text())["properties"]
+        pull = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())["properties"]
+        issue_ = json.loads((ROOT / "schemas" / "issue-decision.schema.json").read_text())["properties"]
+        self.assertEqual(set(item["state"]["enum"]), set(pull["state"]["enum"]) | set(issue_["state"]["enum"]))
+        self.assertEqual(item["attention"]["enum"], pull["attention"]["enum"])
+        self.assertEqual(item["attention"]["enum"], issue_["attention"]["enum"])
+        self.assertEqual(item["reason"], pull["reason"])
+
+    def test_every_reason_that_needs_a_person_says_what_is_asked(self):  # decision 0039
+        feed = json.loads((ROOT / "config" / "feed.json").read_text())
+        schema = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
+        self.assertEqual(check_examples._table(feed, schema), [])
+        # The three reasons beside the Kernel's own sets are given needs_you by the Kernel.
+        d = support.facts(queue=True, reviews=[support.review()], author="donpetry-bot")
+        for paused, why in ((True, "paused"), (None, "pause_unreadable")):
+            said = decide(d, [support.run()], support.context(paused=paused), support.CONFIG, support.NOW)
+            self.assertEqual((said["reason"], said["attention"]), (why, "needs_you"))
+        from tests import test_issue
+        past = test_issue.facts(label_events=test_issue.READIED_BY_A_PERSON,
+                                linked=test_issue.closed_links(*range(2, 3 + test_issue.LIMITS["max_unmerged_closes"])))
+        said = issue.decide(past, [], support.context(), test_issue.config(), support.NOW)
+        self.assertEqual((said["reason"], said["attention"]), ("unmerged_closes", "needs_you"))
+        for reason in check_examples.ALSO_NEEDS_YOU:
+            self.assertNotIn(reason, decide_module.NEEDS_YOU_REASONS | issue.NEEDS_YOU_REASONS)
+        # Each fault: a row taken out, a row for a reason that never needs a person, a reason twice, a class unruled.
+        broken = copy.deepcopy(feed)
+        taken = broken["decision_required"].pop(0)
+        self.assertTrue(caught(check_examples._table(broken, schema),
+                               "the reason %s needs a person, and no row says what is asked" % taken["reason"]))
+        broken = copy.deepcopy(feed)
+        broken["decision_required"].append(dict(taken, reason="findings_open"))
+        self.assertTrue(caught(check_examples._table(broken, schema), "a row for findings_open, a reason the Kernel never"))
+        broken = copy.deepcopy(feed)
+        broken["decision_required"].append(taken)
+        self.assertTrue(caught(check_examples._table(broken, schema), "the reason %s has two rows" % taken["reason"]))
+        broken = copy.deepcopy(feed)
+        rule = broken["next_actor"]["by_attention"].pop(0)
+        self.assertTrue(caught(check_examples._table(broken, schema), "class %s has no rule" % rule["attention"]))
+        broken["next_actor"]["by_attention"] += [rule, rule]
+        self.assertTrue(caught(check_examples._table(broken, schema), "class %s has two rules" % rule["attention"]))
+        broken = copy.deepcopy(feed)
+        broken["next_actor"]["by_state"]["rows"].append({"state": "queued", "actor": "lens"})
+        broken["next_actor"]["by_outcome"].append({"outcome": ["admit"], "actor": "nobody"})
+        problems = check_examples._table(broken, schema)
+        self.assertTrue(caught(problems, "the State queued has two rules"))
+        self.assertTrue(caught(problems, "the outcome admit has two rules"))
+        # And from the front door, on the live file.
+        root = clone({"config/feed.json": json.dumps(dict(feed, decision_required=feed["decision_required"][1:]))})
+        self.assertTrue(caught(check_examples.run(root), "config/feed.json: feed: the reason"))
+
+    def test_the_example_feed_follows_the_table(self):  # decision 0039
+        feed = json.loads((ROOT / "config" / "feed.json").read_text())
+
+        def next_actor(d: dict) -> str:
+            for row in feed["next_actor"]["by_outcome"]:
+                if d["outcome"] in row["outcome"]:
+                    return row["actor"]
+            actor = {row["attention"]: row["actor"] for row in feed["next_actor"]["by_attention"]}[d["attention"]]
+            if actor != "by_state":
+                return actor
+            by_state = {row["state"]: row["actor"] for row in feed["next_actor"]["by_state"]["rows"]}
+            return by_state.get(d["state"], feed["next_actor"]["by_state"]["default"])
+
+        def decision_required(d: dict):
+            if d["attention"] != "needs_you":
+                return None
+            row = {row["reason"]: row for row in feed["decision_required"]}[d["reason"]]
+            return {"question": row["question"], "choices": row["choices"], "evidence": d["evidence"]}
+
+        items = json.loads((ROOT / "examples" / "view-items.json").read_text())["items"]
+        for item in items:
+            codes = {"outcome": "nothing" if item["attention"] != "working" else "defer", **item}
+            self.assertEqual(item["next_actor"], next_actor(codes), item["item"])
+            self.assertEqual(item["decision_required"], decision_required(codes), item["item"])
+        self.assertEqual({item["attention"] for item in items}, {"needs_you", "review"})
+        # The table's own rules are the design's (section 8.4): a Decision about to admit or act is the Factory's, then
+        # by class, then by State for the classes that wait on a Lens or the platform.
+        for outcome in ("admit", "act"):
+            self.assertEqual(next_actor({"outcome": outcome, "attention": "needs_you", "state": "held"}), "factory")
+        for attention, actor in (("needs_you", "maintainer"), ("working", "factory"), ("failed", "author"), ("none", "nobody")):
+            self.assertEqual(next_actor({"outcome": "nothing", "attention": attention, "state": "addressing"}), actor)
+        for attention in ("review", "ready", "stale"):
+            for state, actor in (("verifying", "lens"), ("adjudicating", "lens"), ("queued", "platform"),
+                                 ("converged", "factory"), ("triage", "factory")):
+                self.assertEqual(next_actor({"outcome": "defer", "attention": attention, "state": state}), actor)
+        # A fact the Factory cannot read, or a Pause, is mended at its source; every other question can be closed.
+        for row in feed["decision_required"]:
+            mended = row["question"] in ("fact_unreadable", "paused", "configuration_needs_you")
+            self.assertEqual("close" in row["choices"], not mended, row["reason"])
+
     def test_each_effect_type_is_requested_by_its_own_list(self):  # decision 0038
         # With no oneOf, one list for each type is the only shape in which "a resolve_thread with no thread" is refused.
         effect = json.loads((ROOT / "schemas" / "effect.schema.json").read_text())
@@ -612,6 +798,16 @@ class Authority(unittest.TestCase):
         problems = check_authority.run(self.table, result=result)
         self.assertTrue(caught(problems, "a raised Finding in a Result carries no category"))
         self.assertTrue(caught(problems, "a raised Finding in a Result carries no severity"))
+
+    def test_a_manifest_with_a_category_nobody_owns_is_caught(self):  # decision 0039
+        role = json.loads((ROOT / "schemas" / "role.schema.json").read_text())
+        role["properties"]["owns"]["items"]["enum"].append("style")
+        role["properties"]["lens"]["properties"]["raises"]["items"]["enum"].remove("security")
+        problems = check_authority.run(self.table, role=role)
+        self.assertTrue(caught(problems, "a Role manifest may own the category style, and no Finding can carry it"))
+        self.assertTrue(caught(problems, "a Finding may carry the category security, and no Role manifest can raise it"))
+        del role["properties"]["shadows"]
+        self.assertTrue(caught(check_authority.run(self.table, role=role), "a Role manifest's shadows names no category"))
 
     def test_the_kernel_reads_the_categories_and_severities_a_finding_carries(self):
         for name, value in (("CATEGORIES", terms.CATEGORIES[1:]), ("SEVERITIES", terms.SEVERITIES + ("critical",))):

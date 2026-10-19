@@ -1,0 +1,357 @@
+{
+  "schema": "pass/1",
+  "pass": "p_01JA7P",
+  "release": "factory/v0.3.1",
+  "now": "2026-10-11T13:00:00Z",
+  "context": {
+    "active_runs": 0,
+    "model_deferred_until": null,
+    "passes_since": "2026-10-11T12:55:00Z",
+    "unidentified_runs": []
+  },
+  "runs": [
+    {
+      "run": "r_01JA6Z",
+      "item": {
+        "repo": "combsmith/software-factory",
+        "type": "pull_request",
+        "number": 42
+      },
+      "role": "pr-review",
+      "intent": "review-change",
+      "content_id": "sha256:5d0c",
+      "status": "completed",
+      "conclusion": "success",
+      "outcome": null,
+      "started_at": "2026-10-11T12:05:00Z"
+    }
+  ],
+  "reads": [
+    {
+      "read": "runs",
+      "date": "2026-10-11T12:59:58Z",
+      "age": 0
+    },
+    {
+      "read": "facts",
+      "date": "2026-10-11T12:59:59Z",
+      "age": 0
+    }
+  ],
+  "pull_requests": [
+    {
+      "facts": {
+        "schema": "facts/1",
+        "item": {
+          "repo": "combsmith/software-factory",
+          "type": "pull_request",
+          "number": 42
+        },
+        "state": "open",
+        "is_draft": false,
+        "class": "maintainer",
+        "author": "don-petry",
+        "last_pusher": "don-petry",
+        "targets_protected": true,
+        "mergeable": true,
+        "content_id": "sha256:5d0c",
+        "diff": {
+          "files": 3,
+          "lines": 120,
+          "truncated": false
+        },
+        "changed_paths": [
+          {
+            "path": "kernel/derive.py",
+            "previous": "kernel/derive_old.py"
+          },
+          {
+            "path": "tests/test_decide.py",
+            "previous": null
+          },
+          {
+            "path": "docs/glossary.md",
+            "previous": null
+          }
+        ],
+        "label_events": [
+          {
+            "label": "factory:hold",
+            "action": "labeled",
+            "by": {
+              "kind": "human",
+              "name": "don-petry",
+              "can_write": true
+            },
+            "at": "2026-10-11T11:40:00Z"
+          },
+          {
+            "label": "factory:hold",
+            "action": "unlabeled",
+            "by": {
+              "kind": "human",
+              "name": "don-petry",
+              "can_write": true
+            },
+            "at": "2026-10-11T11:45:00Z"
+          }
+        ],
+        "last_push_at": "2026-10-11T12:00:00Z",
+        "last_writer_action_at": "2026-10-11T12:00:00Z",
+        "reviews": [
+          {
+            "by": {
+              "kind": "machine_user",
+              "name": "donpetry-bot",
+              "can_write": true
+            },
+            "state": "dismissed",
+            "commit": "4b1a9c0",
+            "content_id": "sha256:4b1a",
+            "submitted_at": "2026-10-11T11:50:00Z",
+            "dismissed_by": {
+              "kind": "human",
+              "name": "don-petry",
+              "can_write": true
+            },
+            "dismissed_from": "approved"
+          },
+          {
+            "by": {
+              "kind": "human",
+              "name": "a-colleague",
+              "can_write": true
+            },
+            "state": "changes_requested",
+            "commit": "5d0c7e2",
+            "content_id": "sha256:5d0c",
+            "submitted_at": "2026-10-11T12:18:00Z",
+            "dismissed_by": null,
+            "dismissed_from": null
+          }
+        ],
+        "threads": [
+          {
+            "id": "PRRT_kw7",
+            "resolved": false,
+            "opened_by": {
+              "kind": "lens",
+              "name": "pr-review",
+              "can_write": true
+            },
+            "category": "functional",
+            "severity": "major",
+            "resolved_by": null,
+            "opened_at": "2026-10-11T12:15:00Z"
+          },
+          {
+            "id": "PRRT_kw1",
+            "resolved": false,
+            "opened_by": {
+              "kind": "lens",
+              "name": "coderabbit",
+              "can_write": false
+            },
+            "category": null,
+            "severity": null,
+            "resolved_by": null,
+            "opened_at": "2026-10-11T12:15:00Z"
+          },
+          {
+            "id": "PRRT_kw3",
+            "resolved": true,
+            "opened_by": {
+              "kind": "human",
+              "name": "a-colleague",
+              "can_write": true
+            },
+            "category": "human",
+            "severity": null,
+            "resolved_by": {
+              "kind": "human",
+              "name": "a-colleague",
+              "can_write": true
+            },
+            "opened_at": "2026-10-11T12:16:00Z"
+          }
+        ],
+        "checks": [
+          {
+            "name": "verify",
+            "app_id": 15368,
+            "workflow": ".github/workflows/verify.yml",
+            "conclusion": "success",
+            "completed_at": "2026-10-11T12:06:00Z"
+          },
+          {
+            "name": "Secret scan (gitleaks)",
+            "app_id": 15368,
+            "workflow": ".github/workflows/ci.yml",
+            "conclusion": "success",
+            "completed_at": "2026-10-11T12:06:00Z"
+          },
+          {
+            "name": "CodeQL",
+            "app_id": 57789,
+            "workflow": null,
+            "conclusion": "success",
+            "completed_at": "2026-10-11T12:06:00Z"
+          }
+        ],
+        "queue": false,
+        "acts_since_writer": 2,
+        "acceptance": null,
+        "complete": {
+          "acceptance": true,
+          "reviews": true,
+          "threads": true,
+          "checks": true,
+          "diff": true,
+          "changed_paths": true,
+          "runs": true,
+          "timeline": true
+        },
+        "read_at": "2026-10-11T12:20:00Z"
+      },
+      "decision": {
+        "schema": "decision/1",
+        "item": {
+          "repo": "combsmith/software-factory",
+          "type": "pull_request",
+          "number": 42
+        },
+        "state": "addressing",
+        "reason": "human_finding",
+        "evidence": [
+          "PRRT_kw7",
+          "a-colleague"
+        ],
+        "attention": "needs_you",
+        "outcome": "admit",
+        "admit": {
+          "role": "dev-lead",
+          "intent": "fix-findings",
+          "content_id": "sha256:5d0c"
+        }
+      },
+      "run": "r_01JA7Q"
+    }
+  ],
+  "issues": [
+    {
+      "facts": {
+        "schema": "issue-facts/1",
+        "item": {
+          "repo": "combsmith/software-factory",
+          "type": "issue",
+          "number": 41
+        },
+        "state": "open",
+        "author": {
+          "kind": "human",
+          "name": "don-petry",
+          "can_write": true
+        },
+        "type": "Task",
+        "label_names": [
+          "kernel",
+          "factory:triage"
+        ],
+        "assignees": [
+          "don-petry"
+        ],
+        "life_started_at": "2026-10-11T09:00:00Z",
+        "reopened_last_by": "never",
+        "content_id": "sha256:41c1",
+        "content_changed_at": "2026-10-11T09:30:00Z",
+        "label_events": [
+          {
+            "label": "factory:triage",
+            "action": "labeled",
+            "by": {
+              "kind": "app",
+              "name": "combsmith-sf-controller[bot]",
+              "can_write": true
+            },
+            "at": "2026-10-11T09:31:00Z"
+          }
+        ],
+        "linked": [
+          {
+            "number": 146,
+            "class": "agent",
+            "opener": {
+              "kind": "app",
+              "name": "combsmith-sf-dev-lead[bot]",
+              "can_write": true
+            },
+            "open": true,
+            "draft": true,
+            "opened_at": "2026-10-11T09:40:00Z",
+            "merged_at": null,
+            "closed_at": null,
+            "empty": false,
+            "label_events": []
+          },
+          {
+            "number": 140,
+            "class": "outside",
+            "opener": {
+              "kind": "human",
+              "name": "stranger",
+              "can_write": false
+            },
+            "open": false,
+            "draft": false,
+            "opened_at": "2026-10-11T09:35:00Z",
+            "merged_at": null,
+            "closed_at": "2026-10-11T10:00:00Z",
+            "empty": false,
+            "label_events": [
+              {
+                "label": "factory:admit",
+                "action": "labeled",
+                "by": {
+                  "kind": "human",
+                  "name": "don-petry",
+                  "can_write": true
+                },
+                "at": "2026-10-11T09:45:00Z"
+              }
+            ]
+          }
+        ],
+        "role_comments": [
+          {
+            "by": "combsmith-sf-controller[bot]",
+            "at": "2026-10-11T09:31:00Z"
+          }
+        ],
+        "last_writer_action_at": "2026-10-11T09:30:00Z",
+        "last_writer_comment_at": null,
+        "acts_since_writer": 1,
+        "branch_head": "9f2c41d07a3be58e1c6d0b4a7e25f3c18d90ab6e",
+        "complete": {
+          "timeline": true,
+          "linked": true,
+          "runs": true
+        },
+        "read_at": "2026-10-11T12:00:00Z"
+      },
+      "decision": {
+        "schema": "issue-decision/1",
+        "item": {
+          "repo": "combsmith/software-factory",
+          "type": "issue",
+          "number": 41
+        },
+        "state": "not_served",
+        "reason": "left_out",
+        "evidence": [],
+        "attention": "none",
+        "outcome": "nothing"
+      },
+      "run": null
+    }
+  ]
+}

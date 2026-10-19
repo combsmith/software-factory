@@ -1,0 +1,43 @@
+{
+  "schema": "role/1",
+  "name": "devops-lead",
+  "kind": "shadow",
+  "shadows": [
+    "delivery"
+  ],
+  "lens": {
+    "scope": {
+      "paths": [
+        ".github/**",
+        "**/*.tf",
+        "**/*.bicep",
+        "**/Dockerfile*",
+        "infra/**",
+        "scripts/ci/**"
+      ],
+      "exclude": [
+        "docs/**"
+      ],
+      "always": false
+    },
+    "raises": [
+      "delivery"
+    ]
+  },
+  "intents": [
+    {
+      "name": "review-change",
+      "tier": "standard",
+      "permitted_effects": [],
+      "budget_class": "shadow",
+      "evals": "evals/review-change"
+    },
+    {
+      "name": "adjudicate-findings",
+      "tier": "deep",
+      "permitted_effects": [],
+      "budget_class": "shadow",
+      "evals": "evals/adjudicate-findings"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "view-items/1: every open Work item as the pass that wrote it saw it, one view-item each.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "pass",
+    "release",
+    "items"
+  ],
+  "properties": {
+    "schema": {
+      "const": "view-items/1"
+    },
+    "pass": {
+      "type": "string",
+      "pattern": "^p_[0-9A-Z]{6,26}$"
+    },
+    "release": {
+      "type": "string",
+      "pattern": "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "view-item.schema.json"
+      }
+    }
+  }
+}

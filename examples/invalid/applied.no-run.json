@@ -1,0 +1,73 @@
+{
+  "schema": "applied/1",
+  "release": "factory/v0.3.1",
+  "effects": [
+    {
+      "id": "e1",
+      "type": "submit_review",
+      "state": "applied",
+      "key": "PRR_kwDOA7",
+      "reason": null
+    },
+    {
+      "id": "e2",
+      "type": "create_check_run",
+      "state": "applied",
+      "key": "CR_kwDOA7",
+      "reason": null
+    }
+  ],
+  "findings": [
+    {
+      "schema": "finding/1",
+      "id": "f_9c1e",
+      "source": {
+        "lens": "pr-review",
+        "kind": "role",
+        "actor": "combsmith-sf-pr-review[bot]"
+      },
+      "surface": {
+        "type": "thread",
+        "key": "PRRT_kw7"
+      },
+      "location": {
+        "path": "kernel/decide.py",
+        "start_line": 88,
+        "end_line": 94
+      },
+      "category": "functional",
+      "severity": "major",
+      "criterion": "PR-3",
+      "adopted_from": {
+        "lens": "coderabbit",
+        "surface": {
+          "type": "thread",
+          "key": "PRRT_kw1"
+        }
+      },
+      "content_id": "sha256:5d0c"
+    },
+    {
+      "schema": "finding/1",
+      "id": "f_41d2",
+      "source": {
+        "lens": "pr-review",
+        "kind": "role",
+        "actor": "combsmith-sf-pr-review[bot]"
+      },
+      "surface": {
+        "type": "annotation",
+        "key": "CR_kwDOA7:n2"
+      },
+      "location": {
+        "path": "tests/test_decide.py",
+        "start_line": 410,
+        "end_line": 410
+      },
+      "category": "delivery",
+      "severity": "minor",
+      "criterion": null,
+      "content_id": "sha256:5d0c"
+    }
+  ]
+}
