@@ -1093,7 +1093,7 @@ def issue_stands(item: dict, name: str) -> bool:
 
 
 def a_writers(fn):
-    """A change a person with write access makes: their action renews every count (I-23)."""
+    """A change a person with write access makes: their action renews every count (I-8, I-28)."""
     def change(item):
         item = fn(item)
         if item is not None:
