@@ -32,7 +32,11 @@ The feed's two files, `view-meta/1` and `view-items/1`, carry the pass that wrot
 `untrusted`. The item's title is the one text on the feed, held under `untrusted`, and never in the facts: `facts/1`
 and `issue-facts/1` have no field for it, so neither the Kernel nor a replay sees one. In what one Run carries, and in
 what is written from it, a string is a code unless it is a property named `body` or sits under one named `untrusted`;
-a reference into a kind outside that set is held by that kind's own rules, so the existing records are not swept.
+a body is one string, and only the feed marks text untrusted. A reference into a kind outside that set is held by
+that kind's own rules: the facts, the Decisions and `finding/1` are the Factory's own records, with free identifiers
+the Kernel only compares, and they are not swept here; a run record is held to codes, since a pass record carries it.
+A part carries no `release` either, and a document's identity and release are strings. `config/feed.json` is a
+protected path, as every other file in `config/` is, so a change to it is reviewed by every model Lens.
 
 `next_actor` and `decision_required` are read from the Decision's codes through `config/feed.json`, `feed/1`, and
 from nothing else: by outcome first, a Decision about to admit or act being the Factory's; then by attention class;
@@ -73,8 +77,9 @@ table, is a reserved path, so the table is data now.
 | Every Decision in the example pass record is the Kernel's own answer on what the record holds, with the repository's data files; a Run id stands beside an admission and nowhere else | `tests/test_tools.py::test_the_example_pass_record_replays` |
 | The pass record's context has exactly the keys every Kernel test is given, all required | `tests/test_tools.py::test_the_pass_record_holds_the_kernels_whole_context` |
 | A feed item's State and attention are what the two Decisions can say, and its reason the same code | `tests/test_tools.py::test_the_feed_shows_only_what_a_decision_can_say` |
-| The table has one row for each reason the Kernel gives `needs_you`, none for another, and one rule for each attention class; `paused`, `pause_unreadable` and `unmerged_closes` are shown to need a person | `tests/test_tools.py::test_every_reason_that_needs_a_person_says_what_is_asked` |
-| Each item of the example feed carries the next actor and the decision required the table gives its Decision's codes | `tests/test_tools.py::test_the_example_feed_follows_the_table` |
+| The table has one row for each reason the Kernel gives `needs_you`, none for another, one rule for each attention class, and no State or outcome ruled twice; `paused`, `pause_unreadable` and `unmerged_closes` are shown to need a person | `tests/test_tools.py::test_every_reason_that_needs_a_person_says_what_is_asked` |
+| A manifest's categories are the Finding's | `tests/test_tools.py::test_a_manifest_with_a_category_nobody_owns_is_caught` |
+| Each item of the example feed carries the next actor and the decision required the table gives its Decision's codes, and the table's rules are the design's: a Decision about to admit or act is the Factory's, then by class, then by State | `tests/test_tools.py::test_the_example_feed_follows_the_table` |
 | The facts have no field for a title | `examples/invalid/facts.carries-the-title.json`, `examples/invalid/issue-facts.carries-the-title.json`, `examples/invalid/facts.carries-prose.json` |
 | A pass record with no release, a Decision without its facts, a context without the Pause, or a Run id in another form is refused | `examples/invalid/pass.no-release.json`, `examples/invalid/pass.a-decision-without-its-facts.json`, `examples/invalid/pass.a-context-without-the-pause.json`, `examples/invalid/pass.a-run-id-in-another-form.json` |
 | The feed's files are refused with no pass, a time in another format, a title not marked untrusted, a sentence as a reason, a choice no person can make, a next actor in words, or no release | `examples/invalid/view-meta.no-pass.json`, `examples/invalid/view-meta.time-in-another-format.json`, `examples/invalid/view-items.a-title-not-marked-untrusted.json`, `examples/invalid/view-items.sentence-as-reason.json`, `examples/invalid/view-items.a-choice-no-person-can-make.json`, `examples/invalid/view-items.a-next-actor-in-words.json`, `examples/invalid/view-items.no-release.json` |

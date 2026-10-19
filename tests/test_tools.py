@@ -339,15 +339,24 @@ class Examples(unittest.TestCase):
         del doc["properties"]["release"]
         doc["required"].remove("release")
         self.assertTrue(caught(check_examples._envelope("outcome", doc), "is a document and does not require release"))
+        for run in ({"type": "string"}, {"type": ["string", "null"], "pattern": "^r_[0-9A-Z]{6,26}$"},
+                    {"pattern": "^r_[0-9A-Z]{6,26}$"}):
+            doc = copy.deepcopy(schemas["outcome"])
+            doc["properties"]["run"] = run
+            self.assertTrue(caught(check_examples._envelope("outcome", doc), "identity, run, is a string with a pattern"),
+                            run)
         doc = copy.deepcopy(schemas["outcome"])
-        doc["properties"]["run"] = {"type": "string"}
-        self.assertTrue(caught(check_examples._envelope("outcome", doc), "identity, run, has a pattern anchored"))
+        del doc["properties"]["release"]["type"]
+        self.assertTrue(caught(check_examples._envelope("outcome", doc), "release is a string in the Factory's release"))
         doc = copy.deepcopy(schemas["outcome"])
         doc["properties"]["schema"] = {"const": "result/1"}
         self.assertTrue(caught(check_examples._envelope("outcome", doc), "not a const naming outcome"))
         part = copy.deepcopy(schemas["effect"])
         part["properties"]["schema"] = {"const": "effect/1"}
         self.assertTrue(caught(check_examples._envelope("effect", part), "is a part, and carries a schema field"))
+        part = copy.deepcopy(schemas["effect"])
+        part["properties"]["release"] = {"type": "string", "pattern": check_examples.RELEASE}
+        self.assertTrue(caught(check_examples._envelope("effect", part), "is a part, and carries a release"))
         for kind in ("decision", "config"):
             loose = copy.deepcopy(schemas[kind])
             loose["properties"]["release"] = {"type": "string"}
@@ -377,6 +386,18 @@ class Examples(unittest.TestCase):
         item = schemas["view-item"]
         self.assertEqual(check_examples._free(item, schemas, item, "view-item", "$", set()), [])
         self.assertEqual(sorted(item["properties"]["untrusted"]["properties"]), ["title"])
+        # Only the feed marks text untrusted: the same property in a Task, which goes to the model, is caught. And a
+        # body is one string: an object of strings under that name is caught too.
+        self.assertTrue(caught(check_examples._free(marked, {}, marked, "task", "$", set()),
+                               "schema task admits text at $.untrusted.title"))
+        boxed = {"type": "object", "additionalProperties": False,
+                 "properties": {"body": {"type": "object", "additionalProperties": False,
+                                         "properties": {"note": {"type": "string"}}}}}
+        self.assertTrue(caught(check_examples._free(boxed, {}, boxed, "task", "$", set()),
+                               "schema task admits text at $.body.note"))
+        for kind in check_examples.CODES_ONLY:
+            if kind != check_examples.UNTRUSTED_KIND:
+                self.assertNotIn("untrusted", schemas[kind].get("properties", {}), kind)
 
     def test_the_example_pass_record_replays(self):  # decision 0039, decision 0002
         # Every Decision in the pass record is the Kernel's own answer on the facts, runs, context and time it holds,
@@ -390,9 +411,10 @@ class Examples(unittest.TestCase):
         for entry in record["issues"]:
             self.assertEqual(issue.decide(entry["facts"], record["runs"], record["context"], issues, record["now"]),
                              entry["decision"])
-        # A Run id stands beside an admission, and null where nothing was admitted.
+        # A Run id stands beside an admission or an approval, which is a Run, and is null anywhere else.
         for entry in record["pull_requests"] + record["issues"]:
-            self.assertEqual(entry["run"] is not None, entry["decision"]["outcome"] in ("admit", "act"), entry["decision"])
+            minted = entry["decision"]["outcome"] == "admit" or entry["decision"].get("action") == "issue_approval"
+            self.assertEqual(entry["run"] is not None, minted, entry["decision"])
 
     def test_the_pass_record_holds_the_kernels_whole_context(self):  # decision 0039
         context = json.loads((ROOT / "schemas" / "pass.schema.json").read_text())["$defs"]["context"]
@@ -441,6 +463,12 @@ class Examples(unittest.TestCase):
         self.assertTrue(caught(check_examples._table(broken, schema), "class %s has no rule" % rule["attention"]))
         broken["next_actor"]["by_attention"] += [rule, rule]
         self.assertTrue(caught(check_examples._table(broken, schema), "class %s has two rules" % rule["attention"]))
+        broken = copy.deepcopy(feed)
+        broken["next_actor"]["by_state"]["rows"].append({"state": "queued", "actor": "lens"})
+        broken["next_actor"]["by_outcome"].append({"outcome": ["admit"], "actor": "nobody"})
+        problems = check_examples._table(broken, schema)
+        self.assertTrue(caught(problems, "the State queued has two rules"))
+        self.assertTrue(caught(problems, "the outcome admit has two rules"))
         # And from the front door, on the live file.
         root = clone({"config/feed.json": json.dumps(dict(feed, decision_required=feed["decision_required"][1:]))})
         self.assertTrue(caught(check_examples.run(root), "config/feed.json: feed: the reason"))
@@ -470,10 +498,20 @@ class Examples(unittest.TestCase):
             self.assertEqual(item["next_actor"], next_actor(codes), item["item"])
             self.assertEqual(item["decision_required"], decision_required(codes), item["item"])
         self.assertEqual({item["attention"] for item in items}, {"needs_you", "review"})
-        # The table's own rules, read against each class and a Decision about to act.
-        self.assertEqual(next_actor({"outcome": "admit", "attention": "ready", "state": "converged"}), "factory")
-        self.assertEqual(next_actor({"outcome": "defer", "attention": "ready", "state": "queued"}), "platform")
-        self.assertEqual(next_actor({"outcome": "nothing", "attention": "none", "state": "merged"}), "nobody")
+        # The table's own rules are the design's (section 8.4): a Decision about to admit or act is the Factory's, then
+        # by class, then by State for the classes that wait on a Lens or the platform.
+        for outcome in ("admit", "act"):
+            self.assertEqual(next_actor({"outcome": outcome, "attention": "needs_you", "state": "held"}), "factory")
+        for attention, actor in (("needs_you", "maintainer"), ("working", "factory"), ("failed", "author"), ("none", "nobody")):
+            self.assertEqual(next_actor({"outcome": "nothing", "attention": attention, "state": "addressing"}), actor)
+        for attention in ("review", "ready", "stale"):
+            for state, actor in (("verifying", "lens"), ("adjudicating", "lens"), ("queued", "platform"),
+                                 ("converged", "factory"), ("triage", "factory")):
+                self.assertEqual(next_actor({"outcome": "defer", "attention": attention, "state": state}), actor)
+        # A fact the Factory cannot read, or a Pause, is mended at its source; every other question can be closed.
+        for row in feed["decision_required"]:
+            mended = row["question"] in ("fact_unreadable", "paused", "configuration_needs_you")
+            self.assertEqual("close" in row["choices"], not mended, row["reason"])
 
     def test_each_effect_type_is_requested_by_its_own_list(self):  # decision 0038
         # With no oneOf, one list for each type is the only shape in which "a resolve_thread with no thread" is refused.
@@ -760,6 +798,16 @@ class Authority(unittest.TestCase):
         problems = check_authority.run(self.table, result=result)
         self.assertTrue(caught(problems, "a raised Finding in a Result carries no category"))
         self.assertTrue(caught(problems, "a raised Finding in a Result carries no severity"))
+
+    def test_a_manifest_with_a_category_nobody_owns_is_caught(self):  # decision 0039
+        role = json.loads((ROOT / "schemas" / "role.schema.json").read_text())
+        role["properties"]["owns"]["items"]["enum"].append("style")
+        role["properties"]["lens"]["properties"]["raises"]["items"]["enum"].remove("security")
+        problems = check_authority.run(self.table, role=role)
+        self.assertTrue(caught(problems, "a Role manifest may own the category style, and no Finding can carry it"))
+        self.assertTrue(caught(problems, "a Finding may carry the category security, and no Role manifest can raise it"))
+        del role["properties"]["shadows"]
+        self.assertTrue(caught(check_authority.run(self.table, role=role), "a Role manifest's shadows names no category"))
 
     def test_the_kernel_reads_the_categories_and_severities_a_finding_carries(self):
         for name, value in (("CATEGORIES", terms.CATEGORIES[1:]), ("SEVERITIES", terms.SEVERITIES + ("critical",))):

@@ -38,10 +38,11 @@ RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # `untrusted`. A body goes out to GitHub or in to the model as data, and nothing reads one back into a decision; what is
 # untrusted is marked for whatever reads the feed, and only view-item has it. A reference into a kind outside this set
 # is held by that kind's own rules, so the existing records are not swept.
-CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage",
+CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage", "run-record",
               "pass", "applied", "outcome", "view-meta", "view-items", "view-item", "role", "feed")
 TEXT_FIELD = "body"
 UNTRUSTED_FIELD = "untrusted"
+UNTRUSTED_KIND = "view-item"
 # The reasons the Kernel gives `needs_you` beside its own sets: a Hold deferred under a Pause, or one it cannot read
 # (tests/test_decide.py::test_an_approver_who_is_the_author_or_last_pusher_takes_it_out_of_the_queue,
 # tests/test_issue.py::test_placing_a_hold_is_stopped_only_by_the_pause_and_not_once_the_hold_is_there,
@@ -117,6 +118,8 @@ def _envelope(kind: str, schema) -> list:
     if cls == "part":
         if "schema" in props:
             out.append("schema %s is a part, and carries a schema field; only what crosses a boundary whole does" % kind)
+        if "release" in props:
+            out.append("schema %s is a part, and carries a release; its Release is the document's it is inside" % kind)
         return out
     const = props.get("schema", {}).get("const") if isinstance(props.get("schema"), dict) else None
     if not (isinstance(const, str) and re.fullmatch(r"%s/[1-9][0-9]*" % re.escape(kind), const)):
@@ -127,13 +130,25 @@ def _envelope(kind: str, schema) -> list:
         for name in (identity, "release"):
             if name not in required:
                 out.append("schema %s is a document and does not require %s" % (kind, name))
-        if not (isinstance(props.get("release"), dict) and props["release"].get("pattern") == RELEASE):
-            out.append("schema %s: a document's release is the Factory's release pattern" % kind)
-        if not (isinstance(props.get(identity), dict) and _anchored(props[identity].get("pattern"))):
-            out.append("schema %s: a document's identity, %s, has a pattern anchored at both ends" % (kind, identity))
+        if not (isinstance(props.get("release"), dict) and props["release"].get("pattern") == RELEASE
+                and props["release"].get("type") == "string"):
+            out.append("schema %s: a document's release is a string in the Factory's release pattern" % kind)
+        if not (isinstance(props.get(identity), dict) and _anchored(props[identity].get("pattern"))
+                and props[identity].get("type") == "string"):
+            out.append("schema %s: a document's identity, %s, is a string with a pattern anchored at both ends"
+                       % (kind, identity))
     elif "release" in props:
         out.append("schema %s is a %s and carries a release; its Release is its document's, or the commit" % (kind, cls))
     return out
+
+
+def _string_only(node) -> bool:
+    """Whether `node` admits a string, null or nothing else: the shape of a body."""
+    if not isinstance(node, dict):
+        return False
+    kinds = node.get("type")
+    kinds = kinds if isinstance(kinds, list) else [kinds]
+    return "string" in kinds and not (set(kinds) - {"string", "null"})
 
 
 def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: tuple = ()) -> list:
@@ -169,8 +184,13 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
         out.append("schema %s admits text at %s; a string a Run carries is a code, unless it is named %s"
                    % (kind, path, TEXT_FIELD))
     for name, prop in schema.get("properties", {}).items():
-        if name not in (TEXT_FIELD, UNTRUSTED_FIELD):
-            out += _free(prop, schemas, root, kind, "%s.%s" % (path, name), seen)
+        # A body is one string, and what is untrusted is marked only on the feed: neither exempts an object of strings
+        # under its name in a Task.
+        if name == TEXT_FIELD and _string_only(prop):
+            continue
+        if name == UNTRUSTED_FIELD and kind == UNTRUSTED_KIND:
+            continue
+        out += _free(prop, schemas, root, kind, "%s.%s" % (path, name), seen)
     if isinstance(schema.get("items"), dict):
         out += _free(schema["items"], schemas, root, kind, path + "[]", seen)
     if isinstance(schema.get("additionalProperties"), dict):
@@ -195,6 +215,13 @@ def _table(feed, decision_schema) -> list:
     for name in classes:
         if ruled.count(name) != 1:
             out.append("feed: the attention class %s has %s" % (name, "no rule" if name not in ruled else "two rules"))
+    # The rules read first-wins in order, so a key ruled twice would hide its second rule.
+    states = [row["state"] for row in feed["next_actor"]["by_state"]["rows"]]
+    for name in sorted({name for name in states if states.count(name) > 1}):
+        out.append("feed: the State %s has two rules" % name)
+    outcomes = [name for row in feed["next_actor"]["by_outcome"] for name in row["outcome"]]
+    for name in sorted({name for name in outcomes if outcomes.count(name) > 1}):
+        out.append("feed: the outcome %s has two rules" % name)
     return out
 
 

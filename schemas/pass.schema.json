@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "pass/1: what one pass of the Controller read and decided, enough to replay every Decision it made: the time it gave the Kernel, the whole context, every run record, each read's date and age, and for each item its facts, its Decision and the Run id minted for an admission or an approval. The configuration is the data at release. Nothing here is text: the facts have no field for a title.",
+  "title": "pass/1: what one pass of the Controller read and decided, enough to replay every Decision it made: the time it gave the Kernel, the whole context, every run record, each read's date and age, and for each item its facts, its Decision and the Run id minted for an admission or an approval. The configuration is the data at release. There is no title anywhere in it: the facts have no field for one, so a replay, like the Kernel, never sees one.",
   "type": "object",
   "additionalProperties": false,
   "required": [

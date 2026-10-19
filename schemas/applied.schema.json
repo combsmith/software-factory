@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "applied/1: what apply did with one Result, uploaded by apply: each Effect it met, in the order applied, with what was read back, and the finding/1 of each Finding it posted, with its surface's key as read back. No text: bodies stay in the Result, which run names.",
+  "title": "applied/1: what apply did with one Result, uploaded by apply: each Effect it met, in the order applied, with what was read back as a code, and the finding/1 of each Finding it posted, with its surface's key as read back. A body stays in the Result, which run names; a posted Finding is the record of finding/1, held by its own rules.",
   "type": "object",
   "additionalProperties": false,
   "required": [

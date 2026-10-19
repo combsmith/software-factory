@@ -282,9 +282,9 @@ its identity and the `release` that produced it: a Task, a Result, `applied.json
 join, and carries `schema` alone: its identity and Release are its document's (the facts, a
 Decision, a Finding). A **part** is only ever inside another, by reference, and carries nothing (an
 Effect, a Disposition, coverage, the run-name, a run record, a feed item). A **data** file a person
-edits carries `schema`; its identity is its path and its Release the commit (the configuration, the
-Lifecycles, the authority table, a Role manifest, a rubric, an acceptance contract, a fixture). A
-reader rejects a major version it does not know. Messages are JSON. Files a person edits are shown
+edits carries `schema`; its identity is its path and its Release the commit (the configuration,
+the hooks' data, the Lifecycles, the authority table, the Apps, the feed's table, a Role manifest,
+a rubric, an acceptance contract, a fixture). A reader rejects a major version it does not know. Messages are JSON. Files a person edits are shown
 here as YAML because it reads more easily; in the repo they are JSON, since the standard library
 has no YAML parser and nothing third-party runs in the Factory.
 
@@ -562,15 +562,17 @@ receives them.
 {
   "schema": "decision/1",
   "item": { "repo": "combsmith/software-factory", "type": "pull_request", "number": 42 },
+  "state": "adjudicating",
+  "reason": "findings_proposed",
+  "evidence": ["PRRT_kw7", "r_01JA6Z"],
+  "attention": "review",
   "outcome": "admit",
-  "reason": "blocking_findings_proposed",
-  "evidence": ["thread:PRRT_kw7", "run:r_01JA6Z"],
-  "admit": { "role": "pr-review", "intent": "adjudicate-findings" },
-  "transition": { "from": "addressing", "to": "adjudicating" }
+  "admit": { "role": "pr-review", "intent": "adjudicate-findings", "content_id": "sha256:5d0c" }
 }
 ```
 
-`outcome` is one of `nothing`, `defer`, `hold`, `transition`, `admit`. `reason` is an enumerated
+`outcome` is one of `nothing`, `defer`, `hold`, `act`, `admit`; the State the item is in, its
+attention class and the evidence travel beside it. `reason` is an enumerated
 code, never a sentence; the sentence a person reads is rendered from it.
 
 Every pass uploads a **pass record**, `pass/1` (`schemas/pass.schema.json`): the time it gave the
@@ -718,6 +720,7 @@ There is no Effect that starts a Run. Only Admission does that.
   "location": { "path": "kernel/admission.py", "start_line": 88, "end_line": 94 },
   "category": "functional",
   "severity": "major",
+  "criterion": "PR-3",
   "adopted_from": { "lens": "coderabbit", "surface": { "type": "thread", "key": "PRRT_kw1" } },
   "content_id": "sha256:5d0c"
 }
