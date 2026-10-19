@@ -2070,6 +2070,19 @@ class Trials(unittest.TestCase):
         problems = check_trials.run(clone({"examples/trial.json": fixture(repo="combsmith")}))
         self.assertTrue(caught(problems, "examples/trial.json: exchanges[0].request.call is not a call of the org"))
 
+    def test_a_call_of_a_repo_in_a_fixture_of_the_org_is_one_problem_whoever_asked(self):
+        # The pairing is read once for the fixture, not once for each exchange, and an asker that cannot be read
+        # neither hides it nor repeats it. The schema refuses such an asker first, so the pairing is read directly.
+        reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
+        reach["exchanges"][2]["request"]["call"] = "GET /repos/combsmith/software-factory/installation"
+        self.assertEqual([where for where, _ in check_trials._askers(reach)], ["exchanges[2].request.call"])
+        reach["exchanges"][0]["request"]["as"] = "combsmith-sf-controller"
+        reach["exchanges"][1]["request"]["as"] = None
+        org = [where for where, what in check_trials._askers(reach) if "is not a call of the org or its Apps" in what]
+        self.assertEqual(org, ["exchanges[2].request.call"])
+        problems = check_trials.run(clone({"trials/P-39.reach.json": json.dumps(reach)}))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: $.exchanges[0].request.as: expected object"))
+
     def test_an_asker_named_by_an_address_is_caught(self):
         # Decision 0033: a fixture names who asked in words, never by an address that ties it to an account.
         vendor = json.loads((ROOT / "examples" / "trial.a-vendors-cli.json").read_text())
