@@ -2182,7 +2182,7 @@ MUTANTS = ISSUE + [
      "    started, spend = time.monotonic(), _budget(min(READ_SECONDS, seconds))\n",
      "    started, spend = time.monotonic(), (lambda: None)\n", BUDGET_TESTS),
     ("every [ is read to the end, though one before it never closed", "tools/hooks/identity.py",
-     'if pattern[i] == "[" and not unclosed else None', 'if pattern[i] == "[" else None', BUDGET_TESTS),
+     "    while i < len(pattern) and reached:\n", "    while i < len(pattern):\n", BUDGET_TESTS),
     ("a # in a substitution is read as no comment", "tools/hooks/identity.py",
      '        elif end == ")" and quote is None and c == "#" and (i == start or text[i - 1] in " \\t\\n;&|()"):\n',
      "        elif False:\n", COMMENT_TESTS),

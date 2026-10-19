@@ -673,12 +673,12 @@ def _braced(path: str) -> tuple:
 
 def _globbed(pattern: str) -> bool:
     """Whether a shell pattern for one name matches `.git`, read in one pass: each place of `.git` the pattern may have
-    reached so far, a * taking any number of letters, so that no run of stars backtracks (issue 174)."""
-    reached, i, unclosed, last = {0}, 0, False, len(GIT_DIRECTORY)
+    reached so far, a * taking any number of letters, so that no run of stars backtracks (issue 174). It stops where
+    no place is reached: a [ that never closes is a letter .git does not hold, so no later [ is read to the end again
+    (quadratic)."""
+    reached, i, last = {0}, 0, len(GIT_DIRECTORY)
     while i < len(pattern) and reached:
-        # Past a [ that never closes, no later one is read either: each would scan to the end again (quadratic).
-        c, bracket = pattern[i], _bracket(pattern, i) if pattern[i] == "[" and not unclosed else None
-        unclosed = unclosed or (c == "[" and bracket is None)
+        c, bracket = pattern[i], _bracket(pattern, i) if pattern[i] == "[" else None
         if c == "*":
             reached = set(range(min(reached), last + 1))
         else:
