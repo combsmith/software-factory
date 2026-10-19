@@ -1,0 +1,46 @@
+# 0038. The identity hook reads where the shell may stand, and a program it does not read may write
+
+Status: accepted. It adds to `docs/decisions/0030-the-identity-hook-refuses-a-write-into-gits-directory-and-a-git-an-alias-or-a-feeder-hides.md`
+and `docs/decisions/0032-the-identity-hook-reads-a-write-where-and-when-the-shell-makes-it.md`, whose Decisions stay
+in force, and takes three things from them: from 0030, that any other program's words are not writes into git's
+directory; from 0032, that a substitution's cd is flattened into the command's, that `cd -` is read in every directory
+the command has stood in where the command's own cd came before it, and, from its row on what is left to the Stop check
+and the rulesets, a writer the list does not name. It settles the second half of "Identity hook: spellings left after
+issue 160's fix round" (issue 174), as the architect's advice and the Maintainer's answers of 2026-10-19 rule it, which the
+Maintainer may overturn in review. As before, under the working ruling on "Session hooks that refuse: protected paths,
+merging, and the repo's own rules" (issue 23): a hook guards against mistakes, and the Stop check, the rulesets and
+"Identity: every commit a pull request carries is the Maintainer's, checked outside the shell" (issue 204) are the
+boundary. Every row below is a closed claim: a list of forms the hook reads exactly, and a fail-closed reading for the
+rest.
+
+## Decision
+
+| What | Decided | Because |
+|---|---|---|
+| Where a cd moves the command | A cd, pushd or popd is placed exactly only at the top level of a plain `;`, newline or `&&` sequence, as a command's first word, with one operand at most, options the hook knows (`cd -L -P -e -@ -q -s`, `pushd -n -q`, `popd -n -q`), and no `CDPATH` or `cdpath` set in the command where its operand is relative. Placed, it moves the command, and a cd joined by `&&` is read as run. Any other cd loses the directory: one behind a keyword or a prefix (`then cd`, `{ cd`, `builtin cd`, `command cd`, `time cd`, `! cd`), in a pipeline or a background job, after `\|\|`, inside an if, while, until, for or select body, a `{ }` group or a function's body, with two operands or an option the hook does not know, or relative with `CDPATH` set. After it a commit or a push is `directory_unreadable`, a relative write cannot be placed, and a plain path does not bring the directory back, as 0032 reads one the hook cannot tell. A case's arm is read as run: the hook does not see where a case ends | Ruling 7's "adds places" was an open model; a closed one either places a cd or refuses what follows. The cost, measured on every distinct transcript command, is in the pull request |
+| A subshell's cd is its own | In `( )`, `$( )`, a backtick, `<( )` or `>( )`, and in a shell's or a program's `-c` script, a cd moves that process alone: what runs inside is read where the cd leads, and after it the command stands where it stood. `shell.commands(scopes=True)` marks each with `SCOPE`, and marks what `\|\|`, `\|` and `&` join with `JOINS`; eval's script runs in this shell and is read flat | The shell forks there, and `ROOT=$(cd "$(dirname "$0")" && pwd)` was a false refusal |
+| `cd -` | After a cd the hook placed, `cd -`, `cd ~-` and `cd "$OLDPWD"` go back to where the command stood before it, and back again; `pushd -n DIR` adds DIR to the directories the command has stood in, which popd reads. Before any placed cd in the command, the shell's previous directory is one the hook does not know, and `cd -` is read as 0032 reads it: in every directory the command has stood in | The previous place is the hook's own reading, so it is exact; the shell's is not |
+| A program the hook does not read | In a command that commits or pushes, three kinds of program: those whose words the hook reads (git, gh, cd, pushd, popd, dd, and the writers of `PATH_WRITERS` and `IN_PLACE`); those whose words are data (`DATA_ONLY`: `TEXT_ONLY` without sort and uniq, test, `[`, `[[`, `:`, stat, du, file, realpath, readlink, basename, dirname, od, strings, cmp, fd, and the shell's built-ins that write no file); and every other program, a function and a program held in a variable among them, each of whose words is a place written, an option's `=value` and what follows each letter of a bundle of short options included, and so is where it stands. find and tree join `PATH_WRITERS`: `-fprint`, `-fprint0`, `-fls`, `-fprintf` and `tree -o` name destinations and every other word of theirs is data. A false refusal by a reader is fixed by adding the reader to `DATA_ONLY`, in the story that finds it | A list of writers has no end, and each round found the next writer; a list of what writes nothing does end, and it allows what is named instead of refusing what is known |
+| A finding on a hook pull request | A script finds regressions, not a reviewer: before any read, the builder runs main's hook and the branch's over the transcript corpus and over every input the reviews have given, and zero may be refused by main and passed by the branch. One confirmation read follows: the Claude review, the security pass, and one second-family read. Fixed in the pull request: a regression from main, either way, and a false refusal of an ordinary session command (a commit message by -m, -F or a here-document, a pull request's or an issue's body, grep, echo, printf, or a command in the must-pass corpus); a counter-example to a row the pull request writes narrows the row and names the case at the boundary, never adds a reading. Everything else is answered on its thread with the row that leaves it to the boundary, or listed on the story's follow-up issue, and the thread is resolved. One fix round; after it only those two kinds are fixed, and a regression that cannot be fixed in a few lines sends that construct back to main's reading. The pull request then merges when clean and green | The rounds on the issue above did not converge while a row promised to read as the shell reads; against a fixed reference and a bounded corpus they end |
+| Left to the Stop check, the rulesets and the identity check off the shell | A cd that fails; the shell's state from before the command or from its profile (`OLDPWD`, the directory stack, `CDPATH` or `cdpath` set there, zsh's `AUTO_CD` and `EXTENDED_GLOB`, a `chpwd` hook, aliases and functions defined earlier); a path inside a script's text (`python3 -c`, awk's program, `find -exec` and `-delete`, what xargs reads); an archive's entry names; gh aliases; and, as 0032's last row says, a name spelt so the hook does not see it plainly | The hook reads words, never a file or the shell's state, and is a mistake guard |
+
+## Why
+
+Each spelling of the second half of the issue above put a command in a different directory from the shell: a cd behind a
+keyword, in a subshell, or one that may not run. Reading a cd wherever the shell runs it and adding places was an
+open model, and a reviewer could always find the next place. A closed model either places a cd exactly, where the
+reading is the shell's own, or refuses what follows, and the cost of refusing is measured on every distinct command
+this project's sessions have run, so that it stays near zero. The writers' list was the same open model, closed the
+same way: what writes nothing is a short list, and everything else may write. The triage rule is written down so
+that a hook pull request ends: a script, not a reviewer, decides what a regression is, and one fix round follows.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| A cd the hook cannot place exactly loses the directory, and a commit, a push or a relative write after it is refused; a placed cd moves the command | `tests/test_hooks.py::test_a_cd_the_hook_cannot_place_exactly_loses_the_directory` |
+| A subshell's, a substitution's and a `-c` script's cd is its own | `tests/test_hooks.py::test_a_subshells_cd_is_its_own` |
+| `cd -` goes back to the place before the last placed cd, and `pushd -n` stacks a place popd reads | `tests/test_hooks.py::test_cd_minus_goes_back_to_the_place_before_the_last_cd`, `tests/test_hooks.py::test_a_write_after_the_hook_loses_the_directory_is_read_in_every_directory_the_command_stood_in` |
+| A program the hook does not read may write what it is given and where it stands; one of `DATA_ONLY` writes nothing; find's and tree's output options are destinations | `tests/test_hooks.py::test_a_program_the_hook_does_not_read_may_write_what_it_is_given_and_where_it_stands` |
+| Ordinary session commands are not refused by the identity hook | `tests/test_hooks.py::test_ordinary_session_commands_pass` |
+| Each of these rules has a mutant that a test kills | `tools/mutants.py` |

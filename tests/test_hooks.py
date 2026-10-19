@@ -755,8 +755,8 @@ class Identity(unittest.TestCase):
                         "cd sub; cd -; echo x > notes.txt; git push", "cd sub && pushd .. && popd && git push",
                         "cd .git && cat HEAD && cd %s && echo x > notes.txt && git push" % self.here):
             self.assertEqual(self.codes(command), "", command)
-        # Its cost: once the command has stood in git's directory, a relative write after cd - is read there too.
-        self.assertIn("git_directory_written", self.refused("cd .git && cat HEAD && cd - && echo x > notes && git push"))
+        # Decision 0038: cd - after a cd the hook placed goes back to where the command stood, so this now passes.
+        self.assertEqual(self.codes("cd .git && cat HEAD && cd - && echo x > notes && git push"), "")
         # ~- and $OLDPWD are cd -; cd '' stays where it is; and a directory the hook cannot tell stays one, though a
         # plain path follows it.
         for command in ("cd .git; cd /tmp; cd ~-; cp /tmp/x hooks/pre-push; cd %s; git push" % self.here,
@@ -771,13 +771,93 @@ class Identity(unittest.TestCase):
         for command in ("pushd -n .git; echo x > notes; git push", "pushd -n .git >/dev/null; popd -n; echo x > notes; "
                         "git push"):
             self.assertEqual(self.codes(command), "", command)
-        # cd - then a relative cd doubles where the command may stand: past PLACES_MOST, where it stands is lost.
-        doubling = "cd a; " + "".join("cd -; cd d%d; " % n for n in range(8)) + "git push"
+        # popd then a relative pushd doubles where the command may stand: past PLACES_MOST, where it stands is lost.
+        doubling = "pushd a; " + "".join("popd; pushd d%d; " % n for n in range(8)) + "git push"
         self.assertIn("more directories than the hook reads", self.refused(doubling))
         # A commit is read in each directory the command may stand in: one outside a repository cannot be read.
         self.assertIn("unreadable", self.refused("pushd /tmp && popd && git push"))
         self.assertIn("commit_identity_not_maintainer", self.refused("pushd %s && popd && git commit -m x" % self.bad))
         self.as_data("cd .git; pushd /tmp; popd; cp x hooks/pre-push; git push", "pushd and popd { a; b; }")
+
+    def test_a_cd_the_hook_cannot_place_exactly_loses_the_directory(self):
+        # Decision 0038 (issue 174, PR B): a cd is placed exactly only at the top level of a plain `;`, newline or `&&`
+        # sequence, as a command's first word, with one operand at most, options the hook knows, and no CDPATH set in
+        # the command for a relative one. Any other cd loses the directory: a commit, a push or a relative write after
+        # it is directory_unreadable.
+        (self.here / "sub").mkdir(exist_ok=True)
+        for cd in ("if true; then cd .git; fi", "{ cd .git; }", "builtin cd .git", "command cd .git", "time cd .git",
+                   "! cd .git", "f() { cd .git; }; f", "true | cd .git", "cd .git &", "false || cd .git",
+                   "while false; do cd .git; done", "while false\ndo\ncd .git\ndone", "cd sub .git", "cd -Z .git",
+                   "CDPATH=.git; cd hooks", "cd .git; cd /tmp | true", "eval 'x=1' || cd .git"):
+            for after in ("; cp /tmp/x config; git -C %s push" % self.here, "; git commit -m x"):
+                self.assertIn("directory_unreadable", self.refused(cd + after), cd + after)
+        # A cd placed exactly moves the command, in an && chain too, and a plain path after a lost one stays lost.
+        for command in ("cd -P sub && git commit -m x", "CDPATH=x; cd ./sub && git commit -m x", "cd sub; git commit -m x",
+                        "git fetch && cd sub && make && cd .. && git push", "cd sub && cd .. && git push",
+                        "cd %s; git commit -m x" % self.here, "true & cd sub; git commit -m x"):
+            self.assertEqual(self.codes(command), "", command)
+        self.assertIn("commit_identity_not_maintainer", self.refused("true && cd %s; git commit -m x" % self.bad))
+        self.assertIn("directory_unreadable", self.refused("false || cd sub; cd %s; git commit -m x" % self.here))
+        self.as_data("if true; then cd .git; fi", "CDPATH=.git; cd hooks; git push", "true | cd .git")
+
+    def test_a_subshells_cd_is_its_own(self):
+        # Decision 0038: a cd in ( ), $( ), a backtick, <( ) or a shell's -c script moves that process alone; after it
+        # the command stands where it stood, and what runs inside is read where the cd leads.
+        (self.here / "sub").mkdir(exist_ok=True)
+        for inner in ("(cd /tmp)", "x=$(cd /tmp)", "echo $(cd /tmp)", "echo `cd /tmp`", "cat <(cd /tmp)",
+                      "sh -c 'cd /tmp'"):
+            command = "cd .git; %s; cp /tmp/x config; git -C %s push" % (inner, self.here)
+            self.assertIn("git_directory_written", self.refused(command), command)
+        for command in ('ROOT=$(cd "$(dirname "$0")" && pwd); git commit -m x', "(cd %s && make); git commit -m x" % self.bad,
+                        "(cd sub; cp /tmp/x y); git commit -m x", "x=$(cd %s && git rev-parse HEAD); git push" % self.bad,
+                        "sh -c 'cd /tmp && ls'; git commit -m x"):
+            self.assertEqual(self.codes(command), "", command)
+        for command in ("(cd %s && git commit -m x)" % self.bad, "echo $(cd %s; git commit -m x)" % self.bad,
+                        "bash -c 'cd %s && git commit -m x'" % self.bad):
+            self.assertIn("commit_identity_not_maintainer", self.refused(command), command)
+        self.assertIn("git_directory_written", self.refused("(cd .git; cp /tmp/x config); git -C %s push" % self.here))
+        self.as_data("(cd /tmp); cp /tmp/x config", "x=$(cd .git)")
+
+    def test_cd_minus_goes_back_to_the_place_before_the_last_cd(self):
+        # Decision 0038: after a cd the hook placed, cd - goes back to where the command stood before it, and back
+        # again; before any cd in the command, the shell's previous directory is one the hook does not know, and cd -
+        # is read as decision 0032 reads it, in every directory the command has stood in.
+        (self.here / "sub").mkdir(exist_ok=True)
+        for command in ("cd sub; cd -; cd sub; cd -; git push", "cd %s; cd -; git commit -m x" % self.bad,
+                        "cd .git && cat HEAD && cd - && echo x > notes && git push", "cd sub; cd -; echo x > notes.txt; git push",
+                        "cd .git; cd ~-; git push", "cd /tmp; cd %s; cd -; cd -; git push" % self.here, "cd -; git push"):
+            self.assertEqual(self.codes(command), "", command)
+        for command in ("cd .git; cd /tmp; cd -; cp /tmp/x hooks/x; cd %s; git push" % self.here,
+                        "pushd -n .git; popd; cp /tmp/x config; git -C %s push" % self.here,
+                        "cd -; cd .git; cp /tmp/x config; git -C %s push" % self.here):
+            self.assertIn("git_directory_written", self.refused(command), command)
+        self.assertIn("commit_identity_not_maintainer", self.refused("cd -; git commit -m x", self.bad))
+
+    def test_a_program_the_hook_does_not_read_may_write_what_it_is_given_and_where_it_stands(self):
+        # Decision 0038: in a command that commits or pushes, each word a program the hook does not read is given, an
+        # option's =value and what follows each letter of a bundle among them, and the directory it stands in, is a
+        # place written; a program of DATA_ONLY writes none; find's and tree's output options are destinations.
+        for command in ("sort -o .git/hooks/x /tmp/x; git push", "sort -o.git/hooks/x /tmp/x; git push",
+                        "uniq /tmp/x .git/hooks/x; git push", "cpio -id -D .git < /tmp/a.cpio; git push",
+                        "cd .git; uniq /tmp/x config; git -C %s push" % self.here,
+                        "cd .git; cpio -id < /tmp/a.cpio; git -C %s push" % self.here,
+                        "cd .git; python3 -c 'print(1)'; git -C %s push" % self.here,
+                        "cd .git; make; git -C %s push" % self.here, "cd .git; f() { :; }; f; git -C %s push" % self.here,
+                        "f() { :; }; f .git/hooks/x; git push", "find . -fprint .git/hooks/x; git push",
+                        "tree -o .git/hooks/x; git push", "rm -f .git/index.lock && git commit -m x",
+                        "node x.js --out=.git/hooks/x; git push", "nice python3 x.py .git/config; git push",
+                        "G=mytool; $G .git/hooks/x; git push", "mytool -x.git/hooks/x; git push"):
+            self.assertIn("git_directory_written", self.refused(command), command)
+        for command in ("[ -d .git ] && git commit -m x", "test -f .git/MERGE_HEAD || git commit -m x", "ls .git && git push",
+                        "strings .git/index | head; git commit -m x",
+                        "find . -path ./.git -prune -o -name '*.py' -print; git commit -m x", "fd -E .git py; git push",
+                        "tree -I .git; git push", "rsync -a --exclude .git src/ dst/; git push",
+                        "tar czf /tmp/x.tgz --exclude=.git .; git push", "grep -r x . --exclude-dir=.git; git commit -m x",
+                        "make verify && git push", "python3 -m tools.check_repo && git commit -m x", "stat .git/HEAD; git push",
+                        "du -sh .git; git push", "cat .git/HEAD; git commit -m x", "x=1; git push", "echo .git/x; git push",
+                        "[[ -d .git ]] && git push", "realpath .git; git push"):
+            self.assertEqual(self.codes(command), "", command)
+        self.as_data("sort -o .git/hooks/x /tmp/x", "cd .git; python3 -c 'print(1)'", "f .git/hooks/x")
 
     def test_a_writer_that_names_no_output_writes_where_it_stands(self):
         # Decision 0032: unzip with no -d, tar extracting with no -C, curl -O or -J with no --output-dir, wget with no
@@ -957,7 +1037,7 @@ class Identity(unittest.TestCase):
         bomb = "alias a0=:\n" + "".join("alias a%d='a%d;a%d'\n" % (n, n - 1, n - 1) for n in range(1, 23)) + "a22; git push"
         for command, code in ((bomb, "command_unreadable"), ("cp /tmp/x ." + "[a" * 8000 + "; git push", ""),
                               ("cd .git; " + "cd -;" * 16000 + " cd %s; git push" % self.here, ""),
-                              ("cd a; " + "".join("cd -; cd d%d; " % n for n in range(40)) + "git push",
+                              ("pushd a; " + "".join("popd; pushd d%d; " % n for n in range(40)) + "git push",
                                "more directories than the hook reads")):
             started = time.monotonic()
             said = self.codes(command)
