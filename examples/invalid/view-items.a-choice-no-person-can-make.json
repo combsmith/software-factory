@@ -1,0 +1,84 @@
+{
+  "schema": "view-items/1",
+  "pass": "p_01JA7P",
+  "release": "factory/v0.3.1",
+  "items": [
+    {
+      "item": {
+        "repo": "combsmith/software-factory",
+        "type": "pull_request",
+        "number": 42
+      },
+      "state": "held",
+      "reason": "attempts_exhausted",
+      "attention": "needs_you",
+      "evidence": [
+        "r_01JA6Z",
+        "r_01JA6Y",
+        "r_01JA6X"
+      ],
+      "next_actor": "maintainer",
+      "decision_required": {
+        "question": "allowance_spent",
+        "choices": [
+          "renew_allowance",
+          "close",
+          "approve_for_me"
+        ],
+        "evidence": [
+          "r_01JA6Z",
+          "r_01JA6Y",
+          "r_01JA6X"
+        ]
+      },
+      "content_id": "sha256:5d0c",
+      "age_hours": 19.5,
+      "attempts": [
+        {
+          "intent": "fix-findings",
+          "count": 3
+        },
+        {
+          "intent": "review-change",
+          "count": 1
+        }
+      ],
+      "runs": 4,
+      "cost_usd": 4.8,
+      "sources": [
+        "r_01JA6X",
+        "r_01JA6Y",
+        "r_01JA6Z"
+      ],
+      "url": "https://github.com/combsmith/software-factory/pull/42",
+      "untrusted": {
+        "title": "Kernel: read the queue before the gate"
+      }
+    },
+    {
+      "item": {
+        "repo": "combsmith/software-factory",
+        "type": "pull_request",
+        "number": 43
+      },
+      "state": "verifying",
+      "reason": "awaiting_review",
+      "attention": "review",
+      "evidence": [
+        "pr-review"
+      ],
+      "next_actor": "lens",
+      "decision_required": null,
+      "content_id": "sha256:41c1",
+      "age_hours": 2.25,
+      "attempts": [],
+      "runs": 0,
+      "cost_usd": null,
+      "sources": [],
+      "url": "https://github.com/combsmith/software-factory/pull/43",
+      "untrusted": {
+        "title": "Simulator: uncovered reviews on every seed"
+      }
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "schema": "role/1",
+  "name": "pr-review",
+  "kind": "owner",
+  "owns": [
+    "functional",
+    "security",
+    "architecture",
+    "delivery",
+    "reliability",
+    "requirements",
+    "uncategorised"
+  ],
+  "app": "combsmith-sf-pr-review",
+  "lens": {
+    "scope": {
+      "paths": [
+        "**"
+      ],
+      "exclude": [],
+      "always": true
+    },
+    "raises": [
+      "functional",
+      "security",
+      "architecture",
+      "delivery",
+      "reliability",
+      "requirements",
+      "uncategorised"
+    ]
+  },
+  "intents": [
+    {
+      "name": "review-change",
+      "tier": "standard",
+      "permitted_effects": [
+        "submit_review",
+        "create_check_run"
+      ],
+      "budget_class": "gate",
+      "evals": "evals/review-change"
+    },
+    {
+      "name": "adjudicate-findings",
+      "tier": "deep",
+      "permitted_effects": [
+        "resolve_thread",
+        "comment",
+        "enqueue_merge"
+      ],
+      "budget_class": "gate",
+      "evals": "evals/adjudicate-findings"
+    }
+  ]
+}

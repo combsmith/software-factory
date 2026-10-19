@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 
+from kernel import decide, issue
 from kernel.coverage import covered
 from tools.jsonschema_lite import ANNOTATIONS, FILE, SchemaError, _resolve, validate
 
@@ -12,16 +14,41 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lifecycle",
         "config/authority.json": "authority",
         "config/defaults.json": "config", "config/rubric-pr-review.json": "rubric", "config/apps.json": "apps",
-        "config/hooks.json": "hooks"}
+        "config/hooks.json": "hooks", "config/feed.json": "feed"}
 # What a coverage example is judged against beyond its schema (decision 0029): the review's rubric, the Finding of
 # examples/finding.json, and the paths examples/facts.json changes. No schema can say every criterion that applies is
 # reported on; kernel/coverage.py does.
 COVERAGE_AGAINST = ("config/rubric-pr-review.json", "examples/finding.json", "examples/facts.json")
-# What one Run carries holds codes, never text: a string in these schemas is held by an enum, a const or a pattern
-# anchored at both ends, unless it is a property named `body`. A body goes out to GitHub or in to the model as data, and
-# nothing reads one back into a decision.
-CODES_ONLY = ("task", "result", "effect", "disposition", "run-name")
+# One envelope, on what crosses a boundary whole (decision 0039). Each schema is in one class: a document crosses a
+# boundary whole and carries `schema`, its identity and `release`; a record travels inside a document and is also given
+# alone to a reader, so it carries `schema` and nothing else of the envelope; a part is only ever inside another, by
+# reference, and carries nothing; a data file a person edits carries `schema`, its path being its identity and the commit
+# its Release. A document's class names its identity.
+ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied": ("document", "run"),
+            "outcome": ("document", "run"), "pass": ("document", "pass"), "view-meta": ("document", "pass"),
+            "view-items": ("document", "pass"),
+            "facts": "record", "issue-facts": "record", "decision": "record", "issue-decision": "record", "finding": "record",
+            "effect": "part", "disposition": "part", "coverage": "part", "run-name": "part", "run-record": "part",
+            "view-item": "part",
+            "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data",
+            "acceptance": "data", "trial": "data", "role": "data", "feed": "data"}
+RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+# What one Run carries, and what is written from it, holds codes, never text: a string in these schemas is held by an
+# enum, a const or a pattern anchored at both ends, unless it is a property named `body`, or sits under one named
+# `untrusted`. A body goes out to GitHub or in to the model as data, and nothing reads one back into a decision; what is
+# untrusted is marked for whatever reads the feed, and only view-item has it. A reference into a kind outside this set
+# is held by that kind's own rules, so the existing records are not swept.
+CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage", "run-record",
+              "pass", "applied", "outcome", "view-meta", "view-items", "view-item", "role", "feed")
 TEXT_FIELD = "body"
+UNTRUSTED_FIELD = "untrusted"
+UNTRUSTED_KIND = "view-item"
+# The reasons the Kernel gives `needs_you` beside its own sets: a Hold deferred under a Pause, or one it cannot read
+# (tests/test_decide.py::test_an_approver_who_is_the_author_or_last_pusher_takes_it_out_of_the_queue,
+# tests/test_issue.py::test_placing_a_hold_is_stopped_only_by_the_pause_and_not_once_the_hold_is_there,
+# tests/test_tools.py::test_every_reason_that_needs_a_person_says_what_is_asked), and an issue's unmerged closes past
+# their bound (tests/test_issue.py::test_unmerged_closes_past_the_bound_place_a_hold).
+ALSO_NEEDS_YOU = frozenset({"paused", "pause_unreadable", "unmerged_closes"})
 
 
 def _once(pairs: list) -> dict:
@@ -79,6 +106,51 @@ def _anchored(pattern) -> bool:
     return True
 
 
+def _envelope(kind: str, schema) -> list:
+    """What is wrong with `schema`'s envelope for its class in ENVELOPE: nothing, or each sentence."""
+    out = []
+    if kind not in ENVELOPE:
+        return ["schema %s is in no class of ENVELOPE; name it a document, a record, a part or a data file" % kind]
+    cls = ENVELOPE[kind]
+    cls, identity = cls if isinstance(cls, tuple) else (cls, None)
+    props = schema.get("properties", {}) if isinstance(schema, dict) else {}
+    required = schema.get("required", []) if isinstance(schema, dict) else []
+    if cls == "part":
+        if "schema" in props:
+            out.append("schema %s is a part, and carries a schema field; only what crosses a boundary whole does" % kind)
+        if "release" in props:
+            out.append("schema %s is a part, and carries a release; its Release is the document's it is inside" % kind)
+        return out
+    const = props.get("schema", {}).get("const") if isinstance(props.get("schema"), dict) else None
+    if not (isinstance(const, str) and re.fullmatch(r"%s/[1-9][0-9]*" % re.escape(kind), const)):
+        out.append("schema %s: its schema field is not a const naming %s and a major version" % (kind, kind))
+    if "schema" not in required:
+        out.append("schema %s does not require its schema field" % kind)
+    if cls == "document":
+        for name in (identity, "release"):
+            if name not in required:
+                out.append("schema %s is a document and does not require %s" % (kind, name))
+        if not (isinstance(props.get("release"), dict) and props["release"].get("pattern") == RELEASE
+                and props["release"].get("type") == "string"):
+            out.append("schema %s: a document's release is a string in the Factory's release pattern" % kind)
+        if not (isinstance(props.get(identity), dict) and _anchored(props[identity].get("pattern"))
+                and props[identity].get("type") == "string"):
+            out.append("schema %s: a document's identity, %s, is a string with a pattern anchored at both ends"
+                       % (kind, identity))
+    elif "release" in props:
+        out.append("schema %s is a %s and carries a release; its Release is its document's, or the commit" % (kind, cls))
+    return out
+
+
+def _string_only(node) -> bool:
+    """Whether `node` admits a string, null or nothing else: the shape of a body."""
+    if not isinstance(node, dict):
+        return False
+    kinds = node.get("type")
+    kinds = kinds if isinstance(kinds, list) else [kinds]
+    return "string" in kinds and not (set(kinds) - {"string", "null"})
+
+
 def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: tuple = ()) -> list:
     """What is wrong with `schema`, of the kind named, as the schema of what one Run carries: where it admits a string
     that no enum, const or anchored pattern holds, and a reference it makes that cannot be followed, has a keyword
@@ -98,6 +170,8 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
         if id(target) in active:
             return ["schema %s comes round to itself at %s" % (kind, path)]
         named = FILE.match(ref)
+        if named and named.group(1) not in CODES_ONLY:
+            return []       # a record, held by its own rules and counter-examples; the existing records are not swept
         return _free(target, schemas, target_root, named.group(1) if named else kind, path, seen, active + (id(target),))
     if (kind, id(schema)) in seen:
         return []
@@ -110,12 +184,44 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
         out.append("schema %s admits text at %s; a string a Run carries is a code, unless it is named %s"
                    % (kind, path, TEXT_FIELD))
     for name, prop in schema.get("properties", {}).items():
-        if name != TEXT_FIELD:
-            out += _free(prop, schemas, root, kind, "%s.%s" % (path, name), seen)
+        # A body is one string, and what is untrusted is marked only on the feed: neither exempts an object of strings
+        # under its name in a Task.
+        if name == TEXT_FIELD and _string_only(prop):
+            continue
+        if name == UNTRUSTED_FIELD and kind == UNTRUSTED_KIND:
+            continue
+        out += _free(prop, schemas, root, kind, "%s.%s" % (path, name), seen)
     if isinstance(schema.get("items"), dict):
         out += _free(schema["items"], schemas, root, kind, path + "[]", seen)
     if isinstance(schema.get("additionalProperties"), dict):
         out += _free(schema["additionalProperties"], schemas, root, kind, path + ".*", seen)
+    return out
+
+
+def _table(feed, decision_schema) -> list:
+    """What is wrong with the feed's table, valid to its schema: a reason the Kernel gives needs_you with no row, a row
+    for one it never does, a reason with two rows, and an attention class with no rule or with two."""
+    needs = set(decide.NEEDS_YOU_REASONS) | set(issue.NEEDS_YOU_REASONS) | ALSO_NEEDS_YOU
+    out = []
+    reasons = [row["reason"] for row in feed["decision_required"]]
+    for reason in sorted(needs - set(reasons)):
+        out.append("feed: the reason %s needs a person, and no row says what is asked" % reason)
+    for reason in sorted(set(reasons) - needs):
+        out.append("feed: a row for %s, a reason the Kernel never gives needs_you" % reason)
+    for reason in sorted({r for r in reasons if reasons.count(r) > 1}):
+        out.append("feed: the reason %s has two rows" % reason)
+    classes = decision_schema["properties"]["attention"]["enum"]
+    ruled = [row["attention"] for row in feed["next_actor"]["by_attention"]]
+    for name in classes:
+        if ruled.count(name) != 1:
+            out.append("feed: the attention class %s has %s" % (name, "no rule" if name not in ruled else "two rules"))
+    # The rules read first-wins in order, so a key ruled twice would hide its second rule.
+    states = [row["state"] for row in feed["next_actor"]["by_state"]["rows"]]
+    for name in sorted({name for name in states if states.count(name) > 1}):
+        out.append("feed: the State %s has two rules" % name)
+    outcomes = [name for row in feed["next_actor"]["by_outcome"] for name in row["outcome"]]
+    for name in sorted({name for name in outcomes if outcomes.count(name) > 1}):
+        out.append("feed: the outcome %s has two rules" % name)
     return out
 
 
@@ -151,6 +257,10 @@ def run(root: pathlib.Path = ROOT) -> list:
     for kind, schema in sorted(schemas.items()):
         for where in _open(schema):
             problems.append("schema %s accepts unknown fields at %s" % (kind, where))
+    for kind, schema in sorted(schemas.items()):
+        problems += _envelope(kind, schema)
+    for kind in sorted(set(ENVELOPE) - set(schemas)):
+        problems.append("ENVELOPE names %s, and there is no such schema" % kind)
     for kind in CODES_ONLY:
         if kind not in schemas:
             problems.append("schema %s is missing, and what one Run carries is held to codes" % kind)
@@ -188,7 +298,11 @@ def run(root: pathlib.Path = ROOT) -> list:
         if kind not in schemas:
             problems.append("%s: no schema named %s" % (rel, kind))
             continue
-        for err in validate(load(root / rel), schemas[kind], schemas=schemas):
+        value = load(root / rel)
+        errors = validate(value, schemas[kind], schemas=schemas)
+        if kind == "feed" and not errors and "decision" in schemas:
+            errors = _table(value, schemas["decision"])
+        for err in errors:
             problems.append("%s: %s" % (rel, err))
     for folder in ("config", "lifecycle"):
         for path in sorted((root / folder).glob("*.json")):

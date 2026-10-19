@@ -1,0 +1,15 @@
+{
+  "schema": "applied/1",
+  "run": "r_01JA7Q",
+  "release": "factory/v0.3.1",
+  "effects": [
+    {
+      "id": "e1",
+      "type": "resolve_thread",
+      "state": "refused",
+      "key": null,
+      "reason": "security_finding_declined"
+    }
+  ],
+  "findings": []
+}

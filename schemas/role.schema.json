@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "role/1: a Role manifest, as data a Factory developer edits: what a Role sees, raises, owns and may do, and each of its Intents with its tier, permitted Effects, budget class and eval set.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "name",
+    "kind",
+    "lens",
+    "intents"
+  ],
+  "properties": {
+    "schema": {
+      "const": "role/1"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z-]*[a-z]$"
+    },
+    "kind": {
+      "enum": [
+        "author",
+        "reviewer",
+        "owner",
+        "shadow",
+        "advisor"
+      ]
+    },
+    "owns": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "functional",
+          "security",
+          "architecture",
+          "delivery",
+          "reliability",
+          "requirements",
+          "mechanical",
+          "uncategorised",
+          "human"
+        ]
+      }
+    },
+    "shadows": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "functional",
+          "security",
+          "architecture",
+          "delivery",
+          "reliability",
+          "requirements",
+          "mechanical",
+          "uncategorised",
+          "human"
+        ]
+      }
+    },
+    "app": {
+      "type": "string",
+      "pattern": "^combsmith-sf-[a-z-]+$"
+    },
+    "lens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "raises"
+      ],
+      "properties": {
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "paths",
+            "exclude",
+            "always"
+          ],
+          "properties": {
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[^\\s]+$"
+              }
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[^\\s]+$"
+              }
+            },
+            "always": {
+              "type": "boolean"
+            }
+          }
+        },
+        "raises": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "functional",
+              "security",
+              "architecture",
+              "delivery",
+              "reliability",
+              "requirements",
+              "mechanical",
+              "uncategorised",
+              "human"
+            ]
+          }
+        }
+      }
+    },
+    "intents": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "tier",
+          "permitted_effects",
+          "budget_class",
+          "evals"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z-]*[a-z]$"
+          },
+          "tier": {
+            "enum": [
+              "standard",
+              "deep"
+            ]
+          },
+          "permitted_effects": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "effect.schema.json#/$defs/type"
+            }
+          },
+          "budget_class": {
+            "enum": [
+              "gate",
+              "shadow"
+            ]
+          },
+          "evals": {
+            "type": "string",
+            "pattern": "^evals/[a-z][a-z-]*$"
+          }
+        }
+      }
+    }
+  }
+}

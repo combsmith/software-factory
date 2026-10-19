@@ -1,4 +1,5 @@
 {
+  "schema": "config/1",
   "approver": "donpetry-bot",
   "author_role": "dev-lead",
   "owner_role": "pr-review",
