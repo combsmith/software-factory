@@ -34,10 +34,11 @@ from tools.jsonschema_lite import validate
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Named in data and in documents. Anything else that names it could read it.
 CANARY = "software-factory-" + "canary"
-# A trial about the org and its Apps records the org as its repo, and only such a trial: one whose every call is of
-# an App, of the org, or of an installation (decision 0035).
+# A trial about the org and its Apps records the org as its repo, and only such a trial: one whose every call is a
+# REST call of an App, of the org, or of an installation, with no segment that climbs out of it (decision 0035).
 ORG = "combsmith"
 ORG_CALL = re.compile(r"^[A-Z]+ /(apps/|orgs/%s/|installation/)" % ORG)
+CLIMBS = re.compile(r"(^|/)\.{1,2}(/|$)|%2e", re.I)
 FIXTURE = re.compile(r"^(P-[1-9][0-9]*)(\.[a-z0-9-]+)?\.json$")
 TRIAL = re.compile(r"^P-[1-9][0-9]*$")
 CODE = re.compile(r"^[a-z_]+$")
@@ -161,16 +162,24 @@ def _askers(data) -> list:
     return out
 
 
+def _of_org(request) -> bool:
+    """Whether a request is a REST call of an App, of the org or of an installation, whose path climbs nowhere."""
+    request = request if isinstance(request, dict) else {}
+    call = request.get("call")
+    if request.get("via") != "rest" or not isinstance(call, str) or not ORG_CALL.match(call):
+        return False
+    path = call.split(" ", 1)[1].split("?", 1)[0]
+    return not CLIMBS.search(path)
+
+
 def _org(repo, exchanges: list) -> list:
     """(path, what is wrong) when `repo` is the org and a call is not of the org or its Apps, or the other way round."""
-    calls = []
-    for exchange in exchanges:
-        request = exchange.get("request") if isinstance(exchange, dict) else None
-        call = request.get("call") if isinstance(request, dict) else None
-        calls.append(isinstance(call, str) and ORG_CALL.match(call) is not None)
+    requests = [exchange.get("request") if isinstance(exchange, dict) else None for exchange in exchanges]
+    calls = [_of_org(request) for request in requests]
     if repo == ORG:
-        return [("exchanges[%d].request.call" % i, "is not a call of the org or its Apps, and repo is %s; only a "
-                 "trial whose every call is of an App, the org or an installation records the org" % ORG)
+        return [("exchanges[%d].request.call" % i, "is not a REST call of the org or its Apps, and repo is %s; only a "
+                 "trial whose every call is a REST call of an App, the org or an installation, with no segment that "
+                 "climbs out of it, records the org" % ORG)
                 for i, of_org in enumerate(calls) if not of_org]
     if calls and all(calls):
         return [("repo", "is %s, and every call is of the org or its Apps; such a trial records the org, %s"

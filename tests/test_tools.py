@@ -506,13 +506,19 @@ class Apps(unittest.TestCase):
         self.table = json.loads((ROOT / "config" / "apps.json").read_text())
         self.apps, self.needs = self.table["apps"], self.table["needs"]
         self.fixture = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        self.reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
         installations = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS]
-        self.installed = {i["app_slug"]: i for i in installations[0]["response"]["body"]["installations"]}
+        self.listed = installations[0]["response"]["body"]["installations"]
+        self.installed = {i["app_slug"]: i for i in self.listed}
+        self.registered = {e["response"]["body"]["slug"]: e["response"]["body"] for e in self.fixture["exchanges"]
+                           if e["request"]["call"].startswith(check_apps.REGISTRATION)}
+        self.reached = {e["request"]["as"]["name"]: e["response"]["body"] for e in self.reach["exchanges"]}
 
-    def check(self) -> list:
+    def check(self, **leave_out) -> list:
         facts = (ROOT / "schemas" / "facts.schema.json").read_text()
-        return check_apps.run(tree({"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts,
-                                    "trials/P-39.grants.json": json.dumps(self.fixture)}))
+        files = {"config/apps.json": json.dumps(self.table), "schemas/facts.schema.json": facts,
+                 "trials/P-39.grants.json": json.dumps(self.fixture), "trials/P-39.reach.json": json.dumps(self.reach)}
+        return check_apps.run(tree({rel: text for rel, text in files.items() if rel not in leave_out.get("files", ())}))
 
     def test_the_data_is_held_to_what_github_granted_each_app(self):
         # P-39 recorded each installation's permissions. The data must name exactly those, at the same levels: a
@@ -532,6 +538,105 @@ class Apps(unittest.TestCase):
         problems = self.check()
         self.assertTrue(caught(problems, "controller: App 5364151 is installed as combsmith-sf-reader"))
         self.assertTrue(caught(problems, "reader: trials/P-39.grants.json records no installation of App 1"))
+
+    def test_an_installation_with_events_or_on_every_repo_is_caught(self):
+        # Decision 0035: P-39 passes only if each installation receives no event and is on selected repos.
+        self.installed["combsmith-sf-controller"]["events"] = ["push"]
+        self.installed["combsmith-sf-reader"]["repository_selection"] = "all"
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: its installation in trials/P-39.grants.json receives the "
+                                         "events ['push']"))
+        self.assertTrue(caught(problems, "reader: its installation in trials/P-39.grants.json has the selection all"))
+        self.assertFalse(caught(problems, "pr-review:"))
+
+    def test_the_registration_is_held_to_the_data_as_the_installation_is(self):
+        # What the App is registered with is what a new installation accepts, so it too is held to the data.
+        self.registered["combsmith-sf-controller"]["permissions"]["contents"] = "write"
+        self.registered["combsmith-sf-reader"]["events"] = ["pull_request"]
+        self.registered["combsmith-sf-pr-review"]["id"] = 1
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: contents is read in the data and write as the App is "
+                                         "registered in trials/P-39.grants.json"))
+        self.assertTrue(caught(problems, "reader: the App is registered in trials/P-39.grants.json for the events "
+                                         "['pull_request']"))
+        self.assertTrue(caught(problems, "pr-review: combsmith-sf-pr-review is registered as App 1"))
+        self.setUp()
+        self.fixture["exchanges"] = [e for e in self.fixture["exchanges"]
+                                     if e["request"]["call"] != "GET /apps/combsmith-sf-reader"]
+        problems = self.check()
+        self.assertTrue(caught(problems, "reader: no fixture of trial P-39 records GET /apps/combsmith-sf-reader"))
+        self.assertFalse(caught(problems, "controller: no fixture"))
+
+    def test_a_fixture_of_p39_that_failed_is_not_trusted(self):
+        # Only a passing fixture is kept, and no App's key is stored until P-39 passes.
+        self.fixture["verdict"] = "fail"
+        self.reach["verdict"] = "fail"
+        problems = self.check()
+        self.assertTrue(caught(problems, "trials/P-39.grants.json: its verdict is fail"))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: its verdict is fail"))
+
+    def test_the_repos_each_installation_reaches_are_exactly_installed_on(self):
+        # P-39's reach fixture is held to installed_on, and without it which repos an App reaches is unread.
+        self.reached["combsmith-sf-controller"]["repository_selection"] = "all"
+        self.reached["combsmith-sf-controller"]["repositories"] = []
+        self.reached["combsmith-sf-controller"]["total_count"] = 0
+        self.apps["reader"]["installed_on"] = self.apps["reader"]["installed_on"][:1]
+        problems = self.check()
+        self.assertTrue(caught(problems, "controller: its installation reaches repos by the selection all in "
+                                         "trials/P-39.reach.json"))
+        self.assertTrue(caught(problems, "controller: its installation reaches no repo in trials/P-39.reach.json"))
+        self.assertTrue(caught(problems, "reader: its installation reaches combsmith/software-factory, combsmith/%s in "
+                                         "trials/P-39.reach.json, and installed_on names combsmith/software-factory;"
+                                         % check_trials.CANARY))
+        self.setUp()
+        problems = self.check(files=("trials/P-39.reach.json",))
+        for app in ("controller", "pr-review", "reader"):
+            self.assertTrue(caught(problems, "%s: no fixture of trial P-39 records GET /installation/repositories read "
+                                             "as combsmith-sf-%s" % (app, app)))
+
+    def test_a_read_github_refused_is_not_trusted(self):
+        # A read answered with anything but 200 holds nothing GitHub granted, even when its body matches the data.
+        exchange = [e for e in self.fixture["exchanges"] if e["request"]["call"] == check_apps.INSTALLATIONS][0]
+        exchange["response"]["status"] = 403
+        self.reach["exchanges"][0]["response"]["status"] = 401
+        problems = self.check()
+        self.assertTrue(caught(problems, "trials/P-39.grants.json: its read GET /orgs/combsmith/installations was "
+                                         "answered 403, not 200"))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: its read GET /installation/repositories?per_page=100 "
+                                         "was answered 401, not 200"))
+        self.assertTrue(caught(problems, "controller: no fixture of trial P-39 records GET /installation/repositories"))
+
+    def test_an_app_listed_twice_among_the_installations_is_caught(self):
+        # A record that lists one App twice cannot be trusted, whichever copy agrees with the data.
+        twin = json.loads(json.dumps(self.installed["combsmith-sf-controller"]))
+        twin["permissions"]["contents"] = "write"
+        self.listed.insert(0, twin)
+        self.fixture["exchanges"][3]["response"]["body"]["total_count"] += 1
+        problems = self.check()
+        self.assertTrue(caught(problems, "trials/P-39.grants.json: its read GET /orgs/combsmith/installations lists "
+                                         "App 5364130 more than once"))
+        self.assertTrue(caught(problems, "no fixture of trial P-39 in trials/ records GET /orgs/combsmith/installations"))
+
+    def test_a_list_not_read_whole_is_not_trusted(self):
+        # One page of more, a count the list falls short of, or one repo listed twice, is not the whole of what an
+        # installation reaches, nor of the org's installations.
+        self.reach["exchanges"][0]["response"]["headers"]["link"] = '<https://api.github.com/x?page=2>; rel="next"'
+        self.reached["combsmith-sf-pr-review"]["total_count"] = 3
+        repos = self.reached["combsmith-sf-reader"]["repositories"]
+        repos[1] = json.loads(json.dumps(repos[0]))
+        self.fixture["exchanges"][3]["response"]["body"]["total_count"] = 18
+        problems = self.check()
+        call = "its read GET /installation/repositories?per_page=100"
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: %s has a link header, so it is one page of more"
+                                         % call))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: %s lists 2 of the 3 it counts" % call))
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: %s lists combsmith/software-factory more than once"
+                                         % call))
+        self.assertTrue(caught(problems, "trials/P-39.grants.json: its read GET /orgs/combsmith/installations lists "
+                                         "17 of the 18 it counts"))
+        for app in ("controller", "pr-review", "reader"):
+            self.assertTrue(caught(problems, "%s: no fixture of trial P-39 records GET /installation/repositories"
+                                             % app))
 
     def test_with_no_record_of_what_github_granted_the_data_is_not_trusted(self):
         facts = (ROOT / "schemas" / "facts.schema.json").read_text()
@@ -2060,7 +2165,7 @@ class Trials(unittest.TestCase):
         of_a_repo = json.loads(json.dumps(reach))
         of_a_repo["exchanges"][1]["request"]["call"] = "GET /repos/combsmith/software-factory/installation"
         problems = check_trials.run(clone({"trials/P-39.reach.json": json.dumps(of_a_repo)}))
-        self.assertTrue(caught(problems, "trials/P-39.reach.json: exchanges[1].request.call is not a call of the org "
+        self.assertTrue(caught(problems, "trials/P-39.reach.json: exchanges[1].request.call is not a REST call of the org "
                                          "or its Apps, and repo is combsmith"))
         self.assertFalse(caught(problems, "exchanges[0].request.call"))
         in_the_canary = dict(reach, repo="combsmith/" + check_trials.CANARY)
@@ -2068,7 +2173,24 @@ class Trials(unittest.TestCase):
         self.assertTrue(caught(problems, "trials/P-39.reach.json: repo is combsmith/%s, and every call is of the org "
                                          "or its Apps" % check_trials.CANARY))
         problems = check_trials.run(clone({"examples/trial.json": fixture(repo="combsmith")}))
-        self.assertTrue(caught(problems, "examples/trial.json: exchanges[0].request.call is not a call of the org"))
+        self.assertTrue(caught(problems, "examples/trial.json: exchanges[0].request.call is not a REST call of the org"))
+
+    def test_a_fixture_of_the_org_asks_by_rest_of_this_org_alone_and_climbs_nowhere(self):
+        # Another org, a GraphQL query whose call looks like an App's, and a path that climbs out of /apps/ are each
+        # a call of something else; the fixture's own calls are not.
+        reach = json.loads((ROOT / "trials" / "P-39.reach.json").read_text())
+        reach["exchanges"] += [json.loads(json.dumps(reach["exchanges"][0])) for _ in range(4)]
+        reach["exchanges"][3]["request"]["call"] = "GET /orgs/other-org/installations"
+        reach["exchanges"][4]["request"]["via"] = "graphql"
+        reach["exchanges"][4]["request"]["call"] = "GET /apps/combsmith-sf-reader"
+        reach["exchanges"][5]["request"]["call"] = "GET /apps/../repos/combsmith/software-factory"
+        reach["exchanges"][6]["request"]["call"] = "GET /installation/%2E%2E/repos/combsmith/software-factory"
+        self.assertEqual([where for where, _ in check_trials._askers(reach)],
+                         ["exchanges[%d].request.call" % i for i in (3, 4, 5, 6)])
+        reach["exchanges"][3]["request"]["call"] = "GET /orgs/combsmith/installations?per_page=100"
+        reach["exchanges"][4]["request"]["via"] = "rest"
+        self.assertEqual([where for where, _ in check_trials._askers(reach)],
+                         ["exchanges[5].request.call", "exchanges[6].request.call"])
 
     def test_a_call_of_a_repo_in_a_fixture_of_the_org_is_one_problem_whoever_asked(self):
         # The pairing is read once for the fixture, not once for each exchange, and an asker that cannot be read
@@ -2078,7 +2200,7 @@ class Trials(unittest.TestCase):
         self.assertEqual([where for where, _ in check_trials._askers(reach)], ["exchanges[2].request.call"])
         reach["exchanges"][0]["request"]["as"] = "combsmith-sf-controller"
         reach["exchanges"][1]["request"]["as"] = None
-        org = [where for where, what in check_trials._askers(reach) if "is not a call of the org or its Apps" in what]
+        org = [where for where, what in check_trials._askers(reach) if "is not a REST call of the org or its Apps" in what]
         self.assertEqual(org, ["exchanges[2].request.call"])
         problems = check_trials.run(clone({"trials/P-39.reach.json": json.dumps(reach)}))
         self.assertTrue(caught(problems, "trials/P-39.reach.json: $.exchanges[0].request.as: expected object"))

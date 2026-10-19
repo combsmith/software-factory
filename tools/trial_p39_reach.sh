@@ -14,6 +14,10 @@
 # in a scratch directory outside the repo, redacted there by tools/redact_trial.py, and deleted; OUT receives only
 # the redacted response (clean-N), what was asked (requests.json) and when the run started (ran_at). A session then
 # builds trials/P-39.reach.json from OUT alone.
+#
+# A mint, or a read, that curl fails or GitHub refuses, or a revocation that does not return 204, stops the script
+# with a non-zero exit: what was read is not kept, a refused mint shows its status and GitHub's answer, redacted,
+# and a token that may be live is told to the Maintainer.
 set -eu
 
 if [ "$#" -ne 4 ]; then
@@ -60,9 +64,9 @@ unrevoked() {
 
 finish() {
     if [ -n "$token" ]; then
-        status=$(revoke || true)
-        echo "trial_p39_reach: stopped with a token live; revoking it returned $status" >&2
-        [ "$status" = 204 ] || unrevoked "the token live when the script stopped" "$status"
+        last=$(revoke || true)
+        echo "trial_p39_reach: stopped with a token live; revoking it returned $last" >&2
+        [ "$last" = 204 ] || unrevoked "the token live when the script stopped" "$last"
         token=""
     fi
     rm -rf "$scratch"
@@ -97,19 +101,53 @@ reach() {
     claims=$(printf '{"iat":%d,"exp":%d,"iss":%d}' $((now - 60)) $((now + 540)) "$app_id" | b64url)
     signature=$(printf '%s.%s' "$header" "$claims" | openssl dgst -sha256 -sign "$key" -binary | b64url)
     jwt="$header.$claims.$signature"
-    token=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -sS -X POST -H @- -H "$ACCEPT" -H "$VERSION" \
-        -d '{"permissions":{"metadata":"read"}}' "$API/app/installations/$installation/access_tokens" |
-        python3 -I -c 'import json, sys; print(json.load(sys.stdin).get("token") or "")')
+    # GitHub's answer and its status are held in a variable, never a file, since a minted token is in the answer.
+    minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
+        -H "$VERSION" -d '{"permissions":{"metadata":"read"}}' \
+        "$API/app/installations/$installation/access_tokens" || true)
     jwt=""
-    if [ -z "$token" ]; then
-        echo "trial_p39_reach: $slug: no token was minted for installation $installation; nothing read" >&2
+    minted_status=$(printf '%s\n' "$minted" | tail -n 1)
+    token=$(printf '%s\n' "$minted" | sed '$d' | python3 -I -c '
+import json, sys
+answer = json.load(sys.stdin)
+print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/null || true)
+    if [ "$minted_status" != 201 ] || [ -z "$token" ]; then
+        # No token was minted, so the answer is GitHub's error; it is still redacted before it is shown.
+        token=""
+        printf '%s\n' "$minted" | sed '$d' > "$scratch/mint-$n"
+        minted=""
+        echo "trial_p39_reach: $slug: no token was minted for installation $installation (status ${minted_status:-none});" \
+            "nothing read. GitHub answered, redacted:" >&2
+        if (cd "$root" && python3 -m tools.redact_trial "$scratch/mint-$n" "$scratch/mint-$n.clean") >/dev/null 2>&1
+        then
+            cat "$scratch/mint-$n.clean" >&2
+        else
+            echo "(an answer the redaction could not read, so it is not shown)" >&2
+        fi
+        rm -f "$scratch/mint-$n" "$scratch/mint-$n.clean"
         exit 1
     fi
+    minted=""
+    # curl is the last command of the pipeline, so its exit is the pipeline's; nothing after it hides a failure.
+    read_ok=1
     printf 'Authorization: Bearer %s\n' "$token" | curl -sS -i -H @- -H "$ACCEPT" -H "$VERSION" \
-        "$API/installation/repositories?per_page=100" | tr -d '\r' > "$scratch/raw-$n"
+        "$API/installation/repositories?per_page=100" > "$scratch/crlf-$n" || read_ok=0
+    tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
+    rm -f "$scratch/crlf-$n"
+    status=$(sed -n '1s/^HTTP\/[0-9.]* \([0-9][0-9]*\).*/\1/p' "$scratch/raw-$n")
     revoked=$(revoke || true)
+    if [ "$revoked" != 204 ]; then
+        # The token stays set, so the exit trap tries once more to revoke it.
+        unrevoked "$slug" "$revoked"
+        exit 1
+    fi
     token=""
-    [ "$revoked" = 204 ] || unrevoked "$slug" "$revoked"
+    if [ "$read_ok" = 0 ] || [ "$status" != 200 ]; then
+        rm -f "$scratch/raw-$n"
+        echo "trial_p39_reach: $slug: GET /installation/repositories failed (curl ok: $read_ok, status: ${status:-none});" \
+            "its token is revoked, and nothing of it is kept. Run the trial again." >&2
+        exit 1
+    fi
     (cd "$root" && python3 -m tools.redact_trial "$scratch/raw-$n" "$out/clean-$n") > "$out/redacted-$n"
     rm -f "$scratch/raw-$n"
     asked="$asked{\"n\": $n, \"app\": \"$app\", \"as\": \"$slug\", \"app_id\": $app_id, \"installation\": $installation,"
@@ -121,4 +159,4 @@ reach 1 controller "$2"
 reach 2 pr-review "$3"
 reach 3 reader "$4"
 printf '[%s]\n' "${asked%,}" > "$out/requests.json"
-echo "Done. Hand $out to a session; it holds no credential. A revocation status other than 204 is told to the Maintainer."
+echo "Done. Hand $out to a session; it holds no credential. Each token was revoked with status 204."
