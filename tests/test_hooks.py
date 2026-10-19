@@ -796,7 +796,8 @@ class Identity(unittest.TestCase):
         for command in ("cd -P sub && git commit -m x", "CDPATH=x; cd ./sub && git commit -m x", "cd sub; git commit -m x",
                         "git fetch && cd sub && make && cd .. && git push", "cd sub && cd .. && git push",
                         "cd %s; git commit -m x" % self.here, "true & cd sub; git commit -m x",
-                        "case x in '|') :;; esac; cd sub; git commit -m x"):
+                        "case x in '|') :;; esac; cd sub; git commit -m x", "case x in '|') ;; esac; cd sub; git commit -m x",
+                        "case x in '&') ;; esac; cd sub; git commit -m x"):
             self.assertEqual(self.codes(command), "", command)
         self.assertIn("commit_identity_not_maintainer", self.refused("true && cd %s; git commit -m x" % self.bad))
         self.assertIn("directory_unreadable", self.refused("false || cd sub; cd %s; git commit -m x" % self.here))
@@ -833,10 +834,13 @@ class Identity(unittest.TestCase):
                         "pushd -n .git; popd; cp /tmp/x config; git -C %s push" % self.here,
                         "cd -; cd .git; cp /tmp/x config; git -C %s push" % self.here,
                         # popd leaves OLDPWD a place the hook does not know: cd - after it is read in every place.
-                        "pushd .git; popd; cd -; cp /tmp/x config; git -C %s push" % self.here):
+                        "pushd .git; popd; cd -; cp /tmp/x config; git -C %s push" % self.here,
+                        "cd .git; pushd /tmp; popd; cd -; cp /tmp/x config; git -C %s push" % self.here):
             self.assertIn("git_directory_written", self.refused(command), command)
         self.assertIn("commit_identity_not_maintainer", self.refused("cd -; git commit -m x", self.bad))
-        self.assertIn("commit_identity_not_maintainer", self.refused("pushd %s; popd; cd -; git commit -m x" % self.bad))
+        for command in ("pushd %s; popd; cd -; git commit -m x" % self.bad,
+                        "cd %s; pushd %s; popd; cd -; git commit -m x" % (self.bad, self.here)):
+            self.assertIn("commit_identity_not_maintainer", self.refused(command), command)
 
     def test_a_program_the_hook_does_not_read_may_write_what_it_is_given_and_where_it_stands(self):
         # Decision 0039: in a command that commits or pushes, each word a program the hook does not read is given, an
