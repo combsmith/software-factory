@@ -755,7 +755,7 @@ class Identity(unittest.TestCase):
                         "cd sub; cd -; echo x > notes.txt; git push", "cd sub && pushd .. && popd && git push",
                         "cd .git && cat HEAD && cd %s && echo x > notes.txt && git push" % self.here):
             self.assertEqual(self.codes(command), "", command)
-        # Decision 0038: cd - after a cd the hook placed goes back to where the command stood, so this now passes.
+        # Decision 0039: cd - after a cd the hook placed goes back to where the command stood, so this now passes.
         self.assertEqual(self.codes("cd .git && cat HEAD && cd - && echo x > notes && git push"), "")
         # ~- and $OLDPWD are cd -; cd '' stays where it is; and a directory the hook cannot tell stays one, though a
         # plain path follows it.
@@ -780,7 +780,7 @@ class Identity(unittest.TestCase):
         self.as_data("cd .git; pushd /tmp; popd; cp x hooks/pre-push; git push", "pushd and popd { a; b; }")
 
     def test_a_cd_the_hook_cannot_place_exactly_loses_the_directory(self):
-        # Decision 0038 (issue 174, PR B): a cd is placed exactly only at the top level of a plain `;`, newline or `&&`
+        # Decision 0039 (issue 174, PR B): a cd is placed exactly only at the top level of a plain `;`, newline or `&&`
         # sequence, as a command's first word, with one operand at most, options the hook knows, and no CDPATH set in
         # the command for a relative one. Any other cd loses the directory: a commit, a push or a relative write after
         # it is directory_unreadable.
@@ -802,7 +802,7 @@ class Identity(unittest.TestCase):
         self.as_data("if true; then cd .git; fi", "CDPATH=.git; cd hooks; git push", "true | cd .git")
 
     def test_a_subshells_cd_is_its_own(self):
-        # Decision 0038: a cd in ( ), $( ), a backtick, <( ) or a shell's -c script moves that process alone; after it
+        # Decision 0039: a cd in ( ), $( ), a backtick, <( ) or a shell's -c script moves that process alone; after it
         # the command stands where it stood, and what runs inside is read where the cd leads.
         (self.here / "sub").mkdir(exist_ok=True)
         for inner in ("(cd /tmp)", "x=$(cd /tmp)", "echo $(cd /tmp)", "echo `cd /tmp`", "cat <(cd /tmp)",
@@ -820,7 +820,7 @@ class Identity(unittest.TestCase):
         self.as_data("(cd /tmp); cp /tmp/x config", "x=$(cd .git)")
 
     def test_cd_minus_goes_back_to_the_place_before_the_last_cd(self):
-        # Decision 0038: after a cd the hook placed, cd - goes back to where the command stood before it, and back
+        # Decision 0039: after a cd the hook placed, cd - goes back to where the command stood before it, and back
         # again; before any cd in the command, the shell's previous directory is one the hook does not know, and cd -
         # is read as decision 0032 reads it, in every directory the command has stood in.
         (self.here / "sub").mkdir(exist_ok=True)
@@ -838,7 +838,7 @@ class Identity(unittest.TestCase):
         self.assertIn("commit_identity_not_maintainer", self.refused("pushd %s; popd; cd -; git commit -m x" % self.bad))
 
     def test_a_program_the_hook_does_not_read_may_write_what_it_is_given_and_where_it_stands(self):
-        # Decision 0038: in a command that commits or pushes, each word a program the hook does not read is given, an
+        # Decision 0039: in a command that commits or pushes, each word a program the hook does not read is given, an
         # option's =value and what follows each letter of a bundle among them, and the directory it stands in, is a
         # place written; a program of DATA_ONLY writes none; find's and tree's output options are destinations.
         for command in ("sort -o .git/hooks/x /tmp/x; git push", "sort -o.git/hooks/x /tmp/x; git push",

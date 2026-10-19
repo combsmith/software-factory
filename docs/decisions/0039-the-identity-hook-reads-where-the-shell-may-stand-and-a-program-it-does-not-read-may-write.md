@@ -1,4 +1,4 @@
-# 0038. The identity hook reads where the shell may stand, and a program it does not read may write
+# 0039. The identity hook reads where the shell may stand, and a program it does not read may write
 
 Status: accepted. It adds to `docs/decisions/0030-the-identity-hook-refuses-a-write-into-gits-directory-and-a-git-an-alias-or-a-feeder-hides.md`
 and `docs/decisions/0032-the-identity-hook-reads-a-write-where-and-when-the-shell-makes-it.md`, whose Decisions stay

@@ -143,7 +143,7 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
                 found.append((words, targets))
                 words, targets = [], []
             if scopes:
-                found += _marks(token)      # a subshell's ( ), and what joins the commands (decision 0038)
+                found += _marks(token)      # a subshell's ( ), and what joins the commands (decision 0039)
             in_pattern = cases > 0 and (";;" in token or ";&" in token)
             continue
         if operator is not None:
@@ -183,10 +183,10 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
 
 # The marks commands(scopes=True) puts around what runs in a subshell: a ( ), a substitution, a case pattern's
 # substitution, a shell's -c script. No words, so no command spells one; a cd between them is the subshell's alone
-# (decisions 0032 and 0038).
+# (decisions 0032 and 0039).
 SCOPE = ((None, "("), (None, ")"))
 # The marks it puts where || , | or & joins two commands, so that a cd joined by one is seen for what it is: one that
-# may not run, or runs in a subshell (decision 0038). && and ; put no mark: a command after them is read as run.
+# may not run, or runs in a subshell (decision 0039). && and ; put no mark: a command after them is read as run.
 JOINS = ("||", "|", "&")
 MARKS = ("(", ")") + JOINS
 
@@ -379,7 +379,7 @@ def _inner(words: list, spend=None, texts: list = None, marked: bool = False, sc
     """The commands of a script run by this one: `bash -c '...'` or `eval ...`, also after env, xargs or sudo; and
     the command string of `flock -c`, `script -c`, `runuser -c`, `su -c` and `env -S`. `words` are as the shell gives
     them, with no LIVE mark: the script is read again as text. With `scopes`, a shell's or a program's script, which
-    runs in a process of its own, comes between SCOPE's marks; eval's and env -S's run in this shell (decision 0038)."""
+    runs in a process of its own, comes between SCOPE's marks; eval's and env -S's run in this shell (decision 0039)."""
     for at, word in enumerate(words):
         name = os.path.basename(word)
         if name == "eval":
