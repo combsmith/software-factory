@@ -16,7 +16,7 @@ changed rule may need its invariant changed too. Time is the counter `minute`.
 | The fake answers in GitHub's own shapes, so that its answers can be compared with a fixture | waiting on `adapters/` |
 
 The world is one pull request, paused for a span on some seeds, or with a Pause that cannot be read, and on some with no writer's action yet.
-On those seeds the Pause may begin early, as an approval falls due (`tests/test_simulator.py::test_the_pause_falls_due_with_an_approval`).
+On those seeds the Pause may begin early, as an approval falls due or a count is spent (`tests/test_simulator.py::test_the_pause_falls_due_with_an_approval`, `..._with_a_spent_count`).
 Its checks pass, fail, time out or give no verdict, and another App can post a passing check under the name of a Lens that failed. On an odd seed it
 is the Maintainer's own, of class `maintainer`: GitHub refuses a review by its author, so the Maintainer acts with
 threads, a Hold and pushes. On an even seed it is an agent's, of class `agent`, and the Maintainer also reviews it:
@@ -30,7 +30,7 @@ moment, results on earlier content stay behind, a second result can disagree wit
 the contract short or with a result on this content for a criterion it does not name. A person approves the contract, or on some seeds has not yet,
 and can withdraw it; a push can edit or delete it; another App or workflow can give a result, and a check one for a criterion only a person passes,
 which on an agent's pull request a person's approval of the content confirms (`tests/test_simulator.py::test_the_seeds_serve_items_with_an_acceptance_contract_and_without`).
-Under faults the reporter may give its result only after the review of the same content (`tests/test_simulator.py::test_the_reporter_can_come_after_the_review`).
+Under faults a result on the content expires as its approval falls due (`tests/test_simulator.py::test_the_evidence_expires_as_the_approval_falls_due`).
 On every seed a review's Result now and then leaves a criterion of its rubric uncovered: its Run fails by a fault of the item and opens no thread,
 and the review is admitted again until its attempts hold the item (`tests/test_simulator.py::test_the_seeds_serve_a_review_that_left_a_criterion_uncovered`).
 A rule about anything else is not exercised here, so its boundary cases are all that hold it. An invariant is a call to `check()` with its name. When a seed finds a fault, the fix goes in the Kernel with a boundary case in `tests/test_decide.py`.

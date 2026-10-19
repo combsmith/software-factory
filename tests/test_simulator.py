@@ -42,6 +42,18 @@ def queued() -> World:
     return w
 
 
+def reviewed(w: World) -> World:
+    """The world with every check passing and every model Lens's review of this content succeeded."""
+    w.checks = dict.fromkeys(w.checks, "success")
+    for lens in world.CONFIG["required_lenses"]["model"]:
+        w.runs.append({"run": "r%d" % len(w.runs), "item": dict(world.ITEM), "role": lens, "intent": "review-change",
+                       "content_id": w.cid(), "status": "completed", "conclusion": "success", "outcome": None,
+                       "started_at": w.now()})
+    w.minute += 1
+    w.starts()
+    return w
+
+
 class Simulation(unittest.TestCase):
     def test_invariants_hold_under_faults(self):
         made, stopped, readings, writers = set(), set(), set(), set()
@@ -342,16 +354,6 @@ class Simulation(unittest.TestCase):
     def test_the_pause_falls_due_with_an_approval(self):  # I-7, decision 0003
         # On a seed that pauses, a pass before the Pause that would issue the approval, asked with no Pause, starts the
         # Pause there: the approval is what it holds back.
-        def reviewed(w):
-            w.checks = dict.fromkeys(w.checks, "success")
-            for lens in world.CONFIG["required_lenses"]["model"]:
-                w.runs.append({"run": "r%d" % len(w.runs), "item": dict(world.ITEM), "role": lens,
-                               "intent": "review-change", "content_id": w.cid(), "status": "completed",
-                               "conclusion": "success", "outcome": None, "started_at": w.now()})
-            w.minute += 1
-            w.starts()
-            return w
-
         w = World(20, faults=False, people=False)
         self.assertIn(w.seed % 5, world.PAUSES)
         self.assertTrue(w.pause_reading)
@@ -366,7 +368,7 @@ class Simulation(unittest.TestCase):
         w.poll()
         self.assertEqual((w.pause_from, w.stopped), (None, []))
         self.assertEqual([rv["by"]["kind"] for rv in w.reviews], ["machine_user"])
-        # Nor does a pass that would admit a Run move the Pause: the Run is admitted.
+        # Nor does a pass that would admit a Run, enqueue, or hold the item on a Hold the facts establish move the Pause.
         w = World(20, faults=False, people=False)
         w.checks = dict.fromkeys(w.checks, "success")
         w.minute += 1
@@ -375,32 +377,100 @@ class Simulation(unittest.TestCase):
         w.poll()
         self.assertEqual((w.pause_from, w.stopped), (w.minute + 10, []))
         self.assertEqual([r["intent"] for r in w.runs], ["review-change"])
+        w = reviewed(World(20, faults=False, people=False))
+        w.reviews.append({"by": dict(world.MACHINE), "state": "approved", "commit": "c1", "content_id": w.cid(),
+                          "submitted_at": w.now(), "dismissed_by": None, "dismissed_from": None})
+        w.starts()
+        w.pause_from = w.minute + 10
+        w.poll()
+        self.assertEqual((w.pause_from, w.stopped, w.queue), (w.minute + 10, [], True))
+        w = reviewed(World(20, faults=False, people=False))
+        w.label(terms.LABEL_HOLD, world.MAINTAINER)
+        w.starts()
+        w.pause_from = w.minute + 10
+        w.poll()
+        self.assertEqual((w.pause_from, w.trace[-1].split(" ", 1)[1]), (w.minute + 10, "pass: held human_hold -> hold"))
 
-    def test_the_reporter_can_come_after_the_review(self):  # I-31
-        # Under faults, the reporter gives no result for a criterion lacking one on this content until every required
-        # model Lens has reviewed that content and succeeded: its check can be queued behind the review.
+    def test_the_pause_falls_due_with_a_spent_count(self):  # decision 0003, issues 158 and 169
+        # Three reviews of this content failed by a fault of the item: the count is spent. On a seed that pauses, a pass
+        # before the Pause that holds the item on it starts the Pause there, and the Hold shows through it.
+        w = World(20, faults=False, people=False)
+        w.checks = dict.fromkeys(w.checks, "success")
+        for i in (1, 2, 3):
+            w.runs.append({"run": "r%d" % i, "item": dict(world.ITEM), "role": "pr-review", "intent": "review-change",
+                           "content_id": w.cid(), "status": "completed", "conclusion": "failure", "outcome": "item",
+                           "started_at": w.at(i)})
+        w.minute += 6
+        w.starts()
+        w.pause_from = w.minute + 10
+        w.poll()
+        self.assertEqual(w.pause_from, w.minute)
+        self.assertEqual(w.trace[-1].split(" ", 1)[1], "pass: held attempts_exhausted -> hold")
+        self.assertEqual((w.paused_passes, w.stopped), (1, []))
+
+    def test_what_a_pause_holds_back_as_it_begins_is_checked(self):  # I-6, I-20
+        # A Kernel that would issue the approval on a held item, or on facts read short, and that under the Pause defers
+        # as a converged item would: the pass that starts the Pause checks what it holds back, as every Decision is.
+        def careless(f, r, c, cfg, now):
+            free = decide(f, r, dict(c, paused=False), cfg, now)
+            if free["state"] in (terms.HELD, None):
+                if c.get("paused") is False:
+                    return dict(free, state=terms.CONVERGED, reason="approval_due", outcome=terms.ACT,
+                                action="issue_approval", content_id=f["content_id"])
+                return dict(free, state=terms.CONVERGED, reason="paused", outcome=terms.DEFER, evidence=[])
+            return decide(f, r, c, cfg, now)
+
+        for case, invariant in (("hold", "I-6"), ("short", "I-20")):
+            w = reviewed(World(20, faults=False, people=False))
+            if case == "hold":
+                w.label(terms.LABEL_HOLD, world.MAINTAINER)
+            else:
+                read = w.facts
+                w.facts = lambda: dict(read(), complete=dict(read()["complete"], reviews=False))
+            w.pause_from = w.minute + 10
+            with mock.patch.object(world, "decide", careless):
+                self.assertRaisesRegex(world.Broken, invariant, w.poll)
+
+    def test_the_evidence_expires_as_the_approval_falls_due(self):  # I-31
+        # On a seed with a contract, under faults, the reporter's result on this content expires with its artifact once
+        # on each content, as the approval falls due: the pass reads the criterion lacking, and waits for it.
         class Never:
             def random(self):
                 return 0.99
 
-        def contract(faults):
-            w = World(10, faults=faults, people=False)
-            self.assertIsNotNone(w.criteria)
-            w.judge = Never()
+        def due(faults):
+            w = reviewed(World(17, faults=faults, people=False))
+            self.assertEqual((w.criteria, w.pause_from), (["AC-1"], None))
+            w.rng = w.judge = Never()
+            if not w.agreed():
+                w.confirm()
+            w.results.append({"criterion": "AC-1", "content_id": w.cid(), "result": "passing",
+                              "check": dict(world.REPORTER)})
+            w.minute += 1
+            w.starts()
             return w
 
-        w = contract(True)
-        self.assertEqual((w.gives_evidence(), w.results), (False, []))
-        for lens in world.CONFIG["required_lenses"]["model"]:
-            w.runs.append({"run": "r%d" % len(w.runs), "item": dict(world.ITEM), "role": lens,
-                           "intent": "review-change", "content_id": w.cid(), "status": "completed",
-                           "conclusion": "success", "outcome": None, "started_at": w.now()})
+        def approved(w):
+            return [rv["content_id"] for rv in w.reviews if rv["by"] == world.MACHINE]
+
+        w = due(True)
+        w.poll()
+        self.assertEqual((w.results, approved(w)), ([], []))
+        self.assertEqual(w.trace[-1].split(" ", 1)[1], "pass: verifying acceptance_evidence_missing -> nothing")
+        # The reporter gives it again, and on the same content it does not expire twice: the approval is issued.
         self.assertTrue(w.gives_evidence())
-        self.assertEqual([(ev["content_id"], ev["result"]) for ev in w.results], [(w.cid(), "passing")])
-        # The other side: with faults off, the reporter gives it at once.
-        w = contract(False)
-        self.assertTrue(w.gives_evidence())
-        self.assertEqual([(ev["content_id"], ev["result"]) for ev in w.results], [(w.cid(), "passing")])
+        w.poll()
+        self.assertEqual((len(w.results), approved(w)), (1, [w.cid()]))
+        # The other side: with faults off, nothing expires, and the approval is issued at once.
+        w = due(False)
+        w.poll()
+        self.assertEqual((len(w.results), approved(w)), (1, [w.cid()]))
+        # Nor does anything expire where no approval falls due: the review is admitted, and the result stays.
+        w = due(True)
+        w.runs = []
+        w.starts()
+        w.poll()
+        self.assertEqual((len(w.results), [r["intent"] for r in w.runs]), (1, ["review-change"]))
 
     def test_a_dequeue_at_the_act_ceiling_is_the_one_act_past_it(self):  # I-8
         # A required check fails after the item entered the queue, with the acts since a writer at the ceiling. The

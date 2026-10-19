@@ -85,10 +85,10 @@ ON_THE_LIST = {"role": "tests/test_decide.py", "dependency": ".github/workflows/
 OFF_THE_LIST = {"role": "docs/lessons.md", "dependency": "docs/requirements.txt", "maintainer": "docs/glossary.md"}
 # On every seed, under faults, a review's Result leaves a criterion of its rubric uncovered half the time, which `apply`
 # refuses before any Effect: the Run fails by a fault of the item (decision 0029). The Factory's own behaviour, not
-# GitHub's, so it carries no marker. Every seed, so that any world can find what it breaks, as seed 297 found a Pause
-# hiding a spent count (issue 158); and half the time, so that a review is held at its attempts within the first 40.
-# A review retried that often ends each world late, so a Pause falls due with an approval, and the reporter gives its
-# result after the review, by design and not by timing (issue 168).
+# GitHub's, so it carries no marker. Every seed, so that any world can find what it breaks, as seed 297 once found a
+# Pause hiding a spent count (issue 158); and half the time, so that a review is held at its attempts within the first
+# 40. A review retried that often ends each world late, so what comes at the end is served by design and not by timing
+# (issue 168): a Pause falls due with an approval or a spent count, and a result expires as an approval falls due.
 UNCOVERED_SEEDS, UNCOVERED = 1, 0.5
 
 
@@ -161,6 +161,7 @@ class World:
         if self.cls == "agent" and len(self.kinds) > 1:
             self.kinds[self.criteria[-1]] = t.HUMAN_KIND
         self.results = []
+        self.expired_on = set()    # each content a result on expired as the approval fell due (expires_as_due)
         self.judge = random.Random("acceptance %d" % seed)
         # Whether a review's Result covers its rubric draws from its own generator, so the rest of each world stays as it
         # was until a review leaves a criterion uncovered.
@@ -463,6 +464,7 @@ class World:
         if self.gap:
             # The poller's own records: a pass after a lost tick starts a new chain.
             self.chain, self.gap = self.minute, False
+        self.expires_as_due()
         facts, runs = self.facts(), self.records()
         fault = self.rng.random() if self.faults else 1.0
         current = exact = True
@@ -508,13 +510,16 @@ class World:
         wrong = validate(facts, FACTS_SCHEMA)
         self.check(not wrong, "facts are valid: %s" % "; ".join(wrong))
         if self.pause_from is not None and self.minute < self.pause_from:
-            # On a seed that pauses, the Pause falls due with an approval, where it matters most (I-7): a pass before the
-            # seed's minute whose Decision, asked with no Pause on the facts it read, issues the approval starts the
-            # Pause there, for the seed's span and with the seed's reading.
+            # On a seed that pauses, the Pause falls due where it matters most (I-7, decision 0003): a pass before the
+            # seed's minute whose Decision, asked with no Pause on the facts it read, issues the approval, or holds the
+            # item on a count spent, starts the Pause there, for the seed's span and with the seed's reading. What the
+            # Pause then holds back is checked as every Decision is.
             free = decide(facts, runs, self.unpaused(), CONFIG, self.now())
-            if free["outcome"] == t.ACT and free["action"] == "issue_approval":
+            due = free["outcome"] == t.ACT and free["action"] == "issue_approval"
+            if due or (free["outcome"] == t.HOLD and free["reason"] in CEILINGS):
                 self.pause_from = self.minute
-                self.note("the Pause began as an approval fell due")
+                self.note("the Pause began as %s" % ("an approval fell due" if due else "a count was spent"))
+                self.answers(facts, runs, free, current)
         d = decide(facts, runs, self.context(), CONFIG, self.now())
         wrong = validate(d, DECISION_SCHEMA)
         self.check(not wrong, "every Decision is valid: %s" % "; ".join(wrong))
@@ -532,6 +537,30 @@ class World:
             self.check((d["attention"] == t.STALE) == (waited > limit),
                        "I-1 a %s item that waited %d minutes of %d shown as %s" % (d["state"], waited, limit,
                                                                                    d["attention"]))
+        self.answers(facts, runs, d, current)
+        if all(facts["complete"].values()) and current:
+            # A pass that reads a queued item whole, as it is now, takes it out if it may not merge (L-19). Under a Pause
+            # it may not: the dequeue defers (paused), and such a pass reads nothing the queue may merge on.
+            stop = self.queue and self.objections()
+            if not self.pausing():
+                self.check(not stop or (d["outcome"], d.get("action")) == (t.ACT, "dequeue"),
+                           "a pass leaves a queued item in the queue over %s" % ", ".join(stop or []))
+                self.read = self.unstamped(facts)
+        if self.pausing():
+            self.paused(facts, runs, d)
+        if d["outcome"] == "admit":
+            self.moves()
+            self.runs.append({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"],
+                              "intent": d["admit"]["intent"], "content_id": d["admit"]["content_id"],
+                              "status": "queued", "conclusion": None, "outcome": None, "started_at": self.now()})
+            self.caused("factory")
+        elif d["outcome"] == "act":
+            self.apply_action(d)
+            self.caused("factory")
+
+    def answers(self, facts: dict, runs: list, d: dict, current: bool):
+        """The invariants every Decision of a pass answers to, on the facts the pass read; `current` when they are what
+        GitHub holds now."""
         acceptance = facts["acceptance"]
         if acceptance is not None:
             # No Run is admitted, and nothing converges or stays in the queue, unless a person approved the contract and
@@ -594,24 +623,24 @@ class World:
             # the label off since (I-6, I-21).
             self.check(not self.held() or d["outcome"] not in (t.ADMIT, t.ACT) or dequeue,
                        "I-6 a held item moved on: %s %s" % (d["outcome"], d["reason"]))
-            # A pass that reads a queued item whole, as it is now, takes it out if it may not merge (L-19). Under a Pause
-            # it may not: the dequeue defers (paused), and such a pass reads nothing the queue may merge on.
-            stop = self.queue and self.objections()
-            if not self.pausing():
-                self.check(not stop or (d["outcome"], d.get("action")) == (t.ACT, "dequeue"),
-                           "a pass leaves a queued item in the queue over %s" % ", ".join(stop or []))
-                self.read = self.unstamped(facts)
-        if self.pausing():
-            self.paused(facts, runs, d)
-        if d["outcome"] == "admit":
-            self.moves()
-            self.runs.append({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"],
-                              "intent": d["admit"]["intent"], "content_id": d["admit"]["content_id"],
-                              "status": "queued", "conclusion": None, "outcome": None, "started_at": self.now()})
-            self.caused("factory")
-        elif d["outcome"] == "act":
-            self.apply_action(d)
-            self.caused("factory")
+
+    def expires_as_due(self):
+        """On a seed with a contract, while faults are on, the evidence goes missing where it matters most (I-31): once
+        on each content, as the approval falls due, the oldest result the reporter gave on that content, of a criterion
+        with no other result there, expires with its artifact. The pass reads the criterion lacking until the reporter
+        gives it again. A criterion with a second result keeps one, and what the Kernel makes of the two is its own."""
+        if self.criteria is None or not self.faults or self.cid() in self.expired_on:
+            return
+        free = decide(self.facts(), self.records(), self.unpaused(), CONFIG, self.now())
+        here = [ev for ev in self.results if ev["content_id"] == self.cid()]
+        mine = [ev for ev in here if ev["check"] == REPORTER
+                and [other["criterion"] for other in here].count(ev["criterion"]) == 1]
+        if free["outcome"] == t.ACT and free["action"] == "issue_approval" and mine:
+            # GitHub: a_result_expires_with_its_artifact
+            self.expired_on.add(self.cid())
+            self.results.remove(mine[0])
+            self.note("evidence %s on %s expired as the approval fell due" % (mine[0]["criterion"], self.cid()))
+            self.caused("platform")
 
     def paused(self, facts: dict, runs: list, d: dict):
         """Under a Pause, or one that cannot be read, nothing is admitted and nothing acts, not even a dequeue. Every
@@ -884,11 +913,6 @@ class World:
             return True
         lacking = [c for c in tested if c not in given]
         if not lacking:
-            return False
-        if self.faults and not self.reviewed(self.runs, self.cid()):
-            # The reporter's check can be queued behind a model's review: while faults are on, it gives its result on
-            # this content only once every required model Lens has reviewed the content and succeeded.
-            # GitHub: a_result_can_come_after_the_review
             return False
         criterion = lacking[int(self.judge.random() * len(lacking))]
         result = "failing" if self.faults and self.judge.random() < 0.15 else "passing"
@@ -1198,10 +1222,8 @@ class World:
         for _ in range(steps):
             self.step()
         # The person who approves the contract approves it again at the head, and the content the Factory settled on,
-        # which confirms each criterion of kind human, until neither waits for them; a deleted contract stays held. Each
-        # confirmation is a writer's action, after which a Lens's thread can change the content again: five, the
-        # person's patience once faults stop (issue 168).
-        for _ in range(5):
+        # which confirms each criterion of kind human, until neither waits for them; a deleted contract stays held.
+        for _ in range(3):
             if not self.awaits_a_person():
                 break
             self.minute += 1
