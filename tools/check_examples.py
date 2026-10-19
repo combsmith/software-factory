@@ -5,7 +5,7 @@ import json
 import pathlib
 
 from kernel.coverage import covered
-from tools.jsonschema_lite import FILE, SchemaError, _resolve, validate
+from tools.jsonschema_lite import ANNOTATIONS, FILE, SchemaError, _resolve, validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Data files that are the real thing, not illustrations, and their schema.
@@ -79,21 +79,29 @@ def _anchored(pattern) -> bool:
     return True
 
 
-def _free(schema, schemas: dict, root, kind: str, path: str, seen: set) -> list:
+def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: tuple = ()) -> list:
     """What is wrong with `schema`, of the kind named, as the schema of what one Run carries: where it admits a string
-    that no enum, const or anchored pattern holds, and a reference it makes that cannot be followed."""
-    if not isinstance(schema, dict) or (kind, id(schema)) in seen:
+    that no enum, const or anchored pattern holds, and a reference it makes that cannot be followed, has a keyword
+    beside it, or comes round to itself. validate() reads a reference only where a value reaches it, so a branch no
+    example takes is held here. `active` is the chain of references followed at this path."""
+    if not isinstance(schema, dict):
         return []
-    seen.add((kind, id(schema)))
     ref = schema.get("$ref")
     if isinstance(ref, str):
+        beside = set(schema) - ANNOTATIONS - {"$ref"}
+        if beside:
+            return ["schema %s has %s beside a $ref at %s; a $ref stands alone" % (kind, sorted(beside), path)]
         try:
             target, target_root = _resolve(ref, root, schemas)
         except SchemaError as err:
-            # validate() follows a reference only where a value reaches it; one in a branch no example takes is caught here.
             return ["schema %s cannot be followed at %s: %s" % (kind, path, err)]
+        if id(target) in active:
+            return ["schema %s comes round to itself at %s" % (kind, path)]
         named = FILE.match(ref)
-        return _free(target, schemas, target_root, named.group(1) if named else kind, path, seen)
+        return _free(target, schemas, target_root, named.group(1) if named else kind, path, seen, active + (id(target),))
+    if (kind, id(schema)) in seen:
+        return []
+    seen.add((kind, id(schema)))
     out = []
     kinds = schema.get("type")
     kinds = kinds if isinstance(kinds, list) else [kinds]

@@ -305,6 +305,14 @@ class Examples(unittest.TestCase):
         loose["properties"]["note"] = {"$ref": "nope.schema.json"}
         problems = check_examples.run(clone({"schemas/disposition.schema.json": json.dumps(loose)}))
         self.assertTrue(caught(problems, "schema disposition cannot be followed at $.note"))
+        # So are a reference that comes round to itself, and a keyword beside one, in a branch no example takes.
+        loose["properties"]["note"] = {"$ref": "#/$defs/loop"}
+        loose["$defs"] = {"loop": {"$ref": "#/$defs/loop"}}
+        problems = check_examples.run(clone({"schemas/disposition.schema.json": json.dumps(loose)}))
+        self.assertTrue(caught(problems, "schema disposition comes round to itself at $.note"))
+        loose["properties"]["note"] = {"$ref": "effect.schema.json", "enum": ["only"]}
+        problems = check_examples.run(clone({"schemas/disposition.schema.json": json.dumps(loose)}))
+        self.assertTrue(caught(problems, "schema disposition has ['enum'] beside a $ref at $.note"))
         for held in ("^(item|PRRT_[A-Za-z0-9_-]+)$", "^[^\\s]+$", "^a\\|b$", "^[|$]+$", "^(a|(b|c))$"):
             self.assertTrue(check_examples._anchored(held), held)
         for loose in ("^fixed$|b$", "^[a-z]+\\$", "^a|b$", "a$", "^a", "^(a|b)$|^c$", None, 3):
