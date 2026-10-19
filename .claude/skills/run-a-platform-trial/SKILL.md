@@ -22,8 +22,8 @@ everything a trial leaves in it: its runs, logs and artifacts.
   `GH_REPO=combsmith/software-factory-canary` for every command of the trial, and name no other
   repo. P-8 needs twelve repos, P-11 the control room and the hub, P-19 a separate public repo,
   P-30 the Factory's own repo, and P-31 every repo an App is installed on: for these, stop and
-  raise it with the Maintainer before anything runs. The fixture's schema accepts the canary
-  alone, so such a trial needs that decided first.
+  raise it with the Maintainer before anything runs. The fixture's schema accepts the canary,
+  or, for a vendor's CLI, no repo (decision 0033), so such a trial needs that decided first.
 - **Nothing here reads the canary.** Only a document, a fixture, the fixture's example and its
   schema name it here, and so does `config/apps.json`, which declares where the Apps are
   installed and which nothing runs. `tools/check_trials.py` refuses any other file that names
@@ -32,6 +32,11 @@ everything a trial leaves in it: its runs, logs and artifacts.
   Maintainer is advised to give a trial session a fine-grained token scoped to the canary alone,
   installed outside the session. A step that must run as another identity (the machine user, an
   App, a workflow's token) runs in a workflow in the canary or at the Maintainer's own terminal.
+  P-13 asks the vendor's CLI, not GitHub: `tools/trial_p13_cli.sh` runs it at the pinned version,
+  on a configuration directory of its own logged in to the Maintainer's own subscription (decision
+  0033), and leaves
+  only redacted answers, without the model's text, in a new directory outside the repo. Its
+  fixture records `repo` as null and asks as `subscription` (decision 0033).
 - **Real credentials wait.** Nothing stores a real credential until P-3's fixture has the verdict
   `pass`, which means a secret restricted to the default branch was unreadable from a work
   branch. Until then a secret's value is a dummy. No long-lived credential is put in the canary.
