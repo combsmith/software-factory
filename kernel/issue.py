@@ -624,6 +624,11 @@ def _wanted(facts, state, reason, evidence, mine, intents):
     return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
 
 
+def without_opening(runs: list) -> list:
+    """The run records with every opening Run still in flight left out: row 7 is then read as if none were."""
+    return [r for r in runs if r["status"] == "completed" or r["intent"] != OPENING]
+
+
 def _run_wanted(facts, state, reason, evidence, mine, config):
     """`_wanted`'s answer, read the same with a Run in flight or none: the Run the State calls for, as (role, intent,
     what else its admission carries), or the Decision that admits none. In review or with a linked draft none is
@@ -736,10 +741,15 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     # A Run in flight admits nothing, and nothing it has written is read until it completes: its comment or its label
     # would move the Intent on. The attempts and the Run ceiling are still asked, on their own and not the Pause, about
     # the Run the State wants, found as with none in flight; the completed Runs alone are counted, since the Run in
-    # flight was admitted under the ceiling. Where no Run is wanted, none is asked (decision 0003).
+    # flight was admitted under the ceiling. Where no Run is wanted, none is asked (decision 0003). Row 7 is the one row
+    # a Run in flight moves: an opening Run waiting shows the issue in progress, so the Run wanted is found from the
+    # State it has with its opening Runs in flight left out, as `apply` reads it with its own Run left out (I-38).
+    # Every other Run in flight is still read, so that nothing it wrote counts.
     limits = config["limits"]
     flight = in_progress(mine)
-    wanted = None if state == NEW else _run_wanted(facts, state, reason, evidence, mine, config)
+    bare = d if reason != "opening_run" else derive(facts, without_opening(runs), config)
+    wanted = None if bare["state"] == NEW else _run_wanted(facts, bare["state"], bare["reason"], bare["evidence"],
+                                                          mine, config)
     if flight:
         held = None
         if isinstance(wanted, tuple):

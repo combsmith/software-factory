@@ -1377,6 +1377,50 @@ class WantedRun(unittest.TestCase):
         for runs in (settled, settled + [ended]):
             self.assertEqual(self.reading(f, runs), ("triage", "ready_removed", "nothing", "needs_you"))
 
+    def test_the_ceilings_are_asked_of_the_intent_wanted_and_not_of_the_one_in_flight(self):
+        # Three investigations failed for the issue, and a later one succeeded: the issue wants a verdict, whose
+        # attempts are not spent, while an investigation admitted twice still waits.
+        tries = [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(LIMITS["max_attempts"])]
+        waiting = investigated(status="queued", minute=7, name="q1")
+        self.assertEqual(self.reading(TRIAGED, tries + [investigated(minute=8), waiting]),
+                         ("triage", "triage", "nothing", "working"))
+        # The other side: with no investigation that succeeded, it wants one, and its spent attempts hold it.
+        self.assertEqual(self.reading(TRIAGED, tries + [waiting]), ("held", "attempts_exhausted", "hold", "needs_you"))
+
+    def test_an_opening_run_in_flight_is_left_out_to_find_the_run_wanted(self):
+        # An opening Run waiting shows the issue in progress (row 7), but the Run wanted is the one the issue wants
+        # without it: a verdict a person overruled, acceptance, or an investigation whose attempts are spent.
+        waiting = dict(opening(status="queued"), started_at=at(40), run="q1")
+        settled = [investigated()] + [failed(JUDGE, 4 + i, "j%d" % i, outcome="environment", role="readiness")
+                                      for i in range(self.CEILING - 1)]
+        overruled = facts(label_events=ACCEPTED + [labelled(READY, minute=30), unlabelled(READY, minute=31)])
+        self.assertEqual(self.reading(overruled, settled), ("triage", "ready_removed", "nothing", "needs_you"))
+        self.assertEqual(self.reading(overruled, settled + [waiting]), ("in_progress", "opening_run", "nothing", "working"))
+        # The other side: a verdict still wanted is held at the Run ceiling while the opening Run waits.
+        self.assertEqual(self.reading(TRIAGED, settled + [waiting]), ("held", "run_ceiling", "hold", "needs_you"))
+        spent = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(self.CEILING)]
+        self.assertEqual(what(decide(facts(), spent)), ("act", "acceptance_due", "accept"))
+        self.assertEqual(self.reading(facts(), spent + [waiting]), ("in_progress", "opening_run", "nothing", "working"))
+        tries = [failed(INVESTIGATE, 1 + i, "f%d" % i) for i in range(LIMITS["max_attempts"])]
+        for runs in (tries, tries + [waiting]):
+            self.assertEqual(self.reading(TRIAGED, runs), ("held", "attempts_exhausted", "hold", "needs_you"))
+        self.assertEqual(self.reading(TRIAGED, tries[:-1] + [waiting]),
+                         ("in_progress", "opening_run", "nothing", "working"))
+
+    def test_only_the_opening_run_in_flight_is_left_out_and_what_another_wrote_is_not_read(self):
+        # A readiness Run still in flight has added factory:ready, which does not count until it completes: the issue
+        # without the opening Run is in triage, wanting a verdict whose attempts are spent. Read without every Run in
+        # flight, the label would count, and the issue would want the opening Run, which nothing holds.
+        tries = [failed(JUDGE, 4 + i, "j%d" % i, role="readiness") for i in range(LIMITS["max_attempts"])]
+        judging = run(status="in_progress", minute=10, name="q1")
+        waiting = dict(opening(status="queued"), started_at=at(15), run="q2")
+        f = facts(label_events=ACCEPTED + [labelled(READY, READINESS, 20)])
+        self.assertEqual(self.reading(f, [investigated()] + tries + [judging, waiting]),
+                         ("held", "attempts_exhausted", "hold", "needs_you"))
+        # The other side: one attempt short, nothing holds it, and it shows in progress while the opening Run waits.
+        self.assertEqual(self.reading(f, [investigated()] + tries[:-1] + [judging, waiting]),
+                         ("in_progress", "opening_run", "nothing", "working"))
+
     def test_an_issue_in_new_wants_no_run_while_one_waits(self):
         spent = [failed(INVESTIGATE, 1 + i, "e%d" % i, outcome="environment") for i in range(self.CEILING)]
         queued = investigated(status="queued", minute=20, name="q1")

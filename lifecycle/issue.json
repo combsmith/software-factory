@@ -172,6 +172,12 @@
       "bound": null
     },
     {
+      "from": "in_review",
+      "to": "triage",
+      "by": "human",
+      "bound": null
+    },
+    {
       "from": "in_progress",
       "to": "held",
       "by": "factory",

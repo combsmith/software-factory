@@ -1070,6 +1070,10 @@ ISSUE_BASES = {
     "an outsider's admitted issue, investigated, one Run short": issue_item(
         OUTSIDERS_ISSUE, INVESTIGATED + issue_spent(issue_facts.JUDGE, ISSUE_RUNS - 2, "readiness")),
     "new, one act short": issue_item(issue_facts.facts(acts_since_writer=LIMITS["max_acts_per_item"] - 1)),
+    # The Factory's pull request open and ready on an issue a person triaged and readied: a person who removes
+    # factory:ready and closes it unmerged sends the issue back to triage.
+    "in review, triaged and ready": issue_item(issue_facts.facts(
+        label_events=issue_facts.ACCEPTED + issue_facts.READIED_BY_A_PERSON, linked=[issue_facts.agents()])),
 }
 
 
@@ -1247,6 +1251,8 @@ class AnyLifecycle(unittest.TestCase):
         missing = check_lifecycle.undeclared(lc, moved)
         self.assertEqual(missing, [], "\n".join("%s -> %s by %s: %s" % (*m, example(made[m])) for m in missing))
         self.assertEqual({by for _, _, by in moved}, {"human", "factory", "platform"})
+        # A person who closes the ready pull request unmerged, factory:ready removed, sends the issue back to triage.
+        self.assertIn(("linked_ready", "triage"), made[("in_review", "triage", "human")])
         # An outsider moves an issue only to new, its acceptance lapsed, from whatever State, a Hold of the brakes too.
         strangers = {(m, after) for m, pairs in made.items() if m[2] == "stranger" for _, after in pairs}
         self.assertTrue(strangers)
