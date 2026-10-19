@@ -56,7 +56,7 @@ whole bound, so nothing on the Factory's side may cache it.
 | An enqueue and a dequeue go ahead while a Run is unidentified | `tests/test_decide.py::test_an_unidentified_run_stops_no_enqueue_and_no_dequeue` |
 | An issue in triage wanting an investigation defers with `run_unidentified`, and on a list that cannot be read; the Pause is read first | `tests/test_issue.py::test_an_unidentified_run_defers_an_issues_run` |
 | An issue's `accept`, and a Hold placed for unmerged closes past their bound, go ahead while a Run is unidentified | `tests/test_issue.py::test_an_unidentified_run_stops_no_acceptance_and_no_hold` |
-| A deferral by an unidentified Run is never stale | `tests/test_decide.py::test_a_deferral_of_the_whole_scope_is_never_stale` |
+| A deferral by an unidentified Run is never stale, on a pull request or an issue | `tests/test_decide.py::test_a_deferral_of_the_whole_scope_is_never_stale`, `tests/test_issue.py::test_a_person_a_run_nobody_or_a_deferral_of_the_whole_scope_is_never_stale` |
 | In the simulator no pass admits a Run or issues an approval while a Run is listed unnamed, and the seeds reach that window | `tests/test_simulator.py::test_a_run_listed_unnamed_admits_nothing`, `tests/test_simulator.py::test_the_seeds_list_a_new_run_unnamed` |
 | The records port reports a counted run record not yet completed whose name is not yet a Factory run-name as unidentified, reads the list once more 5 s later, and keeps no cached read | waiting on `adapters/` |
 | A Run's start and its `apply` read the list once more before asking the Kernel, and end superseded while a Run is unidentified | waiting on `harness/` |

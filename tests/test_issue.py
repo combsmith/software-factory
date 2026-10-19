@@ -1464,6 +1464,7 @@ class Stale(unittest.TestCase):
             ("capacity", "ready", TRIAGED, [], {"model_deferred_until": minutes_after(late, 1)}, config()),
             ("capacity_unreadable", "ready", TRIAGED, [], {"active_runs": None}, config()),
             ("concurrency", "ready", TRIAGED, [], {"active_runs": LIMITS["org_max_active_runs"]}, config()),
+            ("run_unidentified", "ready", TRIAGED, [], {"unidentified_runs": [UNNAMED]}, config()),
         ]
         for reason, attention, f, runs, over, cfg in cases:
             with self.subTest(reason):
