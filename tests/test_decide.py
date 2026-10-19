@@ -2643,6 +2643,79 @@ class Queue(unittest.TestCase):
         self.assertEqual((d["outcome"], d["attention"]), ("nothing", "working"))
 
 
+# A run record of the Factory's own workflow, not completed, still listed under the workflow's name: GitHub's run id,
+# from trials/P-17.json. Which item it is on cannot be read (decision 0036).
+UNNAMED = "39086879694"
+
+
+class UnidentifiedRuns(unittest.TestCase):
+    """A Run listed before its run-name may be the Run in flight on any item: it defers every admission (I-46)."""
+
+    def test_an_unidentified_run_defers_a_run_on_a_pull_request(self):  # I-46, I-13
+        d = go(facts(), ctx=context(unidentified_runs=[UNNAMED]))
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                         ("verifying", "run_unidentified", "defer", "review"))
+        self.assertNotIn("admit", d)
+        # The other side: once every Run listed is named, the review is admitted.
+        d = go(facts(), ctx=context(unidentified_runs=[]))
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("verifying", "awaiting_review", "admit"))
+
+    def test_a_list_of_unidentified_runs_that_cannot_be_read_defers(self):  # I-13
+        # Nothing is defaulted: a list that is missing, or is not a list, may hold a Run, and defers as one would.
+        missing = context()
+        del missing["unidentified_runs"]
+        for ctx in (missing, context(unidentified_runs=None), context(unidentified_runs=UNNAMED),
+                    context(unidentified_runs={}), context(unidentified_runs=""), context(unidentified_runs=())):
+            d = go(facts(), ctx=ctx)
+            self.assertEqual((d["reason"], d["outcome"]), ("run_unidentified", "defer"), ctx.get("unidentified_runs"))
+
+    def test_a_list_of_unidentified_runs_that_cannot_be_read_defers_an_approval(self):  # I-13, I-46
+        # An approval is a Run: a list that is missing, or is not a list, defers it as a Run would be.
+        missing = context()
+        del missing["unidentified_runs"]
+        for ctx in (missing, context(unidentified_runs=None), context(unidentified_runs={}),
+                    context(unidentified_runs=""), context(unidentified_runs=())):
+            d = go(facts(), REVIEWED, ctx=ctx)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
+                             ("converged", "run_unidentified", "defer", None), ctx.get("unidentified_runs", "missing"))
+        # The other side: an empty list lets the approval through.
+        d = go(facts(), REVIEWED, ctx=context(unidentified_runs=[]))
+        self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"))
+
+    def test_an_unidentified_run_is_asked_after_the_brakes(self):  # I-8, I-7, decision 0003
+        # At the Run ceiling the Hold shows, and under a Pause the Pause defers: each before an unidentified Run.
+        ceiling = LIMITS["max_runs_per_item"]
+        fixes = [run(role="dev-lead", intent="fix-findings", at=at(10 + i), name="f%d" % i) for i in range(ceiling)]
+        unnamed = context(unidentified_runs=[UNNAMED])
+        d = go(facts(), fixes, ctx=unnamed)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                         ("held", "run_ceiling", "hold", "needs_you"))
+        d = go(facts(), fixes[1:], ctx=unnamed)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("verifying", "run_unidentified", "defer"))
+        d = go(facts(), ctx=context(paused=True, unidentified_runs=[UNNAMED]))
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("verifying", "paused", "defer"))
+
+    def test_an_unidentified_run_defers_an_approval(self):  # I-46: an approval is a Run
+        d = go(facts(), REVIEWED, ctx=context(unidentified_runs=[UNNAMED]))
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                         ("converged", "run_unidentified", "defer", "ready"))
+        self.assertNotIn("action", d)
+        d = go(facts(), REVIEWED)
+        self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
+        # The brakes are asked first: spent approvals hold the item.
+        d = go(facts(), REVIEWED + approvals(LIMITS["max_attempts"]), ctx=context(unidentified_runs=[UNNAMED]))
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "attempts_exhausted", "hold"))
+
+    def test_an_unidentified_run_stops_no_enqueue_and_no_dequeue(self):  # I-46, FR-23
+        # An enqueue admits no Run, and a dequeue stops work: neither waits for the name.
+        unnamed = context(unidentified_runs=[UNNAMED])
+        d = go(facts(reviews=APPROVED), REVIEWED, ctx=unnamed)
+        self.assertEqual((d["state"], d["outcome"], d.get("action")), ("converged", "act", "enqueue"))
+        d = go(facts(queue=True, label_events=[labelled("factory:hold")], reviews=APPROVED), REVIEWED, ctx=unnamed)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("action")),
+                         ("held", "human_hold", "act", "dequeue"))
+
+
 class Staleness(unittest.TestCase):
     """A wait past its State's limit is the Maintainer's to see, and what happens next does not change (I-1, FR-3)."""
 
@@ -2840,7 +2913,9 @@ class Staleness(unittest.TestCase):
                      ({"model_deferred_until": "2026-10-13T00:00:00Z"}, (), "capacity", "review"),
                      ({"model_deferred_until": "unreadable"}, (), "capacity_unreadable", "review"),
                      ({"active_runs": None}, (), "capacity_unreadable", "review"),
-                     ({"active_runs": LIMITS["org_max_active_runs"]}, (), "concurrency", "review")]
+                     ({"active_runs": LIMITS["org_max_active_runs"]}, (), "concurrency", "review"),
+                     ({"unidentified_runs": [UNNAMED]}, (), "run_unidentified", "review"),
+                     ({"unidentified_runs": [UNNAMED]}, (), "run_unidentified", "ready")]
         for over, _, reason, attention in deferrals:
             runs = REVIEWED if attention == "ready" else ()
             ctx = dict(waiting, **over)

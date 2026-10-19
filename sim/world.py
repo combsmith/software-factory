@@ -90,6 +90,16 @@ OFF_THE_LIST = {"role": "docs/lessons.md", "dependency": "docs/requirements.txt"
 # 40. A review retried that often ends each world late, so what comes at the end is served by design and not by timing
 # (issue 168): a Pause falls due with an approval or a spent count, and a result expires as an approval falls due.
 UNCOVERED_SEEDS, UNCOVERED = 1, 0.5
+# On one seed in eight, by the seed alone, a Run admitted in one pass is listed at the next under its workflow's name,
+# not its run-name, while it has not completed (P-17): the pass reads its GitHub id among the unidentified Runs, and not
+# among the Runs it can name. One that has completed by then is listed by its name. So is an approval: on such a seed
+# its run stays in progress until that next pass has read the list, as on GitHub it is still in flight seconds later,
+# and only then is its end recorded, so one that failed is not yet counted in that pass. The window never meets a spent
+# count here; the boundary cases hold that the brakes come first.
+# Seeds 3, 11, 19, 27 and 35 are among the first 40; every other seed stays as it was.
+UNNAMED_EVERY, UNNAMED = 8, 3
+# GitHub's id of a run, as P-17 listed one, for the first Run on an item; each Run after it is one more.
+FIRST_RUN_ID = 39086879694
 
 
 class Broken(AssertionError):
@@ -149,6 +159,9 @@ class World:
         self.acts = 0              # acts that landed since a person with write access acted
         self.last_act = None       # the action of the last act that landed: an act that stops work is never refused
         self.stale = None          # an older snapshot, served when facts go stale
+        self.unnamed = None        # the Run the next pass lists unnamed, its GitHub id and, for an approval still in
+                                   # flight, how it ends (UNNAMED); or None
+        self.unnamed_passes = 0    # passes that listed a Run unnamed
         self.read = None           # the facts the last whole, current pass read, as `unstamped` gives them
         self.made = set()          # each transition a change made, as (from, to, by)
         self.trace = []
@@ -294,9 +307,10 @@ class World:
         return self.pause_from is not None and self.pause_from <= self.minute < self.pause_from + PAUSE_FOR
 
     def context(self) -> dict:
+        """What the Controller knows beside the facts. Every Run is named here; a pass may read one unnamed (UNNAMED)."""
         active = len([r for r in self.runs if r["status"] != "completed"])
         ctx = {"paused": False, "active_runs": active, "model_deferred_until": None,
-               "passes_since": self.at(self.chain)}
+               "passes_since": self.at(self.chain), "unidentified_runs": []}
         if self.pausing():
             if self.pause_reading is None:
                 del ctx["paused"]       # the Controller could not read whether Admission is paused
@@ -466,11 +480,24 @@ class World:
             self.chain, self.gap = self.minute, False
         self.expires_as_due()
         facts, runs = self.facts(), self.records()
-        fault = self.rng.random() if self.faults else 1.0
         current = exact = True
+        # The Run the last pass admitted or the approval it issued, listed under its workflow's name while it has not
+        # completed: its GitHub id is read as unidentified, and it is not among the Runs the pass can name. Only at the
+        # next pass. An approval still in flight records its end once that pass has read the list (UNNAMED).
+        unidentified, unnamed, self.unnamed = [], self.unnamed, None
+        if unnamed is not None and unnamed[0]["status"] != "completed":
+            # GitHub: a_new_run_is_listed_unnamed
+            runs = [r for r in runs if r["run"] != unnamed[0]["run"]]
+            unidentified, exact = [unnamed[1]], False
+            self.unnamed_passes += 1
+            self.note("run %s is listed unnamed, as %s" % (unnamed[0]["run"], unnamed[1]))
+        if unnamed is not None and unnamed[2] is not None:
+            unnamed[0].update(unnamed[2])
+            self.note("run %s: the approval's run completed" % unnamed[0]["run"])
+        fault = self.rng.random() if self.faults else 1.0
         if fault < 0.08 and self.stale is not None:
             # GitHub: a_read_can_be_stale
-            facts, runs = self.stale
+            facts, runs, unidentified = self.stale
             current = exact = False
         elif fault < 0.14:
             # GitHub: a_short_diff_says_so
@@ -490,7 +517,7 @@ class World:
             # GitHub: a_run_list_stops_short
             runs = runs[self.pick(range(1, len(runs) + 1)):]
             facts["complete"]["runs"] = False
-        self.stale = (copy.deepcopy(facts), copy.deepcopy(runs))
+        self.stale = (copy.deepcopy(facts), copy.deepcopy(runs), list(unidentified))
         if self.cls == "dependency" and self.faults and self.paths.random() < 0.1:
             # A list said to be whole leaves a path out. Only on a dependency bot's update, so every other world stays as
             # it was. The schema refuses a path that cannot be read, so a list too short is the misread fed here.
@@ -514,19 +541,25 @@ class World:
             # seed's minute whose Decision, asked with no Pause on the facts it read, issues the approval, or holds the
             # item on a count spent, starts the Pause there, for the seed's span and with the seed's reading. What the
             # Pause then holds back is checked as every Decision is.
-            free = decide(facts, runs, self.unpaused(), CONFIG, self.now())
+            free = decide(facts, runs, dict(self.unpaused(), unidentified_runs=list(unidentified)), CONFIG, self.now())
             due = free["outcome"] == t.ACT and free["action"] == "issue_approval"
             if due or (free["outcome"] == t.HOLD and free["reason"] in CEILINGS):
                 self.pause_from = self.minute
                 self.note("the Pause began as %s" % ("an approval fell due" if due else "a count was spent"))
                 self.answers(facts, runs, free, current)
-        d = decide(facts, runs, self.context(), CONFIG, self.now())
+        # What the pass read beside the facts, once the Pause has or has not fallen due.
+        ctx = dict(self.context(), unidentified_runs=list(unidentified))
+        d = decide(facts, runs, ctx, CONFIG, self.now())
         wrong = validate(d, DECISION_SCHEMA)
         self.check(not wrong, "every Decision is valid: %s" % "; ".join(wrong))
         self.note("pass: %s %s -> %s" % (d["state"], d["reason"], d["outcome"]))
+        # A Run listed before its run-name may be the Run in flight on this item: while one is, no Run is admitted and
+        # no approval issued (I-46).
+        self.check(not unidentified or not (d["outcome"] == t.ADMIT or d.get("action") == "issue_approval"),
+                   "I-46 %s %s while a Run is listed unnamed" % (d["outcome"], d["reason"]))
         if d["attention"] == t.STALE:
             # A wait past its limit changes what the Maintainer sees, never what happens, and only on a wait (I-1).
-            calm = decide(facts, runs, dict(self.context(), passes_since=self.now()), CONFIG, self.now())
+            calm = decide(facts, runs, dict(ctx, passes_since=self.now()), CONFIG, self.now())
             self.check(dict(d, attention=calm["attention"]) == calm, "I-1 staleness changes what happens")
             self.check(calm["attention"] in t.MAY_GO_STALE, "I-1 a %s item shown as stale" % calm["attention"])
         if exact and d["state"] is not None and d["reason"] not in t.SCOPE_DEFERRALS and \
@@ -547,12 +580,14 @@ class World:
                            "a pass leaves a queued item in the queue over %s" % ", ".join(stop or []))
                 self.read = self.unstamped(facts)
         if self.pausing():
-            self.paused(facts, runs, d)
+            self.paused(facts, runs, d, ctx)
         if d["outcome"] == "admit":
             self.moves()
             self.runs.append({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"],
                               "intent": d["admit"]["intent"], "content_id": d["admit"]["content_id"],
                               "status": "queued", "conclusion": None, "outcome": None, "started_at": self.now()})
+            if self.seed % UNNAMED_EVERY == UNNAMED:
+                self.unnamed = (self.runs[-1], "%d" % (FIRST_RUN_ID + len(self.runs) - 1), None)
             self.caused("factory")
         elif d["outcome"] == "act":
             self.apply_action(d)
@@ -642,13 +677,14 @@ class World:
             self.note("evidence %s on %s expired as the approval fell due" % (mine[0]["criterion"], self.cid()))
             self.caused("platform")
 
-    def paused(self, facts: dict, runs: list, d: dict):
+    def paused(self, facts: dict, runs: list, d: dict, ctx: dict = None):
         """Under a Pause, or one that cannot be read, nothing is admitted and nothing acts, not even a dequeue. Every
         Hold shows as it would with no Pause, whether the facts establish it or a count spent does; anything that would
-        go ahead defers for the Pause, and a dequeue so deferred is the Maintainer's to see (decision 0003)."""
+        go ahead defers for the Pause, and a dequeue so deferred is the Maintainer's to see (decision 0003). `ctx` is
+        what the pass read beside the facts; by default, the context as it stands."""
         self.paused_passes += 1
         self.check(d["outcome"] not in (t.ADMIT, t.ACT), "a Pause let through %s %s" % (d["outcome"], d["reason"]))
-        free = decide(facts, runs, dict(self.context(), paused=False), CONFIG, self.now())
+        free = decide(facts, runs, dict(ctx or self.context(), paused=False), CONFIG, self.now())
         why = "paused" if self.pause_reading else "pause_unreadable"
         # A Hold of the brakes is a reading and no act, so a count already spent holds the item under a Pause as without
         # one, with a Run of the item in flight or none (issues 158 and 169). The Pause holds back only what would go on.
@@ -711,14 +747,20 @@ class World:
             # GitHub: an_approval_can_fail_to_land
             run.update(conclusion="failure", outcome=fault)
             self.note("run %s: the approval did not land" % run["run"])
-            return
-        # GitHub: the_machine_users_approval_counts
-        self.reviews.append({"by": dict(MACHINE), "state": "approved",
-                             "commit": "c%d" % self.content, "content_id": self.cid(), "submitted_at": self.now(),
-                             "dismissed_by": None, "dismissed_from": None})
-        self.acts += 1
-        self.last_act = "issue_approval"
-        self.note("run %s: approved %s" % (run["run"], self.cid()))
+        else:
+            # GitHub: the_machine_users_approval_counts
+            self.reviews.append({"by": dict(MACHINE), "state": "approved",
+                                 "commit": "c%d" % self.content, "content_id": self.cid(), "submitted_at": self.now(),
+                                 "dismissed_by": None, "dismissed_from": None})
+            self.acts += 1
+            self.last_act = "issue_approval"
+            self.note("run %s: approved %s" % (run["run"], self.cid()))
+        if self.seed % UNNAMED_EVERY == UNNAMED:
+            # On GitHub the approval's run is still in flight at the next pass, unnamed: it stays in progress until that
+            # pass has read the list, and only then is its end recorded (UNNAMED).
+            end = {k: run[k] for k in ("status", "conclusion", "outcome")}
+            run.update(status="in_progress", conclusion=None, outcome=None)
+            self.unnamed = (run, "%d" % (FIRST_RUN_ID + len(self.runs) - 1), end)
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
     def start_next(self):
@@ -750,7 +792,8 @@ class World:
             self.check(not done, "I-11 a second review of unchanged content")
 
     def finish_run(self):
-        live = [r for r in self.runs if r["status"] == "in_progress"]
+        # An approval in flight ends as the next pass reads the list (UNNAMED), never here.
+        live = [r for r in self.runs if r["status"] == "in_progress" and r["intent"] != t.ISSUE_APPROVAL]
         if not live:
             return
         run = live[0]

@@ -68,6 +68,8 @@ RULES = (
     ("a_run_waits_its_turn", "One Run on an item is in progress, and any number wait queued behind it", (), None),
     ("a_queued_run_is_listed", "A Run is in the list of run records from when it is queued, before its job starts",
      ("P-17",), "trials/P-17.json"),
+    ("a_new_run_is_listed_unnamed", "A Run can be listed under its workflow's name, not its run-name, for its first "
+     "seconds", ("P-17",), "trials/P-17.json"),
     ("a_new_run_is_listed_late", "The newest Run can be missing from the list of run records for one pass", ("P-22",),
      "trials/P-22.json"),
     ("a_run_list_stops_short", "The list of run records can stop short, with the oldest Runs missing", (), None),
