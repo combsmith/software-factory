@@ -14,7 +14,8 @@
 set -euo pipefail
 set +x
 unset GH_DEBUG DEBUG CURL_HOME
-export GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1
+# gh sends GH_TOKEN to the host GH_HOST names, or its configured default: pin it to the host the curl calls use.
+export GH_HOST=github.com GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1
 
 APP_ID=5363178
 APP=combsmith-sf-trial-author

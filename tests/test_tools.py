@@ -2306,6 +2306,10 @@ class Trials(unittest.TestCase):
         problems = check_trials.run(clone({"sim/grounding.py": both, "trials/P-18.json": fixture(trial="P-18"),
                                            "trials/P-18.app.json": fixture(trial="P-12")}))
         self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-18.app.json is not a valid fixture"))
+        # A valid fixture of another trial, second in the tuple: each fixture must record a trial that asks the rule.
+        problems = check_trials.run(clone({"sim/grounding.py": grounded('("trials/P-18.json", "trials/P-12.json")'),
+                                           "trials/P-18.json": fixture(trial="P-18"), "trials/P-12.json": fixture()}))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-12.json records P-12, and P-18 asks this"))
         problems = check_trials.run(clone({"sim/grounding.py": grounded("()"), "trials/P-18.json": fixture(trial="P-18")}))
         self.assertTrue(caught(problems, "a_killed_job_times_out: an empty tuple grounds nothing; write None"))
 
