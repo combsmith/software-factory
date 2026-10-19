@@ -179,7 +179,9 @@ token=$(printf 'Authorization: Bearer %s\n' "$jwt" |
     python3 -I -c '
 import json, sys
 text = sys.stdin.read().replace("\r\n", "\n")
-head, gap, body = text.partition("\n\n")
+# The last blank line ends the headers: a proxy's own "Connection established" block comes before GitHub's, and a
+# JSON body holds no blank line.
+head, gap, body = text.rpartition("\n\n")
 try:
     data = json.loads(body)
 except ValueError:
@@ -190,7 +192,7 @@ with open(sys.argv[1], "w") as kept:
 sys.stdout.write(token)' "$raw")
 redact "$raw"
 jwt=""
-[ -n "$token" ] || { echo "no installation token was minted" >&2; exit 1; }
+[ -n "$token" ] || { echo "no installation token was read: if one was minted it was not revoked, and expires within an hour" >&2; exit 1; }
 
 as_installation GET installation/repositories
 
