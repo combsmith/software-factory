@@ -255,11 +255,12 @@ DATA_ONLY = (TEXT_ONLY - {"sort", "uniq"}) | {
     "[[", ":", "stat", "du", "file", "realpath", "readlink", "basename", "dirname", "od", "strings", "cmp", "fd",
     "pwd", "type", "which", "whence", "hash", "alias", "unalias", "export", "unset", "set", "shift", "local", "declare",
     "typeset", "readonly", "return", "break", "continue", "exit", "wait", "jobs", "bg", "fg", "kill", "trap", "umask",
-    "ulimit", "times", "read", "let", "getopts", "shopt", "setopt", "unsetopt", "sleep", "env", "id", "whoami", "date",
-    "uname", "hostname", "md5", "md5sum", "shasum", "sha256sum", "jq", "yq", "awk", "sed", "xxd", "hexdump", "column",
-    "tac", "rev", "nl", "fold", "paste", "comm", "join", "seq", "yes", "python3 -c"}
-# find's and tree's output options: the next word is a place written; every other word of theirs is data.
-FIND_OUTPUTS = {"find": {"-fprint", "-fprint0", "-fls", "-fprintf"}, "tree": {"-o"}}
+    "ulimit", "times", "read", "let", "getopts", "shopt", "setopt", "unsetopt", "sleep", "id", "whoami", "date", "uname",
+    "hostname", "md5", "md5sum", "shasum", "sha256sum", "jq", "hexdump", "column", "tac", "rev", "nl", "fold", "paste",
+    "comm", "join", "seq", "yes"}
+# find's output options, each a word of its own: the next word is a place written; every other word of find's is data.
+# tree's -o is read by PATH_WRITERS, attached or bundled as getopt reads it.
+FIND_OUTPUTS = {"find": {"-fprint", "-fprint0", "-fls", "-fprintf"}}
 # Where a command stands is read through cd, pushd and popd (decisions 0032 and 0038).
 CD_WORDS = ("cd", "pushd", "popd")
 CDPATH = frozenset({"CDPATH", "cdpath"})
@@ -271,6 +272,9 @@ STDOUT_DASH = {"curl": {"--output-dir"}, "wget": {"-P", "--directory-prefix"}}
 # tar by its other names, and its modes: which of its places it writes depends on them (_tar).
 TARS = {"tar", "gtar", "bsdtar"}
 PATH_WRITERS.update({name: PATH_WRITERS["tar"] for name in TARS})
+# tree writes its listing to -o's file alone; its operands and patterns are data (decision 0038).
+PATH_WRITERS["tree"] = ("none", {"-L", "-P", "-I", "-H", "-T", "--filelimit", "--charset", "--sort", "--timefmt",
+                                  "--infofile", "--gitfile", "--fromfile", "--metafirst"}, {"-o"}, None)
 TAR_EXTRACTS = {"-x", "--extract", "--get"}
 TAR_CHANGES = {"-c", "--create", "-r", "--append", "-u", "--update", "-A", "--catenate", "--concatenate", "--delete"}
 TAR_READS = {"-t", "--list", "-d", "--diff", "--compare"}
@@ -481,7 +485,8 @@ def _unaliased(commands: list, table: dict, seen: frozenset = frozenset(), budge
             spliced = [shell.requoted(w) for w in words[:at]] + [value] + [shell.requoted(w) for w in tail] + [
                 "%s %s" % (operator, shell.requoted(target)) for operator, target in redirections
                 if not re.fullmatch(r"<<-?", operator)]
-            out += _unaliased(shell.commands(" ".join(spliced), spend, marked=True), table, read, budget, spend)
+            out += _unaliased(shell.commands(" ".join(spliced), spend, scopes=True, marked=True), table, read, budget,
+                              spend)
     return out
 
 
@@ -502,7 +507,7 @@ def _evaluated(commands: list, spend, table: dict = None) -> list:
             continue
         for script in [script for word in words for script in shell.held(word)]:
             try:
-                read = shell.commands(script, spend, marked=True)
+                read = shell.commands(script, spend, scopes=True, marked=True)
             except ValueError:
                 # Most are text a quote holds, sed's code spans among them: one that cannot be split is refused only
                 # when, its quotes and backslashes taken out, it names git or gh.
@@ -513,7 +518,7 @@ def _evaluated(commands: list, spend, table: dict = None) -> list:
                 read = _unaliased(read, table, spend=spend) if table else read
             except Unreadable as err:
                 raise ValueError(str(err)) from None
-            out += _evaluated(read, spend, table)
+            out += [shell.SCOPE[0]] + _evaluated(read, spend, table) + [shell.SCOPE[1]]   # run later, in a subshell
     return out
 
 
@@ -623,8 +628,8 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
             else:
                 # The hook keeps no stack: where the shell takes the directory from one, the command may stand in any
                 # directory it has stood in, and what it writes or commits is read in each (decision 0032).
-                if target is not None:
-                    previous = places
+                # popd, and pushd with no directory or +N, leave OLDPWD a place the hook does not know (decision 0038).
+                previous = places if target is not None else None
                 places = list(dict.fromkeys(stood if target is None else [_join(place, target) for place in places]))
             stood = list(dict.fromkeys(stood + places))
             if len(stood) > PLACES_MOST:    # cd - then a relative cd doubles them: past the most, the directory is lost

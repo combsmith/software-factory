@@ -794,7 +794,8 @@ class Identity(unittest.TestCase):
         # A cd placed exactly moves the command, in an && chain too, and a plain path after a lost one stays lost.
         for command in ("cd -P sub && git commit -m x", "CDPATH=x; cd ./sub && git commit -m x", "cd sub; git commit -m x",
                         "git fetch && cd sub && make && cd .. && git push", "cd sub && cd .. && git push",
-                        "cd %s; git commit -m x" % self.here, "true & cd sub; git commit -m x"):
+                        "cd %s; git commit -m x" % self.here, "true & cd sub; git commit -m x",
+                        "case x in '|') :;; esac; cd sub; git commit -m x"):
             self.assertEqual(self.codes(command), "", command)
         self.assertIn("commit_identity_not_maintainer", self.refused("true && cd %s; git commit -m x" % self.bad))
         self.assertIn("directory_unreadable", self.refused("false || cd sub; cd %s; git commit -m x" % self.here))
@@ -805,7 +806,7 @@ class Identity(unittest.TestCase):
         # the command stands where it stood, and what runs inside is read where the cd leads.
         (self.here / "sub").mkdir(exist_ok=True)
         for inner in ("(cd /tmp)", "x=$(cd /tmp)", "echo $(cd /tmp)", "echo `cd /tmp`", "cat <(cd /tmp)",
-                      "sh -c 'cd /tmp'"):
+                      "sh -c 'cd /tmp'", "x='$(cd ..)'", "alias out='(cd ..)'\nout", "trap '$(cd /tmp)' EXIT"):
             command = "cd .git; %s; cp /tmp/x config; git -C %s push" % (inner, self.here)
             self.assertIn("git_directory_written", self.refused(command), command)
         for command in ('ROOT=$(cd "$(dirname "$0")" && pwd); git commit -m x', "(cd %s && make); git commit -m x" % self.bad,
@@ -829,9 +830,12 @@ class Identity(unittest.TestCase):
             self.assertEqual(self.codes(command), "", command)
         for command in ("cd .git; cd /tmp; cd -; cp /tmp/x hooks/x; cd %s; git push" % self.here,
                         "pushd -n .git; popd; cp /tmp/x config; git -C %s push" % self.here,
-                        "cd -; cd .git; cp /tmp/x config; git -C %s push" % self.here):
+                        "cd -; cd .git; cp /tmp/x config; git -C %s push" % self.here,
+                        # popd leaves OLDPWD a place the hook does not know: cd - after it is read in every place.
+                        "pushd .git; popd; cd -; cp /tmp/x config; git -C %s push" % self.here):
             self.assertIn("git_directory_written", self.refused(command), command)
         self.assertIn("commit_identity_not_maintainer", self.refused("cd -; git commit -m x", self.bad))
+        self.assertIn("commit_identity_not_maintainer", self.refused("pushd %s; popd; cd -; git commit -m x" % self.bad))
 
     def test_a_program_the_hook_does_not_read_may_write_what_it_is_given_and_where_it_stands(self):
         # Decision 0038: in a command that commits or pushes, each word a program the hook does not read is given, an
@@ -846,7 +850,9 @@ class Identity(unittest.TestCase):
                         "f() { :; }; f .git/hooks/x; git push", "find . -fprint .git/hooks/x; git push",
                         "tree -o .git/hooks/x; git push", "rm -f .git/index.lock && git commit -m x",
                         "node x.js --out=.git/hooks/x; git push", "nice python3 x.py .git/config; git push",
-                        "G=mytool; $G .git/hooks/x; git push", "mytool -x.git/hooks/x; git push"):
+                        "G=mytool; $G .git/hooks/x; git push", "mytool -x.git/hooks/x; git push",
+                        "cd .git/hooks; xxd -r -p /tmp/h pre-push; git -C %s push" % self.here,
+                        "tree -o.git/hooks/x; git push", "tree -ao .git/hooks/x; git push"):
             self.assertIn("git_directory_written", self.refused(command), command)
         for command in ("[ -d .git ] && git commit -m x", "test -f .git/MERGE_HEAD || git commit -m x", "ls .git && git push",
                         "strings .git/index | head; git commit -m x",
@@ -855,7 +861,9 @@ class Identity(unittest.TestCase):
                         "tar czf /tmp/x.tgz --exclude=.git .; git push", "grep -r x . --exclude-dir=.git; git commit -m x",
                         "make verify && git push", "python3 -m tools.check_repo && git commit -m x", "stat .git/HEAD; git push",
                         "du -sh .git; git push", "cat .git/HEAD; git commit -m x", "x=1; git push", "echo .git/x; git push",
-                        "[[ -d .git ]] && git push", "realpath .git; git push"):
+                        "[[ -d .git ]] && git push", "realpath .git; git push", "jq .a f.json; git push",
+                        "tree -L 2 .git; git push", "case x in '|') true;; esac; git commit -m x",
+                        "case x in '(') :;; esac; git push"):
             self.assertEqual(self.codes(command), "", command)
         self.as_data("sort -o .git/hooks/x /tmp/x", "cd .git; python3 -c 'print(1)'", "f .git/hooks/x")
 

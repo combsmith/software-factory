@@ -131,7 +131,7 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
                 cases, in_pattern = cases - 1, False
             elif not punctuation:
                 arm.append(token)
-                found.append((None, token))
+                found.append((None, [token]))       # a list, so that no quoted pattern is read as a mark
             continue
         if punctuation:
             if "<" in token or ">" in token:
@@ -163,11 +163,11 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
         raise ValueError("a case is never ended")
     out = []
     for words, targets in found:
-        if words is None and targets in MARKS:     # a mark stands where it was read
+        if scopes and words is None and targets in MARKS:     # a mark stands where it was read
             out.append((words, targets))
             continue
         if words is None:       # a pattern runs nothing, but a substitution in it does, where the pattern stands
-            for script in _substituted(targets, spend):
+            for script in _substituted(targets[0], spend):
                 read = commands(script, spend, texts, scopes, marked)
                 out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read
             continue

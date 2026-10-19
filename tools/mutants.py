@@ -2239,7 +2239,7 @@ MUTANTS = ISSUE + [
      LOOP_TESTS),
     ("a substitution in a case's pattern is not read", "tools/hooks/shell.py",
      "        if words is None:       # a pattern runs nothing, but a substitution in it does, where the pattern stands\n"
-     "            for script in _substituted(targets, spend):\n                read = commands(script, spend, texts, scopes, marked)\n"
+     "            for script in _substituted(targets[0], spend):\n                read = commands(script, spend, texts, scopes, marked)\n"
      "                out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read\n",
      "        if words is None:\n", LOOP_TESTS),
     ("a cd in a case pattern's substitution moves the command", "tools/hooks/identity.py",
@@ -2285,7 +2285,7 @@ MUTANTS = ISSUE + [
     ("a writer's output named by another option is still read as where it stands", "tools/hooks/identity.py",
      "and not _gave(given, names) and written == named:", "and written == named:", STANDS_TESTS),
     ("a substitution in a case's pattern is read before every command", "tools/hooks/shell.py",
-     "                found.append((None, token))\n", "                found.insert(0, (None, token))\n", PATTERN_TESTS),
+     "                found.append((None, [token]))", "                found.insert(0, (None, [token]))", PATTERN_TESTS),
     ("tar's old-style bundle is not read", "tools/hooks/identity.py",
      '    if args and re.fullmatch(r"[A-Za-z]+", args[0]):\n        args = _old_style(args, takes)\n', "", TAR_TESTS),
     ("tar's old-style bundle is read as a dashed one", "tools/hooks/identity.py",
@@ -2319,8 +2319,8 @@ MUTANTS = ISSUE + [
     ("an alias whose value ends in a blank leaves the next word as it is", "tools/hooks/identity.py",
      '            while value[-1:] in (" ", "\\t") and tail[:1]', "            while False and tail[:1]", ALIASED_TESTS),
     ("a script an aliased shell or eval is given is not read", "tools/hooks/identity.py",
-     'out += _unaliased(shell.commands(" ".join(spliced), spend, marked=True), table,',
-     'out += _unaliased(shell.commands(" ".join(spliced), spend, marked=True)[:1], table,', ALIASED_TESTS),
+     'out += _unaliased(shell.commands(" ".join(spliced), spend, scopes=True, marked=True), table,',
+     'out += _unaliased(shell.commands(" ".join(spliced), spend, scopes=True, marked=True)[:1], table,', ALIASED_TESTS),
     ("aliases are read without end", "tools/hooks/identity.py",
      "    budget[0] -= 1\n", "    budget[0] -= 0\n", ALIASED_TESTS),
     ("the command is read with no budget", "tools/hooks/identity.py",
@@ -2492,7 +2492,8 @@ MUTANTS = ISSUE + [
     ("an arithmetic expansion is read as a command", "tools/hooks/shell.py",
      '            if plain.startswith("$((", i) and plain[j - 2:j] == "))":\n', "            if False:\n", SPLIT_TESTS),
     ("an alias is spliced as commands, not text", "tools/hooks/identity.py",
-     '            out += _unaliased(shell.commands(" ".join(spliced), spend, marked=True), table, read, budget, spend)\n',
+     '            out += _unaliased(shell.commands(" ".join(spliced), spend, scopes=True, marked=True), table, read, budget,\n'
+     '                              spend)\n',
      "            value = shell.commands(value, spend, marked=True) or [([], [])]\n"
      "            value[0] = (words[:at] + value[0][0], value[0][1])\n"
      "            value[-1] = (value[-1][0] + tail, value[-1][1] + redirections)\n"
@@ -2555,9 +2556,20 @@ MUTANTS = ISSUE + [
      "    return places + [HERE]\n", "    return [HERE]\n", UNREAD_TESTS),
     ("a program the hook does not read writes nothing where it stands", "tools/hooks/identity.py",
      "    return places + [HERE]\n", "    return places\n", UNREAD_TESTS),
-    ("find's and tree's output options name no destination", "tools/hooks/identity.py",
+    ("find's output options name no destination", "tools/hooks/identity.py",
      "        return [args[i + 1] for i, word in enumerate(args[:-1]) if word in FIND_OUTPUTS[program]]\n",
      "        return []\n", UNREAD_TESTS),
+    ("popd leaves the previous place as it was", "tools/hooks/identity.py",
+     "                previous = places if target is not None else None\n", "                previous = places\n",
+     CD_MINUS_TESTS),
+    ("a held script's cd moves the command", "tools/hooks/identity.py",
+     "            out += [shell.SCOPE[0]] + _evaluated(read, spend, table) + [shell.SCOPE[1]]   # run later, in a subshell\n",
+     "            out += _evaluated(read, spend, table)\n", OWN_CD_TESTS),
+    ("an alias's subshell cd moves the command", "tools/hooks/identity.py",
+     'shell.commands(" ".join(spliced), spend, scopes=True, marked=True)',
+     'shell.commands(" ".join(spliced), spend, marked=True)', OWN_CD_TESTS),
+    ("a quoted pattern is read as a mark", "tools/hooks/shell.py",
+     "                found.append((None, [token]))", "                found.append((None, token))", PLACED_TESTS),
 ]
 
 
