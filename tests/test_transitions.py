@@ -152,6 +152,13 @@ BASES = {
     "approver_is_author_or_last_pusher": base([reviewed()], last_pusher=CONFIG["approver"]),
     "attempts_exhausted": base(failures(LIMITS["max_attempts"]), checks=GREEN),
     "attempts_exhausted, of approvals": base([reviewed()] + failures(LIMITS["max_attempts"], "issue-approval")),
+    # The simulator's seed 297: a review admitted on a list read one Run short, past its attempts. The item is held
+    # while it runs, so `apply` writes nothing and the Run is superseded: it never reports, and the Hold stays.
+    "attempts_exhausted, with a review Run": base(
+        failures(LIMITS["max_attempts"]) + [dict(reviewed(minute=25, name="r9"), status="in_progress", conclusion=None)]),
+    "attempts_exhausted, of approvals, with a Run": base(
+        [reviewed()] + failures(LIMITS["max_attempts"], "issue-approval")
+        + [dict(reviewed(minute=25, name="r9"), status="in_progress", conclusion=None)]),
     "run_ceiling": base([reviewed()] + failures(LIMITS["max_runs_per_item"] - 1, outcome="environment"),
                         threads=[thread()]),
     "run_ceiling, one Run short": base([reviewed()] + failures(LIMITS["max_runs_per_item"] - 2, outcome="environment"),
@@ -975,6 +982,26 @@ class Transitions(unittest.TestCase):
         self.assertEqual(sorted(declared - set(made) - set(UNREACHED)), [], "remove it, or say in UNREACHED why not")
         # Nothing is kept that is found, or not declared.
         self.assertEqual(sorted(set(UNREACHED) - (declared - set(made))), [])
+
+    def test_a_pause_changes_no_hold(self):  # decision 0003, §4.1
+        # A Hold is a reading and no act, and a Pause leaves each item where it is: whatever Hold the Kernel gives
+        # unpaused, it gives unchanged under a Pause or one that cannot be read, with a Run of the item in flight or none.
+        waiting = dict(reviewed(minute=FIRST_MOVE - 1, name="q9"), status="queued", conclusion=None)
+        holds = set()
+        for name, pr in BASES.items():
+            settled = [r for r in pr["runs"] if r["status"] == "completed"]
+            for runs in (settled, pr["runs"] if len(pr["runs"]) > len(settled) else settled + [waiting]):
+                free = decide(pr["facts"], runs, context(passes_since=now(pr)), CONFIG, now(pr))
+                if free["outcome"] != t.HOLD:
+                    continue
+                holds.add((free["reason"], len(runs) > len(settled)))
+                for paused in (True, None):
+                    d = decide(pr["facts"], runs, context(passes_since=now(pr), paused=paused), CONFIG, now(pr))
+                    self.assertEqual(d, free, (name, [r["run"] for r in runs], paused))
+        # Not empty: each Hold of the brakes is among them, and the counts of Runs with a Run in flight and without.
+        self.assertLessEqual({"attempts_exhausted", "run_ceiling", "max_rounds", "act_ceiling"}, {r for r, _ in holds})
+        for reason in ("attempts_exhausted", "run_ceiling", "max_rounds"):
+            self.assertEqual({flight for r, flight in holds if r == reason}, {True, False}, reason)
 
     def test_a_stranger_changes_no_state(self):  # I-28
         made, _ = explored()

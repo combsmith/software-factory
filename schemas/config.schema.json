@@ -221,7 +221,8 @@
         "served_from",
         "left_out_labels",
         "left_out_types",
-        "label_apps"
+        "label_apps",
+        "intents"
       ],
       "properties": {
         "served_from": {
@@ -272,6 +273,84 @@
                 "null"
               ],
               "minLength": 1
+            }
+          }
+        },
+        "intents": {
+          "description": "For each Intent the Kernel admits on an issue, the Role that runs it and that Role's App, or null, which admits nothing. No two Intents name one Role: the readiness Role never judges its own investigation. Every Intent is null until the Maintainer turns it on",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "investigate-issue",
+            "judge-readiness",
+            "open-pull-request"
+          ],
+          "properties": {
+            "investigate-issue": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "app"
+              ],
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "app": {
+                  "description": "The name of the Role's App, whose comment or label stands in for its Run once the run record has expired",
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "judge-readiness": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "app"
+              ],
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "app": {
+                  "description": "The name of the Role's App, whose comment or label stands in for its Run once the run record has expired",
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "open-pull-request": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "app"
+              ],
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "app": {
+                  "description": "The name of the Role's App, whose comment or label stands in for its Run once the run record has expired",
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
             }
           }
         }

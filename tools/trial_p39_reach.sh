@@ -1,5 +1,5 @@
 #!/bin/sh
-# Trial P-39, its third read: which repos each Factory App's installation reaches (issue 26, decision 0033).
+# Trial P-39, its third read: which repos each Factory App's installation reaches (issue 26, decision 0036).
 #
 #   tools/trial_p39_reach.sh OUT CONTROLLER_KEY PR_REVIEW_KEY READER_KEY
 #

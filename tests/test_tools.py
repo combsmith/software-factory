@@ -214,6 +214,18 @@ class Examples(unittest.TestCase):
     def test_an_example_that_does_not_validate_is_caught(self):
         self.assertTrue(caught(check_examples.run(clone({"examples/decision.json": "{}"})), "decision.json: $: missing"))
 
+    def test_a_coverage_that_leaves_a_criterion_uncovered_is_caught(self):  # decision 0029
+        # Valid to its schema, a coverage example is judged by kernel/coverage.py too, against the rubric, the Finding
+        # example and the paths the facts example changes: no schema can say every criterion that applies is there.
+        left = (ROOT / "examples" / "invalid" / "coverage.a-criterion-that-applies-left-out.json").read_text()
+        whole = (ROOT / "examples" / "coverage.json").read_text()
+        self.assertTrue(caught(check_examples.run(clone({"examples/coverage.json": left})),
+                               "coverage.json: $: uncovered PR-4"))
+        self.assertTrue(caught(check_examples.run(clone({"examples/invalid/coverage.a-criterion-that-applies-left-out"
+                                                         ".json": whole})), "was accepted, and must be rejected"))
+        problems = check_examples.run(clone({"examples/finding.json": "{}"}))
+        self.assertTrue(caught(problems, "coverage.json: $: uncovered PR-3"))
+
     def test_only_success_can_pass_a_check(self):  # I-27, L-07
         # The configuration may say what a conclusion means, but never that one with no verdict has passed.
         schema = json.loads((ROOT / "schemas" / "config.schema.json").read_text())
@@ -1390,13 +1402,18 @@ class TheList(unittest.TestCase):
     Kernel is given as `protected_paths` (decision 0020)."""
 
     HOOKS = json.loads((ROOT / "config" / "hooks.json").read_text())
+    # The paths each criterion of the review's rubric applies to, read with the same matcher (decision 0029).
+    RUBRIC = [p for c in json.loads((ROOT / "config" / "rubric-pr-review.json").read_text())["criteria"]
+              for p in c.get("applies_when", {}).get("paths", [])]
 
     def test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus(self):
         # Only the two matchers can drift, so they are held to each other: on every file in the repo, and on paths made
         # from each pattern, its wildcard standing for nothing, a letter or more than one name, in any case, below it,
-        # beside it and above it.
+        # beside it and above it. The rubric's patterns are among them, and `**` as a whole name.
         data = protected.load()
         patterns = [p for p, _ in data["protected"] + data["reported"]] + ["a/*", "*.json", "x*y*z/", "a*/b*/", "*"]
+        patterns += self.RUBRIC + ["**", "**/", "a/**/b*/", "**/a/**", "a**b/c", "**/**/x"]
+        self.assertLessEqual({"**/*.py", "kernel/**", "**/AGENTS.md"}, set(self.RUBRIC))
         corpus = {p.relative_to(ROOT).as_posix() for p in walk.files(ROOT)}
         for pattern in patterns:
             for star in ("", "x", "x/y", "a.b", "*"):
@@ -1410,6 +1427,20 @@ class TheList(unittest.TestCase):
             whole = protected.entries([(pattern, "")])[0][3]
             for path in corpus:
                 self.assertEqual(derive.matches(pattern, path), bool(whole.match(path.casefold())), (pattern, path))
+
+    def test_two_stars_as_a_whole_name_stand_for_any_run_of_names(self):  # decision 0029
+        # `**` as a whole name stands for any run of names, none included; within a name it is two wildcards, each
+        # within that name. The hooks read it alike (test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus).
+        for pattern, path, fits in (("**/*.py", "a.py", True), ("**/*.py", "a/b/c.py", True), ("**/*.py", "a/b.txt", False),
+                                    ("kernel/**", "kernel", True), ("kernel/**", "kernel/a/b.py", True),
+                                    ("kernel/**", "kernels/a.py", False), ("**/AGENTS.md", "AGENTS.md", True),
+                                    ("**/AGENTS.md", "a/b/AGENTS.md", True), ("**/AGENTS.md", "a/xAGENTS.md", False),
+                                    ("a/**/b", "a/b", True), ("a/**/b", "a/x/y/b", True), ("a/**/b", "a/x/y/c", False),
+                                    ("a**b", "ab", True), ("a**b", "axyb", True), ("a**b", "ax/yb", False),
+                                    ("docs/**/", "docs/a/b.md", True), ("docs/**/", "doc/a.md", False)):
+            self.assertEqual(derive.matches(pattern, path), fits, (pattern, path))
+            whole = protected.entries([(pattern, "")])[0][3]
+            self.assertEqual(bool(whole.match(path.casefold())), fits, (pattern, path))
 
     def test_the_kernel_is_given_every_protected_path_and_lens_input(self):
         want = [e["path"] for e in self.HOOKS["protected"]] + [e["path"] for e in self.HOOKS["lens_inputs"]]
@@ -1895,9 +1926,9 @@ def fixture(**fields) -> str:
 GROUNDING = (ROOT / "sim" / "grounding.py").read_text()
 
 
-def grounded(fixture_path: str, trials: str = '("P-28",)') -> str:
-    """sim/grounding.py with the rule P-28 asks grounded by `fixture_path`, and asked by `trials`."""
-    rule = '("P-28",), None)'
+def grounded(fixture_path: str, trials: str = '("P-18",)') -> str:
+    """sim/grounding.py with the rule P-18 asks grounded by `fixture_path`, and asked by `trials`."""
+    rule = '("P-18",), None)'
     assert GROUNDING.count(rule) == 1
     return GROUNDING.replace(rule, '%s, "%s")' % (trials, fixture_path))
 
@@ -1986,6 +2017,39 @@ class Trials(unittest.TestCase):
         self.assertTrue(caught(problems, "examples/trial.json: note holds something shaped like a credential"))
         self.assertTrue(caught(problems, "trials/AGENTS.md: holds something shaped like a credential"))
 
+    def test_a_null_repo_goes_with_a_subscription_and_nothing_else(self):
+        # Decision 0033. The schema cannot tie the two together, so the check does, both ways.
+        vendor = json.loads((ROOT / "examples" / "trial.a-vendors-cli.json").read_text())
+        self.assertEqual(check_trials.run(clone({"trials/P-13.json": json.dumps(vendor)})), [])
+        problems = check_trials.run(clone({"trials/P-12.json": fixture(repo=None)}))
+        self.assertTrue(caught(problems, "trials/P-12.json: exchanges[0].request.as.kind is app, and repo is null"))
+        self.assertTrue(caught(problems, "trials/P-12.json: exchanges[1].request.as.kind is app, and repo is null"))
+        inside = dict(vendor, repo="combsmith/" + check_trials.CANARY)
+        problems = check_trials.run(clone({"trials/P-13.json": json.dumps(inside)}))
+        self.assertTrue(caught(problems, "trials/P-13.json: exchanges[0].request.as.kind is subscription, and repo is"))
+        mixed = json.loads(json.dumps(vendor))
+        mixed["exchanges"].append(json.loads(json.dumps(mixed["exchanges"][0])))
+        mixed["exchanges"][1]["request"]["as"] = {"kind": "person", "name": "don-petry"}
+        problems = check_trials.run(clone({"trials/P-13.json": json.dumps(mixed)}))
+        self.assertTrue(caught(problems, "exchanges[1].request.as.kind is person, and repo is null"))
+        self.assertFalse(caught(problems, "exchanges[0].request.as.kind"))
+        problems = check_trials.run(clone({"examples/trial.json": fixture(repo=None)}))
+        self.assertTrue(caught(problems, "examples/trial.json: exchanges[0].request.as.kind is app, and repo is null"))
+
+    def test_an_asker_named_by_an_address_is_caught(self):
+        # Decision 0033: a fixture names who asked in words, never by an address that ties it to an account.
+        vendor = json.loads((ROOT / "examples" / "trial.a-vendors-cli.json").read_text())
+        vendor["exchanges"][0]["request"]["as"]["name"] = "account@example.com"
+        problems = check_trials.run(clone({"trials/P-13.json": json.dumps(vendor),
+                                           "examples/trial.a-vendors-cli.json": json.dumps(vendor)}))
+        for where in ("trials/P-13.json", "examples/trial.a-vendors-cli.json"):
+            self.assertTrue(caught(problems, where + ": exchanges[0].request.as.name looks like an address"), where)
+        data = json.loads(fixture())
+        data["exchanges"][1]["request"]["as"]["name"] = "combsmith-sf-trial@users.noreply.github.com"
+        problems = check_trials.run(clone({"trials/P-12.json": json.dumps(data)}))
+        self.assertTrue(caught(problems, "trials/P-12.json: exchanges[1].request.as.name looks like an address"))
+        self.assertFalse(caught(problems, "exchanges[0].request.as.name"))
+
     def test_code_that_reads_the_canary_is_caught(self):
         name = "combsmith/" + check_trials.CANARY
         root = clone({"tools/fetch.py": "REPO = %r\n" % name, ".github/workflows/trial.yml": "repository: %s\n" % name,
@@ -2002,22 +2066,22 @@ class Trials(unittest.TestCase):
             self.assertFalse(caught(problems, where), where)
 
     def test_a_fixture_named_for_a_rule_must_exist_and_validate(self):
-        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json")}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-28.json does not exist"))
-        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json"), "trials/P-28.json": "{}"}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-28.json is not a valid fixture"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-18.json")}))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-18.json does not exist"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-18.json"), "trials/P-18.json": "{}"}))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-18.json is not a valid fixture"))
         problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-12.json"), "trials/P-12.json": fixture()}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: trials/P-12.json records P-12, and P-28 asks this"))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: trials/P-12.json records P-12, and P-18 asks this"))
         problems = check_trials.run(clone({"sim/grounding.py": grounded("examples/trial.json")}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: examples/trial.json is not a fixture in trials/"))
-        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-28.json", "()"),
-                                           "trials/P-28.json": fixture(trial="P-28")}))
-        self.assertTrue(caught(problems, "the_pusher_is_the_last_pusher: no trial asks this; add one to section 6 first"))
-        root = clone({"sim/grounding.py": grounded("trials/P-28.json", '("P-7", "P-28")'),
-                      "trials/P-28.json": fixture(trial="P-28")})
+        self.assertTrue(caught(problems, "a_killed_job_times_out: examples/trial.json is not a fixture in trials/"))
+        problems = check_trials.run(clone({"sim/grounding.py": grounded("trials/P-18.json", "()"),
+                                           "trials/P-18.json": fixture(trial="P-18")}))
+        self.assertTrue(caught(problems, "a_killed_job_times_out: no trial asks this; add one to section 6 first"))
+        root = clone({"sim/grounding.py": grounded("trials/P-18.json", '("P-7", "P-18")'),
+                      "trials/P-18.json": fixture(trial="P-18")})
         self.assertEqual(check_trials.run(root), [])
-        self.assertFalse(caught(check_trials.unverified(root), "the_pusher_is_the_last_pusher"))
-        self.assertTrue(caught(check_trials.unverified(), "the_pusher_is_the_last_pusher"))
+        self.assertFalse(caught(check_trials.unverified(root), "a_killed_job_times_out"))
+        self.assertTrue(caught(check_trials.unverified(), "a_killed_job_times_out"))
 
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()

@@ -72,6 +72,11 @@
     "label_apps": {
       "factory:triage": null,
       "factory:ready": null
+    },
+    "intents": {
+      "investigate-issue": null,
+      "judge-readiness": null,
+      "open-pull-request": null
     }
   }
 }

@@ -6,7 +6,7 @@ the Controller makes that is not an Effect; `read:` is something read. The table
 No App holds `workflows` or `security_events` (NEVER).
 A write permission serves a read of the same permission too, since GitHub's write includes read.
 
-The data is held to what GitHub granted (decision 0033). Trial P-39's fixture records the org's
+The data is held to what GitHub granted (decision 0036). Trial P-39's fixture records the org's
 installations as GitHub listed them; each App's permissions and levels here must be exactly those
 of the installation of its `app_id`, and that installation must be of the App so named. Each App's
 key is kept in an environment of its own, since a job that names an environment reads all of it.

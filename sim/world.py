@@ -61,7 +61,8 @@ NOT_YET_HELD = ()
 # from the seed alone, so the rest of each world stays as it was.
 PAUSES = {0: True, 3: None}
 PAUSE_FOR = 80
-# The Holds the brakes place at a ceiling. Under a Pause they are not reached: the Pause defers first (decision 0003).
+# The Holds the brakes place at a ceiling. Under a Pause each shows as it would with no Pause, with a Run in flight or
+# none: a Hold is a reading and no act (decision 0003).
 CEILINGS = ("attempts_exhausted", "run_ceiling", "max_rounds", "act_ceiling")
 # On three seeds in seven the item has an acceptance contract (design §3.13), of this many criteria, by the seed alone.
 # Seeds 1 and 2, which the tests set worlds up from by hand, have none. On an agent's pull request the last of two or
@@ -82,6 +83,13 @@ DEPENDABOT = "dependabot[bot]"
 ON_THE_LIST = {"role": "tests/test_decide.py", "dependency": ".github/workflows/verify.yml",
                "maintainer": "config/defaults.json"}
 OFF_THE_LIST = {"role": "docs/lessons.md", "dependency": "docs/requirements.txt", "maintainer": "docs/glossary.md"}
+# On every seed, under faults, a review's Result leaves a criterion of its rubric uncovered half the time, which `apply`
+# refuses before any Effect: the Run fails by a fault of the item (decision 0029). The Factory's own behaviour, not
+# GitHub's, so it carries no marker. Every seed, so that any world can find what it breaks, as seed 297 once found a
+# Pause hiding a spent count (issue 158); and half the time, so that a review is held at its attempts within the first
+# 40. A review retried that often ends each world late, so what comes at the end is served by design and not by timing
+# (issue 168): a Pause falls due with an approval or a spent count, and a result expires as an approval falls due.
+UNCOVERED_SEEDS, UNCOVERED = 1, 0.5
 
 
 class Broken(AssertionError):
@@ -153,7 +161,11 @@ class World:
         if self.cls == "agent" and len(self.kinds) > 1:
             self.kinds[self.criteria[-1]] = t.HUMAN_KIND
         self.results = []
+        self.expired_on = set()    # each content a result on expired as the approval fell due (expires_as_due)
         self.judge = random.Random("acceptance %d" % seed)
+        # Whether a review's Result covers its rubric draws from its own generator, so the rest of each world stays as it
+        # was until a review leaves a criterion uncovered.
+        self.coverage = random.Random("coverage %d" % seed)
         # The contract's digest at the head, which a push that edits it or a test it names changes, None once deleted;
         # and the contract a person approved, at the head, or on one seed in three not yet (I-29). Whether there is a
         # contract at all is the linked issue's, and never changes here.
@@ -186,6 +198,11 @@ class World:
     def on_the_list(self, paths) -> bool:
         """Whether a change to `paths` changes the Factory's own rules or a Lens's input, in the world's own words."""
         return any(p in ON_THE_LIST.values() for p in paths)
+
+    def needs_review(self) -> bool:
+        """Whether every model Lens must review the item, in the world's own words: all but a dependency bot's update
+        that the bot pushed last and that changes nothing on the list."""
+        return not (self.cls == "dependency" and self.last_pusher == self.author and not self.on_the_list(self.changed))
 
     def reviewed(self, runs: list, content: str) -> bool:
         """Whether every model Lens has reviewed `content`, in the world's own words."""
@@ -447,6 +464,7 @@ class World:
         if self.gap:
             # The poller's own records: a pass after a lost tick starts a new chain.
             self.chain, self.gap = self.minute, False
+        self.expires_as_due()
         facts, runs = self.facts(), self.records()
         fault = self.rng.random() if self.faults else 1.0
         current = exact = True
@@ -491,6 +509,17 @@ class World:
                                                         "check": dict(REPORTER)})
         wrong = validate(facts, FACTS_SCHEMA)
         self.check(not wrong, "facts are valid: %s" % "; ".join(wrong))
+        if self.pause_from is not None and self.minute < self.pause_from:
+            # On a seed that pauses, the Pause falls due where it matters most (I-7, decision 0003): a pass before the
+            # seed's minute whose Decision, asked with no Pause on the facts it read, issues the approval, or holds the
+            # item on a count spent, starts the Pause there, for the seed's span and with the seed's reading. What the
+            # Pause then holds back is checked as every Decision is.
+            free = decide(facts, runs, self.unpaused(), CONFIG, self.now())
+            due = free["outcome"] == t.ACT and free["action"] == "issue_approval"
+            if due or (free["outcome"] == t.HOLD and free["reason"] in CEILINGS):
+                self.pause_from = self.minute
+                self.note("the Pause began as %s" % ("an approval fell due" if due else "a count was spent"))
+                self.answers(facts, runs, free, current)
         d = decide(facts, runs, self.context(), CONFIG, self.now())
         wrong = validate(d, DECISION_SCHEMA)
         self.check(not wrong, "every Decision is valid: %s" % "; ".join(wrong))
@@ -508,6 +537,30 @@ class World:
             self.check((d["attention"] == t.STALE) == (waited > limit),
                        "I-1 a %s item that waited %d minutes of %d shown as %s" % (d["state"], waited, limit,
                                                                                    d["attention"]))
+        self.answers(facts, runs, d, current)
+        if all(facts["complete"].values()) and current:
+            # A pass that reads a queued item whole, as it is now, takes it out if it may not merge (L-19). Under a Pause
+            # it may not: the dequeue defers (paused), and such a pass reads nothing the queue may merge on.
+            stop = self.queue and self.objections()
+            if not self.pausing():
+                self.check(not stop or (d["outcome"], d.get("action")) == (t.ACT, "dequeue"),
+                           "a pass leaves a queued item in the queue over %s" % ", ".join(stop or []))
+                self.read = self.unstamped(facts)
+        if self.pausing():
+            self.paused(facts, runs, d)
+        if d["outcome"] == "admit":
+            self.moves()
+            self.runs.append({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"],
+                              "intent": d["admit"]["intent"], "content_id": d["admit"]["content_id"],
+                              "status": "queued", "conclusion": None, "outcome": None, "started_at": self.now()})
+            self.caused("factory")
+        elif d["outcome"] == "act":
+            self.apply_action(d)
+            self.caused("factory")
+
+    def answers(self, facts: dict, runs: list, d: dict, current: bool):
+        """The invariants every Decision of a pass answers to, on the facts the pass read; `current` when they are what
+        GitHub holds now."""
         acceptance = facts["acceptance"]
         if acceptance is not None:
             # No Run is admitted, and nothing converges or stays in the queue, unless a person approved the contract and
@@ -570,34 +623,38 @@ class World:
             # the label off since (I-6, I-21).
             self.check(not self.held() or d["outcome"] not in (t.ADMIT, t.ACT) or dequeue,
                        "I-6 a held item moved on: %s %s" % (d["outcome"], d["reason"]))
-            # A pass that reads a queued item whole, as it is now, takes it out if it may not merge (L-19). Under a Pause
-            # it may not: the dequeue defers (paused), and such a pass reads nothing the queue may merge on.
-            stop = self.queue and self.objections()
-            if not self.pausing():
-                self.check(not stop or (d["outcome"], d.get("action")) == (t.ACT, "dequeue"),
-                           "a pass leaves a queued item in the queue over %s" % ", ".join(stop or []))
-                self.read = self.unstamped(facts)
-        if self.pausing():
-            self.paused(facts, runs, d)
-        if d["outcome"] == "admit":
-            self.moves()
-            self.runs.append({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"],
-                              "intent": d["admit"]["intent"], "content_id": d["admit"]["content_id"],
-                              "status": "queued", "conclusion": None, "outcome": None, "started_at": self.now()})
-            self.caused("factory")
-        elif d["outcome"] == "act":
-            self.apply_action(d)
-            self.caused("factory")
+
+    def expires_as_due(self):
+        """On a seed with a contract, while faults are on, the evidence goes missing where it matters most (I-31): once
+        on each content, as the approval falls due, the oldest result the reporter gave on that content, of a criterion
+        with no other result there, expires with its artifact. The pass reads the criterion lacking until the reporter
+        gives it again. A criterion with a second result keeps one, and what the Kernel makes of the two is its own."""
+        if self.criteria is None or not self.faults or self.cid() in self.expired_on:
+            return
+        free = decide(self.facts(), self.records(), self.unpaused(), CONFIG, self.now())
+        here = [ev for ev in self.results if ev["content_id"] == self.cid()]
+        mine = [ev for ev in here if ev["check"] == REPORTER
+                and [other["criterion"] for other in here].count(ev["criterion"]) == 1]
+        if free["outcome"] == t.ACT and free["action"] == "issue_approval" and mine:
+            # GitHub: a_result_expires_with_its_artifact
+            self.expired_on.add(self.cid())
+            self.results.remove(mine[0])
+            self.note("evidence %s on %s expired as the approval fell due" % (mine[0]["criterion"], self.cid()))
+            self.caused("platform")
 
     def paused(self, facts: dict, runs: list, d: dict):
-        """Under a Pause, or one that cannot be read, nothing is admitted and nothing acts, not even a dequeue. A Hold
-        the facts establish shows first; anything else that would go ahead defers for the Pause, and a dequeue so
-        deferred is the Maintainer's to see (decision 0003)."""
+        """Under a Pause, or one that cannot be read, nothing is admitted and nothing acts, not even a dequeue. Every
+        Hold shows as it would with no Pause, whether the facts establish it or a count spent does; anything that would
+        go ahead defers for the Pause, and a dequeue so deferred is the Maintainer's to see (decision 0003)."""
         self.paused_passes += 1
         self.check(d["outcome"] not in (t.ADMIT, t.ACT), "a Pause let through %s %s" % (d["outcome"], d["reason"]))
         free = decide(facts, runs, dict(self.context(), paused=False), CONFIG, self.now())
         why = "paused" if self.pause_reading else "pause_unreadable"
-        if free["outcome"] in (t.ADMIT, t.ACT) or (free["outcome"] == t.HOLD and free["reason"] in CEILINGS):
+        # A Hold of the brakes is a reading and no act, so a count already spent holds the item under a Pause as without
+        # one, with a Run of the item in flight or none (issues 158 and 169). The Pause holds back only what would go on.
+        if free["outcome"] == t.HOLD and free["reason"] in CEILINGS:
+            self.check(d == free, "a spent count is hidden by a Pause")
+        elif free["outcome"] in (t.ADMIT, t.ACT):
             self.stopped.append(free.get("action") or free["outcome"])
             self.check((d["outcome"], d["reason"]) == (t.DEFER, why),
                        "a Pause did not defer %s %s" % (free["outcome"], free["reason"]))
@@ -640,6 +697,8 @@ class World:
         self.check(CONFIG["approver"] not in (self.author, self.last_pusher), "I-26 approver is author or last pusher")
         self.check(not self.on_the_list(self.changed) or self.reviewed(self.runs, self.cid()),
                    "I-45 a change to the list approved with no review of its head")
+        self.check(not self.needs_review() or self.reviewed(self.runs, self.cid()),
+                   "I-37 approved with no successful review of its content by every required model Lens")
         self.moves()
         run = {"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": CONFIG["owner_role"],
                "intent": t.ISSUE_APPROVAL, "content_id": self.cid(), "status": "completed",
@@ -713,6 +772,12 @@ class World:
             self.note("run %s: apply refused, the item changed" % run["run"])
             return
         self.check(not self.held(), "I-21 an Effect on a held item")
+        if (run["intent"] == "review-change" and self.faults and self.seed % UNCOVERED_SEEDS == 0
+                and self.coverage.random() < UNCOVERED):
+            # The Result left a criterion uncovered. `apply` refuses it before any Effect, so no thread opens (I-5).
+            run.update(conclusion="failure", outcome="item")
+            self.note("run %s: the review left a criterion uncovered" % run["run"])
+            return
         run["conclusion"] = "success"
         if run["intent"] == "review-change":
             if self.rng.random() < 0.5:
@@ -1083,6 +1148,14 @@ class World:
                        "passing evidence from its reporter on the merged content")
             self.check(not self.on_the_list(self.changed) or self.reviewed(self.runs, self.cid()),
                        "I-45 a change to the list merged with no review of the merged content")
+            self.check(not self.needs_review() or self.reviewed(self.runs, self.cid()),
+                       "I-37 merged with no successful review of the merged content by every required model Lens")
+        # A Lens's thread comes only from its review that succeeded: one that left a criterion uncovered applied nothing.
+        for th in self.threads:
+            if th["opened_by"]["kind"] == "lens":
+                self.check(any(r["role"] == th["opened_by"]["name"] and r["intent"] == "review-change"
+                               and r["conclusion"] == "success" and r["started_at"] <= th["opened_at"] for r in self.runs),
+                           "I-5 a Lens's thread with no review of its that succeeded")
         since = [r for r in self.runs if (self.last_writer is None or r["started_at"] > self.last_writer)
                  and r["outcome"] != "superseded"]
         # A landed approval is an act, counted below; every other Run, a failed approval among them, is spent.
@@ -1100,6 +1173,10 @@ class World:
                    "I-8 an approval that does not land is issued again")
         self.check(len(unlanded) <= CONFIG["limits"]["max_runs_per_item"],
                    "I-8 an approval that fails for a cause outside the item is issued for ever")
+        uncovered = [r for r in spent if r["intent"] == "review-change" and r["conclusion"] == "failure"
+                     and r["outcome"] == "item"]
+        self.check(len(uncovered) <= CONFIG["limits"]["max_attempts"],
+                   "I-8 a review that leaves a criterion uncovered is admitted past its attempts")
 
     def settle(self, steps: int = 400):
         """Stop the faults and the people, and let the Factory finish."""

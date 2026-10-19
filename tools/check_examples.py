@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import pathlib
 
+from kernel.coverage import covered
 from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -12,6 +13,10 @@ LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lif
         "config/authority.json": "authority",
         "config/defaults.json": "config", "config/rubric-pr-review.json": "rubric", "config/apps.json": "apps",
         "config/hooks.json": "hooks"}
+# What a coverage example is judged against beyond its schema (decision 0029): the review's rubric, the Finding of
+# examples/finding.json, and the paths examples/facts.json changes. No schema can say every criterion that applies is
+# reported on; kernel/coverage.py does.
+COVERAGE_AGAINST = ("config/rubric-pr-review.json", "examples/finding.json", "examples/facts.json")
 
 
 def _once(pairs: list) -> dict:
@@ -42,6 +47,20 @@ def _open(schema, path: str = "$") -> list:
     return out
 
 
+def _uncovered(value, root: pathlib.Path) -> list:
+    """What kernel/coverage.py says is wrong with `value`, a coverage example valid to its schema: nothing, or one
+    problem naming what it left uncovered, or why it could not be judged."""
+    missing = [rel for rel in COVERAGE_AGAINST if not (root / rel).exists()]
+    if missing:
+        return ["cannot be judged: %s is missing" % ", ".join(missing)]
+    try:
+        rubric, finding, facts = (_load(root / rel) for rel in COVERAGE_AGAINST)
+    except ValueError as err:
+        return ["cannot be judged: %s" % err]
+    said, ids = covered(rubric, value, [finding], facts.get("changed_paths") if isinstance(facts, dict) else None)
+    return [] if said == "covered" else ["$: %s %s" % (said, ", ".join(ids) or "against what it is judged by")]
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     problems = []
 
@@ -65,14 +84,21 @@ def run(root: pathlib.Path = ROOT) -> list:
         if kind not in schemas:
             problems.append("%s: no schema named %s" % (path.name, kind))
             continue
-        for err in validate(load(path), schemas[kind]):
+        value = load(path)
+        errors = validate(value, schemas[kind])
+        if kind == "coverage" and not errors:
+            errors = _uncovered(value, root)
+        for err in errors:
             problems.append("%s: %s" % (path.name, err))
     for path in sorted((root / "examples" / "invalid").glob("*.json")):
         kind = path.name.split(".")[0]
         if kind not in schemas:
             problems.append("invalid/%s: no schema named %s" % (path.name, kind))
             continue
-        errors = validate(load(path), schemas[kind])
+        value = load(path)
+        errors = validate(value, schemas[kind])
+        if kind == "coverage" and not errors:
+            errors = _uncovered(value, root)
         if not errors:
             problems.append("invalid/%s: was accepted, and must be rejected" % path.name)
         elif len(errors) > 1:

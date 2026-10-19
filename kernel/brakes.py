@@ -40,24 +40,25 @@ def on_act(_decision, facts: dict, state: str, evidence: list, context: dict, ac
            limits: dict):
     """The deferral or Hold the brakes make of an act that moves work on, or None.
 
-    The Pause stops it. An approval is a Run with no Engine: its attempts, and the Run ceiling, bound one that does not
-    land. Every act that lands is on GitHub's timeline, counted since a writer acted, and the count is held to the act
-    ceiling. An act that stops work is not braked here: it is never refused, and only the Pause stops it.
+    An approval is a Run with no Engine: its attempts, and the Run ceiling, bound one that does not land. Every act that
+    lands is on GitHub's timeline, counted since a writer acted, and the count is held to the act ceiling. A count
+    spent holds the item before the Pause is read: a Hold is a reading and no act, and a Pause changes none (issue 169).
+    The Pause then stops the act, and a count of acts that cannot be read defers it. An act that stops work is not
+    braked here: it is never refused, and only the Pause stops it.
     """
+    if action == "issue_approval":
+        held = approval_ceilings(_decision, facts, since, limits)
+        if held:
+            return held
+    acts = facts.get("acts_since_writer")
+    readable = type(acts) is int and acts >= 0
+    if readable and acts >= limits["max_acts_per_item"]:
+        return _decision(facts, t.HELD, "act_ceiling", [], t.HOLD)
     stopped = paused(_decision, facts, state, evidence, context)
     if stopped:
         return stopped
-    if action == "issue_approval":
-        failed = _attempts(since, t.ISSUE_APPROVAL)
-        if len(failed) >= limits["max_attempts"]:
-            return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in failed], t.HOLD)
-        if len(_spent(since)) >= limits["max_runs_per_item"]:
-            return _decision(facts, t.HELD, "run_ceiling", [], t.HOLD)
-    acts = facts.get("acts_since_writer")
-    if type(acts) is not int or acts < 0:
+    if not readable:
         return _decision(facts, state, "acts_unreadable", evidence, t.DEFER)
-    if acts >= limits["max_acts_per_item"]:
-        return _decision(facts, t.HELD, "act_ceiling", [], t.HOLD)
     return None
 
 
@@ -65,12 +66,32 @@ def on_run(_decision, facts: dict, state: str, evidence: list, context: dict, in
            limits: dict):
     """The deferral or Hold the brakes make of a Run of this Intent, or None.
 
-    The Pause stops it, and so do its attempts, its rounds and the Run ceiling. `recent` is the Runs on the item since
-    a person with write access acted, whose action renews every count.
+    Its attempts, its rounds and the Run ceiling stop it, and then the Pause: a count spent holds the item under a Pause
+    as without one, since a Hold is a reading and no act (issue 169). `recent` is the Runs on the item since a person
+    with write access acted, whose action renews every count.
     """
+    held = run_ceilings(_decision, facts, evidence, intent, recent, limits)
+    if held:
+        return held
     pause = paused(_decision, facts, state, evidence, context)
     if pause:
         return pause
+    return None
+
+
+def approval_ceilings(_decision, facts: dict, since: list, limits: dict):
+    """The Hold an approval meets at its attempts or the Run ceiling, or None. No deferral is read here."""
+    failed = _attempts(since, t.ISSUE_APPROVAL)
+    if len(failed) >= limits["max_attempts"]:
+        return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in failed], t.HOLD)
+    if len(_spent(since)) >= limits["max_runs_per_item"]:
+        return _decision(facts, t.HELD, "run_ceiling", [], t.HOLD)
+    return None
+
+
+def run_ceilings(_decision, facts: dict, evidence: list, intent: str, recent: list, limits: dict):
+    """The Hold a Run of this Intent meets at its attempts, its rounds or the Run ceiling, or None. No deferral is read
+    here: decide.py asks it alone while a Run is in flight, when a spent count holds the item whatever would defer."""
     attempts = _attempts(recent, intent)
     if len(attempts) >= limits["max_attempts"]:
         return _decision(facts, t.HELD, "attempts_exhausted", [r["run"] for r in attempts], t.HOLD)

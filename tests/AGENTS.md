@@ -1,7 +1,7 @@
 # tests/
 
-`test_decide.py` holds one test for each boundary case of the Kernel, and `test_issue.py` those of an issue's State,
-with builders of its own. `test_tools.py` makes every
+`test_decide.py` holds one test for each boundary case of the Kernel, `test_issue.py` those of an issue's State,
+with builders of its own, and `test_coverage.py` each of a reviewing Result's coverage. `test_tools.py` makes every
 check fail. `test_simulator.py` runs the seeded simulation. `test_transitions.py` finds every change of State the Kernel can
 make, and who makes it, and holds each to the Lifecycle. `test_hooks.py` feeds each session hook a
 violation and a clean case. `support.py` builds ordinary inputs.

@@ -535,9 +535,11 @@ An issue has facts of its own (§4.1, the issue Lifecycle):
 | `life_started_at`, `reopened_last_by` | When it was opened, or last reopened by a person with write access; and whether its latest reopening was by such a person, by someone else, or never happened |
 | `content_id`, `content_changed_at` | A hash of the title and body, computed by the port, and when either last changed |
 | `label_events` | Every `labeled` and `unlabeled` event on the timeline, as on a pull request: the label, who added or removed it (kind, name and write access), and when. The control labels are read from them alone; every other label is in `label_names` |
-| `linked` | Each pull request that closes it: number, `class` as the port gives it for a pull request, opening actor, open, draft, `merged_at`, `closed_at`, whether its diff was empty, and its own `label_events`, from which its Hold, hands-off and whether a person once admitted it are read |
+| `linked` | Each pull request that closes it: number, `class` as the port gives it for a pull request, opening actor, open, draft, `opened_at` (decision 0034), `merged_at`, `closed_at`, whether its diff was empty, and its own `label_events`, from which its Hold, hands-off and whether a person once admitted it are read |
 | `role_comments` | For each Factory App that has commented: the time of its latest comment |
 | `last_writer_action_at`, `last_writer_comment_at` | The last action on the issue by a person with write access, and that person's last comment |
+| `acts_since_writer` | As for a pull request: the Factory's acts on the issue since a person with write access last acted, which the act ceiling bounds (decision 0031) |
+| `branch_head` | The head of the branch the next opening Run would push to, or null while it does not exist. The opening Run is admitted for it, and `apply` refuses once it has moved (decision 0031) |
 | `complete`, `read_at` | As for a pull request; `complete` says whether the `timeline`, the `linked` pull requests and the `runs` were read in full |
 
 No field holds prose. Thread and comment bodies are read by the port into a separate `texts` set,
@@ -785,7 +787,7 @@ cost is not known exactly; its duration is the estimate.
 
 | Outcome | Example | Counts as an attempt | Then |
 |---|---|---|---|
-| `item` | The Engine produced an invalid Result; the fix did not pass | Yes | The item's attempt ceiling applies |
+| `item` | The Engine produced an invalid Result; a reviewing Result left a criterion uncovered; the fix did not pass | Yes | The item's attempt ceiling applies |
 | `capacity` | The model window ran out mid-Run | No | Every model Run is deferred until the window is expected to reset |
 | `environment` | A token expired; an App was uninstalled; GitHub was unavailable | No | Several in a row pause Admission automatically, raise one alert, and clear when a probe Run succeeds |
 | `superseded` | The item was held or changed before `apply` | No | The next pass decides afresh |
@@ -1361,7 +1363,7 @@ and read from the configuration. The Lifecycle schema and the configuration gain
 
 | Cycle | Bound | Beyond it |
 |---|---|---|
-| `ready` to `in_progress` and back, when an opening Run ends having opened nothing | `max_attempts`, counted from the run records. The bound is reached, and the Hold placed, long before a record expires | The Controller adds `factory:hold` |
+| `ready` to `in_progress` and back, when an opening Run ends having opened nothing | `max_attempts`, counted from the run records. The bound is reached, and the Hold placed, long before a record expires | The Kernel holds the issue, as for a pull request. Whether the Controller also adds `factory:hold` for a Hold of the brakes is decided with `controller/`, for both item types (decision 0031) |
 | `in_progress` or `in_review` back to `ready` or `triage`, when a linked pull request closes unmerged | `max_unmerged_closes`, starting at one. The first unmerged close is the retry it allows: the issue goes back to `ready` or `triage` | On the close after that, the Controller adds `factory:hold` and assigns the Maintainer |
 | `triage` to `ready` and back, when the content keeps changing | `max_runs_per_item`: every investigating and readiness Run counts toward the issue's Run ceiling | The Kernel holds the issue, as for a pull request |
 | Investigation and verdict within `triage` | One of each for each `content_id` and each action by a person with write access | Nothing more is admitted; the issue waits for a person |
@@ -1939,7 +1941,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-10 | Does a nudge count against the content-creation limit, and can its credential be dispatch-only? | Does not count; can |
 | P-11 | Can the Controller's App write the control-room repo, and publish its page, without starting a workflow in the hub? | Yes |
 | P-12 | Does a check run's `external_id` round-trip, so it can serve as a recovery key? | Yes |
-| P-13 | Does the vendor CLI return validated structured output and usage in headless mode on the subscription credential, at a pinned version? | Yes |
+| P-13 | Does the vendor CLI return validated structured output and usage in headless mode on the subscription credential, at a pinned version? Run by `tools/trial_p13_cli.sh` at the Maintainer's terminal, on a configuration directory of its own logged in to the Maintainer's own subscription (decision 0033), with one fixed Task and the smallest Result of §3.5 as its schema | Yes: the structured output validates, the same answer carries input and output tokens, and it ran at the pinned version. Until the engine port in `adapters/` exists, the trial script pins the version. If not, the metered key is tried and recorded. **Passed** on 2026-10-18 against the script's pin, 2.1.302 (`trials/P-13.json`), on the Maintainer's own subscription under a configuration directory of its own, which departs from §1.1 and §4.9 for now (decision 0033) |
 | P-14 | Can a job with no permissions and no cache action write the default-branch cache scope? | Cannot |
 | P-15 | Do the retained Advisory reviewers review a pull request authored by an App? | Each one does, or is not counted as a Lens on such pull requests |
 | P-16 | How long are run records, logs and artifacts kept in a public repo? | 90 days |
@@ -1965,7 +1967,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-36 | Can an upload to code scanning under CodeQL's tool and category, on a pull request's head, by an identity holding `security_events: write` but not CodeQL's own analysis, change the conclusion of the check run `CodeQL` that GitHub Advanced Security reports? | It cannot. If it can, no identity but CodeQL's own analysis may hold `security_events: write`: for the Factory's Apps `tools/check_apps.py` holds that, and for the live workflows the workflow lint, which refuses `security-events: write` on any job; for a third-party App installed on a served repo it waits on the readiness check (§3.12) |
 | P-37 | For a merge-queue entry behind another, is `github.event.merge_group.base_sha` the commit its group is built on, the head of the group ahead of it, and not the tip of `main`; and is it, every time, the parent of the group's own head? | Yes to both: the base a Lens reads from is what `main` will be when the entry merges (decision 0023). If it is the tip of `main`, an entry behind another is judged against rules the entry ahead may change, and is judged again once that one merges |
 | P-38 | When GitHub dismisses an approving review as stale on a push, does the review stay on the commit it approved, readable with that commit and its reviewer; and who does the timeline record as dismissing it? | It stays, with its commit, and the dismissal names its actor: the contract a person approved is read at that commit (decision 0025). If it does not stay, the port reads the approval from somewhere that does, before any contract is in force |
-| P-39 | Does what GitHub granted each Factory App, its permissions, its events and the repos it reaches, agree with `config/apps.json`? Registered and installed alike, read through the Maintainer's login; the repos each installation reaches read with an installation token at his terminal, minted once and revoked (decision 0033) | They agree exactly, and a difference fails. A failing App's key is not stored; its registration is corrected and the trial runs again |
+| P-39 | Does what GitHub granted each Factory App, its permissions, its events and the repos it reaches, agree with `config/apps.json`? Registered and installed alike, read through the Maintainer's login; the repos each installation reaches read with an installation token at his terminal, minted once and revoked (decision 0036) | They agree exactly, and a difference fails. A failing App's key is not stored; its registration is corrected and the trial runs again |
 
 ### 6.1 The order to run them in
 

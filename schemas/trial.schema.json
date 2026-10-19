@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "The fixture of one platform trial: what was asked of GitHub in the canary repo, what it answered, and the verdict.",
+  "title": "The fixture of one platform trial: what was asked of GitHub in the canary repo or of the org and its Apps (decision 0036), or of a vendor's CLI in no repo (decision 0033), what it answered, and the verdict.",
   "$comment": "A credential is refused by tools/check_trials.py, not here: this validator has no not and no propertyNames, and its pattern refuses every string that ends in a newline, so a pattern that refused token shapes would refuse a recorded log line too.",
   "type": "object",
   "additionalProperties": false,
@@ -35,10 +35,11 @@
       "minLength": 1
     },
     "repo": {
-      "description": "Where the trial ran: the canary repo, or the org itself for a trial about the org and its Apps, such as P-39 (decision 0033). Nothing else.",
+      "description": "Where the trial ran: the canary repo; the org itself for a trial about the org and its Apps, such as P-39 (decision 0036); or null for a trial that asks a vendor's CLI and not GitHub, such as P-13 (decision 0033). Nothing else.",
       "enum": [
         "combsmith/software-factory-canary",
-        "combsmith"
+        "combsmith",
+        null
       ]
     },
     "ran_at": {
@@ -107,7 +108,8 @@
                     "machine_user",
                     "app",
                     "workflow",
-                    "anonymous"
+                    "anonymous",
+                    "subscription"
                   ]
                 },
                 "name": {

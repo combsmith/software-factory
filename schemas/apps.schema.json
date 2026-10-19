@@ -235,7 +235,7 @@
           "minimum": 1
         },
         "key": {
-          "title": "Where the App's private key is kept, by name and never by value: an environment secret on the Factory's repo, in the environment of the one job that holds it (decision 0033). No two Apps share an environment.",
+          "title": "Where the App's private key is kept, by name and never by value: an environment secret on the Factory's repo, in the environment of the one job that holds it (decision 0036). No two Apps share an environment.",
           "type": "object",
           "additionalProperties": false,
           "required": [
