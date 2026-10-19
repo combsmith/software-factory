@@ -299,6 +299,86 @@ class Simulation(unittest.TestCase):
         w.platform()
         self.assertEqual(w.pr_state, "merged")
 
+    def test_a_run_listed_unnamed_admits_nothing(self):  # I-46, decision 0036
+        # On a seed that lists a new Run unnamed, the pass after its admission reads it among the unidentified Runs and
+        # not among the Runs it can name. It may be the Run in flight here, so that pass admits no second review.
+        w = World(11, faults=False, people=False)
+        self.assertEqual(w.seed % world.UNNAMED_EVERY, world.UNNAMED)
+        w.checks = dict.fromkeys(w.checks, "success")
+        w.minute += 1
+        w.starts()
+        w.poll()
+        self.assertEqual([(r["intent"], r["status"]) for r in w.runs], [("review-change", "queued")])
+        w.minute += 1
+        w.poll()
+        self.assertEqual(w.trace[-1].split(" ", 1)[1], "pass: verifying run_unidentified -> defer")
+        self.assertEqual((len(w.runs), w.unnamed_passes), (1, 1))
+        # The pass after it reads the Run by its name, which keeps the item working.
+        w.minute += 1
+        w.poll()
+        self.assertEqual((w.trace[-1].split(" ", 1)[1], len(w.runs)), ("pass: verifying awaiting_review -> nothing", 1))
+        # The other side: a seed that lists every Run by its name never reads one unidentified.
+        w = World(2, faults=False, people=False)
+        w.checks = dict.fromkeys(w.checks, "success")
+        w.minute += 1
+        w.starts()
+        w.poll()
+        w.minute += 1
+        w.poll()
+        self.assertEqual((w.unnamed_passes, w.trace[-1].split(" ", 1)[1]),
+                         (0, "pass: verifying awaiting_review -> nothing"))
+        # A Kernel that read an unidentified Run as nobody's would admit a second review: the invariant breaks.
+        w = World(11, faults=False, people=False)
+        w.checks = dict.fromkeys(w.checks, "success")
+        w.minute += 1
+        w.starts()
+        w.poll()
+        w.minute += 1
+        with mock.patch.object(world, "decide", lambda f, r, c, cfg, now: decide(f, r, dict(c, unidentified_runs=[]),
+                                                                                 cfg, now)):
+            self.assertRaisesRegex(world.Broken, "I-46", w.poll)
+
+    def test_an_approval_listed_unnamed_is_not_issued_again(self):  # I-46, decision 0036
+        # On the same seed an approval's run is read unnamed at the next pass. One that did not land is not yet counted
+        # there, so the item still reads as due an approval: that pass defers it, and the pass after issues it again.
+        w = reviewed(World(11, faults=False, people=False, approval_fails="item"))
+        w.poll()
+        # The approval's run is in flight, as on GitHub seconds later: a record the decision reads unnamed never completed.
+        approval = w.runs[-1]
+        self.assertEqual((approval["intent"], approval["status"], approval["conclusion"]),
+                         (terms.ISSUE_APPROVAL, "in_progress", None))
+        w.finish_run()
+        self.assertEqual(approval["status"], "in_progress")
+        w.minute += 1
+        w.poll()
+        self.assertEqual(w.trace[-1].split(" ", 1)[1], "pass: converged run_unidentified -> defer")
+        self.assertEqual(len([r for r in w.runs if r["intent"] == terms.ISSUE_APPROVAL]), 1)
+        # Once that pass has read the list, the run's end is recorded.
+        self.assertEqual((approval["status"], approval["conclusion"], approval["outcome"]), ("completed", "failure", "item"))
+        w.minute += 1
+        w.poll()
+        self.assertEqual(len([r for r in w.runs if r["intent"] == terms.ISSUE_APPROVAL]), 2)
+        # A Kernel that let the approval through while its run is unnamed breaks the invariant.
+        w = reviewed(World(11, faults=False, people=False, approval_fails="item"))
+        w.poll()
+        w.minute += 1
+        with mock.patch.object(world, "decide", lambda f, r, c, cfg, now: decide(f, r, dict(c, unidentified_runs=[]),
+                                                                                 cfg, now)):
+            self.assertRaisesRegex(world.Broken, "I-46", w.poll)
+
+    def test_the_seeds_list_a_new_run_unnamed(self):  # I-46, decision 0036
+        # On one seed in eight a Run is listed unnamed at the pass after its admission, and that pass defers what it
+        # would admit or approve; every invariant holds throughout.
+        unnamed, deferred = False, False
+        for seed in SEEDS:
+            w = World(seed)
+            for _ in range(250):
+                w.step()
+            unnamed = unnamed or w.unnamed_passes > 0
+            deferred = deferred or any(line.endswith("run_unidentified -> defer") for line in w.trace)
+            self.assertTrue(w.unnamed_passes == 0 or seed % world.UNNAMED_EVERY == world.UNNAMED, seed)
+        self.assertTrue(unnamed and deferred, (unnamed, deferred))
+
     def test_a_pause_admits_nothing_and_stops_every_act(self):  # decision 0003
         # A Hold added to a queued item would take it out. Under a Pause, or one that cannot be read, the dequeue defers
         # and the item is the Maintainer's to see; the first pass after the Pause takes it out.

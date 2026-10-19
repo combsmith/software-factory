@@ -40,8 +40,10 @@ NONE = "none"
 # a `working` item, so neither ever is.
 MAY_GO_STALE = frozenset({REVIEW, READY})
 # Deferrals that hold the whole scope, each one cause that health reports once (§4.6), so an item they defer is never
-# stale: a Pause, read or not, the model provider's deferral (`capacity`), capacity unread, and the org's limit on Runs.
-SCOPE_DEFERRALS = frozenset({"paused", "pause_unreadable", "capacity", "capacity_unreadable", "concurrency"})
+# stale: a Pause, read or not, the model provider's deferral (`capacity`), capacity unread, the org's limit on Runs, and
+# a Run listed before its run-name, which may be on any item (decision 0036).
+SCOPE_DEFERRALS = frozenset({"paused", "pause_unreadable", "capacity", "capacity_unreadable", "concurrency",
+                             "run_unidentified"})
 
 # A Finding's categories, as the authority table names them, and its severities: schemas/facts.schema.json names
 # them too, and a thread from a required Lens with any other, or none, cannot be read.

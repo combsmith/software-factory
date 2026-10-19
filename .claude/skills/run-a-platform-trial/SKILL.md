@@ -13,7 +13,7 @@ everything a trial leaves in it: its runs, logs and artifacts.
 ## Before anything runs
 
 - **Order.** Section 6.1 runs the trials in batches. Batch 1, before any code: P-13; P-1, P-7,
-  P-24; P-17, P-22; P-3; P-28, P-29; P-8. Batch 2, before the first approval: P-9, P-20; P-5,
+  P-24; P-17, P-22; P-3; P-28, P-29; P-8; P-39. Batch 2, before the first approval: P-9, P-20; P-5,
   P-23, P-25; P-2; P-30; P-27, P-14, P-4; P-26. Batch 3, before the control room: P-11, P-19,
   P-21; P-16, P-18. Batch 4, as they come up: P-6, P-10, P-12, P-15. P-32, P-33 and P-34 run before
   the Factory's author is built. List `trials/` and check that every trial of an earlier batch has
@@ -23,7 +23,9 @@ everything a trial leaves in it: its runs, logs and artifacts.
   repo. P-8 needs twelve repos, P-11 the control room and the hub, P-19 a separate public repo,
   P-30 the Factory's own repo, and P-31 every repo an App is installed on: for these, stop and
   raise it with the Maintainer before anything runs. The fixture's schema accepts the canary,
-  or, for a vendor's CLI, no repo (decision 0033), so such a trial needs that decided first.
+  or the org `combsmith` for a trial about the org and its Apps alone, such as P-39 (decision
+  0035), or, for a vendor's CLI, no repo (decision 0033), so any other trial outside the canary
+  needs that decided first.
 - **Nothing here reads the canary.** Only a document, a fixture, the fixture's example and its
   schema name it here, and so does `config/apps.json`, which declares where the Apps are
   installed and which nothing runs. `tools/check_trials.py` refuses any other file that names

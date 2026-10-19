@@ -82,6 +82,15 @@ BUDGET_TESTS = (IDENTITY_TESTS + "test_a_reading_that_would_run_on_is_cut_short_
 
 # Where the boundary cases of decision 0029 are.
 REPORTED = "tests.test_decide.AReviewThatReported."
+# Where those of decision 0036 are, and the brakes on a pull request's Run, which are asked before them.
+UNIDENTIFIED = "tests.test_decide.UnidentifiedRuns."
+RUN_BRAKES = ("    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts),"
+              " limits)\n    if brake:\n        return brake\n")
+ACT_BRAKES = ('    brake = brakes.on_act(_decision, facts, state, evidence, context, action, since, config["limits"])\n'
+              "    if brake:\n        return brake\n")
+# The deferral for an unidentified Run: the first after the brakes it follows, in decide.py's _act and _decide, and in
+# issue.py's decide.
+UNIDENTIFIED_DEFERS = '        return _decision(facts, state, "run_unidentified", evidence, t.DEFER)\n'
 COVERAGE = "tests.test_coverage.Coverage."
 RUNNER = "tests.test_tools.Mutants."
 UNRELATED_TESTS = (RUNNER + "test_a_mutant_whose_only_failure_is_unrelated_survives",)
@@ -96,6 +105,14 @@ NAMED_TESTS = (RUNNER + "test_the_tests_a_mutant_names_run_first_and_the_whole_s
 # An issue's State (kernel/issue.py, decision 0028), in a list of its own so that the pull request's work, which adds
 # to MUTANTS below, never touches the same lines. Each is run against tests.test_issue first.
 ISSUE_PY, ISSUE_TESTS = "kernel/issue.py", ("tests.test_issue",)
+# What an issue's Run in flight counts, and the ceilings asked of the Run its State wants; and the exploration of an
+# issue's changes of State, which a mutant may name as a second killer.
+ISSUE_DONE = '            done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]\n'
+ISSUE_CEILINGS = "            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits)\n"
+ISSUE_EXPLORED = "tests.test_transitions.AnyLifecycle.test_an_issue_explored_is_held_to_the_issue_lifecycle"
+# The boundary of a person-only State (decision 0037).
+LIFECYCLE_TESTS = ("tests.test_tools.Lifecycle.test_only_a_person_or_a_strangers_change_left_to_a_person_leaves_a_person_"
+                   "only_state",)
 ISSUE = [
     # What is read short or cannot be read, before row 1.
     ("an issue's lists read short are trusted", ISSUE_PY,
@@ -533,17 +550,35 @@ ISSUE = [
     ("an issue's Run is not braked", ISSUE_PY,
      "    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)\n"
      "    if brake:\n        return brake\n", "", ISSUE_TESTS),
-    ("a Run in flight hides the brakes' Hold", ISSUE_PY,
-     '            if brake and brake["outcome"] == t.HOLD:\n                return brake\n', "", ISSUE_TESTS),
-    ("the brakes are asked of another Intent than the Run in flight's", ISSUE_PY,
-     'context, r["intent"], done, limits)', "context, INVESTIGATE, done, limits)", ISSUE_TESTS),
-    ("a Run in flight is counted against itself", ISSUE_PY,
-     '        done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]\n',
-     "        done = since_writer(mine, facts)\n", ISSUE_TESTS),
-    ("a Pause is taken for the Hold of a Run in flight", ISSUE_PY,
-     'if brake and brake["outcome"] == t.HOLD:', "if brake:", ISSUE_TESTS),
+    # Issue 171: while a Run is in flight, the ceilings are asked about the Run the State wants (decision 0003).
+    ("an issue's ceilings are asked about the Run in flight", ISSUE_PY,
+     "        if isinstance(wanted, tuple):\n" + ISSUE_DONE + ISSUE_CEILINGS,
+     "        if True:\n" + ISSUE_DONE + ISSUE_CEILINGS.replace("wanted[1]", 'flight[0]["intent"]'),
+     ISSUE_TESTS + (ISSUE_EXPLORED,)),
+    ("the Run ceiling holds an issue that wants no Run while a Run waits", ISSUE_PY,
+     "        if isinstance(wanted, tuple):\n" + ISSUE_DONE + ISSUE_CEILINGS,
+     "        if True:\n" + ISSUE_DONE
+     + ISSUE_CEILINGS.replace("wanted[1]", '(wanted[1] if isinstance(wanted, tuple) else "")'), ISSUE_TESTS),
+    ("an issue's ceilings are asked of another Intent", ISSUE_PY,
+     "wanted[1], done, limits)", "INVESTIGATE, done, limits)", ISSUE_TESTS),
+    ("a Run in flight is counted against itself", ISSUE_PY, ISSUE_DONE,
+     "            done = since_writer(mine, facts)\n", ISSUE_TESTS),
+    ("a Pause is read for a Run in flight", ISSUE_PY, ISSUE_CEILINGS,
+     "            held = brakes.on_run(_decision, facts, state, evidence, context, wanted[1], done, limits)\n",
+     ISSUE_TESTS),
+    ("a Run in flight hides the brakes' Hold", ISSUE_PY, "        if held:\n            return held\n", "",
+     ISSUE_TESTS),
     ("a Run in flight on an issue does not stop another", ISSUE_PY,
-     "    if flight:\n        done =", "    if False:\n        done =", ISSUE_TESTS),
+     "    if flight:\n        held = None\n", "    if False:\n        held = None\n", ISSUE_TESTS),
+    ("an issue in new wants a Run while a Run waits", ISSUE_PY,
+     'wanted = None if bare["state"] == NEW else _run_wanted(', "wanted = _run_wanted(", ISSUE_TESTS),
+    ("an issue's ceilings are asked of the Intent in flight", ISSUE_PY,
+     "wanted[1], done, limits)", 'flight[0]["intent"], done, limits)', ISSUE_TESTS),
+    ("the Run wanted is found from the State an opening Run in flight shows", ISSUE_PY,
+     '    bare = d if reason != "opening_run" else derive(facts, without_opening(runs), config)\n',
+     "    bare = d\n", ISSUE_TESTS),
+    ("every Run in flight is left out to find the Run wanted", ISSUE_PY,
+     'r["status"] == "completed" or r["intent"] != OPENING]', 'r["status"] == "completed"]', ISSUE_TESTS),
     ("an issue's capacity unread is trusted", ISSUE_PY,
      "    if until is not None and not (is_time(until) and is_time(now)):\n", "    if False:\n", ISSUE_TESTS),
     ("the provider's deferral does not defer an issue's Run", ISSUE_PY,
@@ -556,6 +591,16 @@ ISSUE = [
      '    if active >= limits["org_max_active_runs"]:\n', "    if False:\n", ISSUE_TESTS),
     ("the org's concurrency defers an issue's Run only past its limit", ISSUE_PY,
      'active >= limits["org_max_active_runs"]', 'active > limits["org_max_active_runs"]', ISSUE_TESTS),
+    # Decision 0036: a Run listed before its run-name defers every admission.
+    ("an unidentified Run admits an issue's Run", ISSUE_PY,
+     '    if context.get("unidentified_runs") != []:\n', "    if False:\n",
+     ("tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run",)),
+    ("an issue's unreadable list of unidentified Runs is read as empty", ISSUE_PY,
+     '    if context.get("unidentified_runs") != []:\n', '    if context.get("unidentified_runs"):\n',
+     ("tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run",)),
+    ("an unidentified Run hides an issue's Hold", ISSUE_PY,
+     *moved_after(ISSUE_PY, RUN_BRAKES, UNIDENTIFIED_DEFERS),
+     ("tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run",)),
     ("an issue's admission names no content", ISSUE_PY,
      '{"role": role, "intent": intent, "content_id": facts["content_id"]}', '{"role": role, "intent": intent}',
      ISSUE_TESTS),
@@ -681,6 +726,15 @@ ISSUE = [
 ]
 
 MUTANTS = ISSUE + [
+    # Decision 0037: a person-only State is left by a person, or by a stranger's change left to a person.
+    ("the platform leaves a State only a person leaves", "tools/check_lifecycle.py",
+     'tr["by"] not in ("human", STRANGER):', 'tr["by"] not in ("human", STRANGER, "platform"):', LIFECYCLE_TESTS),
+    ("a stranger's change left to a person may not leave a person-only State", "tools/check_lifecycle.py",
+     'tr["by"] not in ("human", STRANGER):', 'tr["by"] != "human":', LIFECYCLE_TESTS),
+    ("a stranger's change need name no bound", "tools/check_lifecycle.py",
+     '        if tr["by"] == STRANGER and tr["bound"] != PERSON:\n', "        if False:\n", LIFECYCLE_TESTS),
+    ("a stranger's change may not name the bound person", "tools/check_lifecycle.py",
+     ' and tr["by"] != STRANGER:\n', ":\n", LIFECYCLE_TESTS),
     ("incomplete facts are trusted", "kernel/derive.py",
      "    gaps = incomplete(facts)\n", "    gaps = []\n"),
     ("a list of Runs read short is trusted", "kernel/derive.py",
@@ -1038,12 +1092,67 @@ MUTANTS = ISSUE + [
      'NEVER = ("workflows", "security_events")', 'NEVER = ("security_events",)'),
     ("an App may hold security_events", "tools/check_apps.py",
      'NEVER = ("workflows", "security_events")', 'NEVER = ("workflows",)'),
+    ("an App's permissions are not held to what P-39 found installed", "tools/check_apps.py",
+     '        problems += _differ(app, want, _levels(installation.get("permissions")), "as GitHub granted it in " + '
+     'fixture)\n', "        pass\n"),
+    ("an app_id whose installation is another App's is trusted", "tools/check_apps.py",
+     '        if installation.get("app_slug") != name:\n', "        if False:\n"),
+    ("with no record of what GitHub granted the data is trusted", "tools/check_apps.py",
+     '    if not reads["installations"]:\n', "    if False:\n"),
+    ("an installation may receive events", "tools/check_apps.py",
+     '        if installation.get("events") != []:\n', "        if False:\n"),
+    ("an installation may be on every repo", "tools/check_apps.py",
+     '        if installation.get("repository_selection") != "selected":\n', "        if False:\n"),
+    ("an App's registered permissions are not held to the data", "tools/check_apps.py",
+     '        problems += _differ(app, want, _levels(body.get("permissions")), "as the App is registered in " + '
+     'fixture)\n', "        pass\n"),
+    ("an App may be registered for events", "tools/check_apps.py",
+     '        if body.get("events") != []:\n', "        if False:\n"),
+    ("a registration of another app_id is trusted", "tools/check_apps.py",
+     '        if body.get("id") != app_id:\n', "        if False:\n"),
+    ("an App whose registration is unread is trusted", "tools/check_apps.py",
+     "    if not registered:\n", "    if False:\n"),
+    ("a fixture of P-39 that failed is trusted", "tools/check_apps.py",
+     '        if data.get("verdict") != "pass":\n', "        if False:\n"),
+    ("an App whose reach is unread is trusted", "tools/check_apps.py",
+     "    if not reached:\n", "    if False:\n"),
+    ("an installation may reach repos by a selection of all", "tools/check_apps.py",
+     '        if body.get("repository_selection") != "selected":\n', "        if False:\n"),
+    ("a list that is one page of more is trusted", "tools/check_apps.py",
+     '    if isinstance(headers, dict) and any(str(name).lower() == "link" for name in headers):\n', "    if False:\n"),
+    ("a list that names an item twice is trusted", "tools/check_apps.py",
+     "    if twice:\n", "    if False:\n"),
+    ("a list short of its count is trusted", "tools/check_apps.py",
+     '    if body.get("total_count") != len(set(map(str, keys))):\n', "    if False:\n"),
+    ("an installation may reach other repos than installed_on", "tools/check_apps.py",
+     "        if repos != sorted(str(r) for r in installed_on):\n", "        if False:\n"),
+    ("a read GitHub did not answer 200 is trusted", "tools/check_apps.py",
+     '            if response.get("status") != 200 or not isinstance(body, dict):\n',
+     "            if not isinstance(body, dict):\n"),
+    ("an App's key may be kept in another job's environment", "tools/check_apps.py",
+     "        if environment != ENVIRONMENT[job]:\n", "        if False:\n"),
+    ("every App's key is held by apply", "tools/check_apps.py",
+     'HOLDER = {"controller": "poller", READER: "run"}', "HOLDER = {}"),
+    ("an App's key may be kept under any name", "tools/check_apps.py",
+     '        if key.get("secret") != _secret(app):\n', "        if False:\n"),
     ("a fixture may name who asked by an address", "tools/check_trials.py",
      '        if "@" in str(asker.get("name", "")):\n', "        if False:\n"),
     ("a fixture with no repo may ask as anyone", "tools/check_trials.py",
      '                if kind != "subscription":\n', "                if False:\n"),
     ("a subscription may ask in a fixture of a repo", "tools/check_trials.py",
      '                if kind == "subscription":\n', "                if False:\n"),
+    ("a fixture of the org may ask of a repo", "tools/check_trials.py",
+     "                for i, of_org in enumerate(calls) if not of_org]", "                for i, of_org in enumerate(calls) if False]"),
+    ("a fixture that asks only of the org may record the canary", "tools/check_trials.py",
+     "    if calls and all(calls):\n", "    if False:\n"),
+    ("a fixture of the org may ask of another org", "tools/check_trials.py",
+     'ORG_CALL = re.compile(r"^[A-Z]+ /(apps/|orgs/%s/|installation/)" % ORG)',
+     'ORG_CALL = re.compile(r"^[A-Z]+ /(apps/|orgs/[^/]+/|installation/)")'),
+    ("a fixture of the org may ask by GraphQL", "tools/check_trials.py",
+     '    if request.get("via") != "rest" or not isinstance(call, str) or not ORG_CALL.match(call):\n',
+     "    if not isinstance(call, str) or not ORG_CALL.match(call):\n"),
+    ("a call of the org may climb out of it", "tools/check_trials.py",
+     "    return not CLIMBS.search(path)\n", "    return True\n"),
     ("the impostor workflow posts from the Lens's own file", "sim/world.py",
      '"workflow": IMPOSTOR_WORKFLOW,', '"workflow": WORKFLOWS[lens],'),
     ("a neutral check is read as passing", "config/defaults.json",
@@ -1751,6 +1860,33 @@ MUTANTS = ISSUE + [
      "    if active is None:\n", "    if active is None and False:\n"),
     ("the org limit is ignored", "kernel/decide.py",
      '    if active >= limits["org_max_active_runs"]:\n', "    if False:\n"),
+    # Decision 0036: a Run listed before its run-name defers every admission, an approval among them, after the brakes.
+    ("an unidentified Run admits a pull request's Run", "kernel/decide.py",
+     '    if context.get("unidentified_runs") != []:\n', "    if False:\n",
+     (UNIDENTIFIED + "test_an_unidentified_run_defers_a_run_on_a_pull_request",)),
+    ("an unreadable list of unidentified Runs is read as empty", "kernel/decide.py",
+     '    if context.get("unidentified_runs") != []:\n', '    if context.get("unidentified_runs"):\n',
+     (UNIDENTIFIED + "test_a_list_of_unidentified_runs_that_cannot_be_read_defers",)),
+    ("an unidentified Run lets an approval through", "kernel/decide.py",
+     '    if action == "issue_approval" and context.get("unidentified_runs") != []:\n', "    if False:\n",
+     (UNIDENTIFIED + "test_an_unidentified_run_defers_an_approval",)),
+    ("an unreadable list of unidentified Runs lets an approval through", "kernel/decide.py",
+     '    if action == "issue_approval" and context.get("unidentified_runs") != []:\n',
+     '    if action == "issue_approval" and context.get("unidentified_runs"):\n',
+     (UNIDENTIFIED + "test_a_list_of_unidentified_runs_that_cannot_be_read_defers_an_approval",)),
+    ("an unidentified Run hides an approval's Hold", "kernel/decide.py",
+     *moved_after("kernel/decide.py", ACT_BRAKES, UNIDENTIFIED_DEFERS),
+     (UNIDENTIFIED + "test_an_unidentified_run_defers_an_approval",)),
+    ("an unidentified Run defers an enqueue", "kernel/decide.py",
+     '    if action == "issue_approval" and context.get("unidentified_runs") != []:\n',
+     '    if context.get("unidentified_runs") != []:\n',
+     (UNIDENTIFIED + "test_an_unidentified_run_stops_no_enqueue_and_no_dequeue",)),
+    ("an unidentified Run hides a Hold", "kernel/decide.py",
+     *moved_after("kernel/decide.py", RUN_BRAKES, UNIDENTIFIED_DEFERS),
+     (UNIDENTIFIED + "test_an_unidentified_run_is_asked_after_the_brakes",)),
+    ("an unidentified Run's deferral goes stale", "kernel/terms.py",
+     ',\n                             "run_unidentified"})', "})",
+     ("tests.test_decide.Staleness.test_a_deferral_of_the_whole_scope_is_never_stale",)),
     ("a wait is stale at its limit, not past it", "kernel/derive.py",
      "    return waited > lifecycle", "    return waited >= lifecycle"),
     ("a wait counts while no passes ran", "kernel/derive.py",
