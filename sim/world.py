@@ -92,9 +92,10 @@ OFF_THE_LIST = {"role": "docs/lessons.md", "dependency": "docs/requirements.txt"
 UNCOVERED_SEEDS, UNCOVERED = 1, 0.5
 # On one seed in eight, by the seed alone, a Run admitted in one pass is listed at the next under its workflow's name,
 # not its run-name, while it has not completed (P-17): the pass reads its GitHub id among the unidentified Runs, and not
-# among the Runs it can name. So is an approval: here its record is written whole within the pass, where on GitHub its
-# run is still in flight seconds later, so the next pass reads it unnamed too, and one that failed is not yet counted.
-# The window never meets a spent count here; the boundary cases hold that the brakes come first.
+# among the Runs it can name. One that has completed by then is listed by its name. So is an approval: on such a seed
+# its run stays in progress until that next pass has read the list, as on GitHub it is still in flight seconds later,
+# and only then is its end recorded, so one that failed is not yet counted in that pass. The window never meets a spent
+# count here; the boundary cases hold that the brakes come first.
 # Seeds 3, 11, 19, 27 and 35 are among the first 40; every other seed stays as it was.
 UNNAMED_EVERY, UNNAMED = 8, 3
 # GitHub's id of a run, as P-17 listed one, for the first Run on an item; each Run after it is one more.
@@ -158,7 +159,8 @@ class World:
         self.acts = 0              # acts that landed since a person with write access acted
         self.last_act = None       # the action of the last act that landed: an act that stops work is never refused
         self.stale = None          # an older snapshot, served when facts go stale
-        self.unnamed = None        # the Run the next pass lists unnamed, with its GitHub id (UNNAMED), or None
+        self.unnamed = None        # the Run the next pass lists unnamed, its GitHub id and, for an approval still in
+                                   # flight, how it ends (UNNAMED); or None
         self.unnamed_passes = 0    # passes that listed a Run unnamed
         self.read = None           # the facts the last whole, current pass read, as `unstamped` gives them
         self.made = set()          # each transition a change made, as (from, to, by)
@@ -481,14 +483,17 @@ class World:
         current = exact = True
         # The Run the last pass admitted or the approval it issued, listed under its workflow's name while it has not
         # completed: its GitHub id is read as unidentified, and it is not among the Runs the pass can name. Only at the
-        # next pass. An approval's record is written whole within the pass, so it is taken as still in flight (UNNAMED).
+        # next pass. An approval still in flight records its end once that pass has read the list (UNNAMED).
         unidentified, unnamed, self.unnamed = [], self.unnamed, None
-        if unnamed is not None and (unnamed[0]["status"] != "completed" or unnamed[0]["intent"] == t.ISSUE_APPROVAL):
+        if unnamed is not None and unnamed[0]["status"] != "completed":
             # GitHub: a_new_run_is_listed_unnamed
             runs = [r for r in runs if r["run"] != unnamed[0]["run"]]
             unidentified, exact = [unnamed[1]], False
             self.unnamed_passes += 1
             self.note("run %s is listed unnamed, as %s" % (unnamed[0]["run"], unnamed[1]))
+        if unnamed is not None and unnamed[2] is not None:
+            unnamed[0].update(unnamed[2])
+            self.note("run %s: the approval's run completed" % unnamed[0]["run"])
         fault = self.rng.random() if self.faults else 1.0
         if fault < 0.08 and self.stale is not None:
             # GitHub: a_read_can_be_stale
@@ -582,7 +587,7 @@ class World:
                               "intent": d["admit"]["intent"], "content_id": d["admit"]["content_id"],
                               "status": "queued", "conclusion": None, "outcome": None, "started_at": self.now()})
             if self.seed % UNNAMED_EVERY == UNNAMED:
-                self.unnamed = (self.runs[-1], "%d" % (FIRST_RUN_ID + len(self.runs) - 1))
+                self.unnamed = (self.runs[-1], "%d" % (FIRST_RUN_ID + len(self.runs) - 1), None)
             self.caused("factory")
         elif d["outcome"] == "act":
             self.apply_action(d)
@@ -735,8 +740,6 @@ class World:
                "intent": t.ISSUE_APPROVAL, "content_id": self.cid(), "status": "completed",
                "conclusion": "success", "outcome": None, "started_at": self.now()}
         self.runs.append(run)
-        if self.seed % UNNAMED_EVERY == UNNAMED:
-            self.unnamed = (run, "%d" % (FIRST_RUN_ID + len(self.runs) - 1))
         fault = self.approval_fails
         if fault is None and self.faults and self.rng.random() < 0.15:
             fault = self.pick(["item", "environment", "capacity"])
@@ -744,14 +747,20 @@ class World:
             # GitHub: an_approval_can_fail_to_land
             run.update(conclusion="failure", outcome=fault)
             self.note("run %s: the approval did not land" % run["run"])
-            return
-        # GitHub: the_machine_users_approval_counts
-        self.reviews.append({"by": dict(MACHINE), "state": "approved",
-                             "commit": "c%d" % self.content, "content_id": self.cid(), "submitted_at": self.now(),
-                             "dismissed_by": None, "dismissed_from": None})
-        self.acts += 1
-        self.last_act = "issue_approval"
-        self.note("run %s: approved %s" % (run["run"], self.cid()))
+        else:
+            # GitHub: the_machine_users_approval_counts
+            self.reviews.append({"by": dict(MACHINE), "state": "approved",
+                                 "commit": "c%d" % self.content, "content_id": self.cid(), "submitted_at": self.now(),
+                                 "dismissed_by": None, "dismissed_from": None})
+            self.acts += 1
+            self.last_act = "issue_approval"
+            self.note("run %s: approved %s" % (run["run"], self.cid()))
+        if self.seed % UNNAMED_EVERY == UNNAMED:
+            # On GitHub the approval's run is still in flight at the next pass, unnamed: it stays in progress until that
+            # pass has read the list, and only then is its end recorded (UNNAMED).
+            end = {k: run[k] for k in ("status", "conclusion", "outcome")}
+            run.update(status="in_progress", conclusion=None, outcome=None)
+            self.unnamed = (run, "%d" % (FIRST_RUN_ID + len(self.runs) - 1), end)
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
     def start_next(self):
@@ -783,7 +792,8 @@ class World:
             self.check(not done, "I-11 a second review of unchanged content")
 
     def finish_run(self):
-        live = [r for r in self.runs if r["status"] == "in_progress"]
+        # An approval in flight ends as the next pass reads the list (UNNAMED), never here.
+        live = [r for r in self.runs if r["status"] == "in_progress" and r["intent"] != t.ISSUE_APPROVAL]
         if not live:
             return
         run = live[0]

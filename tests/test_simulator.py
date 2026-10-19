@@ -343,11 +343,18 @@ class Simulation(unittest.TestCase):
         # there, so the item still reads as due an approval: that pass defers it, and the pass after issues it again.
         w = reviewed(World(11, faults=False, people=False, approval_fails="item"))
         w.poll()
-        self.assertEqual([r["intent"] for r in w.runs][-1], terms.ISSUE_APPROVAL)
+        # The approval's run is in flight, as on GitHub seconds later: a record the decision reads unnamed never completed.
+        approval = w.runs[-1]
+        self.assertEqual((approval["intent"], approval["status"], approval["conclusion"]),
+                         (terms.ISSUE_APPROVAL, "in_progress", None))
+        w.finish_run()
+        self.assertEqual(approval["status"], "in_progress")
         w.minute += 1
         w.poll()
         self.assertEqual(w.trace[-1].split(" ", 1)[1], "pass: converged run_unidentified -> defer")
         self.assertEqual(len([r for r in w.runs if r["intent"] == terms.ISSUE_APPROVAL]), 1)
+        # Once that pass has read the list, the run's end is recorded.
+        self.assertEqual((approval["status"], approval["conclusion"], approval["outcome"]), ("completed", "failure", "item"))
         w.minute += 1
         w.poll()
         self.assertEqual(len([r for r in w.runs if r["intent"] == terms.ISSUE_APPROVAL]), 2)

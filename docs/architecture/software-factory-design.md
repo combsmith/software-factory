@@ -773,7 +773,9 @@ count: it is what says which item a counted Run is on. Until GitHub lists the na
 3.7 s after the dispatch), the Run is unidentified: the records port reports its GitHub id apart
 from the Runs it can name, and it defers every admission (I-46, decision 0036). Only a record
 started by a `workflow_dispatch` of a Role's workflow, with an item in its input, can be
-unidentified, and only while its name is not yet listed. A run started by a schedule, a successor
+unidentified, and only while its name is not yet listed, whether or not it has completed: a
+completed record read as no one's would fall out of its item's attempts and Run ceiling. The name is
+fixed at the dispatch, so it is listed within the same window. A run started by a schedule, a successor
 pass dispatched with no item, and the pass's own run are the poller's, not a Run on an item: they
 are never unidentified. A pull request from a fork runs
 its own workflow inside this repo and could give that run any name and any artifacts; it is a
@@ -1579,7 +1581,7 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 | I-43 | After a linked pull request closes unmerged, at most `max_unmerged_closes` further linked pull requests are opened before a person with write access acts | FR-18 |
 | I-44 | An issue's State is given by exactly one row of its derivation, and no issue admits two Runs at once | FR-16 |
 | I-45 | Nothing that changes a protected path or a Lens's input is approved, enqueued, left in the merge queue or merged without every model Lens's review of that head, whatever its class | §4.2, §5.1 |
-| I-46 | No Run is admitted and no approval issued while a run record of a Role's workflow, dispatched for an item and not completed, cannot be told whose it is; the poller's own runs, scheduled or dispatched with no item, never count as such | §3.10 |
+| I-46 | No Run is admitted and no approval issued while a run record of a Role's workflow, dispatched for an item, completed or not, cannot be told whose it is; the poller's own runs, scheduled or dispatched with no item, never count as such | §3.10 |
 
 ### 4.5 The simulator
 

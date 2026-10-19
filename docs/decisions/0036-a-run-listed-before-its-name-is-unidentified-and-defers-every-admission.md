@@ -11,12 +11,15 @@ Intent, Role and content, come from its run-name alone. P-17 found that for up t
 shows a run under the workflow's name, and nothing else listed in that window says whose it is.
 
 1. A counted run record whose name is not yet a Factory run-name is an unidentified Run. The records port reports it
-   apart from the Runs it can name, with its GitHub run id, and only while it has not completed. A completed record
-   still under the workflow's name counts nowhere, and the port logs it. Only a record started by a
-   `workflow_dispatch` of a Role's workflow, with an item in its input, can be unidentified, and only while its name
-   is not yet listed. A run started by a schedule, a successor pass dispatched with no item, and the pass's own run
-   are the poller's, not a Run on an item: they never take a run-name, and are never unidentified. Otherwise every
-   pass would list its own run, and every admission would defer for ever.
+   apart from the Runs it can name, with its GitHub run id, whether or not it has completed. A completed record whose
+   name cannot yet be tied to an item is unidentified too: read as no one's, it would fall out of its item's attempts
+   and its Run ceiling, which count only the Runs tied to the item, and a later pass could admit again past them. The
+   run-name is fixed at the dispatch, so GitHub lists a completed run's name too, within P-17's window, and the record
+   is then counted. Only a record started by a `workflow_dispatch` of a Role's workflow, with an item in its input, can
+   be unidentified, and only while its name is not yet listed. A run started by a schedule, a successor pass
+   dispatched with no item, and the pass's own run are the poller's, not a Run on an item: they never take a
+   run-name, and are never unidentified. Otherwise every pass would list its own run, and every admission would defer
+   for ever.
 2. An unidentified Run defers every admission in the pass's scope. It reaches the Kernel as a context fact,
    `unidentified_runs`, a list of run ids beside `paused` and `active_runs`. If it is not an empty list, or is not a
    list at all, every Run the pass would admit defers with the reason `run_unidentified`, on a pull request and on an
@@ -45,8 +48,9 @@ the event and the time, is not taken: every Factory Run shares them, and telling
 a memory of what was dispatched, kept between passes, which decision 0002 forbids. The cost of deferring is small: the
 window is under 4 s, and the port's second read turns almost every such pass into a normal one. A record still
 unnamed after it is not the normal lag, so a chain of passes waiting on it would feed itself without bound (W-7).
-A completed run that never took its name is not a lag either, and holding admission on it would hold the Factory for
-the 90 days its record is kept. A read up to 60 s old, which the list's `cache-control` allows, is as long as P-22's
+A completed run still unnamed is deferred on in the same way, not dropped: dropped, it would leave its item's counts
+short, and a later pass could admit past them (§3.10). Its name is fixed at the dispatch, so the wait for it is the same
+window, not the 90 days its record is kept. A read up to 60 s old, which the list's `cache-control` allows, is as long as P-22's
 whole bound, so nothing on the Factory's side may cache it.
 
 The trade-off: an unidentified Run is missing from the Runs the Kernel reads, so in the window an item whose own Run is
@@ -68,6 +72,6 @@ admitted for, it ends superseded.
 | An issue's `accept`, and a Hold placed for unmerged closes past their bound, go ahead while a Run is unidentified | `tests/test_issue.py::test_an_unidentified_run_stops_no_acceptance_and_no_hold` |
 | A deferral by an unidentified Run is never stale, on a pull request or an issue | `tests/test_decide.py::test_a_deferral_of_the_whole_scope_is_never_stale`, `tests/test_issue.py::test_a_person_a_run_nobody_or_a_deferral_of_the_whole_scope_is_never_stale` |
 | In the simulator no pass admits a Run or issues an approval while a Run is listed unnamed, and the seeds reach that window | `tests/test_simulator.py::test_a_run_listed_unnamed_admits_nothing`, `tests/test_simulator.py::test_an_approval_listed_unnamed_is_not_issued_again`, `tests/test_simulator.py::test_the_seeds_list_a_new_run_unnamed` |
-| The records port reports as unidentified only a counted run record started by a `workflow_dispatch` of a Role's workflow with an item in its input, not yet completed, whose name is not yet a Factory run-name; never a scheduled run, a pass dispatched with no item, or the pass's own run. It reads the list once more 5 s later, and keeps no cached read | waiting on `adapters/` |
+| The records port reports as unidentified only a counted run record started by a `workflow_dispatch` of a Role's workflow with an item in its input, whose name is not yet a Factory run-name, whether or not it has completed, so that a completed one is never dropped from its item's counts; never a scheduled run, a pass dispatched with no item, or the pass's own run. It reads the list once more 5 s later, and keeps no cached read | waiting on `adapters/` |
 | A Run's start and its `apply` read the list once more before asking the Kernel, dropping the Run's own `GITHUB_RUN_ID` from it, and end superseded while a Run is unidentified | waiting on `harness/` |
 | A pass deferred by an unidentified Run starts no successor | waiting on `controller/` |
