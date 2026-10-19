@@ -388,6 +388,30 @@
       "bound": null
     },
     {
+      "from": "triage",
+      "to": "new",
+      "by": "stranger",
+      "bound": "person"
+    },
+    {
+      "from": "ready",
+      "to": "new",
+      "by": "stranger",
+      "bound": "person"
+    },
+    {
+      "from": "in_progress",
+      "to": "new",
+      "by": "stranger",
+      "bound": "person"
+    },
+    {
+      "from": "held",
+      "to": "new",
+      "by": "stranger",
+      "bound": "person"
+    },
+    {
       "from": "new",
       "to": "in_progress",
       "by": "human",

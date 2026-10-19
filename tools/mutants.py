@@ -110,6 +110,9 @@ ISSUE_PY, ISSUE_TESTS = "kernel/issue.py", ("tests.test_issue",)
 ISSUE_DONE = '            done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]\n'
 ISSUE_CEILINGS = "            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits)\n"
 ISSUE_EXPLORED = "tests.test_transitions.AnyLifecycle.test_an_issue_explored_is_held_to_the_issue_lifecycle"
+# The boundary of a person-only State (decision 0037).
+LIFECYCLE_TESTS = ("tests.test_tools.Lifecycle.test_only_a_person_or_a_strangers_change_left_to_a_person_leaves_a_person_"
+                   "only_state",)
 ISSUE = [
     # What is read short or cannot be read, before row 1.
     ("an issue's lists read short are trusted", ISSUE_PY,
@@ -723,6 +726,15 @@ ISSUE = [
 ]
 
 MUTANTS = ISSUE + [
+    # Decision 0037: a person-only State is left by a person, or by a stranger's change left to a person.
+    ("the platform leaves a State only a person leaves", "tools/check_lifecycle.py",
+     'tr["by"] not in ("human", STRANGER):', 'tr["by"] not in ("human", STRANGER, "platform"):', LIFECYCLE_TESTS),
+    ("a stranger's change left to a person may not leave a person-only State", "tools/check_lifecycle.py",
+     'tr["by"] not in ("human", STRANGER):', 'tr["by"] != "human":', LIFECYCLE_TESTS),
+    ("a stranger's change need name no bound", "tools/check_lifecycle.py",
+     '        if tr["by"] == STRANGER and tr["bound"] != PERSON:\n', "        if False:\n", LIFECYCLE_TESTS),
+    ("a stranger's change may not name the bound person", "tools/check_lifecycle.py",
+     ' and tr["by"] != STRANGER:\n', ":\n", LIFECYCLE_TESTS),
     ("incomplete facts are trusted", "kernel/derive.py",
      "    gaps = incomplete(facts)\n", "    gaps = []\n"),
     ("a list of Runs read short is trusted", "kernel/derive.py",

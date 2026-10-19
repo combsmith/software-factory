@@ -1225,6 +1225,9 @@ ISSUE_MOVES = [Move("a person adds %s" % name, "human", writer_labels(name, "lab
     Move("the oldest Run in flight fails for the issue", "factory", issue_run_ends("item")),
     Move("the oldest Run in flight fails for the environment", "factory", issue_run_ends("environment")),
 ]
+# The Holds of the brakes, which are readings: an outsider's edit, after which the issue is not accepted, reads past
+# them, as it never reads past a Hold a label or more than one open link makes.
+BRAKES_HOLDS = {"run_ceiling", "attempts_exhausted", "act_ceiling"}
 # The real case of issue 171: the outsider's issue one Run short of the ceiling, its readiness Run admitted twice and
 # the first failing, which reaches the ceiling; then the outsider edits it while the second waits.
 REAL_CASE = ("an outsider's admitted issue, investigated, one Run short",
@@ -1248,17 +1251,20 @@ class AnyLifecycle(unittest.TestCase):
             return d
 
         made, _ = explore(ISSUE_BASES, ISSUE_MOVES, judge, depth=4)
-        # Every change of State a person, the Factory or the platform makes is declared, with who makes it.
-        moved = {m: pairs for m, pairs in made.items() if m[2] != "stranger"}
-        missing = check_lifecycle.undeclared(lc, moved)
+        # Every change of State anyone makes is declared, with who makes it: an outsider's too.
+        missing = check_lifecycle.undeclared(lc, made)
         self.assertEqual(missing, [], "\n".join("%s -> %s by %s: %s" % (*m, example(made[m])) for m in missing))
-        self.assertEqual({by for _, _, by in moved}, {"human", "factory", "platform"})
+        self.assertEqual({by for _, _, by in made}, {"human", "factory", "platform", "stranger"})
         # A person who closes the ready pull request unmerged, factory:ready removed, sends the issue back to triage.
         self.assertIn(("linked_ready", "triage"), made[("in_review", "triage", "human")])
-        # An outsider moves an issue only to new, its acceptance lapsed, from whatever State, a Hold of the brakes too.
-        strangers = {(m, after) for m, pairs in made.items() if m[2] == "stranger" for _, after in pairs}
+        # An outsider moves an issue only to new, its acceptance lapsed, which needs a person: only a person admits it
+        # again. It may so leave a Hold of the brakes (decision 0037), and never a Hold a label or a link makes.
+        strangers = {(m, before, after) for m, pairs in made.items() if m[2] == "stranger" for before, after in pairs}
         self.assertTrue(strangers)
-        self.assertEqual({(m[1], after) for m, after in strangers}, {("new", "acceptance_lapsed")})
+        self.assertEqual({(m[1], after) for m, _, after in strangers}, {("new", "acceptance_lapsed")})
+        self.assertIn("acceptance_lapsed", issue.NEEDS_YOU_REASONS)
+        self.assertLessEqual({before for m, before, _ in strangers if m[0] == t.HELD}, BRAKES_HOLDS)
+        self.assertEqual({tr["bound"] for tr in lc["transitions"] if tr["by"] == "stranger"}, {check_lifecycle.PERSON})
         # The real case is explored, and read as the Run the issue wants: while its second Run waits the issue is held
         # at the Run ceiling, and once the outsider edits it, it wants no Run and is held by nothing.
         name, steps = REAL_CASE
