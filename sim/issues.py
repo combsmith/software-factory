@@ -514,10 +514,9 @@ class IssueWorld:
             elif roll < 0.2 and self.true_state == "in_review":
                 # The merge queue merges the Factory's pull request, after the Factory's approval and enqueue: the
                 # change in the facts is the platform's, as the pull request's Lifecycle says of a queued merge. Only
-                # while the issue is in review: the Lifecycle lets no merge out of declined, only a person out of held,
-                # and names no merge from new, so the world takes it that the Controller dequeues the pull request of
-                # an issue that a person closed or held, an outsider reopened or whose acceptance lapsed (recorded in
-                # the design, 4.5).
+                # while the issue is in review: the Controller dequeues the pull request of an issue a person held or
+                # closed (the Maintainer's ruling on issue 227), so no merge lands while the issue is held or
+                # declined, nor from new; a merge the Kernel reads under either is a Hold, not done (issue 237).
                 p.update(open=False, merged_at=self.now(), closed_at=self.now(), empty=False)
                 self.moves()
                 self.note("#%d merged by the queue" % p["number"])
@@ -686,8 +685,8 @@ class IssueWorld:
             p["draft"] = not p["draft"]
             self.note("%s %s #%d" % (who["name"], "converted to draft" if p["draft"] else "marked ready", p["number"]))
         elif roll < 0.6 and self.true_state != issue.DECLINED:
-            # Not while the issue is declined, closed or reopened by an outsider: the Lifecycle lets nothing out of
-            # declined, and the Kernel reads a merge in the present life as done (recorded in the design, 4.5).
+            # Not while the issue is declined, closed or reopened by an outsider: the Controller dequeues on a
+            # person's close (the Maintainer's ruling on issue 227), and the Lifecycle lets nothing out of declined.
             p.update(open=False, merged_at=self.now(), closed_at=self.now(), empty=self.rng.random() < 0.1)
             self.note("%s merged #%d" % (who["name"], p["number"]))
         else:
