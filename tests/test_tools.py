@@ -3160,9 +3160,13 @@ class Mutants(unittest.TestCase):
                 "tests.test_tools")
         self.assertEqual(mutants.unnamed([("ok", "k.py", "rule\n", "x\n", good)]), [])
         for bad, why in (("tests.test_tools.NeedsPassed", "does not exist"), ("tests.test_tools.Mutants.test_gone",
-                         "does not exist"), ("tests.test_nowhere", "does not exist"),
+                         "does not exist"), ("tests.test_nowhere", "whose module does not exist"),
                          ("tests.test_simulator.Roll", "not a TestCase"), ("tests.test_tools.Mutants.check",
-                         "not a test method"), ("tools.mutants", "not a test module")):
+                         "not a test method"), ("tools.mutants", "not a test module"),
+                         ("tests.support", "not a test module"), ("unittest.TestCase", "not a test module"),
+                         ("tests.test_tools.unittest.TestCase", "not a TestCase"), ("tests.test_tools.suite_of",
+                         "not a method of a TestCase"), ("", "not a test module"), (".tests.test_tools",
+                         "not a test module"), ("tests..test_tools", "not a test module")):
             said = mutants.unnamed([("m", "k.py", "rule\n", "x\n", (bad,))])
             self.assertEqual(len(said), 1, bad)
             self.assertIn(why, said[0], bad)
@@ -3181,12 +3185,13 @@ class Mutants(unittest.TestCase):
         passes, fails = "    def test_a(self):\n        pass\n", "    def test_a(self):\n        self.fail()\n"
         module = "import unittest\n\n\nclass T(unittest.TestCase):\n"
         where = suite_of(passes, {"tests/test_hooks.py": module + fails, "tests/test_simulator.py": module + passes,
-                                  "tests/test_new.py": module + passes, "tests/test_aardvark.py": module + passes})
-        self.assertEqual(mutants.modules(where), ["tests.test_aardvark", "tests.test_new", "tests.test_x",
-                                                  "tests.test_hooks", "tests.test_simulator"])
+                                  "tests/test_new.py": module + passes, "tests/test_aardvark.py": module + passes,
+                                  "tests/deep/__init__.py": "", "tests/deep/test_nested.py": module + passes})
+        self.assertEqual(mutants.modules(where), ["tests.deep.test_nested", "tests.test_aardvark", "tests.test_new",
+                                                  "tests.test_x", "tests.test_hooks", "tests.test_simulator"])
         status, output = mutants.suite(where)
         self.assertEqual((status, output.count("FAIL: test_a (tests.test_hooks.T")), (1, 1), output)
-        self.assertIn("Ran 4 tests", output, "every quick module ran before the slow one that failed")
+        self.assertIn("Ran 5 tests", output, "every quick module, a nested one too, ran before the slow one that failed")
         where = suite_of(passes, {"tests/test_new.py": module + fails})
         self.assertEqual(mutants.verdict(*mutants.suite(where))[0], "killed", "a module not named anywhere is run")
 
@@ -3199,10 +3204,18 @@ class Mutants(unittest.TestCase):
         self.assertEqual((len(chosen), where, at_once), (25, ", of kernel/gate.py", mutants.FILTER_WORKERS))
         self.assertEqual(mutants.FILTER_WORKERS, 2)
         self.assertEqual(mutants.selected({}, ["./kernel/gate.py"], few)[0], chosen, "a path is read however spelt")
+        self.assertEqual(mutants.selected({}, ["kernel//gate.py"], few)[0], chosen)
+        dotted = [("d", ".github/workflows/verify.yml", "a\n", "b\n", ("tests.test_tools.Mutants",))]
+        self.assertEqual(mutants.selected({}, [".github/workflows/verify.yml"], dotted)[0], dotted, "a dot is kept")
+        with self.assertRaises(ValueError):
+            mutants.selected({}, ["../kernel/gate.py"], few)
         self.assertEqual(mutants.selected({}, [], few), (few, "", None), "with no path, every mutant, as before")
         for environ, paths, said in (({}, ["kernel/gate.py", "kernel/brakes.py"], "a filtered run breaks at most 40"),
                                      ({}, ["kernel/nowhere.py"], "no mutant targets kernel/nowhere.py"),
-                                     ({"MUTANTS_SHARD": "0", "MUTANTS_SHARDS": "2"}, ["kernel/gate.py"], "do not mix")):
+                                     ({}, ["kernel/gate.py", "kernel/nowhere.py"], "no mutant targets kernel/nowhere.py"),
+                                     ({"MUTANTS_SHARD": "0", "MUTANTS_SHARDS": "2"}, ["kernel/gate.py"], "do not mix"),
+                                     ({"MUTANTS_SHARD": "0"}, ["kernel/gate.py"], "do not mix"),
+                                     ({"MUTANTS_SHARDS": "2"}, ["kernel/gate.py"], "do not mix")):
             with self.assertRaises(ValueError, msg=paths) as raised:
                 mutants.selected(environ, paths, few)
             self.assertIn(said, str(raised.exception), paths)

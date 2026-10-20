@@ -2852,12 +2852,12 @@ MUTANTS = ISSUE + [
      "            if missing:\n                problems.append(", "            if False:\n                problems.append(",
      NAMING_TESTS),
     ("the slow modules run first", "tools/mutants.py",
-     '    return ["tests." + name for name in names if name not in slow] + ["tests." + name for name in names if name in slow]\n',
-     '    return ["tests." + name for name in names if name in slow] + ["tests." + name for name in names if name not in slow]\n',
+     "    return [name for name in names if name not in slow] + [name for name in names if name in slow]\n",
+     "    return [name for name in names if name in slow] + [name for name in names if name not in slow]\n",
      ORDER_TESTS),
     ("a module is left out of the suite", "tools/mutants.py",
-     '    names = sorted(path.stem for path in (cwd / "tests").glob("test_*.py"))\n',
-     '    names = sorted(path.stem for path in (cwd / "tests").glob("test_*.py"))[1:]\n', ORDER_TESTS),
+     'for path in (cwd / "tests").rglob("test_*.py"))\n', 'for path in (cwd / "tests").glob("test_*.py"))[1:]\n',
+     ORDER_TESTS),
     ("a filtered run is not capped", "tools/mutants.py",
      "        if len(chosen) > FILTER_MOST:\n", "        if False:\n", FILTER_TESTS),
     ("a filtered run runs beside a shard", "tools/mutants.py",
@@ -2867,8 +2867,28 @@ MUTANTS = ISSUE + [
      '        return chosen, ", of %s" % ", ".join(sorted(wanted)), FILTER_WORKERS\n',
      '        return chosen, ", of %s" % ", ".join(sorted(wanted)), None\n', FILTER_TESTS),
     ("a path is read only as it is spelt", "tools/mutants.py",
-     '        wanted = {str(pathlib.PurePosixPath(path)).lstrip("./") for path in paths}\n',
+     '        wanted = {re.sub(r"^(\\./)+", "", str(pathlib.PurePosixPath(path))) for path in paths}\n',
      "        wanted = set(paths)\n", FILTER_TESTS),
+    ("a shard set alone runs beside a filter", "tools/mutants.py",
+     "        if index is not None or count is not None:\n", "        if index is not None and count is not None:\n",
+     FILTER_TESTS),
+    ("a path no mutant targets is passed over", "tools/mutants.py",
+     "        if untargeted:" "      # a path no mutant targets", "        if False:" "      # a path no mutant targets",
+     FILTER_TESTS),
+    ("a mutant that names no test is selected", "tools/mutants.py",
+     "    if problems:\n        raise ValueError(", "    if False:\n        raise ValueError(", NAMING_TESTS),
+    ("test_hooks is not a slow module", "tools/mutants.py",
+     '    slow = set("tests." + name for name in SLOW) | {"tests.test_hooks"}\n',
+     '    slow = set("tests." + name for name in SLOW)\n', ORDER_TESTS),
+    ("a name outside tests/ is a test", "tools/mutants.py",
+     '    if len(parts) < 2 or parts[0] != "tests" or not parts[1].startswith("test_") or not all(parts):\n',
+     "    if False:\n", NAMING_TESTS),
+    ("a class that is no TestCase is a test", "tools/mutants.py",
+     '        return "" if _case(found) else "which is not a TestCase of a test module"\n', '        return ""\n',
+     NAMING_TESTS),
+    ("a function that is no test method is a test", "tools/mutants.py",
+     '    return "" if callable(found) and rest[-1].startswith("test") else "which is not a test method"\n',
+     '    return ""\n', NAMING_TESTS),
 ]
 
 
@@ -2912,13 +2932,13 @@ def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only: 
 
 
 def modules(cwd: pathlib.Path) -> list:
-    """Every test module under `cwd`'s tests/, as the dotted names unittest runs them by, in the order the suite runs:
-    the modules tools/verify.py names in SLOW, and test_hooks, after all the others, so that a mutant the tests it names
-    miss is still read by every test, the quick ones first. The modules are read from the directory, never listed
-    here, so a new one is never left out (issue 217)."""
-    names = sorted(path.stem for path in (cwd / "tests").glob("test_*.py"))
-    slow = set(SLOW) | {"test_hooks"}
-    return ["tests." + name for name in names if name not in slow] + ["tests." + name for name in names if name in slow]
+    """Every test module under `cwd`'s tests/, a package nested in it included, as the dotted names unittest runs them
+    by, in the order the suite runs: the modules tools/verify.py names in SLOW, and test_hooks, after all the others, so
+    that a mutant the tests it names miss is still read by every test, the quick ones first. The modules are read from
+    the directory, never listed here, so a new one is never left out (issue 217)."""
+    names = sorted(".".join(path.relative_to(cwd).with_suffix("").parts) for path in (cwd / "tests").rglob("test_*.py"))
+    slow = set("tests." + name for name in SLOW) | {"tests.test_hooks"}
+    return [name for name in names if name not in slow] + [name for name in names if name in slow]
 
 
 def unnamed(mutants: list) -> list:
@@ -2937,26 +2957,36 @@ def unnamed(mutants: list) -> list:
     return problems
 
 
+def _case(found) -> bool:
+    """Whether `found` is a TestCase defined in a module under tests/."""
+    return isinstance(found, type) and issubclass(found, unittest.TestCase) and found.__module__.startswith("tests.")
+
+
 def _missing(test: str) -> str:
-    """Why the dotted name `test` is not a test module, a TestCase or a test method: "" where it is one."""
+    """Why the dotted name `test` is not a test module under tests/, a TestCase in one, or a test method of one: ""
+    where it is one of those."""
     parts = test.split(".")
-    for split in range(len(parts), 0, -1):
+    if len(parts) < 2 or parts[0] != "tests" or not parts[1].startswith("test_") or not all(parts):
+        return "which is not a test module under tests/"
+    for split in range(len(parts), 1, -1):
         try:
             found = importlib.import_module(".".join(parts[:split]))
-        except ImportError:
+        except (ImportError, ValueError, TypeError):
             continue
         break
     else:
         return "whose module does not exist"
-    rest = parts[split:]
+    rest, holder = parts[split:], None
     for part in rest:
         if not hasattr(found, part):
             return "which does not exist"
-        found = getattr(found, part)
+        found, holder = getattr(found, part), found
     if not rest:
-        return "" if test.startswith("tests.") else "which is not a test module"
+        return ""
     if isinstance(found, type):
-        return "" if issubclass(found, unittest.TestCase) else "which is not a TestCase"
+        return "" if _case(found) else "which is not a TestCase of a test module"
+    if not _case(holder):
+        return "which is not a method of a TestCase"
     return "" if callable(found) and rest[-1].startswith("test") else "which is not a test method"
 
 
@@ -3148,10 +3178,11 @@ def selected(environ, paths: list = (), mutants: list = None) -> tuple:
     if paths:
         if index is not None or count is not None:
             raise ValueError("MUTANTS_SHARD and a path filter do not mix; unset the shard, or give no path")
-        wanted = {str(pathlib.PurePosixPath(path)).lstrip("./") for path in paths}
+        wanted = {re.sub(r"^(\./)+", "", str(pathlib.PurePosixPath(path))) for path in paths}
+        untargeted = sorted(wanted - {mutant[1] for mutant in mutants})
+        if untargeted:      # a path no mutant targets: a misspelt one, or one with no rule to break
+            raise ValueError("no mutant targets %s" % ", ".join(untargeted))
         chosen = [mutant for mutant in mutants if mutant[1] in wanted]
-        if not chosen:      # a path no mutant targets: a misspelt one, or one with no rule to break
-            raise ValueError("no mutant targets %s" % ", ".join(sorted(wanted)))
         if len(chosen) > FILTER_MOST:
             raise ValueError("%d mutants target %s; a filtered run breaks at most %d: give fewer paths"
                              % (len(chosen), ", ".join(sorted(wanted)), FILTER_MOST))
