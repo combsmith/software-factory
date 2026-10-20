@@ -1416,6 +1416,39 @@ class Convergence(unittest.TestCase):
             d = go(facts(**{who: "donpetry-bot"}), REVIEWED)
             self.assertEqual((d["outcome"], d["reason"]), ("hold", "approver_is_author_or_last_pusher"))
 
+    def test_an_unreadable_last_pusher_lets_nothing_through(self):  # I-13, I-26, decision 0005
+        # The last pusher is read from the head branch's activity (P-28). When its newest entry is not the head commit,
+        # or there is none, the port gives null: nobody can be named, and an approval might be the pusher's own.
+        for value in (None, "", "missing"):
+            f = facts(last_pusher=value)
+            if value == "missing":
+                del f["last_pusher"]
+            d = go(f, REVIEWED)
+            self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                             (None, "last_pusher_unreadable", [], "defer", "needs_you"), value)
+            self.assertNotIn("action", d)
+            # A queued item leaves the queue, as it does on every other unreadable fact.
+            d = go(dict(f, queue=True, reviews=APPROVED), REVIEWED)
+            self.assertEqual((d["reason"], d["outcome"], d["action"]), ("last_pusher_unreadable", "act", "dequeue"), value)
+            # A dependency update is never excused the model review on a pusher nobody can name.
+            f = facts(**dict(DEPENDENCY, last_pusher=value))
+            if value == "missing":
+                del f["last_pusher"]
+            d = go(f)
+            self.assertEqual((d["state"], d["reason"], d["outcome"]), (None, "last_pusher_unreadable", "defer"), value)
+        # The other side. A person pushed last (trials/P-28.json): the approver's own push holds, another's converges.
+        d = go(facts(last_pusher=CONFIG["approver"]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "approver_is_author_or_last_pusher", "hold"))
+        d = go(facts(last_pusher="a-colleague"), REVIEWED)
+        self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
+        # An App pushed last (trials/P-28.app.json, trials/P-7.json): its bot login is read as any name is, and the
+        # machine user's approval of its push counts.
+        d = go(facts(last_pusher="combsmith-sf-trial-author[bot]"), REVIEWED)
+        self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
+        d = go(facts(**dict(DEPENDENCY, last_pusher=DEPENDENCY["author"])))
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["action"]),
+                         ("converged", "approval_due", "act", "issue_approval"))
+
 
 class Acceptance(unittest.TestCase):
     """Convergence's fourth condition (§4.2 item 4, §4.8, I-31): where the item has an acceptance contract, every

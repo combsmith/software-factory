@@ -891,6 +891,11 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
         return {"state": None, "reason": "protected_paths_unreadable", "evidence": []}
     if not readable_paths(facts.get("changed_paths"), facts["diff"]["files"]):
         return {"state": None, "reason": "paths_unreadable", "evidence": []}
+    # So could the last pusher: the port reads it from the head branch's activity, and gives null when the newest entry
+    # is not the head commit (P-28). Nobody named, an approval might be the pusher's own (I-26), and a dependency update
+    # might be someone else's content, so it is read before the model review is excused and before the approval.
+    if not isinstance(facts.get("last_pusher"), str) or facts["last_pusher"] == "":
+        return {"state": None, "reason": "last_pusher_unreadable", "evidence": []}
     # So could a required Lens's thread whose category or severity cannot be read: a security Finding at any severity.
     unread = unreadable_threads(facts, config)
     if unread:

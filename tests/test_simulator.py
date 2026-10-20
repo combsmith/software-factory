@@ -379,6 +379,39 @@ class Simulation(unittest.TestCase):
             self.assertTrue(w.unnamed_passes == 0 or seed % world.UNNAMED_EVERY == world.UNNAMED, seed)
         self.assertTrue(unnamed and deferred, (unnamed, deferred))
 
+    def test_the_seeds_read_a_push_missing_from_the_activity(self):  # I-13, I-26, issue 163
+        # On one seed in nine the push that left the head is now and then missing from the branch's activity, and the
+        # last pusher reads null: that pass defers for the Maintainer, approves, enqueues and admits nothing, and takes
+        # a queued item out; every invariant holds throughout. Every other seed never reads one.
+        missing, deferred = False, False
+        for seed in SEEDS:
+            w = World(seed)
+            for _ in range(250):
+                w.step()
+            missing = missing or w.missing_passes > 0
+            deferred = deferred or any(line.endswith("pass: None last_pusher_unreadable -> defer") for line in w.trace)
+            self.assertTrue(w.missing_passes == 0 or seed % world.MISSING_PUSH_EVERY == world.MISSING_PUSH, seed)
+        self.assertTrue(missing and deferred, (missing, deferred))
+        # A queued item read so is taken out: `apply` asks the Kernel again on what GitHub holds now, where the entry is
+        # back, so the dequeue is refused and the item stays, as a dequeue on a path left out of the list is.
+        w = queued()
+        w.activity = Roll()
+        w.poll()
+        self.assertEqual(([line.split(" ", 1)[1] for line in w.trace[-2:]], w.queue, w.missing_passes),
+                         (["pass: None last_pusher_unreadable -> act", "apply: refused, the item changed"], True, 1))
+        w.minute += 1
+        w.activity = None
+        w.poll()
+        self.assertEqual(w.trace[-1].split(" ", 1)[1], "pass: queued in_merge_queue -> nothing")
+        # A Kernel that read a null last pusher as the author's own push would approve on it: the invariant breaks.
+        w = World(world.MISSING_PUSH)
+        self.assertIsNotNone(w.activity)
+        with mock.patch.object(world, "decide", lambda f, r, c, cfg, now: decide(
+                dict(f, last_pusher=f["author"] if f["last_pusher"] is None else f["last_pusher"]), r, c, cfg, now)):
+            with self.assertRaisesRegex(world.Broken, "I-13 .* on a last pusher nobody can name"):
+                for _ in range(2000):
+                    w.step()
+
     def test_a_pause_admits_nothing_and_stops_every_act(self):  # decision 0003
         # A Hold added to a queued item would take it out. Under a Pause, or one that cannot be read, the dequeue defers
         # and the item is the Maintainer's to see; the first pass after the Pause takes it out.

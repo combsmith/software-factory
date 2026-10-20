@@ -17,7 +17,7 @@ NEEDS_YOU_REASONS = frozenset({
     "human_hold", "outside_not_admitted", "empty_diff", "too_large", "human_finding",
     "attempts_exhausted", "run_ceiling", "max_rounds", "approver_is_author_or_last_pusher",
     "awaiting_human", "act_ceiling", "check_unreadable", "review_unreadable", "thread_unreadable", "label_unreadable",
-    "acceptance_unreadable", "paths_unreadable", "protected_paths_unreadable",
+    "acceptance_unreadable", "paths_unreadable", "protected_paths_unreadable", "last_pusher_unreadable",
     "contract_not_approved", "contract_changed", "acceptance_reporters_unreadable",
     "run_unreadable",
 })
