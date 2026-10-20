@@ -1,4 +1,4 @@
-# Must be rejected. The tick probe's `exit 0` is spared in that one file, held to its hash, and nowhere else.
+# Must be rejected. A step that only exits installs nothing and runs nothing, so the rule install refuses it; the tick probe of trial P-8 (issue 25) was spared by name and held to its hash while it ran, and is gone.
 name: tick-probe
 on:
   schedule:
