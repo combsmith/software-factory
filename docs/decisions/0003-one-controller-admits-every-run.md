@@ -53,3 +53,4 @@ single decider has no race to lose and one place for every brake.
 | A run record counts only if it is the Factory's own workflow, on the default branch, started by a schedule or a dispatch | waiting on `adapters/` |
 | A human Pause holds even when Factory code is broken; a Run ceiling is enforced outside `kernel/` | waiting on `controller/` |
 | One workflow, the one that carries a Run, is the only one that references an LLM credential | waiting on `harness/` |
+| A Run and an act are held back under a Pause on an issue's seeds | `tests/test_issue_simulator.py::test_invariants_hold_under_faults` |

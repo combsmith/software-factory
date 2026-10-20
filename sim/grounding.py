@@ -71,7 +71,7 @@ RULES = (
     ("an_app_can_label", "An App can add or remove a control label on a pull request, a Hold or hands-off among them",
      (), None),
     ("a_label_event_names_its_actor", "The timeline's labeled and unlabeled events say who added or removed each "
-     "label, and when", ("P-32",), None),
+     "label, and when", ("P-32",), "trials/P-32.json"),
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an account "
      "type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any other App "
      "and the machine user apart, never from a name's spelling", (), None),
@@ -119,4 +119,18 @@ RULES = (
     ("a_read_can_be_stale", "A read can return what an earlier read did", (), None),
     ("a_tick_can_be_lost", "A scheduled tick can fail to arrive", ("P-8",), None),
     ("anyone_can_comment", "On a public repo anyone can submit a review that only comments", (), None),
+    # The issue world's rules (sim/issues.py, issue 43). Contradicted by trials/P-32.json for an App's read: the
+    # listing says MEMBER to a person and CONTRIBUTOR to an App, for an owner's issue. Left unverified, as it is: the
+    # Factory reads an issue as the machine user, and no trial has yet asked what that read says.
+    ("an_issues_author_has_an_association", "The listing of issues says whether an issue's author has write "
+     "access", ("P-32",), None),
+    ("a_closing_reference_is_read_from_any_pull_request", "The issue a pull request closes, and who opened the pull "
+     "request, are read from a draft, an open, a merged and a closed-unmerged pull request alike", ("P-33",), None),
+    ("who_changed_the_draft_flag_is_read", "The timeline says who last marked a pull request ready or converted it "
+     "to a draft", ("P-33",), None),
+    ("an_issues_content_time_is_read_apart", "When an issue's title or body last changed is read apart from when "
+     "anything on it changed", ("P-34",), None),
+    ("a_reopening_names_its_actor", "Each reopening of an issue is on its timeline, with who did it", ("P-34",), None),
+    ("an_issues_run_record_expires", "A run record is gone from the list once it is past the retention", ("P-16",),
+     None),
 )

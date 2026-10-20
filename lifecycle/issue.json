@@ -506,6 +506,30 @@
       "to": "triage",
       "by": "human",
       "bound": null
+    },
+    {
+      "from": "in_review",
+      "to": "done",
+      "by": "platform",
+      "bound": null
+    },
+    {
+      "from": "new",
+      "to": "held",
+      "by": "factory",
+      "bound": null
+    },
+    {
+      "from": "in_review",
+      "to": "new",
+      "by": "stranger",
+      "bound": "person"
+    },
+    {
+      "from": "new",
+      "to": "in_progress",
+      "by": "factory",
+      "bound": "max_runs_per_item"
     }
   ]
 }

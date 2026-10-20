@@ -7,8 +7,8 @@ trial about the org and its Apps (decision 0035), and what came back, with every
 the schema, which cannot express it: `tools/redact_trial.py` applies the same rules to a raw capture
 before anyone reads it.
 
-Each rule the fake GitHub applies is listed in `sim/grounding.py` and marked where `sim/world.py`
-applies it. A fixture named there must exist and be valid. A rule with no fixture is unverified,
+Each rule the fake GitHub applies is listed in `sim/grounding.py` and marked where a world under
+`sim/` applies it. A fixture named there must exist and be valid. A rule with no fixture is unverified,
 and `verify` prints it.
 
 Nothing in this repo reads the canary at run time: a fixture arrives by pull request. So nothing
@@ -203,6 +203,9 @@ def _headers(data) -> list:
     return out
 
 
+WORLDS = ("world.py", "issues.py")
+
+
 def rules(root: pathlib.Path = ROOT) -> list:
     """The rules in `sim/grounding.py`, read as a literal; a ValueError says why they cannot be."""
     path = root / "sim" / "grounding.py"
@@ -307,12 +310,16 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
             elif valid[fixture]["trial"] not in trials:
                 problems.append("sim/grounding.py: %s: %s records %s, and %s asks this"
                                 % (code, fixture, valid[fixture]["trial"], " or ".join(trials)))
-    world = root / "sim" / "world.py"
-    marked = set(MARK.findall(world.read_text())) if world.exists() else set()
-    for code in sorted(marked - seen):
-        problems.append("sim/world.py applies %s, which sim/grounding.py does not list" % code)
+    # Each world marks the rules it applies: the pull request's in world.py, the issue's in issues.py. Only these two
+    # are read, so a mark in any other file counts for nothing.
+    marked = set()
+    for world in (root / "sim" / name for name in WORLDS):
+        applied = set(MARK.findall(world.read_text())) if world.is_file() else set()
+        for code in sorted(applied - seen):
+            problems.append("sim/%s applies %s, which sim/grounding.py does not list" % (world.name, code))
+        marked |= applied
     for code in sorted(seen - marked):
-        problems.append("%s is listed in sim/grounding.py and applied nowhere in sim/world.py; mark it "
+        problems.append("%s is listed in sim/grounding.py and applied nowhere under sim/; mark it "
                         "'# GitHub: %s' where it is applied, or take it out" % (code, code))
 
 
