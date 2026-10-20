@@ -3350,6 +3350,9 @@ exit 9
                 self.assertEqual(kept.get("permission_denials"), [{"tool_name": "Bash"}] if "permission_denials" in answer else None, name)
                 self.assertEqual("structured_output" in kept, validates, name)
                 self.assertTrue(any(t["field"].startswith("every field KEPT_RESULT") for t in checked["model_text_removed"]), name)
+                # The record names nothing that is kept: the Result's own strings, or the refused tools' names.
+                self.assertFalse([t for t in checked["model_text_removed"]
+                                  if t["field"].startswith(("$.structured_output", "$.permission_denials"))], name)
         asked = json.loads((out / "requests.json").read_text())
         self.assertEqual(asked[2]["kept"], self.KEPT)
         self.assertIn('--tools ""', asked[2]["call"])

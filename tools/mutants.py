@@ -3158,6 +3158,8 @@ MUTANTS = ISSUE + [
     ("~/.claude is compared as written, not as the file system resolves it", P13,
      'dot=$(cd "$home/.claude" 2>/dev/null && pwd -P || echo "$home/.claude")', 'dot="$home/.claude"',
      (P13_TESTS + "test_each_refusal_stops_before_anything_is_asked",)),
+    ("the record names the Result's strings as taken out", P13, '    said.pop("structured_output", None)\n    said = counts(said, "$")\n',
+     '    said = counts(said, "$")\n    said.pop("structured_output", None)\n', (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
     ("the model's text is a kept field", P13, 'KEPT_RESULT="type subtype', 'KEPT_RESULT="result type subtype',
      (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
     ("a key shaped like a credential is kept", "tools/check_trials.py", "            elif shaped(key):\n", "            elif False:\n",

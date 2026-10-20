@@ -232,13 +232,15 @@ if isinstance(said, dict):
         if isinstance(value, float) and not value == value:    # a number that is not one
             return DROP
         return value
-    said = counts(said, "$")
+    # The refused tools are kept as names, and the structured output is set aside, before the walk, so that the record
+    # of what was taken out names nothing that is kept.
     denials = said.get("permission_denials")
     if isinstance(denials, list) and denials:
         said["permission_denials"] = [{"tool_name": d.get("tool_name")} if isinstance(d, dict) else None
                                       for d in denials]
         taken.append({"field": "permission_denials[].tool_input", "items": len(denials)})
     said.pop("structured_output", None)
+    said = counts(said, "$")
     if source is not None:
         errors = sorted({e.split(":")[0] for e in validate(found, schema)})
         if errors:
