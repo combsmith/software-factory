@@ -16,6 +16,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -3143,7 +3144,7 @@ exit 9
         said = {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1, "duration_ms": 5,
                 "total_cost_usd": 0.1, "usage": {"input_tokens": 1, "output_tokens": 2, "evil.provider": "LEAKED-DOTTED-KEY"},
                 "modelUsage": {"m": {"inputTokens": 1, "note": self.PROSE["in_usage"], "fallback": None, "provider": "firstParty",
-                                     "note2": "LEAK-ONE-WORD", "note3": self.PROSE["long"]},
+                                     "note2": "LEAK-ONE-WORD", "canonicalModel": self.PROSE["long"]},
                                "sk-" + "ant-" + "api03-NEVER-SEEN": {"inputTokens": 2}, self.PROSE["as_key"]: 3},
                 "stop_reason": self.PROSE["in_code"], "subtype": self.PROSE["tabbed"], "result": self.PROSE["result"],
                 "a_new_field": self.PROSE["added"], "stats": {"note": self.PROSE["nested"]},
@@ -3176,11 +3177,19 @@ exit 9
         return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg), str(cli)], cwd=SCRATCH.name,
                               capture_output=True, text=True, env=env, timeout=120)
 
+    # OUT names the refusal cases give inside the repo. A broken script could make one, in a copy the mutation check
+    # lends to the next mutant, so each is removed after the test whether or not it was refused.
+    INSIDE = ("never-made-in-the-repo", "never-made-through-a-link")
+
     def setUp(self):
         self.home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         self.cfg = self.home.parent / (self.home.name + "-cfg")
         self.cfg.mkdir()
         self.out = self.home.parent / (self.home.name + "-out")
+
+    def tearDown(self):
+        for name in self.INSIDE:
+            shutil.rmtree(ROOT / name, ignore_errors=True)
 
     def texts(self, out) -> dict:
         return {p.name: p.read_text() for p in pathlib.Path(out).iterdir()}
@@ -3219,8 +3228,8 @@ exit 9
         to_repo = self.home.parent / (self.home.name + "-repo-link")
         to_repo.symlink_to(ROOT)
         cases = [("OUT exists", existing, self.cfg, None, "exists; name a new directory"),
-                 ("OUT inside the repo", ROOT / "never-made", self.cfg, None, "OUT is inside the repo"),
-                 ("OUT inside the repo through a link", to_repo / "never-made", self.cfg, None, "OUT is inside the repo"),
+                 ("OUT inside the repo", ROOT / self.INSIDE[0], self.cfg, None, "OUT is inside the repo"),
+                 ("OUT inside the repo through a link", to_repo / self.INSIDE[1], self.cfg, None, "OUT is inside the repo"),
                  ("OUT inside CONFIG_DIR", self.cfg / "out", self.cfg, None, "OUT is inside CONFIG_DIR"),
                  ("CONFIG_DIR inside the repo", self.out, ROOT / "tools", None, "CONFIG_DIR is inside the repo"),
                  ("CONFIG_DIR is HOME", self.out, self.home, None, "the home directory or holds it"),
@@ -3233,8 +3242,8 @@ exit 9
                  ("CONFIG_DIR missing", self.out, self.home / "none", None, "CONFIG_DIR is not a directory")]
         for name, out, cfg, home, said in cases:
             ran = self.run_script(out, cfg, cli, home=home)
-            self.assertEqual(ran.returncode, 2, name)
-            self.assertIn(said, ran.stderr, name)
+            self.assertEqual(ran.returncode, 2, (name, ran.stdout, ran.stderr))
+            self.assertIn(said, ran.stderr, (name, ran.stdout, ran.stderr))
             self.assertFalse(out.exists() and out != existing, name)
             self.assertFalse((folder / "env-version").exists(), name + ": nothing was asked")
         # The wrong version, a login that says no, and one the script cannot read: each after asking, before the Task.
@@ -3249,8 +3258,8 @@ exit 9
                 ("auth status failed", self.stand_in(status_exit=3), 1, "is 'yes', exit 3, not yes")]:
             out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
             ran = self.run_script(out, self.cfg, folder / "claude")
-            self.assertEqual(ran.returncode, code, name)
-            self.assertIn(said, ran.stderr, name)
+            self.assertEqual(ran.returncode, code, (name, ran.stdout, ran.stderr))
+            self.assertIn(said, ran.stderr, (name, ran.stdout, ran.stderr))
             self.assertFalse((folder / "args").exists(), name + ": the Task was not asked")
             self.assertNotIn("NEVER-SEEN", "".join(self.texts(out).values()), name)
             self.assertNotIn("example.com", "".join(self.texts(out).values()), name)
@@ -3303,10 +3312,10 @@ exit 9
                 self.assertEqual(kept["modelUsage"], {"m": {"inputTokens": 1, "fallback": None, "provider": "firstParty"}}, name)
                 self.assertNotIn("LEAK-ONE-WORD", "".join(texts.values()), name)
                 self.assertNotIn("LEAKED-DOTTED-KEY", "".join(texts.values()), name)
-                self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.modelUsage.m.note2", "$.modelUsage.m.note3", "$.stop_reason", "$.modelUsage.<key>")],
+                self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.modelUsage.m.note2", "$.modelUsage.m.canonicalModel", "$.stop_reason", "$.modelUsage.<key>")],
                                  [{"field": "$.modelUsage.m.note", "characters": len(self.PROSE["in_usage"])},
                                   {"field": "$.modelUsage.m.note2", "characters": len("LEAK-ONE-WORD")},
-                                  {"field": "$.modelUsage.m.note3", "characters": len(self.PROSE["long"])},
+                                  {"field": "$.modelUsage.m.canonicalModel", "characters": len(self.PROSE["long"])},
                                   {"field": "$.modelUsage.<key>", "characters": len(self.PROSE["as_key"])},
                                   {"field": "$.stop_reason", "characters": len(self.PROSE["in_code"])}], name)
                 self.assertEqual(kept["usage"], {"input_tokens": 1, "output_tokens": 2}, name)
