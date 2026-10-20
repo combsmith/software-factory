@@ -2656,20 +2656,71 @@ class Trials(unittest.TestCase):
             self.assertEqual(data["ran_at"][:10], "2026-10-19", name)
 
     def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
-        # Decision 0035: a GitHub trial's fixture records the canary as its home, and a cost measurement's exchanges
-        # may span the org's repos the App reaches, each named in its own exchange, in its variables or its query.
-        for name in ("P-8", "P-32"):
-            data = json.loads((ROOT / "trials" / ("%s.json" % name)).read_text())
-            self.assertEqual(data["repo"], "combsmith/" + check_trials.CANARY, name)
-            for i, e in enumerate(data["exchanges"]):
-                if e["request"]["via"] != "graphql":
-                    continue
-                body = e["request"]["body"]
+        # Decision 0035: a trial of repos records the canary as its home, and a measurement's reads may span the org's
+        # repos. Held on what the reads say, not on the fixture's word, for every fixture of the canary whose reads name
+        # another repo: each read names its owner, in its variables, its query or its path, and that owner is the org;
+        # every repo an answer names is the org's; a read the App made names, and is answered with, only repos its
+        # installation reaches; and a command-line read is the Maintainer's own.
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
+        installed = {app["name"]: set(app["installed_on"]) for app in apps.values()}
+        canary = "combsmith/" + check_trials.CANARY
+        path_of = re.compile(r"^[A-Z]+ /(?:repos/([^/?\s]+)/([^/?\s]+)|orgs/([^/?\s]+))")
+
+        def names(value):
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key in ("nameWithOwner", "full_name") and isinstance(item, str):
+                        yield item
+                    yield from names(item)
+            elif isinstance(value, list):
+                for item in value:
+                    yield from names(item)
+
+        def asked(request):
+            """(owners, repos) a request names, in its variables, its query's literals or its REST path."""
+            if request["via"] == "graphql":
+                body = request["body"]
                 variables = body.get("variables") or {}
-                named = {variables.get("owner") or variables.get("org")} if ("owner" in variables or "org" in variables) \
-                    else set(re.findall(r'repository\(owner: "([^"]+)"', body["query"]))
-                self.assertTrue(named, "%s exchange %d names no repo" % (name, i))
-                self.assertEqual(named, {"combsmith"}, "%s exchange %d" % (name, i))
+                owners = set(re.findall(r'(?:owner|login|org)\s*:\s*"([^"]+)"', body["query"]))
+                owners |= {variables[k] for k in ("owner", "org", "o") if k in variables}
+                repos = {variables[k] for k in ("name", "a", "b") if k in variables}
+                repos |= set(re.findall(r'repository\([^)]*?name:\s*"([^"]+)"', body["query"]))
+                return owners, {r if "/" in r else "combsmith/" + r for r in repos}
+            if request["via"] == "rest":
+                found = path_of.match(request["call"])
+                if found and found.group(1):
+                    return {found.group(1)}, {found.group(1) + "/" + found.group(2)}
+                if found and found.group(3):
+                    return {found.group(3)}, set()
+            return set(), set()
+
+        checked = 0
+        for path in sorted((ROOT / "trials").glob("P-*.json")):
+            data = json.loads(path.read_text())
+            if data["repo"] != canary:
+                continue
+            spans = set().union(*(asked(e["request"])[1] for e in data["exchanges"]))
+            if spans <= {canary}:
+                continue
+            checked += 1
+            for i, e in enumerate(data["exchanges"]):
+                where = "%s exchange %d" % (path.name, i)
+                request, kind = e["request"], e["request"]["as"]["kind"]
+                self.assertIn(request["via"], ("graphql", "rest", "cli"), where)
+                if request["via"] == "cli":
+                    self.assertEqual(kind, "person", where)
+                    continue
+                owners, repos = asked(request)
+                self.assertTrue(owners, where + " names no owner")
+                self.assertEqual(owners, {"combsmith"}, where)
+                answered = set(names(e["response"]["body"]))
+                self.assertTrue(all(repo.startswith("combsmith/") for repo in answered), where)
+                if kind == "app":
+                    reach = installed[request["as"]["name"]]
+                    self.assertTrue(repos, where + " names no repo")
+                    self.assertTrue(repos <= reach, "%s asks %s, beyond %s" % (where, sorted(repos - reach), sorted(reach)))
+                    self.assertTrue(answered <= reach, "%s was answered %s, beyond the reach" % (where, sorted(answered - reach)))
+        self.assertGreaterEqual(checked, 2)
 
     def test_the_cost_trials_estimate_is_marked_so_and_held_to_its_reads(self):
         # P-8's last exchange is the estimate (FR-35): its cost model is held to every read of the fixture that reports
