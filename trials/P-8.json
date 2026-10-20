@@ -36854,7 +36854,7 @@
         "status": 0,
         "headers": {},
         "body": {
-          "method": "The Maintainer's working ruling on #13 (2026-10-19). GitHub charges a GraphQL read by the connections it may have to make, not by what it returns: each connection costs the product of its ancestors' page sizes (a page of 0 counted as 1), the sum is divided by 100 and rounded, 1 at least. The model is held to every read above with a rateLimit (model_checks). The pass's read costs, per repo, 2 + P x (8 + T) + 3 x I calls: P open pull requests, each with eight connections and T thread pages (one comment each, for the opening actor), I open issues with three each. The reader App measured it on the two repos it reaches; the counts of every repo of the org came through the Maintainer's login; the per-repo figures below are that model at those counts, an estimate (FR-35), to be measured exactly when the first Consumer is onboarded.",
+          "method": "The Maintainer's working ruling on #13 (2026-10-19). GitHub charges a GraphQL read by the connections it may have to make, not by what it returns: each connection costs the product of its ancestors' page sizes (a page of 0 counted as 1), the sum is divided by 100 and rounded, 1 at least. The model is held to every read above with a rateLimit (model_checks). The pass's read costs, per repo, 2 + P x (8 + T) + 3 x I calls: P open pull requests, each with eight connections and T thread pages (one comment each, for the opening actor), I open issues with three each. The reader App measured it on the two repos it reaches; the counts of every repo of the org came through the Maintainer's login; the per-repo figures below are that model at those counts, an estimate (FR-35), to be measured exactly when the first Consumer is onboarded. The counts are those of 01:17Z; software-factory had 2 open pull requests then and 1 from 01:19Z, when one merged. A list past a hundred (an issue page past the first, or an item's files, reviews, threads, checks or timeline past a hundred) is one more read, one point each, counted under further_pages from the survey's totals; sized_to_counts_every_page is the pass over every open item whole.",
           "model_checks": [
             {
               "call": "POST /graphql (gh api graphql), the open pull requests and issues of every repo ",
@@ -36990,16 +36990,18 @@
               "open_pull_requests": 8,
               "open_issues": 116,
               "review_threads_on_them": 130,
-              "points_sized_to_counts": 12,
+              "further_pages_of_lists_past_a_hundred": 18,
+              "points_sized_to_counts": 14,
               "points_a_hundred_wide": 111,
-              "points_sized_to_counts_and_threads": 5
+              "points_sized_to_counts_and_threads": 6
             },
             {
               "repo": "combsmith/.github-private",
               "open_pull_requests": 17,
               "open_issues": 199,
               "review_threads_on_them": 224,
-              "points_sized_to_counts": 21,
+              "further_pages_of_lists_past_a_hundred": 30,
+              "points_sized_to_counts": 25,
               "points_a_hundred_wide": 111,
               "points_sized_to_counts_and_threads": 10
             },
@@ -37008,6 +37010,7 @@
               "open_pull_requests": 0,
               "open_issues": 6,
               "review_threads_on_them": 0,
+              "further_pages_of_lists_past_a_hundred": 2,
               "points_sized_to_counts": 1,
               "points_a_hundred_wide": 111,
               "points_sized_to_counts_and_threads": 1
@@ -37017,6 +37020,7 @@
               "open_pull_requests": 5,
               "open_issues": 14,
               "review_threads_on_them": 54,
+              "further_pages_of_lists_past_a_hundred": 13,
               "points_sized_to_counts": 6,
               "points_a_hundred_wide": 111,
               "points_sized_to_counts_and_threads": 1
@@ -37026,6 +37030,7 @@
               "open_pull_requests": 1,
               "open_issues": 9,
               "review_threads_on_them": 1,
+              "further_pages_of_lists_past_a_hundred": 0,
               "points_sized_to_counts": 1,
               "points_a_hundred_wide": 111,
               "points_sized_to_counts_and_threads": 1
@@ -37035,6 +37040,7 @@
               "open_pull_requests": 4,
               "open_issues": 8,
               "review_threads_on_them": 61,
+              "further_pages_of_lists_past_a_hundred": 2,
               "points_sized_to_counts": 5,
               "points_a_hundred_wide": 111,
               "points_sized_to_counts_and_threads": 1
@@ -37044,6 +37050,7 @@
               "open_pull_requests": 2,
               "open_issues": 7,
               "review_threads_on_them": 10,
+              "further_pages_of_lists_past_a_hundred": 2,
               "points_sized_to_counts": 2,
               "points_a_hundred_wide": 111,
               "points_sized_to_counts_and_threads": 1
@@ -37053,6 +37060,7 @@
               "open_pull_requests": 1,
               "open_issues": 7,
               "review_threads_on_them": 30,
+              "further_pages_of_lists_past_a_hundred": 4,
               "points_sized_to_counts": 1,
               "points_a_hundred_wide": 111,
               "points_sized_to_counts_and_threads": 1
@@ -37062,6 +37070,7 @@
               "open_pull_requests": 3,
               "open_issues": 16,
               "review_threads_on_them": 9,
+              "further_pages_of_lists_past_a_hundred": 1,
               "points_sized_to_counts": 4,
               "points_a_hundred_wide": 111,
               "points_sized_to_counts_and_threads": 1
@@ -37071,6 +37080,7 @@
               "open_pull_requests": 5,
               "open_issues": 8,
               "review_threads_on_them": 40,
+              "further_pages_of_lists_past_a_hundred": 4,
               "points_sized_to_counts": 6,
               "points_a_hundred_wide": 111,
               "points_sized_to_counts_and_threads": 1
@@ -37080,6 +37090,7 @@
               "open_pull_requests": 0,
               "open_issues": 8,
               "review_threads_on_them": 0,
+              "further_pages_of_lists_past_a_hundred": 0,
               "points_sized_to_counts": 1,
               "points_a_hundred_wide": 111,
               "points_sized_to_counts_and_threads": 1
@@ -37089,6 +37100,7 @@
               "open_pull_requests": 0,
               "open_issues": 7,
               "review_threads_on_them": 0,
+              "further_pages_of_lists_past_a_hundred": 0,
               "points_sized_to_counts": 1,
               "points_a_hundred_wide": 111,
               "points_sized_to_counts_and_threads": 1
@@ -37098,6 +37110,7 @@
               "open_pull_requests": 2,
               "open_issues": 42,
               "review_threads_on_them": 0,
+              "further_pages_of_lists_past_a_hundred": 0,
               "points_sized_to_counts": 3,
               "points_a_hundred_wide": 111,
               "points_sized_to_counts_and_threads": 1
@@ -37107,6 +37120,7 @@
               "open_pull_requests": 0,
               "open_issues": 28,
               "review_threads_on_them": 0,
+              "further_pages_of_lists_past_a_hundred": 0,
               "points_sized_to_counts": 2,
               "points_a_hundred_wide": 111,
               "points_sized_to_counts_and_threads": 1
@@ -37114,16 +37128,26 @@
           ],
           "points_a_pass": {
             "counts_read": 1,
-            "sized_to_counts": 67,
+            "sized_to_counts": 73,
+            "further_pages": 76,
+            "sized_to_counts_every_page": 149,
             "a_hundred_wide": 1554,
-            "sized_to_counts_and_threads": 28
+            "a_hundred_wide_every_page": 1630,
+            "sized_to_counts_and_threads": 29,
+            "sized_to_counts_and_threads_every_page": 105
           },
           "points_an_hour": {
             "sized_to_counts": {
-              "at_12_passes_an_hour_the_schedule": 804,
-              "at_30_passes_an_hour": 2010,
-              "at_60_passes_an_hour_one_a_minute": 4020,
-              "passes_an_hour_W4_allows": 44
+              "at_12_passes_an_hour_the_schedule": 876,
+              "at_30_passes_an_hour": 2190,
+              "at_60_passes_an_hour_one_a_minute": 4380,
+              "passes_an_hour_W4_allows": 41
+            },
+            "sized_to_counts_every_page": {
+              "at_12_passes_an_hour_the_schedule": 1788,
+              "at_30_passes_an_hour": 4470,
+              "at_60_passes_an_hour_one_a_minute": 8940,
+              "passes_an_hour_W4_allows": 20
             },
             "a_hundred_wide": {
               "at_12_passes_an_hour_the_schedule": 18648,
@@ -37131,15 +37155,28 @@
               "at_60_passes_an_hour_one_a_minute": 93240,
               "passes_an_hour_W4_allows": 1
             },
+            "a_hundred_wide_every_page": {
+              "at_12_passes_an_hour_the_schedule": 19560,
+              "at_30_passes_an_hour": 48900,
+              "at_60_passes_an_hour_one_a_minute": 97800,
+              "passes_an_hour_W4_allows": 1
+            },
             "sized_to_counts_and_threads": {
-              "at_12_passes_an_hour_the_schedule": 336,
-              "at_30_passes_an_hour": 840,
-              "at_60_passes_an_hour_one_a_minute": 1680,
-              "passes_an_hour_W4_allows": 107
+              "at_12_passes_an_hour_the_schedule": 348,
+              "at_30_passes_an_hour": 870,
+              "at_60_passes_an_hour_one_a_minute": 1740,
+              "passes_an_hour_W4_allows": 103
+            },
+            "sized_to_counts_and_threads_every_page": {
+              "at_12_passes_an_hour_the_schedule": 1260,
+              "at_30_passes_an_hour": 3150,
+              "at_60_passes_an_hour_one_a_minute": 6300,
+              "passes_an_hour_W4_allows": 28
             }
           },
           "W4": 3000,
           "fallback_of_4_1": {
+            "named_by": "the Maintainer's working ruling on #13; section 4.1 names none",
             "issue_listing_calls_a_pass": 1425,
             "points_a_pass_saved_if_issues_are_listed_every_fifth_pass": 11.4
           },

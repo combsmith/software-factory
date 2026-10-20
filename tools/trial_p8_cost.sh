@@ -30,6 +30,8 @@
 # with a non-zero exit: what was read is not kept, a refused mint shows its status and GitHub's answer, redacted,
 # and a token that may be live is told to the Maintainer.
 set -eu
+set +x
+unset CURL_HOME
 
 if [ "$#" -lt 3 ]; then
     echo "usage: tools/trial_p8_cost.sh OUT READER_KEY OWNER/REPO [OWNER/REPO ...]" >&2
@@ -56,12 +58,12 @@ if [ ! -r "$key" ]; then
     exit 2
 fi
 shift 2
+# A repo is OWNER/REPO in the characters GitHub allows, and nothing else: its words reach a query and a shell expansion.
 for repo in "$@"; do
-    case "$repo" in
-        */*/* | /* | */ | *" "* | *"	"* | "") echo "trial_p8_cost: $repo is not OWNER/REPO" >&2; exit 2 ;;
-        */*) ;;
-        *) echo "trial_p8_cost: $repo is not OWNER/REPO" >&2; exit 2 ;;
-    esac
+    if ! printf '%s\n' "$repo" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
+        echo "trial_p8_cost: $repo is not OWNER/REPO" >&2
+        exit 2
+    fi
 done
 
 API=https://api.github.com
@@ -69,10 +71,15 @@ VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
 JSON="Content-Type: application/json"
 scratch=$(mktemp -d)
+case "$scratch/" in "$root"/*)
+    rmdir "$scratch"
+    echo "trial_p8_cost: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
+    exit 2 ;;
+esac
 token=""
 
 revoke() {
-    printf 'Authorization: Bearer %s\n' "$token" | curl -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
+    printf 'Authorization: Bearer %s\n' "$token" | curl -q -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
         -H "$ACCEPT" -H "$VERSION" "$API/installation/token"
 }
 
@@ -225,8 +232,9 @@ query Pass($owner: String!, $name: String!, $prs: Int!, $issues: Int!, $files: I
 }
 EOF
 )
-# The pages below the top level, the same for every read: as many as the facts need whole for every open item the
-# org held on 2026-10-20, except a pull request's timeline and a few items' review lists, which page.
+# The pages below the top level, the same for every read, a hundred wide: a list longer than that says so in its
+# pageInfo, and a pass reads the rest a page at a time. On 2026-10-20 some pull requests' timelines, reviews, files
+# and checks, and some issues' timelines, ran past a hundred.
 FILES=100 REVIEWS=100 THREADS=100 CHECKS=100 EVENTS=100 LABELS=20 ISSUE_EVENTS=100
 
 n=0
@@ -241,7 +249,7 @@ import json, sys
 json.dump({"query": sys.stdin.read(), "variables": json.loads(sys.argv[1])}, open(sys.argv[2], "w"))' \
         "$2" "$scratch/body-$n"
     read_ok=1
-    printf 'Authorization: Bearer %s\n' "$token" | curl -sS -i -X POST -H @- -H "$ACCEPT" -H "$VERSION" -H "$JSON" \
+    printf 'Authorization: Bearer %s\n' "$token" | curl -q -sS -i -X POST -H @- -H "$ACCEPT" -H "$VERSION" -H "$JSON" \
         --data-binary "@$scratch/body-$n" "$API/graphql" > "$scratch/crlf-$n" || read_ok=0
     tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
     rm -f "$scratch/crlf-$n" "$scratch/body-$n"
@@ -253,6 +261,15 @@ json.dump({"query": sys.stdin.read(), "variables": json.loads(sys.argv[1])}, ope
     fi
     (cd "$root" && python3 -m tools.redact_trial "$scratch/raw-$n" "$out/clean-$n") > "$out/redacted-$n"
     rm -f "$scratch/raw-$n"
+    # A 200 can carry errors beside partial data, as a read past GitHub's node limit does: that is not a pass's read.
+    if ! sed -n '/^{/,$p' "$out/clean-$n" | python3 -I -c '
+import json, sys
+answer = json.load(sys.stdin)
+sys.exit(1 if not isinstance(answer, dict) or "errors" in answer or not answer.get("data") else 0)'; then
+        echo "trial_p8_cost: read $n ($3) answered 200 with errors or no data; it is kept, redacted, as clean-$n, and the" \
+            "run stops." >&2
+        exit 1
+    fi
     asked="$asked{\"n\": $n, \"call\": \"$3\", \"variables\": $2},"
     echo "read $n: $3"
 }
@@ -263,7 +280,7 @@ header=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
 claims=$(printf '{"iat":%d,"exp":%d,"iss":%d}' $((now - 60)) $((now + 540)) "$app_id" | b64url)
 signature=$(printf '%s.%s' "$header" "$claims" | openssl dgst -sha256 -sign "$key" -binary | b64url)
 jwt="$header.$claims.$signature"
-minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
+minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
     -H "$VERSION" -d '{"permissions":{"metadata":"read","pull_requests":"read","issues":"read","checks":"read"}}' \
     "$API/app/installations/$installation/access_tokens" || true)
 jwt=""
