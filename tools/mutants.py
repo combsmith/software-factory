@@ -138,6 +138,7 @@ NAMED_TESTS = (RUNNER + "test_the_tests_a_mutant_names_run_first_and_the_whole_s
 # An issue's State (kernel/issue.py, decision 0028), in a list of its own so that the pull request's work, which adds
 # to MUTANTS below, never touches the same lines. Each is run against tests.test_issue first.
 ISSUE_PY, ISSUE_TESTS = "kernel/issue.py", ("tests.test_issue",)
+MERGE_UNDER_STOP_TESTS = ("tests.test_issue.Done.test_a_merge_read_while_a_person_closed_or_held_the_issue_is_never_done",)
 # Issue 218: the guard on a count of active Runs, the same on both sides.
 COUNT_GUARD = "    if type(active) is not int or active < 0:\n"
 COUNT_TESTS = ("tests.test_decide.Ceilings.test_an_active_runs_that_is_no_count_defers_and_raises_nothing",)
@@ -199,8 +200,20 @@ ISSUE = [
     ("an issues block's App may be any value", ISSUE_PY,
      '        name in apps and (apps[name] is None or (isinstance(apps[name], str) and apps[name] != ""))',
      "        name in apps", ISSUE_TESTS),
-    # Row 1: done.
+    # Row 1: done. Issue 227, the Maintainer's ruling: a merge read while a person closed or held the issue is never
+    # done, and the reason names the contradiction.
     ("a linked merge is not done", ISSUE_PY, "    if merges:\n", "    if False:\n", ISSUE_TESTS),
+    ("a merge read while the issue is closed is done", ISSUE_PY,
+     '    if merges and facts["state"] != "open":\n', "    if False:\n", MERGE_UNDER_STOP_TESTS),
+    ("a merge read while the issue is held is done", ISSUE_PY,
+     "    if merges and held_by(labels, drafts) and not a_persons_hands_off(labels, facts, drafts):\n",
+     "    if False:\n", MERGE_UNDER_STOP_TESTS),
+    ("a merge under a person's hands-off is a Hold", ISSUE_PY,
+     "    if merges and held_by(labels, drafts) and not a_persons_hands_off(labels, facts, drafts):\n",
+     "    if merges and held_by(labels, drafts):\n", MERGE_UNDER_STOP_TESTS),
+    ("an issue's merged_while_held calls nobody", ISSUE_PY, '    "merged_while_held",\n', "", MERGE_UNDER_STOP_TESTS),
+    ("an issue's merged_while_declined calls nobody", ISSUE_PY, '    "merged_while_declined",\n', "",
+     MERGE_UNDER_STOP_TESTS),
     ("an empty merge is done", ISSUE_PY,
      'if p["merged_at"] is not None and not p["empty"] and', 'if p["merged_at"] is not None and', ISSUE_TESTS),
     ("a merge in an earlier life is done", ISSUE_PY,
@@ -222,9 +235,9 @@ ISSUE = [
     ("an issue with a label left out is served", ISSUE_PY,
      'not any(label in issues["left_out_labels"] for label in facts["label_names"])', "True", ISSUE_TESTS),
     ("a person's hands-off on an issue is not read", ISSUE_PY,
-     "    if placed_by_a_person(labels, facts) or any(", "    if any(", ISSUE_TESTS),
+     "    return placed_by_a_person(labels, facts) or any(", "    return any(", ISSUE_TESTS),
     ("a person's hands-off on the linked draft is not read", ISSUE_PY,
-     " or any(placed_by_a_person(standing_labels(p), p) for p in drafts):", ":", ISSUE_TESTS),
+     " or any(placed_by_a_person(standing_labels(p), p) for p in drafts)\n", "\n", ISSUE_TESTS),
     ("hands-off anyone placed on an issue is a person's", ISSUE_PY,
      '    if placed is None or not is_person(placed["by"]):\n', "    if placed is None:\n", ISSUE_TESTS),
     ("hands-off a person removed in the second it was placed stands", ISSUE_PY,

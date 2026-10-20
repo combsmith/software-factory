@@ -74,6 +74,8 @@ KEPT = frozenset({NEW, TRIAGE, READY})
 # places for unmerged closes calls a person whatever its reason, the Pause's deferral of it too, and is not listed.
 NEEDS_YOU_REASONS = frozenset({
     "human_hold",
+    "merged_while_held",
+    "merged_while_declined",
     "linked_twice",
     "acceptance_lapsed",
     "attempts_exhausted",
@@ -338,6 +340,18 @@ def out(state, reason: str, evidence: list) -> dict:
     return {"state": state, "reason": reason, "evidence": evidence}
 
 
+def a_persons_hands_off(labels: dict, facts: dict, drafts: list) -> bool:
+    """Whether a person placed hands-off on the issue or on its linked draft: the Factory never acts on it."""
+    return placed_by_a_person(labels, facts) or any(placed_by_a_person(standing_labels(p), p) for p in drafts)
+
+
+def held_by(labels: dict, drafts: list) -> list:
+    """The labels that hold the issue: a Hold, whoever placed it, and hands-off anyone but a person placed, on the issue
+    or on its linked draft."""
+    on_drafts = [standing_labels(p) for p in drafts]
+    return [name for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF) if name in labels or any(name in d for d in on_drafts)]
+
+
 def derive(facts: dict, runs: list, config: dict) -> dict:
     """Return {'state', 'reason', 'evidence'} for one issue. `state` is None when a fact cannot be read.
 
@@ -371,9 +385,19 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     links = [p for p in facts["linked"] if is_linked(p)]
     open_links = [p for p in links if p["open"]]
     drafts = [p for p in open_links if p["draft"]]
-    # Row 1. A merge at the start of a life is in it: the reading that stops work wins.
+    labels = standing_labels(facts)
+    # Row 1. A merge at the start of a life is in it: the reading that stops work wins. A merge read while a person
+    # has closed or held the issue is the platform doing what the Controller should have prevented, a dequeue on that
+    # close or hold (issue 227, the Maintainer's ruling): it is never done. The State the person put the issue in
+    # stays, and the reason names the contradiction, so that a person sees it. A person's hands-off is no Hold: the
+    # Factory leaves a queued item to merge under it, so that merge is done; and an outsider's reopening of a done
+    # issue begins no life (I-41), so the issue stays done until the merge closes it again.
     merges = [str(p["number"]) for p in links
               if p["merged_at"] is not None and not p["empty"] and p["merged_at"] >= facts["life_started_at"]]
+    if merges and facts["state"] != "open":
+        return out(DECLINED, "merged_while_declined", merges)
+    if merges and held_by(labels, drafts) and not a_persons_hands_off(labels, facts, drafts):
+        return out(t.HELD, "merged_while_held", merges)
     if merges:
         return out(DONE, "merged", merges)
     # Row 2.
@@ -384,12 +408,10 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     # Row 3.
     if not served(facts, config):
         return out(t.NOT_SERVED, "left_out", [])
-    labels = standing_labels(facts)
-    if placed_by_a_person(labels, facts) or any(placed_by_a_person(standing_labels(p), p) for p in drafts):
+    if a_persons_hands_off(labels, facts, drafts):
         return out(t.NOT_SERVED, "hands_off", [t.LABEL_HANDS_OFF])
     # Row 4. A Hold, whoever placed it, and hands-off anyone but a person placed, on the issue or its linked draft.
-    on_drafts = [standing_labels(p) for p in drafts]
-    stops = [name for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF) if name in labels or any(name in d for d in on_drafts)]
+    stops = held_by(labels, drafts)
     if stops:
         return out(t.HELD, "human_hold", stops)
     if len(open_links) > 1:

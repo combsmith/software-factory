@@ -416,9 +416,44 @@ class Done(unittest.TestCase):
         merged = [pr(is_open=False, merged=5)]
         d = derive(facts(linked=merged))
         self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]))
-        for f in (facts(state="closed", linked=merged), outsiders(linked=merged),
-                  facts(label_events=[labelled(HOLD)], linked=merged), facts(linked=merged + [pr(12), pr(13)])):
+        for f in (outsiders(linked=merged), facts(label_events=[labelled(HANDS_OFF)], linked=merged),
+                  facts(linked=merged + [pr(12), pr(13)])):
             self.assertEqual(state(f, cfg=config(served_from=None)), "done")
+
+    def test_a_merge_read_while_a_person_closed_or_held_the_issue_is_never_done(self):  # issue 227, the ruling
+        # The Controller dequeues the Factory's pull request on a person's close or hold, so a merge read while the
+        # issue is declined or held is the platform doing what the Controller should have prevented: the State the
+        # person put the issue in stays, and the reason names the contradiction, so that a person sees it.
+        merged = [pr(is_open=False, merged=5)]
+        # A person's close; and, after a reopening by someone without write access, which begins no life (I-41), the
+        # merge that closes the issue again, which seed 99 of the issue world met (issue 227).
+        for f in (facts(state="closed", linked=merged), facts(state="closed", reopened_last_by="other", linked=merged)):
+            d = derive(f)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("declined", "merged_while_declined", ["11"]))
+            d = decide(f)
+            self.assertEqual((d["state"], what(d), d["attention"]), ("declined", ("nothing", "merged_while_declined", None),
+                                                                     "needs_you"))
+        # A Hold, whoever placed it, and hands-off anyone but a person placed, on the issue or on its linked draft.
+        held = [[labelled(HOLD)], [labelled(HOLD, OTHER_APP)], [labelled(HANDS_OFF, OTHER_APP)]]
+        for f in [facts(label_events=events, linked=merged) for events in held] + [
+                facts(linked=merged + [agents(number=12, draft=True, events=[labelled(HOLD, OTHER_APP)])])]:
+            d = derive(f)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11"]), f["linked"])
+            d = decide(f)
+            self.assertEqual((what(d), d["attention"]), (("hold", "merged_while_held", None), "needs_you"))
+        # The other side. A person's hands-off is no Hold: the Factory leaves a queued item to merge under it, so the
+        # merge is done; so is one on an issue the Consumer entry leaves out, one after a person released the Hold or
+        # reopened the issue, one an outsider reopened after it was done, which stays open and begins no life, and one
+        # in the ordinary course.
+        for f, cfg in ((facts(label_events=[labelled(HANDS_OFF)], linked=merged), None), (facts(linked=merged), config(served_from=None)),
+                       (facts(label_events=[labelled(HOLD), unlabelled(HOLD)], linked=merged), None),
+                       (facts(reopened_last_by="writer", linked=merged), None),
+                       (facts(reopened_last_by="other", linked=merged), None), (facts(linked=merged), None)):
+            d = derive(f, cfg=cfg)
+            self.assertEqual((d["state"], d["reason"]), ("done", "merged"), f)
+        # With no merge, a close and a Hold read as they did.
+        self.assertEqual(derive(facts(state="closed"))["reason"], "closed")
+        self.assertEqual(derive(facts(label_events=[labelled(HOLD)]))["reason"], "human_hold")
 
     def test_a_merge_at_the_start_of_a_life_is_done_and_one_before_it_is_not(self):
         merged = [pr(is_open=False, merged=5)]

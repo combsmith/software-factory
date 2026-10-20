@@ -1687,10 +1687,16 @@ only a person out of `held`, and lets nothing out of `declined`: the queue merge
 request after a person had held the issue (seed 20) or closed it (seed 22), and a person merged their
 own after an outsider had reopened it (seed 99). The Lifecycle now declares `in_review → done` by the
 platform, the queue's merge. The queue makes no merge in the world while the issue is held or declined,
-and a person none while it is declined: the world takes it that the Controller dequeues the Factory's pull
-request when a person closes or holds its issue; whether
-a merge should end a held or a declined issue is open (issue 227, "Design: does a merge end a held or
-a declined issue?"). The Hold the brakes place for unmerged closes (I-43) is placed on a `new` issue too,
+and a person none while it is declined, and the Maintainer ruled it so (issue 227, "Design: does a merge end a
+held or a declined issue?", 2026-10-20): on a person's hold or close of an issue, the Controller dequeues the
+Factory's pull request for it, with the Lifecycle transition recorded, so that no merge lands while the issue is
+`held` or `declined`; the Lifecycle stays as it is, only a person leaves `held` and `declined` is terminal. A
+`merged` fact the Kernel reads while the issue is closed, or held by a Hold or by hands-off a person did not place,
+is the platform doing what the Controller should have prevented: it is never `done`. The State stays, and the
+reason names the contradiction, `merged_while_declined` or `merged_while_held`, so that a person sees it. A
+person's hands-off is no Hold, since the Factory leaves a queued item to merge under it, and an outsider's
+reopening of a done issue begins no life (I-41), so each of those merges is `done`. The Hold the brakes place for
+unmerged closes (I-43) is placed on a `new` issue too,
 an outsider's whose colleague closed their own pull requests (seed 137); the Lifecycle now declares
 `new → held` by the Factory. Past the fixed seeds, an outsider's edit lapsed acceptance from `in_review`
 (seed 617), and a Run admitted on a stale read showed a `new` issue in progress until it superseded
