@@ -506,6 +506,12 @@
       "to": "triage",
       "by": "human",
       "bound": null
+    },
+    {
+      "from": "in_review",
+      "to": "done",
+      "by": "platform",
+      "bound": null
     }
   ]
 }
