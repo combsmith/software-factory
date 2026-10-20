@@ -45,6 +45,24 @@ class Scoring(unittest.TestCase):
         edge = copy.deepcopy(result)
         edge["findings"][0]["location"] = {"path": "kernel/decide.py", "start_line": 94, "end_line": 120}
         self.assertEqual(eval_result.score(case, edge)["verdict"], "pass")
+        # One Finding must be the expected one in every respect: two that are each right in part are no match, and the
+        # nearest of them says what it missed.
+        split = copy.deepcopy(result)
+        split["findings"][0]["severity"] = "minor"
+        split["findings"].append(dict(result["findings"][0], ref="n3", category="architecture"))
+        self.assertEqual(eval_result.score(case, split)["reasons"], ["severity_differs"])
+        split["findings"][0]["location"] = {"path": "kernel/gate.py"}
+        self.assertEqual(eval_result.score(case, split)["reasons"], ["category_differs"])
+        # Lines are read whole: an end with no start, or before its start, is nowhere in a Result, and unreadable in
+        # a case; a Result's location given without lines is the whole file.
+        for lines in ({"path": "kernel/decide.py", "end_line": 94}, {"path": "kernel/decide.py", "start_line": 94, "end_line": 86}):
+            nowhere = copy.deepcopy(result)
+            nowhere["findings"][0]["location"] = lines
+            self.assertEqual(eval_result.score(case, nowhere)["reasons"], ["location_differs"], lines)
+            unreadable = copy.deepcopy(case)
+            unreadable["expected"]["finding"]["location"] = lines
+            self.assertEqual(eval_result.score(unreadable, result), {"case": case["id"], "verdict": "unreadable",
+                                                                     "reasons": ["location_unreadable"]}, lines)
         # A Result that did not complete is no review, whatever it raised.
         unfinished = copy.deepcopy(result)
         unfinished["status"], unfinished["reason"] = "incomplete", "turns_exhausted"
@@ -75,6 +93,10 @@ class Scoring(unittest.TestCase):
         met = load("examples/eval-case.met.json")
         met["expected"]["finding"] = case["expected"]["finding"]
         self.assertEqual(eval_result.score(met, result)["reasons"], ["answer_disagrees_with_verdict"])
+        # A criterion the Role's rubric does not have, or a Role with no rubric here, is nobody's to pass.
+        for over in ({"expected": dict(case["expected"], criterion="PR-9")}, {"role": "qa-lead"}):
+            unknown = dict(copy.deepcopy(case), **over)
+            self.assertEqual(eval_result.score(unknown, result)["reasons"], ["criterion_unknown"], over)
 
     def test_the_front_door_scores_two_files_and_says_so_in_its_exit(self):
         out = io.StringIO()
@@ -109,6 +131,42 @@ class TheSet(unittest.TestCase):
         # The example manifest is held the same way: a count that disagrees with the list is caught.
         example = load("examples/eval-set.json")
         self.assertEqual(example["count"], len(example["cases"]))
+
+    def test_a_case_dropped_under_evals_in_any_file_is_caught(self):
+        # The front door: a JSON file not in LIVE, and a case's content in a file of any name, a diff among it.
+        from tests.test_tools import clone, caught
+        problems = check_examples.run(clone({"evals/qa-lead/cases.json": '{"schema": "eval-set/1"}'}))
+        self.assertTrue(caught(problems, "evals/qa-lead/cases.json is validated against no schema"))
+        case = (ROOT / "examples" / "eval-case.json").read_text()
+        for name, text in (("evals/pr-review/notes.txt", "--- a/kernel/x.py\n+++ b/kernel/x.py\n@@ -1 +1 @@\n"),
+                           ("evals/pr-review/README.md", "A case:\n```json\n" + case + "\n```\n"),
+                           ("evals/pr-review/leaked.yaml", 'schema: eval-case/1\n')):
+            problems = check_examples.run(clone({name: text}))
+            self.assertTrue(caught(problems, "%s holds what looks like a held-out case" % name), name)
+        # The other side: the manifest, its directory's rules and a note that names no case pass.
+        self.assertEqual(check_examples.run(clone({"evals/pr-review/NOTE.md": "The hashes are the home's.\n"})), [])
+
+    def test_a_cases_categories_are_the_findings(self):
+        from tests.test_tools import caught
+        from tools import check_authority
+        case = load("schemas/eval-case.schema.json")
+        answer = case["properties"]["expected"]["properties"]["finding"]["properties"]
+        answer["category"]["enum"].append("cosmetic")
+        answer["severity"]["enum"].remove("info")
+        problems = check_authority.run(case=case)
+        self.assertTrue(caught(problems, "a held-out case may expect the category cosmetic, and no Finding can carry it"))
+        self.assertTrue(caught(problems, "a Finding may carry the severity info, and no held-out case can expect it"))
+        del answer["category"]
+        self.assertTrue(caught(check_authority.run(case=case), "a held-out case's expected Finding carries no category"))
+
+    def test_the_eval_jobs_name_is_reserved(self):
+        from tests.test_tools import clone, caught, GOOD
+        from tools import check_workflows
+        taken = GOOD.replace("  checks:\n", "  eval:\n", 1)
+        problems = check_workflows.run(clone({".github/workflows/other.yml": taken}))
+        self.assertTrue(caught(problems, ".github/workflows/other.yml: the job eval is reserved for eval.yml"))
+        problems = check_workflows.run(clone({".github/workflows/eval.yml": GOOD}))
+        self.assertTrue(caught(problems, ".github/workflows/eval.yml: holds the job eval and no other"))
 
     @pending
     def test_the_review_intents_eval_set_has_its_cases(self):

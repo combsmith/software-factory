@@ -18,16 +18,39 @@ def schemas(root: pathlib.Path = ROOT) -> dict:
     return {p.name[: -len(".schema.json")]: json.loads(p.read_text()) for p in sorted((root / "schemas").glob("*.schema.json"))}
 
 
+MISSES = ("category_differs", "severity_differs", "location_differs")
+
+
+def _lines(location: dict):
+    """(first, last) of a location's lines; None where it names none, the whole file; False where they cannot be read:
+    an end with no start, or an end before the start."""
+    if "start_line" not in location:
+        return False if "end_line" in location else None
+    first, last = location["start_line"], location.get("end_line", location["start_line"])
+    return (first, last) if first <= last else False
+
+
 def _overlaps(expected: dict, raised: dict) -> bool:
     """Whether a raised Finding's location is the expected one: the same path, and its lines, where both give them,
-    overlapping; a location given without lines is the whole file."""
+    overlapping; a location given without lines is the whole file, and one whose lines cannot be read is nowhere."""
     if raised.get("path") != expected["path"]:
         return False
-    if "start_line" not in expected or "start_line" not in raised:
+    theirs, ours = _lines(raised), _lines(expected)
+    if theirs is False:
+        return False
+    if theirs is None or ours is None:
         return True
-    e_start, e_end = expected["start_line"], expected.get("end_line", expected["start_line"])
-    r_start, r_end = raised["start_line"], raised.get("end_line", raised["start_line"])
-    return r_start <= e_end and e_start <= r_end
+    return theirs[0] <= ours[1] and ours[0] <= theirs[1]
+
+
+def _criteria(role: str, root: pathlib.Path = ROOT):
+    """The ids of the rubric a Role reviews by, or None where it has none this repo can read."""
+    path = root / "config" / ("rubric-%s.json" % role)
+    try:
+        rubric = json.loads(path.read_text())
+        return {c["id"] for c in rubric["criteria"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def score(case: dict, result: dict, known: dict = None) -> dict:
@@ -43,6 +66,12 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     want = case["expected"]
     if (want["verdict"] == "finding") != (want["finding"] is not None):
         return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["answer_disagrees_with_verdict"]}
+    if want["finding"] is not None and _lines(want["finding"]["location"]) is False:
+        return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["location_unreadable"]}
+    # A case asks about one criterion of the rubric its Role reviews by; one the rubric lacks is nobody's to pass.
+    criteria = _criteria(case["role"])
+    if criteria is None or want["criterion"] not in criteria:
+        return {"case": case["id"], "verdict": UNREADABLE, "reasons": ["criterion_unknown"]}
     reasons = []
     if result["status"] != "completed":
         reasons.append("result_not_completed")
@@ -52,13 +81,13 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
         if not citing:
             reasons.append("finding_not_raised")
         else:
+            # One Finding must be the expected one in every respect; the nearest says what it missed.
             expected = want["finding"]
-            if not any(f["category"] == expected["category"] for f in citing):
-                reasons.append("category_differs")
-            if not any(f["severity"] == expected["severity"] for f in citing):
-                reasons.append("severity_differs")
-            if not any(_overlaps(expected["location"], f.get("location", {})) for f in citing):
-                reasons.append("location_differs")
+            misses = [[code for ok, code in ((f["category"] == expected["category"], MISSES[0]),
+                                             (f["severity"] == expected["severity"], MISSES[1]),
+                                             (_overlaps(expected["location"], f.get("location", {})), MISSES[2]))
+                       if not ok] for f in citing]
+            reasons += min(misses, key=len)
         if covered != ["finding"]:
             reasons.append("coverage_disagrees")
     else:

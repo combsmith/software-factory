@@ -87,7 +87,7 @@ Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow
 
 The eval job is a reserved name, `factory / eval`, in a workflow file named eval.yml: the one job that will hold the
 held-out home's read token (design §4.9), scoring a Result against each case with `tools/eval_result.py`. It is the
-Harness story's and does not exist yet; no other workflow or job takes the name.
+Harness story's and does not exist yet; no other workflow or job takes the name (`tools/check_workflows.py`).
 
 ## Pinned to what was looked up
 

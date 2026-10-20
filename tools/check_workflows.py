@@ -87,6 +87,8 @@ NEEDS = "${{ toJSON(needs) }}"
 # nothing else; the secret scan, which also runs on a push to main, falls back to the commit pushed.
 BASE = "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}"
 SCAN = "ci.yml"
+# The eval job and its workflow: reserved names, the Harness story's (docs/standards/workflows.md).
+EVAL_JOB, EVAL_WORKFLOW = "eval", "eval.yml"
 SCAN_BASE = "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}"
 # gitleaks 8.30.1 reads the ignore file named by --gitleaks-ignore-path and also the one at the top of --source, so the
 # head's is deleted on the line before. Its own log options are kept, and --text added, so a head's .gitattributes cannot
@@ -508,6 +510,17 @@ def run(root: pathlib.Path = ROOT) -> list:
         for rule, message in lint(text):
             if rule not in spared:
                 problems.append("%s: [%s] %s. The rule: %s" % (path.relative_to(root), rule, message, RULES[rule]))
+    # The eval job's name is reserved (docs/standards/workflows.md): the job `eval` lives in eval.yml and nowhere else,
+    # since it alone will hold the held-out home's read token (design §4.9).
+    for path in live:
+        entries, _ = read(raw(path))
+        jobs = [e["key"] for e in entries if e["path"] == ["jobs"]]
+        if EVAL_JOB in jobs and path.name != EVAL_WORKFLOW:
+            problems.append("%s: the job %s is reserved for %s, the one job that reads the held-out home"
+                            % (path.relative_to(root), EVAL_JOB, EVAL_WORKFLOW))
+        if path.name == EVAL_WORKFLOW and jobs != [EVAL_JOB]:
+            problems.append("%s: holds the job %s and no other, or it is not the eval job's workflow"
+                            % (path.relative_to(root), EVAL_JOB))
     for folder in sorted((root / ".github").glob("actions*")):
         problems.append("%s: a local action is not read by this check; write a reusable workflow"
                         % folder.relative_to(root))

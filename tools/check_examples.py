@@ -52,6 +52,8 @@ UNTRUSTED_KIND = "view-item"
 # tests/test_tools.py::test_every_reason_that_needs_a_person_says_what_is_asked), and an issue's unmerged closes past
 # their bound (tests/test_issue.py::test_unmerged_closes_past_the_bound_place_a_hold).
 ALSO_NEEDS_YOU = frozenset({"paused", "pause_unreadable", "unmerged_closes"})
+# What a held-out case, or a piece of one, looks like: its schema's name, a diff's header, or a diff field.
+CASE_MARKS = re.compile(r'eval-case/1|^(---|\+\+\+) [ab]/|^@@ |"diff"', re.M)
 
 
 def _once(pairs: list) -> dict:
@@ -312,6 +314,9 @@ def run(root: pathlib.Path = ROOT) -> list:
             rel = path.relative_to(root).as_posix()
             if path.suffix == ".json" and rel not in LIVE:
                 problems.append("%s is validated against no schema; add it to LIVE" % rel)
+            # A held-out case lives in the private home and never here, in any file: the manifest holds hashes alone.
+            if folder == "evals" and CASE_MARKS.search(path.read_text(errors="replace")):
+                problems.append("%s holds what looks like a held-out case; only a case's hash and id may be here" % rel)
     covered = {p.name.split(".")[0] for p in (root / "examples").glob("*.json")} | set(LIVE.values())
     for kind in sorted(set(schemas) - covered):
         problems.append("schema %s has no example" % kind)
