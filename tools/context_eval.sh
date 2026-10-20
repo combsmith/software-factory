@@ -202,7 +202,7 @@ for f in $JUDGES $(cd "$pristine" && find tools -type f ! -name mutants.py | sor
 done
 code_verify=0
 judge make verify > "$scratch/judge-verify" 2>&1 || code_verify=$?
-found=$(cd "$root" && python3 -m tools.context_eval mutants "$pristine" "$work")
+found=$(cd "$root" && TMPDIR="$scratch" python3 -m tools.context_eval mutants "$pristine" "$work")
 code_mutants=0
 mutant_verdict=missing
 if [ "$(printf '%s' "$found" | python3 -I -c 'import json, sys; print(len(json.load(sys.stdin)["names"]))')" -gt 0 ]; then
@@ -230,10 +230,12 @@ json.dump({"commit": sys.argv[1], "ran_at": open(sys.argv[2]).read().strip(), "c
            "cap_turns": int(sys.argv[4]), "code": sys.argv[5], "restored": sys.argv[6].split()}, open(sys.argv[7], "w"))' \
     "$commit" "$out/ran_at" "$version" "$CAP" "$code" "$restored" "$scratch/meta.json"
 
-# 5. The record, and what was checked. Neither holds a word of the model's.
+# 5. The record, written in the scratch directory, which the recorder is told is its own and reads and writes under
+# alone, then copied to OUT; and what was checked. Neither holds a word of the model's.
 code5=0
-(cd "$root" && python3 -m tools.context_eval record "$scratch/raw-3" "$pristine" "$work" "$scratch/verdicts.json" \
-    "$scratch/meta.json" "$out/record.json") || code5=$?
+(cd "$root" && TMPDIR="$scratch" python3 -m tools.context_eval record "$scratch/raw-3" "$pristine" "$work" \
+    "$scratch/verdicts.json" "$scratch/meta.json" "$scratch/record.json") || code5=$?
+[ "$code5" -ne 0 ] || cp "$scratch/record.json" "$out/record.json"
 python3 -I -c '
 import json, sys
 a = sys.argv

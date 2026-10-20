@@ -3980,10 +3980,13 @@ class ContextEval(unittest.TestCase):
         with mock.patch("sys.stderr", io.StringIO()) as said:
             self.assertEqual(context_eval.main(["record", str(ROOT / "AGENTS.md")] + args[2:]), 2)
             self.assertEqual(context_eval.main(args[:-1] + [str(ROOT / "never.json")]), 2)
+            self.assertEqual(context_eval.main(args, base=folder), 2, "the exports are outside the base given")
             self.assertEqual(context_eval.main(["record", str(folder / "none")] + args[2:]), 2)
             self.assertEqual(context_eval.main(["record"]), 2)
+            self.assertEqual(context_eval.main(["mutants", str(ROOT / "tools"), str(work)]), 2)
         self.assertFalse((ROOT / "never.json").exists())
         self.assertIn("outside the repo", said.getvalue())
+        self.assertNotIn(str(ROOT), said.getvalue(), "the refusal names no path")
         with mock.patch("sys.stdout", io.StringIO()) as said:
             self.assertEqual(context_eval.main(["mutants", str(pristine), str(work)]), 0)
         self.assertEqual(json.loads(said.getvalue()), {"names": ["an empty diff converges"], "targets": ["kernel/derive.py"]})

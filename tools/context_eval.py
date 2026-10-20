@@ -8,7 +8,9 @@ and takes it out before this module is called.
     python3 -m tools.context_eval record TRANSCRIPT PRISTINE WORK VERDICTS META OUT
     python3 -m tools.context_eval mutants PRISTINE WORK
 
-`record` writes OUT, the run's record, and exits 0; 2 when a file cannot be read, and then writes nothing. TRANSCRIPT is
+`record` writes OUT, the run's record, and exits 0; 2 when a file cannot be read, and then writes nothing. Every path
+is followed to where it really is and must lie under the system's scratch directory, where the runner keeps its own:
+the transcript is the model's own words and is never inside the repo, nor is the record written there. TRANSCRIPT is
 the CLI's output, as `--output-format stream-json` or `json` gives it; only the names of the tools it used, the paths
 and the first words of the commands they were given, and the result's counts are taken from it, never a text block, a
 tool's result, a prompt or an answer. PRISTINE and WORK are the export as made and as the agent left it; what differs
@@ -25,6 +27,7 @@ import os
 import pathlib
 import re
 import sys
+import tempfile
 
 from tools import walk
 from tools.check_trials import shaped
@@ -247,33 +250,32 @@ def record(transcript: str, pristine: pathlib.Path, work: pathlib.Path, verdicts
     return run if not validate(run, RUN_SCHEMA) else None
 
 
-def _inside_repo(path: str) -> bool:
-    resolved = os.path.realpath(path)
-    return resolved == str(ROOT) or resolved.startswith(str(ROOT) + os.sep)
-
-
-def main(argv: list) -> int:
-    if len(argv) == 3 and argv[0] == "mutants":
-        pristine, work = pathlib.Path(argv[1]), pathlib.Path(argv[2])
+def main(argv: list, base: pathlib.Path = None) -> int:
+    mode = argv[0] if argv else ""
+    if not ((mode == "mutants" and len(argv) == 3) or (mode == "record" and len(argv) == 7)):
+        print("usage: python3 -m tools.context_eval record TRANSCRIPT PRISTINE WORK VERDICTS META OUT\n"
+              "       python3 -m tools.context_eval mutants PRISTINE WORK", file=sys.stderr)
+        return 2
+    # Every path is followed to where it really is, and one outside the scratch directory, where the runner keeps the
+    # export, the transcript and the record, is refused before it is opened; the refusal names no path.
+    inside = os.path.realpath(str(tempfile.gettempdir() if base is None else base))
+    real = [os.path.realpath(p) for p in argv[1:]]
+    if not all(path.startswith(inside + os.sep) for path in real):
+        print("context_eval: every path stays in the scratch directory, outside the repo", file=sys.stderr)
+        return 2
+    if mode == "mutants":
+        pristine, work = pathlib.Path(real[0]), pathlib.Path(real[1])
         if not (pristine.is_dir() and work.is_dir()):
             print("context_eval: PRISTINE and WORK must be directories", file=sys.stderr)
             return 2
         found = new_mutants(pristine, work)
         print(json.dumps({"names": [n for n, _ in found], "targets": sorted({t for _, t in found})}))
         return 0
-    if len(argv) != 7 or argv[0] != "record":
-        print("usage: python3 -m tools.context_eval record TRANSCRIPT PRISTINE WORK VERDICTS META OUT\n"
-              "       python3 -m tools.context_eval mutants PRISTINE WORK", file=sys.stderr)
-        return 2
-    transcript, pristine, work, verdicts, meta, out = argv[1:]
-    # The transcript is the model's own words and is never inside the repo, nor is the record written there.
-    if _inside_repo(transcript) or _inside_repo(out):
-        print("context_eval: the transcript and the record stay outside the repo", file=sys.stderr)
-        return 2
+    transcript, pristine, work, verdicts, meta, out = real
     try:
-        text = pathlib.Path(transcript).read_text()
-        judged = json.loads(pathlib.Path(verdicts).read_text())
-        facts = json.loads(pathlib.Path(meta).read_text())
+        with open(transcript, encoding="utf-8") as first, open(verdicts, encoding="utf-8") as second, \
+                open(meta, encoding="utf-8") as third:
+            text, judged, facts = first.read(), json.load(second), json.load(third)
     except (OSError, ValueError):
         print("context_eval: a file cannot be read", file=sys.stderr)
         return 2
@@ -281,7 +283,8 @@ def main(argv: list) -> int:
     if run is None:
         print("context_eval: what was given does not make a run's record", file=sys.stderr)
         return 2
-    pathlib.Path(out).write_text(json.dumps(run, indent=2) + "\n")
+    with open(out, "w", encoding="utf-8") as record_file:
+        record_file.write(json.dumps(run, indent=2) + "\n")
     print("recorded: %s" % ("passed" if run["passed"] else "failed"))
     return 0
 
