@@ -2798,7 +2798,9 @@ class Trials(unittest.TestCase):
         self.assertTrue(events)
         self.assertTrue(all(e["actor"]["login"] and e["actor"]["__typename"] and e["createdAt"] for e in events))
         by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
-        self.assertIsNone(by_code["a_label_event_names_its_actor"])
+        # The events ground the rule about them; the association, which an App reads wrong, stays unverified.
+        self.assertEqual(by_code["a_label_event_names_its_actor"], "trials/P-32.json")
+        self.assertIsNone(by_code["an_issues_author_has_an_association"])
 
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
@@ -2806,7 +2808,10 @@ class Trials(unittest.TestCase):
         self.assertTrue(caught(problems, "sim/world.py applies a_rule_nobody_listed, which sim/grounding.py does not list"))
         listed = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_never_applied", "It is so", (), None),', 1)
         problems = check_trials.run(clone({"sim/grounding.py": listed}))
-        self.assertTrue(caught(problems, "a_rule_never_applied is listed in sim/grounding.py and applied nowhere in sim/world.py"))
+        self.assertTrue(caught(problems, "a_rule_never_applied is listed in sim/grounding.py and applied nowhere under sim/"))
+        issues = (ROOT / "sim" / "issues.py").read_text()
+        problems = check_trials.run(clone({"sim/issues.py": issues + "\n# GitHub: a_rule_nobody_listed\n"}))
+        self.assertTrue(caught(problems, "sim/issues.py applies a_rule_nobody_listed, which sim/grounding.py does not list"))
         twice = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_tick_can_be_lost", "It is so", ("P-8",), None),', 1)
         self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": twice})), "a_tick_can_be_lost is listed twice"))
         for broken in ("RULES = rules()\n", "RULES = (('Not a code', 'x', ('P-1',), None),)\n", "RULES = (('x', 'x'),)\n",

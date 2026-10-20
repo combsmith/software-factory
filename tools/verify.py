@@ -26,7 +26,7 @@ CHECKS = [
     ("decision records", check_decisions.run),
 ]
 # The test modules `make fast` leaves out. `make verify` runs them all.
-SLOW = ("test_simulator",)
+SLOW = ("test_simulator", "test_issue_simulator")
 
 
 def failed(checks: list) -> bool:

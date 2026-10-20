@@ -1,16 +1,17 @@
 # sim/
 
-A fake GitHub around one pull request. `world.py` drives the real Kernel, plays the poller, the
-jobs of a Run and the people, injects faults, and checks the invariants after every step. It decides
-nothing: every decision comes from `kernel/`. It states each invariant in its own words, so a
-changed rule may need its invariant changed too. Time is the counter `minute`.
+A fake GitHub around one pull request, and another around one issue. `world.py` drives the real Kernel, plays the poller, the jobs of a Run and the people, injects faults, and checks the invariants after every step. It decides
+nothing: every decision comes from `kernel/`. It states each invariant in its own words, so a changed rule may need its invariant changed too. Time is the counter `minute`. `issues.py` is the issue's world, built the same way:
+it drives `kernel/issue.py`, plays the Controller's acts, the three issue Runs and the people, and checks I-39 to I-44 after every step. It makes no merge while
+the issue is held or declined, taking it that the Controller dequeues the Factory's pull request then (issue 227, "Design: does a merge end a held or a declined issue?").
 
 | Rule | Held by |
 |---|---|
 | Draw only with `random()`, through `pick()`; other draws differ between Python versions | `tools/check_repo.py` |
 | Every set of facts made here is valid, so a new fact is added here with its schema | `tests/test_simulator.py::test_invariants_hold_under_faults` |
 | Every change of State made here is declared in `lifecycle/pull_request.json`, with who made it | `tests/test_simulator.py::test_every_change_of_state_is_checked_with_who_made_it` |
-| A failure names its seed, and the seed replays | `tests/test_simulator.py::test_a_seed_replays_exactly` |
+| Every change of State the issue's world makes is declared in `lifecycle/issue.json`, with who made it | `tests/test_issue_simulator.py::test_every_change_of_state_is_checked_with_who_made_it` |
+| A failure names its seed, and the seed replays | `tests/test_simulator.py::test_a_seed_replays_exactly`, `tests/test_issue_simulator.py::test_a_seed_replays_exactly` |
 | A rule the fake applies about GitHub is marked `# GitHub: <code>` where it is applied, and listed once in `grounding.py` with its trials and its fixture in `trials/`, one or a tuple, or none. Verify prints each with none | `tools/check_trials.py` |
 | A rule no trial asks is grounded only once a trial for it is added to section 6 of the design | `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate` |
 | The fake answers in GitHub's own shapes, so that its answers can be compared with a fixture | waiting on `adapters/` |
@@ -18,8 +19,7 @@ changed rule may need its invariant changed too. Time is the counter `minute`.
 The world is one pull request, paused for a span on some seeds, or with a Pause that cannot be read, and on some with no writer's action yet.
 On those seeds the Pause may begin early, as an approval falls due or a count is spent (`tests/test_simulator.py::test_the_pause_falls_due_with_an_approval`, `..._with_a_spent_count`).
 Its checks pass, fail, time out or give no verdict, and another App can post a passing check under the name of a Lens that failed. On an odd seed it
-is the Maintainer's own, of class `maintainer`: GitHub refuses a review by its author, so the Maintainer acts with
-threads, a Hold and pushes. On an even seed it is an agent's, of class `agent`, and the Maintainer also reviews it:
+is the Maintainer's own, of class `maintainer`: GitHub refuses a review by its author, so the Maintainer acts with threads, a Hold and pushes. On an even seed it is an agent's, of class `agent`, and the Maintainer also reviews it:
 requests changes, comments or approves (`tests/test_simulator.py::test_the_seeds_serve_a_maintainers_and_an_agents_pull_request`).
 On one seed in ten it is a dependency bot's update, on every other such seed to a workflow's pin, whose list of paths can leave one out. A Role's fix, the Maintainer's push and that update
 may change the Factory's own rules or a Lens's input (`tests/test_simulator.py::test_the_seeds_change_the_list_by_a_role_the_dependency_bot_and_the_maintainer`).
@@ -37,4 +37,4 @@ A rule about anything else is not exercised here, so its boundary cases are all 
 
 Known to differ from the design, each listed as unverified and left as it is, since changing the fake is a story of its own: the lane keeps one Run in progress and any number queued (`a_run_waits_its_turn`), where GitHub's
 concurrency group keeps one running and one pending and cancels the older pending Run; and a push leaves an earlier approval in place (`an_approval_survives_a_push`), where GitHub, under a ruleset that dismisses stale reviews
-on push, dismissed the machine user's approval when the trial-author App pushed, naming the pusher as the dismisser (`trials/P-7.json`, the reads after the push and the timeline).
+on push, dismissed the machine user's approval when the trial-author App pushed, naming the pusher as the dismisser (`trials/P-7.json`, the reads after the push and the timeline). 

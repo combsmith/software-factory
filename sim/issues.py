@@ -504,12 +504,12 @@ class IssueWorld:
                 self.moves()
                 self.note("#%d marked ready by its author" % p["number"])
                 self.caused(FACTORY)
-            elif roll < 0.2 and self.state == "open" and not self.held():
+            elif roll < 0.2 and self.true_state not in (issue.DECLINED, "held"):
                 # The merge queue merges the Factory's pull request, after the Factory's approval and enqueue: the
                 # change in the facts is the platform's, as the pull request's Lifecycle says of a queued merge. Not
-                # once the issue is closed or held: the Lifecycle lets no merge out of declined and only a person out
-                # of held, so the world takes it that the Controller dequeues the pull request of an issue that a
-                # person closed or held (recorded in the design, 4.5).
+                # while the issue is declined or held: the Lifecycle lets no merge out of declined and only a person
+                # out of held, so the world takes it that the Controller dequeues the pull request of an issue that a
+                # person closed or held, or an outsider reopened (recorded in the design, 4.5).
                 p.update(open=False, merged_at=self.now(), closed_at=self.now(), empty=False)
                 self.moves()
                 self.note("#%d merged by the queue" % p["number"])
@@ -524,7 +524,7 @@ class IssueWorld:
             self.note("a stranger's pull request names the issue")
             self.caused(STRANGER_BY)
             return
-        if self.faults and 0.42 <= roll < 0.45 and t.LABEL_HOLD not in self.labels:
+        if self.faults and 0.44 <= roll < 0.45 and t.LABEL_HOLD not in self.labels:
             # GitHub: an_app_can_label
             self.label(t.LABEL_HOLD, OTHER_APP)
             self.note("another App added factory:hold")
@@ -556,13 +556,15 @@ class IssueWorld:
             self.reached.append(4)
             self.note("%s removed %s while a Run was in flight" % (who["name"], name))
             return HUMAN
-        if roll < 0.06:
-            if self.held():
-                self.release()
-            else:
-                self.label(t.LABEL_HOLD, who)
+        if self.held() and roll < 0.15:
+            # Only a person ends what a label holds, whoever placed it (L-17).
+            self.release()
             self.writer_acted()
-            self.note("%s toggled hold -> %s" % (who["name"], self.held()))
+            self.note("%s released the hold" % who["name"])
+        elif not self.held() and roll < 0.06:
+            self.label(t.LABEL_HOLD, who)
+            self.writer_acted()
+            self.note("%s added factory:hold" % who["name"])
         elif roll < 0.22:
             self.edit(who)
         elif roll < 0.32:
@@ -630,7 +632,8 @@ class IssueWorld:
             self.reopen(STRANGER)
             self.reached.append(3)
             return STRANGER_BY
-        if self.seed % EDITS_EVERY == EDITS and t.LABEL_ADMIT in self.labels and roll < 0.8:
+        if self.seed % EDITS_EVERY == EDITS and t.LABEL_ADMIT in self.labels and self.accepted() and roll < 0.8:
+            # The fault: the admission counted until now, and counts no longer.
             self.edit(STRANGER)
             self.reached.append(1)
             return STRANGER_BY
@@ -653,9 +656,9 @@ class IssueWorld:
         if roll < 0.3:
             p["draft"] = not p["draft"]
             self.note("%s %s #%d" % (who["name"], "converted to draft" if p["draft"] else "marked ready", p["number"]))
-        elif roll < 0.6 and self.state == "open":
-            # Not once the issue is closed: the Lifecycle lets nothing out of declined, and the Kernel reads a merge
-            # in the present life as done (recorded in the design, 4.5).
+        elif roll < 0.6 and self.true_state != issue.DECLINED:
+            # Not while the issue is declined, closed or reopened by an outsider: the Lifecycle lets nothing out of
+            # declined, and the Kernel reads a merge in the present life as done (recorded in the design, 4.5).
             p.update(open=False, merged_at=self.now(), closed_at=self.now(), empty=self.rng.random() < 0.1)
             self.note("%s merged #%d" % (who["name"], p["number"]))
         else:

@@ -1484,7 +1484,7 @@ once it derives an issue's State.
 when `qa-lead` writes its first commit and `dev-lead` is the declared author; the Consumer
 entry's fields for issues, which §3.12 does not yet have; and how a promotion is recorded for an
 Intent that owns no category of Finding. The Controller's own acts are counted as every act is,
-from the timeline (§3.10). The simulator asserts none of I-39 to I-44 yet.
+from the timeline (§3.10). The simulator's issue world checks I-39 to I-44 after every step (§4.5).
 
 ### 4.2 Convergence and the gate
 
@@ -1653,7 +1653,8 @@ decision logic against a fake world, quickly, thousands of times.
 
 - **World.** An in-memory GitHub behind the facts, records and effects ports: repos, items, content
   versions, actors, reviews, threads, checks, labels, a merge queue, and run records with artifacts. It applies GitHub's own rules,
-  including dismissing an approval when the merge base changes.
+  including dismissing an approval when the merge base changes. A second world is one issue (`sim/issues.py`): its
+  people, the Controller's acts, the three issue Runs, and the pull requests that name it.
 - **Actors.** Scripted stand-ins for an author that sometimes fixes and sometimes breaks, Lenses
   that raise Findings, owners that accept or reject, and a Maintainer who labels, reviews and
   merges at arbitrary moments.
@@ -1665,8 +1666,11 @@ decision logic against a fake world, quickly, thousands of times.
   A Result that fails validation. An Engine that times out. A required check that times out or
   gives no verdict. A human acting mid-Run. An App dismissing a person's request for changes. An approval
   that does not land, and a merge queue that ejects; each also as a world where it happens every
-  time, which must come to rest on its bound (I-8).
-- **Properties.** I-2 to I-17 are checked after every step, as are I-19 to I-38. I-1 and I-18 are checked once faults
+  time, which must come to rest on its bound (I-8). On the issue, each on seeds a constant chooses: an
+  outsider's edit after admission, a stranger's pull request naming it, a reopening by someone without
+  write access, a label removed while a Run is in flight, and run records that expire.
+- **Properties.** I-2 to I-17 are checked after every step, as are I-19 to I-38. On the issue, I-39 to I-44 are
+  checked after every step, with I-1 by the world's own count, I-8 and I-12. I-1 and I-18 are checked once faults
   stop and the world is left to settle.
 - **Reproduction.** Each run has a seed from the standard library's generator. A failure prints the
   seed and the trace, and the trace renders as a sequence diagram.
@@ -1676,6 +1680,21 @@ decision logic against a fake world, quickly, thousands of times.
 - **Further faults,** from the failure-mode pass: a facts read cut off at a page limit; a hold added
   between Admission and `apply`; a Run started with no Decision behind it; every Run failing at
   once for one outside cause.
+
+**What the issue world found**, on its first seeds. The Kernel reads a merge of a linked pull request
+in the present life as `done`, while the issue Lifecycle let only a person bring an issue to `done`, lets
+only a person out of `held`, and lets nothing out of `declined`: the queue merged the Factory's pull
+request after a person had held the issue (seed 20) or closed it (seed 22), and a person merged their
+own after an outsider had reopened it (seed 99). The Lifecycle now declares `in_review → done` by the
+platform, the queue's merge. The world makes no merge while the issue is held or declined, taking it
+that the Controller dequeues the Factory's pull request when a person closes or holds its issue; whether
+a merge should end a held or a declined issue is open (issue 227, "Design: does a merge end a held or
+a declined issue?"). The Hold the brakes place for unmerged closes (I-43) is placed on a `new` issue too,
+an outsider's whose colleague closed their own pull requests (seed 137); the Lifecycle now declares
+`new → held` by the Factory. The exploration of every change (`tests/test_transitions.py`) does not find
+the changes the world makes through a person's close or merge; each is declared, and
+`tests/test_issue_simulator.py` lists the gap (issue 228, "Exploration: nineteen changes of State the
+issue world makes that tests/test_transitions.py does not find").
 
 - **Grounding.** The fake GitHub is only as good as what it assumes. Each rule it applies cites a
   response recorded from the real platform in a trial of §6. A rule with no recording is listed as
