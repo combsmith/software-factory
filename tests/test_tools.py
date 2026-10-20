@@ -2654,6 +2654,49 @@ class Trials(unittest.TestCase):
             self.assertEqual(data["verdict"], "pass", name)
             self.assertEqual(data["ran_at"][:10], "2026-10-19", name)
 
+    def test_the_cost_trials_estimate_is_marked_so_and_held_to_its_reads(self):
+        # P-8's last exchange is the estimate (FR-35): its cost model is held to every read of the fixture that reports
+        # a rateLimit, recomputed here from each read's own variables, and its hourly figures to its figures a pass.
+        p8 = json.loads((ROOT / "trials" / "P-8.json").read_text())
+        estimate = p8["exchanges"][-1]["response"]["body"]
+        self.assertIn("estimate", estimate["method"])
+        self.assertEqual(p8["exchanges"][-1]["request"]["via"], "cli")
+        reads = [e for e in p8["exchanges"][:-1] if (e["response"]["body"].get("data") or {}).get("rateLimit")]
+        self.assertEqual(len(reads), len(estimate["model_checks"]))
+        self.assertTrue(len(reads) >= 20)
+
+        def model(calls):
+            return max(1, int(calls / 100 + 0.5))
+
+        for read, check in zip(reads, estimate["model_checks"]):
+            reported = read["response"]["body"]["data"]["rateLimit"]["cost"]
+            self.assertEqual(check["reported"], reported, read["request"]["call"])
+            v = read["request"]["body"].get("variables", {})
+            if {"prs", "issues", "threads"} <= set(v):
+                # The pass's read: 2 + P x (8 + T) + 3 x I connections, a page of 0 counted as 1.
+                self.assertEqual(reported, model(2 + max(v["prs"], 1) * (8 + v["threads"]) + 3 * v["issues"]), read["request"]["call"])
+            self.assertEqual(check["model"], reported)
+        self.assertEqual([c["reported"] for c in estimate["model_checks"]][-5:], estimate["reader_app_costs"])
+        a_pass = estimate["points_a_pass"]
+        self.assertEqual(a_pass["sized_to_counts_every_page"], a_pass["sized_to_counts"] + a_pass["further_pages"])
+        for key, hourly in estimate["points_an_hour"].items():
+            self.assertEqual(hourly["at_12_passes_an_hour_the_schedule"], 12 * a_pass[key], key)
+            self.assertEqual(hourly["passes_an_hour_W4_allows"], estimate["W4"] // a_pass[key], key)
+        self.assertEqual(p8["verdict"], "pass")
+        self.assertLess(estimate["points_an_hour"]["sized_to_counts_every_page"]["at_12_passes_an_hour_the_schedule"], estimate["W4"])
+        # P-32 fails on the association an App reads, and shows the label events it read: the rule it asks stays
+        # unverified, since no unlabeled event and no event on a pull request was read.
+        p32 = json.loads((ROOT / "trials" / "P-32.json").read_text())
+        self.assertEqual(p32["verdict"], "fail")
+        by_person, by_app = (e["response"]["body"]["data"]["repository"]["issues"]["nodes"] for e in p32["exchanges"])
+        self.assertEqual({i["authorAssociation"] for i in by_person}, {"MEMBER"})
+        self.assertEqual({i["authorAssociation"] for i in by_app}, {"CONTRIBUTOR"})
+        events = [e for i in by_app for e in i["timelineItems"]["nodes"]]
+        self.assertTrue(events)
+        self.assertTrue(all(e["actor"]["login"] and e["actor"]["__typename"] and e["createdAt"] for e in events))
+        by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
+        self.assertIsNone(by_code["a_label_event_names_its_actor"])
+
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
         problems = check_trials.run(clone({"sim/world.py": world + "\n# GitHub: a_rule_nobody_listed\n"}))
