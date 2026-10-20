@@ -3222,8 +3222,9 @@ class Mutants(unittest.TestCase):
                 mutants.selected(environ, paths, few)
             self.assertIn(said, str(raised.exception), paths)
         self.assertEqual(mutants.FILTER_MOST, 40)
-        # From the front door, too many mutants stop the run before any test runs.
-        done = subprocess.run([sys.executable, "-m", "tools.mutants", "kernel/derive.py"], cwd=str(ROOT),
+        # From the front door, too many mutants stop the run before any test runs; a shard CI set is not this run's.
+        env = {name: value for name, value in os.environ.items() if not name.startswith("MUTANTS_")}
+        done = subprocess.run([sys.executable, "-m", "tools.mutants", "kernel/derive.py"], cwd=str(ROOT), env=env,
                               capture_output=True, text=True, timeout=120)
         self.assertEqual(done.returncode, 1, done.stdout[-300:])
         self.assertIn("a filtered run breaks at most 40", done.stdout)
