@@ -27,7 +27,7 @@ from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
 from sim import world
 from tests import support
-from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle,
+from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle, context_eval,
                    check_purity, check_repo, check_trials, check_workflows, mutants, needs_passed, redact_trial, verify,
                    walk)
 from tools.hooks import protected
@@ -3843,3 +3843,293 @@ class Mutants(unittest.TestCase):
             self.assertTrue(getattr(support.wall_clock(test_x), "__unittest_skip__", False))
         with mock.patch.dict(os.environ, {"MUTATING": ""}):
             self.assertIs(support.wall_clock(test_x), test_x, "in make verify it runs as it is")
+
+
+class ContextEval(unittest.TestCase):
+    """`tools/context_eval.py`, the record of one run of the context's test (issue 8): what it takes from the CLI's
+    transcript and the export, and that no word of the model's reaches it."""
+
+    PROSE = {"said": "the model wrote THIS-PROSE-1 in a text block", "result": "THIS-PROSE-2 in a tool's result",
+             "answer": "THIS-PROSE-3 as the answer", "command": "THIS-PROSE-4 inside a command",
+             "stderr": "THIS-PROSE-5 on standard error"}
+
+    def export(self, changed=True) -> tuple:
+        """A pristine export and the agent's copy of it, with the rule, its test and its mutant added to the copy."""
+        pristine = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        work = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        files = {"AGENTS.md": "# a repo\n", "kernel/AGENTS.md": "# kernel\n", "kernel/derive.py": "def derive(f):\n    return f\n",
+                 "tests/test_decide.py": "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_one(self):\n        pass\n",
+                 "tools/mutants.py": 'DERIVE = "kernel/derive.py"\nMUTANTS = [\n    ("a rule", DERIVE, "a", "b", ("t",)),\n]\n'}
+        for folder in (pristine, work):
+            for rel, text in files.items():
+                (folder / rel).parent.mkdir(parents=True, exist_ok=True)
+                (folder / rel).write_text(text)
+        if changed:
+            (work / "kernel/derive.py").write_text('def derive(f):\n    if not f:\n        return "empty_diff"\n    return f\n')
+            (work / "tests/test_decide.py").write_text((work / "tests/test_decide.py").read_text()
+                                                       + "\n    def test_empty_diff_never_converges(self):\n        pass\n")
+            (work / "tools/mutants.py").write_text('DERIVE = "kernel/derive.py"\nMUTANTS = [\n    ("a rule", DERIVE, "a", "b", ("t",)),\n'
+                                                   '    ("an empty diff converges", DERIVE, "c", "d", ("t",)),\n]\n')
+        return pristine, work
+
+    def transcript(self, work) -> str:
+        def assistant(*blocks):
+            return json.dumps({"type": "assistant", "message": {"role": "assistant", "content": list(blocks)}})
+        lines = [
+            json.dumps({"type": "system", "subtype": "init", "cwd": str(work), "tools": ["Read", "Bash"]}),
+            assistant({"type": "text", "text": self.PROSE["said"]},
+                      {"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": str(work / "AGENTS.md")}}),
+            json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": self.PROSE["result"]}]}}),
+            assistant({"type": "tool_use", "id": "t2", "name": "Read", "input": {"file_path": "kernel/AGENTS.md"}},
+                      {"type": "tool_use", "id": "t3", "name": "Read", "input": {"file_path": "/etc/hosts"}},
+                      {"type": "tool_use", "id": "t4", "name": "Bash", "input": {"command": "python3 -m unittest tests.test_decide"}},
+                      {"type": "tool_use", "id": "t5", "name": "Bash", "input": {"command": 'echo "%s"' % self.PROSE["command"]}},
+                      {"type": "tool_use", "id": "t6", "name": "Edit", "input": {"file_path": str(work / "kernel" / "derive.py"), "old_string": "x", "new_string": self.PROSE["said"]}},
+                      {"type": "tool_use", "id": "t7", "name": "Read", "input": {"file_path": str(work / "AGENTS.md")}}),
+            json.dumps({"type": "result", "subtype": "success", "is_error": False, "num_turns": 7, "duration_ms": 1234,
+                        "total_cost_usd": 0.25, "usage": {"input_tokens": 100, "output_tokens": 20}, "result": self.PROSE["answer"]}),
+        ]
+        return "\n".join(lines) + "\n"
+
+    META = {"commit": "9bfc81383b36f8613d9f4a25e9377046aff27a92", "ran_at": "2026-10-21T09:00:00Z", "cli_version": "2.1.302",
+            "cap_turns": 80, "code": "empty_diff"}
+    PASSED = {"held_out_test": "pass", "verify": "pass", "mutant": "killed"}
+
+    def test_the_record_holds_paths_counts_and_verdicts_and_no_model_text(self):
+        pristine, work = self.export()
+        run = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
+        self.assertIsNotNone(run)
+        self.assertEqual(validate(run, context_eval.RUN_SCHEMA), [])
+        # A path is read once, relative to the export; one outside it is dropped; a command keeps its first words, and
+        # stops at a word that is not one; the result's counts are the cost.
+        self.assertEqual(run["read"], ["AGENTS.md", "kernel/AGENTS.md", "kernel/derive.py"])
+        self.assertEqual(run["ran"], ["python3 -m unittest tests.test_decide", "echo"])
+        self.assertEqual(run["cost"], {"turns": 7, "duration_ms": 1234, "usd": 0.25, "input_tokens": 100, "output_tokens": 20})
+        self.assertEqual(run["changed"], [{"path": "kernel/derive.py", "added": 2, "removed": 0},
+                                          {"path": "tests/test_decide.py", "added": 3, "removed": 0},
+                                          {"path": "tools/mutants.py", "added": 1, "removed": 0}])
+        self.assertEqual(run["added"], {"test": "tests/test_decide.py::test_empty_diff_never_converges",
+                                        "mutant": "an empty diff converges", "reason": "empty_diff"})
+        self.assertEqual((run["verdicts"], run["passed"]), (self.PASSED, True))
+        for word in self.PROSE.values():
+            self.assertNotIn(word, json.dumps(run))
+        # A verdict that fails, fails the run; the code that is not in the Kernel's change is not the reason added.
+        failed = context_eval.record(self.transcript(work), pristine, work, dict(self.PASSED, mutant="survived"), self.META)
+        self.assertEqual((failed["verdicts"]["mutant"], failed["passed"]), ("survived", False))
+        unchanged = context_eval.record(self.transcript(work), *self.export(changed=False), self.PASSED, self.META)
+        self.assertEqual((unchanged["changed"], unchanged["added"]), ([], {"test": None, "mutant": None, "reason": None}))
+
+    def test_what_cannot_be_read_makes_no_record(self):
+        pristine, work = self.export()
+        text = self.transcript(work)
+        self.assertIsNone(context_eval.record(text, pristine, work, "pass", self.META))
+        self.assertIsNone(context_eval.record(text, pristine, work, self.PASSED, dict(self.META, commit="short")))
+        self.assertIsNone(context_eval.record(text, pristine, work, {"held_out_test": "pass"}, self.META))
+        # A transcript with no result has no counts, which no run carries; one with no JSON reads nothing.
+        no_result = "\n".join(text.splitlines()[:-1])
+        self.assertIsNone(context_eval.record(no_result, pristine, work, self.PASSED, self.META))
+        read, ran, counts = context_eval.reads_and_commands("the model said " + self.PROSE["said"], work)
+        self.assertEqual((read, ran, counts), ([], [], {}))
+        # The CLI's json form, one list, is read as the stream is.
+        as_list = json.dumps([json.loads(line) for line in text.splitlines()])
+        self.assertEqual(context_eval.record(as_list, pristine, work, self.PASSED, self.META)["read"],
+                         ["AGENTS.md", "kernel/AGENTS.md", "kernel/derive.py"])
+
+    def test_the_front_door_refuses_a_transcript_inside_the_repo_and_writes_the_record(self):
+        pristine, work = self.export()
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (folder / "raw").write_text(self.transcript(work))
+        (folder / "verdicts.json").write_text(json.dumps(self.PASSED))
+        (folder / "meta.json").write_text(json.dumps(self.META))
+        out = folder / "record.json"
+        args = ["record", str(folder / "raw"), str(pristine), str(work), str(folder / "verdicts.json"), str(folder / "meta.json"), str(out)]
+        with mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(context_eval.main(args), 0)
+        self.assertTrue(json.loads(out.read_text())["passed"])
+        with mock.patch("sys.stderr", io.StringIO()) as said:
+            self.assertEqual(context_eval.main(["record", str(ROOT / "AGENTS.md")] + args[2:]), 2)
+            self.assertEqual(context_eval.main(args[:-1] + [str(ROOT / "never.json")]), 2)
+            self.assertEqual(context_eval.main(["record", str(folder / "none")] + args[2:]), 2)
+            self.assertEqual(context_eval.main(["record"]), 2)
+        self.assertFalse((ROOT / "never.json").exists())
+        self.assertIn("outside the repo", said.getvalue())
+        with mock.patch("sys.stdout", io.StringIO()) as said:
+            self.assertEqual(context_eval.main(["mutants", str(pristine), str(work)]), 0)
+        self.assertEqual(json.loads(said.getvalue()), {"names": ["an empty diff converges"], "targets": ["kernel/derive.py"]})
+
+
+class ContextEvalScript(unittest.TestCase):
+    """`tools/context_eval.sh`, run against a stand-in CLI and a stand-in repo, never the real ones: the environment
+    the CLI is given, each refusal before anything is asked, the judge's three verdicts, and the record with no word
+    of the model's in it."""
+
+    SCRIPT = ROOT / "tools" / "context_eval.sh"
+    PIN = re.search(r"^PIN=(\S+)$", SCRIPT.read_text(), re.M).group(1)
+    PROSE = ContextEval.PROSE
+    SENTENCE = "An empty diff never converges, with the reason `empty_diff`."
+    # The stand-in CLI: it answers its version, and on a prompt it edits the export as an agent would, records the
+    # environment and arguments it was given beside itself, and prints a transcript holding the model's words.
+    STAND_IN = """#!/bin/sh
+here=$(cd "$(dirname "$0")" && pwd)
+case "$1" in
+  --version) env > "$here/env-version"; cat "$here/version"; exit 0 ;;
+  -p) env > "$here/env-task"; printf '%s\\n' "$@" > "$here/args"; pwd > "$here/cwd"
+      printf 'def rule(f):\\n    return "empty_diff"\\n' >> kernel/derive.py
+      printf '\\n    def test_empty_diff_never_converges(self):\\n        pass\\n' >> tests/test_decide.py
+      python3 - <<'PY'
+p = "tools/mutants.py"; s = open(p).read()
+open(p, "w").write(s.replace("]\\n", '    ("an empty diff converges", DERIVE, "c", "d", ("t",)),\\n]\\n', 1))
+PY
+      cat "$here/transcript"; cat "$here/stderr" >&2; exit 0 ;;
+esac
+exit 9
+"""
+    # The stand-in repo's mutation check: it kills every mutant its list holds, and says so as the real one does.
+    MUTANTS_PY = '''import re, sys
+DERIVE = "kernel/derive.py"
+MUTANTS = [
+    ("a rule", DERIVE, "a", "b", ("t",)),
+'''
+    MUTANTS_MAIN = '''
+for name, *_ in MUTANTS:
+    print("%-9s %s" % ("killed", name))
+print("%d of %d mutants killed" % (len(MUTANTS), len(MUTANTS)))
+'''
+
+    def setUp(self):
+        self.home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        self.cfg = self.home.parent / (self.home.name + "-cfg")
+        self.cfg.mkdir()
+        self.out = self.home.parent / (self.home.name + "-out")
+        self.aside = self.home.parent / (self.home.name + "-aside")
+        self.aside.mkdir()
+        (self.aside / "sentence").write_text(self.SENTENCE + "\n")
+        (self.aside / "test_held_out.py").write_text("import unittest\nfrom kernel import derive\n\n\nclass HeldOut(unittest.TestCase):\n"
+                                                    "    def test_the_rule_holds(self):\n        self.assertEqual(derive.rule({}), 'empty_diff')\n")
+
+    def repo(self, verify="verify:\n\t@echo ok\n") -> tuple:
+        """A stand-in repo with one commit: an AGENTS.md, a Kernel, a test, a mutation check and a Makefile."""
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        files = {"AGENTS.md": "# a repo\n", "Makefile": verify, "kernel/__init__.py": "", "kernel/derive.py": "def derive(f):\n    return f\n",
+                 "tests/__init__.py": "", "tests/test_decide.py": "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_one(self):\n        pass\n",
+                 "tools/__init__.py": "", "tools/mutants.py": self.MUTANTS_PY + "]\n" + self.MUTANTS_MAIN}
+        for rel, text in files.items():
+            (folder / rel).parent.mkdir(parents=True, exist_ok=True)
+            (folder / rel).write_text(text)
+        env = {"PATH": os.environ["PATH"], "HOME": str(self.home), "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_NOSYSTEM": "1"}
+        for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "one"]):
+            subprocess.run(["git", "-C", str(folder), *args], env=env, check=True, capture_output=True)
+        commit = subprocess.run(["git", "-C", str(folder), "rev-parse", "HEAD"], env=env, check=True, capture_output=True, text=True).stdout.strip()
+        return folder, commit
+
+    def stand_in(self, version=None) -> pathlib.Path:
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (folder / "version").write_text("%s (Claude Code)\n" % (version or self.PIN))
+        (folder / "stderr").write_text(self.PROSE["stderr"] + "\n")
+        (folder / "transcript").write_text(ContextEval().transcript(pathlib.Path("/nowhere")).replace("/nowhere/", ""))
+        cli = folder / "claude"
+        cli.write_text(self.STAND_IN)
+        cli.chmod(0o755)
+        return folder
+
+    def run_script(self, out, cfg, repo, commit, sentence, held_out, cli) -> subprocess.CompletedProcess:
+        env = {"PATH": os.environ["PATH"], "HOME": str(self.home), "LANG": "C",
+               "ANTHROPIC_API_KEY": "sk-" + "ant-" + "api03-NEVER-SEEN", "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
+        return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg), str(repo), commit, str(sentence), str(held_out), str(cli)],
+                              cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=300)
+
+    def texts(self, out) -> dict:
+        return {p.name: p.read_text() for p in pathlib.Path(out).iterdir()}
+
+    def test_a_run_is_judged_and_recorded_with_no_model_text(self):
+        folder, commit = self.repo()
+        cli = self.stand_in()
+        ran = self.run_script(self.out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", cli / "claude")
+        self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+        named = {"HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "LANG", "CLAUDE_CONFIG_DIR", "DISABLE_AUTOUPDATER"}
+        for call in ("version", "task"):
+            given = dict(line.split("=", 1) for line in (cli / ("env-" + call)).read_text().splitlines() if "=" in line)
+            self.assertEqual(set(given) - {"PWD", "OLDPWD", "SHLVL", "_"}, named, call)
+            self.assertNotIn("NEVER-SEEN", (cli / ("env-" + call)).read_text(), call)
+        args = (cli / "args").read_text().split("\n")
+        self.assertEqual(args[args.index("-p") + 1], self.SENTENCE)
+        self.assertEqual(args[args.index("--disallowedTools") + 1], "WebFetch,WebSearch,Task,Agent")
+        self.assertIn("--max-turns", args)
+        # The agent worked in the export, not in the repo, which is left as it was.
+        self.assertNotEqual(pathlib.Path((cli / "cwd").read_text().strip()), folder)
+        self.assertEqual((folder / "kernel" / "derive.py").read_text(), "def derive(f):\n    return f\n")
+        texts = self.texts(self.out)
+        self.assertEqual(sorted(texts), ["checked.json", "ran_at", "record.json", "requests.json"])
+        record = json.loads(texts["record.json"])
+        self.assertEqual(validate(record, context_eval.RUN_SCHEMA), [])
+        self.assertEqual((record["verdicts"], record["passed"], record["commit"], record["cli_version"]),
+                         ({"held_out_test": "pass", "verify": "pass", "mutant": "killed"}, True, commit, self.PIN))
+        self.assertEqual(record["added"], {"test": "tests/test_decide.py::test_empty_diff_never_converges",
+                                           "mutant": "an empty diff converges", "reason": "empty_diff"})
+        self.assertEqual([c["path"] for c in record["changed"]], ["kernel/derive.py", "tests/test_decide.py", "tools/mutants.py"])
+        self.assertEqual(record["read"], ["AGENTS.md", "kernel/AGENTS.md", "kernel/derive.py"])
+        checked = json.loads(texts["checked.json"])
+        self.assertEqual((checked["agent"]["exit"], checked["agent"]["stderr"]["lines"], checked["mutants"]["targets"]),
+                         (0, 1, ["kernel/derive.py"]))
+        everything = "".join(texts.values()) + ran.stdout + ran.stderr
+        for word in self.PROSE.values():
+            self.assertNotIn(word, everything)
+        self.assertNotIn("NEVER-SEEN", everything)
+        self.assertNotIn("test_the_rule_holds", everything, "the held-out test is never recorded")
+
+    def test_a_verdict_that_fails_is_recorded_and_fails_the_run(self):
+        folder, commit = self.repo(verify="verify:\n\t@exit 1\n")
+        cli = self.stand_in()
+        ran = self.run_script(self.out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", cli / "claude")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        record = json.loads((self.out / "record.json").read_text())
+        self.assertEqual((record["verdicts"]["verify"], record["passed"]), ("fail", False))
+        # The held-out test that fails: the rule the agent wrote is not the one the answer expects.
+        (self.aside / "test_held_out.py").write_text("import unittest\n\n\nclass HeldOut(unittest.TestCase):\n"
+                                                    "    def test_the_rule_holds(self):\n        self.fail('not the rule')\n")
+        folder, commit = self.repo()
+        out = self.home.parent / (self.home.name + "-held-out-fails")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", self.stand_in() / "claude")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["verdicts"]["held_out_test"], record["verdicts"]["verify"], record["passed"]), ("fail", "pass", False))
+        self.assertNotIn("not the rule", "".join(self.texts(out).values()) + ran.stdout + ran.stderr)
+
+    def test_each_refusal_stops_before_anything_is_asked(self):
+        folder, commit = self.repo()
+        cli = self.stand_in()
+        existing = self.home.parent / (self.home.name + "-taken")
+        existing.mkdir()
+        two = self.aside / "two"
+        two.write_text("One rule here. And `another_one` there.\n")
+        no_code = self.aside / "no-code"
+        no_code.write_text("An empty diff never converges, with no code named.\n")
+        inside = folder / "test_inside.py"
+        inside.write_text("")
+        good = [self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", cli / "claude"]
+        cases = [("OUT exists", [existing] + good, "exists; name a new directory"),
+                 ("OUT inside the repo", [ROOT / "never-made"] + good, "OUT is inside the repo"),
+                 ("OUT inside REPO", [folder / "never-made"] + good, "OUT is inside REPO"),
+                 ("CONFIG_DIR is HOME", [self.out, self.home] + good[1:], "the home directory or holds it"),
+                 ("CONFIG_DIR under ~/.claude", [self.out, self.home / ".claude" / "x"] + good[1:], "under ~/.claude"),
+                 ("REPO not a checkout", [self.out, self.cfg, self.aside] + good[2:], "REPO is not a git checkout"),
+                 ("COMMIT unknown", [self.out, self.cfg, folder, "0" * 40] + good[3:], "COMMIT is not a commit in REPO"),
+                 ("two sentences", good[:3] and [self.out] + good[:3] + [two] + good[4:], "not one sentence"),
+                 ("no code", [self.out] + good[:3] + [no_code] + good[4:], "names no reason code"),
+                 ("HELD_OUT inside REPO", [self.out] + good[:4] + [inside, cli / "claude"], "stay outside the repo"),
+                 ("HELD_OUT not a test", [self.out] + good[:4] + [self.aside / "sentence", cli / "claude"], "is named test_")]
+        (self.home / ".claude" / "x").mkdir(parents=True)
+        for name, args, said in cases:
+            ran = subprocess.run(["bash", str(self.SCRIPT), *map(str, args)], cwd=SCRATCH.name, capture_output=True, text=True,
+                                 env={"PATH": os.environ["PATH"], "HOME": str(self.home), "LANG": "C"}, timeout=120)
+            self.assertEqual(ran.returncode, 2, (name, ran.stderr))
+            self.assertIn(said, ran.stderr, name)
+            self.assertFalse((cli / "env-version").exists(), name + ": nothing was asked")
+        self.assertFalse((ROOT / "never-made").exists())
+        # The wrong version, after asking it and before the agent.
+        wrong = self.stand_in(version="0.0.1")
+        ran = self.run_script(self.out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", wrong / "claude")
+        self.assertEqual(ran.returncode, 1)
+        self.assertIn("is version '0.0.1', exit 0, not " + self.PIN, ran.stderr)
+        self.assertFalse((wrong / "args").exists(), "the agent was not asked")

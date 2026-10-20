@@ -49,3 +49,4 @@ a kind of its own.
 | Whoever asked is named in words, never by an address | `tests/test_tools.py::test_an_asker_named_by_an_address_is_caught` |
 | A fixture of a vendor's CLI holds no credential and no header a fixture may not keep | `tools/check_trials.py` |
 | The Factory's model credential is its own again, held by the `run` job as an environment secret | waiting on `harness/` |
+| The context's test runs the CLI at the same pin, on the same login, from a configuration directory of its own, and holds no credential in its record | `tests/test_tools.py::test_a_run_is_judged_and_recorded_with_no_model_text` |
