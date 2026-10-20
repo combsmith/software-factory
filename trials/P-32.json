@@ -1,0 +1,3539 @@
+{
+  "schema": "trial/1",
+  "trial": "P-32",
+  "question": "Can an issue's author's permission be read in the listing of open issues, and who added and who removed each label, with the time, in the full read?",
+  "pass": "Yes to both, within the budget P-8 measures (section 6). Read here, as the Maintainer's working ruling on #13 asks, in the same read as P-8's: the listing of open issues gives each author's association with the repo as the reader App sees it, and that association tells an author with write access from one without, as section 4.1 needs (\"whether that author has write access\"); and each labeled and unlabeled event on an issue is read with the actor who made it, by login and kind, and when.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-20T01:21:15Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql), the pass's read on combsmith/software-factory, sized to its counts, through the Maintainer's login",
+        "headers": {},
+        "body": {
+          "query": "query Pass($owner: String!, $name: String!, $prs: Int!, $issues: Int!, $files: Int!, $reviews: Int!, $threads: Int!, $checks: Int!, $events: Int!, $labels: Int!, $issueEvents: Int!) {\n  repository(owner: $owner, name: $name) {\n    nameWithOwner\n    pullRequests(states: OPEN, first: $prs, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      totalCount\n      pageInfo { hasNextPage }\n      nodes {\n        number\n        state\n        isDraft\n        author { login __typename }\n        authorAssociation\n        isCrossRepository\n        headRefOid\n        baseRefOid\n        baseRefName\n        baseRef { branchProtectionRule { id } refUpdateRule { requiredApprovingReviewCount } }\n        mergeable\n        changedFiles\n        additions\n        deletions\n        updatedAt\n        files(first: $files) { totalCount pageInfo { hasNextPage } nodes { path changeType } }\n        labels(first: $labels) { totalCount pageInfo { hasNextPage } nodes { name } }\n        reviews(first: $reviews) {\n          totalCount\n          pageInfo { hasNextPage }\n          nodes { databaseId author { login __typename } authorAssociation state commit { oid } submittedAt }\n        }\n        reviewThreads(first: $threads) {\n          totalCount\n          pageInfo { hasNextPage }\n          nodes {\n            id isResolved isOutdated path line\n            resolvedBy { login }\n            comments(first: 1) { nodes { author { login __typename } authorAssociation createdAt } }\n          }\n        }\n        commits(last: 1) {\n          nodes {\n            commit {\n              oid\n              committedDate\n              statusCheckRollup {\n                state\n                contexts(first: $checks) {\n                  totalCount\n                  pageInfo { hasNextPage }\n                  nodes {\n                    __typename\n                    ... on CheckRun {\n                      name conclusion status completedAt\n                      checkSuite { app { databaseId } workflowRun { file { path } } }\n                    }\n                    ... on StatusContext { context state createdAt }\n                  }\n                }\n              }\n            }\n          }\n        }\n        timelineItems(first: $events, itemTypes: [LABELED_EVENT, UNLABELED_EVENT, REVIEW_DISMISSED_EVENT, ADDED_TO_MERGE_QUEUE_EVENT, REMOVED_FROM_MERGE_QUEUE_EVENT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT]) {\n          totalCount\n          pageInfo { hasNextPage }\n          nodes {\n            __typename\n            ... on LabeledEvent { actor { login __typename } label { name } createdAt }\n            ... on UnlabeledEvent { actor { login __typename } label { name } createdAt }\n            ... on ReviewDismissedEvent { actor { login __typename } previousReviewState createdAt review { databaseId } }\n            ... on AddedToMergeQueueEvent { actor { login __typename } createdAt }\n            ... on RemovedFromMergeQueueEvent { actor { login __typename } createdAt }\n            ... on ReadyForReviewEvent { actor { login __typename } createdAt }\n            ... on ConvertToDraftEvent { actor { login __typename } createdAt }\n          }\n        }\n        mergeQueueEntry { state position }\n        closingIssuesReferences(first: 10) { totalCount nodes { number } }\n      }\n    }\n    issues(states: OPEN, first: $issues, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      totalCount\n      pageInfo { hasNextPage }\n      nodes {\n        number\n        author { login __typename }\n        authorAssociation\n        createdAt\n        updatedAt\n        labels(first: $labels) { totalCount pageInfo { hasNextPage } nodes { name } }\n        timelineItems(first: $issueEvents, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {\n          totalCount\n          pageInfo { hasNextPage }\n          nodes {\n            __typename\n            ... on LabeledEvent { actor { login __typename } label { name } createdAt }\n            ... on UnlabeledEvent { actor { login __typename } label { name } createdAt }\n          }\n        }\n        closedByPullRequestsReferences(first: 10, includeClosedPrs: false) {\n          totalCount\n          nodes { number isDraft author { login __typename } }\n        }\n      }\n    }\n  }\n  rateLimit { cost nodeCount used remaining limit resetAt }\n}\n",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory",
+            "prs": 1,
+            "issues": 41,
+            "files": 100,
+            "reviews": 100,
+            "threads": 100,
+            "checks": 100,
+            "events": 100,
+            "labels": 20,
+            "issueEvents": 100
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 20 Oct 2026 01:21:15 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "E9C6:1DC0B7:4E3E2F1:FC80C61:6AD6C20A",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4340",
+          "x-ratelimit-reset": "1792460772",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "660"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "nameWithOwner": "combsmith/software-factory",
+              "pullRequests": {
+                "totalCount": 1,
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": [
+                  {
+                    "number": 216,
+                    "state": "OPEN",
+                    "isDraft": false,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "isCrossRepository": false,
+                    "headRefOid": "5d8ffc0999cbdc5172a454b48e61b39746cccdff",
+                    "baseRefOid": "d676f59cb9d6d94b55d996cfc37193d5c0cfca99",
+                    "baseRefName": "main",
+                    "baseRef": {
+                      "branchProtectionRule": null,
+                      "refUpdateRule": null
+                    },
+                    "mergeable": "UNKNOWN",
+                    "changedFiles": 5,
+                    "additions": 170,
+                    "deletions": 5,
+                    "updatedAt": "2026-10-20T01:08:52Z",
+                    "files": {
+                      "totalCount": 5,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "path": "docs/decisions/0034-an-issue-goes-stale-as-a-pull-request-does.md",
+                          "changeType": "MODIFIED"
+                        },
+                        {
+                          "path": "kernel/decide.py",
+                          "changeType": "MODIFIED"
+                        },
+                        {
+                          "path": "kernel/derive.py",
+                          "changeType": "MODIFIED"
+                        },
+                        {
+                          "path": "tests/test_decide.py",
+                          "changeType": "MODIFIED"
+                        },
+                        {
+                          "path": "tools/mutants.py",
+                          "changeType": "MODIFIED"
+                        }
+                      ]
+                    },
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "reviews": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "databaseId": 5579529373,
+                          "author": {
+                            "login": "coderabbitai",
+                            "__typename": "Bot"
+                          },
+                          "authorAssociation": "NONE",
+                          "state": "COMMENTED",
+                          "commit": {
+                            "oid": "5d8ffc0999cbdc5172a454b48e61b39746cccdff"
+                          },
+                          "submittedAt": "2026-10-20T00:53:49Z"
+                        }
+                      ]
+                    },
+                    "reviewThreads": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "commits": {
+                      "nodes": [
+                        {
+                          "commit": {
+                            "oid": "5d8ffc0999cbdc5172a454b48e61b39746cccdff",
+                            "committedDate": "2026-10-20T00:41:15Z",
+                            "statusCheckRollup": {
+                              "state": "SUCCESS",
+                              "contexts": {
+                                "totalCount": 18,
+                                "pageInfo": {
+                                  "hasNextPage": false
+                                },
+                                "nodes": [
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "Analyze (actions)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:51:22Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": null
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "SonarCloud",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:51:43Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/sonarcloud.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "Secret scan (gitleaks)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:50:54Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/ci.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "checks",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:01:25Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "Analyze (python)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:51:52Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": null
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (0)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:07:45Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (1)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:08:35Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (2)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:11:58Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (3)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:10:52Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (4)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:10:56Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (5)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:06:36Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (6)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:02:41Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (7)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:04:16Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "verify",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:12:04Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "CodeQL",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:51:14Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 57789
+                                      },
+                                      "workflowRun": null
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "SonarCloud",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:51:46Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 57789
+                                      },
+                                      "workflowRun": null
+                                    }
+                                  },
+                                  {
+                                    "__typename": "StatusContext",
+                                    "context": "CodeRabbit",
+                                    "state": "SUCCESS",
+                                    "createdAt": "2026-10-20T00:53:55Z"
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "SonarCloud Code Analysis",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:51:41Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 12526
+                                      },
+                                      "workflowRun": null
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "timelineItems": {
+                      "totalCount": 7,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "__typename": "AddedToMergeQueueEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "createdAt": "2026-10-20T01:12:57Z"
+                        }
+                      ]
+                    },
+                    "mergeQueueEntry": {
+                      "state": "AWAITING_CHECKS",
+                      "position": 1
+                    },
+                    "closingIssuesReferences": {
+                      "totalCount": 1,
+                      "nodes": [
+                        {
+                          "number": 173
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "issues": {
+                "totalCount": 41,
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": [
+                  {
+                    "number": 217,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-20T01:11:54Z",
+                    "updatedAt": "2026-10-20T01:11:54Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 25,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-11T18:45:28Z",
+                    "updatedAt": "2026-10-19T18:49:08Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 207,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T16:21:21Z",
+                    "updatedAt": "2026-10-19T16:21:21Z",
+                    "labels": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "name": "scorecard"
+                        }
+                      ]
+                    },
+                    "timelineItems": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "__typename": "LabeledEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "label": {
+                            "name": "scorecard"
+                          },
+                          "createdAt": "2026-10-19T16:21:22Z"
+                        }
+                      ]
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 206,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T16:21:18Z",
+                    "updatedAt": "2026-10-19T16:21:18Z",
+                    "labels": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "name": "scorecard"
+                        }
+                      ]
+                    },
+                    "timelineItems": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "__typename": "LabeledEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "label": {
+                            "name": "scorecard"
+                          },
+                          "createdAt": "2026-10-19T16:21:19Z"
+                        }
+                      ]
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 205,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T16:21:15Z",
+                    "updatedAt": "2026-10-19T16:21:15Z",
+                    "labels": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "name": "scorecard"
+                        }
+                      ]
+                    },
+                    "timelineItems": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "__typename": "LabeledEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "label": {
+                            "name": "scorecard"
+                          },
+                          "createdAt": "2026-10-19T16:21:16Z"
+                        }
+                      ]
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 204,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T14:56:00Z",
+                    "updatedAt": "2026-10-19T16:07:23Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 202,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T14:14:06Z",
+                    "updatedAt": "2026-10-19T14:14:06Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 201,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T13:54:25Z",
+                    "updatedAt": "2026-10-19T13:54:25Z",
+                    "labels": {
+                      "totalCount": 3,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "name": "dev-lead"
+                        },
+                        {
+                          "name": "fleet-tracker"
+                        },
+                        {
+                          "name": "health-check"
+                        }
+                      ]
+                    },
+                    "timelineItems": {
+                      "totalCount": 3,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "__typename": "LabeledEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "label": {
+                            "name": "dev-lead"
+                          },
+                          "createdAt": "2026-10-19T13:54:27Z"
+                        },
+                        {
+                          "__typename": "LabeledEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "label": {
+                            "name": "fleet-tracker"
+                          },
+                          "createdAt": "2026-10-19T13:54:27Z"
+                        },
+                        {
+                          "__typename": "LabeledEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "label": {
+                            "name": "health-check"
+                          },
+                          "createdAt": "2026-10-19T13:54:27Z"
+                        }
+                      ]
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 3,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-11T17:23:40Z",
+                    "updatedAt": "2026-10-19T04:31:37Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 141,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-17T00:59:32Z",
+                    "updatedAt": "2026-10-19T04:28:15Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 140,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-17T00:59:31Z",
+                    "updatedAt": "2026-10-19T04:28:15Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 139,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-17T00:59:30Z",
+                    "updatedAt": "2026-10-19T04:28:14Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 138,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-17T00:59:29Z",
+                    "updatedAt": "2026-10-19T04:28:13Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 198,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:29Z",
+                    "updatedAt": "2026-10-19T04:26:29Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 197,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:28Z",
+                    "updatedAt": "2026-10-19T04:26:28Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 196,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:27Z",
+                    "updatedAt": "2026-10-19T04:26:27Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 195,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:26Z",
+                    "updatedAt": "2026-10-19T04:26:26Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 194,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:26Z",
+                    "updatedAt": "2026-10-19T04:26:26Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 193,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:25Z",
+                    "updatedAt": "2026-10-19T04:26:25Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 192,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:24Z",
+                    "updatedAt": "2026-10-19T04:26:24Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 191,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:23Z",
+                    "updatedAt": "2026-10-19T04:26:23Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 190,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:19Z",
+                    "updatedAt": "2026-10-19T04:26:19Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 189,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:18Z",
+                    "updatedAt": "2026-10-19T04:26:18Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 188,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:17Z",
+                    "updatedAt": "2026-10-19T04:26:17Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 187,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:16Z",
+                    "updatedAt": "2026-10-19T04:26:16Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 186,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:15Z",
+                    "updatedAt": "2026-10-19T04:26:15Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 185,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:15Z",
+                    "updatedAt": "2026-10-19T04:26:15Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 184,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:13Z",
+                    "updatedAt": "2026-10-19T04:26:13Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 183,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:13Z",
+                    "updatedAt": "2026-10-19T04:26:13Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 182,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T04:26:12Z",
+                    "updatedAt": "2026-10-19T04:26:12Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 95,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-15T20:49:17Z",
+                    "updatedAt": "2026-10-19T04:24:50Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 89,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-15T18:01:15Z",
+                    "updatedAt": "2026-10-19T04:24:49Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 62,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-14T22:30:30Z",
+                    "updatedAt": "2026-10-19T04:24:48Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 180,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T03:17:29Z",
+                    "updatedAt": "2026-10-19T04:24:45Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 178,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-19T00:57:01Z",
+                    "updatedAt": "2026-10-19T04:24:44Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 43,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-11T20:12:28Z",
+                    "updatedAt": "2026-10-19T04:24:37Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 8,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-11T17:23:52Z",
+                    "updatedAt": "2026-10-19T04:24:36Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 13,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-11T17:24:06Z",
+                    "updatedAt": "2026-10-19T04:24:35Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 24,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-11T18:45:26Z",
+                    "updatedAt": "2026-10-19T03:10:37Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 173,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-18T17:49:52Z",
+                    "updatedAt": "2026-10-19T01:22:10Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 1,
+                      "nodes": [
+                        {
+                          "number": 216,
+                          "isDraft": false,
+                          "author": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "number": 163,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "MEMBER",
+                    "createdAt": "2026-10-18T02:21:47Z",
+                    "updatedAt": "2026-10-18T18:10:16Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  }
+                ]
+              }
+            },
+            "rateLimit": {
+              "cost": 2,
+              "nodeCount": 6003,
+              "used": 660,
+              "remaining": 4340,
+              "limit": 5000,
+              "resetAt": "2026-10-20T01:46:12Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "graphql",
+        "call": "POST /graphql, Pass: combsmith/software-factory, the top-level pages sized to the counts (1 pull requests, 42 issues)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28",
+          "content-type": "application/json"
+        },
+        "body": {
+          "query": "query Pass($owner: String!, $name: String!, $prs: Int!, $issues: Int!, $files: Int!, $reviews: Int!, $threads: Int!, $checks: Int!, $events: Int!, $labels: Int!, $issueEvents: Int!) {\n  repository(owner: $owner, name: $name) {\n    nameWithOwner\n    pullRequests(states: OPEN, first: $prs, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      totalCount\n      pageInfo { hasNextPage }\n      nodes {\n        number\n        state\n        isDraft\n        author { login __typename }\n        authorAssociation\n        isCrossRepository\n        headRefOid\n        baseRefOid\n        baseRefName\n        baseRef { branchProtectionRule { id } refUpdateRule { requiredApprovingReviewCount } }\n        mergeable\n        changedFiles\n        additions\n        deletions\n        updatedAt\n        files(first: $files) { totalCount pageInfo { hasNextPage } nodes { path changeType } }\n        labels(first: $labels) { totalCount pageInfo { hasNextPage } nodes { name } }\n        reviews(first: $reviews) {\n          totalCount\n          pageInfo { hasNextPage }\n          nodes { databaseId author { login __typename } authorAssociation state commit { oid } submittedAt }\n        }\n        reviewThreads(first: $threads) {\n          totalCount\n          pageInfo { hasNextPage }\n          nodes {\n            id isResolved isOutdated path line\n            resolvedBy { login }\n            comments(first: 1) { nodes { author { login __typename } authorAssociation createdAt } }\n          }\n        }\n        commits(last: 1) {\n          nodes {\n            commit {\n              oid\n              committedDate\n              statusCheckRollup {\n                state\n                contexts(first: $checks) {\n                  totalCount\n                  pageInfo { hasNextPage }\n                  nodes {\n                    __typename\n                    ... on CheckRun {\n                      name conclusion status completedAt\n                      checkSuite { app { databaseId } workflowRun { file { path } } }\n                    }\n                    ... on StatusContext { context state createdAt }\n                  }\n                }\n              }\n            }\n          }\n        }\n        timelineItems(first: $events, itemTypes: [LABELED_EVENT, UNLABELED_EVENT, REVIEW_DISMISSED_EVENT, ADDED_TO_MERGE_QUEUE_EVENT, REMOVED_FROM_MERGE_QUEUE_EVENT, READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT]) {\n          totalCount\n          pageInfo { hasNextPage }\n          nodes {\n            __typename\n            ... on LabeledEvent { actor { login __typename } label { name } createdAt }\n            ... on UnlabeledEvent { actor { login __typename } label { name } createdAt }\n            ... on ReviewDismissedEvent { actor { login __typename } previousReviewState createdAt review { databaseId } }\n            ... on AddedToMergeQueueEvent { actor { login __typename } createdAt }\n            ... on RemovedFromMergeQueueEvent { actor { login __typename } createdAt }\n            ... on ReadyForReviewEvent { actor { login __typename } createdAt }\n            ... on ConvertToDraftEvent { actor { login __typename } createdAt }\n          }\n        }\n        mergeQueueEntry { state position }\n        closingIssuesReferences(first: 10) { totalCount nodes { number } }\n      }\n    }\n    issues(states: OPEN, first: $issues, orderBy: {field: UPDATED_AT, direction: DESC}) {\n      totalCount\n      pageInfo { hasNextPage }\n      nodes {\n        number\n        author { login __typename }\n        authorAssociation\n        createdAt\n        updatedAt\n        labels(first: $labels) { totalCount pageInfo { hasNextPage } nodes { name } }\n        timelineItems(first: $issueEvents, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {\n          totalCount\n          pageInfo { hasNextPage }\n          nodes {\n            __typename\n            ... on LabeledEvent { actor { login __typename } label { name } createdAt }\n            ... on UnlabeledEvent { actor { login __typename } label { name } createdAt }\n          }\n        }\n        closedByPullRequestsReferences(first: 10, includeClosedPrs: false) {\n          totalCount\n          nodes { number isDraft author { login __typename } }\n        }\n      }\n    }\n  }\n  rateLimit { cost nodeCount used remaining limit resetAt }\n}\n",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory",
+            "prs": 1,
+            "issues": 42,
+            "files": 100,
+            "reviews": 100,
+            "threads": 100,
+            "checks": 100,
+            "events": 100,
+            "labels": 20,
+            "issueEvents": 100
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 20 Oct 2026 16:21:14 GMT",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-github-media-type": "github.v4; format=json",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4997",
+          "x-ratelimit-reset": "1792516870",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "3",
+          "x-github-request-id": "C07E:338976:E111D5:2D245AA:6AD794F6",
+          "server": "github.com"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "nameWithOwner": "combsmith/software-factory",
+              "pullRequests": {
+                "totalCount": 1,
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": [
+                  {
+                    "number": 216,
+                    "state": "OPEN",
+                    "isDraft": false,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "isCrossRepository": false,
+                    "headRefOid": "5d8ffc0999cbdc5172a454b48e61b39746cccdff",
+                    "baseRefOid": "d676f59cb9d6d94b55d996cfc37193d5c0cfca99",
+                    "baseRefName": "main",
+                    "baseRef": {
+                      "branchProtectionRule": null,
+                      "refUpdateRule": null
+                    },
+                    "mergeable": "MERGEABLE",
+                    "changedFiles": 5,
+                    "additions": 170,
+                    "deletions": 5,
+                    "updatedAt": "2026-10-20T16:18:19Z",
+                    "files": {
+                      "totalCount": 5,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "path": "docs/decisions/0034-an-issue-goes-stale-as-a-pull-request-does.md",
+                          "changeType": "MODIFIED"
+                        },
+                        {
+                          "path": "kernel/decide.py",
+                          "changeType": "MODIFIED"
+                        },
+                        {
+                          "path": "kernel/derive.py",
+                          "changeType": "MODIFIED"
+                        },
+                        {
+                          "path": "tests/test_decide.py",
+                          "changeType": "MODIFIED"
+                        },
+                        {
+                          "path": "tools/mutants.py",
+                          "changeType": "MODIFIED"
+                        }
+                      ]
+                    },
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "reviews": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "databaseId": 5579529373,
+                          "author": {
+                            "login": "coderabbitai",
+                            "__typename": "Bot"
+                          },
+                          "authorAssociation": "NONE",
+                          "state": "COMMENTED",
+                          "commit": {
+                            "oid": "5d8ffc0999cbdc5172a454b48e61b39746cccdff"
+                          },
+                          "submittedAt": "2026-10-20T00:53:49Z"
+                        }
+                      ]
+                    },
+                    "reviewThreads": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "commits": {
+                      "nodes": [
+                        {
+                          "commit": {
+                            "oid": "5d8ffc0999cbdc5172a454b48e61b39746cccdff",
+                            "committedDate": "2026-10-20T00:41:15Z",
+                            "statusCheckRollup": {
+                              "state": "SUCCESS",
+                              "contexts": {
+                                "totalCount": 18,
+                                "pageInfo": {
+                                  "hasNextPage": false
+                                },
+                                "nodes": [
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "Analyze (actions)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:51:22Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": null
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "SonarCloud",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:51:43Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/sonarcloud.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "Secret scan (gitleaks)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:50:54Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/ci.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "checks",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:01:25Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "Analyze (python)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:51:52Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": null
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (0)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:07:45Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (1)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:08:35Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (2)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:11:58Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (3)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:10:52Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (4)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:10:56Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (5)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:06:36Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (6)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:02:41Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "mutants (7)",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:04:16Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "verify",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T01:12:04Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 15368
+                                      },
+                                      "workflowRun": {
+                                        "file": {
+                                          "path": ".github/workflows/verify.yml"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "CodeQL",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:51:14Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 57789
+                                      },
+                                      "workflowRun": null
+                                    }
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "SonarCloud",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:51:46Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 57789
+                                      },
+                                      "workflowRun": null
+                                    }
+                                  },
+                                  {
+                                    "__typename": "StatusContext",
+                                    "context": "CodeRabbit",
+                                    "state": "SUCCESS",
+                                    "createdAt": "2026-10-20T00:53:55Z"
+                                  },
+                                  {
+                                    "__typename": "CheckRun",
+                                    "name": "SonarCloud Code Analysis",
+                                    "conclusion": "SUCCESS",
+                                    "status": "COMPLETED",
+                                    "completedAt": "2026-10-20T00:51:41Z",
+                                    "checkSuite": {
+                                      "app": {
+                                        "databaseId": 12526
+                                      },
+                                      "workflowRun": null
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "timelineItems": {
+                      "totalCount": 10,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "__typename": "AddedToMergeQueueEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "createdAt": "2026-10-20T01:12:57Z"
+                        },
+                        {
+                          "__typename": "RemovedFromMergeQueueEvent",
+                          "actor": {
+                            "login": "github-merge-queue",
+                            "__typename": "Bot"
+                          },
+                          "createdAt": "2026-10-20T01:34:43Z"
+                        },
+                        {
+                          "__typename": "AddedToMergeQueueEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "createdAt": "2026-10-20T16:15:22Z"
+                        }
+                      ]
+                    },
+                    "mergeQueueEntry": {
+                      "state": "AWAITING_CHECKS",
+                      "position": 1
+                    },
+                    "closingIssuesReferences": {
+                      "totalCount": 1,
+                      "nodes": [
+                        {
+                          "number": 173
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "issues": {
+                "totalCount": 42,
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": [
+                  {
+                    "number": 218,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-20T16:18:11Z",
+                    "updatedAt": "2026-10-20T16:18:11Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 217,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-20T01:11:54Z",
+                    "updatedAt": "2026-10-20T01:11:54Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 25,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-11T18:45:28Z",
+                    "updatedAt": "2026-10-19T18:49:08Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 207,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T16:21:21Z",
+                    "updatedAt": "2026-10-19T16:21:21Z",
+                    "labels": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "name": "scorecard"
+                        }
+                      ]
+                    },
+                    "timelineItems": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "__typename": "LabeledEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "label": {
+                            "name": "scorecard"
+                          },
+                          "createdAt": "2026-10-19T16:21:22Z"
+                        }
+                      ]
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 206,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T16:21:18Z",
+                    "updatedAt": "2026-10-19T16:21:18Z",
+                    "labels": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "name": "scorecard"
+                        }
+                      ]
+                    },
+                    "timelineItems": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "__typename": "LabeledEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "label": {
+                            "name": "scorecard"
+                          },
+                          "createdAt": "2026-10-19T16:21:19Z"
+                        }
+                      ]
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 205,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T16:21:15Z",
+                    "updatedAt": "2026-10-19T16:21:15Z",
+                    "labels": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "name": "scorecard"
+                        }
+                      ]
+                    },
+                    "timelineItems": {
+                      "totalCount": 1,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "__typename": "LabeledEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "label": {
+                            "name": "scorecard"
+                          },
+                          "createdAt": "2026-10-19T16:21:16Z"
+                        }
+                      ]
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 204,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T14:56:00Z",
+                    "updatedAt": "2026-10-19T16:07:23Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 202,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T14:14:06Z",
+                    "updatedAt": "2026-10-19T14:14:06Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 201,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T13:54:25Z",
+                    "updatedAt": "2026-10-19T13:54:25Z",
+                    "labels": {
+                      "totalCount": 3,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "name": "dev-lead"
+                        },
+                        {
+                          "name": "fleet-tracker"
+                        },
+                        {
+                          "name": "health-check"
+                        }
+                      ]
+                    },
+                    "timelineItems": {
+                      "totalCount": 3,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": [
+                        {
+                          "__typename": "LabeledEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "label": {
+                            "name": "dev-lead"
+                          },
+                          "createdAt": "2026-10-19T13:54:27Z"
+                        },
+                        {
+                          "__typename": "LabeledEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "label": {
+                            "name": "fleet-tracker"
+                          },
+                          "createdAt": "2026-10-19T13:54:27Z"
+                        },
+                        {
+                          "__typename": "LabeledEvent",
+                          "actor": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          },
+                          "label": {
+                            "name": "health-check"
+                          },
+                          "createdAt": "2026-10-19T13:54:27Z"
+                        }
+                      ]
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 3,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-11T17:23:40Z",
+                    "updatedAt": "2026-10-19T04:31:37Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 141,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-17T00:59:32Z",
+                    "updatedAt": "2026-10-19T04:28:15Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 140,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-17T00:59:31Z",
+                    "updatedAt": "2026-10-19T04:28:15Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 139,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-17T00:59:30Z",
+                    "updatedAt": "2026-10-19T04:28:14Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 138,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-17T00:59:29Z",
+                    "updatedAt": "2026-10-19T04:28:13Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 198,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:29Z",
+                    "updatedAt": "2026-10-19T04:26:29Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 197,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:28Z",
+                    "updatedAt": "2026-10-19T04:26:28Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 196,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:27Z",
+                    "updatedAt": "2026-10-19T04:26:27Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 195,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:26Z",
+                    "updatedAt": "2026-10-19T04:26:26Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 194,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:26Z",
+                    "updatedAt": "2026-10-19T04:26:26Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 193,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:25Z",
+                    "updatedAt": "2026-10-19T04:26:25Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 192,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:24Z",
+                    "updatedAt": "2026-10-19T04:26:24Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 191,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:23Z",
+                    "updatedAt": "2026-10-19T04:26:23Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 190,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:19Z",
+                    "updatedAt": "2026-10-19T04:26:19Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 189,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:18Z",
+                    "updatedAt": "2026-10-19T04:26:18Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 188,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:17Z",
+                    "updatedAt": "2026-10-19T04:26:17Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 187,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:16Z",
+                    "updatedAt": "2026-10-19T04:26:16Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 186,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:15Z",
+                    "updatedAt": "2026-10-19T04:26:15Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 185,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:15Z",
+                    "updatedAt": "2026-10-19T04:26:15Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 184,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:13Z",
+                    "updatedAt": "2026-10-19T04:26:13Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 183,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:13Z",
+                    "updatedAt": "2026-10-19T04:26:13Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 182,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T04:26:12Z",
+                    "updatedAt": "2026-10-19T04:26:12Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 95,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-15T20:49:17Z",
+                    "updatedAt": "2026-10-19T04:24:50Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 89,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-15T18:01:15Z",
+                    "updatedAt": "2026-10-19T04:24:49Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 62,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-14T22:30:30Z",
+                    "updatedAt": "2026-10-19T04:24:48Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 180,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T03:17:29Z",
+                    "updatedAt": "2026-10-19T04:24:45Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 178,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-19T00:57:01Z",
+                    "updatedAt": "2026-10-19T04:24:44Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 43,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-11T20:12:28Z",
+                    "updatedAt": "2026-10-19T04:24:37Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 8,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-11T17:23:52Z",
+                    "updatedAt": "2026-10-19T04:24:36Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 13,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-11T17:24:06Z",
+                    "updatedAt": "2026-10-19T04:24:35Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 24,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-11T18:45:26Z",
+                    "updatedAt": "2026-10-19T03:10:37Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  },
+                  {
+                    "number": 173,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-18T17:49:52Z",
+                    "updatedAt": "2026-10-19T01:22:10Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 1,
+                      "nodes": [
+                        {
+                          "number": 216,
+                          "isDraft": false,
+                          "author": {
+                            "login": "don-petry",
+                            "__typename": "User"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "number": 163,
+                    "author": {
+                      "login": "don-petry",
+                      "__typename": "User"
+                    },
+                    "authorAssociation": "CONTRIBUTOR",
+                    "createdAt": "2026-10-18T02:21:47Z",
+                    "updatedAt": "2026-10-18T18:10:16Z",
+                    "labels": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "timelineItems": {
+                      "totalCount": 0,
+                      "pageInfo": {
+                        "hasNextPage": false
+                      },
+                      "nodes": []
+                    },
+                    "closedByPullRequestsReferences": {
+                      "totalCount": 0,
+                      "nodes": []
+                    }
+                  }
+                ]
+              }
+            },
+            "rateLimit": {
+              "cost": 2,
+              "nodeCount": 6134,
+              "used": 3,
+              "remaining": 4997,
+              "limit": 5000,
+              "resetAt": "2026-10-20T17:21:10Z"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization"
+  ],
+  "verdict": "fail"
+}

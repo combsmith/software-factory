@@ -66,7 +66,7 @@ RULES = (
     ("an_app_can_label", "An App can add or remove a control label on a pull request, a Hold or hands-off among them",
      (), None),
     ("a_label_event_names_its_actor", "The timeline's labeled and unlabeled events say who added or removed each "
-     "label, and when", ("P-32",), None),
+     "label, and when", ("P-32",), "trials/P-32.json"),
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an account "
      "type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any other App "
      "and the machine user apart, never from a name's spelling", (), None),

@@ -2654,6 +2654,24 @@ class Trials(unittest.TestCase):
             self.assertEqual(data["verdict"], "pass", name)
             self.assertEqual(data["ran_at"][:10], "2026-10-19", name)
 
+    def test_the_cost_trial_grounds_the_label_events_rule_and_marks_its_estimate(self):
+        # P-32 read each labeled and unlabeled event with its actor and time in the same read as P-8; its verdict fails on
+        # its other half (an App reads an org member's association as CONTRIBUTOR), as P-17's grounds a rule it failed.
+        by_code = {code: (trials, fixture) for code, _, trials, fixture in check_trials.rules()}
+        self.assertEqual(by_code["a_label_event_names_its_actor"], (("P-32",), "trials/P-32.json"))
+        p32 = json.loads((ROOT / "trials" / "P-32.json").read_text())
+        self.assertEqual(p32["verdict"], "fail")
+        events = [e for i in p32["exchanges"][1]["response"]["body"]["data"]["repository"]["issues"]["nodes"]
+                  for e in i["timelineItems"]["nodes"]]
+        self.assertTrue(events)
+        self.assertTrue(all(e["actor"]["login"] and e["actor"]["__typename"] and e["createdAt"] for e in events))
+        p8 = json.loads((ROOT / "trials" / "P-8.json").read_text())
+        self.assertEqual(p8["verdict"], "pass")
+        estimate = p8["exchanges"][-1]["response"]["body"]
+        self.assertIn("estimate", estimate["method"])
+        self.assertTrue(all(c["reported"] == c["model"] for c in estimate["model_checks"]))
+        self.assertLess(estimate["points_an_hour"]["sized_to_counts"]["at_12_passes_an_hour_the_schedule"], estimate["W4"])
+
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
         problems = check_trials.run(clone({"sim/world.py": world + "\n# GitHub: a_rule_nobody_listed\n"}))
