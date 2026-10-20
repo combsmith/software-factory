@@ -341,27 +341,31 @@ def out(state, reason: str, evidence: list) -> dict:
 
 
 def readable_close(facts: dict) -> bool:
-    """Whether the issue's latest close can be read whole: a time while it is closed; while it is open, null if it was
-    never closed, or the time of the close its last reopening undid, no later than that reopening."""
-    when = facts.get("closed_last_at", "")
-    if facts["state"] == "closed":
-        return is_time(when)
-    if when is None:
-        return True
-    reopened = facts.get("reopened_last_at")
-    return is_time(when) and is_time(reopened) and when <= reopened
+    """Whether the first close of the issue's present life can be read whole: a time no earlier than the life began
+    while the issue is closed; while it is open, null unless anyone but a writer reopened it last, which undid a close
+    of this life, no earlier than the life began and no later than that reopening. A writer's reopening began the life,
+    so the close it undid is the earlier life's."""
+    when, began = facts.get("closed_first_at", ""), facts.get("life_started_at")
+    if facts["state"] == "open" and facts.get("reopened_last_by") != "other":
+        return when is None
+    # The life's start is the life's to read; where it reads, the close came no earlier.
+    return is_time(when) and (not is_time(began) or began <= when)
 
 
 def readable_reopening(facts: dict) -> bool:
     """Whether when the issue was last reopened can be read whole: null when it never was; the start of the present
     life when a person with write access reopened it last, since that reopening began the life; and a time no earlier
     than that start when anyone else did, since a writer's later reopening would have begun a life of its own."""
-    who, when = facts["reopened_last_by"], facts.get("reopened_last_at", "")
+    who, when, undone = facts["reopened_last_by"], facts.get("reopened_last_at", ""), facts.get("closed_first_at")
     if who == "never":
         return when is None
     if not is_time(when):
         return False
-    return when == facts["life_started_at"] if who == "writer" else when >= facts["life_started_at"]
+    if who == "writer":
+        return when == facts["life_started_at"]
+    # Anyone else's reopening undid the first close of this life, which came no later than it; that close is a time
+    # no earlier than the life began, since the state was read first (readable_close), so the reopening is in the life.
+    return undone <= when
 
 
 def stopped_before(labels: dict, drafts: list, when: str) -> list:
@@ -372,11 +376,21 @@ def stopped_before(labels: dict, drafts: list, when: str) -> list:
         name in each and each[name]["at"] <= when for each in [labels] + [standing_labels(p) for p in drafts])]
 
 
+def as_of(item: dict, when: str) -> dict:
+    """`item`, an issue or a linked pull request, with the label events up to `when` alone: its labels as they stood
+    then."""
+    return dict(item, label_events=[ev for ev in item["label_events"] if ev["at"] <= when])
+
+
 def a_persons_hands_off(labels: dict, facts: dict, drafts: list, by: str = None) -> bool:
-    """Whether a person placed hands-off on the issue or on its linked draft, by the time `by` where one is given: the
-    Factory never acts on it, and leaves a queued item to merge under it."""
-    return any(placed_by_a_person(each, item) and (by is None or each[t.LABEL_HANDS_OFF]["at"] <= by)
-               for each, item in [(labels, facts)] + [(standing_labels(p), p) for p in drafts])
+    """Whether a person's hands-off stands on the issue or on its linked draft, or stood there at the time `by` where
+    one is given, lifted since or not: the Factory never acts on it, and leaves a queued item to merge under it."""
+    items = [facts] + list(drafts)
+    if by is not None:
+        items = [as_of(item, by) for item in items]
+        labels = standing_labels(items[0])
+    return any(placed_by_a_person(each, item)
+               for each, item in [(labels, items[0])] + [(standing_labels(p), p) for p in items[1:]])
 
 
 def held_by(labels: dict, drafts: list) -> list:
@@ -426,16 +440,16 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     # (I-41), or while a Hold stood, is the platform doing what the Controller should have prevented, a dequeue on
     # that close or hold (issue 227, the Maintainer's ruling): it is never done. The State the person put the issue in
     # stays, and the reason names the contradiction, so that a person sees it. Each is read against the first such
-    # merge, by the times the facts carry: a close in this life before the merge's second is a person's, since the
-    # merge's own close comes no earlier than the merge, and it is read from the latest close, which a reopening by
-    # anyone but a writer does not undo; a reopening or a Hold in that second stops work, so it wins. A person's
-    # hands-off is no Hold: the Factory leaves a queued item to merge under it, so that merge is done.
+    # merge, by the times the facts carry: the first close of this life before the merge's second is a person's,
+    # since the merge's own close comes no earlier than the merge, and no later close or reopening by anyone moves it;
+    # a reopening or a Hold in that second stops work, so it wins. A person's hands-off is no Hold: the Factory
+    # leaves a queued item to merge under it, so that merge is done.
     merged = [p for p in links
               if p["merged_at"] is not None and not p["empty"] and p["merged_at"] >= facts["life_started_at"]]
     merges = [str(p["number"]) for p in merged]
     if merged:
         first = min(p["merged_at"] for p in merged)
-        if facts["closed_last_at"] is not None and facts["life_started_at"] <= facts["closed_last_at"] < first:
+        if facts["closed_first_at"] is not None and facts["closed_first_at"] < first:
             return out(DECLINED, "merged_while_declined", merges)
         if facts["reopened_last_by"] == "other" and facts["reopened_last_at"] <= first:
             return out(DECLINED, "merged_while_declined", merges)

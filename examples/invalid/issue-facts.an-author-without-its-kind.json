@@ -6,7 +6,7 @@
     "number": 41
   },
   "state": "open",
-  "closed_last_at": null,
+  "closed_first_at": null,
   "author": {
     "name": "don-petry",
     "can_write": true

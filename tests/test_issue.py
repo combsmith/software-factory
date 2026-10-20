@@ -101,10 +101,12 @@ def facts(**over) -> dict:
     f.update(over)
     # The two times a close and a reopening carry, as GitHub holds them, unless the case gives them: a person's close
     # a minute after the opening, and a reopening at the start of the present life.
-    if "closed_last_at" not in over:
-        f["closed_last_at"] = at(1) if f["state"] == "closed" else None
     if "reopened_last_at" not in over:
-        f["reopened_last_at"] = None if f["reopened_last_by"] == "never" else f["life_started_at"]
+        f["reopened_last_at"] = f["life_started_at"] if f["reopened_last_by"] in ("writer", "other") else None
+    if "closed_first_at" not in over:
+        # Closed, a minute after the opening; open after an outsider's reopening, the close it undid in its second.
+        f["closed_first_at"] = at(1) if f["state"] == "closed" else (
+            f["reopened_last_at"] if f["reopened_last_by"] == "other" else None)
     return f
 
 
@@ -435,15 +437,22 @@ class Done(unittest.TestCase):
         declined = [
             # A person's close before the merge (seed 22 of the issue world); the merge's own close comes no earlier
             # than the merge, so a close in the merge's second or after it is the merge's.
-            facts(state="closed", closed_last_at=at(4), linked=merged),
+            facts(state="closed", closed_first_at=at(4), linked=merged),
             # A reopening by someone without write access, which begins no life (I-41), before or in the second of
             # the merge (seed 99): the issue stays open where the merge closed nothing, or closed where it did.
             facts(reopened_last_by="other", reopened_last_at=at(3), linked=merged),
             facts(reopened_last_by="other", reopened_last_at=at(5), linked=merged),
-            facts(state="closed", closed_last_at=at(5), reopened_last_by="other", reopened_last_at=at(3), linked=merged),
-            # The person's close before the merge, which an outsider's reopening after the merge undid: the latest
-            # close is still read, so the contradiction does not vanish at a stranger's click.
-            facts(closed_last_at=at(4), reopened_last_by="other", reopened_last_at=at(7), linked=merged),
+            facts(state="closed", closed_first_at=at(2), reopened_last_by="other", reopened_last_at=at(3), linked=merged),
+            # The person's close before the merge, which an outsider's reopening after the merge undid, and which
+            # the person then closed again: the first close of the life is still read, so the contradiction does not
+            # vanish at a stranger's click, nor at the person's own.
+            facts(closed_first_at=at(4), reopened_last_by="other", reopened_last_at=at(7), linked=merged),
+            facts(state="closed", closed_first_at=at(4), reopened_last_by="other", reopened_last_at=at(7), linked=merged),
+            # A life that began and was closed by a person in one second, before the merge; and one closed in the
+            # second it was opened.
+            facts(state="closed", closed_first_at=at(3), life_started_at=at(3), reopened_last_by="writer",
+                  reopened_last_at=at(3), linked=merged),
+            facts(state="closed", closed_first_at=at(0), linked=merged),
         ]
         for f in declined:
             d = derive(f)
@@ -460,12 +469,14 @@ class Done(unittest.TestCase):
             self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11"]), f)
             d = decide(f)
             self.assertEqual((what(d), d["attention"]), (("hold", "merged_while_held", None), "needs_you"))
-        d = derive(facts(state="closed", closed_last_at=at(4), label_events=[labelled(HOLD, minute=4)], linked=merged))
+        d = derive(facts(state="closed", closed_first_at=at(4), label_events=[labelled(HOLD, minute=4)], linked=merged))
         self.assertEqual((d["state"], d["reason"]), ("declined", "merged_while_declined"))
-        # A person's hands-off placed after the merge excuses nothing: the Hold stood when the merge landed.
-        for events in ([labelled(HOLD, minute=4), labelled(HANDS_OFF, minute=6)],):
+        # A person's hands-off placed after the merge excuses nothing: the Hold stood when the merge landed; nor does
+        # one a person had lifted before it.
+        for events in ([labelled(HOLD, minute=4), labelled(HANDS_OFF, minute=6)],
+                       [labelled(HOLD, minute=3), labelled(HANDS_OFF, minute=2), unlabelled(HANDS_OFF, minute=4)]):
             d = derive(facts(label_events=events, linked=merged))
-            self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
+            self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"), events)
         d = derive(facts(label_events=[labelled(HOLD, minute=4)],
                          linked=merged + [agents(number=12, draft=True, events=[labelled(HANDS_OFF, minute=6)])]))
         self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
@@ -478,17 +489,22 @@ class Done(unittest.TestCase):
         # merge; a writer's reopening, which begins a life; a person's hands-off, under which the Factory leaves a
         # queued item to merge, with a Hold beside it or not, on the issue or on its linked draft; an issue the
         # Consumer entry leaves out; and the ordinary course.
-        for f, cfg in ((facts(state="closed", closed_last_at=at(5), linked=merged), None),
-                       (facts(state="closed", closed_last_at=at(6), linked=merged), None),
+        for f, cfg in ((facts(state="closed", closed_first_at=at(5), linked=merged), None),
+                       (facts(state="closed", closed_first_at=at(6), linked=merged), None),
                        (facts(label_events=[labelled(HOLD, minute=6)], linked=merged), None),
                        (facts(label_events=[labelled(HOLD, minute=4), unlabelled(HOLD, minute=7)], linked=merged), None),
                        (facts(reopened_last_by="other", reopened_last_at=at(6), linked=merged), None),
                        (facts(reopened_last_by="writer", linked=merged), None),
-                       # A close in an earlier life, which a writer's reopening ended.
-                       (facts(closed_last_at=at(2), life_started_at=at(3), reopened_last_by="writer",
-                              reopened_last_at=at(3), linked=merged), None),
-                       # The merge's own close, which an outsider's later reopening undid.
-                       (facts(closed_last_at=at(5), reopened_last_by="other", reopened_last_at=at(7), linked=merged), None),
+                       # A close in an earlier life, which a writer's reopening ended: no close in this one.
+                       (facts(life_started_at=at(3), reopened_last_by="writer", reopened_last_at=at(3), linked=merged),
+                        None),
+                       # A person's hands-off that stood at the merge and was lifted by that person since.
+                       (facts(label_events=[labelled(HOLD, OTHER_APP, 3), labelled(HANDS_OFF, minute=4),
+                                            unlabelled(HANDS_OFF, minute=6)], linked=merged), None),
+                       # The merge's own close, which an outsider's later reopening undid, closed again since or not.
+                       (facts(closed_first_at=at(5), reopened_last_by="other", reopened_last_at=at(7), linked=merged), None),
+                       (facts(state="closed", closed_first_at=at(5), reopened_last_by="other", reopened_last_at=at(7),
+                              linked=merged), None),
                        (facts(label_events=[labelled(HANDS_OFF, minute=4)], linked=merged), None),
                        (facts(label_events=[labelled(HOLD, minute=3), labelled(HANDS_OFF, minute=4)], linked=merged), None),
                        (facts(linked=merged + [agents(number=12, draft=True, events=[labelled(HANDS_OFF, minute=4)])]), None),
@@ -503,10 +519,19 @@ class Done(unittest.TestCase):
     def test_a_close_or_a_reopening_without_its_time_cannot_be_read(self):  # issue 227
         # A closed issue says when, an open one says null; a reopening says when, a writer's at the start of the life it
         # began, anyone else's no earlier than that start; never reopened, null. Anything else defers.
-        for over in ({"state": "closed", "closed_last_at": None}, {"state": "closed", "closed_last_at": "yesterday"},
-                     {"state": "closed", "closed_last_at": 5}, {"state": "open", "closed_last_at": at(1)},
-                     {"state": "open", "closed_last_at": at(3), "reopened_last_by": "other", "reopened_last_at": at(2)},
-                     {"state": "open", "closed_last_at": "yesterday", "reopened_last_by": "writer"}):
+        for over in ({"state": "closed", "closed_first_at": None}, {"state": "closed", "closed_first_at": "yesterday"},
+                     {"state": "closed", "closed_first_at": 5},
+                     {"state": "closed", "closed_first_at": at(2), "life_started_at": at(3), "reopened_last_by": "writer",
+                      "reopened_last_at": at(3)},
+                     {"state": "open", "closed_first_at": at(1)},
+                     {"state": "open", "closed_first_at": at(2), "reopened_last_by": "writer", "life_started_at": at(2),
+                      "reopened_last_at": at(2)},
+                     {"state": "open", "closed_first_at": None, "reopened_last_by": "other", "reopened_last_at": at(2)},
+                     {"state": "closed", "closed_first_at": at(1), "life_started_at": at(2), "reopened_last_by": "writer",
+                      "reopened_last_at": at(2)},
+                     {"state": "open", "closed_first_at": at(1), "reopened_last_by": "other", "life_started_at": at(2),
+                      "reopened_last_at": at(3)},
+                     {"state": "open", "closed_first_at": "yesterday", "reopened_last_by": "other", "reopened_last_at": at(2)}):
             f = facts(**over)
             d = decide(f)
             self.assertEqual((d["state"], what(d)), (None, ("defer", "state_unreadable", None)), over)
@@ -514,20 +539,24 @@ class Done(unittest.TestCase):
                      {"reopened_last_by": "writer", "reopened_last_at": None},
                      {"reopened_last_by": "writer", "life_started_at": at(3), "reopened_last_at": at(2)},
                      {"reopened_last_by": "writer", "life_started_at": at(3), "reopened_last_at": at(4)},
-                     {"reopened_last_by": "other", "reopened_last_at": None},
-                     {"reopened_last_by": "other", "life_started_at": at(3), "reopened_last_at": at(2)},
-                     {"reopened_last_by": "other", "reopened_last_at": "soon"}):
+                     {"reopened_last_by": "other", "reopened_last_at": None, "closed_first_at": at(1)},
+                     {"reopened_last_by": "other", "life_started_at": at(3), "reopened_last_at": at(2), "closed_first_at": at(3)},
+                     {"reopened_last_by": "other", "reopened_last_at": at(2), "closed_first_at": at(3)},
+                     {"reopened_last_by": "other", "reopened_last_at": "soon", "closed_first_at": at(1)}):
             f = facts(**over)
             d = decide(f)
             self.assertEqual((d["state"], what(d)), (None, ("defer", "life_unreadable", None)), over)
         # Each missing: the same. The other side: each as GitHub gives it reads.
-        for key in ("closed_last_at", "reopened_last_at"):
+        for key in ("closed_first_at", "reopened_last_at"):
             f = facts()
             del f[key]
             self.assertEqual(decide(f)["outcome"], "defer", key)
-        self.assertEqual(state(facts(state="closed", closed_last_at=at(1))), "declined")
+        self.assertEqual(state(facts(state="closed", closed_first_at=at(1))), "declined")
+        self.assertEqual(state(facts(state="closed", closed_first_at=at(3), life_started_at=at(3), reopened_last_by="writer",
+                                     reopened_last_at=at(3))), "declined")
         self.assertEqual(state(facts(reopened_last_by="writer", life_started_at=at(3), reopened_last_at=at(3))), "new")
-        self.assertEqual(state(facts(reopened_last_by="other", life_started_at=at(3), reopened_last_at=at(4))), "declined")
+        self.assertEqual(state(facts(closed_first_at=at(3), reopened_last_by="other", life_started_at=at(3),
+                                     reopened_last_at=at(4))), "declined")
 
     def test_a_merge_at_the_start_of_a_life_is_done_and_one_before_it_is_not(self):
         merged = [pr(is_open=False, merged=5)]
@@ -1859,7 +1888,7 @@ class Stale(unittest.TestCase):
         # A merge after the close, though both are after the opening: a merge closes it, so it cannot come later.
         merged_late = dict(merged, opened_at=MOVED, merged_at=minutes_after(then, 1))
         for entry in (closed, merged_first, merged, merged_late):
-            for f in (dict(WAITING, linked=[entry]), dict(WAITING, state="closed", closed_last_at=then, linked=[entry])):
+            for f in (dict(WAITING, linked=[entry]), dict(WAITING, state="closed", closed_first_at=then, linked=[entry])):
                 d = decide(f, ctx=PASSING, now=minutes_after(MOVED, limit("triage") + 1))
                 self.assertEqual((d["state"], what(d)), (None, ("defer", "linked_unreadable", None)), entry)
         # The other side: a close in the second it opened, or after it, is read.

@@ -132,8 +132,8 @@ RULES = (
      "anything on it changed", ("P-34",), None),
     ("a_reopening_names_its_actor", "Each reopening of an issue is on its timeline, with who did it", ("P-34",), None),
     ("an_issues_close_and_reopening_say_when", "Each close and each reopening of an issue is on its timeline with "
-     "its time, so its latest close is read across a reopening; a merge that closes the issue closes it no earlier "
-     "than the merge",
+     "its time, so the first close of its present life is read across a reopening; a merge that closes the issue "
+     "closes it no earlier than the merge",
      ("P-33", "P-34"), None),
     ("an_issues_run_record_expires", "A run record is gone from the list once it is past the retention", ("P-16",),
      None),

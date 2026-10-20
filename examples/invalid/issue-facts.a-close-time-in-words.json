@@ -6,7 +6,7 @@
     "number": 41
   },
   "state": "closed",
-  "closed_last_at": "yesterday",
+  "closed_first_at": "yesterday",
   "author": {
     "kind": "human",
     "name": "don-petry",

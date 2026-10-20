@@ -81,7 +81,7 @@ class IssueWorld:
         self.state = "open"            # as GitHub holds it
         self.life_started = 0          # when the present life began: opened, or last reopened by a writer
         self.reopened_last_by = "never"
-        self.closed = None             # when the issue last closed, from its timeline; None while never
+        self.closed = None             # when the present life was first closed, from its timeline; None while not
         self.reopened_last = None      # when the issue was last reopened, by anyone; None while never
         self.content = 1
         self.content_changed = 0
@@ -176,7 +176,7 @@ class IssueWorld:
         return {
             "schema": "issue-facts/1", "item": dict(ITEM), "state": self.state,
             # GitHub: an_issues_close_and_reopening_say_when
-            "closed_last_at": None if self.closed is None else World.at(self.closed),
+            "closed_first_at": None if self.closed is None else World.at(self.closed),
             # GitHub: an_issues_author_has_an_association
             "author": dict(self.author), "type": self.type, "label_names": list(self.label_names),
             "assignees": [],
@@ -624,7 +624,9 @@ class IssueWorld:
     def close(self, who: dict):
         if self.state == "closed":
             return
-        self.state, self.closed = "closed", self.minute
+        self.state = "closed"
+        if self.closed is None:
+            self.closed = self.minute
         self.writer_acted()
         self.note("%s closed the issue" % who["name"])
 
@@ -636,7 +638,7 @@ class IssueWorld:
         self.state, self.reopened_last = "open", self.minute
         # GitHub: a_reopening_names_its_actor
         if self.is_person(who):
-            self.life_started = self.minute
+            self.life_started, self.closed = self.minute, None
             self.reopened_last_by = "writer"
             self.writer_acted()
             self.starts()
