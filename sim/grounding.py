@@ -124,17 +124,23 @@ RULES = (
     # Factory reads an issue as the machine user, and no trial has yet asked what that read says.
     ("an_issues_author_has_an_association", "The listing of issues says whether an issue's author has write "
      "access", ("P-32",), None),
-    ("a_closing_reference_is_read_from_any_pull_request", "The issue a pull request closes, and who opened the pull "
-     "request, are read from a draft, an open, a merged and a closed-unmerged pull request alike", ("P-33",), None),
+    # trials/P-33.json: a pull request to a base that is not the default branch carries no closing reference at all
+    # (section 6's fallback: the issue Lifecycle serves the default branch only). The reverse read from the issue is
+    # no substitute: willCloseTarget is false for a closed-unmerged pull request that keeps its reference, false for
+    # every one once the issue is closed, and a keyword link raises no ConnectedEvent; the port reads the pull request.
+    ("a_closing_reference_is_read_from_any_pull_request", "The issue a pull request to the default branch closes, and "
+     "who opened the pull request, are read from a draft, an open, a merged and a closed-unmerged pull request "
+     "alike; one to another base carries no reference", ("P-33",), "trials/P-33.json"),
     ("who_changed_the_draft_flag_is_read", "The timeline says who last marked a pull request ready or converted it "
-     "to a draft", ("P-33",), None),
+     "to a draft", ("P-33",), "trials/P-33.json"),
+    # trials/P-34.json: lastEditedAt moves for the body alone; the title's change is the timeline's RenamedTitleEvent,
+    # so the content's time is the newer of the two, which the port computes; updatedAt moves for anything.
     ("an_issues_content_time_is_read_apart", "When an issue's title or body last changed is read apart from when "
-     "anything on it changed", ("P-34",), None),
-    ("a_reopening_names_its_actor", "Each reopening of an issue is on its timeline, with who did it", ("P-34",), None),
+     "anything on it changed", ("P-34",), "trials/P-34.json"),
+    ("a_reopening_names_its_actor", "Each reopening of an issue is on its timeline, with who did it", ("P-34",),
+     "trials/P-34.json"),
     ("an_issues_close_and_reopening_say_when", "Each close and each reopening of an issue is on its timeline with "
-     "its time, so the first close of its present life is read across a reopening; a merge that closes the issue "
-     "closes it no earlier than the merge",
-     ("P-33", "P-34"), None),
+     "its time, so the first close of its present life is read across a reopening", ("P-34",), "trials/P-34.json"),
     ("an_issues_run_record_expires", "A run record is gone from the list once it is past the retention", ("P-16",),
      None),
 )
