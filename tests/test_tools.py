@@ -2703,10 +2703,11 @@ class Trials(unittest.TestCase):
         # Nor does a schema's error, or any message of the check, carry such a key.
         data = json.loads(fixture())
         data[SHAPED["ghs"]] = 1
+        data["Bearer Zx9Qw8Er7Ty6Ui5Op4"] = 1        # a shape that spans a space
         data["exchanges"][0]["request"]["headers"][SHAPED["ghp"]] = "x"
         said = "\n".join(check_trials.run(clone({"trials/P-12.json": json.dumps(data)})))
         self.assertIn(check_trials.KEY_SHAPED, said)
-        for value in SHAPED.values():
+        for value in list(SHAPED.values()) + ["Zx9Qw8Er7Ty6Ui5Op4"]:
             self.assertNotIn(value, said)
         for key in PLAIN_KEYS:
             self.assertEqual(check_trials._credentials({key: "x"}, ""), [], key)
@@ -3140,7 +3141,7 @@ exit 9
 
     def answer(self, output=None, **extra) -> dict:
         said = {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1, "duration_ms": 5,
-                "total_cost_usd": 0.1, "usage": {"input_tokens": 1, "output_tokens": 2},
+                "total_cost_usd": 0.1, "usage": {"input_tokens": 1, "output_tokens": 2, "evil.provider": "LEAKED-DOTTED-KEY"},
                 "modelUsage": {"m": {"inputTokens": 1, "note": self.PROSE["in_usage"], "fallback": None, "provider": "firstParty",
                                      "note2": "LEAK-ONE-WORD", "note3": self.PROSE["long"]},
                                "sk-" + "ant-" + "api03-NEVER-SEEN": {"inputTokens": 2}, self.PROSE["as_key"]: 3},
@@ -3243,6 +3244,8 @@ exit 9
                 ("not logged in", self.stand_in(status={"loggedIn": False}), 1, "login under CONFIG_DIR is 'no', exit 0"),
                 ("unknown status", self.stand_in(status={"something": "else"}), 1, "is 'unknown', exit 0"),
                 ("status not json", self.stand_in(status="not json"), 1, "is 'unknown', exit 0"),
+                ("logged in as a number", self.stand_in(status={"loggedIn": 1, "authMethod": "someone@example.com via prose words"}), 1,
+                 "is 'unknown', exit 0"),
                 ("auth status failed", self.stand_in(status_exit=3), 1, "is 'yes', exit 3, not yes")]:
             out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
             ran = self.run_script(out, self.cfg, folder / "claude")
@@ -3250,6 +3253,12 @@ exit 9
             self.assertIn(said, ran.stderr, name)
             self.assertFalse((folder / "args").exists(), name + ": the Task was not asked")
             self.assertNotIn("NEVER-SEEN", "".join(self.texts(out).values()), name)
+            self.assertNotIn("example.com", "".join(self.texts(out).values()), name)
+        # A login that says yes with prose beside it: the prose is dropped, the run goes on.
+        folder = self.stand_in(status={"loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "max but said in words"})
+        out = self.home.parent / (self.home.name + "-prose-status")
+        self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 0)
+        self.assertEqual(json.loads((out / "clean-2").read_text()), {"loggedIn": True, "authMethod": "claude.ai"})
 
     def test_the_logins_exit_code_is_recorded(self):
         folder = self.stand_in()
@@ -3293,6 +3302,7 @@ exit 9
                 self.assertNotIn("a_new_field", kept, name)
                 self.assertEqual(kept["modelUsage"], {"m": {"inputTokens": 1, "fallback": None, "provider": "firstParty"}}, name)
                 self.assertNotIn("LEAK-ONE-WORD", "".join(texts.values()), name)
+                self.assertNotIn("LEAKED-DOTTED-KEY", "".join(texts.values()), name)
                 self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.modelUsage.m.note2", "$.modelUsage.m.note3", "$.stop_reason", "$.modelUsage.<key>")],
                                  [{"field": "$.modelUsage.m.note", "characters": len(self.PROSE["in_usage"])},
                                   {"field": "$.modelUsage.m.note2", "characters": len("LEAK-ONE-WORD")},

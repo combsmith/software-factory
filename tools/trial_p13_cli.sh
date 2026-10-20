@@ -155,9 +155,13 @@ try:
     said = json.load(open(sys.argv[1]))
 except ValueError:
     said = None
+import re
 kept = {k: said[k] for k in sys.argv[3].split() if isinstance(said, dict) and k in said}
+# A kept value is a bool or a code: letters, digits and _ . : - up to 64; an address or prose under a named key is dropped.
+kept = {k: v for k, v in kept.items() if isinstance(v, bool) or (isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", v))}
 json.dump(kept, open(sys.argv[2], "w"), indent=2)
-print({True: "yes", False: "no"}.get(kept.get("loggedIn"), "unknown"))' "$scratch/raw-2" "$scratch/kept-2" "$KEPT_STATUS")
+status = kept.get("loggedIn")
+print("yes" if status is True else "no" if status is False else "unknown")' "$scratch/raw-2" "$scratch/kept-2" "$KEPT_STATUS")
 rm -f "$scratch/raw-2"
 redact "$scratch/kept-2" 2
 if [[ "$code2" -ne 0 || "$logged_in" != yes ]]; then
@@ -214,14 +218,14 @@ if isinstance(said, dict):
     import re
     def prose(text):             # the CLI answers in numbers and codes: anything else is prose
         return not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", text)
-    def counts(value, where):    # a value, or a key with what is under it, that is prose or under no named key is dropped and counted
+    def counts(value, where, key=None):    # a value, or a key with what is under it, that is prose or under no named key is dropped and counted
         if isinstance(value, dict):
-            kept_here = [(k, DROP if prose(k) else counts(v, where + "." + k)) for k, v in value.items()]
+            kept_here = [(k, DROP if prose(k) else counts(v, where + "." + k, k)) for k, v in value.items()]
             taken.extend({"field": where + ".<key>", "characters": len(k)} for k, v in kept_here if v is DROP and prose(k))
             return {k: v for k, v in kept_here if v is not DROP}
         if isinstance(value, list):
-            return [v for v in (counts(v, where + "[]") for v in value) if v is not DROP]
-        if isinstance(value, str) and (prose(value) or where.split(".")[-1] not in string_keys):
+            return [v for v in (counts(v, where + "[]", key) for v in value) if v is not DROP]
+        if isinstance(value, str) and (prose(value) or key not in string_keys):
             taken.append({"field": where, "characters": len(value)})
             return DROP
         if isinstance(value, float) and not value == value:    # a number that is not one

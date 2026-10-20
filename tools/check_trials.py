@@ -84,8 +84,10 @@ KEY_SHAPED = "<a key shaped like a credential>"
 
 
 def hidden(text: str) -> str:
-    """`text` with each word shaped like a credential replaced by KEY_SHAPED: a message never carries one."""
-    return re.sub(r"\S+", lambda m: KEY_SHAPED if shaped(m.group()) else m.group(), text)
+    """`text` with each word shaped like a credential replaced by KEY_SHAPED, and hidden whole when a shape spans
+    words: a message never carries one."""
+    text = re.sub(r"\S+", lambda m: KEY_SHAPED if shaped(m.group()) else m.group(), text)
+    return text if not shaped(text) else "a message that holds something shaped like a credential, hidden whole"
 
 
 def refused_key(key: str) -> bool:
