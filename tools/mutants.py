@@ -65,6 +65,7 @@ PUSH_SETTING_TESTS = (IDENTITY_TESTS + "test_push_settings_given_in_the_command_
 REDEFINE_TESTS = (IDENTITY_TESTS + "test_a_git_the_command_may_redefine_is_refused",)
 ALIAS_TESTS = (IDENTITY_TESTS + "test_an_alias_whose_value_runs_git_or_gh_is_refused",)
 FEEDER_TESTS = (IDENTITY_TESTS + "test_a_git_fed_its_command_by_xargs_is_refused",)
+STALE = "tests.test_decide.Staleness."
 SCHEMA_TESTS = "tests.test_tools.Validator."
 CODES_TESTS = ("tests.test_tools.Examples.test_a_string_that_is_neither_a_code_nor_a_body_is_caught",)
 ENVELOPE_TESTS = ("tests.test_tools.Examples.test_a_schema_without_its_envelope_is_caught",)
@@ -1541,6 +1542,33 @@ MUTANTS = ISSUE + [
     ("a Role manifest may name a category nobody owns", "tools/check_authority.py",
      '    for field, held in sorted(named.items()):\n', "    for field, held in ():\n",
      ("tests.test_tools.Authority.test_a_manifest_with_a_category_nobody_owns_is_caught",)),
+    # Issue 173: a now, a Lifecycle, a limit or a context that cannot be read never raises out of a pull request's decide.
+    ("a now that is no moment raises on a pull request", "kernel/derive.py",
+     "    if not is_time(now):\n        return None\n", "", (STALE + "test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing",)),
+    ("a pull request's capacity deadline is compared with a now that is no moment", "kernel/decide.py",
+     "    if until is not None and not (is_time(until) and is_time(now)):\n", "    if False:\n",
+     (STALE + "test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing",)),
+    ("a pull request's deadline that is no moment is compared", "kernel/decide.py",
+     "not (is_time(until) and is_time(now))", "not is_time(now)",
+     (STALE + "test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing",)),
+    ("a Lifecycle not the pull request's is read", "kernel/derive.py",
+     '    if not (isinstance(lifecycle, dict) and lifecycle.get("work_item") == work_item):\n', "    if False:\n",
+     (STALE + "test_a_lifecycle_whose_limit_cannot_be_read_shows_the_wait_as_stale",)),
+    ("a pull request's limit that cannot be read is trusted", "kernel/derive.py",
+     "    if not (type(cap) in (int, float) and abs(cap) < float(\"inf\")):\n", "    if False:\n",
+     (STALE + "test_a_lifecycle_whose_limit_cannot_be_read_shows_the_wait_as_stale",)),
+    ("a bool is read as a pull request's limit", "kernel/derive.py",
+     "type(cap) in (int, float)", "isinstance(cap, (int, float))",
+     (STALE + "test_a_lifecycle_whose_limit_cannot_be_read_shows_the_wait_as_stale",)),
+    ("a pull request's end goes stale", "kernel/derive.py",
+     "    if isinstance(ends, list) and state in ends:\n        return False\n", "",
+     (STALE + "test_an_end_never_goes_stale",)),
+    ("a pull request's Lifecycle is read from the configuration by force", "kernel/decide.py",
+     'overdue(config.get("lifecycle"), WORK_ITEM', 'overdue(config["lifecycle"], WORK_ITEM',
+     (STALE + "test_a_lifecycle_whose_limit_cannot_be_read_shows_the_wait_as_stale",)),
+    ("a context that cannot be read raises on a pull request", "kernel/decide.py",
+     "    known = context if isinstance(context, dict) else {}\n", "    known = context\n",
+     (STALE + "test_a_context_that_cannot_be_read_says_nothing_of_the_passes",)),
     ("a raised Finding may carry a category nobody owns", "tools/check_authority.py",
      '    for field, held in (("category", known), ("severity", set(finding["properties"]["severity"]["enum"]))):\n',
      "    for field, held in ():\n",

@@ -387,8 +387,10 @@ def moved_at(facts: dict, runs: list, config: dict, now: str):
     stranger's comment, another App's, or a check that is not required, moves nothing, or anyone could keep a stalled
     item from showing; nor does a check under a required Lens's check name from any App or workflow file but that
     Lens's own (reports_for). A time that is not a real moment no later than `now` is passed over, so the wait counts
-    from earlier: that shows more, never less.
+    from earlier: that shows more, never less. A `now` that is no moment gives no time at all.
     """
+    if not is_time(now):
+        return None
     required = config["required_lenses"]["deterministic"]
     times = [facts["last_push_at"], facts.get("last_writer_action_at")]
     times += [c.get("completed_at") for c in facts["checks"] if any(reports_for(c, lens) for lens in required)]
@@ -413,6 +415,25 @@ def stale(lifecycle: dict, state: str, moved, passes_since, now: str) -> bool:
         return True
     waited = seconds(now) - seconds(max(starts))
     return waited > lifecycle["stale_after_minutes"][state] * t.SECONDS_PER_MINUTE
+
+
+def overdue(lifecycle, work_item: str, state: str, moved, passes_since, now: str) -> bool:
+    """Whether a wait in `state` has run past its limit in the item's Lifecycle, for either kind of Work item. The
+    Controller gives each item its own type's (decision 0028); one that is not this `work_item`'s, or whose limit for
+    `state` is not a finite number of minutes, cannot be read, and is read as past its limit: that shows more, never
+    less, and a pure function does not crash on it. A negative limit needs no test of its own: every wait is past it.
+    An end the Lifecycle declares never waits."""
+    if not (isinstance(lifecycle, dict) and lifecycle.get("work_item") == work_item):
+        return True
+    ends = lifecycle.get("terminal")
+    if isinstance(ends, list) and state in ends:
+        return False
+    limits = lifecycle.get("stale_after_minutes")
+    cap = limits.get(state) if isinstance(limits, dict) else None
+    # A bool is no number of minutes; and NaN or an infinity is never less than infinity in size.
+    if not (type(cap) in (int, float) and abs(cap) < float("inf")):
+        return True
+    return stale(lifecycle, state, moved, passes_since, now)
 
 
 def readable_actor(actor, facts: dict, config: dict) -> bool:

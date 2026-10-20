@@ -2940,6 +2940,110 @@ class Staleness(unittest.TestCase):
         f = facts(acceptance=contract(results=[evidence("AC-9")]))
         self.assertEqual(go(f, REVIEWED, self.PASSING, now="2026-10-12T13:00:00Z")["attention"], "needs_you")
 
+    def test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing(self):  # I-1, §4.1
+        f, held = facts(checks=self.SILENT), facts(label_events=[labelled("factory:hold")])
+        own, kept = go(f, ctx=self.PASSING, now=at(6)), go(held, ctx=self.PASSING, now=at(6))
+        for now in (None, 5, True, float("nan"), "never", "2026-02-30T12:00:00Z"):
+            try:
+                d, h = go(f, ctx=self.PASSING, now=now), go(held, ctx=self.PASSING, now=now)
+            except Exception as e:  # what is asserted is that it returns at all
+                self.fail("a now of %r raised %r" % (now, e))
+            self.assertEqual((d["attention"], dict(d, attention="review")), ("stale", own), now)
+            # The other side: a Decision that never goes stale is as it was.
+            self.assertEqual(h, kept, now)
+            # A capacity deadline cannot be compared with such a now: the Run a review wants defers, as on a capacity
+            # unread, and a deferral of the whole scope is never stale.
+            try:
+                d = go(facts(), ctx=context(passes_since=at(0), model_deferred_until=at(5)), now=now)
+            except Exception as e:
+                self.fail("a now of %r with a capacity deadline raised %r" % (now, e))
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("verifying", "capacity_unreadable", "defer", "review"), now)
+        # Nor can a deadline that is no moment be compared with a real now.
+        for until in (5, True, "never", "2026-02-30T12:00:00Z"):
+            try:
+                d = go(facts(), ctx=context(passes_since=at(0), model_deferred_until=until), now=at(6))
+            except Exception as e:
+                self.fail("a capacity deadline of %r raised %r" % (until, e))
+            self.assertEqual((d["reason"], d["outcome"]), ("capacity_unreadable", "defer"), until)
+        # The other side: a real deadline and a real now compare, at the boundary.
+        for until, want in ((at(7), ("capacity", "defer")), (at(6), ("awaiting_review", "admit"))):
+            d = go(facts(), ctx=context(passes_since=at(0), model_deferred_until=until), now=at(6))
+            self.assertEqual((d["reason"], d["outcome"]), want, until)
+
+    def test_a_lifecycle_whose_limit_cannot_be_read_shows_the_wait_as_stale(self):  # I-1, §4.1
+        f, now = facts(checks=self.SILENT), at(6)
+        own = go(f, ctx=self.PASSING, now=now)
+        lifecycle = CONFIG["lifecycle"]
+        limits = lifecycle["stale_after_minutes"]
+        # A limit for the State that is no finite number of minutes, a bool among them; json.loads reads NaN too.
+        for cap in (json.loads("NaN"), float("inf"), True, "30", None, [30]):
+            cfg = dict(CONFIG, lifecycle=dict(lifecycle, stale_after_minutes=dict(limits, verifying=cap)))
+            try:
+                d = go(f, ctx=self.PASSING, cfg=cfg, now=now)
+            except Exception as e:  # what is asserted is that it returns at all
+                self.fail("a limit of %r raised %r" % (cap, e))
+            self.assertEqual((d["attention"], dict(d, attention="review")), ("stale", own), cap)
+        # No limit for the State, no limits that can be read, a Lifecycle that only names the pull request, one that
+        # is not the pull request's, the issue's among them, or no Lifecycle at all.
+        absent = dict(limits)
+        del absent["verifying"]
+        issues = json.loads((ROOT / "lifecycle" / "issue.json").read_text())
+        shapes = [dict(lifecycle, stale_after_minutes=absent), dict(lifecycle, stale_after_minutes=None),
+                  dict(lifecycle, stale_after_minutes=[]), dict(lifecycle, stale_after_minutes={}),
+                  {"work_item": "pull_request"}, dict(lifecycle, work_item="issue"), issues, None, "lifecycle", []]
+        for shape in shapes:
+            try:
+                d = go(f, ctx=self.PASSING, cfg=dict(CONFIG, lifecycle=shape), now=now)
+            except Exception as e:
+                self.fail("a Lifecycle of %r raised %r" % (shape, e))
+            self.assertEqual((d["attention"], dict(d, attention="review")), ("stale", own), shape)
+        missing = dict(CONFIG)
+        del missing["lifecycle"]
+        try:
+            d = go(f, ctx=self.PASSING, cfg=missing, now=now)
+        except Exception as e:
+            self.fail("no Lifecycle raised %r" % e)
+        self.assertEqual((d["attention"], dict(d, attention="review")), ("stale", own))
+        # The other side: a limit in minutes as a whole or a fractional number is read.
+        for cap, want in ((30, "review"), (30.0, "review"), (1.5, "review"), (0, "stale"), (0.5, "stale")):
+            cfg = dict(CONFIG, lifecycle=dict(lifecycle, stale_after_minutes=dict(limits, verifying=cap)))
+            self.assertEqual(go(f, ctx=self.PASSING, cfg=cfg, now=now)["attention"], want, cap)
+
+    def test_an_end_never_goes_stale(self):  # I-1
+        # lifecycle/pull_request.json sets no limit on an end, which never waits.
+        lifecycle = CONFIG["lifecycle"]
+        far = later(at(0), 10 * max(lifecycle["stale_after_minutes"].values()))
+        for end in lifecycle["terminal"]:
+            self.assertFalse(derive.overdue(lifecycle, "pull_request", end, at(0), at(0), far), end)
+            # The other side: a Lifecycle whose ends cannot be read has no limit for them, and shows the wait.
+            self.assertTrue(derive.overdue(dict(lifecycle, terminal=None), "pull_request", end, at(0), at(0), far), end)
+        self.assertTrue(derive.overdue(lifecycle, "pull_request", "verifying", at(0), at(0), far))
+        self.assertFalse(derive.overdue(lifecycle, "pull_request", "verifying", at(0), at(0), at(1)))
+
+    def test_a_context_that_cannot_be_read_says_nothing_of_the_passes(self):  # I-1, §4.6
+        # A context that is no mapping says nothing: not whether the Pause holds, so every act and Run defers as under a
+        # Pause that cannot be read, nor when the passes began. A dequeue, which only the Pause stops, shows it.
+        f = facts(queue=True, label_events=[labelled("factory:hold")], reviews=APPROVED)
+        unread = decide(f, REVIEWED, {}, CONFIG, at(6))
+        self.assertEqual((unread["state"], unread["reason"], unread["outcome"], unread["attention"]),
+                         ("held", "pause_unreadable", "defer", "needs_you"))
+        for ctx in (None, "paused", [], 5):
+            try:
+                d = decide(f, REVIEWED, ctx, CONFIG, at(6))
+            except Exception as e:  # what is asserted is that it returns at all
+                self.fail("a context of %r raised %r" % (ctx, e))
+            self.assertEqual(d, unread, ctx)
+            # And a Run a review wants defers the same way, a day on: a deferral of the whole scope is never stale.
+            try:
+                d = decide(facts(), [], ctx, CONFIG, "2026-10-12T13:00:00Z")
+            except Exception as e:
+                self.fail("a context of %r raised %r" % (ctx, e))
+            self.assertEqual((d["reason"], d["outcome"], d["attention"]), ("pause_unreadable", "defer", "review"), ctx)
+        # A wait that asks the brakes nothing reads only the passes from the context, and none can be read: stale.
+        d = decide(facts(checks=self.SILENT), [], None, CONFIG, "2026-10-12T13:00:00Z")
+        self.assertEqual((d["reason"], d["outcome"], d["attention"]), ("awaiting_checks", "nothing", "stale"))
+
     def test_needs_you_is_never_stale(self):  # I-1
         # A person is already called to an item that needs them, and a Run holds one that is working: neither is stale.
         # Nor is one that failed, which is the author's, or one the Factory leaves alone.

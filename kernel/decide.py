@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import derive, in_progress, moved_at, runs_on, since_writer, stale
+from kernel.derive import derive, in_progress, is_time, moved_at, overdue, runs_on, since_writer
 
 SCHEMA = "decision/1"
 
+WORK_ITEM = "pull_request"      # the Lifecycle this module reads, lifecycle/pull_request.json
 NEEDS_YOU_REASONS = frozenset({
     "human_hold", "outside_not_admitted", "empty_diff", "too_large", "human_finding",
     "attempts_exhausted", "run_ceiling", "max_rounds", "approver_is_author_or_last_pusher",
@@ -86,12 +87,17 @@ def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, conte
 
 
 def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> dict:
-    d = _decide(facts, runs, context, config, now)
+    """Return the Decision for one pull request: what, if anything, happens next on it. No I/O, no clock."""
+    # A context that cannot be read says nothing: not whether the Pause holds, which the brakes then read as
+    # unreadable and defer every act and Run, nor the passes, as an unreadable `passes_since` does not.
+    known = context if isinstance(context, dict) else {}
+    d = _decide(facts, runs, known, config, now)
     # A wait past its State's limit, while passes ran, is the Maintainer's to see. Only what they see changes (I-1).
     # A deferral that holds the whole scope is one cause, reported once (§4.6): the item keeps the attention it had.
+    # A Lifecycle, a limit or a `now` that cannot be read shows the wait as stale, and raises nothing.
     if (d["attention"] in t.MAY_GO_STALE and d["reason"] not in t.SCOPE_DEFERRALS
-            and stale(config["lifecycle"], d["state"], moved_at(facts, runs, config, now), context.get("passes_since"),
-                      now)):
+            and overdue(config.get("lifecycle"), WORK_ITEM, d["state"], moved_at(facts, runs, config, now),
+                        known.get("passes_since"), now)):
         return dict(d, attention=t.STALE)
     return d
 
@@ -155,6 +161,9 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     # Capacity and the org's concurrency are not brakes: they bound no cycle (§4.1), and only defer.
     until = context.get("model_deferred_until", "unreadable")
     if until == "unreadable":
+        return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
+    # A deadline that is no moment, or a `now` that is none, cannot be compared: the capacity cannot be read.
+    if until is not None and not (is_time(until) and is_time(now)):
         return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
     if until is not None and until > now:
         return _decision(facts, state, "capacity", evidence, t.DEFER)
