@@ -28,9 +28,9 @@ Held by: `tools/check_purity.py`, `tests/test_decide.py::test_the_same_inputs_gi
 # No. A missing reading becomes zero, and zero looks like "plenty of room".
 active = context.get("active_runs", 0)
 
-# Yes. A missing reading is a deferral with a reason.
+# Yes. A reading that is missing, or is no count (a bool is none; nor is a number below zero), is a deferral with a reason.
 active = context.get("active_runs")
-if active is None:
+if type(active) is not int or active < 0:
     return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
 ```
 
