@@ -109,6 +109,20 @@ class Scoring(unittest.TestCase):
         with mock.patch("sys.stderr", io.StringIO()):
             self.assertEqual(eval_result.main([str(ROOT / "examples" / "eval-case.json"), str(ROOT / "nothing.json")]), 2)
             self.assertEqual(eval_result.main([str(ROOT / "examples" / "eval-case.json")]), 2)
+        # The scorer reads only under the directory it runs in: a path that points elsewhere, however written, is
+        # refused before it is opened, and the refusal names no path.
+        case, result = ROOT / "examples" / "eval-case.json", ROOT / "examples" / "result.json"
+        said = io.StringIO()
+        with mock.patch("sys.stderr", said):
+            for outside in ([str(case), str(ROOT.parent / "elsewhere.json")],
+                            [str(ROOT / "examples" / ".." / ".." / "elsewhere.json"), str(result)],
+                            [str(case), str(result)]):
+                base = ROOT if outside[0] != str(case) or "elsewhere" in outside[1] else ROOT / "examples" / "invalid"
+                self.assertEqual(eval_result.main(outside, base=base), 2, outside)
+        self.assertNotIn("elsewhere", said.getvalue())
+        self.assertIn("file_outside", said.getvalue())
+        with mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(eval_result.main([str(case), str(result)], base=ROOT / "examples"), 0)
 
 
 class TheSet(unittest.TestCase):

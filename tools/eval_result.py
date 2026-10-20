@@ -98,14 +98,29 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     return {"case": case["id"], "verdict": PASS if not reasons else FAIL, "reasons": reasons}
 
 
-def main(argv: list = None) -> int:
+def _inside(path: pathlib.Path, base: pathlib.Path) -> bool:
+    """Whether `path`, followed to where it really is, lies under `base`: the scorer reads only what the job checked
+    out beside it, never a file a path given to it points at elsewhere."""
+    try:
+        path.resolve().relative_to(base.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def main(argv: list = None, base: pathlib.Path = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    base = pathlib.Path.cwd() if base is None else base
     if len(argv) != 2:
         print("usage: python3 -m tools.eval_result CASE RESULT", file=sys.stderr)
         return EXIT[UNREADABLE]
+    paths = [pathlib.Path(p) for p in argv]
+    if not all(_inside(path, base) for path in paths):
+        print(json.dumps({"case": None, "verdict": UNREADABLE, "reasons": ["file_outside"]}), file=sys.stderr)
+        return EXIT[UNREADABLE]
     try:
-        case, result = (json.loads(pathlib.Path(p).read_text()) for p in argv)
-    except (OSError, ValueError) as err:
+        case, result = (json.loads(path.read_text()) for path in paths)
+    except (OSError, ValueError):
         print(json.dumps({"case": None, "verdict": UNREADABLE, "reasons": ["file"]}), file=sys.stderr)
         return EXIT[UNREADABLE]
     said = score(case, result)
