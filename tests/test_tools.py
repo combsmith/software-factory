@@ -26,7 +26,7 @@ from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
 from sim import world
 from tests import support
-from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_lifecycle,
+from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle,
                    check_purity, check_repo, check_trials, check_workflows, mutants, needs_passed, redact_trial, verify,
                    walk)
 from tools.hooks import protected
@@ -1604,6 +1604,109 @@ class Workflows(unittest.TestCase):
             self.assertEqual(needs_passed.main({"NEEDS": json.dumps(passed)}), 0)
             self.assertEqual(needs_passed.main({"NEEDS": "{}"}), 1)
             self.assertEqual(needs_passed.main({}), 1)
+
+    def test_every_commit_a_pull_request_carries_is_the_maintainers(self):
+        # Issue 204: the required check reads each commit between the base and the head, fetched from origin, and
+        # refuses unless its author and committer are the identity config/hooks.json names. On a merge group the head,
+        # which the queue made, is read for its author alone. An empty range, a head it cannot fetch, or an identity
+        # it cannot read refuses. No identity is written in the code: the fixture's Maintainer is not the repo's.
+        ada, bob, github = ("Ada", "ada@example.com"), ("Bob", "bob@example.com"), ("GitHub", "noreply@github.com")
+        origin, local = tree({"config/hooks.json": json.dumps({"maintainer": {"name": ada[0], "email": ada[1]}})}), None
+
+        def run(where, *args, who=ada):
+            env = dict(os.environ, GIT_AUTHOR_NAME=who[0], GIT_AUTHOR_EMAIL=who[1], GIT_COMMITTER_NAME=who[0],
+                       GIT_COMMITTER_EMAIL=who[1], GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")
+            return subprocess.run(["git", *args], cwd=str(where), env=env, capture_output=True, text=True,
+                                  timeout=60, check=True).stdout.strip()
+
+        def commit(where, message, author=ada, committer=None):
+            env = dict(os.environ, GIT_AUTHOR_NAME=author[0], GIT_AUTHOR_EMAIL=author[1],
+                       GIT_COMMITTER_NAME=(committer or author)[0], GIT_COMMITTER_EMAIL=(committer or author)[1],
+                       GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")
+            subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", message], cwd=str(where), env=env,
+                           capture_output=True, text=True, timeout=60, check=True)
+            return run(where, "rev-parse", "HEAD")
+
+        run(origin, "init", "-q", "-b", "main")
+        run(origin, "config", "uploadpack.allowReachableSHA1InWant", "true")
+        run(origin, "add", "-A")
+        base = commit(origin, "base")
+        local = origin.parent / "local"
+        run(origin.parent, "clone", "-q", str(origin), str(local))
+
+        def said(head, event="pull_request", root=None):
+            return commits_are_the_maintainers.problems(root or local, {"BASE_SHA": base, "HEAD_SHA": head,
+                                                                       "EVENT": event})
+        # Commits the Maintainer made pass; the head is fetched from origin, which the clone does not yet hold.
+        first = commit(origin, "one")
+        second = commit(origin, "two")
+        self.assertEqual(said(second), [])
+        # Another author, or another committer, refuses, and the commit is named.
+        other = commit(origin, "three", author=bob, committer=ada)
+        self.assertTrue(caught(said(other), "%s is authored by Bob <bob@example.com>" % other[:7]))
+        self.assertFalse(caught(said(other), "committed by"))
+        run(origin, "reset", "-q", "--hard", second)
+        other = commit(origin, "three", committer=bob)
+        self.assertTrue(caught(said(other), "%s is committed by Bob" % other[:7]))
+        run(origin, "reset", "-q", "--hard", second)
+        # On a merge group the head is the queue's: GitHub commits it, its author must still be the Maintainer; a
+        # commit before it that GitHub committed is not the queue's, and refuses.
+        squash = commit(origin, "squash", committer=github)
+        self.assertEqual(said(squash, "merge_group"), [])
+        self.assertTrue(caught(said(squash), "committed by GitHub"), "on a pull request the head is its own")
+        run(origin, "reset", "-q", "--hard", second)
+        wrong = commit(origin, "squash", author=bob, committer=github)
+        self.assertTrue(caught(said(wrong, "merge_group"), "authored by Bob"))
+        run(origin, "reset", "-q", "--hard", second)
+        faked = commit(origin, "faked", committer=github)
+        after = commit(origin, "after", committer=github)
+        self.assertTrue(caught(said(after, "merge_group"), "%s is committed by GitHub" % faked[:7]))
+        self.assertFalse(caught(said(after, "merge_group"), "%s is committed" % after[:7]))
+        run(origin, "reset", "-q", "--hard", second)
+        # A commit a merge carries is read too, not only the first parent's line.
+        run(origin, "checkout", "-q", "-b", "side", second)
+        side = commit(origin, "side", author=bob, committer=ada)
+        run(origin, "checkout", "-q", "main")
+        run(origin, "merge", "-q", "--no-ff", "-m", "merge side", "side")
+        merged = run(origin, "rev-parse", "HEAD")
+        self.assertTrue(caught(said(merged), "%s is authored by Bob" % side[:7]))
+        run(origin, "reset", "-q", "--hard", second)
+        run(origin, "branch", "-q", "-D", "side")
+        # The name and the email are each the Maintainer's: either alone refuses.
+        for who in (("Bob", ada[1]), (ada[0], "bob@example.com")):
+            half = commit(origin, "half", author=who, committer=ada)
+            self.assertTrue(caught(said(half), "%s is authored by" % half[:7]), who)
+            run(origin, "reset", "-q", "--hard", second)
+            half = commit(origin, "half", author=ada, committer=who)
+            self.assertTrue(caught(said(half), "%s is committed by" % half[:7]), who)
+            run(origin, "reset", "-q", "--hard", second)
+        # Only the pull request's commits are read, not the base's own since the branch point: the base is the base
+        # branch's tip, which the queue moved on with a commit GitHub made.
+        run(origin, "checkout", "-q", "-b", "feature", second)
+        mine = commit(origin, "mine")
+        run(origin, "checkout", "-q", "main")
+        moved = commit(origin, "another pull request, squashed", committer=github)
+        run(local, "fetch", "-q", "origin", "main")      # the job checks the base out, so the clone holds it
+        self.assertEqual(commits_are_the_maintainers.problems(local, {"BASE_SHA": moved, "HEAD_SHA": mine,
+                                                                      "EVENT": "pull_request"}), [])
+        run(origin, "reset", "-q", "--hard", second)
+        run(origin, "branch", "-q", "-D", "feature")
+        # An empty range, a head origin does not hold, or an event the check does not know, refuses.
+        self.assertTrue(caught(said(base), "no commit lies between"))
+        self.assertTrue(caught(said("0" * 40), "cannot be read"))
+        for environ in ({}, {"BASE_SHA": base, "HEAD_SHA": second}, {"BASE_SHA": base, "HEAD_SHA": second, "EVENT": "push"}):
+            self.assertTrue(caught(commits_are_the_maintainers.problems(local, environ), "must be set"), environ)
+        # The identity is the configuration's, not the code's: told another Maintainer, every commit refuses.
+        (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": bob[0], "email": bob[1]}}))
+        self.assertEqual(len(said(second)), 4, "two commits, each authored and committed by someone else")
+        (local / "config" / "hooks.json").write_text("{}")
+        self.assertTrue(caught(said(second), "cannot be read"))
+        (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": ada[0], "email": ada[1]}}))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second,
+                                                               "EVENT": "pull_request"}, local), 0)
+            self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": base,
+                                                               "EVENT": "pull_request"}, local), 1)
 
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.

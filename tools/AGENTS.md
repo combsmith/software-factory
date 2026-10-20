@@ -1,7 +1,7 @@
 # tools/
 
 The checks, `verify.py` which runs them all, `mutants.py` which breaks the Kernel on purpose, a shard to a job in CI, and
-`needs_passed.py`, which fails the required check unless every job it needs passed. `walk.py` lists this working tree's files, and
+`needs_passed.py`, which fails the required check unless every job it needs passed, and `commits_are_the_maintainers.py`, which fails it unless every commit the pull request carries is the Maintainer's. `walk.py` lists this working tree's files, and
 nothing in another nested inside it, for all of them. It skips local output, Python's caches and the corpus, only while git's
 index does not hold it, and reads the index as a file, so no git is needed. CI checks out the commit afresh, so there all else is
 committed; an export, with no `.git`, cannot tell, and skips it all. `make_corpus.py` records every decision the Kernel makes,
