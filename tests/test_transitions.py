@@ -240,6 +240,7 @@ STILL = {
     "capacity_unreadable": dict(base(), context={"active_runs": None}),
     "concurrency": dict(base(), context={"active_runs": CONFIG["limits"]["org_max_active_runs"]}),
     "run_unidentified": dict(base(), context={"unidentified_runs": ["39086879694"]}),
+    "last_pusher_unreadable": base([reviewed()], last_pusher=None),
     # A count the facts schema refuses, which the Kernel still reads as unreadable.
     "acts_unreadable": base([reviewed()], acts_since_writer=None),
     # A result on this content for a criterion the contract does not name: no State, so nothing to explore from.

@@ -112,6 +112,7 @@ BACKSLASH_TESTS = (IDENTITY_TESTS + "test_a_backslash_in_double_quotes_is_read_a
 REPORTED = "tests.test_decide.AReviewThatReported."
 # Where those of decision 0036 are, and the brakes on a pull request's Run, which are asked before them.
 UNIDENTIFIED = "tests.test_decide.UnidentifiedRuns."
+PUSHER_TESTS = ("tests.test_decide.Convergence.test_an_unreadable_last_pusher_lets_nothing_through",)
 RUN_BRAKES = ("    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts),"
               " limits)\n    if brake:\n        return brake\n")
 ACT_BRAKES = ('    brake = brakes.on_act(_decision, facts, state, evidence, context, action, since, config["limits"])\n'
@@ -1558,6 +1559,14 @@ MUTANTS = ISSUE + [
     ("the approver may be the author", "kernel/derive.py",
      'if config["approver"] in (facts["author"], facts["last_pusher"]):', "if False:",
      ("tests.test_decide.HumanControl",)),
+    # Issue 163: the last pusher is read from the head branch's activity, and one nobody can name lets nothing through.
+    ("an unreadable last pusher is read", "kernel/derive.py",
+     '    if not isinstance(facts.get("last_pusher"), str) or facts["last_pusher"] == "":\n', "    if False:\n",
+     PUSHER_TESTS),
+    ("an empty last pusher is read", "kernel/derive.py",
+     ' or facts["last_pusher"] == "":\n', ":\n", PUSHER_TESTS),
+    ("an unreadable last pusher calls nobody", "kernel/decide.py",
+     '    "last_pusher_unreadable",\n', "", PUSHER_TESTS),
     ("a pause admits a Run", "kernel/brakes.py",
      "    pause = paused(_decision, facts, state, evidence, context)\n    if pause:\n",
      "    pause = paused(_decision, facts, state, evidence, context)\n    if False:\n",
