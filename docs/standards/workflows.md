@@ -146,12 +146,12 @@ Held by: `examples/workflows/invalid/expression.text-run-as-a-command.yml`, `exa
 ```
 
 A `run:` line is `make` and a target, or `python3 -m` and a module of this repo, and nothing
-else: no install, download, condition or swallowed failure. Two workflows are exempt, each by name
-and held by its hash. One is the org's secret scan, which downloads gitleaks. It differs from the
+else: no install, download, condition or swallowed failure. One workflow is exempt, by name and
+held by its hash: the org's secret scan, which downloads gitleaks. It differs from the
 org's text in two things: the download is held to HTTPS, and it reads its rules, `.gitleaks.toml` and
 `.gitleaksignore`, from a checkout of the base, never from the head it scans, which can neither hide
 a file with `.gitattributes` nor pass over one with `gitleaks:allow` (decision 0023). Trial P-8's tick
-probe, whose one step was `exit 0` since GitHub refuses a step that runs nothing, was the other while
+probe, whose one step was `exit 0` since GitHub refuses a step that runs nothing, was a second while
 it ran, and went with its exemption when the trial was recorded (`trials/P-8.ticks.json`).
 
 Org standard: the org's AGENTS.md, "Decision Logic Lives in a Pure, Tested Script". Stricter here: a limit of ten lines, and nothing fetched but by push-protection.md, "Required CI job", which runs as the org wrote it.

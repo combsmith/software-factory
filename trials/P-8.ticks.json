@@ -7725,7 +7725,7 @@
         "status": 0,
         "headers": {},
         "body": {
-          "method": "The runs the probe's three lines caused, read once from the run records; each run's run_started_at is the moment the tick arrived (created_at equals it for every run), and the ticks due are one every five minutes from the moment the probe reached main to the read. The intervals between consecutive runs are set against W-2, section 7.3: a decision within 15 minutes at the 95th percentile after a change that produces no event, which a schedule alone could carry only if the 95th percentile of its intervals were at most 15 minutes.",
+          "method": "The runs the probe's three lines caused, read once from the run records; each run's run_started_at is the moment the tick arrived (created_at equals it for every run), and the ticks due are one every five minutes from the moment the probe reached main to the read. The intervals between consecutive runs are set against W-2, section 7.3: a decision within 15 minutes at the 95th percentile after a change that produces no event, which a schedule alone could carry only if the 95th percentile of its intervals, by nearest rank (the value at rank ceil(0.95 x n)), were at most 15 minutes; the median is the mean of the two middle intervals.",
           "result": {
             "runs_listed": 19,
             "list_read_whole": true,
@@ -7760,8 +7760,8 @@
             ],
             "interval_minutes": {
               "least": 1.6,
-              "median": 27.5,
-              "p95": 287.2,
+              "median": 26.6,
+              "p95_by_nearest_rank": 287.2,
               "longest": 287.2
             },
             "gap_from_last_run_to_the_read_minutes": 5.7,

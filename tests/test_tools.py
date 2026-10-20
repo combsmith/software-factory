@@ -2744,40 +2744,60 @@ class Trials(unittest.TestCase):
 
     def test_the_tick_probes_intervals_are_held_to_its_runs(self):
         # Decision 0011 and issue 25: the probe's runs, read once, give the intervals set against W-2. The fixture's
-        # analysis is recomputed here from the runs the read it rests on returned, and the rule the fake applies,
-        # a_tick_can_be_lost, is grounded by it.
+        # analysis is recomputed here from the runs the read it rests on returned, the read's own date and the moment
+        # the probe reached main (#208, d78f0bc), W-2's 15 minutes held to the design and not to the fixture; and the
+        # rule the fake applies, a_tick_can_be_lost, is grounded by it.
+        import math
+        import statistics
         from datetime import datetime, timedelta, timezone
+        from email.utils import parsedate_to_datetime
         data = json.loads((ROOT / "trials" / "P-8.ticks.json").read_text())
         by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
         self.assertEqual(by_code["a_tick_can_be_lost"], "trials/P-8.ticks.json")
-        final = data["exchanges"][1]
+        early, final, computed = data["exchanges"]
+        self.assertIn("by mistake", early["request"]["call"])
         self.assertIn("rests on", final["request"]["call"])
+        self.assertEqual(computed["request"]["via"], "cli")
         runs = sorted(final["response"]["body"]["workflow_runs"], key=lambda r: r["run_started_at"])
         self.assertEqual(final["response"]["body"]["total_count"], len(runs))
         self.assertNotIn("link", final["response"]["headers"])
         self.assertTrue(all(r["event"] == "schedule" for r in runs))
-        result = data["exchanges"][-1]["response"]["body"]["result"]
+        result = computed["response"]["body"]["result"]
         when = lambda s: datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
         starts = [when(r["run_started_at"]) for r in runs]
-        gaps = sorted((b - a).total_seconds() / 60 for a, b in zip(starts, starts[1:]))
-        p95 = gaps[min(len(gaps) - 1, int(round(0.95 * len(gaps) + 0.5)) - 1)]
-        self.assertEqual(result["ticks_arrived"], len(runs))
-        self.assertEqual(result["interval_minutes"]["p95"], round(p95, 1))
-        self.assertEqual(result["interval_minutes"]["longest"], round(max(gaps), 1))
+        gaps = [(b - a).total_seconds() / 60 for a, b in zip(starts, starts[1:])]
+        ordered = sorted(gaps)
+        p95 = ordered[min(len(ordered) - 1, math.ceil(0.95 * len(ordered)) - 1)]
+        on_main = datetime(2026, 10, 19, 18, 48, 29, tzinfo=timezone.utc)
+        read_at = parsedate_to_datetime(final["response"]["headers"]["date"]).astimezone(timezone.utc)
+        self.assertEqual(result["probe_on_main_at"], "2026-10-19T18:48:29Z")
+        self.assertEqual(result["read_at"], read_at.strftime("%Y-%m-%dT%H:%M:%SZ"))
         self.assertEqual(result["first_run_at"], runs[0]["run_started_at"])
-        on_main, read_at = when(result["probe_on_main_at"]), when(result["read_at"])
+        self.assertEqual(result["last_run_at"], runs[-1]["run_started_at"])
+        self.assertEqual(result["minutes_from_main_to_first_run"], round((starts[0] - on_main).total_seconds() / 60, 1))
+        self.assertEqual(result["gap_from_last_run_to_the_read_minutes"], round((read_at - starts[-1]).total_seconds() / 60, 1))
         self.assertGreaterEqual(read_at - starts[0], timedelta(hours=24))
+        self.assertTrue(result["created_at_equals_run_started_at_for_every_run"])
+        self.assertTrue(all(r["created_at"] == r["run_started_at"] for r in runs))
+        self.assertEqual(result["ticks_arrived"], len(runs))
+        self.assertEqual(result["intervals_between_runs_minutes"], [round(g, 1) for g in gaps])
+        self.assertEqual(result["interval_minutes"], {"least": round(min(gaps), 1), "median": round(statistics.median(gaps), 1),
+                                                      "p95_by_nearest_rank": round(p95, 1), "longest": round(max(gaps), 1)})
         cursor, due = on_main.replace(second=0, microsecond=0), 0
         while cursor <= read_at:
             due += cursor >= on_main and cursor.minute % 5 == 2
             cursor += timedelta(minutes=1)
         self.assertEqual(result["ticks_due_from_main_to_the_read"], due)
         self.assertGreater(due, len(runs))
-        self.assertEqual(result["schedule_alone_meets_W2"], p95 <= result["W2_minutes_at_p95"])
-        self.assertEqual(data["verdict"], "pass" if result["schedule_alone_meets_W2"] else "fail")
+        self.assertEqual(result["share_arrived"], round(len(runs) / due, 3))
+        self.assertEqual(result["W2_minutes_at_p95"], 15)
+        self.assertEqual(result["schedule_alone_meets_W2"], p95 <= 15)
+        self.assertEqual(data["verdict"], "pass" if p95 <= 15 else "fail")
         # The probe is gone with its exemption, as the story says once the verdict is recorded.
         self.assertFalse((ROOT / ".github" / "workflows" / "tick-probe.yml").exists())
         self.assertNotIn("tick-probe.yml", check_workflows.EXEMPT)
+        self.assertEqual(sorted(check_workflows.EXEMPT), ["ci.yml"])
+
     def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
         # Decision 0035: a trial of repos records the canary as its home, and a measurement's reads may span the org's
         # repos. Held on what the reads say, for every fixture of the canary, and closed on what cannot be read: each
