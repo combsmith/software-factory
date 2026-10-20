@@ -1,0 +1,667 @@
+{
+  "schema": "trial/1",
+  "trial": "P-33",
+  "question": "Can the issue a pull request closes be read from a draft, an open, a merged and a closed-unmerged pull request alike, with its opening actor; and does a pull request to a branch that is not the default one carry it? Can who last changed the draft flag be read?",
+  "pass": "Yes to the first and last (section 6): each of a draft, an open, a merged and a closed-unmerged pull request whose description says 'Closes #N' is read with the issue N in closingIssuesReferences and with its author, and the timeline's ReadyForReviewEvent and ConvertToDraftEvent name who changed the draft flag and when. A pull request to a base that is not the default branch is tried: if it carries no reference, section 6's fallback is taken, the issue Lifecycle serves the default branch only, and the fixture says so. A closed pull request that keeps its reference is read like an open one; if it lost it, closes would be counted by the work's branch name. The merged case runs on the default branch: the canary's ruleset on main requires an approving review the Maintainer cannot give their own pull request, so, on the Maintainer's decision of 2026-10-20, the ruleset's enforcement is set to disabled for one merge and set back to active at once, and both changes are recorded here.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-20T21:14:27Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the five trial pull requests 37 (left a draft), 38 (marked ready, converted to draft, marked ready again), 39 (merged to trial/p-33-base, not the default), 40 (closed unmerged) and 41 (open, to trial/p-33-base), each with 'Closes #36' in its description, read as the port will read a linked pull request",
+        "headers": {},
+        "body": {
+          "query": "query P33($owner: String!, $name: String!) {\n  repository(owner: $owner, name: $name) {\n    nameWithOwner\n    draft: pullRequest(number: 37) { ...PR }\n    open: pullRequest(number: 38) { ...PR }\n    merged: pullRequest(number: 39) { ...PR }\n    closed: pullRequest(number: 40) { ...PR }\n    nondefault: pullRequest(number: 41) { ...PR }\n  }\n}\nfragment PR on PullRequest {\n  number state isDraft baseRefName headRefName createdAt mergedAt closedAt\n  author { login __typename }\n  authorAssociation\n  mergedBy { login __typename }\n  closingIssuesReferences(first: 10) { totalCount nodes { number } }\n  timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT], first: 20) {\n    totalCount\n    nodes {\n      __typename\n      ... on ReadyForReviewEvent { actor { login __typename } createdAt }\n      ... on ConvertToDraftEvent { actor { login __typename } createdAt }\n    }\n  }\n}\n",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 20 Oct 2026 21:15:34 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D9AF:1536EC:45B97E:E10864:6AD7D9F5",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4135",
+          "x-ratelimit-reset": "1792532133",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "865"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "nameWithOwner": "combsmith/software-factory-canary",
+              "draft": {
+                "number": 37,
+                "state": "OPEN",
+                "isDraft": true,
+                "baseRefName": "main",
+                "headRefName": "trial/p-33-draft",
+                "createdAt": "2026-10-20T21:14:41Z",
+                "mergedAt": null,
+                "closedAt": null,
+                "author": {
+                  "login": "don-petry",
+                  "__typename": "User"
+                },
+                "authorAssociation": "MEMBER",
+                "mergedBy": null,
+                "closingIssuesReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 36
+                    }
+                  ]
+                },
+                "timelineItems": {
+                  "totalCount": 2,
+                  "nodes": []
+                }
+              },
+              "open": {
+                "number": 38,
+                "state": "OPEN",
+                "isDraft": false,
+                "baseRefName": "main",
+                "headRefName": "trial/p-33-open",
+                "createdAt": "2026-10-20T21:14:43Z",
+                "mergedAt": null,
+                "closedAt": null,
+                "author": {
+                  "login": "don-petry",
+                  "__typename": "User"
+                },
+                "authorAssociation": "MEMBER",
+                "mergedBy": null,
+                "closingIssuesReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 36
+                    }
+                  ]
+                },
+                "timelineItems": {
+                  "totalCount": 9,
+                  "nodes": [
+                    {
+                      "__typename": "ReadyForReviewEvent",
+                      "actor": {
+                        "login": "don-petry",
+                        "__typename": "User"
+                      },
+                      "createdAt": "2026-10-20T21:15:03Z"
+                    },
+                    {
+                      "__typename": "ConvertToDraftEvent",
+                      "actor": {
+                        "login": "don-petry",
+                        "__typename": "User"
+                      },
+                      "createdAt": "2026-10-20T21:15:04Z"
+                    },
+                    {
+                      "__typename": "ReadyForReviewEvent",
+                      "actor": {
+                        "login": "don-petry",
+                        "__typename": "User"
+                      },
+                      "createdAt": "2026-10-20T21:15:06Z"
+                    }
+                  ]
+                }
+              },
+              "merged": {
+                "number": 39,
+                "state": "MERGED",
+                "isDraft": false,
+                "baseRefName": "trial/p-33-base",
+                "headRefName": "trial/p-33-merged",
+                "createdAt": "2026-10-20T21:14:46Z",
+                "mergedAt": "2026-10-20T21:15:10Z",
+                "closedAt": "2026-10-20T21:15:10Z",
+                "author": {
+                  "login": "don-petry",
+                  "__typename": "User"
+                },
+                "authorAssociation": "MEMBER",
+                "mergedBy": {
+                  "login": "don-petry",
+                  "__typename": "User"
+                },
+                "closingIssuesReferences": {
+                  "totalCount": 0,
+                  "nodes": []
+                },
+                "timelineItems": {
+                  "totalCount": 7,
+                  "nodes": []
+                }
+              },
+              "closed": {
+                "number": 40,
+                "state": "CLOSED",
+                "isDraft": false,
+                "baseRefName": "main",
+                "headRefName": "trial/p-33-closed",
+                "createdAt": "2026-10-20T21:14:48Z",
+                "mergedAt": null,
+                "closedAt": "2026-10-20T21:15:13Z",
+                "author": {
+                  "login": "don-petry",
+                  "__typename": "User"
+                },
+                "authorAssociation": "MEMBER",
+                "mergedBy": null,
+                "closingIssuesReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 36
+                    }
+                  ]
+                },
+                "timelineItems": {
+                  "totalCount": 6,
+                  "nodes": []
+                }
+              },
+              "nondefault": {
+                "number": 41,
+                "state": "OPEN",
+                "isDraft": false,
+                "baseRefName": "trial/p-33-base",
+                "headRefName": "trial/p-33-nondefault",
+                "createdAt": "2026-10-20T21:14:51Z",
+                "mergedAt": null,
+                "closedAt": null,
+                "author": {
+                  "login": "don-petry",
+                  "__typename": "User"
+                },
+                "authorAssociation": "MEMBER",
+                "mergedBy": null,
+                "closingIssuesReferences": {
+                  "totalCount": 0,
+                  "nodes": []
+                },
+                "timelineItems": {
+                  "totalCount": 5,
+                  "nodes": []
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): the reverse read, from issue 36, of the timeline's connected, disconnected and cross-referenced events",
+        "headers": {},
+        "body": {
+          "query": "query P33Issue($owner: String!, $name: String!, $issue: Int!) {\n  repository(owner: $owner, name: $name) {\n    nameWithOwner\n    issue(number: $issue) {\n      number state\n      timelineItems(itemTypes: [CONNECTED_EVENT, DISCONNECTED_EVENT, CROSS_REFERENCED_EVENT], first: 50) {\n        totalCount\n        nodes {\n          __typename\n          ... on ConnectedEvent { actor { login __typename } createdAt subject { ... on PullRequest { number } } }\n          ... on DisconnectedEvent { actor { login __typename } createdAt subject { ... on PullRequest { number } } }\n          ... on CrossReferencedEvent { actor { login __typename } createdAt willCloseTarget source { ... on PullRequest { number state isDraft baseRefName } } }\n        }\n      }\n    }\n  }\n}\n",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "issue": 36
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 20 Oct 2026 21:15:34 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D9B0:3CDB90:3F7C57:CDB767:6AD7D9F6",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4134",
+          "x-ratelimit-reset": "1792532133",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "866"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "nameWithOwner": "combsmith/software-factory-canary",
+              "issue": {
+                "number": 36,
+                "state": "OPEN",
+                "timelineItems": {
+                  "totalCount": 5,
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "actor": {
+                        "login": "don-petry",
+                        "__typename": "User"
+                      },
+                      "createdAt": "2026-10-20T21:14:42Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "number": 37,
+                        "state": "OPEN",
+                        "isDraft": true,
+                        "baseRefName": "main"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "actor": {
+                        "login": "don-petry",
+                        "__typename": "User"
+                      },
+                      "createdAt": "2026-10-20T21:14:45Z",
+                      "willCloseTarget": true,
+                      "source": {
+                        "number": 38,
+                        "state": "OPEN",
+                        "isDraft": false,
+                        "baseRefName": "main"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "actor": {
+                        "login": "don-petry",
+                        "__typename": "User"
+                      },
+                      "createdAt": "2026-10-20T21:14:47Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "number": 39,
+                        "state": "MERGED",
+                        "isDraft": false,
+                        "baseRefName": "trial/p-33-base"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "actor": {
+                        "login": "don-petry",
+                        "__typename": "User"
+                      },
+                      "createdAt": "2026-10-20T21:14:49Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "number": 40,
+                        "state": "CLOSED",
+                        "isDraft": false,
+                        "baseRefName": "main"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "actor": {
+                        "login": "don-petry",
+                        "__typename": "User"
+                      },
+                      "createdAt": "2026-10-20T21:14:57Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "number": 41,
+                        "state": "OPEN",
+                        "isDraft": false,
+                        "baseRefName": "trial/p-33-base"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/rulesets/25328026 (gh api -X PUT -f enforcement=disabled): the ruleset on main set to disabled for one merge, since its pull_request rule needs an approving review the Maintainer cannot give their own pull request",
+        "headers": {},
+        "body": {
+          "enforcement": "disabled"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 20 Oct 2026 21:18:33 GMT",
+          "etag": "W/\"17e8d065fd7975648a5a50eeaf21733b3942d2d51438e2c0b02dd2cda9f25f2f\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "DA10:1BC6A8:4D1ED2:F6DE8B:6AD7DAA9",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4737",
+          "x-ratelimit-reset": "1792534383",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "263"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "disabled",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": true,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-10-20T16:18:33.560-05:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): pull request 38 after the Maintainer merged it into main (gh pr merge --merge), and issue 36 that it closed, with the timeline's closed, connected and cross-referenced events",
+        "headers": {},
+        "body": {
+          "query": "query P33Merged($owner: String!, $name: String!) {\n  repository(owner: $owner, name: $name) {\n    nameWithOwner\n    merged: pullRequest(number: 38) {\n      number state isDraft baseRefName headRefName createdAt mergedAt closedAt\n      author { login __typename }\n      mergedBy { login __typename }\n      closingIssuesReferences(first: 10) { totalCount nodes { number state } }\n    }\n    issue(number: 36) {\n      number state stateReason closedAt\n      timelineItems(itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, CROSS_REFERENCED_EVENT], first: 50) {\n        totalCount\n        nodes {\n          __typename\n          ... on ClosedEvent { actor { login __typename } createdAt closer { __typename ... on PullRequest { number } } }\n          ... on ConnectedEvent { actor { login __typename } createdAt subject { ... on PullRequest { number } } }\n          ... on CrossReferencedEvent { createdAt willCloseTarget source { ... on PullRequest { number state } } }\n        }\n      }\n    }\n  }\n}\n",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 20 Oct 2026 21:18:55 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "DA3A:3AA6DF:5BC55B:1256B23:6AD7DABE",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4098",
+          "x-ratelimit-reset": "1792532133",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "902"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "nameWithOwner": "combsmith/software-factory-canary",
+              "merged": {
+                "number": 38,
+                "state": "MERGED",
+                "isDraft": false,
+                "baseRefName": "main",
+                "headRefName": "trial/p-33-open",
+                "createdAt": "2026-10-20T21:14:43Z",
+                "mergedAt": "2026-10-20T21:18:36Z",
+                "closedAt": "2026-10-20T21:18:36Z",
+                "author": {
+                  "login": "don-petry",
+                  "__typename": "User"
+                },
+                "mergedBy": {
+                  "login": "don-petry",
+                  "__typename": "User"
+                },
+                "closingIssuesReferences": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "number": 36,
+                      "state": "CLOSED"
+                    }
+                  ]
+                }
+              },
+              "issue": {
+                "number": 36,
+                "state": "CLOSED",
+                "stateReason": "COMPLETED",
+                "closedAt": "2026-10-20T21:18:37Z",
+                "timelineItems": {
+                  "totalCount": 6,
+                  "nodes": [
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-20T21:14:42Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "number": 37,
+                        "state": "OPEN"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-20T21:14:45Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "number": 38,
+                        "state": "MERGED"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-20T21:14:47Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "number": 39,
+                        "state": "MERGED"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-20T21:14:49Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "number": 40,
+                        "state": "CLOSED"
+                      }
+                    },
+                    {
+                      "__typename": "CrossReferencedEvent",
+                      "createdAt": "2026-10-20T21:14:57Z",
+                      "willCloseTarget": false,
+                      "source": {
+                        "number": 41,
+                        "state": "OPEN"
+                      }
+                    },
+                    {
+                      "__typename": "ClosedEvent",
+                      "actor": {
+                        "login": "don-petry",
+                        "__typename": "User"
+                      },
+                      "createdAt": "2026-10-20T21:18:38Z",
+                      "closer": {
+                        "__typename": "PullRequest",
+                        "number": 38
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/rulesets/25328026 (gh api -X PUT -f enforcement=active): the ruleset set back to active at once, as it was",
+        "headers": {},
+        "body": {
+          "enforcement": "active"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 20 Oct 2026 21:18:38 GMT",
+          "etag": "W/\"c9d76081634bb09fb63c5172fcf9bf93e0e5db733381a8e4dc97a44778f7cb58\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "DA17:36889B:513602:1044757:6AD7DAAD",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4729",
+          "x-ratelimit-reset": "1792534383",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "271"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": true,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-10-20T16:18:38.145-05:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}
