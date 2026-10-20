@@ -2883,8 +2883,9 @@ class Trials(unittest.TestCase):
 
         def roots(query):
             """Each root field of the one operation in `query`, as (field, its arguments): what stands at depth one
-            of its selection set, outside strings. A fragment definition is skipped, since its fields hang off a
-            root field of the operation; a second operation is not read, and fails."""
+            of its selection set, outside strings. A fragment on another type is skipped, since its fields hang off
+            a root field of the operation; a fragment on Query would carry root fields of its own, and fails, as a
+            second operation does."""
             depth, found, text, quoted, skipping = 0, [], "", False, False
             for ch in query:
                 if ch == '"':
@@ -2894,7 +2895,10 @@ class Trials(unittest.TestCase):
                     continue
                 if ch == "{":
                     if depth == 0:
-                        skipping = text.strip().startswith("fragment ")
+                        opening = text.strip()
+                        skipping = opening.startswith("fragment ")
+                        self.assertFalse(skipping and re.search(r"\bon\s+Query\b", opening),
+                                         "a fragment on Query the test cannot read: %r" % opening)
                         text = ""
                     elif depth == 1 and not skipping:
                         found.append(text.strip())
