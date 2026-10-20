@@ -2,7 +2,7 @@
   "schema": "trial/1",
   "trial": "P-34",
   "question": "Can the time an issue's title or body last changed be read, apart from the time anything on it changed; and each reopening, with who did it?",
-  "pass": "Yes to both (section 6): on an issue whose body was edited, then its title, then commented on, labelled, closed and reopened, each a minute apart by the Maintainer, the read gives a time for the content's last change that is the title's edit and not the comment's, the label's, the close's or the reopening's, apart from updatedAt, which is the reopening's; and the timeline's ReopenedEvent names the Maintainer and when. The acts and their minutes, from the trial's own log: created 21:15:16Z; body edited 21:16:22Z; title edited 21:17:28Z; commented 21:18:34Z; labelled 21:19:42Z; closed 21:20:48Z; reopened 21:21:54Z.",
+  "pass": "Yes to both (section 6): on an issue whose body was edited, then its title, then commented on, labelled, closed and reopened, each a minute apart by the Maintainer, the read gives a time for the content's last change that is the title's edit and not the comment's, the label's, the close's or the reopening's, apart from updatedAt, which is the reopening's; and the timeline's ReopenedEvent names the Maintainer and when.",
   "repo": "combsmith/software-factory-canary",
   "ran_at": "2026-10-20T21:15:15Z",
   "exchanges": [
@@ -13,7 +13,7 @@
           "name": "don-petry"
         },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): issue 42 after the six acts, read as the port will read an issue's content time and its reopenings: lastEditedAt and userContentEdits for the body, the timeline's RenamedTitleEvent for the title, against updatedAt, and the timeline's ReopenedEvent and ClosedEvent with their actors",
+        "call": "POST /graphql (gh api graphql): issue 42 after the six acts, read as the port will read an issue's content time and its reopenings: lastEditedAt and userContentEdits for the body, the timeline's RenamedTitleEvent for the title, against updatedAt, and the timeline's ReopenedEvent and ClosedEvent with their actors. The acts and their minutes, from the trial's own log at the client, which GitHub's times may trail by a second: created 21:15:16Z; body edited 21:16:22Z; title edited 21:17:28Z; commented 21:18:34Z; labelled 21:19:42Z; closed 21:20:48Z; reopened 21:21:54Z.",
         "headers": {},
         "body": {
           "query": "query P34($owner: String!, $name: String!, $issue: Int!) {\n  repository(owner: $owner, name: $name) {\n    nameWithOwner\n    issue(number: $issue) {\n      number state stateReason title createdAt updatedAt lastEditedAt closedAt\n      author { login __typename }\n      authorAssociation\n      editor { login __typename }\n      userContentEdits(first: 10) {\n        totalCount\n        nodes { editor { login __typename } editedAt createdAt updatedAt deletedAt }\n      }\n      timelineItems(itemTypes: [RENAMED_TITLE_EVENT, REOPENED_EVENT, CLOSED_EVENT, LABELED_EVENT, ISSUE_COMMENT], first: 50) {\n        totalCount\n        nodes {\n          __typename\n          ... on RenamedTitleEvent { actor { login __typename } createdAt previousTitle currentTitle }\n          ... on ReopenedEvent { actor { login __typename } createdAt }\n          ... on ClosedEvent { actor { login __typename } createdAt stateReason }\n          ... on LabeledEvent { actor { login __typename } createdAt label { name } }\n          ... on IssueComment { author { login __typename } createdAt }\n        }\n      }\n    }\n  }\n}\n",

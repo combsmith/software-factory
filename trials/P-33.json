@@ -2,7 +2,7 @@
   "schema": "trial/1",
   "trial": "P-33",
   "question": "Can the issue a pull request closes be read from a draft, an open, a merged and a closed-unmerged pull request alike, with its opening actor; and does a pull request to a branch that is not the default one carry it? Can who last changed the draft flag be read?",
-  "pass": "Yes to the first and last (section 6): each of a draft, an open, a merged and a closed-unmerged pull request whose description says 'Closes #N' is read with the issue N in closingIssuesReferences and with its author, and the timeline's ReadyForReviewEvent and ConvertToDraftEvent name who changed the draft flag and when. A pull request to a base that is not the default branch is tried: if it carries no reference, section 6's fallback is taken, the issue Lifecycle serves the default branch only, and the fixture says so. A closed pull request that keeps its reference is read like an open one; if it lost it, closes would be counted by the work's branch name. The merged case runs on the default branch: the canary's ruleset on main requires an approving review the Maintainer cannot give their own pull request, so, on the Maintainer's decision of 2026-10-20, the ruleset's enforcement is set to disabled for one merge and set back to active at once, and both changes are recorded here.",
+  "pass": "Yes to the first and last (section 6): each of a draft, an open, a merged and a closed-unmerged pull request whose description says 'Closes #N' is read with the issue N in closingIssuesReferences and with its author, and the timeline's ReadyForReviewEvent and ConvertToDraftEvent name who changed the draft flag and when. A pull request to a base that is not the default branch is tried: if it carries no reference, section 6's fallback is taken, the issue Lifecycle serves the default branch only, and the fixture says so. A closed pull request that keeps its reference is read like an open one; if it lost it, closes would be counted by the work's branch name. The merged case is read on the default branch, where a closing reference can act.",
   "repo": "combsmith/software-factory-canary",
   "ran_at": "2026-10-20T21:14:27Z",
   "exchanges": [
@@ -344,7 +344,7 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "PUT /repos/combsmith/software-factory-canary/rulesets/25328026 (gh api -X PUT -f enforcement=disabled): the ruleset on main set to disabled for one merge, since its pull_request rule needs an approving review the Maintainer cannot give their own pull request",
+        "call": "PUT /repos/combsmith/software-factory-canary/rulesets/25328026 (gh api -X PUT -f enforcement=disabled): the ruleset on main set to disabled for one merge, on the Maintainer's decision of 2026-10-20, since its pull_request rule needs an approving review the Maintainer cannot give their own pull request",
         "headers": {},
         "body": {
           "enforcement": "disabled"
@@ -433,8 +433,98 @@
           "kind": "person",
           "name": "don-petry"
         },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/rulesets/25328026 (gh api -X PUT -f enforcement=active): the ruleset set back to active at once, as it was, five seconds after it was disabled; the Maintainer merged pull request 38 into main between the two (gh pr merge --merge, a merge commit, which the active ruleset would have refused: it allows squash alone and needs an approving review)",
+        "headers": {},
+        "body": {
+          "enforcement": "active"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 20 Oct 2026 21:18:38 GMT",
+          "etag": "W/\"c9d76081634bb09fb63c5172fcf9bf93e0e5db733381a8e4dc97a44778f7cb58\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "DA17:36889B:513602:1044757:6AD7DAAD",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4729",
+          "x-ratelimit-reset": "1792534383",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "271"
+        },
+        "body": {
+          "id": 25328026,
+          "name": "main",
+          "target": "branch",
+          "source_type": "Repository",
+          "source": "combsmith/software-factory-canary",
+          "enforcement": "active",
+          "conditions": {
+            "ref_name": {
+              "exclude": [],
+              "include": [
+                "~DEFAULT_BRANCH"
+              ]
+            }
+          },
+          "rules": [
+            {
+              "type": "deletion"
+            },
+            {
+              "type": "non_fast_forward"
+            },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "required_reviewers": [],
+                "require_code_owner_review": true,
+                "dismissal_restriction": {
+                  "enabled": false,
+                  "allowed_actors": []
+                },
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": true,
+                "allowed_merge_methods": [
+                  "squash"
+                ]
+              }
+            }
+          ],
+          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
+          "created_at": "2026-10-17T21:43:24.168-05:00",
+          "updated_at": "2026-10-20T16:18:38.145-05:00",
+          "bypass_actors": [],
+          "current_user_can_bypass": "never",
+          "_links": {
+            "self": {
+              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
+            },
+            "html": {
+              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
         "via": "graphql",
-        "call": "POST /graphql (gh api graphql): pull request 38 after the Maintainer merged it into main (gh pr merge --merge), and issue 36 that it closed, with the timeline's closed, connected and cross-referenced events",
+        "call": "POST /graphql (gh api graphql): pull request 38 after the merge and the ruleset's restoring, and issue 36 that the merge closed, with the timeline's closed, connected and cross-referenced events",
         "headers": {},
         "body": {
           "query": "query P33Merged($owner: String!, $name: String!) {\n  repository(owner: $owner, name: $name) {\n    nameWithOwner\n    merged: pullRequest(number: 38) {\n      number state isDraft baseRefName headRefName createdAt mergedAt closedAt\n      author { login __typename }\n      mergedBy { login __typename }\n      closingIssuesReferences(first: 10) { totalCount nodes { number state } }\n    }\n    issue(number: 36) {\n      number state stateReason closedAt\n      timelineItems(itemTypes: [CLOSED_EVENT, CONNECTED_EVENT, CROSS_REFERENCED_EVENT], first: 50) {\n        totalCount\n        nodes {\n          __typename\n          ... on ClosedEvent { actor { login __typename } createdAt closer { __typename ... on PullRequest { number } } }\n          ... on ConnectedEvent { actor { login __typename } createdAt subject { ... on PullRequest { number } } }\n          ... on CrossReferencedEvent { createdAt willCloseTarget source { ... on PullRequest { number state } } }\n        }\n      }\n    }\n  }\n}\n",
@@ -560,96 +650,6 @@
                   ]
                 }
               }
-            }
-          }
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "PUT /repos/combsmith/software-factory-canary/rulesets/25328026 (gh api -X PUT -f enforcement=active): the ruleset set back to active at once, as it was",
-        "headers": {},
-        "body": {
-          "enforcement": "active"
-        }
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Tue, 20 Oct 2026 21:18:38 GMT",
-          "etag": "W/\"c9d76081634bb09fb63c5172fcf9bf93e0e5db733381a8e4dc97a44778f7cb58\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "DA17:36889B:513602:1044757:6AD7DAAD",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4729",
-          "x-ratelimit-reset": "1792534383",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "271"
-        },
-        "body": {
-          "id": 25328026,
-          "name": "main",
-          "target": "branch",
-          "source_type": "Repository",
-          "source": "combsmith/software-factory-canary",
-          "enforcement": "active",
-          "conditions": {
-            "ref_name": {
-              "exclude": [],
-              "include": [
-                "~DEFAULT_BRANCH"
-              ]
-            }
-          },
-          "rules": [
-            {
-              "type": "deletion"
-            },
-            {
-              "type": "non_fast_forward"
-            },
-            {
-              "type": "pull_request",
-              "parameters": {
-                "required_approving_review_count": 1,
-                "dismiss_stale_reviews_on_push": true,
-                "required_reviewers": [],
-                "require_code_owner_review": true,
-                "dismissal_restriction": {
-                  "enabled": false,
-                  "allowed_actors": []
-                },
-                "require_last_push_approval": true,
-                "required_review_thread_resolution": false,
-                "require_extra_approval_for_unattributed_changes": true,
-                "allowed_merge_methods": [
-                  "squash"
-                ]
-              }
-            }
-          ],
-          "node_id": "RRS_lACqUmVwb3NpdG9yec5UUPrvzgGCeZo",
-          "created_at": "2026-10-17T21:43:24.168-05:00",
-          "updated_at": "2026-10-20T16:18:38.145-05:00",
-          "bypass_actors": [],
-          "current_user_can_bypass": "never",
-          "_links": {
-            "self": {
-              "href": "https://api.github.com/repos/combsmith/software-factory-canary/rulesets/25328026"
-            },
-            "html": {
-              "href": "https://github.com/combsmith/software-factory-canary/rules/25328026"
             }
           }
         }

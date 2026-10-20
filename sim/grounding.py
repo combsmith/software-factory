@@ -125,8 +125,9 @@ RULES = (
     ("an_issues_author_has_an_association", "The listing of issues says whether an issue's author has write "
      "access", ("P-32",), None),
     # trials/P-33.json: a pull request to a base that is not the default branch carries no closing reference at all
-    # (section 6's fallback: the issue Lifecycle serves the default branch only), and the reverse read from the issue
-    # says willCloseTarget false for every pull request once the issue is closed: the port reads the pull request.
+    # (section 6's fallback: the issue Lifecycle serves the default branch only). The reverse read from the issue is
+    # no substitute: willCloseTarget is false for a closed-unmerged pull request that keeps its reference, false for
+    # every one once the issue is closed, and a keyword link raises no ConnectedEvent; the port reads the pull request.
     ("a_closing_reference_is_read_from_any_pull_request", "The issue a pull request closes, and who opened the pull "
      "request, are read from a draft, an open, a merged and a closed-unmerged pull request alike", ("P-33",),
      "trials/P-33.json"),
