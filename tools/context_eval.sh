@@ -12,17 +12,22 @@
 # in it: `git archive` of that commit is the agent's whole world, with no history, no remote and no other checkout.
 # SENTENCE is a file holding the task's one sentence, outside REPO, which names the rule and its reason code and
 # nothing of how. HELD_OUT is the boundary test for that rule, outside REPO and OUT, copied from the private home by
-# the Maintainer: it is copied into the export only after the agent has stopped, run, and taken out again before
-# anything is recorded, and this script never prints it. CLI, if given, is the CLI's program; by default the build
-# the native installer kept for PIN, else `claude` on PATH. Whichever it is, it must say it is version PIN.
+# the Maintainer: it is copied into the export only after the agent has stopped, run on its own, and taken out again
+# before `make verify`, the mutation check and the record, and this script never prints it. CLI, if given, is the
+# CLI's program; by default the build the native installer kept for PIN, else `claude` on PATH. Whichever it is, it
+# must say it is version PIN.
 #
 # In order, each in scratch directories outside every repo:
 #   1. the CLI's version, which must be PIN;
-#   2. the export, twice: one copy the agent works in, one kept as made, so that what it changed can be counted;
-#   3. the agent: the CLI headless, the sentence as its whole prompt, its file and shell tools allowed inside the
-#      export, its network tools refused, CAP turns at most; its transcript is captured and never printed;
-#   4. the judge: the held-out test copied in and run; `make verify`; the mutation check on the mutants the agent
-#      added, by the paths they target; the held-out test taken out;
+#   2. the export, twice: one copy the agent works in, one kept as made, so that what it changed can be counted and
+#      the judge's own files put back;
+#   3. the agent: the CLI headless, the sentence as its whole prompt, CAP turns at most, with a scratch HOME and its
+#      login alone, its network tools refused; its transcript is captured and never printed. Its shell is not
+#      sandboxed (trial P-26 has no fixture yet): the record counts each path it named outside the export and each
+#      command it could not read, so a run that looked elsewhere says so;
+#   4. the judge, from the export as made: the held-out test copied in, run, and taken out; the Makefile and every
+#      tool but tools/mutants.py put back as made, each one the agent had changed recorded; `make verify`; the whole
+#      mutation check, which must kill every mutant, the agent's among them;
 #   5. the record: tools/context_eval.py reads the transcript for the paths read, the first words of each command
 #      and the result's counts, counts the changes by file, and writes OUT/record.json, a context-eval/1 run.
 # OUT receives record.json, checked.json (each step's exit and counts), ran_at and requests.json (what was asked,
@@ -35,10 +40,14 @@ export LC_ALL=C
 PIN=2.1.302
 # The most turns the agent may take. The record keeps it beside what the run cost.
 CAP=80
-# What the agent may use: its file and shell tools, inside the export; never the network, and never another agent.
+# What the agent may use: its file and shell tools; never the network, and never another agent.
 ALLOWED="Read,Edit,Write,MultiEdit,Glob,Grep,Bash"
 REFUSED="WebFetch,WebSearch,Task,Agent"
+# --verbose here is the CLI's switch for the whole turn stream in stream-json, not a dump of any request; the stream
+# goes to the scratch directory and is read for tool names, paths and counts alone.
 OPTIONS="--output-format stream-json --verbose --permission-mode acceptEdits --no-session-persistence --strict-mcp-config --disable-slash-commands"
+# The judge's own files, put back as made before it runs: the agent changes the Kernel, a test and tools/mutants.py.
+JUDGES="Makefile GNUmakefile"
 
 usage() {
     echo "usage: bash tools/context_eval.sh OUT CONFIG_DIR REPO COMMIT SENTENCE HELD_OUT [CLI]" >&2
@@ -47,6 +56,9 @@ usage() {
 refuse() {
     echo "context_eval: $*" >&2
     exit 2
+}
+real() {   # PATH, as the file system resolves it, every link followed
+    python3 -I -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
 }
 [ "$#" -eq 6 ] || [ "$#" -eq 7 ] || usage
 command -v python3 >/dev/null || refuse "python3 is needed"
@@ -82,11 +94,13 @@ repo=$(cd "$3" && pwd -P)
 git -C "$repo" rev-parse --is-inside-work-tree >/dev/null 2>&1 || refuse "REPO is not a git checkout"
 commit=$(git -C "$repo" rev-parse --verify --quiet "$4^{commit}") || refuse "COMMIT is not a commit in REPO"
 case "$out/" in "$repo"/*) refuse "OUT is inside REPO; name a directory outside it" ;; esac
+case "$cfg/" in "$repo"/*) refuse "CONFIG_DIR is inside REPO; a login must never be kept there" ;; esac
 
-# SENTENCE and HELD_OUT: files outside REPO, OUT and CONFIG_DIR. The sentence is one line; the test is never read here.
+# SENTENCE and HELD_OUT: files outside REPO, OUT and CONFIG_DIR, every link followed. The sentence is one line; the
+# test is never read here.
 for f in "$5" "$6"; do
     [ -f "$f" ] || refuse "SENTENCE and HELD_OUT must be files"
-    full=$(cd "$(dirname "$f")" && pwd -P)/$(basename "$f")
+    full=$(real "$f")
     case "$full" in "$repo"/* | "$root"/* | "$cfg"/*) refuse "SENTENCE and HELD_OUT stay outside the repo and CONFIG_DIR" ;; esac
 done
 sentence=$(python3 -I -c '
@@ -101,7 +115,7 @@ import re, sys
 found = re.findall(r"`([a-z_]+)`", sys.stdin.read())
 print(found[0] if len(found) == 1 else "")')
 [ -n "$code" ] || refuse "SENTENCE names no reason code, or more than one, in backticks"
-held_out=$(cd "$(dirname "$6")" && pwd -P)/$(basename "$6")
+held_out=$(real "$6")
 case "$(basename "$held_out")" in test_*.py) ;; *) refuse "HELD_OUT is named test_<something>.py" ;; esac
 
 # The CLI: the one named, else the build kept for PIN if the native installer kept one, else the one on PATH.
@@ -112,7 +126,7 @@ else
     [ -x "$cli" ] || cli=$(command -v claude || true)
 fi
 [ -n "$cli" ] && [ -f "$cli" ] && [ -x "$cli" ] || refuse "no claude CLI found at '$cli'; install version $PIN"
-cli=$(cd "$(dirname "$cli")" && pwd -P)/$(basename "$cli")
+cli=$(real "$cli")
 
 scratch=$(cd "$(mktemp -d)" && pwd -P)
 case "$scratch/" in "$root"/* | "$repo"/* | "$cfg"/*) rm -rf "$scratch"; refuse "the scratch directory is inside the repo or CONFIG_DIR" ;; esac
@@ -123,17 +137,20 @@ trap finish EXIT
 trap 'exit 130' INT TERM
 work="$scratch/work"
 pristine="$scratch/pristine"
-mkdir "$work" "$pristine"
+agent_home="$scratch/home"
+mkdir "$work" "$pristine" "$agent_home"
 
-# The CLI, in the export, with no environment from this shell but what is named here.
+# The CLI, in the export, with no environment from this shell but what is named here: a scratch HOME, so that
+# nothing of the Maintainer's own is under it, and its login in CONFIG_DIR alone.
 run_cli() {
-    (cd "$work" && env -i HOME="$HOME" USER="${USER:-}" LOGNAME="${LOGNAME:-}" SHELL=/bin/bash \
-        PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UTF-8}" \
+    (cd "$work" && env -i HOME="$agent_home" USER="${USER:-}" LOGNAME="${LOGNAME:-}" SHELL=/bin/bash \
+        PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="$scratch" LANG="${LANG:-en_US.UTF-8}" \
         CLAUDE_CONFIG_DIR="$cfg" DISABLE_AUTOUPDATER=1 "$cli" "$@")
 }
-# The judge, in the export, with the environment a required check has: no key, and SIM_SEEDS if this shell sets it.
+# The judge, in the export, with the environment a required check has: the system's PATH, a scratch HOME, no key,
+# and SIM_SEEDS if this shell sets it.
 judge() {
-    (cd "$work" && env -i HOME="$HOME" PATH="$PATH" LANG=C ${SIM_SEEDS:+SIM_SEEDS="$SIM_SEEDS"} "$@")
+    (cd "$work" && env -i HOME="$agent_home" PATH=/usr/bin:/bin LANG=C ${SIM_SEEDS:+SIM_SEEDS="$SIM_SEEDS"} "$@")
 }
 
 mkdir "$out"
@@ -152,7 +169,8 @@ fi
 # 2. The export, twice.
 git -C "$repo" archive "$commit" | tar -x -C "$work"
 git -C "$repo" archive "$commit" | tar -x -C "$pristine"
-[ -f "$work/AGENTS.md" ] || refuse "the export holds no AGENTS.md; COMMIT is not one of software-factory's"
+[ -f "$work/AGENTS.md" ] && [ -d "$work/tests" ] || refuse "the export holds no AGENTS.md or no tests/; COMMIT is not one of software-factory's"
+[ ! -e "$work/tests/test_held_out.py" ] || refuse "the export already holds tests/test_held_out.py, where the held-out test goes"
 
 # 3. The agent. Its transcript is captured and never printed; its standard error is counted, not kept.
 code3=0
@@ -162,29 +180,44 @@ run_cli -p "$sentence" --max-turns "$CAP" --allowedTools "$ALLOWED" --disallowed
 err_lines=$(wc -l < "$scratch/raw-3.err" | tr -d ' ')
 err_chars=$(wc -c < "$scratch/raw-3.err" | tr -d ' ')
 rm -f "$scratch/raw-3.err"
+find "$work" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
-# 4. The judge. The held-out test is copied in under tests/, run, and taken out before anything is recorded.
-name=$(basename "$held_out" .py)
-cp "$held_out" "$work/tests/$name.py"
+# 4. The judge. The held-out test is copied in under tests/, run on its own, and taken out before anything else.
 code_test=0
-judge python3 -m unittest -q "tests.$name" > "$scratch/judge-test" 2>&1 || code_test=$?
+if [ -e "$work/tests/test_held_out.py" ]; then
+    code_test=3      # the agent wrote the file the held-out test goes in: its own test is not the held-out one
+else
+    cp "$held_out" "$work/tests/test_held_out.py"
+    judge python3 -m unittest -q tests.test_held_out > "$scratch/judge-test" 2>&1 || code_test=$?
+    rm -f "$work/tests/test_held_out.py"
+fi
+find "$work" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+# The judge's own files, put back as made; each the agent had changed is recorded.
+restored=""
+for f in $JUDGES $(cd "$pristine" && find tools -type f ! -name mutants.py | sort); do
+    if [ -f "$pristine/$f" ] && ! cmp -s "$pristine/$f" "$work/$f"; then
+        restored="$restored $f"
+        cp "$pristine/$f" "$work/$f"
+    fi
+done
 code_verify=0
 judge make verify > "$scratch/judge-verify" 2>&1 || code_verify=$?
 found=$(cd "$root" && python3 -m tools.context_eval mutants "$pristine" "$work")
-targets=$(printf '%s' "$found" | python3 -I -c 'import json, sys; print(" ".join(json.load(sys.stdin)["targets"]))')
 code_mutants=0
 mutant_verdict=missing
-if [ -n "$targets" ]; then
-    # shellcheck disable=SC2086  # the targets are paths, one word each
-    judge python3 -m tools.mutants $targets > "$scratch/judge-mutants" 2>&1 || code_mutants=$?
+if [ "$(printf '%s' "$found" | python3 -I -c 'import json, sys; print(len(json.load(sys.stdin)["names"]))')" -gt 0 ]; then
+    # The whole check: every mutant must die, the agent's among them, as the required check asks.
+    judge python3 -m tools.mutants > "$scratch/judge-mutants" 2>&1 || code_mutants=$?
     mutant_verdict=$(printf '%s' "$found" | python3 -I -c '
-import json, sys
+import json, re, sys
 names = json.load(sys.stdin)["names"]
-lines = open(sys.argv[1]).read().splitlines()
-killed = all(any(line.startswith("killed") and name in line for line in lines) for name in names)
-print("killed" if names and killed else "survived")' "$scratch/judge-mutants")
+killed = set()
+for line in open(sys.argv[1]).read().splitlines():
+    m = re.match(r"^killed\s+(.*?)(?: \(.*\))?$", line)
+    if m:
+        killed.add(m.group(1))
+print("killed" if int(sys.argv[2]) == 0 and all(name in killed for name in names) else "survived")' "$scratch/judge-mutants" "$code_mutants")
 fi
-rm -f "$work/tests/$name.py"
 find "$work" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
 test_verdict=pass
 [ "$code_test" -eq 0 ] || test_verdict=fail
@@ -194,8 +227,8 @@ printf '{"held_out_test": "%s", "verify": "%s", "mutant": "%s"}\n' "$test_verdic
 python3 -I -c '
 import json, sys
 json.dump({"commit": sys.argv[1], "ran_at": open(sys.argv[2]).read().strip(), "cli_version": sys.argv[3],
-           "cap_turns": int(sys.argv[4]), "code": sys.argv[5]}, open(sys.argv[6], "w"))' \
-    "$commit" "$out/ran_at" "$version" "$CAP" "$code" "$scratch/meta.json"
+           "cap_turns": int(sys.argv[4]), "code": sys.argv[5], "restored": sys.argv[6].split()}, open(sys.argv[7], "w"))' \
+    "$commit" "$out/ran_at" "$version" "$CAP" "$code" "$restored" "$scratch/meta.json"
 
 # 5. The record, and what was checked. Neither holds a word of the model's.
 code5=0
@@ -206,19 +239,22 @@ import json, sys
 a = sys.argv
 json.dump({"agent": {"exit": int(a[1]), "stderr": {"lines": int(a[2]), "characters": int(a[3])}},
            "held_out_test": {"exit": int(a[4]), "verdict": a[5]}, "verify": {"exit": int(a[6]), "verdict": a[7]},
-           "mutants": {"exit": int(a[8]), "verdict": a[9], "targets": a[10].split()}, "record": {"exit": int(a[11])}},
-          open(a[12], "w"), indent=2)' \
+           "mutants": {"exit": int(a[8]), "verdict": a[9], "added": json.loads(a[10])["names"]},
+           "judge_restored": a[11].split(), "record": {"exit": int(a[12])},
+           "sandbox": "none: the agent'"'"'s shell had a scratch HOME, its login and no key, and no other boundary (trial P-26 has no fixture)"},
+          open(a[13], "w"), indent=2)' \
     "$code3" "$err_lines" "$err_chars" "$code_test" "$test_verdict" "$code_verify" "$verify_verdict" \
-    "$code_mutants" "$mutant_verdict" "$targets" "$code5" "$out/checked.json"
+    "$code_mutants" "$mutant_verdict" "$found" "$restored" "$code5" "$out/checked.json"
 python3 -I -c '
 import json, sys
 env = {"CLAUDE_CONFIG_DIR": "the configuration directory the Factory alone uses, logged in on the Maintainer'"'"'s subscription",
-       "DISABLE_AUTOUPDATER": "1", "passed_on": ["HOME", "USER", "LOGNAME", "PATH", "TMPDIR", "LANG"],
-       "SHELL": "/bin/bash", "nothing_else": True}
+       "DISABLE_AUTOUPDATER": "1", "HOME": "a scratch directory", "passed_on": ["USER", "LOGNAME", "LANG"],
+       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/bash", "TMPDIR": "the scratch directory", "nothing_else": True}
 json.dump([{"n": 1, "via": "cli", "call": "claude --version", "env": env, "cwd": "the export"},
            {"n": 3, "via": "cli", "call": "claude -p SENTENCE --max-turns %s --allowedTools %s --disallowedTools %s %s"
             % (sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]), "env": env, "cwd": "the export of " + sys.argv[5],
-            "pinned": sys.argv[6], "prompt": "the one sentence, which the record carries as the task"}],
+            "pinned": sys.argv[6], "prompt": "the one sentence, which the record carries as the task",
+            "sandbox": "none; the record counts what the agent named outside the export"}],
           open(sys.argv[7], "w"), indent=2)' "$CAP" "$ALLOWED" "$REFUSED" "$OPTIONS" "$commit" "$PIN" "$out/requests.json"
 
 passed=false

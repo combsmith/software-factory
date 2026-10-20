@@ -3884,6 +3884,9 @@ class ContextEval(unittest.TestCase):
                       {"type": "tool_use", "id": "t3", "name": "Read", "input": {"file_path": "/etc/hosts"}},
                       {"type": "tool_use", "id": "t4", "name": "Bash", "input": {"command": "python3 -m unittest tests.test_decide"}},
                       {"type": "tool_use", "id": "t5", "name": "Bash", "input": {"command": 'echo "%s"' % self.PROSE["command"]}},
+                      {"type": "tool_use", "id": "t8", "name": "Read", "input": {"file_path": "kernel/../../etc/hosts"}},
+                      {"type": "tool_use", "id": "t9", "name": "Bash", "input": {"command": "python3 run.py lowercase-token-0123456789abcdef then"}},
+                      {"type": "tool_use", "id": "t10", "name": "Bash", "input": {"command": "gh" + "p_0123456789abcdefghijklmnopqrstuvwxyz"}},
                       {"type": "tool_use", "id": "t6", "name": "Edit", "input": {"file_path": str(work / "kernel" / "derive.py"), "old_string": "x", "new_string": self.PROSE["said"]}},
                       {"type": "tool_use", "id": "t7", "name": "Read", "input": {"file_path": str(work / "AGENTS.md")}}),
             json.dumps({"type": "result", "subtype": "success", "is_error": False, "num_turns": 7, "duration_ms": 1234,
@@ -3900,10 +3903,14 @@ class ContextEval(unittest.TestCase):
         run = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
         self.assertIsNotNone(run)
         self.assertEqual(validate(run, context_eval.RUN_SCHEMA), [])
-        # A path is read once, relative to the export; one outside it is dropped; a command keeps its first words, and
-        # stops at a word that is not one; the result's counts are the cost.
+        # A path is read once, relative to the export; one outside it, by its root or by `..`, is dropped and counted; a
+        # command keeps its first words, and stops at a word that is not one or that is shaped like a token; one with
+        # no such word is unreadable, and counted; the result's counts are the cost.
         self.assertEqual(run["read"], ["AGENTS.md", "kernel/AGENTS.md", "kernel/derive.py"])
-        self.assertEqual(run["ran"], ["python3 -m unittest tests.test_decide", "echo"])
+        self.assertEqual(run["outside_reads"], 2)
+        self.assertEqual(run["ran"], ["python3 -m unittest tests.test_decide", "echo", "python3 run.py", "unreadable"])
+        self.assertEqual(run["unread_commands"], 1)
+        self.assertEqual(run["restored"], [])
         self.assertEqual(run["cost"], {"turns": 7, "duration_ms": 1234, "usd": 0.25, "input_tokens": 100, "output_tokens": 20})
         self.assertEqual(run["changed"], [{"path": "kernel/derive.py", "added": 2, "removed": 0},
                                           {"path": "tests/test_decide.py", "added": 3, "removed": 0},
@@ -3918,6 +3925,32 @@ class ContextEval(unittest.TestCase):
         self.assertEqual((failed["verdicts"]["mutant"], failed["passed"]), ("survived", False))
         unchanged = context_eval.record(self.transcript(work), *self.export(changed=False), self.PASSED, self.META)
         self.assertEqual((unchanged["changed"], unchanged["added"]), ([], {"test": None, "mutant": None, "reason": None}))
+        # The code is the reason added only on a line the agent added to the Kernel, as a whole word.
+        (work / "kernel/derive.py").write_text('def derive(f):\n    if not f:\n        return "empty_diff_x"\n    return f\n')
+        self.assertIsNone(context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)["added"]["reason"])
+        # A mutant dropped from the list cannot have been killed: the judge's verdict is overridden. A mutant named
+        # like a token is not recorded. What the judge put back is carried.
+        (work / "tools/mutants.py").write_text('DERIVE = "kernel/derive.py"\nMUTANTS = [\n    ("an empty diff converges", DERIVE, "c", "d", ("t",)),\n]\n')
+        dropped = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
+        self.assertEqual((dropped["verdicts"]["mutant"], dropped["passed"]), ("survived", False))
+        (work / "tools/mutants.py").write_text('DERIVE = "kernel/derive.py"\nMUTANTS = [\n    ("a rule", DERIVE, "a", "b", ("t",)),\n'
+                                               '    ("gh' + 'p_0123456789abcdefghijklmnopqrstuvwxyz", DERIVE, "c", "d", ("t",)),\n]\n')
+        self.assertIsNone(context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)["added"]["mutant"])
+        # A name in the house style, with a Hold's capital, a comma and a parenthesis, is recorded; one too long is not.
+        (work / "tools/mutants.py").write_text('DERIVE = "kernel/derive.py"\nMUTANTS = [\n    ("a rule", DERIVE, "a", "b", ("t",)),\n'
+                                               '    ("a Hold under a merge is done, not held (issue 237)", DERIVE, "c", "d", ("t",)),\n]\n')
+        self.assertEqual(context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)["added"]["mutant"],
+                         "a Hold under a merge is done, not held (issue 237)")
+        # A change under a dot-directory is seen, and a transcript with no result is recorded with its cost unknown.
+        (work / ".github").mkdir()
+        (work / ".github" / "x.yml").write_text("on: push\n")
+        seen = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
+        self.assertIn({"path": ".github/x.yml", "added": 1, "removed": 0}, seen["changed"])
+        no_result = "\n".join(self.transcript(work).splitlines()[:-1])
+        unknown = context_eval.record(no_result, pristine, work, self.PASSED, self.META)
+        self.assertEqual(unknown["cost"], {"turns": None, "duration_ms": None, "usd": None, "input_tokens": None, "output_tokens": None})
+        put_back = context_eval.record(self.transcript(work), pristine, work, self.PASSED, dict(self.META, restored=["Makefile"]))
+        self.assertEqual(put_back["restored"], ["Makefile"])
 
     def test_what_cannot_be_read_makes_no_record(self):
         pristine, work = self.export()
@@ -3925,11 +3958,9 @@ class ContextEval(unittest.TestCase):
         self.assertIsNone(context_eval.record(text, pristine, work, "pass", self.META))
         self.assertIsNone(context_eval.record(text, pristine, work, self.PASSED, dict(self.META, commit="short")))
         self.assertIsNone(context_eval.record(text, pristine, work, {"held_out_test": "pass"}, self.META))
-        # A transcript with no result has no counts, which no run carries; one with no JSON reads nothing.
-        no_result = "\n".join(text.splitlines()[:-1])
-        self.assertIsNone(context_eval.record(no_result, pristine, work, self.PASSED, self.META))
-        read, ran, counts = context_eval.reads_and_commands("the model said " + self.PROSE["said"], work)
-        self.assertEqual((read, ran, counts), ([], [], {}))
+        # A transcript with no JSON reads nothing.
+        read, ran, counts, outside = context_eval.reads_and_commands("the model said " + self.PROSE["said"], work)
+        self.assertEqual((read, ran, counts, outside), ([], [], {}, 0))
         # The CLI's json form, one list, is read as the stream is.
         as_list = json.dumps([json.loads(line) for line in text.splitlines()])
         self.assertEqual(context_eval.record(as_list, pristine, work, self.PASSED, self.META)["read"],
@@ -3974,6 +4005,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 case "$1" in
   --version) env > "$here/env-version"; cat "$here/version"; exit 0 ;;
   -p) env > "$here/env-task"; printf '%s\\n' "$@" > "$here/args"; pwd > "$here/cwd"
+      [ -f "$here/tamper" ] && printf 'verify:\\n\\t@echo tampered\\n' > Makefile
+      [ -f "$here/survive" ] && cp "$here/survive" tools/survive
       printf 'def rule(f):\\n    return "empty_diff"\\n' >> kernel/derive.py
       printf '\\n    def test_empty_diff_never_converges(self):\\n        pass\\n' >> tests/test_decide.py
       python3 - <<'PY'
@@ -3984,16 +4017,22 @@ PY
 esac
 exit 9
 """
-    # The stand-in repo's mutation check: it kills every mutant its list holds, and says so as the real one does.
-    MUTANTS_PY = '''import re, sys
+    # The stand-in repo's mutation check: it kills every mutant its list holds, but one named in tools/survive, and
+    # says so as the real one does, with the real one's exit.
+    MUTANTS_PY = '''import os, sys
 DERIVE = "kernel/derive.py"
 MUTANTS = [
     ("a rule", DERIVE, "a", "b", ("t",)),
 '''
     MUTANTS_MAIN = '''
+survive = open("tools/survive").read().split("\\n") if os.path.exists("tools/survive") else []
+killed = 0
 for name, *_ in MUTANTS:
-    print("%-9s %s" % ("killed", name))
-print("%d of %d mutants killed" % (len(MUTANTS), len(MUTANTS)))
+    outcome = "SURVIVED" if name in survive else "killed"
+    killed += outcome == "killed"
+    print("%-9s %s" % (outcome, name))
+print("%d of %d mutants killed" % (killed, len(MUTANTS)))
+sys.exit(0 if killed == len(MUTANTS) else 1)
 '''
 
     def setUp(self):
@@ -4007,7 +4046,8 @@ print("%d of %d mutants killed" % (len(MUTANTS), len(MUTANTS)))
         (self.aside / "test_held_out.py").write_text("import unittest\nfrom kernel import derive\n\n\nclass HeldOut(unittest.TestCase):\n"
                                                     "    def test_the_rule_holds(self):\n        self.assertEqual(derive.rule({}), 'empty_diff')\n")
 
-    def repo(self, verify="verify:\n\t@echo ok\n") -> tuple:
+    # The stand-in repo's verify passes only once the held-out test has been taken out again.
+    def repo(self, verify="verify:\n\t@test ! -f tests/test_held_out.py\n") -> tuple:
         """A stand-in repo with one commit: an AGENTS.md, a Kernel, a test, a mutation check and a Makefile."""
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         files = {"AGENTS.md": "# a repo\n", "Makefile": verify, "kernel/__init__.py": "", "kernel/derive.py": "def derive(f):\n    return f\n",
@@ -4023,9 +4063,13 @@ print("%d of %d mutants killed" % (len(MUTANTS), len(MUTANTS)))
         commit = subprocess.run(["git", "-C", str(folder), "rev-parse", "HEAD"], env=env, check=True, capture_output=True, text=True).stdout.strip()
         return folder, commit
 
-    def stand_in(self, version=None) -> pathlib.Path:
+    def stand_in(self, version=None, tamper=False, survive=None) -> pathlib.Path:
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (folder / "version").write_text("%s (Claude Code)\n" % (version or self.PIN))
+        if tamper:
+            (folder / "tamper").write_text("")
+        if survive:
+            (folder / "survive").write_text(survive + "\n")
         (folder / "stderr").write_text(self.PROSE["stderr"] + "\n")
         (folder / "transcript").write_text(ContextEval().transcript(pathlib.Path("/nowhere")).replace("/nowhere/", ""))
         cli = folder / "claude"
@@ -4052,6 +4096,9 @@ print("%d of %d mutants killed" % (len(MUTANTS), len(MUTANTS)))
             given = dict(line.split("=", 1) for line in (cli / ("env-" + call)).read_text().splitlines() if "=" in line)
             self.assertEqual(set(given) - {"PWD", "OLDPWD", "SHLVL", "_"}, named, call)
             self.assertNotIn("NEVER-SEEN", (cli / ("env-" + call)).read_text(), call)
+            # A scratch HOME, not the Maintainer's; the login in CONFIG_DIR alone.
+            self.assertNotEqual(given["HOME"], str(self.home), call)
+            self.assertEqual(given["CLAUDE_CONFIG_DIR"], str(self.cfg), call)
         args = (cli / "args").read_text().split("\n")
         self.assertEqual(args[args.index("-p") + 1], self.SENTENCE)
         self.assertEqual(args[args.index("--disallowedTools") + 1], "WebFetch,WebSearch,Task,Agent")
@@ -4069,9 +4116,11 @@ print("%d of %d mutants killed" % (len(MUTANTS), len(MUTANTS)))
                                            "mutant": "an empty diff converges", "reason": "empty_diff"})
         self.assertEqual([c["path"] for c in record["changed"]], ["kernel/derive.py", "tests/test_decide.py", "tools/mutants.py"])
         self.assertEqual(record["read"], ["AGENTS.md", "kernel/AGENTS.md", "kernel/derive.py"])
+        self.assertEqual((record["outside_reads"], record["restored"]), (2, []))
         checked = json.loads(texts["checked.json"])
-        self.assertEqual((checked["agent"]["exit"], checked["agent"]["stderr"]["lines"], checked["mutants"]["targets"]),
-                         (0, 1, ["kernel/derive.py"]))
+        self.assertEqual((checked["agent"]["exit"], checked["agent"]["stderr"]["lines"], checked["mutants"]["added"]),
+                         (0, 1, ["an empty diff converges"]))
+        self.assertIn("none", checked["sandbox"])
         everything = "".join(texts.values()) + ran.stdout + ran.stderr
         for word in self.PROSE.values():
             self.assertNotIn(word, everything)
@@ -4095,6 +4144,25 @@ print("%d of %d mutants killed" % (len(MUTANTS), len(MUTANTS)))
         record = json.loads((out / "record.json").read_text())
         self.assertEqual((record["verdicts"]["held_out_test"], record["verdicts"]["verify"], record["passed"]), ("fail", "pass", False))
         self.assertNotIn("not the rule", "".join(self.texts(out).values()) + ran.stdout + ran.stderr)
+        # The agent's mutant that survives, by the whole check's exit and its line, fails the run.
+        (self.aside / "test_held_out.py").write_text("import unittest\nfrom kernel import derive\n\n\nclass HeldOut(unittest.TestCase):\n"
+                                                    "    def test_the_rule_holds(self):\n        self.assertEqual(derive.rule({}), 'empty_diff')\n")
+        folder, commit = self.repo()
+        out = self.home.parent / (self.home.name + "-survives")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in(survive="an empty diff converges") / "claude")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["verdicts"]["mutant"], record["passed"]), ("survived", False))
+        # The agent that rewrites the judge's Makefile: it is put back as made, recorded, and the judge is the export's own.
+        folder, commit = self.repo()
+        out = self.home.parent / (self.home.name + "-tampered")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in(tamper=True) / "claude")
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["restored"], record["verdicts"]["verify"], record["passed"]), (["Makefile"], "pass", True))
+        self.assertNotIn("Makefile", [c["path"] for c in record["changed"]], "put back before the changes are counted")
 
     def test_each_refusal_stops_before_anything_is_asked(self):
         folder, commit = self.repo()
@@ -4107,6 +4175,8 @@ print("%d of %d mutants killed" % (len(MUTANTS), len(MUTANTS)))
         no_code.write_text("An empty diff never converges, with no code named.\n")
         inside = folder / "test_inside.py"
         inside.write_text("")
+        linked = self.aside / "test_linked.py"
+        linked.symlink_to(inside)
         good = [self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", cli / "claude"]
         cases = [("OUT exists", [existing] + good, "exists; name a new directory"),
                  ("OUT inside the repo", [ROOT / "never-made"] + good, "OUT is inside the repo"),
@@ -4118,6 +4188,8 @@ print("%d of %d mutants killed" % (len(MUTANTS), len(MUTANTS)))
                  ("two sentences", good[:3] and [self.out] + good[:3] + [two] + good[4:], "not one sentence"),
                  ("no code", [self.out] + good[:3] + [no_code] + good[4:], "names no reason code"),
                  ("HELD_OUT inside REPO", [self.out] + good[:4] + [inside, cli / "claude"], "stay outside the repo"),
+                 ("HELD_OUT linked into REPO", [self.out] + good[:4] + [linked, cli / "claude"], "stay outside the repo"),
+                 ("CONFIG_DIR inside REPO", [self.out, folder / "kernel"] + good[1:], "CONFIG_DIR is inside REPO"),
                  ("HELD_OUT not a test", [self.out] + good[:4] + [self.aside / "sentence", cli / "claude"], "is named test_")]
         (self.home / ".claude" / "x").mkdir(parents=True)
         for name, args, said in cases:

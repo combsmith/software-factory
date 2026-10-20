@@ -215,11 +215,20 @@ class TheSet(unittest.TestCase):
         newest = sorted(runs, key=lambda r: r["ran_at"])[-3:]
         self.assertTrue(all(r["passed"] for r in newest), [r["verdicts"] for r in newest])
         code = re.search(r"`([a-z_]+)`", record["task"]).group(1)
+        script = (ROOT / "tools" / "context_eval.sh").read_text()
+        pin, cap = re.search(r"^PIN=(\S+)$", script, re.M).group(1), int(re.search(r"^CAP=(\d+)$", script, re.M).group(1))
         for r in newest:
+            self.assertEqual(r["passed"], r["verdicts"] == {"held_out_test": "pass", "verify": "pass", "mutant": "killed"})
+            self.assertEqual((r["cli_version"], r["cap_turns"]), (pin, cap))
             self.assertEqual(r["added"]["reason"], code)
             self.assertIsNotNone(r["added"]["test"])
             self.assertIsNotNone(r["added"]["mutant"])
-            self.assertTrue(all((ROOT / path).exists() or path.startswith("tests/") for path in r["read"]), r["read"])
+            # The agent changed the Kernel, tests and the mutants' list alone, and dropped nothing from the list.
+            for change in r["changed"]:
+                self.assertTrue(change["path"].startswith(("kernel/", "tests/")) or change["path"] == "tools/mutants.py", change)
+                if change["path"] == "tools/mutants.py":
+                    self.assertEqual(change["removed"], 0)
+            self.assertEqual(r["restored"], [])
 
 
 if __name__ == "__main__":

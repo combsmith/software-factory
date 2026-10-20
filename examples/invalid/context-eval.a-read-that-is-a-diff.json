@@ -16,11 +16,13 @@
         "tools/mutants.py",
         "--- a/kernel/derive.py"
       ],
+      "outside_reads": 0,
       "ran": [
         "python3 -m unittest tests.test_decide",
         "make verify",
         "python3 -m tools.mutants kernel/derive.py"
       ],
+      "unread_commands": 0,
       "changed": [
         {
           "path": "kernel/derive.py",
@@ -38,6 +40,7 @@
           "removed": 0
         }
       ],
+      "restored": [],
       "added": {
         "test": "tests/test_decide.py::test_empty_diff_never_converges",
         "mutant": "an empty diff converges",

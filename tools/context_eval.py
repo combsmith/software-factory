@@ -27,6 +27,7 @@ import re
 import sys
 
 from tools import walk
+from tools.check_trials import shaped
 from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -35,11 +36,15 @@ RUN_SCHEMA = SCHEMA["properties"]["runs"]["items"]
 # What is taken from a tool's input: a path, by these names, and a command's first words, by this one.
 PATH_INPUTS = ("file_path", "path", "notebook_path")
 COMMAND_INPUT = "command"
-PATH = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$")
+PATH = re.compile(r"^\.?[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$")
 WORD = re.compile(r"^[a-z0-9_./=-]+$")
 FIRST_WORDS = 4
+UNREADABLE = "unreadable"
+TOKEN_LENGTH = 24      # a word longer than this, of letters and digits, is read as a token and never recorded
 # A mutant's entry in tools/mutants.py: its name, then the file it targets.
 MUTANT = re.compile(r'^\s*\(\s*"([^"\n]+)",\s*(?:"([^"\n]+)"|([A-Z_]+))\s*,', re.M)
+# A mutant's name as the house style writes one: words, a few marks, no quotes; the schema holds it to the same.
+MUTANT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _:'(),.-]{0,119}$")
 
 
 def _messages(text: str) -> list:
@@ -67,40 +72,45 @@ def _messages(text: str) -> list:
 
 
 def _relative(given: str, work: pathlib.Path):
-    """A path the agent named, relative to the export when it is inside it; None when it is not a path, or outside."""
+    """A path the agent named, relative to the export when it is inside it, every `..` and link resolved; None when
+    it is not a path, or outside the export."""
     if not isinstance(given, str) or not given.strip():
         return None
     try:
-        path = pathlib.PurePosixPath(given)
-        if path.is_absolute():
-            resolved = os.path.realpath(given)
-            base = os.path.realpath(str(work))
-            if not resolved.startswith(base + os.sep):
-                return None
-            given = os.path.relpath(resolved, base)
+        base = os.path.realpath(str(work))
+        resolved = os.path.realpath(given if os.path.isabs(given) else os.path.join(base, given))
     except (ValueError, OSError):
         return None
-    given = re.sub(r"^(\./)+", "", given)
-    return given if PATH.match(given) else None
+    if not resolved.startswith(base + os.sep):
+        return None
+    rel = os.path.relpath(resolved, base)
+    return rel if PATH.match(rel) else None
 
 
 def _first_words(command) -> str:
-    """A command's first words, each held to WORD; a word that is not one ends the record of it."""
+    """A command's first words, each held to WORD and to no credential's shape; a word that is not one ends the
+    record of it, and a command with no such word is unreadable."""
     if not isinstance(command, str):
-        return "unreadable"
+        return UNREADABLE
     words = []
     for word in command.strip().split()[:FIRST_WORDS]:
-        if not WORD.match(word):
+        if not WORD.match(word) or _token(word):
             break
         words.append(word)
-    return " ".join(words) if words else "unreadable"
+    return " ".join(words) if words else UNREADABLE
+
+
+def _token(word: str) -> bool:
+    """Whether a word is shaped like a credential, by the trials' rules or by its length with letters and digits."""
+    return shaped(word) or (len(word) > TOKEN_LENGTH and re.search(r"[0-9]", word) is not None
+                            and re.search(r"[a-z]", word) is not None)
 
 
 def reads_and_commands(text: str, work: pathlib.Path) -> tuple:
     """(the paths the agent read, in order, each once; the first words of each command it ran, in order; the result's
-    counts), from the transcript. Only a tool_use block's name and the named inputs are read; a text block, a tool's
-    result and the result's text are never."""
-    read, ran, counts, seen = [], [], {}, set()
+    counts; how many paths it named outside the export), from the transcript. Only a tool_use block's name and the
+    named inputs are read; a text block, a tool's result and the result's text are never."""
+    read, ran, counts, seen, outside = [], [], {}, set(), 0
     for message in _messages(text):
         if message.get("type") == "result":
             usage = message.get("usage") if isinstance(message.get("usage"), dict) else {}
@@ -121,10 +131,12 @@ def reads_and_commands(text: str, work: pathlib.Path) -> tuple:
             for key in PATH_INPUTS:
                 if key in given:
                     path = _relative(given[key], work)
-                    if path is not None and path not in seen:
+                    if path is None:
+                        outside += 1
+                    elif path not in seen:
                         seen.add(path)
                         read.append(path)
-    return read, ran, counts
+    return read, ran, counts, outside
 
 
 def _files(folder: pathlib.Path) -> dict:
@@ -161,16 +173,24 @@ def changes(pristine: pathlib.Path, work: pathlib.Path) -> list:
     return out
 
 
+def _mutant_entries(folder: pathlib.Path) -> list:
+    """Each mutant tools/mutants.py under `folder` holds, as (name, target), a target named by a constant of that file
+    read through it."""
+    path = folder / "tools" / "mutants.py"
+    text = path.read_text() if path.is_file() else ""
+    named = dict(re.findall(r'^([A-Z_]+) = "([^"\n]+)"$', text, re.M))
+    return [(m.group(1), m.group(2) or named.get(m.group(3), m.group(3))) for m in MUTANT.finditer(text)]
+
+
 def new_mutants(pristine: pathlib.Path, work: pathlib.Path) -> list:
-    """The mutants WORK's tools/mutants.py holds that PRISTINE's does not, as (name, target), a target named by a
-    constant of that file read through it."""
-    def entries(folder):
-        path = folder / "tools" / "mutants.py"
-        text = path.read_text() if path.is_file() else ""
-        named = dict(re.findall(r'^([A-Z_]+) = "([^"\n]+)"$', text, re.M))
-        return [(m.group(1), m.group(2) or named.get(m.group(3), m.group(3))) for m in MUTANT.finditer(text)]
-    before = set(entries(pristine))
-    return [entry for entry in entries(work) if entry not in before]
+    """The mutants WORK's tools/mutants.py holds that PRISTINE's does not, as (name, target)."""
+    before = set(_mutant_entries(pristine))
+    return [entry for entry in _mutant_entries(work) if entry not in before]
+
+
+def mutants_kept(pristine: pathlib.Path, work: pathlib.Path) -> bool:
+    """Whether every mutant the export held as made is still in it: an agent that drops one has broken the check."""
+    return set(_mutant_entries(pristine)) <= set(_mutant_entries(work))
 
 
 def new_tests(pristine: pathlib.Path, work: pathlib.Path) -> list:
@@ -191,21 +211,36 @@ def record(transcript: str, pristine: pathlib.Path, work: pathlib.Path, verdicts
     """One run's record, valid against context-eval/1's run, or None when what it was given does not make one."""
     if not isinstance(verdicts, dict) or not isinstance(meta, dict):
         return None
-    read, ran, counts = reads_and_commands(transcript, work)
+    read, ran, counts, outside = reads_and_commands(transcript, work)
     changed = changes(pristine, work)
     mutants = new_mutants(pristine, work)
     tests = new_tests(pristine, work)
     code = meta.get("code")
-    kernel_text = "".join((work / rel).read_text() for rel in (c["path"] for c in changed)
-                          if rel.startswith("kernel/") and (work / rel).is_file())
-    reason = code if isinstance(code, str) and re.fullmatch(r"[a-z_]+", code) and code in kernel_text else None
+    # The reason code counts as added only on a line the agent added to the Kernel, as a whole word.
+    added_lines = []
+    for change in changed:
+        rel = change["path"]
+        if rel.startswith("kernel/") and (work / rel).is_file():
+            old = (pristine / rel).read_text().splitlines() if (pristine / rel).is_file() else []
+            added_lines += [line for line in difflib.unified_diff(old, (work / rel).read_text().splitlines(), lineterm="", n=0)
+                            if line.startswith("+") and not line.startswith("+++")]
+    reason = (code if isinstance(code, str) and re.fullmatch(r"[a-z_]+", code)
+              and any(re.search(r"(?<![a-z_])%s(?![a-z_])" % re.escape(code), line) for line in added_lines) else None)
+    mutant = mutants[0][0] if mutants else None
+    if mutant is not None and (any(_token(word) for word in mutant.split()) or not MUTANT_NAME.match(mutant)):
+        mutant = None
+    judged = {k: verdicts.get(k) for k in ("held_out_test", "verify", "mutant")}
+    if judged["mutant"] == "killed" and not mutants_kept(pristine, work):
+        judged["mutant"] = "survived"       # a mutant dropped from the list is one that cannot have been killed
+    restored = meta.get("restored") if isinstance(meta.get("restored"), list) else []
     run = {
         "commit": meta.get("commit"), "ran_at": meta.get("ran_at"), "cli_version": meta.get("cli_version"),
         "cap_turns": meta.get("cap_turns"),
-        "read": read, "ran": ran, "changed": changed,
-        "added": {"test": tests[0] if tests else None, "mutant": mutants[0][0] if mutants else None, "reason": reason},
+        "read": read, "outside_reads": outside, "ran": ran, "unread_commands": ran.count(UNREADABLE),
+        "changed": changed, "restored": restored,
+        "added": {"test": tests[0] if tests else None, "mutant": mutant, "reason": reason},
         "cost": {k: counts.get(k) for k in ("turns", "duration_ms", "usd", "input_tokens", "output_tokens")},
-        "verdicts": {k: verdicts.get(k) for k in ("held_out_test", "verify", "mutant")},
+        "verdicts": judged,
     }
     run["passed"] = (run["verdicts"]["held_out_test"] == "pass" and run["verdicts"]["verify"] == "pass"
                      and run["verdicts"]["mutant"] == "killed")
