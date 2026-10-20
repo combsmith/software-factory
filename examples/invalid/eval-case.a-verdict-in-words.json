@@ -1,0 +1,246 @@
+{
+  "schema": "eval-case/1",
+  "id": "synthetic-early-return",
+  "role": "pr-review",
+  "intent": "review-change",
+  "facts": {
+    "schema": "facts/1",
+    "item": {
+      "repo": "combsmith/software-factory",
+      "type": "pull_request",
+      "number": 42
+    },
+    "state": "open",
+    "is_draft": false,
+    "class": "maintainer",
+    "author": "don-petry",
+    "last_pusher": "don-petry",
+    "targets_protected": true,
+    "mergeable": true,
+    "content_id": "sha256:5d0c",
+    "diff": {
+      "files": 3,
+      "lines": 120,
+      "truncated": false
+    },
+    "changed_paths": [
+      {
+        "path": "kernel/derive.py",
+        "previous": "kernel/derive_old.py"
+      },
+      {
+        "path": "tests/test_decide.py",
+        "previous": null
+      },
+      {
+        "path": "docs/glossary.md",
+        "previous": null
+      }
+    ],
+    "label_events": [
+      {
+        "label": "factory:hold",
+        "action": "labeled",
+        "by": {
+          "kind": "human",
+          "name": "don-petry",
+          "can_write": true
+        },
+        "at": "2026-10-11T11:40:00Z"
+      },
+      {
+        "label": "factory:hold",
+        "action": "unlabeled",
+        "by": {
+          "kind": "human",
+          "name": "don-petry",
+          "can_write": true
+        },
+        "at": "2026-10-11T11:45:00Z"
+      }
+    ],
+    "last_push_at": "2026-10-11T12:00:00Z",
+    "last_writer_action_at": "2026-10-11T12:00:00Z",
+    "reviews": [
+      {
+        "by": {
+          "kind": "machine_user",
+          "name": "donpetry-bot",
+          "can_write": true
+        },
+        "state": "dismissed",
+        "commit": "4b1a9c0",
+        "content_id": "sha256:4b1a",
+        "submitted_at": "2026-10-11T11:50:00Z",
+        "dismissed_by": {
+          "kind": "human",
+          "name": "don-petry",
+          "can_write": true
+        },
+        "dismissed_from": "approved"
+      },
+      {
+        "by": {
+          "kind": "human",
+          "name": "a-colleague",
+          "can_write": true
+        },
+        "state": "changes_requested",
+        "commit": "5d0c7e2",
+        "content_id": "sha256:5d0c",
+        "submitted_at": "2026-10-11T12:18:00Z",
+        "dismissed_by": null,
+        "dismissed_from": null
+      }
+    ],
+    "threads": [
+      {
+        "id": "PRRT_kw7",
+        "resolved": false,
+        "opened_by": {
+          "kind": "lens",
+          "name": "pr-review",
+          "can_write": true
+        },
+        "category": "functional",
+        "severity": "major",
+        "resolved_by": null,
+        "opened_at": "2026-10-11T12:15:00Z"
+      },
+      {
+        "id": "PRRT_kw1",
+        "resolved": false,
+        "opened_by": {
+          "kind": "lens",
+          "name": "coderabbit",
+          "can_write": false
+        },
+        "category": null,
+        "severity": null,
+        "resolved_by": null,
+        "opened_at": "2026-10-11T12:15:00Z"
+      },
+      {
+        "id": "PRRT_kw3",
+        "resolved": true,
+        "opened_by": {
+          "kind": "human",
+          "name": "a-colleague",
+          "can_write": true
+        },
+        "category": "human",
+        "severity": null,
+        "resolved_by": {
+          "kind": "human",
+          "name": "a-colleague",
+          "can_write": true
+        },
+        "opened_at": "2026-10-11T12:16:00Z"
+      }
+    ],
+    "checks": [
+      {
+        "name": "verify",
+        "app_id": 15368,
+        "workflow": ".github/workflows/verify.yml",
+        "conclusion": "success",
+        "completed_at": "2026-10-11T12:06:00Z"
+      },
+      {
+        "name": "Secret scan (gitleaks)",
+        "app_id": 15368,
+        "workflow": ".github/workflows/ci.yml",
+        "conclusion": "success",
+        "completed_at": "2026-10-11T12:06:00Z"
+      },
+      {
+        "name": "CodeQL",
+        "app_id": 57789,
+        "workflow": null,
+        "conclusion": "success",
+        "completed_at": "2026-10-11T12:06:00Z"
+      }
+    ],
+    "queue": false,
+    "acts_since_writer": 2,
+    "acceptance": {
+      "approved": {
+        "digest": "sha256:c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de",
+        "commit": "1a2b3c4",
+        "by": {
+          "kind": "human",
+          "name": "a-colleague",
+          "can_write": true
+        },
+        "criteria": [
+          {
+            "id": "AC-1",
+            "kind": "test"
+          },
+          {
+            "id": "AC-2",
+            "kind": "test"
+          }
+        ]
+      },
+      "head": "sha256:c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de",
+      "results": [
+        {
+          "criterion": "AC-1",
+          "content_id": "sha256:4b1a",
+          "result": "failing",
+          "check": {
+            "name": "verify",
+            "app_id": 15368,
+            "workflow": ".github/workflows/verify.yml"
+          }
+        },
+        {
+          "criterion": "AC-1",
+          "content_id": "sha256:5d0c",
+          "result": "passing",
+          "check": {
+            "name": "verify",
+            "app_id": 15368,
+            "workflow": ".github/workflows/verify.yml"
+          }
+        },
+        {
+          "criterion": "AC-2",
+          "content_id": "sha256:5d0c",
+          "result": "passing",
+          "check": {
+            "name": "verify",
+            "app_id": 15368,
+            "workflow": ".github/workflows/verify.yml"
+          }
+        }
+      ]
+    },
+    "complete": {
+      "acceptance": true,
+      "reviews": true,
+      "threads": true,
+      "checks": true,
+      "diff": true,
+      "changed_paths": true,
+      "runs": true,
+      "timeline": true
+    },
+    "read_at": "2026-10-11T12:20:00Z"
+  },
+  "diff": "--- a/kernel/decide.py\n+++ b/kernel/decide.py\n@@ -86,9 +86,9 @@\n-    if not items:\n-        return []\n     first = items[0]\n+    if not items:\n+        return []\n     return parse(first, items[1:])\n",
+  "expected": {
+    "verdict": "the reviewer should object",
+    "criterion": "PR-3",
+    "finding": {
+      "category": "functional",
+      "severity": "major",
+      "location": {
+        "path": "kernel/decide.py",
+        "start_line": 86,
+        "end_line": 94
+      }
+    }
+  }
+}

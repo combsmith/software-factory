@@ -25,4 +25,4 @@ with the task for the reader's attention, so what is always loaded is kept small
 | The root `AGENTS.md` and each directory's stay under their line limits | `tools/check_context.py` |
 | Every rule, boundary, lesson and standard names a check that exists, or a path it is waiting on that does not | `tools/check_context.py` |
 | The checks on the context catch what they claim to catch | `tests/test_tools.py::test_a_rule_with_no_check_is_caught`, `tests/test_tools.py::test_a_rule_whose_wait_is_over_is_caught` |
-| An agent given only this repo and one sentence can add a rule to the Kernel and pass the required check | waiting on `evals/` |
+| An agent given only this repo and one sentence can add a rule to the Kernel and pass the required check | `tests/test_evals.py::test_a_fresh_agent_given_the_repo_adds_a_rule_and_passes_the_check`, not held yet |

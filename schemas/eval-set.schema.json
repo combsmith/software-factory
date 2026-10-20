@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "eval-set/1: what this repo holds of a held-out eval set: the Role and Intent it tests, the count of cases, and each case's id and the sha256 of its file in the private home. No case content is here, and none may be.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "role",
+    "intent",
+    "count",
+    "cases"
+  ],
+  "properties": {
+    "schema": {
+      "const": "eval-set/1"
+    },
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z-]*[a-z]$"
+    },
+    "intent": {
+      "type": "string",
+      "pattern": "^[a-z][a-z-]*[a-z]$"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cases": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "sha256"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  }
+}

@@ -98,6 +98,9 @@ UNCOVERED_SEEDS, UNCOVERED = 1, 0.5
 # count here; the boundary cases hold that the brakes come first.
 # Seeds 3, 11, 19, 27 and 35 are among the first 40; every other seed stays as it was.
 UNNAMED_EVERY, UNNAMED = 8, 3
+# On one seed in nine the push that left the head is now and then missing from the branch's activity for a pass, and
+# the last pusher reads null (a_push_is_missing_from_the_activity).
+MISSING_PUSH_EVERY, MISSING_PUSH = 9, 5
 # GitHub's id of a run, as P-17 listed one, for the first Run on an item; each Run after it is one more.
 FIRST_RUN_ID = 39086879694
 
@@ -162,6 +165,9 @@ class World:
         self.unnamed = None        # the Run the next pass lists unnamed, its GitHub id and, for an approval still in
                                    # flight, how it ends (UNNAMED); or None
         self.unnamed_passes = 0    # passes that listed a Run unnamed
+        # Whether this seed's activity can miss a push, drawn from its own generator, so every other seed stays as it was.
+        self.activity = random.Random("activity %d" % seed) if seed % MISSING_PUSH_EVERY == MISSING_PUSH else None
+        self.missing_passes = 0    # passes that read the last pusher null
         self.read = None           # the facts the last whole, current pass read, as `unstamped` gives them
         self.made = set()          # each transition a change made, as (from, to, by)
         self.trace = []
@@ -518,6 +524,12 @@ class World:
             runs = runs[self.pick(range(1, len(runs) + 1)):]
             facts["complete"]["runs"] = False
         self.stale = (copy.deepcopy(facts), copy.deepcopy(runs), list(unidentified))
+        if self.activity is not None and self.faults and self.activity.random() < 0.1:
+            # The newest entry of the head branch's activity is not the head commit, so nobody can be named.
+            # GitHub: a_push_is_missing_from_the_activity
+            facts["last_pusher"] = None
+            self.missing_passes += 1
+            self.note("the push is missing from the activity")
         if self.cls == "dependency" and self.faults and self.paths.random() < 0.1:
             # A list said to be whole leaves a path out. Only on a dependency bot's update, so every other world stays as
             # it was. The schema refuses a path that cannot be read, so a list too short is the misread fed here.
@@ -633,6 +645,17 @@ class World:
                        "a queued item stays in the queue on a list of paths shorter than the diff")
         self.check(d["reason"] != "paths_unreadable" or d["attention"] == t.NEEDS_YOU,
                    "unreadable paths are not shown as needing a person")
+        # A last pusher nobody can name admits nothing and acts on nothing but a dequeue: an approval might be the
+        # pusher's own (I-26), and a dependency update someone else's content. It is the Maintainer's to see, since the
+        # entry may never come; read of an item queued now, as it is now, it takes the item out as the paths do (I-13).
+        unnamed_push = facts["last_pusher"] is None
+        self.check(not unnamed_push or not (d["outcome"] == t.ADMIT or (d["outcome"] == t.ACT and d["action"] != "dequeue")),
+                   "I-13 %s %s on a last pusher nobody can name" % (d["outcome"], d["reason"]))
+        if unnamed_push and current and self.queue and not self.pausing() and self.hands_off != "person":
+            self.check((d["outcome"], d.get("action")) == (t.ACT, "dequeue"),
+                       "a queued item stays in the queue on a last pusher nobody can name")
+        self.check(d["reason"] != "last_pusher_unreadable" or d["attention"] == t.NEEDS_YOU,
+                   "an unreadable last pusher is not shown as needing a person")
         whole = all(facts["complete"].values())
         # A read that fails stops work: it defers, or takes a queued item out of the merge queue (I-13).
         dequeue = d["outcome"] == t.ACT and d["action"] == "dequeue"

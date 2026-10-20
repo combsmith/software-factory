@@ -15,6 +15,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -26,7 +27,7 @@ from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
 from sim import world
 from tests import support
-from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_lifecycle,
+from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle,
                    check_purity, check_repo, check_trials, check_workflows, mutants, needs_passed, redact_trial, verify,
                    walk)
 from tools.hooks import protected
@@ -1605,6 +1606,109 @@ class Workflows(unittest.TestCase):
             self.assertEqual(needs_passed.main({"NEEDS": "{}"}), 1)
             self.assertEqual(needs_passed.main({}), 1)
 
+    def test_every_commit_a_pull_request_carries_is_the_maintainers(self):
+        # Issue 204: the required check reads each commit between the base and the head, fetched from origin, and
+        # refuses unless its author and committer are the identity config/hooks.json names. On a merge group the head,
+        # which the queue made, is read for its author alone. An empty range, a head it cannot fetch, or an identity
+        # it cannot read refuses. No identity is written in the code: the fixture's Maintainer is not the repo's.
+        ada, bob, github = ("Ada", "ada@example.com"), ("Bob", "bob@example.com"), ("GitHub", "noreply@github.com")
+        origin, local = tree({"config/hooks.json": json.dumps({"maintainer": {"name": ada[0], "email": ada[1]}})}), None
+
+        def run(where, *args, who=ada):
+            env = dict(os.environ, GIT_AUTHOR_NAME=who[0], GIT_AUTHOR_EMAIL=who[1], GIT_COMMITTER_NAME=who[0],
+                       GIT_COMMITTER_EMAIL=who[1], GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")
+            return subprocess.run(["git", *args], cwd=str(where), env=env, capture_output=True, text=True,
+                                  timeout=60, check=True).stdout.strip()
+
+        def commit(where, message, author=ada, committer=None):
+            env = dict(os.environ, GIT_AUTHOR_NAME=author[0], GIT_AUTHOR_EMAIL=author[1],
+                       GIT_COMMITTER_NAME=(committer or author)[0], GIT_COMMITTER_EMAIL=(committer or author)[1],
+                       GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")
+            subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", message], cwd=str(where), env=env,
+                           capture_output=True, text=True, timeout=60, check=True)
+            return run(where, "rev-parse", "HEAD")
+
+        run(origin, "init", "-q", "-b", "main")
+        run(origin, "config", "uploadpack.allowReachableSHA1InWant", "true")
+        run(origin, "add", "-A")
+        base = commit(origin, "base")
+        local = origin.parent / "local"
+        run(origin.parent, "clone", "-q", str(origin), str(local))
+
+        def said(head, event="pull_request", root=None):
+            return commits_are_the_maintainers.problems(root or local, {"BASE_SHA": base, "HEAD_SHA": head,
+                                                                       "EVENT": event})
+        # Commits the Maintainer made pass; the head is fetched from origin, which the clone does not yet hold.
+        first = commit(origin, "one")
+        second = commit(origin, "two")
+        self.assertEqual(said(second), [])
+        # Another author, or another committer, refuses, and the commit is named.
+        other = commit(origin, "three", author=bob, committer=ada)
+        self.assertTrue(caught(said(other), "%s is authored by Bob <bob@example.com>" % other[:7]))
+        self.assertFalse(caught(said(other), "committed by"))
+        run(origin, "reset", "-q", "--hard", second)
+        other = commit(origin, "three", committer=bob)
+        self.assertTrue(caught(said(other), "%s is committed by Bob" % other[:7]))
+        run(origin, "reset", "-q", "--hard", second)
+        # On a merge group the head is the queue's: GitHub commits it, its author must still be the Maintainer; a
+        # commit before it that GitHub committed is not the queue's, and refuses.
+        squash = commit(origin, "squash", committer=github)
+        self.assertEqual(said(squash, "merge_group"), [])
+        self.assertTrue(caught(said(squash), "committed by GitHub"), "on a pull request the head is its own")
+        run(origin, "reset", "-q", "--hard", second)
+        wrong = commit(origin, "squash", author=bob, committer=github)
+        self.assertTrue(caught(said(wrong, "merge_group"), "authored by Bob"))
+        run(origin, "reset", "-q", "--hard", second)
+        faked = commit(origin, "faked", committer=github)
+        after = commit(origin, "after", committer=github)
+        self.assertTrue(caught(said(after, "merge_group"), "%s is committed by GitHub" % faked[:7]))
+        self.assertFalse(caught(said(after, "merge_group"), "%s is committed" % after[:7]))
+        run(origin, "reset", "-q", "--hard", second)
+        # A commit a merge carries is read too, not only the first parent's line.
+        run(origin, "checkout", "-q", "-b", "side", second)
+        side = commit(origin, "side", author=bob, committer=ada)
+        run(origin, "checkout", "-q", "main")
+        run(origin, "merge", "-q", "--no-ff", "-m", "merge side", "side")
+        merged = run(origin, "rev-parse", "HEAD")
+        self.assertTrue(caught(said(merged), "%s is authored by Bob" % side[:7]))
+        run(origin, "reset", "-q", "--hard", second)
+        run(origin, "branch", "-q", "-D", "side")
+        # The name and the email are each the Maintainer's: either alone refuses.
+        for who in (("Bob", ada[1]), (ada[0], "bob@example.com")):
+            half = commit(origin, "half", author=who, committer=ada)
+            self.assertTrue(caught(said(half), "%s is authored by" % half[:7]), who)
+            run(origin, "reset", "-q", "--hard", second)
+            half = commit(origin, "half", author=ada, committer=who)
+            self.assertTrue(caught(said(half), "%s is committed by" % half[:7]), who)
+            run(origin, "reset", "-q", "--hard", second)
+        # Only the pull request's commits are read, not the base's own since the branch point: the base is the base
+        # branch's tip, which the queue moved on with a commit GitHub made.
+        run(origin, "checkout", "-q", "-b", "feature", second)
+        mine = commit(origin, "mine")
+        run(origin, "checkout", "-q", "main")
+        moved = commit(origin, "another pull request, squashed", committer=github)
+        run(local, "fetch", "-q", "origin", "main")      # the job checks the base out, so the clone holds it
+        self.assertEqual(commits_are_the_maintainers.problems(local, {"BASE_SHA": moved, "HEAD_SHA": mine,
+                                                                      "EVENT": "pull_request"}), [])
+        run(origin, "reset", "-q", "--hard", second)
+        run(origin, "branch", "-q", "-D", "feature")
+        # An empty range, a head origin does not hold, or an event the check does not know, refuses.
+        self.assertTrue(caught(said(base), "no commit lies between"))
+        self.assertTrue(caught(said("0" * 40), "cannot be read"))
+        for environ in ({}, {"BASE_SHA": base, "HEAD_SHA": second}, {"BASE_SHA": base, "HEAD_SHA": second, "EVENT": "push"}):
+            self.assertTrue(caught(commits_are_the_maintainers.problems(local, environ), "must be set"), environ)
+        # The identity is the configuration's, not the code's: told another Maintainer, every commit refuses.
+        (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": bob[0], "email": bob[1]}}))
+        self.assertEqual(len(said(second)), 4, "two commits, each authored and committed by someone else")
+        (local / "config" / "hooks.json").write_text("{}")
+        self.assertTrue(caught(said(second), "cannot be read"))
+        (local / "config" / "hooks.json").write_text(json.dumps({"maintainer": {"name": ada[0], "email": ada[1]}}))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": second,
+                                                               "EVENT": "pull_request"}, local), 0)
+            self.assertEqual(commits_are_the_maintainers.main({"BASE_SHA": base, "HEAD_SHA": base,
+                                                               "EVENT": "pull_request"}, local), 1)
+
     def test_a_lens_run_by_actions_names_its_workflow_and_no_other_does(self):
         # GitHub Actions reports every job in the repo, so a Lens it runs must name its file; no other App runs one.
         defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
@@ -2674,6 +2778,125 @@ class Trials(unittest.TestCase):
         # The probe is gone with its exemption, as the story says once the verdict is recorded.
         self.assertFalse((ROOT / ".github" / "workflows" / "tick-probe.yml").exists())
         self.assertNotIn("tick-probe.yml", check_workflows.EXEMPT)
+    def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
+        # Decision 0035: a trial of repos records the canary as its home, and a measurement's reads may span the org's
+        # repos. Held on what the reads say, for every fixture of the canary, and closed on what cannot be read: each
+        # read names its owner, in its REST path or in every repository and organization call of its query, each
+        # bound to a literal or to a declared variable, and a query with any other root field is refused; that owner
+        # is the org; every repo an answer names, by nameWithOwner, full_name, or a name beside its owner's login,
+        # is the org's; a read an App made names, and is answered with, only repos its installation reaches, the
+        # canary alone for an App the data does not know; and a command-line read is the Maintainer's own.
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
+        installed = {app["name"]: set(app["installed_on"]) for app in apps.values()}
+        canary = "combsmith/" + check_trials.CANARY
+        rest_path = re.compile(r"^[A-Z]+ /(?:repos/([^/?\s]+)/([^/?\s]+)|orgs/([^/?\s]+))")
+        any_repos = re.compile(r"\brepos/([^/?\s]+)/([^/?\s]+)")
+        root_field = re.compile(r"^(?:\w+\s*:\s*)?(\w+)\s*(?:\(([^)]*)\))?$")
+
+        def roots(query):
+            """Each root field of the one operation in `query`, as (field, its arguments): what stands at depth one
+            of its selection set, outside strings. A fragment or a second operation is not read, and fails."""
+            depth, found, text, quoted = 0, [], "", False
+            for ch in query:
+                if ch == '"':
+                    quoted = not quoted
+                if quoted:
+                    text += ch
+                    continue
+                if ch == "{":
+                    if depth == 1:
+                        found.append(text.strip())
+                        text = ""
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 1:
+                        text = ""
+                elif depth == 1:
+                    text += ch
+            out = []
+            for item in found:
+                found_field = root_field.match(item.strip())
+                self.assertTrue(found_field, "a root field the test cannot read: %r" % item)
+                out.append((found_field.group(1), found_field.group(2) or ""))
+            return out
+
+        argument = re.compile(r"\b(owner|name|login)\s*:\s*(?:\"([^\"]*)\"|\$(\w+))")
+
+        def bound(args, key, variables):
+            """The one value of `key` among `args`, a literal or a declared variable's; None if not exactly one."""
+            found = [m for m in argument.finditer(args) if m.group(1) == key]
+            if len(found) != 1:
+                return None
+            literal, var = found[0].group(2), found[0].group(3)
+            return literal if literal is not None else variables.get(var)
+
+        def names(value, under=None):
+            """Each repo an answer names: nameWithOwner, full_name, or a name beside its owner's login, which an App,
+            under the key app or with a slug, has as well and is not one."""
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key in ("nameWithOwner", "full_name") and isinstance(item, str):
+                        yield item
+                    yield from names(item, key)
+                owner = value.get("owner")
+                if isinstance(value.get("name"), str) and isinstance(owner, dict) and isinstance(owner.get("login"), str) \
+                        and under != "app" and "slug" not in value:
+                    yield owner["login"] + "/" + value["name"]
+            elif isinstance(value, list):
+                for item in value:
+                    yield from names(item, under)
+
+        def asked(request, where):
+            """(owners, repos) a request names; a read that cannot be read fails the test here."""
+            owners, repos = set(), set()
+            if request["via"] == "graphql":
+                body = request["body"]
+                variables = body.get("variables") or {}
+                self.assertTrue(body["query"].lstrip().startswith(("query", "{")), where + ": not a query")
+                for field, args in roots(body["query"]):
+                    if field == "repository":
+                        owner, name = bound(args, "owner", variables), bound(args, "name", variables)
+                        self.assertTrue(owner and name, "%s: a repository call that cannot be read: %s" % (where, args))
+                        owners.add(owner)
+                        repos.add(owner + "/" + name)
+                    elif field == "organization":
+                        login = bound(args, "login", variables)
+                        self.assertTrue(login, "%s: an organization call that cannot be read: %s" % (where, args))
+                        owners.add(login)
+                    elif field != "rateLimit":
+                        self.fail("%s: a root field the test does not read: %s" % (where, field))
+                self.assertTrue(owners, where + ": a query that names no repo and no org")
+            else:
+                found = rest_path.match(request["call"])
+                for owner, name in any_repos.findall(request["call"]):
+                    owners.add(owner)
+                    repos.add(owner + "/" + name)
+                if found and found.group(3):
+                    owners.add(found.group(3))
+            return owners, repos
+
+        checked = 0
+        for path in sorted((ROOT / "trials").glob("P-*.json")):
+            data = json.loads(path.read_text())
+            if data["repo"] != canary:
+                continue
+            checked += 1
+            for i, e in enumerate(data["exchanges"]):
+                where = "%s exchange %d" % (path.name, i)
+                request, asker = e["request"], e["request"]["as"]
+                owners, repos = asked(request, where)
+                answered = set(names(e["response"]["body"]))
+                self.assertTrue(owners <= {"combsmith"}, "%s names %s" % (where, sorted(owners - {"combsmith"})))
+                self.assertTrue(all(repo.startswith("combsmith/") for repo in answered),
+                                "%s was answered %s" % (where, sorted(r for r in answered if not r.startswith("combsmith/"))))
+                if request["via"] == "cli":
+                    self.assertEqual(asker, {"kind": "person", "name": "don-petry"}, where)
+                if asker["kind"] == "app":
+                    reach = installed.get(asker["name"].split(",")[0].replace("[bot]", ""), {canary})
+                    self.assertTrue(repos <= reach, "%s asks %s, beyond %s" % (where, sorted(repos - reach), sorted(reach)))
+                    self.assertTrue(answered <= reach, "%s was answered %s, beyond the reach" % (where, sorted(answered - reach)))
+        self.assertGreaterEqual(checked, 2)
 
     def test_the_cost_trials_estimate_is_marked_so_and_held_to_its_reads(self):
         # P-8's last exchange is the estimate (FR-35): its cost model is held to every read of the fixture that reports

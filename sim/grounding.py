@@ -12,8 +12,13 @@ to its schema. It reads RULES as a literal, so that it can judge a copy of the r
 
 RULES = (
     ("a_push_is_new_content", "A push gives the pull request new content", ("P-29",), "trials/P-29.base.json"),
-    ("the_pusher_is_the_last_pusher", "The account that pushed the head is read as its last pusher", ("P-28",),
-     ("trials/P-28.json", "trials/P-28.app.json")),
+    ("the_pusher_is_the_last_pusher", "The account that pushed the head is read as its last pusher, from the newest "
+     "entry of the head branch's activity, a person's push and an App's alike: the entry names the App's bot login, "
+     "with actor.type Bot", ("P-28",), ("trials/P-28.json", "trials/P-28.app.json")),
+    # No trial asks this: P-28 saw each push's entry within 11 s and tried nothing shorter. It is the one way the fact
+    # can be unreadable, so the fake reads it now and then, and the Kernel must let nothing through on it.
+    ("a_push_is_missing_from_the_activity", "The push that left the head can be missing from its branch's activity "
+     "for a pass, and the last pusher then reads null", (), None),
     ("an_app_pushes_to_the_head", "An App can push to the head of a pull request", ("P-7",), "trials/P-7.json"),
     # Contradicted by trials/P-7.json: under the ruleset's dismiss_stale_reviews_on_push, the App's push dismissed the
     # machine user's approval, and the timeline names the pusher as the dismisser. Left unverified, as it is: changing
@@ -86,7 +91,8 @@ RULES = (
     ("a_pull_request_lists_the_paths_it_changes", "Every file a pull request changes is read once, as many as the diff "
      "counts, by its path from the top of the repo, with the path a renamed or copied file had before", (), None),
     ("a_path_list_can_leave_out_a_file", "A list of the files a pull request changes can leave one out while it says "
-     "it was read in full; it then holds fewer records than the diff has files", (), None),
+     "it was read in full; it then holds fewer records than the diff has files: GitHub's list stops at its cap with a "
+     "200 and an empty next page, and only changed_files shows it short", ("P-29",), "trials/P-29.truncated.json"),
     ("a_short_path_list_says_so", "The list of paths a pull request changes, read short or cut off at its limit, says "
      "so", (), None),
     ("a_dependency_bot_updates_a_workflow_pin", "A dependency bot's update can change the pin of an Action in a "

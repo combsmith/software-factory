@@ -58,7 +58,10 @@
       "minLength": 1
     },
     "last_pusher": {
-      "type": "string",
+      "type": [
+        "string",
+        "null"
+      ],
       "minLength": 1
     },
     "targets_protected": {
