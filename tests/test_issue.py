@@ -482,9 +482,13 @@ class Done(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
         # A Hold on a linked draft that stood at the merge and closed since; a Hold an App placed before the merge,
         # took off after it and a person put back, which an App's removal never ended.
-        d = derive(facts(linked=merged + [agents(number=12, draft=True, is_open=False, closed=6,
-                                                 events=[labelled(HOLD, OTHER_APP, 4)])]))
-        self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
+        for closed in (6, 5):
+            d = derive(facts(linked=merged + [agents(number=12, draft=True, is_open=False, closed=closed,
+                                                     events=[labelled(HOLD, OTHER_APP, 4)])]))
+            self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"), closed)
+        d = derive(facts(linked=merged + [agents(number=12, draft=True, is_open=False, closed=4,
+                                                 events=[labelled(HOLD, OTHER_APP, 3)])]))
+        self.assertEqual((d["state"], d["reason"]), ("done", "merged"))
         d = derive(facts(label_events=[labelled(HOLD, OTHER_APP, 4), unlabelled(HOLD, OTHER_APP, 6), labelled(HOLD, minute=6)],
                          linked=merged))
         self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))

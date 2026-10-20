@@ -376,9 +376,10 @@ def as_of(item: dict, when: str) -> dict:
 
 
 def drafts_at(links: list, when: str) -> list:
-    """The linked pull requests that were open drafts at `when`: opened by then and not closed by then. Whether one was
-    a draft then is read from its flag now, the one the facts carry."""
-    return [p for p in links if p["draft"] and p["opened_at"] <= when and (p["open"] or p["closed_at"] > when)]
+    """The linked pull requests that were open drafts at `when`: opened by then and not closed before it, one closed
+    in that second among them, since the reading that stops work wins a tie. Whether one was a draft then is read
+    from its flag now, the one the facts carry."""
+    return [p for p in links if p["draft"] and p["opened_at"] <= when and (p["open"] or p["closed_at"] >= when)]
 
 
 def released_since(item: dict, name: str, when: str) -> bool:
