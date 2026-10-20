@@ -2666,7 +2666,10 @@ PLAIN = ["6dcb09b5b57875f334f61aebed695e2e4193db5e", "a" * 40, "application/vnd.
 REFUSED_KEYS = ["Authorization", "AUTHORIZATION", "Authorization ", "Proxy-Authorization", "Set-Cookie", "cookie",
                 "x-github-otp", "x-access-token", "github_token", "GITHUB_TOKEN", "accessToken", "installation_token",
                 "encoded_jit_config", "x-jit-config", "jwt", "auth", "Auth ", "webhook_secret", "client_secret", "password", "credentials", "token"]
-PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", "value", "author", "external_id"]
+PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", "value", "author", "external_id",
+              # The vendor CLI's counts (issue 178), as it spells them.
+              "inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens", "maxOutputTokens",
+              "thinkingTokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens", "output_tokens_details"]
 # Not caught, by design or as a known hole: a commit hash alone is no credential; a token split across two strings
 # and a one-time code alone have no shape. The field names a header or field must have are the guard there.
 
@@ -3089,6 +3092,188 @@ class Trials(unittest.TestCase):
             self.assertTrue(caught(problems, where + ": names a model"), where)
             self.assertTrue(caught(problems, where + ": names the proof-of-concept repo"), where)
         self.assertFalse(caught(problems, "trials/P-13.json"))
+
+
+class TrialScript(unittest.TestCase):
+    """`tools/trial_p13_cli.sh`, run against a stand-in CLI and never the real one (issue 178): the environment the CLI is
+    given, each refusal before anything is asked, the login that must say yes, and the answer kept by allowlist so that
+    no model text reaches OUT."""
+
+    SCRIPT = ROOT / "tools" / "trial_p13_cli.sh"
+    PIN = re.search(r"^PIN=(\S+)$", SCRIPT.read_text(), re.M).group(1)
+    STAND_IN = """#!/bin/sh
+here=$(cd "$(dirname "$0")" && pwd)
+case "$1" in
+  --version) env > "$here/env-version"; cat "$here/version"; exit "$(cat "$here/version.exit")" ;;
+  auth) env > "$here/env-auth"; cat "$here/status"; exit "$(cat "$here/status.exit")" ;;
+  -p) env > "$here/env-task"; printf '%s\\n' "$@" > "$here/args"; cat "$here/answer"; exit "$(cat "$here/answer.exit")" ;;
+esac
+exit 9
+"""
+    VALID = {"schema": "result/1", "run": "r_p13", "status": "completed",
+             "dispositions": [{"finding": "f_9c1e", "decision": {"result": "accepted"}}]}
+    # Words the model might say, planted where a careless script would let them through.
+    PROSE = {"result": "the model wrote THIS-PROSE-1 here", "added": "a field the CLI adds carries THIS-PROSE-2",
+             "nested": "THIS-PROSE-3 in a nested field", "denied": "THIS-PROSE-4 in a refused tool's input",
+             "invalid": "THIS-PROSE-5 in a structured output that does not validate",
+             "in_usage": "THIS-PROSE-6 in a string under the counts", "in_code": "THIS-PROSE-7 where a code should be"}
+
+    def answer(self, output=None, **extra) -> dict:
+        said = {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1, "duration_ms": 5,
+                "total_cost_usd": 0.1, "usage": {"input_tokens": 1, "output_tokens": 2},
+                "modelUsage": {"m": {"inputTokens": 1, "note": self.PROSE["in_usage"], "fallback": None, "tier": "standard"}},
+                "stop_reason": self.PROSE["in_code"], "result": self.PROSE["result"],
+                "a_new_field": self.PROSE["added"], "stats": {"note": self.PROSE["nested"]},
+                "permission_denials": [{"tool_name": "Bash", "tool_input": {"command": self.PROSE["denied"]}}]}
+        if output is not None:
+            said["structured_output"] = output
+        said.update(extra)
+        return said
+
+    def stand_in(self, version=None, status=None, status_exit=0, answer=None, answer_exit=0) -> pathlib.Path:
+        """A directory holding the stand-in `claude` and what it answers; it records the environment and arguments it is
+        given beside itself."""
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (folder / "version").write_text("%s (Claude Code)\n" % (version or self.PIN))
+        (folder / "version.exit").write_text("0\n")
+        (folder / "status").write_text(json.dumps({"loggedIn": True, "authMethod": "claude.ai"} if status is None else status))
+        (folder / "status.exit").write_text("%d\n" % status_exit)
+        (folder / "answer").write_text(json.dumps(self.answer(self.VALID) if answer is None else answer))
+        (folder / "answer.exit").write_text("%d\n" % answer_exit)
+        cli = folder / "claude"
+        cli.write_text(self.STAND_IN)
+        cli.chmod(0o755)
+        return folder
+
+    def run_script(self, out, cfg, cli, home=None) -> subprocess.CompletedProcess:
+        """The script as the Maintainer runs it, from a shell that holds a key the CLI must never see."""
+        env = {"PATH": os.environ["PATH"], "HOME": str(home or self.home), "LANG": "C",
+               "ANTHROPIC_API_KEY": "sk-" + "ant-" + "api03-NEVER-SEEN", "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
+        return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg), str(cli)], cwd=SCRATCH.name,
+                              capture_output=True, text=True, env=env, timeout=120)
+
+    def setUp(self):
+        self.home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        self.cfg = self.home.parent / (self.home.name + "-cfg")
+        self.cfg.mkdir()
+        self.out = self.home.parent / (self.home.name + "-out")
+
+    def texts(self, out) -> dict:
+        return {p.name: p.read_text() for p in pathlib.Path(out).iterdir()}
+
+    def test_the_cli_is_given_only_the_named_environment_and_no_tool(self):
+        folder = self.stand_in()
+        ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        named = {"HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "LANG", "CLAUDE_CONFIG_DIR", "DISABLE_AUTOUPDATER"}
+        shell_adds = {"PWD", "OLDPWD", "SHLVL", "_"}
+        for call in ("version", "auth", "task"):
+            given = dict(line.split("=", 1) for line in (folder / ("env-" + call)).read_text().splitlines() if "=" in line)
+            self.assertEqual(set(given) - shell_adds, named, call)
+            self.assertEqual((given["CLAUDE_CONFIG_DIR"], given["DISABLE_AUTOUPDATER"]), (str(self.cfg), "1"), call)
+            self.assertNotIn("NEVER-SEEN", (folder / ("env-" + call)).read_text(), call)
+        args = (folder / "args").read_text().split("\n")
+        self.assertEqual(args[args.index("--tools") + 1], "", "the model is given no tool")
+        self.assertIn("--json-schema", args)
+        self.assertNotIn("NEVER-SEEN", "".join(self.texts(self.out).values()))
+
+    def test_each_refusal_stops_before_anything_is_asked(self):
+        folder = self.stand_in()
+        cli = folder / "claude"
+        existing = self.home.parent / (self.home.name + "-taken")
+        existing.mkdir()
+        under_home = self.home / "sub"
+        under_home.mkdir()
+        dot_claude = self.home / ".claude" / "deep"
+        dot_claude.mkdir(parents=True)
+        linked = self.home.parent / (self.home.name + "-link")
+        linked.symlink_to(self.home / ".claude")
+        try:                                      # on a file system that tells case, a directory of its own
+            (self.home / ".CLAUDE").mkdir()
+        except FileExistsError:                   # on one that does not, the Maintainer's own, under another name
+            pass
+        cases = [("OUT exists", existing, self.cfg, None, "exists; name a new directory"),
+                 ("OUT inside the repo", ROOT / "never-made", self.cfg, None, "OUT is inside the repo"),
+                 ("OUT inside CONFIG_DIR", self.cfg / "out", self.cfg, None, "OUT is inside CONFIG_DIR"),
+                 ("CONFIG_DIR inside the repo", self.out, ROOT / "tools", None, "CONFIG_DIR is inside the repo"),
+                 ("CONFIG_DIR is HOME", self.out, self.home, None, "the home directory or holds it"),
+                 ("CONFIG_DIR holds HOME", self.out, self.home.parent, under_home, "the home directory or holds it"),
+                 ("CONFIG_DIR is /", self.out, pathlib.Path("/"), None, "the home directory or holds it"),
+                 ("CONFIG_DIR is ~/.claude", self.out, self.home / ".claude", None, "under ~/.claude"),
+                 ("CONFIG_DIR under ~/.claude", self.out, dot_claude, None, "under ~/.claude"),
+                 ("CONFIG_DIR linked to ~/.claude", self.out, linked, None, "under ~/.claude"),
+                 ("CONFIG_DIR is ~/.CLAUDE", self.out, self.home / ".CLAUDE", None, "under ~/.claude"),
+                 ("CONFIG_DIR missing", self.out, self.home / "none", None, "CONFIG_DIR is not a directory")]
+        for name, out, cfg, home, said in cases:
+            ran = self.run_script(out, cfg, cli, home=home)
+            self.assertEqual(ran.returncode, 2, name)
+            self.assertIn(said, ran.stderr, name)
+            self.assertFalse(out.exists() and out != existing, name)
+            self.assertFalse((folder / "env-version").exists(), name + ": nothing was asked")
+        # The wrong version, a login that says no, and one the script cannot read: each after asking, before the Task.
+        for name, folder, code, said in [
+                ("wrong version", self.stand_in(version="0.0.1"), 1, "is version '0.0.1', exit 0, not " + self.PIN),
+                ("not logged in", self.stand_in(status={"loggedIn": False}), 1, "login under CONFIG_DIR is 'no', exit 0"),
+                ("unknown status", self.stand_in(status={"something": "else"}), 1, "is 'unknown', exit 0"),
+                ("status not json", self.stand_in(status="not json"), 1, "is 'unknown', exit 0"),
+                ("auth status failed", self.stand_in(status_exit=3), 1, "is 'yes', exit 3, not yes")]:
+            out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
+            ran = self.run_script(out, self.cfg, folder / "claude")
+            self.assertEqual(ran.returncode, code, name)
+            self.assertIn(said, ran.stderr, name)
+            self.assertFalse((folder / "args").exists(), name + ": the Task was not asked")
+            self.assertNotIn("NEVER-SEEN", "".join(self.texts(out).values()), name)
+
+    def test_the_logins_exit_code_is_recorded(self):
+        folder = self.stand_in()
+        self.assertEqual(self.run_script(self.out, self.cfg, folder / "claude").returncode, 0)
+        checked = json.loads((self.out / "checked.json").read_text())
+        self.assertEqual(checked["login"], {"exit": 0, "status": "yes"})
+        self.assertTrue(checked["every_part_holds"])
+        folder = self.stand_in(status_exit=3)
+        out = self.home.parent / (self.home.name + "-failed-login")
+        self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 1)
+        checked = json.loads((out / "checked.json").read_text())
+        self.assertEqual((checked["login"], checked["every_part_holds"]), ({"exit": 3, "status": "yes"}, False))
+
+    def test_no_model_text_reaches_out_whether_or_not_the_output_validates(self):
+        invalid = dict(self.VALID, prose=self.PROSE["invalid"])
+        in_result = dict(self.answer(), result=json.dumps(self.VALID))
+        del in_result["permission_denials"]
+        for name, answer, code, validates, source in [("validates", self.answer(self.VALID), 0, True, "structured_output"),
+                                                      ("does not validate", self.answer(invalid), 1, False, "structured_output"),
+                                                      ("in result alone", in_result, 0, True, "result"),
+                                                      ("no output", self.answer(), 1, False, None),
+                                                      ("not json", "the model said THIS-PROSE-1 and nothing else", 1, False, None)]:
+            folder = self.stand_in(answer=answer)
+            out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
+            ran = self.run_script(out, self.cfg, folder / "claude")
+            self.assertEqual(ran.returncode, code, (name, ran.stderr))
+            texts = self.texts(out)
+            for word in self.PROSE.values():
+                self.assertNotIn(word, "".join(texts.values()) + ran.stdout + ran.stderr, name)
+            checked = json.loads(texts["checked.json"])
+            self.assertEqual((checked["structured_output"]["validates"], checked["structured_output"]["from"]),
+                             (validates, source), name)
+            if isinstance(answer, dict):
+                kept = json.loads(texts["clean-3"])
+                allowed = set(re.search(r'^KEPT_RESULT="([^"]*)"$', self.SCRIPT.read_text(), re.M).group(1).split())
+                self.assertTrue(set(kept) <= allowed, (name, set(kept) - allowed))
+                self.assertNotIn("a_new_field", kept, name)
+                self.assertEqual(kept["modelUsage"], {"m": {"inputTokens": 1, "fallback": None, "tier": "standard"}}, name)
+                self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.stop_reason")],
+                                 [{"field": "$.modelUsage.m.note", "characters": len(self.PROSE["in_usage"])},
+                                  {"field": "$.stop_reason", "characters": len(self.PROSE["in_code"])}], name)
+                self.assertEqual(kept["usage"], {"input_tokens": 1, "output_tokens": 2}, name)
+                self.assertNotIn("stop_reason", kept, name)
+                self.assertEqual(kept.get("permission_denials"), [{"tool_name": "Bash"}] if "permission_denials" in answer else None, name)
+                self.assertEqual("structured_output" in kept, validates, name)
+                self.assertTrue(any(t["field"].startswith("every field KEPT_RESULT") for t in checked["model_text_removed"]), name)
+        asked = json.loads((out / "requests.json").read_text())
+        self.assertEqual(asked[2]["kept"], sorted(allowed, key=asked[2]["kept"].index))
+        self.assertIn('--tools ""', asked[2]["call"])
+        self.assertEqual(asked[2]["env"]["CLAUDE_CONFIG_DIR"],
+                         "a configuration directory of its own, logged in to the Maintainer's own subscription (decision 0033)")
 
 
 class Redaction(unittest.TestCase):

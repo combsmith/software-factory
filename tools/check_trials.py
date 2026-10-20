@@ -48,7 +48,11 @@ MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 KEY_PARTS = ("token", "secret", "password", "credential", "jit_config", "otp", "cookie", "authorization")
 KEY_WHOLE = {"auth", "jwt"}
 KEY_HARMLESS = {"token_type", "input_tokens", "output_tokens", "total_tokens", "cache_creation_input_tokens",
-                "cache_read_input_tokens"}
+                "cache_read_input_tokens",
+                # The vendor's CLI counts tokens in camelCase under modelUsage, and in nested fields under usage
+                # (issue 178); compared after lower(), so inputTokens is input_tokens here.
+                "inputtokens", "outputtokens", "cachereadinputtokens", "cachecreationinputtokens", "maxoutputtokens",
+                "thinkingtokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens", "output_tokens_details"}
 # The headers a fixture may keep, compared in lower case. Any other is left out: allow what is named.
 HEADERS = {"accept", "cache-control", "content-length", "content-type", "date", "etag", "last-modified", "link",
            "location", "retry-after", "server", "user-agent", "vary", "x-accepted-github-permissions",

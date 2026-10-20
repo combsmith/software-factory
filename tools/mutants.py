@@ -64,6 +64,8 @@ COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_ca
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
 JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape",)
 SHARDS_TESTS = ("tests.test_tools.Workflows.test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix",)
+P13 = "tools/trial_p13_cli.sh"
+P13_TESTS = "tests.test_tools.TrialScript."
 HOOK_TESTS = "tests.test_hooks.ProtectedPaths."
 BYPASS_TESTS = (HOOK_TESTS + "test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked",)
 SESSION_TESTS = (HOOK_TESTS + "test_a_command_that_runs_claude_code_with_no_one_asked_asks",
@@ -3084,6 +3086,35 @@ MUTANTS = ISSUE + [
     ("the copied block runs to the last fence", "tools/check_context.py",
      'COPIED = re.compile(r"```yaml\\n.*?```", re.S)', 'COPIED = re.compile(r"```yaml\\n.*```", re.S)',
      ("tests.test_tools.Context.test_a_standard_over_one_page_is_caught",)),
+    # Issue 178: P-13's script, run against a stand-in CLI.
+    ("the CLI inherits the shell's environment", P13, '    (cd "$work" && env -i HOME="$HOME"', '    (cd "$work" && env HOME="$HOME"',
+     (P13_TESTS + "test_the_cli_is_given_only_the_named_environment_and_no_tool",)),
+    ("the model keeps its tools", P13, '$OPTIONS --tools "$TOOLS" >', "$OPTIONS >",
+     (P13_TESTS + "test_the_cli_is_given_only_the_named_environment_and_no_tool",)),
+    ("a CONFIG_DIR under ~/.claude passes", P13, 'case "$cfg/" in "$home/.claude"/*)', 'case "$cfg/" in "$home/.claude/")',
+     (P13_TESTS + "test_each_refusal_stops_before_anything_is_asked",)),
+    ("a CONFIG_DIR holding the home directory passes", P13, 'case "$home/" in "${cfg%/}"/*)', 'case "$cfg" in "$home")',
+     (P13_TESTS + "test_each_refusal_stops_before_anything_is_asked",)),
+    ("a login the script cannot read goes on to the Task", P13, 'if [[ "$code2" -ne 0 || "$logged_in" != yes ]]; then',
+     'if [[ "$logged_in" = no ]]; then',
+     (P13_TESTS + "test_each_refusal_stops_before_anything_is_asked", P13_TESTS + "test_the_logins_exit_code_is_recorded")),
+    ("the login's exit code is not recorded", P13, '    "login": {"exit": int(sys.argv[12]), "status": logged_in},\n',
+     '    "login": {"exit": "not recorded", "status": logged_in},\n', (P13_TESTS + "test_the_logins_exit_code_is_recorded",)),
+    ("a field the CLI adds passes through", P13, "    said = {k: said[k] for k in allowed if k in said}\n",
+     '    said = {k: said[k] for k in said if k != "result"}\n',
+     (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
+    ("a string under the counts passes through", P13, '        if isinstance(value, str) and (" " in value.strip() or len(value) > 64):\n',
+     "        if False:\n", (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
+    ("a CONFIG_DIR is read as written, not as the file system resolves it", P13, 'cfg=$(cd "$2" && pwd -P)\n', 'cfg=$(cd "$2" && pwd)\n',
+     (P13_TESTS + "test_each_refusal_stops_before_anything_is_asked",)),
+    ("a path is compared with its case", P13, "shopt -s nocasematch", "shopt -u nocasematch",
+     (P13_TESTS + "test_each_refusal_stops_before_anything_is_asked",)),
+    ("a dropped field is not counted", P13, '    dropped = sorted(k for k in said if k not in allowed and k != "result")\n',
+     "    dropped = []\n", (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
+    ("the CLI's counts are credentials", "tools/check_trials.py",
+     '                "inputtokens", "outputtokens", "cachereadinputtokens", "cachecreationinputtokens", "maxoutputtokens",\n'
+     '                "thinkingtokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens", "output_tokens_details"}\n',
+     "                }\n", ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
 ]
 
 
