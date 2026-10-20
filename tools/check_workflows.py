@@ -558,8 +558,10 @@ def lens_job_problems(text: str, check: str) -> list:
                          for why in _judging(text, entries, job, jobs)]
     if any("needs" in inside for _, inside in named):     # the required check's workflow, whose job judges the rest
         problems += _commits(text, entries, jobs) + _shards(entries, jobs)
-        if "env" in top:
-            problems.append("has a top-level env:, which every job inherits, where each is told what it is and nothing else")
+        for key in ("env", "defaults"):
+            if key in top:
+                problems.append("has a top-level %s:, which every job inherits, where each is told what it is and "
+                                "nothing else" % key)
     return problems
 
 

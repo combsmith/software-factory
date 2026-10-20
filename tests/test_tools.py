@@ -1608,6 +1608,7 @@ class Workflows(unittest.TestCase):
         cases.append((GOOD.replace(verify, verify.replace("      NEEDS:", "      PYTHONPATH: evil\n      NEEDS:")),
                       "its env: holds other than NEEDS"))
         cases.append((GOOD.replace("jobs:\n", "env:\n  PYTHONPATH: evil\njobs:\n"), "has a top-level env:"))
+        cases.append((GOOD.replace("jobs:\n", "defaults:\n  run:\n    working-directory: evil\njobs:\n"), "has a top-level defaults:"))
         for text, said in cases:
             self.assertNotEqual(text, GOOD, said)
             self.assertTrue(caught(self.lens_problems(text), said), said)
