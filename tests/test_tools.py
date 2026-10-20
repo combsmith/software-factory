@@ -2747,10 +2747,7 @@ class Trials(unittest.TestCase):
         # analysis is recomputed here from the runs the read it rests on returned, the read's own date and the moment
         # the probe reached main (#208, d78f0bc), W-2's 15 minutes held to the design and not to the fixture; and the
         # rule the fake applies, a_tick_can_be_lost, is grounded by it.
-        import math
-        import statistics
         from datetime import datetime, timedelta, timezone
-        from email.utils import parsedate_to_datetime
         data = json.loads((ROOT / "trials" / "P-8.ticks.json").read_text())
         by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
         self.assertEqual(by_code["a_tick_can_be_lost"], "trials/P-8.ticks.json")
@@ -2767,9 +2764,10 @@ class Trials(unittest.TestCase):
         starts = [when(r["run_started_at"]) for r in runs]
         gaps = [(b - a).total_seconds() / 60 for a, b in zip(starts, starts[1:])]
         ordered = sorted(gaps)
-        p95 = ordered[min(len(ordered) - 1, math.ceil(0.95 * len(ordered)) - 1)]
+        p95 = ordered[min(len(ordered) - 1, -(-19 * len(ordered) // 20) - 1)]      # the value at rank ceil(0.95 x n)
+        median = (ordered[len(ordered) // 2] + ordered[(len(ordered) - 1) // 2]) / 2
         on_main = datetime(2026, 10, 19, 18, 48, 29, tzinfo=timezone.utc)
-        read_at = parsedate_to_datetime(final["response"]["headers"]["date"]).astimezone(timezone.utc)
+        read_at = datetime.strptime(final["response"]["headers"]["date"], "%a, %d %b %Y %H:%M:%S GMT").replace(tzinfo=timezone.utc)
         self.assertEqual(result["probe_on_main_at"], "2026-10-19T18:48:29Z")
         self.assertEqual(result["read_at"], read_at.strftime("%Y-%m-%dT%H:%M:%SZ"))
         self.assertEqual(result["first_run_at"], runs[0]["run_started_at"])
@@ -2781,7 +2779,7 @@ class Trials(unittest.TestCase):
         self.assertTrue(all(r["created_at"] == r["run_started_at"] for r in runs))
         self.assertEqual(result["ticks_arrived"], len(runs))
         self.assertEqual(result["intervals_between_runs_minutes"], [round(g, 1) for g in gaps])
-        self.assertEqual(result["interval_minutes"], {"least": round(min(gaps), 1), "median": round(statistics.median(gaps), 1),
+        self.assertEqual(result["interval_minutes"], {"least": round(min(gaps), 1), "median": round(median, 1),
                                                       "p95_by_nearest_rank": round(p95, 1), "longest": round(max(gaps), 1)})
         cursor, due = on_main.replace(second=0, microsecond=0), 0
         while cursor <= read_at:
