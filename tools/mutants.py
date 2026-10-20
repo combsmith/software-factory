@@ -60,6 +60,7 @@ DEQUEUE = ('        return _decision(facts, state, reason, evidence, t.ACT, acti
 NAMING_TESTS = ("tests.test_tools.Mutants.test_every_mutant_names_a_test_that_exists",)
 ORDER_TESTS = ("tests.test_tools.Mutants.test_slow_modules_run_last",)
 FILTER_TESTS = ("tests.test_tools.Mutants.test_a_filtered_run_is_capped",)
+COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
 HOOK_TESTS = "tests.test_hooks.ProtectedPaths."
 BYPASS_TESTS = (HOOK_TESTS + "test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked",)
 SESSION_TESTS = (HOOK_TESTS + "test_a_command_that_runs_claude_code_with_no_one_asked_asks",
@@ -2975,6 +2976,43 @@ MUTANTS = ISSUE + [
     ("a function that is no test method is a test", "tools/mutants.py",
      '    return "" if callable(found) and rest[-1].startswith("test") else "which is not a test method"\n',
      '    return ""\n', NAMING_TESTS),
+    # Issue 204: every commit a pull request carries is the Maintainer's, checked outside the shell.
+    ("an author that is not the Maintainer passes", "tools/commits_are_the_maintainers.py",
+     "        if (author_name, author_email) != who:\n", "        if False:\n", COMMITS_TESTS),
+    ("a committer that is not the Maintainer passes", "tools/commits_are_the_maintainers.py",
+     "        if (committer_name, committer_email) != who and not made_by_github:\n", "        if False:\n",
+     COMMITS_TESTS),
+    ("every commit of a merge group is read as the queue's", "tools/commits_are_the_maintainers.py",
+     '        made_by_github = event == "merge_group" and sha == read[-1][0]', '        made_by_github = event == "merge_group"',
+     COMMITS_TESTS),
+    ("a pull request's head is read as the queue's", "tools/commits_are_the_maintainers.py",
+     'made_by_github = event == "merge_group" and sha == read[-1][0]', "made_by_github = sha == read[-1][0]",
+     COMMITS_TESTS),
+    ("a range with no commit passes", "tools/commits_are_the_maintainers.py",
+     "    if not read:\n", "    if False:\n", COMMITS_TESTS),
+    ("the head is not fetched", "tools/commits_are_the_maintainers.py",
+     '    run(root, "fetch", "--no-tags", "origin", head)\n', "    pass\n", COMMITS_TESTS),
+    ("the Maintainer is a literal, not the configuration's", "tools/commits_are_the_maintainers.py",
+     '    return who["name"], who["email"]\n', '    return "Nobody", "nobody@example.com"\n', COMMITS_TESTS),
+    ("commits the check cannot read pass", "tools/commits_are_the_maintainers.py",
+     '        return ["the commits cannot be read: %s" % err]\n', "        return []\n", COMMITS_TESTS),
+    ("an event the check does not know is read", "tools/commits_are_the_maintainers.py",
+     '    if not base or not head or event not in ("pull_request", "merge_group"):\n', "    if not base or not head:\n",
+     COMMITS_TESTS),
+    ("only the first parent's commits are read", "tools/commits_are_the_maintainers.py",
+     '"log", "--reverse", "--format="', '"log", "--first-parent", "--reverse", "--format="', COMMITS_TESTS),
+    ("the base's own commits since the branch point are read", "tools/commits_are_the_maintainers.py",
+     '"%s..%s" % (base, head)', '"%s...%s" % (base, head)', COMMITS_TESTS),
+    ("an author is read by email alone", "tools/commits_are_the_maintainers.py",
+     "        if (author_name, author_email) != who:\n", "        if author_email != who[1]:\n", COMMITS_TESTS),
+    ("an author is read by name alone", "tools/commits_are_the_maintainers.py",
+     "        if (author_name, author_email) != who:\n", "        if author_name != who[0]:\n", COMMITS_TESTS),
+    ("a committer is read by email alone", "tools/commits_are_the_maintainers.py",
+     "        if (committer_name, committer_email) != who and not made_by_github:\n",
+     "        if committer_email != who[1] and not made_by_github:\n", COMMITS_TESTS),
+    ("a committer is read by name alone", "tools/commits_are_the_maintainers.py",
+     "        if (committer_name, committer_email) != who and not made_by_github:\n",
+     "        if committer_name != who[0] and not made_by_github:\n", COMMITS_TESTS),
 ]
 
 
