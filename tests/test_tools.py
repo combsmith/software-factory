@@ -15,6 +15,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -2653,6 +2654,22 @@ class Trials(unittest.TestCase):
             data = json.loads((ROOT / "trials" / ("%s.json" % name)).read_text())
             self.assertEqual(data["verdict"], "pass", name)
             self.assertEqual(data["ran_at"][:10], "2026-10-19", name)
+
+    def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
+        # Decision 0035: a GitHub trial's fixture records the canary as its home, and a cost measurement's exchanges
+        # may span the org's repos the App reaches, each named in its own exchange, in its variables or its query.
+        for name in ("P-8", "P-32"):
+            data = json.loads((ROOT / "trials" / ("%s.json" % name)).read_text())
+            self.assertEqual(data["repo"], "combsmith/" + check_trials.CANARY, name)
+            for i, e in enumerate(data["exchanges"]):
+                if e["request"]["via"] != "graphql":
+                    continue
+                body = e["request"]["body"]
+                variables = body.get("variables") or {}
+                named = {variables.get("owner") or variables.get("org")} if ("owner" in variables or "org" in variables) \
+                    else set(re.findall(r'repository\(owner: "([^"]+)"', body["query"]))
+                self.assertTrue(named, "%s exchange %d names no repo" % (name, i))
+                self.assertEqual(named, {"combsmith"}, "%s exchange %d" % (name, i))
 
     def test_the_cost_trials_estimate_is_marked_so_and_held_to_its_reads(self):
         # P-8's last exchange is the estimate (FR-35): its cost model is held to every read of the fixture that reports
