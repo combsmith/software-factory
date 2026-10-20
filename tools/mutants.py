@@ -3103,8 +3103,20 @@ MUTANTS = ISSUE + [
     ("a field the CLI adds passes through", P13, "    said = {k: said[k] for k in allowed if k in said}\n",
      '    said = {k: said[k] for k in said if k != "result"}\n',
      (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
-    ("a string under the counts passes through", P13, '        if isinstance(value, str) and (" " in value.strip() or len(value) > 64):\n',
+    ("a string under the counts passes through", P13, "        if isinstance(value, str) and prose(value):\n",
      "        if False:\n", (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
+    ("a key under the counts passes through", P13, "DROP if prose(k) else counts(v, where", "counts(v, where",
+     (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
+    ("prose set apart by tabs is a code", P13, "any(c.isspace() for c in text.strip())", '" " in text.strip()',
+     (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
+    ("the model's text is a kept field", P13, 'KEPT_RESULT="type subtype', 'KEPT_RESULT="result type subtype',
+     (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
+    ("a key shaped like a credential is kept", "tools/check_trials.py", "            elif shaped(key):\n", "            elif False:\n",
+     ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
+    ("the redaction keeps a key shaped like a credential", "tools/redact_trial.py",
+     "            if refused_key(key) or shaped(key) or (isinstance(item, str) and shaped(item)):\n",
+     "            if refused_key(key) or (isinstance(item, str) and shaped(item)):\n",
+     ("tests.test_tools.Redaction.test_a_drafted_fixture_comes_out_with_no_credential",)),
     ("a CONFIG_DIR is read as written, not as the file system resolves it", P13, 'cfg=$(cd "$2" && pwd -P)\n', 'cfg=$(cd "$2" && pwd)\n',
      (P13_TESTS + "test_each_refusal_stops_before_anything_is_asked",)),
     ("a path is compared with its case", P13, "shopt -s nocasematch", "shopt -u nocasematch",
@@ -3113,7 +3125,8 @@ MUTANTS = ISSUE + [
      "    dropped = []\n", (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
     ("the CLI's counts are credentials", "tools/check_trials.py",
      '                "inputtokens", "outputtokens", "cachereadinputtokens", "cachecreationinputtokens", "maxoutputtokens",\n'
-     '                "thinkingtokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens", "output_tokens_details"}\n',
+     '                "thinkingtokens", "thinking_tokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens",\n'
+     '                "output_tokens_details"}\n',
      "                }\n", ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
 ]
 

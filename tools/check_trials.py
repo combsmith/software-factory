@@ -52,7 +52,8 @@ KEY_HARMLESS = {"token_type", "input_tokens", "output_tokens", "total_tokens", "
                 # The vendor's CLI counts tokens in camelCase under modelUsage, and in nested fields under usage
                 # (issue 178); compared after lower(), so inputTokens is input_tokens here.
                 "inputtokens", "outputtokens", "cachereadinputtokens", "cachecreationinputtokens", "maxoutputtokens",
-                "thinkingtokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens", "output_tokens_details"}
+                "thinkingtokens", "thinking_tokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens",
+                "output_tokens_details"}
 # The headers a fixture may keep, compared in lower case. Any other is left out: allow what is named.
 HEADERS = {"accept", "cache-control", "content-length", "content-type", "date", "etag", "last-modified", "link",
            "location", "retry-after", "server", "user-agent", "vary", "x-accepted-github-permissions",
@@ -75,6 +76,10 @@ SHAPES = re.compile("|".join((
 # A runner's registration token: the whole string, 29 of base32's capitals and digits.
 REGISTRATION = re.compile(r"^[A-Z2-7]{29}$")
 ENCODED = re.compile(r"[A-Za-z0-9+/_-]{20,}={0,2}")
+
+
+# How a place is named when its key is shaped like a credential: by this, never by the key.
+KEY_SHAPED = "<a key shaped like a credential>"
 
 
 def refused_key(key: str) -> bool:
@@ -119,9 +124,12 @@ def _credentials(value, where: str) -> list:
     out = []
     if isinstance(value, dict):
         for key, item in value.items():
-            here = "%s.%s" % (where, key) if where else key
+            shown = KEY_SHAPED if shaped(key) else key     # a place is never named by a credential
+            here = "%s.%s" % (where, shown) if where else shown
             if refused_key(key):
                 out.append((here, "is a field for a credential; leave it out, and list where in removed"))
+            elif shaped(key):
+                out.append((here, "is a key shaped like a credential; leave it out, and list where in removed"))
             out += _credentials(item, here)
     elif isinstance(value, list):
         for i, item in enumerate(value):

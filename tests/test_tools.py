@@ -2669,7 +2669,8 @@ REFUSED_KEYS = ["Authorization", "AUTHORIZATION", "Authorization ", "Proxy-Autho
 PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", "value", "author", "external_id",
               # The vendor CLI's counts (issue 178), as it spells them.
               "inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens", "maxOutputTokens",
-              "thinkingTokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens", "output_tokens_details"]
+              "thinkingTokens", "thinking_tokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens",
+              "output_tokens_details"]
 # Not caught, by design or as a known hole: a commit hash alone is no credential; a token split across two strings
 # and a one-time code alone have no shape. The field names a header or field must have are the guard there.
 
@@ -2693,6 +2694,9 @@ class Trials(unittest.TestCase):
             self.assertEqual(check_trials._credentials({"note": value}, ""), [], value)
         for key in REFUSED_KEYS:
             self.assertTrue(check_trials._credentials({"a": [[{key: "x"}]]}, ""), key)
+        for name, value in sorted(SHAPED.items()):      # a key shaped like a credential is one too, named never by itself
+            found = check_trials._credentials({"a": {value: 1}}, "")
+            self.assertEqual([p for p, _ in found], ["a." + check_trials.KEY_SHAPED], name)
         for key in PLAIN_KEYS:
             self.assertEqual(check_trials._credentials({key: "x"}, ""), [], key)
         data = json.loads(fixture())
@@ -3112,17 +3116,22 @@ exit 9
 """
     VALID = {"schema": "result/1", "run": "r_p13", "status": "completed",
              "dispositions": [{"finding": "f_9c1e", "decision": {"result": "accepted"}}]}
+    # What the script keeps of the Task's answer, pinned here on its own: widening KEPT_RESULT is a change to this test.
+    KEPT = ["type", "subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms", "total_cost_usd", "usage",
+            "modelUsage", "stop_reason", "permission_denials", "structured_output"]
     # Words the model might say, planted where a careless script would let them through.
     PROSE = {"result": "the model wrote THIS-PROSE-1 here", "added": "a field the CLI adds carries THIS-PROSE-2",
              "nested": "THIS-PROSE-3 in a nested field", "denied": "THIS-PROSE-4 in a refused tool's input",
              "invalid": "THIS-PROSE-5 in a structured output that does not validate",
-             "in_usage": "THIS-PROSE-6 in a string under the counts", "in_code": "THIS-PROSE-7 where a code should be"}
+             "in_usage": "THIS-PROSE-6 in a string under the counts", "in_code": "THIS-PROSE-7 where a code should be",
+             "tabbed": "THIS-PROSE-8\tset\tapart\tby\ttabs", "as_key": "THIS-PROSE-9 as a key"}
 
     def answer(self, output=None, **extra) -> dict:
         said = {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1, "duration_ms": 5,
                 "total_cost_usd": 0.1, "usage": {"input_tokens": 1, "output_tokens": 2},
-                "modelUsage": {"m": {"inputTokens": 1, "note": self.PROSE["in_usage"], "fallback": None, "tier": "standard"}},
-                "stop_reason": self.PROSE["in_code"], "result": self.PROSE["result"],
+                "modelUsage": {"m": {"inputTokens": 1, "note": self.PROSE["in_usage"], "fallback": None, "tier": "standard"},
+                               "sk-" + "ant-" + "api03-NEVER-SEEN": {"inputTokens": 2}, self.PROSE["as_key"]: 3},
+                "stop_reason": self.PROSE["in_code"], "subtype": self.PROSE["tabbed"], "result": self.PROSE["result"],
                 "a_new_field": self.PROSE["added"], "stats": {"note": self.PROSE["nested"]},
                 "permission_denials": [{"tool_name": "Bash", "tool_input": {"command": self.PROSE["denied"]}}]}
         if output is not None:
@@ -3257,12 +3266,15 @@ exit 9
                              (validates, source), name)
             if isinstance(answer, dict):
                 kept = json.loads(texts["clean-3"])
-                allowed = set(re.search(r'^KEPT_RESULT="([^"]*)"$', self.SCRIPT.read_text(), re.M).group(1).split())
+                self.assertEqual(re.search(r'^KEPT_RESULT="([^"]*)"$', self.SCRIPT.read_text(), re.M).group(1).split(), self.KEPT)
+                allowed = set(self.KEPT)
                 self.assertTrue(set(kept) <= allowed, (name, set(kept) - allowed))
+                self.assertNotIn("subtype", kept, name)
                 self.assertNotIn("a_new_field", kept, name)
                 self.assertEqual(kept["modelUsage"], {"m": {"inputTokens": 1, "fallback": None, "tier": "standard"}}, name)
-                self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.stop_reason")],
+                self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.stop_reason", "$.modelUsage.<key>")],
                                  [{"field": "$.modelUsage.m.note", "characters": len(self.PROSE["in_usage"])},
+                                  {"field": "$.modelUsage.<key>", "characters": len(self.PROSE["as_key"])},
                                   {"field": "$.stop_reason", "characters": len(self.PROSE["in_code"])}], name)
                 self.assertEqual(kept["usage"], {"input_tokens": 1, "output_tokens": 2}, name)
                 self.assertNotIn("stop_reason", kept, name)
@@ -3270,7 +3282,7 @@ exit 9
                 self.assertEqual("structured_output" in kept, validates, name)
                 self.assertTrue(any(t["field"].startswith("every field KEPT_RESULT") for t in checked["model_text_removed"]), name)
         asked = json.loads((out / "requests.json").read_text())
-        self.assertEqual(asked[2]["kept"], sorted(allowed, key=asked[2]["kept"].index))
+        self.assertEqual(asked[2]["kept"], self.KEPT)
         self.assertIn('--tools ""', asked[2]["call"])
         self.assertEqual(asked[2]["env"]["CLAUDE_CONFIG_DIR"],
                          "a configuration directory of its own, logged in to the Maintainer's own subscription (decision 0033)")
@@ -3295,6 +3307,7 @@ class Redaction(unittest.TestCase):
         data["exchanges"][0]["response"]["body"]["clone"] = SHAPED["token in a url"]
         data["exchanges"][0]["response"]["body"]["blob"] = SHAPED["base64 of a runner's credentials"]
         data["exchanges"][0]["response"]["body"]["notes"] = [SHAPED[name] for name in sorted(SHAPED)]
+        data["exchanges"][0]["response"]["body"]["by_key"] = {SHAPED["ghs"]: 1}
         out, said = self.redact(json.dumps(data))
         kept = json.loads(out)
         self.assertEqual(check_trials._credentials(kept, ""), [])
@@ -3304,10 +3317,11 @@ class Redaction(unittest.TestCase):
         self.assertEqual((body["expires_at"], body["external_id"]), ("2026-10-15T15:02:11Z", "factory-run-r1"))
         self.assertNotIn("token", body)
         self.assertNotIn("clone", body)
-        self.assertEqual(body["notes"], [])
+        self.assertEqual((body["notes"], body["by_key"]), ([], {}))
         self.assertIn("exchanges[0].request.headers.Authorization", kept["removed"])
         self.assertIn("exchanges[0].response.body.token", kept["removed"])
         self.assertIn("exchanges[0].response.body.clone", kept["removed"])
+        self.assertIn("exchanges[0].response.body.by_key." + check_trials.KEY_SHAPED, kept["removed"])
         for value in SHAPED.values():
             self.assertNotIn(value, out + said)
 

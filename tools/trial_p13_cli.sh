@@ -22,8 +22,8 @@
 # KEPT_RESULT names are kept (issue 178): the model's text (`result`), the inputs of any tool it was refused
 # and every field the CLI adds that is not named are dropped and counted, so a new field can never carry the
 # model's text out; its structured output is validated against SCHEMA with tools/jsonschema_lite.py and kept
-# only if it validates, and in every other kept field a string with a space in it, or a long one, is dropped
-# as the CLI's counts and codes hold none. What is left is redacted by tools/redact_trial.py, which takes out anything
+# only if it validates, and in every other kept field a string or a key with whitespace in it, or a long one, is
+# dropped as the CLI's counts and codes hold none. What is left is redacted by tools/redact_trial.py, which takes out anything
 # shaped like a credential, and the raw capture is deleted. The model runs with no tool at all (`--tools ""`).
 # OUT receives only: ran_at, requests.json (what was asked), clean-N (each redacted answer), redacted-N (where
 # the redaction took something, never what), and checked.json (each part of the pass).
@@ -206,13 +206,16 @@ if isinstance(said, dict):
         taken.append({"field": "every field KEPT_RESULT does not name", "fields": len(dropped)})
     said = {k: said[k] for k in allowed if k in said}
     DROP = object()
-    def counts(value, where):    # the CLI answers in numbers, codes and short words; a string with a space is prose
+    def prose(text):             # the CLI answers in numbers, codes and short words: whitespace inside, or length, is prose
+        return any(c.isspace() for c in text.strip()) or len(text) > 64
+    def counts(value, where):    # a value, or a key with what is under it, that is prose is dropped and counted
         if isinstance(value, dict):
-            kept_here = [(k, counts(v, where + "." + k)) for k, v in value.items()]
+            kept_here = [(k, DROP if prose(k) else counts(v, where + "." + k)) for k, v in value.items()]
+            taken.extend({"field": where + ".<key>", "characters": len(k)} for k, v in kept_here if v is DROP and prose(k))
             return {k: v for k, v in kept_here if v is not DROP}
         if isinstance(value, list):
             return [v for v in (counts(v, where + "[]") for v in value) if v is not DROP]
-        if isinstance(value, str) and (" " in value.strip() or len(value) > 64):
+        if isinstance(value, str) and prose(value):
             taken.append({"field": where, "characters": len(value)})
             return DROP
         if isinstance(value, float) and not value == value:    # a number that is not one
