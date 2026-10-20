@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import in_progress, is_time, runs_on, since_writer, stale, standing_labels
+from kernel.derive import in_progress, is_time, run_deferral, runs_on, since_writer, stale, standing_labels
 from kernel.gate import is_person
 
 # The States of lifecycle/issue.json that a pull request's do not share. `held` and `not_served` are terms.py's.
@@ -769,23 +769,11 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     if brake:
         return brake
 
-    # Capacity and the org's concurrency are not brakes: they bound no cycle (§4.1), and only defer.
-    until = context.get("model_deferred_until", "unreadable")
-    # A deadline missing, or one or a `now` that is no moment, cannot be compared: the deferral fails closed, and
-    # nothing raises.
-    if until is not None and not (is_time(until) and is_time(now)):
-        return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
-    if until is not None and until > now:
-        return _decision(facts, state, "capacity", evidence, t.DEFER)
-    active = context.get("active_runs")
-    if active is None:
-        return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
-    if active >= limits["org_max_active_runs"]:
-        return _decision(facts, state, "concurrency", evidence, t.DEFER)
-    # A Run listed before its run-name may be the Run in flight on this issue. Which item it is on cannot be read, so no
-    # Run is admitted until it can be; a list that cannot be read defers too (I-46, decision 0036).
-    if context.get("unidentified_runs") != []:
-        return _decision(facts, state, "run_unidentified", evidence, t.DEFER)
+    # Capacity and the org's concurrency are not brakes: they bound no cycle (§4.1), and only defer; a Run listed
+    # before its run-name defers too (decision 0036). Each is read whole, for either kind of Work item, in one place.
+    stop = run_deferral(_decision, facts, state, evidence, context, now, limits)
+    if stop:
+        return stop
 
     admit = dict({"role": role, "intent": intent, "content_id": facts["content_id"]}, **carried)
     return _decision(facts, state, reason, evidence, t.ADMIT, admit=admit)

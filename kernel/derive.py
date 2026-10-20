@@ -436,6 +436,28 @@ def overdue(lifecycle, work_item: str, state: str, moved, passes_since, now: str
     return stale(lifecycle, state, moved, passes_since, now)
 
 
+def run_deferral(_decision, facts: dict, state, evidence: list, context: dict, now: str, limits: dict):
+    """The deferral that keeps a Run of either kind of Work item from starting now, or None. Capacity and the org's
+    concurrency are not brakes: they bound no cycle (§4.1), and only defer, so each is read whole or fails closed, and
+    nothing raises. The model provider's deadline that is missing, or that cannot be compared with `now`, either being
+    no moment, is unreadable. So is a count of active Runs that is no whole number, a bool among them, or is below zero.
+    A Run listed before its run-name may be the Run in flight on this item, so no Run is admitted until it can be named,
+    and a list that cannot be read defers too (I-46, decision 0036)."""
+    until = context.get("model_deferred_until", "unreadable")
+    if until is not None and not (is_time(until) and is_time(now)):
+        return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
+    if until is not None and until > now:
+        return _decision(facts, state, "capacity", evidence, t.DEFER)
+    active = context.get("active_runs")
+    if type(active) is not int or active < 0:
+        return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
+    if active >= limits["org_max_active_runs"]:
+        return _decision(facts, state, "concurrency", evidence, t.DEFER)
+    if context.get("unidentified_runs") != []:
+        return _decision(facts, state, "run_unidentified", evidence, t.DEFER)
+    return None
+
+
 def readable_actor(actor, facts: dict, config: dict) -> bool:
     """Who acted, read whole: a kind the Kernel knows, a name, and write access exactly true or false.
 
