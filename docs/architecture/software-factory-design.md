@@ -1687,10 +1687,11 @@ only a person out of `held`, and lets nothing out of `declined`: the queue merge
 request after a person had held the issue (seed 20) or closed it (seed 22), and a person merged their
 own after an outsider had reopened it (seed 99). The Lifecycle now declares `in_review → done` by the
 platform, the queue's merge. The queue makes no merge in the world while the issue is held or declined,
-and a person none while it is declined: the world takes it that the Controller dequeues the Factory's pull
-request when a person closes or holds its issue; whether
-a merge should end a held or a declined issue is open (issue 227, "Design: does a merge end a held or
-a declined issue?"). The Hold the brakes place for unmerged closes (I-43) is placed on a `new` issue too,
+and a person none while it is declined: the Controller dequeues the Factory's pull request when a person
+closes or holds its issue, as the Maintainer ruled (issue 227, "Design: does a merge end a held or a
+declined issue?"). The Kernel still reads such a merge as `done`; that it becomes a Hold naming the
+contradiction is a Kernel story not built yet, with its boundary case and mutant (issue 237, "Kernel: a
+merge read while an issue is held or declined is a Hold, not done"). The Hold the brakes place for unmerged closes (I-43) is placed on a `new` issue too,
 an outsider's whose colleague closed their own pull requests (seed 137); the Lifecycle now declares
 `new → held` by the Factory. Past the fixed seeds, an outsider's edit lapsed acceptance from `in_review`
 (seed 617), and a Run admitted on a stale read showed a `new` issue in progress until it superseded
