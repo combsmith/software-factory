@@ -83,7 +83,8 @@ def redact_text(raw: str, said: list) -> str:
         name, colon, _ = line.partition(":")
         header = n > 1 and colon and " " not in name.strip()
         if shaped(line) or (header and name.strip().lower() not in HEADERS):
-            said.append("removed: line %d%s" % (n, ", the header " + name.strip() if header else ""))
+            shown = KEY_SHAPED if shaped(name.strip()) else name.strip()    # a place is never named by a credential
+            said.append("removed: line %d%s" % (n, ", the header " + shown if header else ""))
         else:
             kept.append(line)
     try:

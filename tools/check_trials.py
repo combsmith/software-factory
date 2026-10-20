@@ -45,7 +45,8 @@ CODE = re.compile(r"^[a-z_]+$")
 MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 
 # A key that names a credential, however it is spelt: compared after strip(), lower() and - to _.
-KEY_PARTS = ("token", "secret", "password", "credential", "jit_config", "otp", "cookie", "authorization")
+KEY_PARTS = ("token", "secret", "password", "credential", "jit_config", "otp", "cookie", "authorization",
+             "api_key", "apikey", "private_key", "privatekey", "passphrase")
 KEY_WHOLE = {"auth", "jwt"}
 KEY_HARMLESS = {"token_type", "input_tokens", "output_tokens", "total_tokens", "cache_creation_input_tokens",
                 "cache_read_input_tokens",
@@ -80,6 +81,11 @@ ENCODED = re.compile(r"[A-Za-z0-9+/_-]{20,}={0,2}")
 
 # How a place is named when its key is shaped like a credential: by this, never by the key.
 KEY_SHAPED = "<a key shaped like a credential>"
+
+
+def hidden(text: str) -> str:
+    """`text` with each word shaped like a credential replaced by KEY_SHAPED: a message never carries one."""
+    return re.sub(r"\S+", lambda m: KEY_SHAPED if shaped(m.group()) else m.group(), text)
 
 
 def refused_key(key: str) -> bool:
@@ -209,7 +215,8 @@ def _headers(data) -> list:
             headers = part.get("headers") if isinstance(part, dict) else None
             for name in headers if isinstance(headers, dict) else []:
                 if name.strip().lower() not in HEADERS:
-                    out.append(("exchanges[%d].%s.headers.%s" % (i, side, name),
+                    shown = KEY_SHAPED if shaped(name) else name     # a place is never named by a credential
+                    out.append(("exchanges[%d].%s.headers.%s" % (i, side, shown),
                                 "is not a header a fixture may keep; leave it out, or add it to HEADERS in "
                                 "tools/check_trials.py if it can never carry a credential"))
     return out
@@ -254,7 +261,7 @@ def _fixtures(root: pathlib.Path, schema: dict, problems: list) -> dict:
         except (OSError, ValueError) as err:
             problems.append("%s cannot be read: %s" % (rel, err))
             continue
-        wrong = ["%s: %s" % (rel, err) for err in validate(data, schema)]
+        wrong = ["%s: %s" % (rel, hidden(err)) for err in validate(data, schema)]
         if not wrong and data["trial"] != name.group(1):
             wrong.append("%s: records trial %s; a fixture is named for its trial" % (rel, data["trial"]))
         if not wrong:

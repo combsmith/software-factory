@@ -71,8 +71,9 @@ M then pastes the OUT path, `~/sf-trial-p13-out`, to S.
 
 ## 3. Build the fixture (S)
 
-S reads only what is in OUT: `ran_at`, `requests.json`, `checked.json`, `clean-1`, `clean-2`, `clean-3`,
-`clean-3.stderr` and `redacted-*`. OUT holds no credential and none of the model's text. The script kept only
+S reads only what is in OUT: `ran_at`, `requests.json`, `checked.json`, `clean-1`, `clean-2`, `clean-3` and
+`redacted-*`. OUT holds no credential and none of the model's text; of the Task's standard error only its
+line and character counts are in `checked.json`. The script kept only
 the fields `requests.json` lists under `kept` for exchange 3, only the tool names in `permission_denials`, and
 `structured_output` only if it validated. `checked.json`'s `model_text_removed` says what was taken out.
 
@@ -86,8 +87,7 @@ In the scratch directory, draft the fixture from the pass-condition draft:
     an address.
   - `response`: `{"status": <exit code>, "headers": {}, "body": <the clean-N file, as JSON where it is JSON>}`.
     Exchange 1's body is the text of `clean-1`; exchange 2's exit code is `checked.json`'s `login.exit`, and
-    exchange 3's is its `exit`. Keep `clean-3.stderr` as `"stderr"` in exchange 3's response body only if it
-    says anything.
+    exchange 3's is its `exit`.
 - `removed`: each line of `redacted-3` becomes `exchanges[2].response.body.<path>`. The redaction removes by
   key name; the CLI's token counts are named harmless in `tools/check_trials.py`, so they stay.
 - `verdict` against the pass condition.

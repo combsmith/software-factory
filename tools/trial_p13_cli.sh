@@ -26,7 +26,8 @@
 # code's shape, and a key is held to that shape too, as the CLI's counts and codes hold nothing else. What is left is redacted by tools/redact_trial.py, which takes out anything
 # shaped like a credential, and the raw capture is deleted. The model runs with no tool at all (`--tools ""`).
 # OUT receives only: ran_at, requests.json (what was asked), clean-N (each redacted answer), redacted-N (where
-# the redaction took something, never what), and checked.json (each part of the pass).
+# the redaction took something, never what), and checked.json (each part of the pass, and of the Task's standard
+# error only how many lines and characters it had: it may hold the model's text, so none of it is kept).
 #
 # If the structured output does not validate, issue 15 says the metered key is tried and recorded. This
 # script does not do that: it is a second step, the Maintainer's, in the runbook.
@@ -246,8 +247,10 @@ else:
 usage = said.get("usage") if isinstance(said, dict) else None
 counts = isinstance(usage, dict) and all(isinstance(usage.get(k), int) and not isinstance(usage.get(k), bool)
                                          for k in ("input_tokens", "output_tokens"))
+err = open(sys.argv[14]).read()
 parts = {
     "exit": code,
+    "stderr": {"lines": err.count("\n"), "characters": len(err)},
     "version": {"pinned": pin, "before": version, "after": after, "held": version == pin == after},
     "logged_in": logged_in,
     "login": {"exit": int(sys.argv[12]), "status": logged_in},
@@ -261,10 +264,9 @@ parts = {
 parts["every_part_holds"] = (code == 0 and parts["version"]["held"] and logged_in == "yes" and errors == []
                              and counts and parts["is_error"] is False)
 json.dump(parts, open(checked, "w"), indent=2)
-' "$root" "$scratch/raw-3" "$scratch/kept-3" "$scratch/checked" "$SCHEMA" "$code3" "$PIN" "$version" "${after:-}" "$logged_in" "$KEPT_RESULT" "$code2" "$STRING_KEYS")
-rm -f "$scratch/raw-3"
+' "$root" "$scratch/raw-3" "$scratch/kept-3" "$scratch/checked" "$SCHEMA" "$code3" "$PIN" "$version" "${after:-}" "$logged_in" "$KEPT_RESULT" "$code2" "$STRING_KEYS" "$scratch/raw-3.err")
+rm -f "$scratch/raw-3" "$scratch/raw-3.err"
 redact "$scratch/kept-3" 3
-redact "$scratch/raw-3.err" 3.stderr
 (cd "$root" && python3 -m tools.redact_trial "$scratch/checked" "$out/checked.json") > /dev/null
 
 # What was asked: the command lines, the Task and the schema. No credential, path or address is in it.
@@ -286,7 +288,7 @@ json.dump(asked, open(sys.argv[1], "w"), indent=2)' "$out/requests.json" "$TASK"
 
 held=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("every_part_holds") is True)' "$out/checked.json")
 echo "trial_p13_cli: CLI exit $code3; version $version, after $after; logged in: $logged_in; every part holds: $held"
-for n in 1 2 3 3.stderr; do
+for n in 1 2 3; do
     sed "s|^|clean-$n: |" "$out/redacted-$n"
 done
 echo "Done. Give a session this directory; it holds no credential and none of the model's text:"
