@@ -118,9 +118,11 @@ RUN_BRAKES = ("    brake = brakes.on_run(_decision, facts, state, evidence, cont
               " limits)\n    if brake:\n        return brake\n")
 ACT_BRAKES = ('    brake = brakes.on_act(_decision, facts, state, evidence, context, action, since, config["limits"])\n'
               "    if brake:\n        return brake\n")
-# The deferral for an unidentified Run: the first after the brakes it follows, in decide.py's _act and _decide, and in
-# issue.py's decide.
+# The deferral for an unidentified Run in decide.py's _act, the first after the brakes it follows; and the call that
+# reads every deferral of a Run, the first after the brakes in decide.py's _decide and in issue.py's decide.
 UNIDENTIFIED_DEFERS = '        return _decision(facts, state, "run_unidentified", evidence, t.DEFER)\n'
+DEFERRAL_CALL = ("    stop = run_deferral(_decision, facts, state, evidence, context, now, limits)\n"
+                 "    if stop:\n        return stop\n")
 COVERAGE = "tests.test_coverage.Coverage."
 RUNNER = "tests.test_tools.Mutants."
 UNRELATED_TESTS = (RUNNER + "test_a_mutant_whose_only_failure_is_unrelated_survives",)
@@ -613,35 +615,9 @@ ISSUE = [
      "    bare = d\n", ISSUE_TESTS),
     ("every Run in flight is left out to find the Run wanted", ISSUE_PY,
      'r["status"] == "completed" or r["intent"] != OPENING]', 'r["status"] == "completed"]', ISSUE_TESTS),
-    ("an issue's capacity unread is trusted", ISSUE_PY,
-     "    if until is not None and not (is_time(until) and is_time(now)):\n", "    if False:\n", ISSUE_TESTS),
-    ("the provider's deferral does not defer an issue's Run", ISSUE_PY,
-     "    if until is not None and until > now:\n", "    if False:\n", ISSUE_TESTS),
-    ("a deferral that ends now still defers an issue's Run", ISSUE_PY,
-     "until is not None and until > now", "until is not None and until >= now", ISSUE_TESTS),
-    ("an issue's active Runs unread are trusted", ISSUE_PY, COUNT_GUARD,
-     "    if False:\n", ISSUE_TESTS),
-    # Issue 218: an active_runs that is no count defers on an issue, and raises nothing.
-    ("an issue's count of active Runs that is no number is compared", ISSUE_PY,
-     COUNT_GUARD, "    if active is None:\n", ISSUE_COUNT_TESTS),
-    ("a bool is read as an issue's count of active Runs", ISSUE_PY,
-     COUNT_GUARD, "    if not isinstance(active, int) or active < 0:\n",
-     ISSUE_COUNT_TESTS),
-    ("a negative count of active Runs is read on an issue", ISSUE_PY,
-     COUNT_GUARD, "    if type(active) is not int:\n", ISSUE_COUNT_TESTS),
-    ("the org's concurrency does not defer an issue's Run", ISSUE_PY,
-     '    if active >= limits["org_max_active_runs"]:\n', "    if False:\n", ISSUE_TESTS),
-    ("the org's concurrency defers an issue's Run only past its limit", ISSUE_PY,
-     'active >= limits["org_max_active_runs"]', 'active > limits["org_max_active_runs"]', ISSUE_TESTS),
-    # Decision 0036: a Run listed before its run-name defers every admission.
-    ("an unidentified Run admits an issue's Run", ISSUE_PY,
-     '    if context.get("unidentified_runs") != []:\n', "    if False:\n",
-     ("tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run",)),
-    ("an issue's unreadable list of unidentified Runs is read as empty", ISSUE_PY,
-     '    if context.get("unidentified_runs") != []:\n', '    if context.get("unidentified_runs"):\n',
-     ("tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run",)),
+    # Decision 0036: a Run listed before its run-name defers every admission, after the brakes.
     ("an unidentified Run hides an issue's Hold", ISSUE_PY,
-     *moved_after(ISSUE_PY, RUN_BRAKES, UNIDENTIFIED_DEFERS),
+     *moved_after(ISSUE_PY, RUN_BRAKES, DEFERRAL_CALL),
      ("tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run",)),
     ("an issue's admission names no content", ISSUE_PY,
      '{"role": role, "intent": intent, "content_id": facts["content_id"]}', '{"role": role, "intent": intent}',
@@ -759,10 +735,6 @@ ISSUE = [
     ("a link that merged in the second it closed cannot be read", ISSUE_PY,
      "not (opened_on <= merged_on and merged_on <= closed_on)",
      "not (opened_on <= merged_on and merged_on < closed_on)", ISSUE_TESTS),
-    ("an issue's capacity deadline is compared with a now that is no moment", ISSUE_PY,
-     "not (is_time(until) and is_time(now))", "not is_time(until)", ISSUE_TESTS),
-    ("an issue's capacity deadline that is no moment is compared", ISSUE_PY,
-     "not (is_time(until) and is_time(now))", "not is_time(now)", ISSUE_TESTS),
     ("an issue's context that cannot be read raises", ISSUE_PY,
      "    known = context if isinstance(context, dict) else {}\n", "    known = context\n", ISSUE_TESTS),
 ]
@@ -1691,12 +1663,43 @@ MUTANTS = ISSUE + [
     # Issue 173: a now, a Lifecycle, a limit or a context that cannot be read never raises out of a pull request's decide.
     ("a now that is no moment raises on a pull request", "kernel/derive.py",
      "    if not is_time(now):\n        return None\n", "", (STALE + "test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing",)),
-    ("a pull request's capacity deadline is compared with a now that is no moment", "kernel/decide.py",
+    # The deferral of a Run, read once for either kind of Work item (derive.run_deferral): the model provider's
+    # deadline (issues 165 and 173), the org's count of active Runs (issue 218) and a Run listed unnamed (decision 0036).
+    ("a capacity deadline that cannot be compared is trusted", "kernel/derive.py",
      "    if until is not None and not (is_time(until) and is_time(now)):\n", "    if False:\n",
-     (STALE + "test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing",)),
-    ("a pull request's deadline that is no moment is compared", "kernel/decide.py",
+     (STALE + "test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing",) + ISSUE_TESTS),
+    ("a capacity deadline that is no moment is compared", "kernel/derive.py",
      "not (is_time(until) and is_time(now))", "not is_time(now)",
-     (STALE + "test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing",)),
+     (STALE + "test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing",) + ISSUE_TESTS),
+    ("a capacity deadline is compared with a now that is no moment", "kernel/derive.py",
+     "not (is_time(until) and is_time(now))", "not is_time(until)",
+     (STALE + "test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing",) + ISSUE_TESTS),
+    ("a capacity fault does not defer", "kernel/derive.py",
+     "    if until is not None and until > now:\n", "    if False:\n", ("tests.test_decide.Ceilings",) + ISSUE_TESTS),
+    ("a deferral that ends now still defers", "kernel/derive.py",
+     "until is not None and until > now", "until is not None and until >= now",
+     (STALE + "test_a_now_that_is_no_moment_shows_a_wait_as_stale_and_raises_nothing",) + ISSUE_TESTS),
+    ("an unreadable count of active Runs is trusted", "kernel/derive.py",
+     COUNT_GUARD, "    if False:\n", ("tests.test_decide.Readability",) + ISSUE_TESTS),
+    ("a count of active Runs that is no number is compared", "kernel/derive.py",
+     COUNT_GUARD, "    if active is None:\n", COUNT_TESTS + ISSUE_COUNT_TESTS),
+    ("a bool is read as a count of active Runs", "kernel/derive.py",
+     COUNT_GUARD, "    if not isinstance(active, int) or active < 0:\n", COUNT_TESTS + ISSUE_COUNT_TESTS),
+    ("a negative count of active Runs is read", "kernel/derive.py",
+     COUNT_GUARD, "    if type(active) is not int:\n", COUNT_TESTS + ISSUE_COUNT_TESTS),
+    ("the org limit is ignored", "kernel/derive.py",
+     '    if active >= limits["org_max_active_runs"]:\n', "    if False:\n", ("tests.test_decide.Ceilings",) + ISSUE_TESTS),
+    ("the org's concurrency defers only past its limit", "kernel/derive.py",
+     'active >= limits["org_max_active_runs"]', 'active > limits["org_max_active_runs"]',
+     ("tests.test_decide.Ceilings",) + ISSUE_TESTS),
+    ("an unidentified Run admits a Run", "kernel/derive.py",
+     '    if context.get("unidentified_runs") != []:\n', "    if False:\n",
+     (UNIDENTIFIED + "test_an_unidentified_run_defers_a_run_on_a_pull_request",
+      "tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run")),
+    ("an unreadable list of unidentified Runs is read as empty", "kernel/derive.py",
+     '    if context.get("unidentified_runs") != []:\n', '    if context.get("unidentified_runs"):\n',
+     (UNIDENTIFIED + "test_a_list_of_unidentified_runs_that_cannot_be_read_defers",
+      "tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run")),
     ("a Lifecycle not the pull request's is read", "kernel/derive.py",
      '    if not (isinstance(lifecycle, dict) and lifecycle.get("work_item") == work_item):\n', "    if False:\n",
      (STALE + "test_a_lifecycle_whose_limit_cannot_be_read_shows_the_wait_as_stale",)),
@@ -2214,28 +2217,7 @@ MUTANTS = ISSUE + [
      '    if facts.get("acts_since_writer") is None or facts["acts_since_writer"] >= config["limits"]["max_acts_per_item"]:\n'
      '        return _decision(facts, t.HELD, "act_ceiling", [], t.HOLD)\n'
      "    wanted = _wanted_run(state, reason, config)\n", ("tests.test_decide.Classes",)),
-    ("a capacity fault does not defer", "kernel/decide.py",
-     "    if until is not None and until > now:\n", "    if False:\n", ("tests.test_decide.Ceilings",)),
-    ("an unreadable count of active Runs is trusted", "kernel/decide.py",
-     COUNT_GUARD, "    if active is None and False:\n",
-     ("tests.test_decide.Readability",)),
-    # Issue 218: an active_runs that is no count defers on a pull request, and raises nothing.
-    ("a pull request's count of active Runs that is no number is compared", "kernel/decide.py",
-     COUNT_GUARD, "    if active is None:\n", COUNT_TESTS),
-    ("a bool is read as a pull request's count of active Runs", "kernel/decide.py",
-     COUNT_GUARD, "    if not isinstance(active, int) or active < 0:\n",
-     COUNT_TESTS),
-    ("a negative count of active Runs is read on a pull request", "kernel/decide.py",
-     COUNT_GUARD, "    if type(active) is not int:\n", COUNT_TESTS),
-    ("the org limit is ignored", "kernel/decide.py",
-     '    if active >= limits["org_max_active_runs"]:\n', "    if False:\n", ("tests.test_decide.Ceilings",)),
     # Decision 0036: a Run listed before its run-name defers every admission, an approval among them, after the brakes.
-    ("an unidentified Run admits a pull request's Run", "kernel/decide.py",
-     '    if context.get("unidentified_runs") != []:\n', "    if False:\n",
-     (UNIDENTIFIED + "test_an_unidentified_run_defers_a_run_on_a_pull_request",)),
-    ("an unreadable list of unidentified Runs is read as empty", "kernel/decide.py",
-     '    if context.get("unidentified_runs") != []:\n', '    if context.get("unidentified_runs"):\n',
-     (UNIDENTIFIED + "test_a_list_of_unidentified_runs_that_cannot_be_read_defers",)),
     ("an unidentified Run lets an approval through", "kernel/decide.py",
      '    if action == "issue_approval" and context.get("unidentified_runs") != []:\n', "    if False:\n",
      (UNIDENTIFIED + "test_an_unidentified_run_defers_an_approval",)),
@@ -2251,7 +2233,7 @@ MUTANTS = ISSUE + [
      '    if context.get("unidentified_runs") != []:\n',
      (UNIDENTIFIED + "test_an_unidentified_run_stops_no_enqueue_and_no_dequeue",)),
     ("an unidentified Run hides a Hold", "kernel/decide.py",
-     *moved_after("kernel/decide.py", RUN_BRAKES, UNIDENTIFIED_DEFERS),
+     *moved_after("kernel/decide.py", RUN_BRAKES, DEFERRAL_CALL),
      (UNIDENTIFIED + "test_an_unidentified_run_is_asked_after_the_brakes",)),
     ("an unidentified Run's deferral goes stale", "kernel/terms.py",
      ',\n                             "run_unidentified"})', "})",

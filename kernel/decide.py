@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import derive, in_progress, is_time, moved_at, overdue, runs_on, since_writer
+from kernel.derive import derive, in_progress, moved_at, overdue, run_deferral, runs_on, since_writer
 
 SCHEMA = "decision/1"
 
@@ -159,25 +159,11 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     if brake:
         return brake
 
-    # Capacity and the org's concurrency are not brakes: they bound no cycle (§4.1), and only defer.
-    until = context.get("model_deferred_until", "unreadable")
-    if until == "unreadable":
-        return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
-    # A deadline that is no moment, or a `now` that is none, cannot be compared: the capacity cannot be read.
-    if until is not None and not (is_time(until) and is_time(now)):
-        return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
-    if until is not None and until > now:
-        return _decision(facts, state, "capacity", evidence, t.DEFER)
-    active = context.get("active_runs")
-    # A count that is no whole number, a bool among them, or is below zero cannot be read: the deferral fails closed.
-    if type(active) is not int or active < 0:
-        return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
-    if active >= limits["org_max_active_runs"]:
-        return _decision(facts, state, "concurrency", evidence, t.DEFER)
-    # A Run listed before its run-name may be the Run in flight on any item, this one among them. Which item it is on
-    # cannot be read, so no Run is admitted until it can be; a list that cannot be read defers too (I-46, decision 0036).
-    if context.get("unidentified_runs") != []:
-        return _decision(facts, state, "run_unidentified", evidence, t.DEFER)
+    # Capacity and the org's concurrency are not brakes: they bound no cycle (§4.1), and only defer; a Run listed
+    # before its run-name defers too (decision 0036). Each is read whole, for either kind of Work item, in one place.
+    stop = run_deferral(_decision, facts, state, evidence, context, now, limits)
+    if stop:
+        return stop
 
     return _decision(facts, state, reason, evidence, t.ADMIT,
                      admit={"role": role, "intent": intent, "content_id": facts["content_id"]})
