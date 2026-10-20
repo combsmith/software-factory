@@ -291,17 +291,22 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
             continue
         if fixture is None:
             continue
-        if not isinstance(fixture, str) or not fixture.startswith("trials/"):
-            problems.append("sim/grounding.py: %s: %s is not a fixture in trials/" % (code, fixture))
-        elif not (root / fixture).is_file():
-            problems.append("sim/grounding.py: %s: %s does not exist" % (code, fixture))
-        elif fixture not in valid:
-            problems.append("sim/grounding.py: %s: %s is not a valid fixture" % (code, fixture))
-        elif not trials:
-            problems.append("sim/grounding.py: %s: no trial asks this; add one to section 6 first" % code)
-        elif valid[fixture]["trial"] not in trials:
-            problems.append("sim/grounding.py: %s: %s records %s, and %s asks this"
-                            % (code, fixture, valid[fixture]["trial"], " or ".join(trials)))
+        # One fixture grounds a rule, or a tuple of them when more than one trial's fixture shows it holds.
+        fixtures = fixture if isinstance(fixture, tuple) else (fixture,)
+        if not fixtures:
+            problems.append("sim/grounding.py: %s: an empty tuple grounds nothing; write None" % code)
+        for fixture in fixtures:
+            if not isinstance(fixture, str) or not fixture.startswith("trials/"):
+                problems.append("sim/grounding.py: %s: %s is not a fixture in trials/" % (code, fixture))
+            elif not (root / fixture).is_file():
+                problems.append("sim/grounding.py: %s: %s does not exist" % (code, fixture))
+            elif fixture not in valid:
+                problems.append("sim/grounding.py: %s: %s is not a valid fixture" % (code, fixture))
+            elif not trials:
+                problems.append("sim/grounding.py: %s: no trial asks this; add one to section 6 first" % code)
+            elif valid[fixture]["trial"] not in trials:
+                problems.append("sim/grounding.py: %s: %s records %s, and %s asks this"
+                                % (code, fixture, valid[fixture]["trial"], " or ".join(trials)))
     world = root / "sim" / "world.py"
     marked = set(MARK.findall(world.read_text())) if world.exists() else set()
     for code in sorted(marked - seen):

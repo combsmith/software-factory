@@ -2,7 +2,8 @@
 
 Each rule the fake applies is marked where it is applied, by a comment `# GitHub: <code>`, and is
 listed here once: its code, the rule in words, the trials of the design's section 6 that ask it
-(empty when none does), and the fixture under `trials/` that grounds it (None until one does).
+(empty when none does), and the fixture under `trials/` that grounds it (None until one does; a tuple
+when more than one trial's fixture shows it holds).
 A rule with no fixture is unverified, and `make verify` prints it (design, section 4.5). A rule no
 trial asks can be grounded only once a trial for it is added to section 6.
 `tools/check_trials.py` holds this list and the marks to each other, and each fixture named here
@@ -12,8 +13,11 @@ to its schema. It reads RULES as a literal, so that it can judge a copy of the r
 RULES = (
     ("a_push_is_new_content", "A push gives the pull request new content", ("P-29",), "trials/P-29.base.json"),
     ("the_pusher_is_the_last_pusher", "The account that pushed the head is read as its last pusher", ("P-28",),
-     "trials/P-28.json"),
-    ("an_app_pushes_to_the_head", "An App can push to the head of a pull request", ("P-7",), None),
+     ("trials/P-28.json", "trials/P-28.app.json")),
+    ("an_app_pushes_to_the_head", "An App can push to the head of a pull request", ("P-7",), "trials/P-7.json"),
+    # Contradicted by trials/P-7.json: under the ruleset's dismiss_stale_reviews_on_push, the App's push dismissed the
+    # machine user's approval, and the timeline names the pusher as the dismisser. Left unverified, as it is: changing
+    # the fake is a story of its own (sim/AGENTS.md, "Known to differ").
     ("an_approval_survives_a_push", "A push leaves an earlier approval in place", ("P-7", "P-29"), None),
     ("a_request_for_changes_survives_a_push", "A push leaves a request for changes standing", (), None),
     ("an_app_can_dismiss_a_review", "An App with pull_requests: write can dismiss a person's review, and the "
@@ -47,7 +51,8 @@ RULES = (
     ("a_writer_can_dismiss_an_approval", "A person with write access can dismiss the machine user's approval, and the "
      "timeline says who and what the review was before", (), None),
     ("the_merge_group_is_not_checked", "The merge queue merges without running the checks on the merge group", (), None),
-    ("the_machine_users_approval_counts", "The machine user's approval counts when an App pushed last", ("P-7",), None),
+    ("the_machine_users_approval_counts", "The machine user's approval counts when an App pushed last", ("P-7",),
+     "trials/P-7.json"),
     ("an_approval_can_fail_to_land", "The machine user's approval can fail to land, by a fault of the item or of "
      "the environment, and its Run then concludes failure", ("P-7",), None),
     ("the_queue_can_eject", "The merge queue can take a pull request out without merging it, and its approval stays",
