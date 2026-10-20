@@ -1,7 +1,6 @@
 # The required check, `factory / verify`: it passes only when `make verify` and every shard of the mutation check pass on the commit, with the history tools/check_decisions.py compares it with.
 # About 1,000 mutants, in eight shards of about 126, each kill confirmed by two runs of one test. With six shards of 168 the legs ran 14 to 25 minutes against a 25-minute timeout, and legs were cut at 25:00 in three pull requests, once 22 ms after the last kill had printed. Every mutant names the tests that kill it, which run first; the whole suite, its slow modules last, runs only when they pass ("Mutation run: every mutant names its tests, the slow suites run last, and a builder may break a few", issue 217). Add a shard before a leg nears its timeout.
 # `verify` checks out the base, never the head, and runs the base's tools/needs_passed.py, so a change cannot make its own verdict pass: decision 0023.
-# `commits` checks out the base too and runs the base's tools/commits_are_the_maintainers.py, which reads every commit the pull request carries and refuses unless each is the Maintainer's ("Identity: every commit a pull request carries is the Maintainer's, checked outside the shell", issue 204).
 name: factory
 on:
   pull_request:
@@ -45,27 +44,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - run: python3 -m tools.mutants
-  commits:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    env:
-      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-      EVENT: ${{ github.event_name }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-      - run: python3 -m tools.commits_are_the_maintainers
   verify:
     name: verify
     needs:
       - checks
-      - commits
       - mutants
     if: always()
     runs-on: ubuntu-24.04

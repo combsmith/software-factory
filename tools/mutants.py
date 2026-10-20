@@ -2942,6 +2942,20 @@ MUTANTS = ISSUE + [
     ("an event the check does not know is read", "tools/commits_are_the_maintainers.py",
      '    if not base or not head or event not in ("pull_request", "merge_group"):\n', "    if not base or not head:\n",
      COMMITS_TESTS),
+    ("only the first parent's commits are read", "tools/commits_are_the_maintainers.py",
+     '"log", "--reverse", "--format="', '"log", "--first-parent", "--reverse", "--format="', COMMITS_TESTS),
+    ("the base's own commits since the branch point are read", "tools/commits_are_the_maintainers.py",
+     '"%s..%s" % (base, head)', '"%s...%s" % (base, head)', COMMITS_TESTS),
+    ("an author is read by email alone", "tools/commits_are_the_maintainers.py",
+     "        if (author_name, author_email) != who:\n", "        if author_email != who[1]:\n", COMMITS_TESTS),
+    ("an author is read by name alone", "tools/commits_are_the_maintainers.py",
+     "        if (author_name, author_email) != who:\n", "        if author_name != who[0]:\n", COMMITS_TESTS),
+    ("a committer is read by email alone", "tools/commits_are_the_maintainers.py",
+     "        if (committer_name, committer_email) != who and not made_by_github:\n",
+     "        if committer_email != who[1] and not made_by_github:\n", COMMITS_TESTS),
+    ("a committer is read by name alone", "tools/commits_are_the_maintainers.py",
+     "        if (committer_name, committer_email) != who and not made_by_github:\n",
+     "        if committer_name != who[0] and not made_by_github:\n", COMMITS_TESTS),
 ]
 
 

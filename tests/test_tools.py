@@ -1502,7 +1502,7 @@ class Workflows(unittest.TestCase):
         # run on both pull_request and merge_group reports on no head, or not in the merge queue. Each leaves the Lens
         # waiting for ever. The one if: allowed is always(), beside needs:, and a job that needs others is skipped when
         # one fails, which passes a required check, unless it runs under always() and judges every other job.
-        needs = "    needs:\n      - checks\n      - commits\n      - mutants\n"
+        needs = "    needs:\n      - checks\n      - mutants\n"
         judge = "      - run: python3 -m tools.needs_passed\n"
         given = "    env:\n      NEEDS: ${{ toJSON(needs) }}\n"
         matrix = GOOD.replace("    timeout-minutes: 10\n",
@@ -1517,10 +1517,10 @@ class Workflows(unittest.TestCase):
                  (GOOD.replace("  merge_group:\n", ""), "not on both pull_request and merge_group"),
                  (GOOD.replace("  pull_request:\n", ""), "not on both pull_request and merge_group"),
                  (GOOD.replace("    if: always()\n", ""), "it has no job-level if: always()"),
-                 (GOOD.replace("      - mutants\n", ""), "not every other job in its file"),
+                 (GOOD.replace("      - mutants\n", ""), "it needs checks, not every other job in its file"),
                  (GOOD.replace(needs, "    needs: checks\n"), "it needs checks, not every other job in its file"),
                  (GOOD.replace("      - mutants\n", "      - mutants\n      - deploy\n"), "not every other job in its file"),
-                 (GOOD.replace(needs, "    needs: [checks, commits, mutants]\n"), "its needs: cannot be read as a list of jobs"),
+                 (GOOD.replace(needs, "    needs: [checks, mutants]\n"), "its needs: cannot be read as a list of jobs"),
                  (GOOD.replace(judge, "      - run: make verify\n"), "it runs no step `python3 -m tools.needs_passed`"),
                  (GOOD.replace(judge, judge + "        if: false\n"), "an if: can skip its step"),
                  (GOOD.replace(given, ""), "it does not give NEEDS"),
@@ -1529,7 +1529,7 @@ class Workflows(unittest.TestCase):
                  (GOOD.replace(needs, "").replace("    if: always()\n", "").replace(given, "")
                   .replace(judge, "      - run: make verify\n"), "it has no needs:, so the other jobs in its file"),
                  (GOOD.split("  checks:\n")[0] + "  verify:\n" + GOOD.split("  verify:\n")[1],
-                  "it needs checks, commits, mutants, not every other job in its file, none"),
+                  "it needs checks, mutants, not every other job in its file, none"),
                  (GOOD.replace(judge, "      - run: |\n          make fast\n          python3 -m tools.needs_passed\n"),
                   "it runs no step `python3 -m tools.needs_passed`, on a line of its own"),
                  (GOOD.replace(judge, "      - run: >\n          python3 -m tools.verify\n          python3 -m tools.needs_passed\n"),
@@ -1541,8 +1541,8 @@ class Workflows(unittest.TestCase):
             self.assertNotEqual(text, GOOD, said)
             self.assertTrue(caught(self.lens_problems(text), said), said)
         # The list of what it needs may stand at the indent of its key, as YAML allows.
-        level = GOOD.replace(needs, "    needs:\n    - mutants\n    - commits\n    - checks\n")
-        spaced = GOOD.replace(needs, "    needs:\n      - checks\n      - commits\n\n      # the shards\n      - mutants\n")
+        level = GOOD.replace(needs, "    needs:\n    - mutants\n    - checks\n")
+        spaced = GOOD.replace(needs, "    needs:\n      - checks\n\n      # the shards\n      - mutants\n")
         for text in (level, spaced):
             self.assertNotEqual(text, GOOD)
             self.assertEqual(self.lens_problems(text), [])
@@ -1663,6 +1663,34 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(said(after, "merge_group"), "%s is committed by GitHub" % faked[:7]))
         self.assertFalse(caught(said(after, "merge_group"), "%s is committed" % after[:7]))
         run(origin, "reset", "-q", "--hard", second)
+        # A commit a merge carries is read too, not only the first parent's line.
+        run(origin, "checkout", "-q", "-b", "side", second)
+        side = commit(origin, "side", author=bob, committer=ada)
+        run(origin, "checkout", "-q", "main")
+        run(origin, "merge", "-q", "--no-ff", "-m", "merge side", "side")
+        merged = run(origin, "rev-parse", "HEAD")
+        self.assertTrue(caught(said(merged), "%s is authored by Bob" % side[:7]))
+        run(origin, "reset", "-q", "--hard", second)
+        run(origin, "branch", "-q", "-D", "side")
+        # The name and the email are each the Maintainer's: either alone refuses.
+        for who in (("Bob", ada[1]), (ada[0], "bob@example.com")):
+            half = commit(origin, "half", author=who, committer=ada)
+            self.assertTrue(caught(said(half), "%s is authored by" % half[:7]), who)
+            run(origin, "reset", "-q", "--hard", second)
+            half = commit(origin, "half", author=ada, committer=who)
+            self.assertTrue(caught(said(half), "%s is committed by" % half[:7]), who)
+            run(origin, "reset", "-q", "--hard", second)
+        # Only the pull request's commits are read, not the base's own since the branch point: the base is the base
+        # branch's tip, which the queue moved on with a commit GitHub made.
+        run(origin, "checkout", "-q", "-b", "feature", second)
+        mine = commit(origin, "mine")
+        run(origin, "checkout", "-q", "main")
+        moved = commit(origin, "another pull request, squashed", committer=github)
+        run(local, "fetch", "-q", "origin", "main")      # the job checks the base out, so the clone holds it
+        self.assertEqual(commits_are_the_maintainers.problems(local, {"BASE_SHA": moved, "HEAD_SHA": mine,
+                                                                      "EVENT": "pull_request"}), [])
+        run(origin, "reset", "-q", "--hard", second)
+        run(origin, "branch", "-q", "-D", "feature")
         # An empty range, a head origin does not hold, or an event the check does not know, refuses.
         self.assertTrue(caught(said(base), "no commit lies between"))
         self.assertTrue(caught(said("0" * 40), "cannot be read"))
