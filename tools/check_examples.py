@@ -7,6 +7,7 @@ import re
 
 from kernel import decide, issue
 from kernel.coverage import covered
+from tools import walk
 from tools.jsonschema_lite import ANNOTATIONS, FILE, SchemaError, _resolve, validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -14,7 +15,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lifecycle",
         "config/authority.json": "authority",
         "config/defaults.json": "config", "config/rubric-pr-review.json": "rubric", "config/apps.json": "apps",
-        "config/hooks.json": "hooks", "config/feed.json": "feed"}
+        "config/hooks.json": "hooks", "config/feed.json": "feed",
+        "evals/pr-review/cases.json": "eval-set"}
 # What a coverage example is judged against beyond its schema (decision 0029): the review's rubric, the Finding of
 # examples/finding.json, and the paths examples/facts.json changes. No schema can say every criterion that applies is
 # reported on; kernel/coverage.py does.
@@ -31,7 +33,8 @@ ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied
             "effect": "part", "disposition": "part", "coverage": "part", "run-name": "part", "run-record": "part",
             "view-item": "part",
             "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data",
-            "acceptance": "data", "trial": "data", "role": "data", "feed": "data"}
+            "acceptance": "data", "trial": "data", "role": "data", "feed": "data", "eval-case": "data",
+            "eval-set": "data"}
 RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # What one Run carries, and what is written from it, holds codes, never text: a string in these schemas is held by an
 # enum, a const or a pattern anchored at both ends, unless it is a property named `body`, or sits under one named
@@ -39,7 +42,7 @@ RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # untrusted is marked for whatever reads the feed, and only view-item has it. A reference into a kind outside this set
 # is held by that kind's own rules, so the existing records are not swept.
 CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage", "run-record",
-              "pass", "applied", "outcome", "view-meta", "view-items", "view-item", "role", "feed")
+              "pass", "applied", "outcome", "view-meta", "view-items", "view-item", "role", "feed", "eval-set")
 TEXT_FIELD = "body"
 UNTRUSTED_FIELD = "untrusted"
 UNTRUSTED_KIND = "view-item"
@@ -304,10 +307,11 @@ def run(root: pathlib.Path = ROOT) -> list:
             errors = _table(value, schemas["decision"])
         for err in errors:
             problems.append("%s: %s" % (rel, err))
-    for folder in ("config", "lifecycle"):
-        for path in sorted((root / folder).glob("*.json")):
-            if "%s/%s" % (folder, path.name) not in LIVE:
-                problems.append("%s/%s is validated against no schema; add it to LIVE" % (folder, path.name))
+    for folder in ("config", "lifecycle", "evals"):
+        for path in (walk.files(root, folder) if (root / folder).is_dir() else []):
+            rel = path.relative_to(root).as_posix()
+            if path.suffix == ".json" and rel not in LIVE:
+                problems.append("%s is validated against no schema; add it to LIVE" % rel)
     covered = {p.name.split(".")[0] for p in (root / "examples").glob("*.json")} | set(LIVE.values())
     for kind in sorted(set(schemas) - covered):
         problems.append("schema %s has no example" % kind)
