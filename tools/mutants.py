@@ -139,6 +139,7 @@ NAMED_TESTS = (RUNNER + "test_the_tests_a_mutant_names_run_first_and_the_whole_s
 # to MUTANTS below, never touches the same lines. Each is run against tests.test_issue first.
 ISSUE_PY, ISSUE_TESTS = "kernel/issue.py", ("tests.test_issue",)
 MERGE_UNDER_STOP_TESTS = ("tests.test_issue.Done.test_a_merge_read_while_a_person_closed_or_held_the_issue_is_never_done",)
+CLOSE_TIME_TESTS = ("tests.test_issue.Done.test_a_close_or_a_reopening_without_its_time_cannot_be_read",)
 # Issue 218: the guard on a count of active Runs, the same on both sides.
 COUNT_GUARD = "    if type(active) is not int or active < 0:\n"
 COUNT_TESTS = ("tests.test_decide.Ceilings.test_an_active_runs_that_is_no_count_defers_and_raises_nothing",)
@@ -158,7 +159,7 @@ ISSUE = [
     ("an issue's flag that is not exactly true counts as whole", ISSUE_PY,
      "if flags.get(name) is not True]", "if not flags.get(name, True)]", ISSUE_TESTS),
     ("an issue's unreadable state is trusted", ISSUE_PY,
-     '    if facts.get("state") not in ISSUE_STATES:\n', "    if False:\n", ISSUE_TESTS),
+     '    if facts.get("state") not in ISSUE_STATES or not readable_close(facts):\n', "    if False:\n", ISSUE_TESTS),
     ("an issue's unreadable author is trusted", ISSUE_PY,
      '    if not whole_actor(facts.get("author"), config):\n', "    if False:\n", ISSUE_TESTS),
     ("an issue's unreadable label event is trusted", ISSUE_PY,
@@ -175,8 +176,8 @@ ISSUE = [
     ("a linked pull request's closing time is not read", ISSUE_PY,
      'for when in ("merged_at", "closed_at")', 'for when in ("merged_at",)', ISSUE_TESTS),
     ("an issue's unreadable life is trusted", ISSUE_PY,
-     '    if not (is_time(facts.get("life_started_at")) and facts.get("reopened_last_by") in REOPENED_BY):\n',
-     "    if False:\n", ISSUE_TESTS),
+     '    if not (is_time(facts.get("life_started_at")) and facts.get("reopened_last_by") in REOPENED_BY\n'
+     "            and readable_reopening(facts)):\n", "    if False:\n", ISSUE_TESTS),
     ("a content id of too few digits is read", ISSUE_PY,
      "len(CONTENT_FEWEST) <= len(digits) <= len(CONTENT_MOST)", "len(digits) <= len(CONTENT_MOST)", ISSUE_TESTS),
     ("a content id of too many digits is read", ISSUE_PY,
@@ -202,15 +203,34 @@ ISSUE = [
      "        name in apps", ISSUE_TESTS),
     # Row 1: done. Issue 227, the Maintainer's ruling: a merge read while a person closed or held the issue is never
     # done, and the reason names the contradiction.
-    ("a linked merge is not done", ISSUE_PY, "    if merges:\n", "    if False:\n", ISSUE_TESTS),
-    ("a merge read while the issue is closed is done", ISSUE_PY,
-     '    if merges and facts["state"] != "open":\n', "    if False:\n", MERGE_UNDER_STOP_TESTS),
-    ("a merge read while the issue is held is done", ISSUE_PY,
-     "    if merges and held_by(labels, drafts) and not a_persons_hands_off(labels, facts, drafts):\n",
-     "    if False:\n", MERGE_UNDER_STOP_TESTS),
+    ("a linked merge is not done", ISSUE_PY, "    if merged:\n", "    if False:\n", ISSUE_TESTS),
+    ("a merge after a person's close is done", ISSUE_PY,
+     '        if facts["closed_at"] is not None and facts["closed_at"] < first:\n', "        if False:\n",
+     MERGE_UNDER_STOP_TESTS),
+    ("a close in the merge's second is a person's", ISSUE_PY,
+     'facts["closed_at"] < first:', 'facts["closed_at"] <= first:', MERGE_UNDER_STOP_TESTS),
+    ("a merge after an outsider's reopening is done", ISSUE_PY,
+     '        if facts["reopened_last_by"] == "other" and facts["reopened_last_at"] <= first:\n', "        if False:\n",
+     MERGE_UNDER_STOP_TESTS),
+    ("an outsider's reopening after the merge is read as before it", ISSUE_PY,
+     '"other" and facts["reopened_last_at"] <= first:', '"other":', MERGE_UNDER_STOP_TESTS),
+    ("a merge while a Hold stands is done", ISSUE_PY,
+     "        if stopped_before(labels, drafts, first) and not a_persons_hands_off(labels, facts, drafts):\n",
+     "        if False:\n", MERGE_UNDER_STOP_TESTS),
     ("a merge under a person's hands-off is a Hold", ISSUE_PY,
-     "    if merges and held_by(labels, drafts) and not a_persons_hands_off(labels, facts, drafts):\n",
-     "    if merges and held_by(labels, drafts):\n", MERGE_UNDER_STOP_TESTS),
+     "        if stopped_before(labels, drafts, first) and not a_persons_hands_off(labels, facts, drafts):\n",
+     "        if stopped_before(labels, drafts, first):\n", MERGE_UNDER_STOP_TESTS),
+    ("a Hold placed after the merge holds it", ISSUE_PY,
+     '        name in each and each[name]["at"] <= when for each in', "        name in each for each in",
+     MERGE_UNDER_STOP_TESTS),
+    ("an issue's close time is not read", ISSUE_PY,
+     '    if facts.get("state") not in ISSUE_STATES or not readable_close(facts):\n',
+     '    if facts.get("state") not in ISSUE_STATES:\n', CLOSE_TIME_TESTS),
+    ("an issue's reopening time is not read", ISSUE_PY,
+     "            and readable_reopening(facts)):\n", "            ):\n", CLOSE_TIME_TESTS),
+    ("a writer's reopening at another time than its life's start is read", ISSUE_PY,
+     '    return when == facts["life_started_at"] if who == "writer" else when >= facts["life_started_at"]\n',
+     '    return when >= facts["life_started_at"]\n', CLOSE_TIME_TESTS),
     ("an issue's merged_while_held calls nobody", ISSUE_PY, '    "merged_while_held",\n', "", MERGE_UNDER_STOP_TESTS),
     ("an issue's merged_while_declined calls nobody", ISSUE_PY, '    "merged_while_declined",\n', "",
      MERGE_UNDER_STOP_TESTS),

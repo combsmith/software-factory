@@ -340,6 +340,32 @@ def out(state, reason: str, evidence: list) -> dict:
     return {"state": state, "reason": reason, "evidence": evidence}
 
 
+def readable_close(facts: dict) -> bool:
+    """Whether when the issue closed can be read whole: a time while it is closed, null while it is open."""
+    when = facts.get("closed_at", "")
+    return (when is None) if facts["state"] == "open" else is_time(when)
+
+
+def readable_reopening(facts: dict) -> bool:
+    """Whether when the issue was last reopened can be read whole: null when it never was; the start of the present
+    life when a person with write access reopened it last, since that reopening began the life; and a time no earlier
+    than that start when anyone else did, since a writer's later reopening would have begun a life of its own."""
+    who, when = facts["reopened_last_by"], facts.get("reopened_last_at", "")
+    if who == "never":
+        return when is None
+    if not is_time(when):
+        return False
+    return when == facts["life_started_at"] if who == "writer" else when >= facts["life_started_at"]
+
+
+def stopped_before(labels: dict, drafts: list, when: str) -> list:
+    """The labels that held the issue when the merge at `when` landed: a Hold, whoever placed it, and hands-off anyone
+    but a person placed, standing on the issue or on its linked draft, placed no later than `when`. Placed later, the
+    label does not touch what the merge did; placed in the merge's second, the reading that stops work wins."""
+    return [name for name in held_by(labels, drafts) if any(
+        name in each and each[name]["at"] <= when for each in [labels] + [standing_labels(p) for p in drafts])]
+
+
 def a_persons_hands_off(labels: dict, facts: dict, drafts: list) -> bool:
     """Whether a person placed hands-off on the issue or on its linked draft: the Factory never acts on it."""
     return placed_by_a_person(labels, facts) or any(placed_by_a_person(standing_labels(p), p) for p in drafts)
@@ -361,7 +387,7 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     gaps = unread_lists(facts)
     if gaps:
         return out(None, "facts_incomplete", gaps)
-    if facts.get("state") not in ISSUE_STATES:
+    if facts.get("state") not in ISSUE_STATES or not readable_close(facts):
         return out(None, "state_unreadable", [])
     # Who opened the issue, of what kind: only a person who opened it accepts it by authorship.
     if not whole_actor(facts.get("author"), config):
@@ -372,7 +398,8 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         return out(None, "label_unreadable", [])
     if not (isinstance(facts.get("linked"), list) and all(readable_link(p, config) for p in facts["linked"])):
         return out(None, "linked_unreadable", [])
-    if not (is_time(facts.get("life_started_at")) and facts.get("reopened_last_by") in REOPENED_BY):
+    if not (is_time(facts.get("life_started_at")) and facts.get("reopened_last_by") in REOPENED_BY
+            and readable_reopening(facts)):
         return out(None, "life_unreadable", [])
     if not readable_content(facts):
         return out(None, "content_unreadable", [])
@@ -386,19 +413,25 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     open_links = [p for p in links if p["open"]]
     drafts = [p for p in open_links if p["draft"]]
     labels = standing_labels(facts)
-    # Row 1. A merge at the start of a life is in it: the reading that stops work wins. A merge read while a person
-    # has closed or held the issue is the platform doing what the Controller should have prevented, a dequeue on that
-    # close or hold (issue 227, the Maintainer's ruling): it is never done. The State the person put the issue in
-    # stays, and the reason names the contradiction, so that a person sees it. A person's hands-off is no Hold: the
-    # Factory leaves a queued item to merge under it, so that merge is done; and an outsider's reopening of a done
-    # issue begins no life (I-41), so the issue stays done until the merge closes it again.
-    merges = [str(p["number"]) for p in links
+    # Row 1. A merge at the start of a life is in it: the reading that stops work wins. A merge that landed after a
+    # person had closed the issue, after anyone but a person with write access had reopened it, which begins no life
+    # (I-41), or while a Hold stood, is the platform doing what the Controller should have prevented, a dequeue on
+    # that close or hold (issue 227, the Maintainer's ruling): it is never done. The State the person put the issue in
+    # stays, and the reason names the contradiction, so that a person sees it. Each is read against the first such
+    # merge, by the times the facts carry: a close before the merge's second is a person's, since the merge's own
+    # close comes no earlier than the merge; a reopening or a Hold in that second stops work, so it wins. A person's
+    # hands-off is no Hold: the Factory leaves a queued item to merge under it, so that merge is done.
+    merged = [p for p in links
               if p["merged_at"] is not None and not p["empty"] and p["merged_at"] >= facts["life_started_at"]]
-    if merges and facts["state"] != "open":
-        return out(DECLINED, "merged_while_declined", merges)
-    if merges and held_by(labels, drafts) and not a_persons_hands_off(labels, facts, drafts):
-        return out(t.HELD, "merged_while_held", merges)
-    if merges:
+    merges = [str(p["number"]) for p in merged]
+    if merged:
+        first = min(p["merged_at"] for p in merged)
+        if facts["closed_at"] is not None and facts["closed_at"] < first:
+            return out(DECLINED, "merged_while_declined", merges)
+        if facts["reopened_last_by"] == "other" and facts["reopened_last_at"] <= first:
+            return out(DECLINED, "merged_while_declined", merges)
+        if stopped_before(labels, drafts, first) and not a_persons_hands_off(labels, facts, drafts):
+            return out(t.HELD, "merged_while_held", merges)
         return out(DONE, "merged", merges)
     # Row 2.
     if facts["state"] != "open":

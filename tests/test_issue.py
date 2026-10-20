@@ -99,6 +99,12 @@ def facts(**over) -> dict:
          "complete": {"timeline": True, "linked": True, "runs": True},
          "read_at": at(50)}
     f.update(over)
+    # The two times a close and a reopening carry, as GitHub holds them, unless the case gives them: a person's close
+    # a minute after the opening, and a reopening at the start of the present life.
+    if "closed_at" not in over:
+        f["closed_at"] = at(1) if f["state"] == "closed" else None
+    if "reopened_last_at" not in over:
+        f["reopened_last_at"] = None if f["reopened_last_by"] == "never" else f["life_started_at"]
     return f
 
 
@@ -173,7 +179,7 @@ CASES = [
            label_events=[labelled(TRIAGE, CONTROLLER, 1), labelled(READY, minute=2)],
            linked=[pr(is_open=False, merged=5)]), [], "new"),
     ("reopened by someone else after done: no new life",
-     facts(reopened_last_by="other", linked=[pr(is_open=False, merged=5)]), [], "done"),
+     facts(reopened_last_by="other", reopened_last_at=at(6), linked=[pr(is_open=False, merged=5)]), [], "done"),
     ("third check, N7: closed, then reopened by its outside author: declined has no way out",
      facts(reopened_last_by="other", label_events=[labelled(TRIAGE, CONTROLLER, 1), labelled(READY, minute=2)]), [],
      "declined"),
@@ -421,39 +427,86 @@ class Done(unittest.TestCase):
             self.assertEqual(state(f, cfg=config(served_from=None)), "done")
 
     def test_a_merge_read_while_a_person_closed_or_held_the_issue_is_never_done(self):  # issue 227, the ruling
-        # The Controller dequeues the Factory's pull request on a person's close or hold, so a merge read while the
-        # issue is declined or held is the platform doing what the Controller should have prevented: the State the
-        # person put the issue in stays, and the reason names the contradiction, so that a person sees it.
+        # The Controller dequeues the Factory's pull request on a person's close or hold, so a merge that landed after
+        # a person closed the issue, after an outsider reopened it, or while a Hold stood, is the platform doing what
+        # the Controller should have prevented: the State the person put the issue in stays, and the reason names the
+        # contradiction, so that a person sees it. Each is read by time against the first merge in the life.
         merged = [pr(is_open=False, merged=5)]
-        # A person's close; and, after a reopening by someone without write access, which begins no life (I-41), the
-        # merge that closes the issue again, which seed 99 of the issue world met (issue 227).
-        for f in (facts(state="closed", linked=merged), facts(state="closed", reopened_last_by="other", linked=merged)):
+        declined = [
+            # A person's close before the merge (seed 22 of the issue world); the merge's own close comes no earlier
+            # than the merge, so a close in the merge's second or after it is the merge's.
+            facts(state="closed", closed_at=at(4), linked=merged),
+            # A reopening by someone without write access, which begins no life (I-41), before or in the second of
+            # the merge (seed 99): the issue stays open where the merge closed nothing, or closed where it did.
+            facts(reopened_last_by="other", reopened_last_at=at(3), linked=merged),
+            facts(reopened_last_by="other", reopened_last_at=at(5), linked=merged),
+            facts(state="closed", closed_at=at(5), reopened_last_by="other", reopened_last_at=at(3), linked=merged),
+        ]
+        for f in declined:
             d = derive(f)
-            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("declined", "merged_while_declined", ["11"]))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("declined", "merged_while_declined", ["11"]), f)
             d = decide(f)
             self.assertEqual((d["state"], what(d), d["attention"]), ("declined", ("nothing", "merged_while_declined", None),
                                                                      "needs_you"))
-        # A Hold, whoever placed it, and hands-off anyone but a person placed, on the issue or on its linked draft.
-        held = [[labelled(HOLD)], [labelled(HOLD, OTHER_APP)], [labelled(HANDS_OFF, OTHER_APP)]]
+        # A Hold, whoever placed it, and hands-off anyone but a person placed, on the issue or on its linked draft,
+        # placed before the merge or in its second (seed 20); a person's close read first, where both stand.
+        held = [[labelled(HOLD, minute=4)], [labelled(HOLD, OTHER_APP, 5)], [labelled(HANDS_OFF, OTHER_APP, 4)]]
         for f in [facts(label_events=events, linked=merged) for events in held] + [
-                facts(linked=merged + [agents(number=12, draft=True, events=[labelled(HOLD, OTHER_APP)])])]:
+                facts(linked=merged + [agents(number=12, draft=True, events=[labelled(HOLD, OTHER_APP, 4)])])]:
             d = derive(f)
-            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11"]), f["linked"])
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("held", "merged_while_held", ["11"]), f)
             d = decide(f)
             self.assertEqual((what(d), d["attention"]), (("hold", "merged_while_held", None), "needs_you"))
-        # The other side. A person's hands-off is no Hold: the Factory leaves a queued item to merge under it, so the
-        # merge is done; so is one on an issue the Consumer entry leaves out, one after a person released the Hold or
-        # reopened the issue, one an outsider reopened after it was done, which stays open and begins no life, and one
-        # in the ordinary course.
-        for f, cfg in ((facts(label_events=[labelled(HANDS_OFF)], linked=merged), None), (facts(linked=merged), config(served_from=None)),
-                       (facts(label_events=[labelled(HOLD), unlabelled(HOLD)], linked=merged), None),
+        d = derive(facts(state="closed", closed_at=at(4), label_events=[labelled(HOLD, minute=4)], linked=merged))
+        self.assertEqual((d["state"], d["reason"]), ("declined", "merged_while_declined"))
+        # The other side. The merge's own close, in its second or after it; a Hold placed after the merge, which does
+        # not touch what the merge did; a Hold a person released; an outsider's reopening of a done issue, after the
+        # merge; a writer's reopening, which begins a life; a person's hands-off, under which the Factory leaves a
+        # queued item to merge, with a Hold beside it or not, on the issue or on its linked draft; an issue the
+        # Consumer entry leaves out; and the ordinary course.
+        for f, cfg in ((facts(state="closed", closed_at=at(5), linked=merged), None),
+                       (facts(state="closed", closed_at=at(6), linked=merged), None),
+                       (facts(label_events=[labelled(HOLD, minute=6)], linked=merged), None),
+                       (facts(label_events=[labelled(HOLD, minute=4), unlabelled(HOLD, minute=7)], linked=merged), None),
+                       (facts(reopened_last_by="other", reopened_last_at=at(6), linked=merged), None),
                        (facts(reopened_last_by="writer", linked=merged), None),
-                       (facts(reopened_last_by="other", linked=merged), None), (facts(linked=merged), None)):
+                       (facts(label_events=[labelled(HANDS_OFF, minute=4)], linked=merged), None),
+                       (facts(label_events=[labelled(HOLD, minute=3), labelled(HANDS_OFF, minute=4)], linked=merged), None),
+                       (facts(linked=merged + [agents(number=12, draft=True, events=[labelled(HANDS_OFF, minute=4)])]), None),
+                       (facts(linked=merged), config(served_from=None)), (facts(linked=merged), None)):
             d = derive(f, cfg=cfg)
             self.assertEqual((d["state"], d["reason"]), ("done", "merged"), f)
-        # With no merge, a close and a Hold read as they did.
+        # With no merge, a close, a reopening and a Hold read as they did.
         self.assertEqual(derive(facts(state="closed"))["reason"], "closed")
+        self.assertEqual(derive(facts(reopened_last_by="other"))["reason"], "reopened_by_other")
         self.assertEqual(derive(facts(label_events=[labelled(HOLD)]))["reason"], "human_hold")
+
+    def test_a_close_or_a_reopening_without_its_time_cannot_be_read(self):  # issue 227
+        # A closed issue says when, an open one says null; a reopening says when, a writer's at the start of the life it
+        # began, anyone else's no earlier than that start; never reopened, null. Anything else defers.
+        for over in ({"state": "closed", "closed_at": None}, {"state": "open", "closed_at": at(1)},
+                     {"state": "closed", "closed_at": "yesterday"}, {"state": "closed", "closed_at": 5}):
+            f = facts(**over)
+            d = decide(f)
+            self.assertEqual((d["state"], what(d)), (None, ("defer", "state_unreadable", None)), over)
+        for over in ({"reopened_last_by": "never", "reopened_last_at": at(1)},
+                     {"reopened_last_by": "writer", "reopened_last_at": None},
+                     {"reopened_last_by": "writer", "life_started_at": at(3), "reopened_last_at": at(2)},
+                     {"reopened_last_by": "writer", "life_started_at": at(3), "reopened_last_at": at(4)},
+                     {"reopened_last_by": "other", "reopened_last_at": None},
+                     {"reopened_last_by": "other", "life_started_at": at(3), "reopened_last_at": at(2)},
+                     {"reopened_last_by": "other", "reopened_last_at": "soon"}):
+            f = facts(**over)
+            d = decide(f)
+            self.assertEqual((d["state"], what(d)), (None, ("defer", "life_unreadable", None)), over)
+        # Each missing: the same. The other side: each as GitHub gives it reads.
+        for key in ("closed_at", "reopened_last_at"):
+            f = facts()
+            del f[key]
+            self.assertEqual(decide(f)["outcome"], "defer", key)
+        self.assertEqual(state(facts(state="closed", closed_at=at(1))), "declined")
+        self.assertEqual(state(facts(reopened_last_by="writer", life_started_at=at(3), reopened_last_at=at(3))), "new")
+        self.assertEqual(state(facts(reopened_last_by="other", life_started_at=at(3), reopened_last_at=at(4))), "declined")
 
     def test_a_merge_at_the_start_of_a_life_is_done_and_one_before_it_is_not(self):
         merged = [pr(is_open=False, merged=5)]
@@ -1670,7 +1723,8 @@ class Stale(unittest.TestCase):
         events = WAITING["label_events"]
         # Each source, at `then`. Where it leads to another State, that State's limit is read.
         sources = [
-            ("its life began again", dict(WAITING, life_started_at=then, reopened_last_by="writer"), [], "new"),
+            ("its life began again", dict(WAITING, life_started_at=then, reopened_last_by="writer", reopened_last_at=then),
+             [], "new"),
             ("its content changed", dict(WAITING, content_changed_at=then, content_id=OTHER), [], "triage"),
             ("a writer acted", dict(WAITING, last_writer_action_at=then), [], "triage"),
             ("a writer commented", dict(WAITING, last_writer_comment_at=then), [], "triage"),
@@ -1713,7 +1767,8 @@ class Stale(unittest.TestCase):
             ("a stranger's pull request nobody admitted", dict(WAITING, linked=[dict(strangers(), opened_at=then)]),
              [], "triage"),
             # Each of the sources above, timed after now.
-            ("a life begun after now", dict(WAITING, life_started_at=later, reopened_last_by="writer"), [], "new"),
+            ("a life begun after now", dict(WAITING, life_started_at=later, reopened_last_by="writer",
+                                            reopened_last_at=later), [], "new"),
             ("an edit after now", dict(WAITING, content_changed_at=later, content_id=OTHER), [], "triage"),
             ("a writer's action after now", dict(WAITING, last_writer_action_at=later), [], "triage"),
             ("a writer's comment after now", dict(WAITING, last_writer_comment_at=later), [], "triage"),
@@ -1783,7 +1838,7 @@ class Stale(unittest.TestCase):
         # A merge after the close, though both are after the opening: a merge closes it, so it cannot come later.
         merged_late = dict(merged, opened_at=MOVED, merged_at=minutes_after(then, 1))
         for entry in (closed, merged_first, merged, merged_late):
-            for f in (dict(WAITING, linked=[entry]), dict(WAITING, state="closed", linked=[entry])):
+            for f in (dict(WAITING, linked=[entry]), dict(WAITING, state="closed", closed_at=then, linked=[entry])):
                 d = decide(f, ctx=PASSING, now=minutes_after(MOVED, limit("triage") + 1))
                 self.assertEqual((d["state"], what(d)), (None, ("defer", "linked_unreadable", None)), entry)
         # The other side: a close in the second it opened, or after it, is read.

@@ -6,6 +6,7 @@
     "number": 41
   },
   "state": "open",
+  "closed_at": null,
   "author": {
     "name": "don-petry",
     "can_write": true
@@ -20,6 +21,7 @@
   ],
   "life_started_at": "2026-10-11T09:00:00Z",
   "reopened_last_by": "never",
+  "reopened_last_at": null,
   "content_id": "sha256:41c1",
   "content_changed_at": "2026-10-11T09:30:00Z",
   "label_events": [

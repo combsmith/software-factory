@@ -81,6 +81,8 @@ class IssueWorld:
         self.state = "open"            # as GitHub holds it
         self.life_started = 0          # when the present life began: opened, or last reopened by a writer
         self.reopened_last_by = "never"
+        self.closed = None             # when the issue closed, as GitHub holds it; None while open
+        self.reopened_last = None      # when the issue was last reopened, by anyone; None while never
         self.content = 1
         self.content_changed = 0
         self.type = None
@@ -173,11 +175,14 @@ class IssueWorld:
     def facts(self) -> dict:
         return {
             "schema": "issue-facts/1", "item": dict(ITEM), "state": self.state,
+            # GitHub: an_issues_close_and_reopening_say_when
+            "closed_at": None if self.closed is None else World.at(self.closed),
             # GitHub: an_issues_author_has_an_association
             "author": dict(self.author), "type": self.type, "label_names": list(self.label_names),
             "assignees": [],
             # GitHub: a_reopening_names_its_actor
             "life_started_at": World.at(self.life_started), "reopened_last_by": self.reopened_last_by,
+            "reopened_last_at": None if self.reopened_last is None else World.at(self.reopened_last),
             # GitHub: an_issues_content_time_is_read_apart
             "content_id": self.cid(), "content_changed_at": World.at(self.content_changed),
             # GitHub: a_label_event_names_its_actor
@@ -620,7 +625,7 @@ class IssueWorld:
     def close(self, who: dict):
         if self.state == "closed":
             return
-        self.state = "closed"
+        self.state, self.closed = "closed", self.minute
         self.writer_acted()
         self.note("%s closed the issue" % who["name"])
 
@@ -629,7 +634,7 @@ class IssueWorld:
         opening did: `declined` is an end of the life that closed, and the new life's first State is no transition
         from it. A Hold, an admission and hands-off outlast it (section 4.1). By anyone else, the issue stays
         declined."""
-        self.state = "open"
+        self.state, self.closed, self.reopened_last = "open", None, self.minute
         # GitHub: a_reopening_names_its_actor
         if self.is_person(who):
             self.life_started = self.minute
