@@ -1140,21 +1140,21 @@ class Investigation(unittest.TestCase):
         self.assertEqual(what(decide(TRIAGED, ctx=ctx)), ("defer", "capacity_unreadable", None))
 
     def test_an_active_runs_that_is_no_count_defers_and_raises_nothing(self):  # I-3, issue 218
-        # As on a pull request: a count that is no whole number, a bool among them, or is below zero cannot be read.
-        for active in ("3", "", [], {}, 3.0, float("nan"), True, False, -1, "missing"):
-            ctx = context(active_runs=active)
-            if active == "missing":
-                del ctx["active_runs"]
+        # As on a pull request: a count that is no whole number, a bool among them, or is below zero cannot be read, and
+        # the Run defers; a whole number is read at the limit and below it. What is asserted first is that it returns.
+        unread, limit = ("defer", "capacity_unreadable", None), LIMITS["org_max_active_runs"]
+        cases = [(active, unread) for active in ("3", "", [], {}, 3.0, float("nan"), True, False, -1)]
+        cases += [(limit, ("defer", "concurrency", None)), (limit - 1, ("admit", "triage", INVESTIGATE)),
+                  (0, ("admit", "triage", INVESTIGATE))]
+        missing = context()
+        del missing["active_runs"]
+        for active, want in cases + [(missing, unread)]:
+            ctx = active if isinstance(active, dict) and "paused" in active else context(active_runs=active)
             try:
                 d = decide(TRIAGED, ctx=ctx)
-            except Exception as e:  # what is asserted is that it returns at all
+            except Exception as e:
                 self.fail("an active_runs of %r raised %r" % (active, e))
-            self.assertEqual((d["state"], what(d)), ("triage", ("defer", "capacity_unreadable", None)), active)
-        # The other side: a whole number is read, at the limit and below it.
-        limit = LIMITS["org_max_active_runs"]
-        self.assertEqual(what(decide(TRIAGED, ctx=context(active_runs=limit))), ("defer", "concurrency", None))
-        self.assertEqual(what(decide(TRIAGED, ctx=context(active_runs=limit - 1))), ("admit", "triage", INVESTIGATE))
-        self.assertEqual(what(decide(TRIAGED, ctx=context(active_runs=0))), ("admit", "triage", INVESTIGATE))
+            self.assertEqual((d["state"], what(d)), ("triage", want), active)
 
     def test_what_steers_admission_is_read_whole_or_defers(self):
         for over, reason in (({"role_comments": None}, "comments_unreadable"),
