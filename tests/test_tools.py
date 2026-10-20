@@ -3129,7 +3129,8 @@ exit 9
     def answer(self, output=None, **extra) -> dict:
         said = {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1, "duration_ms": 5,
                 "total_cost_usd": 0.1, "usage": {"input_tokens": 1, "output_tokens": 2},
-                "modelUsage": {"m": {"inputTokens": 1, "note": self.PROSE["in_usage"], "fallback": None, "tier": "standard"},
+                "modelUsage": {"m": {"inputTokens": 1, "note": self.PROSE["in_usage"], "fallback": None, "provider": "firstParty",
+                                     "note2": "LEAK-ONE-WORD"},
                                "sk-" + "ant-" + "api03-NEVER-SEEN": {"inputTokens": 2}, self.PROSE["as_key"]: 3},
                 "stop_reason": self.PROSE["in_code"], "subtype": self.PROSE["tabbed"], "result": self.PROSE["result"],
                 "a_new_field": self.PROSE["added"], "stats": {"note": self.PROSE["nested"]},
@@ -3271,9 +3272,11 @@ exit 9
                 self.assertTrue(set(kept) <= allowed, (name, set(kept) - allowed))
                 self.assertNotIn("subtype", kept, name)
                 self.assertNotIn("a_new_field", kept, name)
-                self.assertEqual(kept["modelUsage"], {"m": {"inputTokens": 1, "fallback": None, "tier": "standard"}}, name)
-                self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.stop_reason", "$.modelUsage.<key>")],
+                self.assertEqual(kept["modelUsage"], {"m": {"inputTokens": 1, "fallback": None, "provider": "firstParty"}}, name)
+                self.assertNotIn("LEAK-ONE-WORD", "".join(texts.values()), name)
+                self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.modelUsage.m.note2", "$.stop_reason", "$.modelUsage.<key>")],
                                  [{"field": "$.modelUsage.m.note", "characters": len(self.PROSE["in_usage"])},
+                                  {"field": "$.modelUsage.m.note2", "characters": len("LEAK-ONE-WORD")},
                                   {"field": "$.modelUsage.<key>", "characters": len(self.PROSE["as_key"])},
                                   {"field": "$.stop_reason", "characters": len(self.PROSE["in_code"])}], name)
                 self.assertEqual(kept["usage"], {"input_tokens": 1, "output_tokens": 2}, name)

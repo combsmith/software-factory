@@ -22,8 +22,8 @@
 # KEPT_RESULT names are kept (issue 178): the model's text (`result`), the inputs of any tool it was refused
 # and every field the CLI adds that is not named are dropped and counted, so a new field can never carry the
 # model's text out; its structured output is validated against SCHEMA with tools/jsonschema_lite.py and kept
-# only if it validates, and in every other kept field a string or a key with whitespace in it, or a long one, is
-# dropped as the CLI's counts and codes hold none. What is left is redacted by tools/redact_trial.py, which takes out anything
+# only if it validates, and in every other kept field a string is kept only under a key STRING_KEYS names and in a
+# code's shape, and a key is held to that shape too, as the CLI's counts and codes hold nothing else. What is left is redacted by tools/redact_trial.py, which takes out anything
 # shaped like a credential, and the raw capture is deleted. The model runs with no tool at all (`--tools ""`).
 # OUT receives only: ran_at, requests.json (what was asked), clean-N (each redacted answer), redacted-N (where
 # the redaction took something, never what), and checked.json (each part of the pass).
@@ -44,6 +44,9 @@ KEPT_STATUS="loggedIn authMethod apiProvider subscriptionType"
 # The fields of the Task's answer kept, by name: what the CLI says of the run and its counts, never the model's
 # text. `structured_output` is kept only once it validates, and `permission_denials` only as tool names.
 KEPT_RESULT="type subtype is_error num_turns duration_ms duration_api_ms total_cost_usd usage modelUsage stop_reason permission_denials structured_output"
+# Under a kept field a string is kept only under one of these keys, and only in a code's shape: letters, digits, _ . : -
+# and no more than 64 of them. The CLI's counts are numbers; its words are codes under known keys; anything else is dropped.
+STRING_KEYS="type subtype stop_reason tool_name service_tier inference_geo speed canonicalModel provider costBasis model"
 
 usage() {
     echo "usage: bash tools/trial_p13_cli.sh OUT CONFIG_DIR [CLI]" >&2
@@ -71,7 +74,8 @@ case "$out/" in "$root"/*) refuse "OUT is inside the repo; name a directory outs
 [[ -d "$2" ]] || refuse "CONFIG_DIR is not a directory; log the CLI in to it first (the runbook, step 1)"
 cfg=$(cd "$2" && pwd -P)
 home=$(cd "$HOME" && pwd -P)
-case "$home/" in "${cfg%/}"/*) refuse "CONFIG_DIR is the home directory or holds it: the default configuration, not one of its own" ;; esac
+above="${cfg%/}/"    # CONFIG_DIR with one trailing slash, so that / is "/" and every directory under it is held
+case "$home/" in "$above"*) refuse "CONFIG_DIR is the home directory or holds it: the default configuration, not one of its own" ;; esac
 case "$cfg/" in "$home/.claude"/*) refuse "CONFIG_DIR is under ~/.claude: the Maintainer's own configuration, not one of its own" ;; esac
 case "$cfg/" in "$root"/*) refuse "CONFIG_DIR is inside the repo; a login must never be kept there" ;; esac
 case "$out/" in "$cfg"/*) refuse "OUT is inside CONFIG_DIR; name a directory apart from it" ;; esac
@@ -180,7 +184,7 @@ from tools.jsonschema_lite import validate
 
 raw, kept, checked, schema = sys.argv[2], sys.argv[3], sys.argv[4], json.loads(sys.argv[5])
 code, pin, version, after, logged_in = int(sys.argv[6]), sys.argv[7], sys.argv[8], sys.argv[9], sys.argv[10]
-allowed = sys.argv[11].split()
+allowed, string_keys = sys.argv[11].split(), sys.argv[13].split()
 text = open(raw).read()
 try:
     said = json.loads(text)
@@ -206,16 +210,17 @@ if isinstance(said, dict):
         taken.append({"field": "every field KEPT_RESULT does not name", "fields": len(dropped)})
     said = {k: said[k] for k in allowed if k in said}
     DROP = object()
-    def prose(text):             # the CLI answers in numbers, codes and short words: whitespace inside, or length, is prose
-        return any(c.isspace() for c in text.strip()) or len(text) > 64
-    def counts(value, where):    # a value, or a key with what is under it, that is prose is dropped and counted
+    import re
+    def prose(text):             # the CLI answers in numbers and codes: anything else is prose
+        return not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", text)
+    def counts(value, where):    # a value, or a key with what is under it, that is prose or under no named key is dropped and counted
         if isinstance(value, dict):
             kept_here = [(k, DROP if prose(k) else counts(v, where + "." + k)) for k, v in value.items()]
             taken.extend({"field": where + ".<key>", "characters": len(k)} for k, v in kept_here if v is DROP and prose(k))
             return {k: v for k, v in kept_here if v is not DROP}
         if isinstance(value, list):
             return [v for v in (counts(v, where + "[]") for v in value) if v is not DROP]
-        if isinstance(value, str) and prose(value):
+        if isinstance(value, str) and (prose(value) or where.split(".")[-1] not in string_keys):
             taken.append({"field": where, "characters": len(value)})
             return DROP
         if isinstance(value, float) and not value == value:    # a number that is not one
@@ -256,7 +261,7 @@ parts = {
 parts["every_part_holds"] = (code == 0 and parts["version"]["held"] and logged_in == "yes" and errors == []
                              and counts and parts["is_error"] is False)
 json.dump(parts, open(checked, "w"), indent=2)
-' "$root" "$scratch/raw-3" "$scratch/kept-3" "$scratch/checked" "$SCHEMA" "$code3" "$PIN" "$version" "${after:-}" "$logged_in" "$KEPT_RESULT" "$code2")
+' "$root" "$scratch/raw-3" "$scratch/kept-3" "$scratch/checked" "$SCHEMA" "$code3" "$PIN" "$version" "${after:-}" "$logged_in" "$KEPT_RESULT" "$code2" "$STRING_KEYS")
 rm -f "$scratch/raw-3"
 redact "$scratch/kept-3" 3
 redact "$scratch/raw-3.err" 3.stderr
