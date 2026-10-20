@@ -2668,7 +2668,8 @@ REFUSED_KEYS = ["Authorization", "AUTHORIZATION", "Authorization ", "Proxy-Autho
                 "x-github-otp", "x-access-token", "github_token", "GITHUB_TOKEN", "accessToken", "installation_token",
                 "encoded_jit_config", "x-jit-config", "jwt", "auth", "Auth ", "webhook_secret", "client_secret", "password", "credentials", "token",
                 "api_key", "apiKey", "x-api-key", "private_key", "privateKey", "passphrase", "ssh_passphrase",
-                "authentication", "passwd", "passcode", "bearer", "access_key", "accessKey", "encryption_key", "signing_key", "master_key"]
+                "authentication", "passwd", "passcode", "bearer", "access_key", "accessKey", "encryption_key", "signing_key", "master_key",
+                "auth_key", "x-auth-key", "authKey", "pwd"]
 PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", "value", "author", "external_id",
               # The vendor CLI's counts (issue 178), as it spells them.
               "inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens", "maxOutputTokens",
@@ -2708,6 +2709,7 @@ class Trials(unittest.TestCase):
         data["Bearer Zx9Qw8Er7Ty6Ui5Op4"] = 1        # a shape that spans a space
         data["exchanges"][0]["request"]["headers"][SHAPED["ghp"]] = "x"
         data["exchanges"][0]["request"]["as"]["kind"] = "Bearer\nZx9Qw8Er7Ty6Ui5Op4As3Df5"   # a shape a repr escapes
+        data["exchanges"][0]["request"]["as"]["name"] = "Bearer\u000bZx9Qw8Er7Ty6Ui5Op4As3Df5"   # and one it writes as \x0b
         twice = '{"%s": 1, "%s": 2}' % (SHAPED["gho"], SHAPED["gho"])                        # a fixture that cannot be read
         said = "\n".join(check_trials.run(clone({"trials/P-12.json": json.dumps(data), "trials/P-11.json": twice})))
         self.assertIn(check_trials.KEY_SHAPED, said)
@@ -3126,8 +3128,10 @@ class TrialScript(unittest.TestCase):
 here=$(cd "$(dirname "$0")" && pwd)
 case "$1" in
   --version) env > "$here/env-version"; cat "$here/version"; exit "$(cat "$here/version.exit")" ;;
+  --after) cp "$here/version.after" "$here/version" ;;
   auth) env > "$here/env-auth"; cat "$here/status"; exit "$(cat "$here/status.exit")" ;;
-  -p) env > "$here/env-task"; printf '%s\\n' "$@" > "$here/args"; cat "$here/stderr" >&2; cat "$here/answer"; exit "$(cat "$here/answer.exit")" ;;
+  -p) env > "$here/env-task"; printf '%s\\n' "$@" > "$here/args"; cat "$here/stderr" >&2; cat "$here/answer"
+      [ -f "$here/version.after" ] && cp "$here/version.after" "$here/version"; exit "$(cat "$here/answer.exit")" ;;
 esac
 exit 9
 """
@@ -3159,13 +3163,15 @@ exit 9
         said.update(extra)
         return said
 
-    def stand_in(self, version=None, status=None, status_exit=0, answer=None, answer_exit=0, version_exit=0) -> pathlib.Path:
+    def stand_in(self, version=None, status=None, status_exit=0, answer=None, answer_exit=0, version_exit=0, after=None) -> pathlib.Path:
         """A directory holding the stand-in `claude` and what it answers; it records the environment and arguments it is
         given beside itself."""
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (folder / "version").write_text("%s (Claude Code)\n" % (version or self.PIN))
         (folder / "version.exit").write_text("%d\n" % version_exit)
         (folder / "stderr").write_text(self.PROSE["stderr"] + "\n")
+        if after is not None:                     # the version the CLI says after the Task, if it changed
+            (folder / "version.after").write_text("%s (Claude Code)\n" % after)
         (folder / "status").write_text(json.dumps({"loggedIn": True, "authMethod": "claude.ai"} if status is None else status))
         (folder / "status.exit").write_text("%d\n" % status_exit)
         (folder / "answer").write_text(json.dumps(self.answer(self.VALID) if answer is None else answer))
@@ -3234,6 +3240,11 @@ exit 9
         to_repo.symlink_to(ROOT)
         home_link = self.home.parent / (self.home.name + "-home-link")
         home_link.symlink_to(self.home)
+        other_home = self.home.parent / (self.home.name + "-other-home")     # whose ~/.claude is itself a link
+        other_home.mkdir()
+        real_claude = self.home.parent / (self.home.name + "-real-claude")
+        real_claude.mkdir()
+        (other_home / ".claude").symlink_to(real_claude)
         cases = [("OUT exists", existing, self.cfg, None, "exists; name a new directory"),
                  ("OUT inside the repo", ROOT / self.INSIDE[0], self.cfg, None, "OUT is inside the repo"),
                  ("OUT inside the repo through a link", to_repo / self.INSIDE[1], self.cfg, None, "OUT is inside the repo"),
@@ -3246,6 +3257,7 @@ exit 9
                  ("CONFIG_DIR under ~/.claude", self.out, dot_claude, None, "under ~/.claude"),
                  ("CONFIG_DIR linked to ~/.claude", self.out, linked, None, "under ~/.claude"),
                  ("HOME through a link, CONFIG_DIR its ~/.claude", self.out, self.home / ".claude", home_link, "under ~/.claude"),
+                 ("~/.claude a link, CONFIG_DIR where it leads", self.out, real_claude, other_home, "under ~/.claude"),
                  ("CONFIG_DIR is ~/.CLAUDE", self.out, self.home / ".CLAUDE", None, "under ~/.claude"),
                  ("CONFIG_DIR missing", self.out, self.home / "none", None, "CONFIG_DIR is not a directory")]
         for name, out, cfg, home, said in cases:
@@ -3288,6 +3300,12 @@ exit 9
         self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 1)
         checked = json.loads((out / "checked.json").read_text())
         self.assertEqual((checked["login"], checked["every_part_holds"]), ({"exit": 3, "status": "yes"}, False))
+        # The version asked after the Task must still be the pin: a CLI that changed under the run does not hold.
+        folder = self.stand_in(after="9.9.9")
+        out = self.home.parent / (self.home.name + "-moved-version")
+        self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 1)
+        checked = json.loads((out / "checked.json").read_text())
+        self.assertEqual((checked["version"]["after"], checked["version"]["held"], checked["every_part_holds"]), ("9.9.9", False, False))
 
     def test_no_model_text_reaches_out_whether_or_not_the_output_validates(self):
         invalid = dict(self.VALID, prose=self.PROSE["invalid"])

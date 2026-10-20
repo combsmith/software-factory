@@ -48,7 +48,7 @@ MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 KEY_PARTS = ("token", "secret", "password", "credential", "jit_config", "otp", "cookie", "authorization",
              "api_key", "apikey", "private_key", "privatekey", "passphrase",
              "authentication", "passwd", "passcode", "bearer", "access_key", "accesskey", "encryption_key", "signing_key",
-             "master_key")
+             "master_key", "auth_key", "authkey", "pwd")
 KEY_WHOLE = {"auth", "jwt"}
 KEY_HARMLESS = {"token_type", "input_tokens", "output_tokens", "total_tokens", "cache_creation_input_tokens",
                 "cache_read_input_tokens",
@@ -83,13 +83,16 @@ ENCODED = re.compile(r"[A-Za-z0-9+/_-]{20,}={0,2}")
 
 # How a place is named when its key is shaped like a credential: by this, never by the key.
 KEY_SHAPED = "<a key shaped like a credential>"
+# What a repr writes for a character it does not print: each is read as a separator when a message is hidden.
+ESCAPED = re.compile(r"\\(?:x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|[ntrfvab0])")
 
 
 def hidden(text: str) -> str:
     """`text` with each word shaped like a credential replaced by KEY_SHAPED, and hidden whole when a shape spans
-    words: a message never carries one. An escaped separator, as a repr writes a newline, is read as the separator."""
-    plain = re.sub(r"\\[ntrfv]", " ", text)
-    text = re.sub(r"\S+", lambda m: KEY_SHAPED if shaped(re.sub(r"\\[ntrfv]", " ", m.group())) else m.group(), text)
+    words: a message never carries one. An escaped character, as a repr writes a newline, a vertical tab or a
+    non-breaking space, is read as a separator."""
+    plain = ESCAPED.sub(" ", text)
+    text = re.sub(r"\S+", lambda m: KEY_SHAPED if shaped(ESCAPED.sub(" ", m.group())) else m.group(), text)
     return text if not shaped(plain) else "a message that holds something shaped like a credential, hidden whole"
 
 

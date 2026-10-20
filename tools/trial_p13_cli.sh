@@ -77,7 +77,8 @@ cfg=$(cd "$2" && pwd -P)
 home=$(cd "$HOME" && pwd -P)
 above="${cfg%/}/"    # CONFIG_DIR with one trailing slash, so that / is "/" and every directory under it is held
 case "$home/" in "$above"*) refuse "CONFIG_DIR is the home directory or holds it: the default configuration, not one of its own" ;; esac
-case "$cfg/" in "$home/.claude"/*) refuse "CONFIG_DIR is under ~/.claude: the Maintainer's own configuration, not one of its own" ;; esac
+dot=$(cd "$home/.claude" 2>/dev/null && pwd -P || echo "$home/.claude")    # ~/.claude as the file system resolves it
+case "$cfg/" in "$dot"/*) refuse "CONFIG_DIR is under ~/.claude: the Maintainer's own configuration, not one of its own" ;; esac
 case "$cfg/" in "$root"/*) refuse "CONFIG_DIR is inside the repo; a login must never be kept there" ;; esac
 case "$out/" in "$cfg"/*) refuse "OUT is inside CONFIG_DIR; name a directory apart from it" ;; esac
 
