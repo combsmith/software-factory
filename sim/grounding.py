@@ -111,6 +111,6 @@ RULES = (
     ("a_push_can_change_the_contract", "A push can edit the acceptance contract or a test it names, or delete the "
      "contract, and the digest at the head then differs from the one a person approved", (), None),
     ("a_read_can_be_stale", "A read can return what an earlier read did", (), None),
-    ("a_tick_can_be_lost", "A scheduled tick can fail to arrive", ("P-8",), None),
+    ("a_tick_can_be_lost", "A scheduled tick can fail to arrive", ("P-8",), "trials/P-8.ticks.json"),
     ("anyone_can_comment", "On a public repo anyone can submit a review that only comments", (), None),
 )

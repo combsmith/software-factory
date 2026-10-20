@@ -1662,22 +1662,6 @@ class Workflows(unittest.TestCase):
         self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/ci.yml": other}))),
                                "ci.yml: [runner]"))
 
-    def test_the_tick_probe_is_exempt_from_install_alone(self):
-        # Trial P-8 (issue 25): GitHub refuses a step that runs nothing, so the probe's one step is `exit 0`.
-        probe = (ROOT / ".github" / "workflows" / "tick-probe.yml").read_text()
-        self.assertEqual(check_workflows.EXEMPT["tick-probe.yml"][0], ("install",))
-        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
-        self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/tick-probe.yml": probe}))),
-                                "tick-probe.yml"))
-        more = probe.replace("      - run: exit 0\n", "      - run: exit 0\n      - run: curl https://example.invalid\n")
-        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/tick-probe.yml": more}))),
-                               "tick-probe.yml is exempt from a rule, so it is held word for word"))
-        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/probe.yml": probe}))),
-                               "probe.yml: [install]"))
-        granted = probe.replace("permissions: {}", "permissions: write-all")
-        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/tick-probe.yml": granted}))),
-                               "tick-probe.yml: [permissions]"))
-
     def test_the_secret_scan_reads_the_bases_configuration(self):
         # gitleaks 8.30.1 reads the .gitleaksignore it is told of, and also the one at the top of what it scans, so the
         # scan deletes the head's and reads its rules from a checkout of the base: a change cannot widen the allowlist it
@@ -2653,6 +2637,43 @@ class Trials(unittest.TestCase):
             data = json.loads((ROOT / "trials" / ("%s.json" % name)).read_text())
             self.assertEqual(data["verdict"], "pass", name)
             self.assertEqual(data["ran_at"][:10], "2026-10-19", name)
+
+    def test_the_tick_probes_intervals_are_held_to_its_runs(self):
+        # Decision 0011 and issue 25: the probe's runs, read once, give the intervals set against W-2. The fixture's
+        # analysis is recomputed here from the runs the read it rests on returned, and the rule the fake applies,
+        # a_tick_can_be_lost, is grounded by it.
+        from datetime import datetime, timedelta, timezone
+        data = json.loads((ROOT / "trials" / "P-8.ticks.json").read_text())
+        by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
+        self.assertEqual(by_code["a_tick_can_be_lost"], "trials/P-8.ticks.json")
+        final = data["exchanges"][1]
+        self.assertIn("rests on", final["request"]["call"])
+        runs = sorted(final["response"]["body"]["workflow_runs"], key=lambda r: r["run_started_at"])
+        self.assertEqual(final["response"]["body"]["total_count"], len(runs))
+        self.assertNotIn("link", final["response"]["headers"])
+        self.assertTrue(all(r["event"] == "schedule" for r in runs))
+        result = data["exchanges"][-1]["response"]["body"]["result"]
+        when = lambda s: datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        starts = [when(r["run_started_at"]) for r in runs]
+        gaps = sorted((b - a).total_seconds() / 60 for a, b in zip(starts, starts[1:]))
+        p95 = gaps[min(len(gaps) - 1, int(round(0.95 * len(gaps) + 0.5)) - 1)]
+        self.assertEqual(result["ticks_arrived"], len(runs))
+        self.assertEqual(result["interval_minutes"]["p95"], round(p95, 1))
+        self.assertEqual(result["interval_minutes"]["longest"], round(max(gaps), 1))
+        self.assertEqual(result["first_run_at"], runs[0]["run_started_at"])
+        on_main, read_at = when(result["probe_on_main_at"]), when(result["read_at"])
+        self.assertGreaterEqual(read_at - starts[0], timedelta(hours=24))
+        cursor, due = on_main.replace(second=0, microsecond=0), 0
+        while cursor <= read_at:
+            due += cursor >= on_main and cursor.minute % 5 == 2
+            cursor += timedelta(minutes=1)
+        self.assertEqual(result["ticks_due_from_main_to_the_read"], due)
+        self.assertGreater(due, len(runs))
+        self.assertEqual(result["schedule_alone_meets_W2"], p95 <= result["W2_minutes_at_p95"])
+        self.assertEqual(data["verdict"], "pass" if result["schedule_alone_meets_W2"] else "fail")
+        # The probe is gone with its exemption, as the story says once the verdict is recorded.
+        self.assertFalse((ROOT / ".github" / "workflows" / "tick-probe.yml").exists())
+        self.assertNotIn("tick-probe.yml", check_workflows.EXEMPT)
 
     def test_the_cost_trials_estimate_is_marked_so_and_held_to_its_reads(self):
         # P-8's last exchange is the estimate (FR-35): its cost model is held to every read of the fixture that reports
