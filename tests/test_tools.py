@@ -2709,7 +2709,8 @@ class Trials(unittest.TestCase):
         data["Bearer Zx9Qw8Er7Ty6Ui5Op4"] = 1        # a shape that spans a space
         data["exchanges"][0]["request"]["headers"][SHAPED["ghp"]] = "x"
         data["exchanges"][0]["request"]["as"]["kind"] = "Bearer\nZx9Qw8Er7Ty6Ui5Op4As3Df5"   # a shape a repr escapes
-        data["exchanges"][0]["request"]["as"]["name"] = "Bearer\u000bZx9Qw8Er7Ty6Ui5Op4As3Df5"   # and one it writes as \x0b
+        data["exchanges"][0]["request"]["via"] = "Bearer\u000bZx9Qw8Er7Ty6Ui5Op4As3Df5"        # and one it writes as \x0b
+        data["repo"] = "Bearer\n Zx9Qw8Er7Ty6Ui5Op4As3Df5"     # an escape and a space: no one word holds the shape
         twice = '{"%s": 1, "%s": 2}' % (SHAPED["gho"], SHAPED["gho"])                        # a fixture that cannot be read
         said = "\n".join(check_trials.run(clone({"trials/P-12.json": json.dumps(data), "trials/P-11.json": twice})))
         self.assertIn(check_trials.KEY_SHAPED, said)
@@ -3240,6 +3241,10 @@ exit 9
         to_repo.symlink_to(ROOT)
         home_link = self.home.parent / (self.home.name + "-home-link")
         home_link.symlink_to(self.home)
+        elsewhere = pathlib.Path(tempfile.mkdtemp()).resolve()       # a link to HOME from outside CONFIG_DIR
+        self.addCleanup(shutil.rmtree, elsewhere, True)
+        far_link = elsewhere / "home-link"
+        far_link.symlink_to(self.home)
         other_home = self.home.parent / (self.home.name + "-other-home")     # whose ~/.claude is itself a link
         other_home.mkdir()
         real_claude = self.home.parent / (self.home.name + "-real-claude")
@@ -3257,6 +3262,8 @@ exit 9
                  ("CONFIG_DIR under ~/.claude", self.out, dot_claude, None, "under ~/.claude"),
                  ("CONFIG_DIR linked to ~/.claude", self.out, linked, None, "under ~/.claude"),
                  ("HOME through a link, CONFIG_DIR its ~/.claude", self.out, self.home / ".claude", home_link, "under ~/.claude"),
+                 ("HOME through a link from elsewhere, CONFIG_DIR holding the real home", self.out, self.home.parent, far_link,
+                  "the home directory or holds it"),
                  ("~/.claude a link, CONFIG_DIR where it leads", self.out, real_claude, other_home, "under ~/.claude"),
                  ("CONFIG_DIR is ~/.CLAUDE", self.out, self.home / ".CLAUDE", None, "under ~/.claude"),
                  ("CONFIG_DIR missing", self.out, self.home / "none", None, "CONFIG_DIR is not a directory")]
