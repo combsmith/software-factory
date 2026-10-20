@@ -81,7 +81,7 @@ class IssueWorld:
         self.state = "open"            # as GitHub holds it
         self.life_started = 0          # when the present life began: opened, or last reopened by a writer
         self.reopened_last_by = "never"
-        self.closed = None             # when the issue closed, as GitHub holds it; None while open
+        self.closed = None             # when the issue last closed, from its timeline; None while never
         self.reopened_last = None      # when the issue was last reopened, by anyone; None while never
         self.content = 1
         self.content_changed = 0
@@ -176,7 +176,7 @@ class IssueWorld:
         return {
             "schema": "issue-facts/1", "item": dict(ITEM), "state": self.state,
             # GitHub: an_issues_close_and_reopening_say_when
-            "closed_at": None if self.closed is None else World.at(self.closed),
+            "closed_last_at": None if self.closed is None else World.at(self.closed),
             # GitHub: an_issues_author_has_an_association
             "author": dict(self.author), "type": self.type, "label_names": list(self.label_names),
             "assignees": [],
@@ -521,7 +521,7 @@ class IssueWorld:
                 # change in the facts is the platform's, as the pull request's Lifecycle says of a queued merge. Only
                 # while the issue is in review: the Controller dequeues the pull request of an issue a person held or
                 # closed (the Maintainer's ruling on issue 227), so no merge lands while the issue is held or
-                # declined, nor from new. The Kernel still reads such a merge as done; issue 237 builds the Hold.
+                # declined, nor from new. Were one to land, the Kernel would read it as never done (issue 237).
                 p.update(open=False, merged_at=self.now(), closed_at=self.now(), empty=False)
                 self.moves()
                 self.note("#%d merged by the queue" % p["number"])
@@ -633,7 +633,7 @@ class IssueWorld:
         opening did: `declined` is an end of the life that closed, and the new life's first State is no transition
         from it. A Hold, an admission and hands-off outlast it (section 4.1). By anyone else, the issue stays
         declined."""
-        self.state, self.closed, self.reopened_last = "open", None, self.minute
+        self.state, self.reopened_last = "open", self.minute
         # GitHub: a_reopening_names_its_actor
         if self.is_person(who):
             self.life_started = self.minute

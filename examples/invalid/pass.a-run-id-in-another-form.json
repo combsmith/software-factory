@@ -248,7 +248,7 @@
           "number": 41
         },
         "state": "open",
-        "closed_at": null,
+        "closed_last_at": null,
         "author": {
           "kind": "human",
           "name": "don-petry",

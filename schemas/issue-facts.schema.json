@@ -7,7 +7,7 @@
     "schema",
     "item",
     "state",
-    "closed_at",
+    "closed_last_at",
     "author",
     "type",
     "label_names",
@@ -59,8 +59,8 @@
         "closed"
       ]
     },
-    "closed_at": {
-      "description": "When the issue was closed, as GitHub holds it: a time while it is closed, null while it is open; a merge that closes it closes it no earlier than the merge",
+    "closed_last_at": {
+      "description": "When the issue was last closed, from its timeline: a time while it is closed; while it is open, null if it was never closed, or the time of the close its last reopening undid. A merge that closes it closes it no earlier than the merge",
       "type": [
         "string",
         "null"
