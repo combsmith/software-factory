@@ -2883,8 +2883,10 @@ class Trials(unittest.TestCase):
 
         def roots(query):
             """Each root field of the one operation in `query`, as (field, its arguments): what stands at depth one
-            of its selection set, outside strings. A fragment or a second operation is not read, and fails."""
-            depth, found, text, quoted = 0, [], "", False
+            of its selection set, outside strings. A fragment on another type is skipped, since its fields hang off
+            a root field of the operation; a fragment on Query would carry root fields of its own, and fails, as a
+            second operation does."""
+            depth, found, text, quoted, skipping = 0, [], "", False, False
             for ch in query:
                 if ch == '"':
                     quoted = not quoted
@@ -2892,7 +2894,13 @@ class Trials(unittest.TestCase):
                     text += ch
                     continue
                 if ch == "{":
-                    if depth == 1:
+                    if depth == 0:
+                        opening = text.strip()
+                        skipping = opening.startswith("fragment ")
+                        self.assertFalse(skipping and re.search(r"\bon\s+Query\b", opening),
+                                         "a fragment on Query the test cannot read: %r" % opening)
+                        text = ""
+                    elif depth == 1 and not skipping:
                         found.append(text.strip())
                         text = ""
                     depth += 1
@@ -2900,7 +2908,9 @@ class Trials(unittest.TestCase):
                     depth -= 1
                     if depth == 1:
                         text = ""
-                elif depth == 1:
+                elif depth == 0:
+                    text += ch
+                elif depth == 1 and not skipping:
                     text += ch
             out = []
             for item in found:
@@ -3030,6 +3040,58 @@ class Trials(unittest.TestCase):
         # The events ground the rule about them; the association, which an App reads wrong, stays unverified.
         self.assertEqual(by_code["a_label_event_names_its_actor"], "trials/P-32.json")
         self.assertIsNone(by_code["an_issues_author_has_an_association"])
+
+    def test_the_issue_fixtures_hold_what_grounds_the_four_rules(self):
+        # trials/P-33.json and trials/P-34.json (issue 184) ground four rules of the issue world: each is held to the
+        # content that grounds it, so a fixture emptied or inverted ungrounds its rule.
+        by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
+        for code in ("a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read"):
+            self.assertEqual(by_code[code], "trials/P-33.json", code)
+        for code in ("an_issues_content_time_is_read_apart", "a_reopening_names_its_actor"):
+            self.assertEqual(by_code[code], "trials/P-34.json", code)
+        p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())
+        self.assertEqual(p33["verdict"], "pass")
+        prs = p33["exchanges"][0]["response"]["body"]["data"]["repository"]
+        # To the default branch, a draft, an open and a closed-unmerged pull request each carry the issue, with the
+        # author; to another base, a merged and an open one carry none.
+        for case in ("draft", "open", "closed"):
+            self.assertEqual([n["number"] for n in prs[case]["closingIssuesReferences"]["nodes"]], [36], case)
+            self.assertEqual((prs[case]["baseRefName"], prs[case]["author"]["login"]), ("main", "don-petry"), case)
+        for case in ("merged", "nondefault"):
+            self.assertEqual((prs[case]["baseRefName"], prs[case]["closingIssuesReferences"]["totalCount"]),
+                             ("trial/p-33-base", 0), case)
+        self.assertEqual((prs["draft"]["isDraft"], prs["open"]["isDraft"], prs["merged"]["state"], prs["closed"]["state"]),
+                         (True, False, "MERGED", "CLOSED"))
+        # Who changed the draft flag, and when: ready, back to draft, ready again, each the Maintainer's.
+        flags = [(n["__typename"], n["actor"]["login"]) for n in prs["open"]["timelineItems"]["nodes"]]
+        self.assertEqual(flags, [("ReadyForReviewEvent", "don-petry"), ("ConvertToDraftEvent", "don-petry"),
+                                 ("ReadyForReviewEvent", "don-petry")])
+        times = [n["createdAt"] for n in prs["open"]["timelineItems"]["nodes"]]
+        self.assertEqual(times, sorted(times))
+        # Merged into the default branch, the reference stays and the issue closed, with the pull request as closer.
+        after = p33["exchanges"][4]["response"]["body"]["data"]["repository"]
+        self.assertEqual((after["merged"]["state"], after["merged"]["baseRefName"]), ("MERGED", "main"))
+        self.assertEqual([(n["number"], n["state"]) for n in after["merged"]["closingIssuesReferences"]["nodes"]], [(36, "CLOSED")])
+        closed = [n for n in after["issue"]["timelineItems"]["nodes"] if n["__typename"] == "ClosedEvent"]
+        self.assertEqual([(n["closer"]["number"], n["actor"]["login"]) for n in closed], [(38, "don-petry")])
+        # The ruleset was disabled for the merge and set back to active, and the exchanges are in the order they happened.
+        states = [e["response"]["body"]["enforcement"] for e in p33["exchanges"] if e["request"]["via"] == "rest"]
+        self.assertEqual(states, ["disabled", "active"])
+        dates = [e["response"]["headers"]["date"] for e in p33["exchanges"]]
+        self.assertEqual(dates, sorted(dates, key=lambda d: d[17:25]))
+        p34 = json.loads((ROOT / "trials" / "P-34.json").read_text())
+        self.assertEqual(p34["verdict"], "pass")
+        issue = p34["exchanges"][0]["response"]["body"]["data"]["repository"]["issue"]
+        events = {n["__typename"]: n for n in issue["timelineItems"]["nodes"]}
+        # The body's time is lastEditedAt; the title's is the timeline's; the newer is the content's; updatedAt is the
+        # reopening's, later than both; and the reopening names its actor.
+        renamed, reopened = events["RenamedTitleEvent"], events["ReopenedEvent"]
+        self.assertLess(issue["lastEditedAt"], renamed["createdAt"])
+        self.assertLess(renamed["createdAt"], events["IssueComment"]["createdAt"])
+        self.assertEqual(issue["updatedAt"], reopened["createdAt"])
+        self.assertEqual((renamed["actor"]["login"], reopened["actor"]["login"], issue["stateReason"]),
+                         ("don-petry", "don-petry", "REOPENED"))
+        self.assertEqual([n["editor"]["login"] for n in issue["userContentEdits"]["nodes"]], ["don-petry", "don-petry"])
 
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
