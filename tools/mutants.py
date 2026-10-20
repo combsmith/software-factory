@@ -1566,7 +1566,7 @@ MUTANTS = ISSUE + [
     ("an empty last pusher is read", "kernel/derive.py",
      ' or facts["last_pusher"] == "":\n', ":\n", PUSHER_TESTS),
     ("an unreadable last pusher calls nobody", "kernel/decide.py",
-     '"protected_paths_unreadable", "last_pusher_unreadable",\n', '"protected_paths_unreadable",\n', PUSHER_TESTS),
+     '    "last_pusher_unreadable",\n', "", PUSHER_TESTS),
     ("a pause admits a Run", "kernel/brakes.py",
      "    pause = paused(_decision, facts, state, evidence, context)\n    if pause:\n",
      "    pause = paused(_decision, facts, state, evidence, context)\n    if False:\n",
