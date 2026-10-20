@@ -24,10 +24,14 @@ UNEXPLORED = {
     ("held", "declined", "human"), ("in_progress", "declined", "human"), ("in_progress", "done", "human"),
     ("in_progress", "in_review", "factory"), ("in_progress", "triage", "human"), ("in_review", "declined", "human"),
     ("in_review", "done", "platform"), ("in_review", "in_progress", "human"), ("new", "declined", "human"),
-    ("new", "done", "human"), ("new", "held", "factory"), ("new", "in_progress", "human"),
-    ("new", "in_review", "human"),
+    ("new", "done", "human"), ("new", "in_progress", "human"), ("new", "in_review", "human"),
     ("ready", "declined", "human"), ("ready", "held", "factory"), ("ready", "in_progress", "human"),
     ("triage", "declined", "human"), ("triage", "in_progress", "human"), ("triage", "in_review", "human"),
+    # Hands-off, which only a person places and ends.
+    ("in_progress", "not_served", "human"), ("in_review", "not_served", "human"), ("new", "not_served", "human"),
+    ("ready", "not_served", "human"), ("triage", "not_served", "human"), ("not_served", "declined", "human"),
+    ("not_served", "done", "human"), ("not_served", "in_progress", "human"), ("not_served", "in_review", "human"),
+    ("not_served", "new", "human"), ("not_served", "ready", "human"), ("not_served", "triage", "human"),
 }
 
 
@@ -53,9 +57,11 @@ def after(trace: list, first: str, then: str) -> bool:
 class IssueSimulation(unittest.TestCase):
     def test_invariants_hold_under_faults(self):
         made, authors, admitted, readings, stopped = set(), set(), set(), set(), set()
+        began = set()
         for seed in SEEDS:
             w = run(seed)
             made |= w.made
+            began |= w.began
             authors.add(w.is_person(w.author))
             if not w.is_person(w.author):
                 admitted.add(any(ev["label"] == terms.LABEL_ADMIT and w.is_person(ev["by"]) for ev in w.events))
@@ -66,6 +72,10 @@ class IssueSimulation(unittest.TestCase):
         # the Pause for one, and in those passes a Run and an act were each held back (decision 0003).
         self.assertEqual(authors, {True, False})
         self.assertEqual(admitted, {True, False})
+        # A writer's reopening begins a new life in new, or where a Hold, hands-off or an open link that outlasts it
+        # puts it (section 4.1); the Lifecycle's initial names new alone, which the design records (section 4.5).
+        self.assertIn("new", began)
+        self.assertLessEqual(began, {"new", "held", "not_served", "in_progress", "in_review"})
         self.assertEqual(readings, {True, None})
         self.assertTrue(stopped)
         # On a writer's issue paused from the start, the first pass holds back the Controller's accept; accepted
@@ -124,16 +134,27 @@ class IssueSimulation(unittest.TestCase):
             w = worlds[seed]
             self.assertTrue(after(w.trace, "reopened the issue, which stays declined", "pass: declined / reopened_by_other"),
                             "\n".join(w.trace))
-        # 4. A label removed while a Run is in flight: the Run's apply writes nothing (I-38), unless the Run was
-        # killed first; either way nothing of the Run's reaches the issue.
+        # 4. A label removed while a Run is in flight: the Run's apply asks the Kernel again and writes nothing (I-38).
         for seed in on[4]:
             w = worlds[seed]
-            self.assertTrue(after(w.trace, "while a Run was in flight", "apply refused, the issue changed")
-                            or after(w.trace, "while a Run was in flight", "killed"), "\n".join(w.trace))
+            self.assertTrue(after(w.trace, "while a Run was in flight", "apply refused, the issue changed"),
+                            "\n".join(w.trace))
         # 5. Run records expire: a pass read fewer records than Runs, and what the Apps wrote stood in (decision 0031).
         for seed in on[5]:
             w = worlds[seed]
             self.assertIn("a run record expired", "\n".join(w.trace))
+        # Once every record of the investigation has expired, the analyst's comment stands in for it: the Kernel admits
+        # no second investigation, and the world's own reading agrees.
+        w = IssueWorld(on[5][0], faults=False, people=False)
+        for _ in range(400):
+            w.step()
+            if any(r["intent"] == issue.INVESTIGATE and r["conclusion"] == "success" for r in w.runs):
+                break
+        self.assertTrue(w.comments)
+        w.minute += issues.RETENTION + 1
+        self.assertEqual((len(w.records()), w.investigation_due()), (0, False))
+        d = issue.decide(w.facts(), w.records(), w.context(), issues.CONFIG, w.now())
+        self.assertNotEqual((d["outcome"], d.get("admit", {}).get("intent")), (terms.ADMIT, issue.INVESTIGATE))
 
     def test_a_stale_wait_shows_by_the_worlds_own_count(self):  # I-1, issue 165's ruling 8
         # The Factory's draft waits for its author, and nobody else moves. The world counts the wait itself, from the
@@ -189,6 +210,15 @@ class IssueSimulation(unittest.TestCase):
         w.linked[0].update(open=False, merged_at=w.now(), closed_at=w.now())
         w.caused("platform")
         self.assertEqual(w.made, {("in_review", "done", "platform")})
+        # The brakes hold a new issue whose linked pull requests closed unmerged past the bound (I-43, seed 137).
+        w = IssueWorld(1, faults=False, people=False)
+        for number in range(issues.LIMITS["max_unmerged_closes"] + 1):
+            w.minute += 1
+            w.linked.append(dict(agents_draft(w), number=300 + number, **{"class": "maintainer"}, open=False,
+                                 closed_at=w.now()))
+        w.minute += 1
+        w.poll()
+        self.assertEqual((w.labels, w.made), ({"factory:hold"}, {("new", "held", "factory")}))
         # Someone with no write access is nobody the Lifecycle names but as one whose change goes back to new: a
         # comment of theirs changes nothing, and any other change of State put down to them breaks the invariant.
         w = IssueWorld(2, faults=False, people=False)

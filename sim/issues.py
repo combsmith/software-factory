@@ -107,6 +107,8 @@ class IssueWorld:
         self.made = set()
         self.reached = []              # the faults this seed reached, by number
         self.unheld = []
+        self.began = set()             # the States each life began in: the opening's, and a writer's reopenings'
+        self.removal_in_flight = None  # the Run a label was taken from under (fault 4), which no kill then hides
         self.trace = []
         self.model_runs = 0
         self.true_state = None
@@ -200,7 +202,7 @@ class IssueWorld:
             if len(kept) < len(self.runs) and 5 not in self.reached:
                 self.reached.append(5)
                 self.note("a run record expired")
-        return [{k: v for k, v in r.items() if k != "minute"} for r in copy.deepcopy(kept)]
+        return [{k: v for k, v in r.items() if k not in ("minute", "head")} for r in copy.deepcopy(kept)]
 
     def pausing(self) -> bool:
         return self.pause_from is not None and self.pause_from <= self.minute < self.pause_from + PAUSE_FOR
@@ -256,6 +258,7 @@ class IssueWorld:
                 self.hold = False
             elif name == t.LABEL_HANDS_OFF:
                 self.hands_off = None
+        if self.is_person(by) or by["name"] in SERVED["label_apps"].values():
             self.moves()
 
     def release(self):
@@ -319,22 +322,20 @@ class IssueWorld:
         return {k: v for k, v in facts.items() if k != "read_at"}
 
     def paused(self, facts: dict, runs: list, d: dict, ctx: dict):
-        """Under a Pause, read or not, nothing is admitted and no act is made but a Hold (decision 0003)."""
+        """Under a Pause, read or not, nothing is admitted and nothing acts, the Hold for unmerged closes included,
+        which defers for the Maintainer to see; a Hold the facts establish shows as without one (decision 0003)."""
         self.paused_passes += 1
-        self.check(d["outcome"] in (t.DEFER, t.HOLD, t.NOTHING) or d.get("action") == issue.PLACE_HOLD,
-                   "I-7 a Pause let %s through" % d["outcome"])
+        self.check(d["outcome"] in (t.DEFER, t.HOLD, t.NOTHING), "I-7 a Pause let %s through" % d["outcome"])
         unpaused = issue.decide(facts, runs, dict(ctx, paused=False), CONFIG, self.now())
-        if unpaused["outcome"] in (t.ADMIT, t.ACT) and unpaused.get("action") != issue.PLACE_HOLD:
+        if unpaused["outcome"] in (t.ADMIT, t.ACT):
             self.stopped.append(unpaused.get("action") or t.ADMIT)
-        if d["outcome"] == t.ACT:
-            self.apply_action(d)
 
     def answers(self, facts: dict, runs: list, d: dict, whole: bool):
         """What the Kernel answered, held to the invariants it can be held to on this read."""
         self.check(d["state"] in DECLARED_STATES or d["state"] is None, "I-44 a State the Lifecycle does not declare")
         if d["outcome"] == t.ADMIT:
-            self.check(self.accepted(), "I-42 a Run admitted on an issue not accepted now")
-            self.check(not self.held(), "I-21 a Run admitted on a held issue")
+            self.check(not whole or self.accepted(), "I-42 a Run admitted on an issue not accepted now")
+            self.check(not whole or not self.held(), "I-21 a Run admitted on a held issue")
             # On a list read whole and current, no second Run is admitted beside one queued or in flight; on a list
             # read late, the second supersedes itself as it starts (I-38, a_new_run_is_listed_late).
             self.check(not whole or not any(r["status"] != "completed" for r in self.runs),
@@ -368,20 +369,25 @@ class IssueWorld:
         """Whether an investigating Run may be admitted, in the world's own words (I-42): the content changed or a
         writer acted since the last that succeeded, or the last ended without investigating and the attempts since a
         writer acted are not spent."""
-        mine = [r for r in self.runs if r["intent"] == issue.INVESTIGATE]
-        done = [r for r in mine if r["conclusion"] == "success" and r["content_id"] == self.cid()
-                and (self.last_writer is None or r["started_at"] > self.last_writer)]
-        if done and all(r["minute"] > self.minute - RETENTION for r in done):
+        kept = [r for r in self.records() if r["intent"] == issue.INVESTIGATE]
+        after = lambda when: self.last_writer is None or when > self.last_writer
+        if kept:
+            current = any(r["conclusion"] == "success" and r["content_id"] == self.cid() and after(r["started_at"])
+                          for r in kept)
+        else:
+            # Every record has expired: the analyst's comment since the edit and the writer's act stands in.
+            current = any(c["by"] == ANALYST["name"] and c["at"] > World.at(self.content_changed) and after(c["at"])
+                          for c in self.comments)
+        if current:
             return False
-        failed = [r for r in mine if r["status"] == "completed" and r["outcome"] == "item"
-                  and (self.last_writer is None or r["started_at"] > self.last_writer)]
+        failed = [r for r in kept if r["status"] == "completed" and r["outcome"] == "item" and after(r["started_at"])]
         return len(failed) < LIMITS["max_attempts"]
 
     def admit(self, d: dict, facts: dict):
         intent = d["admit"]["intent"]
         run = {"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"], "intent": intent,
                "content_id": d["admit"]["content_id"], "status": "queued", "conclusion": None, "outcome": None,
-               "started_at": self.now(), "minute": self.minute}
+               "started_at": self.now(), "minute": self.minute, "head": d["admit"].get("branch_head")}
         # GitHub: a_queued_run_is_listed
         self.runs.append(run)
         self.moves()
@@ -440,7 +446,7 @@ class IssueWorld:
 
     def ending(self, run: dict):
         run["status"] = "completed"
-        if self.faults and self.rng.random() < 0.12:
+        if self.faults and self.rng.random() < 0.12 and run["run"] != self.removal_in_flight:
             # GitHub: a_killed_job_times_out
             run.update(conclusion="timed_out", outcome=self.pick(["item", "capacity", "environment"]))
             self.note("run %s: killed (%s)" % (run["run"], run["outcome"]))
@@ -448,16 +454,17 @@ class IssueWorld:
         # apply asks the Kernel again with its own Run left out (I-38): a label removed, a Hold added, an edit made or
         # a head moved while the Run was in flight each stop it.
         others = [r for r in self.records() if r["run"] != run["run"]]
-        again = issue.decide(self.facts(), others, self.unpaused(), CONFIG, self.now())
+        again = issue.decide(self.facts(), others, self.context(), CONFIG, self.now())
         admitted = {"admit": {k: run[k] for k in ("role", "intent", "content_id")}}
         if run["intent"] == issue.OPENING:
-            admitted["admit"]["branch_head"] = run.get("branch_head")
+            admitted["admit"]["branch_head"] = run["head"]
         if not issue.still_admitted(admitted, again):
             # GitHub: a_superseded_run_fails
             run.update(conclusion="failure", outcome="superseded")
             self.note("run %s: apply refused, the issue changed (%s / %s)" % (run["run"], again["state"], again["reason"]))
             return
         self.check(not self.held(), "I-21 an Effect on a held issue")
+        self.check(not self.pausing(), "I-21 an Effect under a Pause")
         self.check(self.accepted(), "I-42 an Effect on an issue not accepted now")
         if self.faults and self.rng.random() < 0.2:
             # The Run ended by a fault of the issue: it investigated nothing, judged nothing, opened nothing.
@@ -504,12 +511,13 @@ class IssueWorld:
                 self.moves()
                 self.note("#%d marked ready by its author" % p["number"])
                 self.caused(FACTORY)
-            elif roll < 0.2 and self.true_state not in (issue.DECLINED, "held"):
+            elif roll < 0.2 and self.true_state == "in_review":
                 # The merge queue merges the Factory's pull request, after the Factory's approval and enqueue: the
-                # change in the facts is the platform's, as the pull request's Lifecycle says of a queued merge. Not
-                # while the issue is declined or held: the Lifecycle lets no merge out of declined and only a person
-                # out of held, so the world takes it that the Controller dequeues the pull request of an issue that a
-                # person closed or held, or an outsider reopened (recorded in the design, 4.5).
+                # change in the facts is the platform's, as the pull request's Lifecycle says of a queued merge. Only
+                # while the issue is in review: the Lifecycle lets no merge out of declined, only a person out of held,
+                # and names no merge from new, so the world takes it that the Controller dequeues the pull request of
+                # an issue that a person closed or held, an outsider reopened or whose acceptance lapsed (recorded in
+                # the design, 4.5).
                 p.update(open=False, merged_at=self.now(), closed_at=self.now(), empty=False)
                 self.moves()
                 self.note("#%d merged by the queue" % p["number"])
@@ -518,8 +526,8 @@ class IssueWorld:
         if self.faults and self.seed % STRANGER_PR_EVERY == STRANGER_PR and roll < 0.4 \
                 and not any(p["class"] == "outside" for p in self.linked):
             self.linked.append({"number": 200 + len(self.linked), "class": "outside", "opener": dict(STRANGER),
-                                "open": True, "draft": False, "opened_at": self.now(), "merged_at": None,
-                                "closed_at": None, "empty": False, "label_events": []})
+                                "open": True, "draft": self.rng.random() < 0.5, "opened_at": self.now(),
+                                "merged_at": None, "closed_at": None, "empty": False, "label_events": []})
             self.reached.append(2)
             self.note("a stranger's pull request names the issue")
             self.caused(STRANGER_BY)
@@ -528,6 +536,11 @@ class IssueWorld:
             # GitHub: an_app_can_label
             self.label(t.LABEL_HOLD, OTHER_APP)
             self.note("another App added factory:hold")
+            self.caused(PLATFORM)
+        elif self.faults and 0.45 <= roll < 0.46 and issue.LABEL_TRIAGE not in self.labels:
+            # An App the configuration does not name adds factory:triage: the Kernel counts it for nothing (I-41).
+            self.label(issue.LABEL_TRIAGE, OTHER_APP)
+            self.note("another App added factory:triage")
             self.caused(PLATFORM)
 
     def person(self):
@@ -554,6 +567,7 @@ class IssueWorld:
             self.unlabel(name, who)
             self.writer_acted()
             self.reached.append(4)
+            self.removal_in_flight = next(r["run"] for r in self.runs if r["status"] == "in_progress")
             self.note("%s removed %s while a Run was in flight" % (who["name"], name))
             return HUMAN
         if self.held() and roll < 0.15:
@@ -562,9 +576,10 @@ class IssueWorld:
             self.writer_acted()
             self.note("%s released the hold" % who["name"])
         elif not self.held() and roll < 0.06:
-            self.label(t.LABEL_HOLD, who)
+            name = t.LABEL_HOLD if self.rng.random() < 0.7 else t.LABEL_HANDS_OFF
+            self.label(name, who)
             self.writer_acted()
-            self.note("%s added factory:hold" % who["name"])
+            self.note("%s added %s" % (who["name"], name))
         elif roll < 0.22:
             self.edit(who)
         elif roll < 0.32:
@@ -620,8 +635,10 @@ class IssueWorld:
             self.life_started = self.minute
             self.reopened_last_by = "writer"
             self.writer_acted()
-            self.note("%s reopened the issue: a new life" % who["name"])
             self.starts()
+            self.check(self.true_state in DECLARED_STATES, "I-44 a new life began in an undeclared State")
+            self.began.add(self.true_state)
+            self.note("%s reopened the issue: a new life, in %s" % (who["name"], self.true_state))
         else:
             self.reopened_last_by = "other"
             self.note("%s reopened the issue, which stays declined" % who["name"])
@@ -643,6 +660,18 @@ class IssueWorld:
     def on_the_pull_request(self, who: dict):
         """A person acts on the linked pull request: marks the draft ready, converts it back, merges it or closes
         it unmerged; or opens one of their own."""
+        theirs = [p for p in self.linked if p["open"] and p["class"] == "outside"]
+        if theirs and self.rng.random() < 0.25:
+            # A person merges or closes the stranger's pull request: it moves the issue no more than it did open.
+            p = theirs[0]
+            if self.rng.random() < 0.5:
+                p.update(open=False, merged_at=self.now(), closed_at=self.now())
+                self.note("%s merged the stranger's #%d" % (who["name"], p["number"]))
+            else:
+                p.update(open=False, closed_at=self.now())
+                self.note("%s closed the stranger's #%d unmerged" % (who["name"], p["number"]))
+            self.writer_acted()
+            return
         mine = [p for p in self.linked if p["open"] and p["class"] in issue.MOVING_CLASSES]
         if not mine:
             if self.rng.random() < 0.3:
@@ -695,17 +724,33 @@ class IssueWorld:
             if ev["label"] == issue.LABEL_READY and ev["action"] == "labeled":
                 self.check(self.is_person(ev["by"]) or ev["by"]["name"] == READINESS["name"],
                            "I-40 factory:ready added by %s" % ev["by"]["name"])
+        # I-41: a label the Kernel counts was added by a person with write access or by its declared App.
+        for state, name, app in (("triage", issue.LABEL_TRIAGE, CONTROLLER), ("ready", issue.LABEL_READY, READINESS)):
+            adds = [ev for ev in self.events if ev["label"] == name and ev["action"] == "labeled"]
+            if self.true_state == state and adds:
+                self.check(self.is_person(adds[-1]["by"]) or adds[-1]["by"]["name"] == app["name"],
+                           "I-41 %s counted though %s added it last" % (name, adds[-1]["by"]["name"]))
         # I-41: a Hold a person placed stands until a person removes it; a new life begins only by a writer.
         if self.reopened_last_by == "other":
             self.check(self.true_state in (issue.DECLINED, None),
                        "I-41 a reopening by someone without write access began a new life")
-        # I-43: after an unmerged close, at most max_unmerged_closes further linked pull requests before a writer acts.
-        closes = [p for p in self.linked if p["class"] in issue.MOVING_CLASSES and not p["open"]
-                  and p["merged_at"] is None and p["closed_at"] >= World.at(self.life_started)]
-        opened_after = [p for p in self.linked if p["class"] == "agent" and closes
-                        and p["opened_at"] > min(c["closed_at"] for c in closes)]
-        self.check(len(opened_after) <= LIMITS["max_unmerged_closes"] + 1,
-                   "I-43 the Factory opened past max_unmerged_closes")
+        # I-43: after a linked pull request closes without being done, the Factory opens at most max_unmerged_closes
+        # more, until a person removes the Hold or begins a new life; an empty merge is such a close.
+        released = [ev["at"] for ev in self.events
+                    if ev["label"] == t.LABEL_HOLD and ev["action"] == "unlabeled" and self.is_person(ev["by"])]
+        since = max([World.at(self.life_started)] + released)
+        closes = [p["closed_at"] for p in self.linked if p["class"] in issue.MOVING_CLASSES and not p["open"]
+                  and (p["merged_at"] is None or p["empty"]) and p["closed_at"] >= since]
+        opened_after = [p for p in self.linked if p["class"] == "agent" and closes and p["opened_at"] > min(closes)]
+        self.check(len(opened_after) <= LIMITS["max_unmerged_closes"], "I-43 the Factory opened past max_unmerged_closes")
+        # I-39: with every unadmitted stranger's pull request read out, the State is the same, after every step.
+        strangers = [p for p in self.linked if p["class"] == "outside" and not issue.admitted_once(p)]
+        if strangers:
+            facts = self.facts()
+            without = dict(facts, linked=[p for p in facts["linked"] if p not in strangers])
+            self.check(issue.derive(without, self.records(), CONFIG)["state"]
+                       == issue.derive(facts, self.records(), CONFIG)["state"],
+                       "I-39 a stranger's pull request moved the issue")
         # I-8: every act since a writer acted is under the ceiling, but the Hold that stops work, by one.
         ceiling = LIMITS["max_acts_per_item"]
         self.check(self.acts <= ceiling or (self.acts == ceiling + 1 and self.last_act == issue.PLACE_HOLD),

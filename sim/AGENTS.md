@@ -2,8 +2,8 @@
 
 A fake GitHub around one pull request, and another around one issue. `world.py` drives the real Kernel, plays the poller, the jobs of a Run and the people, injects faults, and checks the invariants after every step. It decides
 nothing: every decision comes from `kernel/`. It states each invariant in its own words, so a changed rule may need its invariant changed too. Time is the counter `minute`. `issues.py` is the issue's world, built the same way:
-it drives `kernel/issue.py`, plays the Controller's acts, the three issue Runs and the people, and checks I-39 to I-44 after every step. It makes no merge while
-the issue is held or declined, taking it that the Controller dequeues the Factory's pull request then (issue 227, "Design: does a merge end a held or a declined issue?").
+it drives `kernel/issue.py`, plays the Controller's acts, the three issue Runs and the people, and checks I-39 to I-44 after every step. Its queue makes no merge while
+the issue is held or declined, and a person none while it is declined, taking it that the Controller dequeues the Factory's pull request then (issue 227, "Design: does a merge end a held or a declined issue?").
 
 | Rule | Held by |
 |---|---|

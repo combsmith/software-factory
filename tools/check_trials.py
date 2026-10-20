@@ -203,6 +203,9 @@ def _headers(data) -> list:
     return out
 
 
+WORLDS = ("world.py", "issues.py")
+
+
 def rules(root: pathlib.Path = ROOT) -> list:
     """The rules in `sim/grounding.py`, read as a literal; a ValueError says why they cannot be."""
     path = root / "sim" / "grounding.py"
@@ -307,11 +310,11 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
             elif valid[fixture]["trial"] not in trials:
                 problems.append("sim/grounding.py: %s: %s records %s, and %s asks this"
                                 % (code, fixture, valid[fixture]["trial"], " or ".join(trials)))
-    # Every world under sim/ marks the rules it applies: the pull request's in world.py, the issue's in issues.py.
-    worlds = sorted(w for w in (root / "sim").glob("*.py") if w.name not in ("grounding.py", "__init__.py"))
+    # Each world marks the rules it applies: the pull request's in world.py, the issue's in issues.py. Only these two
+    # are read, so a mark in any other file counts for nothing.
     marked = set()
-    for world in worlds:
-        applied = set(MARK.findall(world.read_text()))
+    for world in (root / "sim" / name for name in WORLDS):
+        applied = set(MARK.findall(world.read_text())) if world.is_file() else set()
         for code in sorted(applied - seen):
             problems.append("sim/%s applies %s, which sim/grounding.py does not list" % (world.name, code))
         marked |= applied

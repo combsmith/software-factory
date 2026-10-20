@@ -1686,12 +1686,18 @@ in the present life as `done`, while the issue Lifecycle let only a person bring
 only a person out of `held`, and lets nothing out of `declined`: the queue merged the Factory's pull
 request after a person had held the issue (seed 20) or closed it (seed 22), and a person merged their
 own after an outsider had reopened it (seed 99). The Lifecycle now declares `in_review → done` by the
-platform, the queue's merge. The world makes no merge while the issue is held or declined, taking it
-that the Controller dequeues the Factory's pull request when a person closes or holds its issue; whether
+platform, the queue's merge. The queue makes no merge in the world while the issue is held or declined,
+and a person none while it is declined: the world takes it that the Controller dequeues the Factory's pull
+request when a person closes or holds its issue; whether
 a merge should end a held or a declined issue is open (issue 227, "Design: does a merge end a held or
 a declined issue?"). The Hold the brakes place for unmerged closes (I-43) is placed on a `new` issue too,
 an outsider's whose colleague closed their own pull requests (seed 137); the Lifecycle now declares
-`new → held` by the Factory. The exploration of every change (`tests/test_transitions.py`) does not find
+`new → held` by the Factory. Past the fixed seeds, an outsider's edit lapsed acceptance from `in_review`
+(seed 617), and a Run admitted on a stale read showed a `new` issue in progress until it superseded
+itself as it started (I-38, seed 694): the Lifecycle now declares `in_review → new` by a stranger and
+`new → in_progress` by the Factory, bounded by the Run ceiling. A writer's reopening begins a new life
+in `new`, or in `held`, `not_served`, `in_progress` or `in_review` where a Hold, hands-off or an open link
+outlasts it (§4.1), which the Lifecycle's `initial` does not name; the world records each. The exploration of every change (`tests/test_transitions.py`) does not find
 the changes the world makes through a person's close or merge; each is declared, and
 `tests/test_issue_simulator.py` lists the gap (issue 228, "Exploration: nineteen changes of State the
 issue world makes that tests/test_transitions.py does not find").
