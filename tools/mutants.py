@@ -61,6 +61,7 @@ NAMING_TESTS = ("tests.test_tools.Mutants.test_every_mutant_names_a_test_that_ex
 ORDER_TESTS = ("tests.test_tools.Mutants.test_slow_modules_run_last",)
 FILTER_TESTS = ("tests.test_tools.Mutants.test_a_filtered_run_is_capped",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
+COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
 HOOK_TESTS = "tests.test_hooks.ProtectedPaths."
 BYPASS_TESTS = (HOOK_TESTS + "test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked",)
 SESSION_TESTS = (HOOK_TESTS + "test_a_command_that_runs_claude_code_with_no_one_asked_asks",
@@ -3013,6 +3014,20 @@ MUTANTS = ISSUE + [
     ("a committer is read by name alone", "tools/commits_are_the_maintainers.py",
      "        if (committer_name, committer_email) != who and not made_by_github:\n",
      "        if committer_name != who[0] and not made_by_github:\n", COMMITS_TESTS),
+    # Decision 0041: the job commits reads every commit the pull request carries from the base.
+    ("the commits job need not exist", "tools/check_workflows.py",
+     '    if "commits" not in jobs:\n', "    if False:\n", COMMITS_JOB_TESTS),
+    ("the commits job may be told anything", "tools/check_workflows.py",
+     '    if given != {"BASE_SHA": BASE, "HEAD_SHA": HEAD, "EVENT": EVENT}:\n', "    if False:\n", COMMITS_JOB_TESTS),
+    ("the commits job may check out the head", "tools/check_workflows.py",
+     "    if [_with(entries, c) for c in steps if _checkout(c)] != [wanted]:\n", "    if False:\n", COMMITS_JOB_TESTS),
+    ("the commits job may run another tool", "tools/check_workflows.py",
+     "    if not reading:\n        whys.append(", "    if False:\n        whys.append(", COMMITS_JOB_TESTS),
+    ("the commits job's steps may be more than a checkout and the tool", "tools/check_workflows.py",
+     '    if any(e["key"] == "uses" and not _checkout(e) for e in steps) or len(runs) > 1:\n', "    if False:\n",
+     COMMITS_JOB_TESTS),
+    ("a workflow without the commits job passes the lens rules", "tools/check_workflows.py",
+     "        problems += _commits(text, entries, jobs)\n", "        pass\n", COMMITS_JOB_TESTS),
 ]
 
 

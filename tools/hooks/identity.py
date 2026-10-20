@@ -1,8 +1,8 @@
 """PreToolUse on Bash: a guard that catches a session's honest mistake early, when a commit, a push or a write to
 GitHub here would not be the Maintainer's. It is a helper, not a rule enforcer: it reads words, not the identity git
-will use, so a spelling built to hide git, gh or `.git` is out of its scope, left to the Stop check, the rulesets and,
-until "Identity: every commit a pull request carries is the Maintainer's, checked outside the shell" (issue 204) is
-built, the Maintainer's reading of each pull request.
+will use, so a spelling built to hide git, gh or `.git` is out of its scope, left to the Stop check, the rulesets and
+the required check's job `commits`, which reads each commit a pull request carries from what git recorded, whatever
+the spelling (decision 0041).
 
 Three identities should be the Maintainer's (§9.12): the commit's author and committer, which come
 from git's configuration in each clone, and the account that pushes or writes to GitHub, which comes

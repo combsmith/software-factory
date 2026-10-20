@@ -1502,7 +1502,7 @@ class Workflows(unittest.TestCase):
         # run on both pull_request and merge_group reports on no head, or not in the merge queue. Each leaves the Lens
         # waiting for ever. The one if: allowed is always(), beside needs:, and a job that needs others is skipped when
         # one fails, which passes a required check, unless it runs under always() and judges every other job.
-        needs = "    needs:\n      - checks\n      - mutants\n"
+        needs = "    needs:\n      - checks\n      - commits\n      - mutants\n"
         judge = "      - run: python3 -m tools.needs_passed\n"
         given = "    env:\n      NEEDS: ${{ toJSON(needs) }}\n"
         matrix = GOOD.replace("    timeout-minutes: 10\n",
@@ -1517,10 +1517,10 @@ class Workflows(unittest.TestCase):
                  (GOOD.replace("  merge_group:\n", ""), "not on both pull_request and merge_group"),
                  (GOOD.replace("  pull_request:\n", ""), "not on both pull_request and merge_group"),
                  (GOOD.replace("    if: always()\n", ""), "it has no job-level if: always()"),
-                 (GOOD.replace("      - mutants\n", ""), "it needs checks, not every other job in its file"),
+                 (GOOD.replace("      - mutants\n", ""), "not every other job in its file"),
                  (GOOD.replace(needs, "    needs: checks\n"), "it needs checks, not every other job in its file"),
                  (GOOD.replace("      - mutants\n", "      - mutants\n      - deploy\n"), "not every other job in its file"),
-                 (GOOD.replace(needs, "    needs: [checks, mutants]\n"), "its needs: cannot be read as a list of jobs"),
+                 (GOOD.replace(needs, "    needs: [checks, commits, mutants]\n"), "its needs: cannot be read as a list of jobs"),
                  (GOOD.replace(judge, "      - run: make verify\n"), "it runs no step `python3 -m tools.needs_passed`"),
                  (GOOD.replace(judge, judge + "        if: false\n"), "an if: can skip its step"),
                  (GOOD.replace(given, ""), "it does not give NEEDS"),
@@ -1529,7 +1529,7 @@ class Workflows(unittest.TestCase):
                  (GOOD.replace(needs, "").replace("    if: always()\n", "").replace(given, "")
                   .replace(judge, "      - run: make verify\n"), "it has no needs:, so the other jobs in its file"),
                  (GOOD.split("  checks:\n")[0] + "  verify:\n" + GOOD.split("  verify:\n")[1],
-                  "it needs checks, mutants, not every other job in its file, none"),
+                  "it needs checks, commits, mutants, not every other job in its file, none"),
                  (GOOD.replace(judge, "      - run: |\n          make fast\n          python3 -m tools.needs_passed\n"),
                   "it runs no step `python3 -m tools.needs_passed`, on a line of its own"),
                  (GOOD.replace(judge, "      - run: >\n          python3 -m tools.verify\n          python3 -m tools.needs_passed\n"),
@@ -1541,11 +1541,36 @@ class Workflows(unittest.TestCase):
             self.assertNotEqual(text, GOOD, said)
             self.assertTrue(caught(self.lens_problems(text), said), said)
         # The list of what it needs may stand at the indent of its key, as YAML allows.
-        level = GOOD.replace(needs, "    needs:\n    - mutants\n    - checks\n")
-        spaced = GOOD.replace(needs, "    needs:\n      - checks\n\n      # the shards\n      - mutants\n")
+        level = GOOD.replace(needs, "    needs:\n    - mutants\n    - commits\n    - checks\n")
+        spaced = GOOD.replace(needs, "    needs:\n      - checks\n      - commits\n\n      # the shards\n      - mutants\n")
         for text in (level, spaced):
             self.assertNotEqual(text, GOOD)
             self.assertEqual(self.lens_problems(text), [])
+
+    def test_the_commits_job_reads_the_pull_requests_commits_from_the_base(self):
+        # Decision 0041: the job commits checks out the base with the whole history, is told the base, the head and the
+        # event by the event's expressions, and runs the base's tools/commits_are_the_maintainers.py on a line of its
+        # own, with nothing else that could act for it.
+        job = GOOD[GOOD.index("  commits:\n"):GOOD.index("  verify:\n")]
+        reading = "      - run: python3 -m tools.commits_are_the_maintainers\n"
+        depth = "          fetch-depth: 0\n          ref: %s\n" % check_workflows.BASE
+        self.assertEqual((job.count(reading), job.count(depth)), (1, 1))
+        cases = [(GOOD.replace(job, "").replace("      - commits\n", ""), "has no job commits"),
+                 (GOOD.replace(job, job.replace("    env:\n", "    if: always()\n    env:\n")), "a job-level if:"),
+                 (GOOD.replace(job, job.replace("      EVENT: ${{ github.event_name }}\n", "")), "is not told BASE_SHA"),
+                 (GOOD.replace(job, job.replace("github.event.merge_group.head_sha", "github.sha")), "is not told BASE_SHA"),
+                 (GOOD.replace(job, job.replace(depth, "          ref: %s\n" % check_workflows.BASE)), "whole history"),
+                 (GOOD.replace(job, job.replace(depth, "          fetch-depth: 0\n")), "check out the base alone"),
+                 (GOOD.replace(job, job.replace(depth, depth.replace("base.sha", "head.sha"))), "check out the base alone"),
+                 (GOOD.replace(job, job.replace(reading, "      - run: make verify\n")), "runs no step"),
+                 (GOOD.replace(job, job.replace(reading, reading + "        if: false\n")), "an if: can skip"),
+                 (GOOD.replace(job, job.replace(reading, reading + "      - run: make verify\n")), "more than a checkout"),
+                 (GOOD.replace(job, job.replace(reading, "      - uses: actions/github-script@" + "a" * 40 + " # v7\n" + reading)),
+                  "more than a checkout")]
+        for text, said in cases:
+            self.assertNotEqual(text, GOOD, said)
+            self.assertTrue(caught(self.lens_problems(text), said), said)
+        self.assertEqual(self.lens_problems(GOOD), [])
 
     def test_a_lens_job_that_judges_its_needs_runs_from_the_base(self):
         # verify's verdict is the base's tools/needs_passed.py: its one checkout is of the base, on a pull request and in
