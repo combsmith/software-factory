@@ -30,7 +30,7 @@ import re
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RULES = {
     "form": "block style, even indents, bare keys with the colon against them; no tab, flow mapping, anchor "
-            "or quoted key",
+            "or quoted key, and no key written twice in one mapping",
     "pin": "an action is pinned to a full commit hash with its version beside it; one of the org's own "
            "reusable workflows, to its channel tag; nothing local but a reusable workflow",
     "target": "a workflow runs only on pull_request, merge_group, push, schedule, workflow_dispatch or "
@@ -86,6 +86,13 @@ NEEDS = "${{ toJSON(needs) }}"
 # The job that reads every commit a pull request carries (decision 0041): the base's tool, from a checkout of the base
 # with the whole history, told the base, the head and the event by the expressions below and nothing else.
 COMMITS = "python3 -m tools.commits_are_the_maintainers"
+# The mutant shards (issue 180): each leg is told its index and the count by the matrix itself, never by a number
+# written in, so every leg runs its own shard and the count is the matrix's size.
+SHARDED = "python3 -m tools.mutants"
+INDEX = "${{ strategy.job-index }}"
+TOTAL = "${{ strategy.job-total }}"
+JUDGING_KEYS = {"name", "needs", "if", "runs-on", "timeout-minutes", "permissions", "env", "steps"}
+SHARD_KEYS = {"runs-on", "timeout-minutes", "permissions", "strategy", "env", "steps"}
 HEAD = "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}"
 EVENT = "${{ github.event_name }}"
 # The commit a pull request, or a merge-queue entry, is judged against (decision 0023). A judging job checks out this and
@@ -133,9 +140,10 @@ def read(text: str) -> tuple:
     """(entries, numbers of the lines not in the narrow form). An entry is one `key: value` line.
 
     Its `path` is the keys above it, `step` numbers the list item it belongs to, and `body` holds
-    the lines of a block of text under it.
+    the lines of a block of text under it. A key written twice in one mapping is not in the narrow form: a
+    YAML reader would refuse it or keep one of the two, and the entries would merge what no reader yields.
     """
-    entries, bad, stack, step, block = [], [], [], 0, None
+    entries, bad, stack, step, block, seen = [], [], [], 0, None, [set()]
     for number, raw in enumerate(text.split("\n"), 1):
         if "\t" in raw or "\r" in raw:
             bad.append(number)
@@ -161,8 +169,13 @@ def read(text: str) -> tuple:
         value = value.strip()
         while stack and stack[-1][0] >= indent:
             stack.pop()
+        del seen[len(stack) + 1:]
         if found.group(2):
             step += 1
+            seen[len(stack)] = set()     # a list item is a mapping of its own
+        if key in seen[len(stack)]:
+            bad.append(number)
+        seen[len(stack)].add(key)
         entry = {"key": key, "value": _unquote(value), "comment": "#" + comment if comment else "",
                  "indent": indent, "line": number, "path": [k for _, k in stack], "step": step, "body": []}
         if value in ("|", "|-", "|+", ">", ">-", ">+"):
@@ -171,6 +184,7 @@ def read(text: str) -> tuple:
             bad.append(number)
         entries.append(entry)
         stack.append((indent, key))
+        seen.append(set())
     return entries, bad
 
 
@@ -411,6 +425,56 @@ def _judging(text: str, entries: list, job: str, jobs: list) -> list:
                     "else, so the head's own tools/needs_passed.py could give its verdict" % BASE)
     if [(e["path"], e["value"]) for e in mine if e["key"] == "NEEDS"] != [(["jobs", job, "env"], NEEDS)]:
         whys.append("it does not give NEEDS: %s once, in its own env:, so what it needs cannot be read" % NEEDS)
+    if [e["key"] for e in mine if e["path"] == ["jobs", job, "env"]] != ["NEEDS"]:
+        whys.append("its env: holds other than NEEDS, with which the interpreter that runs `%s` could be changed" % JUDGE)
+    # Its exact shape (issue 180): no key the rule does not name, on the job or on a step, so that nothing can change
+    # where or how `JUDGE` runs: a working-directory:, a shell:, a container:, a default, an env: on the step.
+    if set(inside) - JUDGING_KEYS:
+        whys.append("it has keys other than %s: %s, with which a container, a default or a strategy could change what "
+                    "runs" % (", ".join(sorted(JUDGING_KEYS)), ", ".join(sorted(set(inside) - JUDGING_KEYS))))
+    if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "permissions"]} != {"contents": "read"}:
+        whys.append("it is granted other than contents: read")
+    if [set(step) for step in _steps(entries, job)] != [{"uses", "with"}, {"run"}]:
+        whys.append("its steps are not a checkout with its with: and then one run:, each holding no other key: a "
+                    "working-directory:, a shell:, an env: or an if: on the step would change where or how `%s` runs"
+                    % JUDGE)
+    return whys
+
+
+def _shards(entries: list, jobs: list) -> list:
+    """Why the workflow would not run every mutant once (issue 180): a job that runs the mutants exists, and its env: is exactly
+    MUTANTS_SHARD: INDEX and MUTANTS_SHARDS: TOTAL, the matrix's own index and size, so a number written in cannot make
+    every leg run one shard; its matrix is one key, shard; and its shape is closed: the keys SHARD_KEYS and no other,
+    contents: read, a checkout of the head with the whole history and `SHARDED` on a line of its own, each step holding
+    no other key."""
+    whys, found = [], False
+    for job in jobs:
+        mine = [e for e in entries if e["path"][:2] == ["jobs", job]]
+        inside = {e["key"]: e for e in mine if e["path"] == ["jobs", job]}
+        runs = [e for e in mine if e["path"] == ["jobs", job, "steps"] and e["key"] == "run"]
+        if not any("mutants" in "\n".join([e["value"]] + (e["body"] or [])) for e in runs):
+            continue
+        found = True
+        if set(inside) != SHARD_KEYS:
+            whys.append("has the job %s, which runs the mutants, with keys other than %s, or lacking one"
+                        % (job, ", ".join(sorted(SHARD_KEYS))))
+        if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "env"]} != {"MUTANTS_SHARD": INDEX,
+                                                                                             "MUTANTS_SHARDS": TOTAL}:
+            whys.append("has the job %s, which runs the mutants, not told MUTANTS_SHARD: %s and MUTANTS_SHARDS: %s and "
+                        "nothing else, so a leg could run another's shard, or every leg one shard" % (job, INDEX, TOTAL))
+        if [e["key"] for e in mine if e["path"] == ["jobs", job, "strategy", "matrix"]] != ["shard"]:
+            whys.append("has the job %s, which runs the mutants, whose strategy.matrix is not the one key shard" % job)
+        if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "permissions"]} != {"contents": "read"}:
+            whys.append("has the job %s, which runs the mutants, granted other than contents: read" % job)
+        checkouts = [e for e in mine if e["path"] == ["jobs", job, "steps"] and _checkout(e)]
+        held = ([set(step) for step in _steps(entries, job)] == [{"uses", "with"}, {"run"}]
+                  and [(e["value"], e["body"] or []) for e in runs] == [(SHARDED, [])]
+                  and [_with(entries, c) for c in checkouts] == [{"persist-credentials": "false", "fetch-depth": "0"}])
+        if not held:
+            whys.append("has the job %s, which runs the mutants, whose steps are not a checkout of the head with the "
+                        "whole history and `%s` on a line of its own, each holding no other key" % (job, SHARDED))
+    if not found:
+        whys.append("has no job that runs the mutants, so no mutant runs before a merge")
     return whys
 
 
@@ -493,7 +557,11 @@ def lens_job_problems(text: str, check: str) -> list:
             problems += ["has the job %s beside other jobs, and %s" % (job, why)
                          for why in _judging(text, entries, job, jobs)]
     if any("needs" in inside for _, inside in named):     # the required check's workflow, whose job judges the rest
-        problems += _commits(text, entries, jobs)
+        problems += _commits(text, entries, jobs) + _shards(entries, jobs)
+        for key in ("env", "defaults"):
+            if key in top:
+                problems.append("has a top-level %s:, which every job inherits, where each is told what it is and "
+                                "nothing else" % key)
     return problems
 
 

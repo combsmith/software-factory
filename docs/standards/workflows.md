@@ -2,7 +2,7 @@
 
 Each rule shows its example first, then says what holds it. Every rule has workflows that break
 it, and only it, under `examples/workflows/invalid/`. A workflow is written in a narrow form the
-check can read: block style, bare keys, one key to a line. Any other spelling is refused.
+check can read: block style, bare keys, one key to a line, none written twice. Any other spelling is refused.
 An org standard is cited from combsmith/.github at commit 9e2daad, by file and heading.
 
 ## The whole of a good workflow
@@ -106,7 +106,7 @@ held-out home's read token (design §4.9), scoring a Result against each case wi
 Harness story's and does not exist yet; no other workflow or job takes the name, by id or by `name:`.
 
 Org standard: ci-standards.md, "Permissions Policy", "Action Pinning Policy" and "CI Job Naming Convention". Its name, triggers and stages depart from "1. CI Pipeline (ci.yml)": `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md`.
-Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`, `tests/test_tools.py::test_a_lens_job_that_would_never_report_under_its_name_is_caught`, `tests/test_tools.py::test_the_required_check_fails_unless_every_job_it_needs_passed`, `tests/test_tools.py::test_a_lens_job_that_judges_its_needs_runs_from_the_base`, `tests/test_evals.py::test_the_eval_jobs_name_is_reserved`
+Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`, `tests/test_tools.py::test_a_lens_job_that_would_never_report_under_its_name_is_caught`, `tests/test_tools.py::test_the_required_check_fails_unless_every_job_it_needs_passed`, `tests/test_tools.py::test_a_lens_job_that_judges_its_needs_runs_from_the_base`, `tests/test_tools.py::test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape`, `tests/test_tools.py::test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix`, `tests/test_evals.py::test_the_eval_jobs_name_is_reserved`
 
 ## Pinned to what was looked up
 
