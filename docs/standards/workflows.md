@@ -82,12 +82,12 @@ Its one checkout is of the base, never the head: the verdict is the base's `tool
 cannot make its own pass (decision 0023). It runs on no event without a base. The checks and tests in `checks` and
 `mutants` are the head's.
 
-Org standard: ci-standards.md, "Permissions Policy", "Action Pinning Policy" and "CI Job Naming Convention". Its name, triggers and stages depart from "1. CI Pipeline (ci.yml)": `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md`.
-Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`, `tests/test_tools.py::test_a_lens_job_that_would_never_report_under_its_name_is_caught`, `tests/test_tools.py::test_the_required_check_fails_unless_every_job_it_needs_passed`, `tests/test_tools.py::test_a_lens_job_that_judges_its_needs_runs_from_the_base`
-
 The eval job is a reserved name, `factory / eval`, in a workflow file named eval.yml: the one job that will hold the
 held-out home's read token (design §4.9), scoring a Result against each case with `tools/eval_result.py`. It is the
-Harness story's and does not exist yet; no other workflow or job takes the name (`tools/check_workflows.py`).
+Harness story's and does not exist yet; no other workflow or job takes the name, by id or by `name:`.
+
+Org standard: ci-standards.md, "Permissions Policy", "Action Pinning Policy" and "CI Job Naming Convention". Its name, triggers and stages depart from "1. CI Pipeline (ci.yml)": `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md`.
+Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`, `tests/test_tools.py::test_a_lens_job_that_would_never_report_under_its_name_is_caught`, `tests/test_tools.py::test_the_required_check_fails_unless_every_job_it_needs_passed`, `tests/test_tools.py::test_a_lens_job_that_judges_its_needs_runs_from_the_base`, `tests/test_evals.py::test_the_eval_jobs_name_is_reserved`
 
 ## Pinned to what was looked up
 

@@ -314,7 +314,11 @@ def run(root: pathlib.Path = ROOT) -> list:
             rel = path.relative_to(root).as_posix()
             if path.suffix == ".json" and rel not in LIVE:
                 problems.append("%s is validated against no schema; add it to LIVE" % rel)
-            # A held-out case lives in the private home and never here, in any file: the manifest holds hashes alone.
+            # A held-out case lives in the private home and never here: evals/ holds manifests in LIVE and its rules,
+            # nothing else, and every file there is read for what looks like a case, since a mark can hide in any.
+            if folder == "evals" and not (rel in LIVE or path.name == "AGENTS.md"):
+                problems.append("%s is neither a manifest in LIVE nor the directory's rules; nothing else lives under "
+                                "evals/" % rel)
             if folder == "evals" and CASE_MARKS.search(path.read_text(errors="replace")):
                 problems.append("%s holds what looks like a held-out case; only a case's hash and id may be here" % rel)
     covered = {p.name.split(".")[0] for p in (root / "examples").glob("*.json")} | set(LIVE.values())

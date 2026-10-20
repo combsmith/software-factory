@@ -157,8 +157,11 @@ class TheSet(unittest.TestCase):
                            ("evals/pr-review/leaked.yaml", 'schema: eval-case/1\n')):
             problems = check_examples.run(clone({name: text}))
             self.assertTrue(caught(problems, "%s holds what looks like a held-out case" % name), name)
-        # The other side: the manifest, its directory's rules and a note that names no case pass.
-        self.assertEqual(check_examples.run(clone({"evals/pr-review/NOTE.md": "The hashes are the home's.\n"})), [])
+        # Nothing else lives under evals/: a note, however harmless, is refused, and a manifest in LIVE and the
+        # directory's rules are all that pass.
+        problems = check_examples.run(clone({"evals/pr-review/NOTE.md": "The hashes are the home's.\n"}))
+        self.assertTrue(caught(problems, "evals/pr-review/NOTE.md is neither a manifest in LIVE nor the directory's rules"))
+        self.assertEqual(check_examples.run(), [])
 
     def test_a_cases_categories_are_the_findings(self):
         from tests.test_tools import caught
@@ -178,6 +181,10 @@ class TheSet(unittest.TestCase):
         from tools import check_workflows
         taken = GOOD.replace("  checks:\n", "  eval:\n", 1)
         problems = check_workflows.run(clone({".github/workflows/other.yml": taken}))
+        self.assertTrue(caught(problems, ".github/workflows/other.yml: the job eval is reserved for eval.yml"))
+        # GitHub names a check run by the job's name where it has one: a job of another id named eval is reserved too.
+        by_name = GOOD.replace("  checks:\n", "  other:\n    name: eval\n", 1)
+        problems = check_workflows.run(clone({".github/workflows/other.yml": by_name}))
         self.assertTrue(caught(problems, ".github/workflows/other.yml: the job eval is reserved for eval.yml"))
         problems = check_workflows.run(clone({".github/workflows/eval.yml": GOOD}))
         self.assertTrue(caught(problems, ".github/workflows/eval.yml: holds the job eval and no other"))

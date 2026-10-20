@@ -8,7 +8,7 @@ the count of cases and each case's id and sha256. The cases themselves live in a
 | Rule | Held by |
 |---|---|
 | A manifest is `eval-set/1`, and its count is its list's length | `tests/test_evals.py::test_the_manifest_counts_its_cases_and_holds_no_case` |
-| No file here, of any name, is a case or holds a diff | `tests/test_evals.py::test_a_case_dropped_under_evals_in_any_file_is_caught` |
+| Nothing lives here but a manifest in `LIVE` and these rules, and no file here, of any name, holds a case or a diff | `tests/test_evals.py::test_a_case_dropped_under_evals_in_any_file_is_caught` |
 | A new file here is added to `LIVE` in `tools/check_examples.py`, with its schema | `tools/check_examples.py` |
 | A Result passes a case by raising the Finding it expects, in its category, severity and place, with the coverage agreeing | `tests/test_evals.py::test_a_result_that_raises_the_expected_finding_passes_and_one_that_does_not_fails` |
 | A right change passes by covering its criterion as met and raising nothing against it | `tests/test_evals.py::test_a_right_change_is_scored_by_its_coverage` |

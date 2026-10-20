@@ -514,7 +514,10 @@ def run(root: pathlib.Path = ROOT) -> list:
     # since it alone will hold the held-out home's read token (design §4.9).
     for path in live:
         entries, _ = read(raw(path))
-        jobs = [e["key"] for e in entries if e["path"] == ["jobs"]]
+        named = [(e["key"], {i["key"]: i for i in entries if i["path"] == ["jobs", e["key"]]})
+                 for e in entries if e["path"] == ["jobs"]]
+        # GitHub names a check run by the job's own name, or by its id where it has none: both are read.
+        jobs = [inside.get("name", {}).get("value", job) for job, inside in named]
         if EVAL_JOB in jobs and path.name != EVAL_WORKFLOW:
             problems.append("%s: the job %s is reserved for %s, the one job that reads the held-out home"
                             % (path.relative_to(root), EVAL_JOB, EVAL_WORKFLOW))

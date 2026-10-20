@@ -88,7 +88,8 @@ def run(authority: dict = None, config: dict = None, facts: dict = None, result:
     # A held-out case expects a Finding in the Finding's own categories and severities, and no others.
     e = json.loads((ROOT / "schemas" / "eval-case.schema.json").read_text()) if case is None else case
     answer = e.get("properties", {}).get("expected", {}).get("properties", {}).get("finding", {}).get("properties", {})
-    for field, held in (("category", known), ("severity", set(finding["properties"]["severity"]["enum"]))):
+    expected_in = (("category", known), ("severity", set(finding["properties"]["severity"]["enum"])))
+    for field, held in expected_in:
         listed = answer.get(field, {}).get("enum") if isinstance(answer.get(field), dict) else None
         if not isinstance(listed, list):
             problems.append("a held-out case's expected Finding carries no %s" % field)
