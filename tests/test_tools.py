@@ -15,6 +15,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -1502,7 +1503,7 @@ class Workflows(unittest.TestCase):
         # run on both pull_request and merge_group reports on no head, or not in the merge queue. Each leaves the Lens
         # waiting for ever. The one if: allowed is always(), beside needs:, and a job that needs others is skipped when
         # one fails, which passes a required check, unless it runs under always() and judges every other job.
-        needs = "    needs:\n      - checks\n      - mutants\n"
+        needs = "    needs:\n      - checks\n      - commits\n      - mutants\n"
         judge = "      - run: python3 -m tools.needs_passed\n"
         given = "    env:\n      NEEDS: ${{ toJSON(needs) }}\n"
         matrix = GOOD.replace("    timeout-minutes: 10\n",
@@ -1517,10 +1518,10 @@ class Workflows(unittest.TestCase):
                  (GOOD.replace("  merge_group:\n", ""), "not on both pull_request and merge_group"),
                  (GOOD.replace("  pull_request:\n", ""), "not on both pull_request and merge_group"),
                  (GOOD.replace("    if: always()\n", ""), "it has no job-level if: always()"),
-                 (GOOD.replace("      - mutants\n", ""), "it needs checks, not every other job in its file"),
+                 (GOOD.replace("      - mutants\n", ""), "not every other job in its file"),
                  (GOOD.replace(needs, "    needs: checks\n"), "it needs checks, not every other job in its file"),
                  (GOOD.replace("      - mutants\n", "      - mutants\n      - deploy\n"), "not every other job in its file"),
-                 (GOOD.replace(needs, "    needs: [checks, mutants]\n"), "its needs: cannot be read as a list of jobs"),
+                 (GOOD.replace(needs, "    needs: [checks, commits, mutants]\n"), "its needs: cannot be read as a list of jobs"),
                  (GOOD.replace(judge, "      - run: make verify\n"), "it runs no step `python3 -m tools.needs_passed`"),
                  (GOOD.replace(judge, judge + "        if: false\n"), "an if: can skip its step"),
                  (GOOD.replace(given, ""), "it does not give NEEDS"),
@@ -1529,7 +1530,7 @@ class Workflows(unittest.TestCase):
                  (GOOD.replace(needs, "").replace("    if: always()\n", "").replace(given, "")
                   .replace(judge, "      - run: make verify\n"), "it has no needs:, so the other jobs in its file"),
                  (GOOD.split("  checks:\n")[0] + "  verify:\n" + GOOD.split("  verify:\n")[1],
-                  "it needs checks, mutants, not every other job in its file, none"),
+                  "it needs checks, commits, mutants, not every other job in its file, none"),
                  (GOOD.replace(judge, "      - run: |\n          make fast\n          python3 -m tools.needs_passed\n"),
                   "it runs no step `python3 -m tools.needs_passed`, on a line of its own"),
                  (GOOD.replace(judge, "      - run: >\n          python3 -m tools.verify\n          python3 -m tools.needs_passed\n"),
@@ -1541,11 +1542,44 @@ class Workflows(unittest.TestCase):
             self.assertNotEqual(text, GOOD, said)
             self.assertTrue(caught(self.lens_problems(text), said), said)
         # The list of what it needs may stand at the indent of its key, as YAML allows.
-        level = GOOD.replace(needs, "    needs:\n    - mutants\n    - checks\n")
-        spaced = GOOD.replace(needs, "    needs:\n      - checks\n\n      # the shards\n      - mutants\n")
+        level = GOOD.replace(needs, "    needs:\n    - mutants\n    - commits\n    - checks\n")
+        spaced = GOOD.replace(needs, "    needs:\n      - checks\n      - commits\n\n      # the shards\n      - mutants\n")
         for text in (level, spaced):
             self.assertNotEqual(text, GOOD)
             self.assertEqual(self.lens_problems(text), [])
+
+    def test_the_commits_job_reads_the_pull_requests_commits_from_the_base(self):
+        # Decision 0041: the job commits checks out the base with the whole history, is told the base, the head and the
+        # event by the event's expressions, and runs the base's tools/commits_are_the_maintainers.py on a line of its
+        # own, with nothing else that could act for it.
+        job = GOOD[GOOD.index("  commits:\n"):GOOD.index("  verify:\n")]
+        reading = "      - run: python3 -m tools.commits_are_the_maintainers\n"
+        depth = "          fetch-depth: 0\n          ref: %s\n" % check_workflows.BASE
+        self.assertEqual((job.count(reading), job.count(depth)), (1, 1))
+        shape = "its job commits's steps are not a checkout"
+        cases = [(GOOD.replace(job, "").replace("      - commits\n", ""), "has no job commits"),
+                 (GOOD.replace(job, job.replace("    env:\n", "    if: always()\n    env:\n")), "has keys other than"),
+                 (GOOD.replace(job, job.replace("    env:\n", "    container: ghcr.io/x/y:1\n    env:\n")), "has keys other than"),
+                 (GOOD.replace(job, job.replace("    env:\n", "    strategy:\n      matrix:\n        a:\n          - 1\n    env:\n")),
+                  "has keys other than"),
+                 (GOOD.replace(job, job.replace("    timeout-minutes: 10\n", "")), "has keys other than"),
+                 (GOOD.replace(job, job.replace("      contents: read\n", "      contents: write\n")), "granted other than"),
+                 (GOOD.replace(job, job.replace("      EVENT: ${{ github.event_name }}\n", "")), "is not told BASE_SHA"),
+                 (GOOD.replace(job, job.replace("github.event.merge_group.head_sha", "github.sha")), "is not told BASE_SHA"),
+                 (GOOD.replace(job, job.replace(depth, "          ref: %s\n" % check_workflows.BASE)), "whole history"),
+                 (GOOD.replace(job, job.replace(depth, "          fetch-depth: 0\n")), "check out the base alone"),
+                 (GOOD.replace(job, job.replace(depth, depth.replace("base.sha", "head.sha"))), "check out the base alone"),
+                 (GOOD.replace(job, job.replace(reading, "      - run: make verify\n")), "runs no step"),
+                 (GOOD.replace(job, job.replace(reading, reading + "        if: false\n")), shape),
+                 (GOOD.replace(job, job.replace(reading, reading + "        env:\n          BASE_SHA: abc\n")), shape),
+                 (GOOD.replace(job, job.replace(reading, reading + "        shell: bash\n")), shape),
+                 (GOOD.replace(job, job.replace(reading, reading + "      - run: make verify\n")), shape),
+                 (GOOD.replace(job, job.replace(reading, "      - uses: actions/github-script@" + "a" * 40 + " # v7\n" + reading)),
+                  shape)]
+        for text, said in cases:
+            self.assertNotEqual(text, GOOD, said)
+            self.assertTrue(caught(self.lens_problems(text), said), said)
+        self.assertEqual(self.lens_problems(GOOD), [])
 
     def test_a_lens_job_that_judges_its_needs_runs_from_the_base(self):
         # verify's verdict is the base's tools/needs_passed.py: its one checkout is of the base, on a pull request and in
@@ -2756,6 +2790,126 @@ class Trials(unittest.TestCase):
             data = json.loads((ROOT / "trials" / ("%s.json" % name)).read_text())
             self.assertEqual(data["verdict"], "pass", name)
             self.assertEqual(data["ran_at"][:10], "2026-10-19", name)
+
+    def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
+        # Decision 0035: a trial of repos records the canary as its home, and a measurement's reads may span the org's
+        # repos. Held on what the reads say, for every fixture of the canary, and closed on what cannot be read: each
+        # read names its owner, in its REST path or in every repository and organization call of its query, each
+        # bound to a literal or to a declared variable, and a query with any other root field is refused; that owner
+        # is the org; every repo an answer names, by nameWithOwner, full_name, or a name beside its owner's login,
+        # is the org's; a read an App made names, and is answered with, only repos its installation reaches, the
+        # canary alone for an App the data does not know; and a command-line read is the Maintainer's own.
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
+        installed = {app["name"]: set(app["installed_on"]) for app in apps.values()}
+        canary = "combsmith/" + check_trials.CANARY
+        rest_path = re.compile(r"^[A-Z]+ /(?:repos/([^/?\s]+)/([^/?\s]+)|orgs/([^/?\s]+))")
+        any_repos = re.compile(r"\brepos/([^/?\s]+)/([^/?\s]+)")
+        root_field = re.compile(r"^(?:\w+\s*:\s*)?(\w+)\s*(?:\(([^)]*)\))?$")
+
+        def roots(query):
+            """Each root field of the one operation in `query`, as (field, its arguments): what stands at depth one
+            of its selection set, outside strings. A fragment or a second operation is not read, and fails."""
+            depth, found, text, quoted = 0, [], "", False
+            for ch in query:
+                if ch == '"':
+                    quoted = not quoted
+                if quoted:
+                    text += ch
+                    continue
+                if ch == "{":
+                    if depth == 1:
+                        found.append(text.strip())
+                        text = ""
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 1:
+                        text = ""
+                elif depth == 1:
+                    text += ch
+            out = []
+            for item in found:
+                found_field = root_field.match(item.strip())
+                self.assertTrue(found_field, "a root field the test cannot read: %r" % item)
+                out.append((found_field.group(1), found_field.group(2) or ""))
+            return out
+
+        argument = re.compile(r"\b(owner|name|login)\s*:\s*(?:\"([^\"]*)\"|\$(\w+))")
+
+        def bound(args, key, variables):
+            """The one value of `key` among `args`, a literal or a declared variable's; None if not exactly one."""
+            found = [m for m in argument.finditer(args) if m.group(1) == key]
+            if len(found) != 1:
+                return None
+            literal, var = found[0].group(2), found[0].group(3)
+            return literal if literal is not None else variables.get(var)
+
+        def names(value, under=None):
+            """Each repo an answer names: nameWithOwner, full_name, or a name beside its owner's login, which an App,
+            under the key app or with a slug, has as well and is not one."""
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key in ("nameWithOwner", "full_name") and isinstance(item, str):
+                        yield item
+                    yield from names(item, key)
+                owner = value.get("owner")
+                if isinstance(value.get("name"), str) and isinstance(owner, dict) and isinstance(owner.get("login"), str) \
+                        and under != "app" and "slug" not in value:
+                    yield owner["login"] + "/" + value["name"]
+            elif isinstance(value, list):
+                for item in value:
+                    yield from names(item, under)
+
+        def asked(request, where):
+            """(owners, repos) a request names; a read that cannot be read fails the test here."""
+            owners, repos = set(), set()
+            if request["via"] == "graphql":
+                body = request["body"]
+                variables = body.get("variables") or {}
+                self.assertTrue(body["query"].lstrip().startswith(("query", "{")), where + ": not a query")
+                for field, args in roots(body["query"]):
+                    if field == "repository":
+                        owner, name = bound(args, "owner", variables), bound(args, "name", variables)
+                        self.assertTrue(owner and name, "%s: a repository call that cannot be read: %s" % (where, args))
+                        owners.add(owner)
+                        repos.add(owner + "/" + name)
+                    elif field == "organization":
+                        login = bound(args, "login", variables)
+                        self.assertTrue(login, "%s: an organization call that cannot be read: %s" % (where, args))
+                        owners.add(login)
+                    elif field != "rateLimit":
+                        self.fail("%s: a root field the test does not read: %s" % (where, field))
+                self.assertTrue(owners, where + ": a query that names no repo and no org")
+            else:
+                found = rest_path.match(request["call"])
+                for owner, name in any_repos.findall(request["call"]):
+                    owners.add(owner)
+                    repos.add(owner + "/" + name)
+                if found and found.group(3):
+                    owners.add(found.group(3))
+            return owners, repos
+
+        checked = 0
+        for path in sorted((ROOT / "trials").glob("P-*.json")):
+            data = json.loads(path.read_text())
+            if data["repo"] != canary:
+                continue
+            checked += 1
+            for i, e in enumerate(data["exchanges"]):
+                where = "%s exchange %d" % (path.name, i)
+                request, asker = e["request"], e["request"]["as"]
+                owners, repos = asked(request, where)
+                answered = set(names(e["response"]["body"]))
+                self.assertTrue(owners <= {"combsmith"}, "%s names %s" % (where, sorted(owners - {"combsmith"})))
+                self.assertTrue(all(repo.startswith("combsmith/") for repo in answered),
+                                "%s was answered %s" % (where, sorted(r for r in answered if not r.startswith("combsmith/"))))
+                if request["via"] == "cli":
+                    self.assertEqual(asker, {"kind": "person", "name": "don-petry"}, where)
+                if asker["kind"] == "app":
+                    reach = installed.get(asker["name"].split(",")[0].replace("[bot]", ""), {canary})
+                    self.assertTrue(repos <= reach, "%s asks %s, beyond %s" % (where, sorted(repos - reach), sorted(reach)))
+                    self.assertTrue(answered <= reach, "%s was answered %s, beyond the reach" % (where, sorted(answered - reach)))
+        self.assertGreaterEqual(checked, 2)
 
     def test_the_cost_trials_estimate_is_marked_so_and_held_to_its_reads(self):
         # P-8's last exchange is the estimate (FR-35): its cost model is held to every read of the fixture that reports
