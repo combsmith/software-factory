@@ -22,4 +22,4 @@ same work is the one failure that cannot be undone by reversing a switch.
 |---|---|
 | Nothing here is read from the proof-of-concept repo | `tools/check_repo.py` |
 | For any repo and Intent family, exactly one line serves it | waiting on `release/` |
-| An Intent family is cut over only after its eval set exists | waiting on `evals/` |
+| An Intent family is cut over only after its eval set exists | `tests/test_evals.py::test_the_review_intents_eval_set_has_its_cases`, not held yet |

@@ -16,7 +16,8 @@ def _folded(name: str) -> str:
     return name.strip().casefold()
 
 
-def run(authority: dict = None, config: dict = None, facts: dict = None, result: dict = None, role: dict = None) -> list:
+def run(authority: dict = None, config: dict = None, facts: dict = None, result: dict = None, role: dict = None,
+        case: dict = None) -> list:
     a = json.loads((ROOT / "config" / "authority.json").read_text()) if authority is None else authority
     c = json.loads((ROOT / "config" / "defaults.json").read_text()) if config is None else config
     problems = []
@@ -84,6 +85,19 @@ def run(authority: dict = None, config: dict = None, facts: dict = None, result:
             problems.append("a Role manifest may %s the category %s, and no Finding can carry it" % (field.rstrip("s"), name))
         for name in sorted(known - set(listed)):
             problems.append("a Finding may carry the category %s, and no Role manifest can %s it" % (name, field.rstrip("s")))
+    # A held-out case expects a Finding in the Finding's own categories and severities, and no others.
+    e = json.loads((ROOT / "schemas" / "eval-case.schema.json").read_text()) if case is None else case
+    answer = e.get("properties", {}).get("expected", {}).get("properties", {}).get("finding", {}).get("properties", {})
+    expected_in = (("category", known), ("severity", set(finding["properties"]["severity"]["enum"])))
+    for field, held in expected_in:
+        listed = answer.get(field, {}).get("enum") if isinstance(answer.get(field), dict) else None
+        if not isinstance(listed, list):
+            problems.append("a held-out case's expected Finding carries no %s" % field)
+            continue
+        for name in sorted(set(listed) - held):
+            problems.append("a held-out case may expect the %s %s, and no Finding can carry it" % (field, name))
+        for name in sorted(held - set(listed)):
+            problems.append("a Finding may carry the %s %s, and no held-out case can expect it" % (field, name))
     if set(terms.CATEGORIES) != known:
         problems.append("the Kernel reads the categories %s, and a Finding carries %s"
                         % (sorted(terms.CATEGORIES), sorted(known)))

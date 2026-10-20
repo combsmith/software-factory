@@ -1,0 +1,17 @@
+{
+  "schema": "eval-set/1",
+  "role": "pr-review",
+  "intent": "review-change",
+  "count": 2,
+  "cases": [
+    {
+      "id": "synthetic-early-return",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "diff": "--- a/kernel/decide.py\n+++ b/kernel/decide.py\n@@ -86,9 +86,9 @@\n-    if not items:\n-        return []\n     first = items[0]\n+    if not items:\n+        return []\n     return parse(first, items[1:])\n"
+    },
+    {
+      "id": "synthetic-right-change",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ]
+}

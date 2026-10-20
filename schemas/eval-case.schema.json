@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "eval-case/1: one held-out case for a reviewing Intent, as a file in the private home and never in this repo: the facts a Run would be given, the diff it would read, and the answer a reviewer should have given, the Finding it should have raised against one criterion of the rubric, or that criterion met. The diff is text, and goes to the model as data; the answer is codes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "role",
+    "intent",
+    "facts",
+    "diff",
+    "expected"
+  ],
+  "properties": {
+    "schema": {
+      "const": "eval-case/1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z-]*[a-z]$"
+    },
+    "intent": {
+      "type": "string",
+      "pattern": "^[a-z][a-z-]*[a-z]$"
+    },
+    "facts": {
+      "$ref": "facts.schema.json"
+    },
+    "diff": {
+      "type": "string"
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict",
+        "criterion",
+        "finding"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "finding",
+            "met"
+          ]
+        },
+        "criterion": {
+          "type": "string",
+          "pattern": "^[A-Z]+-[0-9]+$"
+        },
+        "finding": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "category",
+            "severity",
+            "location"
+          ],
+          "properties": {
+            "category": {
+              "enum": [
+                "functional",
+                "security",
+                "architecture",
+                "delivery",
+                "reliability",
+                "requirements",
+                "mechanical",
+                "uncategorised",
+                "human"
+              ]
+            },
+            "severity": {
+              "enum": [
+                "blocking",
+                "major",
+                "minor",
+                "info"
+              ]
+            },
+            "location": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$"
+                },
+                "start_line": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "end_line": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

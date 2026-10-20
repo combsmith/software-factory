@@ -1,0 +1,16 @@
+{
+  "schema": "eval-set/1",
+  "role": "pr-review",
+  "intent": "review-change",
+  "count": 2,
+  "cases": [
+    {
+      "id": "synthetic-early-return",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "synthetic-right-change",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ]
+}
