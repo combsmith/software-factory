@@ -135,6 +135,8 @@ NAMED_TESTS = (RUNNER + "test_the_tests_a_mutant_names_run_first_and_the_whole_s
 # An issue's State (kernel/issue.py, decision 0028), in a list of its own so that the pull request's work, which adds
 # to MUTANTS below, never touches the same lines. Each is run against tests.test_issue first.
 ISSUE_PY, ISSUE_TESTS = "kernel/issue.py", ("tests.test_issue",)
+COUNT_TESTS = ("tests.test_decide.Ceilings.test_an_active_runs_that_is_no_count_defers_and_raises_nothing",)
+ISSUE_COUNT_TESTS = ("tests.test_issue.Investigation.test_an_active_runs_that_is_no_count_defers_and_raises_nothing",)
 # What an issue's Run in flight counts, and the ceilings asked of the Run its State wants; and the exploration of an
 # issue's changes of State, which a mutant may name as a second killer.
 ISSUE_DONE = '            done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]\n'
@@ -615,8 +617,16 @@ ISSUE = [
      "    if until is not None and until > now:\n", "    if False:\n", ISSUE_TESTS),
     ("a deferral that ends now still defers an issue's Run", ISSUE_PY,
      "until is not None and until > now", "until is not None and until >= now", ISSUE_TESTS),
-    ("an issue's active Runs unread are trusted", ISSUE_PY, "    if active is None:\n", "    if False:\n",
-     ISSUE_TESTS),
+    ("an issue's active Runs unread are trusted", ISSUE_PY, "    if type(active) is not int or active < 0:\n",
+     "    if False:\n", ISSUE_TESTS),
+    # Issue 218: an active_runs that is no count defers on an issue, and raises nothing.
+    ("an issue's count of active Runs that is no number is compared", ISSUE_PY,
+     "    if type(active) is not int or active < 0:\n", "    if active is None:\n", ISSUE_COUNT_TESTS),
+    ("a bool is read as an issue's count of active Runs", ISSUE_PY,
+     "    if type(active) is not int or active < 0:\n", "    if not isinstance(active, int) or active < 0:\n",
+     ISSUE_COUNT_TESTS),
+    ("a negative count of active Runs is read on an issue", ISSUE_PY,
+     "    if type(active) is not int or active < 0:\n", "    if type(active) is not int:\n", ISSUE_COUNT_TESTS),
     ("the org's concurrency does not defer an issue's Run", ISSUE_PY,
      '    if active >= limits["org_max_active_runs"]:\n', "    if False:\n", ISSUE_TESTS),
     ("the org's concurrency defers an issue's Run only past its limit", ISSUE_PY,
@@ -2205,7 +2215,16 @@ MUTANTS = ISSUE + [
     ("a capacity fault does not defer", "kernel/decide.py",
      "    if until is not None and until > now:\n", "    if False:\n", ("tests.test_decide.Ceilings",)),
     ("an unreadable count of active Runs is trusted", "kernel/decide.py",
-     "    if active is None:\n", "    if active is None and False:\n", ("tests.test_decide.Readability",)),
+     "    if type(active) is not int or active < 0:\n", "    if active is None and False:\n",
+     ("tests.test_decide.Readability",)),
+    # Issue 218: an active_runs that is no count defers on a pull request, and raises nothing.
+    ("a pull request's count of active Runs that is no number is compared", "kernel/decide.py",
+     "    if type(active) is not int or active < 0:\n", "    if active is None:\n", COUNT_TESTS),
+    ("a bool is read as a pull request's count of active Runs", "kernel/decide.py",
+     "    if type(active) is not int or active < 0:\n", "    if not isinstance(active, int) or active < 0:\n",
+     COUNT_TESTS),
+    ("a negative count of active Runs is read on a pull request", "kernel/decide.py",
+     "    if type(active) is not int or active < 0:\n", "    if type(active) is not int:\n", COUNT_TESTS),
     ("the org limit is ignored", "kernel/decide.py",
      '    if active >= limits["org_max_active_runs"]:\n', "    if False:\n", ("tests.test_decide.Ceilings",)),
     # Decision 0036: a Run listed before its run-name defers every admission, an approval among them, after the brakes.

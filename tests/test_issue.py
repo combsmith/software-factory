@@ -1139,6 +1139,23 @@ class Investigation(unittest.TestCase):
         del ctx["model_deferred_until"]
         self.assertEqual(what(decide(TRIAGED, ctx=ctx)), ("defer", "capacity_unreadable", None))
 
+    def test_an_active_runs_that_is_no_count_defers_and_raises_nothing(self):  # I-3, issue 218
+        # As on a pull request: a count that is no whole number, a bool among them, or is below zero cannot be read.
+        for active in ("3", "", [], {}, 3.0, float("nan"), True, False, -1, "missing"):
+            ctx = context(active_runs=active)
+            if active == "missing":
+                del ctx["active_runs"]
+            try:
+                d = decide(TRIAGED, ctx=ctx)
+            except Exception as e:  # what is asserted is that it returns at all
+                self.fail("an active_runs of %r raised %r" % (active, e))
+            self.assertEqual((d["state"], what(d)), ("triage", ("defer", "capacity_unreadable", None)), active)
+        # The other side: a whole number is read, at the limit and below it.
+        limit = LIMITS["org_max_active_runs"]
+        self.assertEqual(what(decide(TRIAGED, ctx=context(active_runs=limit))), ("defer", "concurrency", None))
+        self.assertEqual(what(decide(TRIAGED, ctx=context(active_runs=limit - 1))), ("admit", "triage", INVESTIGATE))
+        self.assertEqual(what(decide(TRIAGED, ctx=context(active_runs=0))), ("admit", "triage", INVESTIGATE))
+
     def test_what_steers_admission_is_read_whole_or_defers(self):
         for over, reason in (({"role_comments": None}, "comments_unreadable"),
                              ({"role_comments": [{"by": "", "at": at(5)}]}, "comments_unreadable"),

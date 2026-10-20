@@ -778,7 +778,8 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     if until is not None and until > now:
         return _decision(facts, state, "capacity", evidence, t.DEFER)
     active = context.get("active_runs")
-    if active is None:
+    # A count that is no whole number, a bool among them, or is below zero cannot be read: the deferral fails closed.
+    if type(active) is not int or active < 0:
         return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
     if active >= limits["org_max_active_runs"]:
         return _decision(facts, state, "concurrency", evidence, t.DEFER)

@@ -2377,6 +2377,26 @@ class Ceilings(unittest.TestCase):
     def test_org_concurrency_defers(self):  # I-3
         self.assertEqual(go(facts(), ctx=context(active_runs=4))["reason"], "concurrency")
 
+    def test_an_active_runs_that_is_no_count_defers_and_raises_nothing(self):  # I-3, issue 218
+        # The Controller writes the context, but the rule holds for every fact read from outside: a count that is no
+        # whole number, a bool among them, or is below zero cannot be read, and the Run defers as on a capacity unread.
+        for active in ("3", "", [], {}, 3.0, float("nan"), True, False, -1, "missing"):
+            ctx = context(active_runs=active)
+            if active == "missing":
+                del ctx["active_runs"]
+            try:
+                d = go(facts(), ctx=ctx)
+            except Exception as e:  # what is asserted is that it returns at all
+                self.fail("an active_runs of %r raised %r" % (active, e))
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             ("verifying", "capacity_unreadable", "defer", "review"), active)
+        # The other side: a whole number is read, at the limit and below it.
+        limit = LIMITS["org_max_active_runs"]
+        self.assertEqual(go(facts(), ctx=context(active_runs=limit))["reason"], "concurrency")
+        d = go(facts(), ctx=context(active_runs=limit - 1))
+        self.assertEqual((d["reason"], d["outcome"]), ("awaiting_review", "admit"))
+        self.assertEqual(go(facts(), ctx=context(active_runs=0))["outcome"], "admit")
+
     def test_observed_capacity_fault_defers_model_runs(self):
         d = go(facts(), ctx=context(model_deferred_until="2026-10-11T14:00:00Z"))
         self.assertEqual((d["outcome"], d["reason"]), ("defer", "capacity"))
