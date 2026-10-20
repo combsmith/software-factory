@@ -3166,7 +3166,10 @@ class Mutants(unittest.TestCase):
                          ("tests.support", "not a test module"), ("unittest.TestCase", "not a test module"),
                          ("tests.test_tools.unittest.TestCase", "not a TestCase"), ("tests.test_tools.suite_of",
                          "not a method of a TestCase"), ("", "not a test module"), (".tests.test_tools",
-                         "not a test module"), ("tests..test_tools", "not a test module")):
+                         "not a test module"), ("tests..test_tools", "not a test module"),
+                         # A module below a package under tests/ is a test module by its own name, as modules() lists it.
+                         ("tests.deep.test_nested", "whose module does not exist"), ("tests.deep.nested",
+                         "whose module does not exist"), ("tests.support.x", "not a test module")):
             said = mutants.unnamed([("m", "k.py", "rule\n", "x\n", (bad,))])
             self.assertEqual(len(said), 1, bad)
             self.assertIn(why, said[0], bad)

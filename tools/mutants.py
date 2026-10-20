@@ -2881,8 +2881,9 @@ MUTANTS = ISSUE + [
      '    slow = set("tests." + name for name in SLOW) | {"tests.test_hooks"}\n',
      '    slow = set("tests." + name for name in SLOW)\n', ORDER_TESTS),
     ("a name outside tests/ is a test", "tools/mutants.py",
-     '    if parts[0] != "tests" or not module.startswith("test") or not all(parts):\n', "    if False:\n",
-     NAMING_TESTS),
+     '    if parts[0] != "tests" or len(parts) < 2 or not all(parts):\n', "    if False:\n", NAMING_TESTS),
+    ("a module under tests/ that is no test module is a test", "tools/mutants.py",
+     '    if not parts[split - 1]' '.startswith("test"):', "    if False:", NAMING_TESTS),
     ("a class that is no TestCase is a test", "tools/mutants.py",
      '        return "" if _case(found) else "which is not a TestCase of a test module"\n', '        return ""\n',
      NAMING_TESTS),
@@ -2967,8 +2968,7 @@ def _missing(test: str) -> str:
     """Why the dotted name `test` is not a test module under tests/, a TestCase in one, or a test method of one: ""
     where it is one of those."""
     parts = test.split(".")
-    module = parts[-1 if len(parts) == 2 else 1] if len(parts) > 1 else ""
-    if parts[0] != "tests" or not module.startswith("test") or not all(parts):
+    if parts[0] != "tests" or len(parts) < 2 or not all(parts):
         return "which is not a test module under tests/"
     for split in range(len(parts), 1, -1):
         try:
@@ -2978,6 +2978,8 @@ def _missing(test: str) -> str:
         break
     else:
         return "whose module does not exist"
+    if not parts[split - 1].startswith("test"):      # the module found, below any package: test*.py, as modules() lists
+        return "which is not a test module under tests/"
     rest, holder = parts[split:], None
     for part in rest:
         if not hasattr(found, part):
