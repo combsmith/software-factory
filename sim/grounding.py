@@ -128,9 +128,9 @@ RULES = (
     # (section 6's fallback: the issue Lifecycle serves the default branch only). The reverse read from the issue is
     # no substitute: willCloseTarget is false for a closed-unmerged pull request that keeps its reference, false for
     # every one once the issue is closed, and a keyword link raises no ConnectedEvent; the port reads the pull request.
-    ("a_closing_reference_is_read_from_any_pull_request", "The issue a pull request closes, and who opened the pull "
-     "request, are read from a draft, an open, a merged and a closed-unmerged pull request alike", ("P-33",),
-     "trials/P-33.json"),
+    ("a_closing_reference_is_read_from_any_pull_request", "The issue a pull request to the default branch closes, and "
+     "who opened the pull request, are read from a draft, an open, a merged and a closed-unmerged pull request "
+     "alike; one to another base carries no reference", ("P-33",), "trials/P-33.json"),
     ("who_changed_the_draft_flag_is_read", "The timeline says who last marked a pull request ready or converted it "
      "to a draft", ("P-33",), "trials/P-33.json"),
     # trials/P-34.json: lastEditedAt moves for the body alone; the title's change is the timeline's RenamedTitleEvent,
