@@ -3191,6 +3191,124 @@ class Trials(unittest.TestCase):
         self.assertFalse(caught(problems, "trials/P-13.json"))
 
 
+class NarrowedToken(unittest.TestCase):
+    """`tools/trial_p4_narrow.sh` mints one narrowed token at the Maintainer's terminal, reads with it and revokes it.
+    Here it runs against a stand-in curl and openssl, which answer by method and path and record each call."""
+
+    TOKEN = "gh" + "s_" + "F" * 36
+
+    def stand_in(self, mint_status="201", mint_body=None, revoke_status="204", statuses=None) -> pathlib.Path:
+        """A directory holding a curl that answers by URL and an openssl that signs nothing real."""
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (folder / "bin").mkdir()
+        mint_body = mint_body if mint_body is not None else json.dumps(
+            {"token": self.TOKEN, "expires_at": "2026-10-21T00:00:00Z", "permissions": {"contents": "read"},
+             "repository_selection": "selected"})
+        answers = {"GET repos/x/canary/contents/README.md": ("200", '{"name":"README.md","content":"QQ=="}'),
+                   "PUT repos/x/canary/contents/p4/trial.md": ("403", '{"message":"Resource not accessible by integration"}'),
+                   "GET repos/x/other/contents/README.md": ("404", '{"message":"Not Found"}')}
+        answers.update(statuses or {})
+        (folder / "answers.json").write_text(json.dumps(answers))
+        (folder / "bin" / "openssl").write_text("#!/bin/sh\ncase \"$1\" in base64) exec /usr/bin/openssl \"$@\" ;; dgst) printf 'sig' ;; *) exit 1 ;; esac\n")
+        (folder / "bin" / "curl").write_text('''#!/bin/sh
+here=$(dirname "$0")/..
+cat > /dev/null
+method=GET; url=""; include=0; out=""; w=""
+while [ $# -gt 0 ]; do
+  case "$1" in -X) method=$2; shift ;; -i) include=1 ;; -o) out=$2; shift ;; -w) w=$2; shift ;; -H|--data-binary) shift ;; http*) url=$1 ;; esac
+  shift
+done
+printf '%s %s\\n' "$method" "$url" >> "$here/calls"
+path=${url#https://api.github.com/}
+case "$method $path" in
+  "GET repos/"*"/installation") body='{"id": 7, "app_id": 5363178}'; status=200 ;;
+  "POST app/installations/7/access_tokens") body=$(cat "$here/mint.body"); status=$(cat "$here/mint.status") ;;
+  "DELETE installation/token") body=""; status=$(cat "$here/revoke.status") ;;
+  *) pair=$(python3 -c 'import json,sys; a=json.load(open(sys.argv[1])); k=sys.argv[2]; print(a[k][0] + " " + a[k][1] if k in a else "500 {}")' "$here/answers.json" "$method $path"); status=${pair%% *}; body=${pair#* } ;;
+esac
+if [ -n "$out" ]; then printf '%s' "$body" > "$out"; fi
+[ "$include" = 1 ] && printf 'HTTP/2 %s\\r\\ndate: Tue, 20 Oct 2026 23:00:00 GMT\\r\\ncontent-type: application/json\\r\\n\\r\\n%s' "$status" "$body"
+[ -n "$w" ] && printf '%s' "$status"
+exit 0
+''')
+        (folder / "mint.body").write_text(mint_body)
+        (folder / "mint.status").write_text(mint_status)
+        (folder / "revoke.status").write_text(revoke_status)
+        for name in ("curl", "openssl"):
+            (folder / "bin" / name).chmod(0o755)
+        (folder / "key.pem").write_text("not a key\n")
+        return folder
+
+    def run_script(self, folder: pathlib.Path, *args, out="out") -> subprocess.CompletedProcess:
+        env = {"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder), "LANG": "C"}
+        return subprocess.run(["sh", str(ROOT / "tools" / "trial_p4_narrow.sh"), str(folder / out), str(folder / "key.pem"), *args],
+                              capture_output=True, text=True, env=env, cwd=str(folder))
+
+    def test_a_narrowed_token_is_minted_used_three_times_and_revoked_and_never_kept(self):
+        folder = self.stand_in()
+        done = self.run_script(folder, "x/canary", "x/other")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        calls = (folder / "calls").read_text().splitlines()
+        self.assertEqual([c.split(" ", 1)[0] for c in calls], ["GET", "POST", "GET", "PUT", "GET", "DELETE"])
+        self.assertTrue(calls[1].endswith("/app/installations/7/access_tokens"))
+        self.assertTrue(calls[-1].endswith("/installation/token"))
+        asked = json.loads((folder / "out" / "requests.json").read_text())
+        self.assertEqual(asked["revoked"], "204")
+        self.assertEqual(asked["narrowed_to"], {"repositories": ["canary"], "permissions": {"contents": "read"}})
+        self.assertEqual([r["status"] for r in asked["reads"]], ["200", "201", "200", "403", "404"])
+        kept = "".join(p.read_text() for p in (folder / "out").iterdir())
+        self.assertNotIn(self.TOKEN, kept)
+        self.assertNotIn(self.TOKEN, done.stdout + done.stderr)
+        minted = json.loads((folder / "out" / "clean-2").read_text().split("\n\n", 1)[1])
+        self.assertEqual(minted, {"expires_at": "2026-10-21T00:00:00Z", "permissions": {"contents": "read"},
+                                  "repository_selection": "selected"})
+        self.assertFalse(list((folder / "out").glob("*.raw")))
+
+    def test_each_refusal_stops_before_anything_is_minted(self):
+        folder = self.stand_in()
+        (folder / "exists").mkdir()
+        for label, args, said in (
+                ("OUT exists", ("x/canary", "x/other"), "exists; name a new directory"),
+                ("a bad repo name", ("x/canary", "evil/*"), "is not OWNER/REPO"),
+                ("the same repo twice", ("x/canary", "x/canary"), "must differ"),
+                ("too few arguments", ("x/canary",), "usage:")):
+            out = "exists" if label == "OUT exists" else "new-" + label.replace(" ", "-")
+            done = self.run_script(folder, *args, out=out)
+            self.assertEqual(done.returncode, 2, label)
+            self.assertIn(said, done.stderr, label)
+        self.assertFalse((folder / "calls").exists(), "a refusal made a call")
+        done = subprocess.run(["sh", str(ROOT / "tools" / "trial_p4_narrow.sh"), str(folder / "new"), str(folder / "missing.pem"),
+                               "x/canary", "x/other"], capture_output=True, text=True,
+                              env={"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder)}, cwd=str(folder))
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("cannot read the key file", done.stderr)
+
+    def test_a_refused_mint_stops_with_nothing_read_and_the_answer_redacted(self):
+        folder = self.stand_in(mint_status="401", mint_body='{"message": "Bad credentials"}')
+        done = self.run_script(folder, "x/canary", "x/other")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("no token was read from the mint (status 401)", done.stderr)
+        calls = (folder / "calls").read_text().splitlines()
+        self.assertEqual([c.split(" ", 1)[0] for c in calls], ["GET", "POST"], "a read was made with no token")
+        self.assertIn("Bad credentials", (folder / "out" / "clean-2").read_text())
+
+    def test_a_revocation_that_is_not_204_is_told_and_fails(self):
+        folder = self.stand_in(revoke_status="500")
+        done = self.run_script(folder, "x/canary", "x/other")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("returned 500, not 204", done.stderr)
+        self.assertIn("revoke it by hand", done.stderr)
+        self.assertNotIn(self.TOKEN, done.stdout + done.stderr)
+
+    def test_a_reads_status_is_the_answer_whatever_it_is(self):
+        # A read of the other repo answered 200 is not refused by the script: the fixture's verdict judges it.
+        folder = self.stand_in(statuses={"GET repos/x/other/contents/README.md": ("200", '{"name":"README.md"}')})
+        done = self.run_script(folder, "x/canary", "x/other")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        asked = json.loads((folder / "out" / "requests.json").read_text())
+        self.assertEqual([r["status"] for r in asked["reads"]][-1], "200")
+
+
 class Redaction(unittest.TestCase):
     """`tools/redact_trial.py` runs on the raw capture, outside the repo, before anyone reads it."""
 
