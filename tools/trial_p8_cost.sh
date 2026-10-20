@@ -58,7 +58,9 @@ fi
 shift 2
 for repo in "$@"; do
     case "$repo" in
-        */*/* | /* | */ | *" "* | "") echo "trial_p8_cost: $repo is not OWNER/REPO" >&2; exit 2 ;;
+        */*/* | /* | */ | *" "* | *"	"* | "") echo "trial_p8_cost: $repo is not OWNER/REPO" >&2; exit 2 ;;
+        */*) ;;
+        *) echo "trial_p8_cost: $repo is not OWNER/REPO" >&2; exit 2 ;;
     esac
 done
 
