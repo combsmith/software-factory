@@ -2654,6 +2654,49 @@ class Trials(unittest.TestCase):
             self.assertEqual(data["verdict"], "pass", name)
             self.assertEqual(data["ran_at"][:10], "2026-10-19", name)
 
+    def test_the_cost_trials_estimate_is_marked_so_and_held_to_its_reads(self):
+        # P-8's last exchange is the estimate (FR-35): its cost model is held to every read of the fixture that reports
+        # a rateLimit, recomputed here from each read's own variables, and its hourly figures to its figures a pass.
+        p8 = json.loads((ROOT / "trials" / "P-8.json").read_text())
+        estimate = p8["exchanges"][-1]["response"]["body"]
+        self.assertIn("estimate", estimate["method"])
+        self.assertEqual(p8["exchanges"][-1]["request"]["via"], "cli")
+        reads = [e for e in p8["exchanges"][:-1] if (e["response"]["body"].get("data") or {}).get("rateLimit")]
+        self.assertEqual(len(reads), len(estimate["model_checks"]))
+        self.assertTrue(len(reads) >= 20)
+
+        def model(calls):
+            return max(1, int(calls / 100 + 0.5))
+
+        for read, check in zip(reads, estimate["model_checks"]):
+            reported = read["response"]["body"]["data"]["rateLimit"]["cost"]
+            self.assertEqual(check["reported"], reported, read["request"]["call"])
+            v = read["request"]["body"].get("variables", {})
+            if {"prs", "issues", "threads"} <= set(v):
+                # The pass's read: 2 + P x (8 + T) + 3 x I connections, a page of 0 counted as 1.
+                self.assertEqual(reported, model(2 + max(v["prs"], 1) * (8 + v["threads"]) + 3 * v["issues"]), read["request"]["call"])
+            self.assertEqual(check["model"], reported)
+        self.assertEqual([c["reported"] for c in estimate["model_checks"]][-5:], estimate["reader_app_costs"])
+        a_pass = estimate["points_a_pass"]
+        self.assertEqual(a_pass["sized_to_counts_every_page"], a_pass["sized_to_counts"] + a_pass["further_pages"])
+        for key, hourly in estimate["points_an_hour"].items():
+            self.assertEqual(hourly["at_12_passes_an_hour_the_schedule"], 12 * a_pass[key], key)
+            self.assertEqual(hourly["passes_an_hour_W4_allows"], estimate["W4"] // a_pass[key], key)
+        self.assertEqual(p8["verdict"], "pass")
+        self.assertLess(estimate["points_an_hour"]["sized_to_counts_every_page"]["at_12_passes_an_hour_the_schedule"], estimate["W4"])
+        # P-32 fails on the association an App reads, and shows the label events it read: the rule it asks stays
+        # unverified, since no unlabeled event and no event on a pull request was read.
+        p32 = json.loads((ROOT / "trials" / "P-32.json").read_text())
+        self.assertEqual(p32["verdict"], "fail")
+        by_person, by_app = (e["response"]["body"]["data"]["repository"]["issues"]["nodes"] for e in p32["exchanges"])
+        self.assertEqual({i["authorAssociation"] for i in by_person}, {"MEMBER"})
+        self.assertEqual({i["authorAssociation"] for i in by_app}, {"CONTRIBUTOR"})
+        events = [e for i in by_app for e in i["timelineItems"]["nodes"]]
+        self.assertTrue(events)
+        self.assertTrue(all(e["actor"]["login"] and e["actor"]["__typename"] and e["createdAt"] for e in events))
+        by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
+        self.assertIsNone(by_code["a_label_event_names_its_actor"])
+
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
         problems = check_trials.run(clone({"sim/world.py": world + "\n# GitHub: a_rule_nobody_listed\n"}))
@@ -3133,9 +3176,10 @@ class Mutants(unittest.TestCase):
 
     def test_a_shard_is_read_from_the_matrix_or_the_run_stops(self):
         every = len(mutants.MUTANTS)
-        self.assertEqual(mutants.selected({}), (mutants.MUTANTS, ""))
-        chosen, where = mutants.selected({"MUTANTS_SHARD": "2", "MUTANTS_SHARDS": "6"})
-        self.assertEqual((chosen, where), (mutants.shard(mutants.MUTANTS, 2, 6), ", in shard 2 of 6 counted from 0"))
+        self.assertEqual(mutants.selected({}), (mutants.MUTANTS, "", None))
+        chosen, where, at_once = mutants.selected({"MUTANTS_SHARD": "2", "MUTANTS_SHARDS": "6"})
+        self.assertEqual((chosen, where, at_once), (mutants.shard(mutants.MUTANTS, 2, 6), ", in shard 2 of 6 counted "
+                                                                                          "from 0", None))
         for shard, count, said in (("1", None, "set both"), (None, "6", "set both"), ("", "6", "set both"),
                                    ("one", "6", "set both"), ("-1", "6", "set both"), ("1.0", "6", "set both"),
                                    ("6", "6", "below the count"), ("0", "0", "below the count"),
@@ -3150,6 +3194,86 @@ class Mutants(unittest.TestCase):
                               text=True, timeout=60)
         self.assertEqual((done.returncode, done.stdout.strip()), (1, "MUTANTS_SHARD is 0 and MUTANTS_SHARDS is 0; the "
                                                                      "shard is counted from 0, below the count"))
+
+    def test_every_mutant_names_a_test_that_exists(self):
+        # Issue 217: a mutant that names no test ran the whole suite, which was most of a CI leg's time, and a name
+        # that does not exist made its mutant an ERROR. Every mutant names the tests that kill it, and each exists.
+        self.assertEqual(mutants.unnamed(mutants.MUTANTS), [])
+        good = ("tests.test_tools.Mutants.test_every_mutant_names_a_test_that_exists", "tests.test_tools.Mutants",
+                "tests.test_tools")
+        self.assertEqual(mutants.unnamed([("ok", "k.py", "rule\n", "x\n", good)]), [])
+        for bad, why in (("tests.test_tools.NeedsPassed", "does not exist"), ("tests.test_tools.Mutants.test_gone",
+                         "does not exist"), ("tests.test_nowhere", "whose module does not exist"),
+                         ("tests.test_simulator.Roll", "not a TestCase"), ("tests.test_tools.Mutants.check",
+                         "not a test method"), ("tools.mutants", "not a test module"),
+                         ("tests.support", "not a test module"), ("unittest.TestCase", "not a test module"),
+                         ("tests.test_tools.unittest.TestCase", "not a TestCase"), ("tests.test_tools.suite_of",
+                         "not a method of a TestCase"), ("", "not a test module"), (".tests.test_tools",
+                         "not a test module"), ("tests..test_tools", "not a test module"),
+                         # A module below a package under tests/ is a test module by its own name, as modules() lists it.
+                         ("tests.deep.test_nested", "whose module does not exist"), ("tests.deep.nested",
+                         "whose module does not exist"), ("tests.support.x", "not a test module")):
+            said = mutants.unnamed([("m", "k.py", "rule\n", "x\n", (bad,))])
+            self.assertEqual(len(said), 1, bad)
+            self.assertIn(why, said[0], bad)
+        self.assertEqual(mutants.unnamed([("m", "k.py", "rule\n", "x\n")]), ["'m' names no test; name the tests that "
+                                                                            "kill it"])
+        self.assertEqual(mutants.unnamed([("m", "k.py", "rule\n", "x\n", ())])[0][:19], "'m' names no test; ")
+        # The front door refuses such a list before any test runs.
+        with self.assertRaises(ValueError) as raised:
+            mutants.selected({}, mutants=[("m", "k.py", "rule\n", "x\n")])
+        self.assertIn("1 mutant(s) name no test", str(raised.exception))
+
+    def test_slow_modules_run_last(self):
+        # Issue 217: the fallback after the tests a mutant names ran the modules alphabetically, so a mutant in tools/
+        # ran test_hooks and test_simulator before test_tools killed it. The slow modules, SLOW's and test_hooks, run
+        # last; every module still runs, read from the directory, so a new one is never left out.
+        passes, fails = "    def test_a(self):\n        pass\n", "    def test_a(self):\n        self.fail()\n"
+        module = "import unittest\n\n\nclass T(unittest.TestCase):\n"
+        where = suite_of(passes, {"tests/test_hooks.py": module + fails, "tests/test_simulator.py": module + passes,
+                                  "tests/test_new.py": module + passes, "tests/test_aardvark.py": module + passes,
+                                  "tests/deep/__init__.py": "", "tests/deep/test_nested.py": module + passes,
+                                  "tests/testplain.py": module + passes, "tests/support.py": module + fails})
+        self.assertEqual(mutants.modules(where), ["tests.deep.test_nested", "tests.test_aardvark", "tests.test_new",
+                                                  "tests.test_x", "tests.testplain", "tests.test_hooks",
+                                                  "tests.test_simulator"])
+        status, output = mutants.suite(where)
+        self.assertEqual((status, output.count("FAIL: test_a (tests.test_hooks.T")), (1, 1), output)
+        self.assertIn("Ran 6 tests", output, "every quick module, a nested one too, ran before the slow one that failed")
+        where = suite_of(passes, {"tests/test_new.py": module + fails})
+        self.assertEqual(mutants.verdict(*mutants.suite(where))[0], "killed", "a module not named anywhere is run")
+
+    def test_a_filtered_run_is_capped(self):
+        # Issue 217: `python3 -m tools.mutants PATH...` is the one local run allowed: the mutants whose target is one
+        # of the paths, at most FILTER_MOST of them, FILTER_WORKERS at a time, never a shard. With no path, as before.
+        few = [("m%d" % n, "kernel/gate.py" if n % 2 else "kernel/brakes.py", "rule\n", "x\n",
+                ("tests.test_tools.Mutants",)) for n in range(50)]
+        chosen, where, at_once = mutants.selected({}, ["kernel/gate.py"], few)
+        self.assertEqual((len(chosen), where, at_once), (25, ", of kernel/gate.py", mutants.FILTER_WORKERS))
+        self.assertEqual(mutants.FILTER_WORKERS, 2)
+        self.assertEqual(mutants.selected({}, ["./kernel/gate.py"], few)[0], chosen, "a path is read however spelt")
+        self.assertEqual(mutants.selected({}, ["kernel//gate.py"], few)[0], chosen)
+        dotted = [("d", ".github/workflows/verify.yml", "a\n", "b\n", ("tests.test_tools.Mutants",))]
+        self.assertEqual(mutants.selected({}, [".github/workflows/verify.yml"], dotted)[0], dotted, "a dot is kept")
+        with self.assertRaises(ValueError):
+            mutants.selected({}, ["../kernel/gate.py"], few)
+        self.assertEqual(mutants.selected({}, [], few), (few, "", None), "with no path, every mutant, as before")
+        for environ, paths, said in (({}, ["kernel/gate.py", "kernel/brakes.py"], "a filtered run breaks at most 40"),
+                                     ({}, ["kernel/nowhere.py"], "no mutant targets kernel/nowhere.py"),
+                                     ({}, ["kernel/gate.py", "kernel/nowhere.py"], "no mutant targets kernel/nowhere.py"),
+                                     ({"MUTANTS_SHARD": "0", "MUTANTS_SHARDS": "2"}, ["kernel/gate.py"], "do not mix"),
+                                     ({"MUTANTS_SHARD": "0"}, ["kernel/gate.py"], "do not mix"),
+                                     ({"MUTANTS_SHARDS": "2"}, ["kernel/gate.py"], "do not mix")):
+            with self.assertRaises(ValueError, msg=paths) as raised:
+                mutants.selected(environ, paths, few)
+            self.assertIn(said, str(raised.exception), paths)
+        self.assertEqual(mutants.FILTER_MOST, 40)
+        # From the front door, too many mutants stop the run before any test runs; a shard CI set is not this run's.
+        env = {name: value for name, value in os.environ.items() if not name.startswith("MUTANTS_")}
+        done = subprocess.run([sys.executable, "-m", "tools.mutants", "kernel/derive.py"], cwd=str(ROOT), env=env,
+                              capture_output=True, text=True, timeout=120)
+        self.assertEqual(done.returncode, 1, done.stdout[-300:])
+        self.assertIn("a filtered run breaks at most 40", done.stdout)
 
     def test_tests_that_fail_unbroken_stop_the_check_before_any_mutant(self):
         calls = []

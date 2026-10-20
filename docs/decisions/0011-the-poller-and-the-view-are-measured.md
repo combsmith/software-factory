@@ -22,3 +22,4 @@ than trusted. Because the Kernel does no I/O, either can be replaced without tou
 |---|---|
 | Replacing the poller or the view changes no decision: the Kernel imports neither | `tools/check_purity.py` |
 | The three thresholds are computed from run records and shown | waiting on `controller/` |
+| Until the first Consumer is onboarded, a pass's cost an hour is an estimate, marked so (FR-35): the reader App's reads on the two repos it reaches, GitHub's cost model held to them, and the counts of open items in every repo of the org, recorded in `trials/P-8.json` | `tests/test_tools.py::test_the_cost_trials_estimate_is_marked_so_and_held_to_its_reads` |
