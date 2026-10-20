@@ -88,6 +88,11 @@ WORD_TESTS = (IDENTITY_TESTS + "test_a_substitution_a_quote_holds_and_a_comment_
 SPLIT_TESTS = (IDENTITY_TESTS + "test_a_command_that_cannot_be_split_is_refused_whatever_it_names",)
 ANSI_TESTS = (IDENTITY_TESTS + "test_ansi_c_quoting_holding_a_backslash_is_refused",)
 FOUR_MORE_TESTS = (IDENTITY_TESTS + "test_four_more_ways_to_redefine_git_are_refused",)
+# Decision 0040: where the shell may stand, and a program the hook does not read.
+PLACED_TESTS = (IDENTITY_TESTS + "test_a_cd_the_hook_cannot_place_exactly_loses_the_directory",)
+OWN_CD_TESTS = (IDENTITY_TESTS + "test_a_subshells_cd_is_its_own",)
+CD_MINUS_TESTS = (IDENTITY_TESTS + "test_cd_minus_goes_back_to_the_place_before_the_last_cd",)
+UNREAD_TESTS = (IDENTITY_TESTS + "test_a_program_the_hook_does_not_read_may_write_what_it_is_given_and_where_it_stands",)
 ALIAS_TEXT_TESTS = (IDENTITY_TESTS + "test_an_alias_is_read_as_its_text_in_place_of_its_name",)
 EXPANSION_TESTS = (IDENTITY_TESTS + "test_a_variable_in_an_expansion_the_hook_does_not_read_may_be_anything",)
 WHOLE_TESTS = (IDENTITY_TESTS + "test_a_listed_writer_is_read_whole",)
@@ -2249,9 +2254,9 @@ MUTANTS = ISSUE + [
     ("a redirection into git's directory is not read", "tools/hooks/identity.py",
      '        inline += _git_directory([written(t, values) for op, t in redirections if ">" in op], places, "a redirection",\n'
      "                                 loops, spend)\n", "", GIT_DIRECTORY_TESTS),
-    ("every program's words are read as writes into git's directory", "tools/hooks/identity.py",
-     "    if program not in PATH_WRITERS:\n        return []\n", "    if program not in PATH_WRITERS:\n        return args\n",
-     GIT_DIRECTORY_TESTS),
+    ("DATA_ONLY's words are read as writes into git's directory", "tools/hooks/identity.py",
+     '    if runs is None or program in DATA_ONLY or program in ("git", "gh") or program in CD_WORDS:\n',
+     '    if runs is None or program in ("git", "gh") or program in CD_WORDS:\n', UNREAD_TESTS),
     ("a writer's first operand is read as its destination", "tools/hooks/identity.py",
      '"last": operands[-1:]', '"last": operands[:1]', GIT_DIRECTORY_TESTS),
     ("a writer's short target option is not read", "tools/hooks/identity.py",
@@ -2305,11 +2310,11 @@ MUTANTS = ISSUE + [
      LOOP_TESTS),
     ("a substitution in a case's pattern is not read", "tools/hooks/shell.py",
      "        if words is None:       # a pattern runs nothing, but a substitution in it does, where the pattern stands\n"
-     "            for script in _substituted(targets, spend):\n                read = commands(script, spend, texts, scopes, marked)\n"
+     "            for script in _substituted(targets[0], spend):\n                read = commands(script, spend, texts, scopes, marked)\n"
      "                out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read\n",
      "        if words is None:\n", LOOP_TESTS),
     ("a cd in a case pattern's substitution moves the command", "tools/hooks/identity.py",
-     "                scoped.append((here, places, stood))\n", "                pass\n", PATTERN_TESTS),
+     "                scoped.append((here, places, stood, previous, depth))\n", "                pass\n", PATTERN_TESTS),
     ("- is the standard output to every writer", "tools/hooks/identity.py",
      "    return written\n", '    return [path for path in written if path != "-"]\n', STANDS_TESTS),
     ("a directory named - is read as the standard output", "tools/hooks/identity.py",
@@ -2351,7 +2356,7 @@ MUTANTS = ISSUE + [
     ("a writer's output named by another option is still read as where it stands", "tools/hooks/identity.py",
      "and not _gave(given, names) and written == named:", "and written == named:", STANDS_TESTS),
     ("a substitution in a case's pattern is read before every command", "tools/hooks/shell.py",
-     "                found.append((None, token))\n", "                found.insert(0, (None, token))\n", PATTERN_TESTS),
+     "                found.append((None, [token]))", "                found.insert(0, (None, [token]))", PATTERN_TESTS),
     ("tar's old-style bundle is not read", "tools/hooks/identity.py",
      '    if args and re.fullmatch(r"[A-Za-z]+", args[0]):\n        args = _old_style(args, takes)\n', "", TAR_TESTS),
     ("tar's old-style bundle is read as a dashed one", "tools/hooks/identity.py",
@@ -2385,8 +2390,8 @@ MUTANTS = ISSUE + [
     ("an alias whose value ends in a blank leaves the next word as it is", "tools/hooks/identity.py",
      '            while value[-1:] in (" ", "\\t") and tail[:1]', "            while False and tail[:1]", ALIASED_TESTS),
     ("a script an aliased shell or eval is given is not read", "tools/hooks/identity.py",
-     'out += _unaliased(shell.commands(" ".join(spliced), spend, marked=True), table,',
-     'out += _unaliased(shell.commands(" ".join(spliced), spend, marked=True)[:1], table,', ALIASED_TESTS),
+     'out += _unaliased(shell.commands(" ".join(spliced), spend, scopes=True, marked=True), table,',
+     'out += _unaliased(shell.commands(" ".join(spliced), spend, scopes=True, marked=True)[:1], table,', ALIASED_TESTS),
     ("aliases are read without end", "tools/hooks/identity.py",
      "    budget[0] -= 1\n", "    budget[0] -= 0\n", ALIASED_TESTS),
     ("the command is read with no budget", "tools/hooks/identity.py",
@@ -2521,8 +2526,8 @@ MUTANTS = ISSUE + [
     ("a variable read by a subscript is read as one the command may change", "tools/hooks/shell.py",
      'r"(?:^|[\\s;&|()}`])(%s)\\["', 'r"(?:^|[\\s;&|(){}`])(%s)\\["', EXPANSION_TESTS),
     ("a path written is read with the command's variables put in first", "tools/hooks/identity.py",
-     "_git_directory(_written(program, [written(w, values) for w in raw[start + 1:]])",
-     "_git_directory(_written(program, words[start + 1:])",
+     "_git_directory(_given(program, runs, [written(w, values) for w in raw[start + 1:]])",
+     "_git_directory(_given(program, runs, words[start + 1:])",
      EXPANSION_TESTS),
     ("a held script that cannot be split is passed though it names git", "tools/hooks/identity.py",
      "                if shell.GIT_OR_GH.search(re.sub(r\"[\\\\'\\\"]\", \"\", script)):\n                    raise\n",
@@ -2558,7 +2563,8 @@ MUTANTS = ISSUE + [
     ("an arithmetic expansion is read as a command", "tools/hooks/shell.py",
      '            if plain.startswith("$((", i) and plain[j - 2:j] == "))":\n', "            if False:\n", SPLIT_TESTS),
     ("an alias is spliced as commands, not text", "tools/hooks/identity.py",
-     '            out += _unaliased(shell.commands(" ".join(spliced), spend, marked=True), table, read, budget, spend)\n',
+     '            out += _unaliased(shell.commands(" ".join(spliced), spend, scopes=True, marked=True), table, read, budget,\n'
+     '                              spend)\n',
      "            value = shell.commands(value, spend, marked=True) or [([], [])]\n"
      "            value[0] = (words[:at] + value[0][0], value[0][1])\n"
      "            value[-1] = (value[-1][0] + tail, value[-1][1] + redirections)\n"
@@ -2592,6 +2598,55 @@ MUTANTS = ISSUE + [
      FOUR_MORE_TESTS),
     ("--rcfile's value is read as an option", "tools/hooks/identity.py",
      'i += 2 if word in ("--rcfile", "--init-file") else 1', "i += 1", FOUR_MORE_TESTS),
+    # Decision 0040: where the shell may stand, and a program the hook does not read.
+    ("a cd behind a keyword or a prefix is placed where it stood", "tools/hooks/identity.py",
+     "        if program in CD_WORDS and raw[0] != program:\n", "        if False:\n", PLACED_TESTS),
+    ("a cd in a pipeline or a background job, or after ||, is placed exactly", "tools/hooks/identity.py",
+     '    if _join_mark(commands, index, -1) in ("||", "|") or _join_mark(commands, index, 1) in ("|", "&"):\n',
+     "    if False:\n", PLACED_TESTS),
+    ("a cd in a compound body is placed exactly", "tools/hooks/identity.py",
+     "    if outer:\n        return False\n", "    if False:\n        return False\n", PLACED_TESTS),
+    ("zsh's two-operand cd, and an option the hook does not know, are read as a plain cd", "tools/hooks/identity.py",
+     "    if letters - CD_OPTIONS[words[0]] or len(args) > 1:\n", "    if False:\n", PLACED_TESTS),
+    ("CDPATH set in the command is ignored", "tools/hooks/identity.py",
+     "shell.sets(CDPATH, _quoted(\n        shell.without_heredocs(text)))\n", "False\n", PLACED_TESTS),
+    ("a subshell's cd moves the command", "tools/hooks/shell.py",
+     '            out.append(SCOPE[0] if one == "(" else SCOPE[1])\n', "            pass\n", OWN_CD_TESTS),
+    ("a substitution's cd moves the command", "tools/hooks/shell.py",
+     "                out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read     # a substitution runs in a subshell\n",
+     "                out += read\n", OWN_CD_TESTS),
+    ("a shell's -c script's cd moves the command", "tools/hooks/shell.py",
+     "            return [SCOPE[0]] + read + [SCOPE[1]] if scopes else read\n", "            return read\n", OWN_CD_TESTS),
+    ("cd - is read in every directory stood in", "tools/hooks/identity.py",
+     '            if words[0] == "cd" and words[1:] and words[-1] in PREVIOUS and previous is not None:\n',
+     "            if False:\n", CD_MINUS_TESTS),
+    ("pushd -n stacks nothing", "tools/hooks/identity.py",
+     '            if words[0] == "pushd" and target == "." and len(words) > 1 and not words[-1].startswith("-"):\n',
+     "            if False:\n", CD_MINUS_TESTS),
+    ("a program the hook does not read writes none of its words", "tools/hooks/identity.py",
+     "    return places + [HERE]\n", "    return [HERE]\n", UNREAD_TESTS),
+    ("a program the hook does not read writes nothing where it stands", "tools/hooks/identity.py",
+     "    return places + [HERE]\n", "    return places\n", UNREAD_TESTS),
+    ("find's output options name no destination", "tools/hooks/identity.py",
+     "        return [args[i + 1] for i, word in enumerate(args[:-1]) if word in FIND_OUTPUTS[program]]\n",
+     "        return []\n", UNREAD_TESTS),
+    ("popd leaves the previous place as it was", "tools/hooks/identity.py",
+     "                previous = places if target is not None else None\n", "                previous = places\n",
+     CD_MINUS_TESTS),
+    ("a held script's cd moves the command", "tools/hooks/identity.py",
+     "            out += [shell.SCOPE[0]] + _evaluated(read, spend, table) + [shell.SCOPE[1]]   # run later, in a subshell\n",
+     "            out += _evaluated(read, spend, table)\n", OWN_CD_TESTS),
+    ("an alias's subshell cd moves the command", "tools/hooks/identity.py",
+     'shell.commands(" ".join(spliced), spend, scopes=True, marked=True)',
+     'shell.commands(" ".join(spliced), spend, marked=True)', OWN_CD_TESTS),
+    ("a quoted pattern is read as a mark", "tools/hooks/shell.py",
+     "                found.append((None, [token]))", "                found.append((None, token))", PLACED_TESTS),
+    ("a process substitution's ( opens no scope", "tools/hooks/shell.py",
+     '            if scopes and "(" in token and ("<" in token or ">" in token):\n', "            if False:\n",
+     OWN_CD_TESTS),
+    ("eval's script is read without scopes", "tools/hooks/shell.py",
+     '            return commands(" ".join(words[at + 1:]), spend, texts, scopes, marked)\n',
+     '            return commands(" ".join(words[at + 1:]), spend, texts, marked=marked)\n', OWN_CD_TESTS),
 ]
 
 

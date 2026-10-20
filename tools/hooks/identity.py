@@ -41,7 +41,13 @@ patterns are data (decision 0030). A write is read where and when the shell make
 cd -, in every directory the command has stood in; by a writer that names no output, where it stands;
 by a substitution in a case's pattern, where the pattern stands; and through tar's old-style bundle,
 an alias for a feeder, a shell, source or eval, and a bracket expression as the shell reads them. A
-loop too long to read is one the hook cannot read (decision 0032). A word is read as the shell reads it
+loop too long to read is one the hook cannot read (decision 0032). A cd is placed exactly only at the top level
+of a plain ;, newline or && sequence, as a command's first word, with one operand and options the hook knows, and no
+CDPATH set in the command; any other cd (behind a keyword or a prefix, in a pipeline, a background job or a compound
+body, after ||) loses the directory, so a commit, a push or a relative write after it is directory_unreadable. A cd
+in a subshell, a substitution or a shell's -c script is that process's own. cd - after a placed cd goes back to where
+the command stood. In a command that commits or pushes, a program the hook does not read may write each word it is
+given, and where it stands; one of DATA_ONLY writes nothing (decision 0040). A word is read as the shell reads it
 (decision 0032's Boundaries, issue 174): a substitution a single quote or a backslash holds is text to git, gh and a
 program that prints its words, and read where another program may run it later; a comment is dropped; a $'...'
 holding a backslash is refused on sight, since the hook decodes none; a command the hook cannot split, a ( touching a
@@ -242,6 +248,24 @@ PATH_WRITERS = {
               (set(), {"-o", "--output", "-d", "--directory"})),
 }
 HERE = "."      # where a writer that names no output writes: the directory it stands in
+# Programs whose words are data, in a command that commits or pushes: they write no file. Every other program the hook
+# does not read may write each word it is given, and where it stands (decision 0040). A closed list: a false refusal
+# by a reader is fixed by adding the reader here.
+DATA_ONLY = (TEXT_ONLY - {"sort", "uniq"}) | {
+    "[[", ":", "stat", "du", "file", "realpath", "readlink", "basename", "dirname", "od", "strings", "cmp", "fd",
+    "pwd", "type", "which", "whence", "hash", "alias", "unalias", "export", "unset", "set", "shift", "local", "declare",
+    "typeset", "readonly", "return", "break", "continue", "exit", "wait", "jobs", "bg", "fg", "kill", "trap", "umask",
+    "ulimit", "times", "read", "let", "getopts", "shopt", "setopt", "unsetopt", "eval", "sleep", "id", "whoami", "date",
+    "uname",
+    "hostname", "md5", "md5sum", "shasum", "sha256sum", "jq", "hexdump", "column", "tac", "rev", "nl", "fold", "paste",
+    "comm", "join", "seq", "yes"}       # eval's words are the script _inner reads as commands of their own
+# find's output options, each a word of its own: the next word is a place written; every other word of find's is data.
+# tree's -o is read by PATH_WRITERS, attached or bundled as getopt reads it.
+FIND_OUTPUTS = {"find": {"-fprint", "-fprint0", "-fls", "-fprintf"}}
+# Where a command stands is read through cd, pushd and popd (decisions 0032 and 0040).
+CD_WORDS = ("cd", "pushd", "popd")
+CDPATH = frozenset({"CDPATH", "cdpath"})
+CD_OPTIONS = {"cd": set("LPe@qs"), "pushd": set("nq"), "popd": set("nq")}
 # The writers whose output options given `-` write the standard output, and their options that name a directory, to
 # which `-` is a path. To any other program, and as an operand, `-` is a path like any other, which may be a link into
 # git's directory.
@@ -249,6 +273,9 @@ STDOUT_DASH = {"curl": {"--output-dir"}, "wget": {"-P", "--directory-prefix"}}
 # tar by its other names, and its modes: which of its places it writes depends on them (_tar).
 TARS = {"tar", "gtar", "bsdtar"}
 PATH_WRITERS.update({name: PATH_WRITERS["tar"] for name in TARS})
+# tree writes its listing to -o's file alone; its operands and patterns are data (decision 0040).
+PATH_WRITERS["tree"] = ("none", {"-L", "-P", "-I", "-H", "-T", "--filelimit", "--charset", "--sort", "--timefmt",
+                                  "--infofile", "--gitfile", "--fromfile", "--metafirst"}, {"-o"}, None)
 TAR_EXTRACTS = {"-x", "--extract", "--get"}
 TAR_CHANGES = {"-c", "--create", "-r", "--append", "-u", "--update", "-A", "--catenate", "--concatenate", "--delete"}
 TAR_READS = {"-t", "--list", "-d", "--diff", "--compare"}
@@ -266,6 +293,10 @@ TAR_BSD_VALUED = {"-b", "--block-size", "-I", "-T", "--files-from", "-X", "--exc
 # is the script, so that the first operand is a file and not the script.
 IN_PLACE = {"sed": ({"-e", "--expression", "-f", "--file", "-l", "--line-length"}, {"-e", "--expression", "-f", "--file"}),
             "perl": ({"-e", "-E", "-I", "-l", "-0"}, {"-e", "-E"})}
+# awk reads its operands, and gawk's -i inplace rewrites them (decision 0040): the same reading as sed's -i.
+IN_PLACE.update({name: ({"-f", "--file", "-v", "--assign", "-F", "--field-separator", "-i", "--include", "-l",
+                         "--load", "-e", "--source"}, {"-f", "--file", "-e", "--source"})
+                 for name in ("awk", "gawk", "mawk", "nawk")})
 # A brace that expands, {a,b} or {1..9}: the hook reads each word it gives, up to BRACE_MOST of them; past that, a
 # range of digits as a digit and any other brace as a wildcard.
 # Up to the first comma or `..` no other one is read, so the match cannot backtrack across them (SonarCloud S8786).
@@ -361,6 +392,67 @@ def _directory(words: list):
     return args[0] or "."
 
 
+def _opened(words: list, depth: int) -> int:
+    """`depth` after this command's reserved words: the compound commands it opens (if, while, until, for, select, a
+    `{ }` group or a function's body) and closes (fi, done, `}`), as shell.trusted_assignments counts them. A case is
+    not counted: the hook does not see its esac among the commands, so a case's arm is read as run."""
+    for word in words:
+        if word in shell.OPENERS and word != "case":
+            depth += 1
+        elif word in shell.CLOSERS:
+            depth -= 1
+        elif word not in shell.NEUTRAL:
+            break
+        if word in ("for", "select"):
+            break
+    if words[0] == "function" or words[0].endswith("()") or words[1:2] == ["()"]:
+        depth += "{" in words
+    return max(depth, 0)
+
+
+def _placed(commands: list, index: int, words: list, outer: int, cdpath: bool) -> bool:
+    """Whether the hook can place the cd, pushd or popd at commands[index] exactly (decision 0040): it is at the top
+    level of a plain `;`, newline or `&&` sequence, not after `||`, not in a pipeline or a background job (a shell.JOINS
+    mark beside it says so), and not inside a compound command's body (`outer`, the compounds opened before it); its
+    options are ones the hook knows and it is given one operand at most; and no CDPATH or cdpath set in the command may
+    take a relative one elsewhere."""
+    if outer:
+        return False
+    if _join_mark(commands, index, -1) in ("||", "|") or _join_mark(commands, index, 1) in ("|", "&"):
+        return False
+    args, letters = words[1:], set()
+    while args and re.fullmatch(r"-[A-Za-z@]+", args[0]):
+        letters, args = letters | set(args[0][1:]), args[1:]
+    args = args[1:] if args[:1] == ["--"] else args
+    if letters - CD_OPTIONS[words[0]] or len(args) > 1:
+        return False
+    # CDPATH is not searched for an operand that starts with /, ~, ./ or ../, or is . or ..; .git is searched for.
+    plain = not args or args[0].startswith(("/", "~", "./", "../")) or args[0] in (".", "..") or args[0] in PREVIOUS
+    return not (cdpath and words[0] != "popd" and not plain)
+
+
+def _join_mark(commands: list, index: int, step: int):
+    """The shell.JOINS mark next to commands[index] in direction `step`, past the marks and commands of the subshells
+    between, or None where a command, or the subshell this one is in, comes first."""
+    depth, i = 0, index + step
+    opens, closes = ("(", ")") if step > 0 else (")", "(")
+    while 0 <= i < len(commands):
+        raw, mark, _ = commands[i]
+        if raw is None:
+            if mark == opens:
+                depth += 1
+            elif mark == closes:
+                if depth == 0:
+                    return None
+                depth -= 1
+            elif depth == 0 and mark in shell.JOINS:
+                return mark
+        elif depth == 0:
+            return None
+        i += step
+    return None
+
+
 ALIAS_MOST = 256    # aliases read in one command, at most: past it, the command is one the hook cannot read
 PLACES_MOST = 64    # directories a command may stand in, at most: past it, where it stands cannot be read
 
@@ -399,7 +491,8 @@ def _unaliased(commands: list, table: dict, seen: frozenset = frozenset(), budge
             spliced = [shell.requoted(w) for w in words[:at]] + [value] + [shell.requoted(w) for w in tail] + [
                 "%s %s" % (operator, shell.requoted(target)) for operator, target in redirections
                 if not re.fullmatch(r"<<-?", operator)]
-            out += _unaliased(shell.commands(" ".join(spliced), spend, marked=True), table, read, budget, spend)
+            out += _unaliased(shell.commands(" ".join(spliced), spend, scopes=True, marked=True), table, read, budget,
+                              spend)
     return out
 
 
@@ -420,7 +513,7 @@ def _evaluated(commands: list, spend, table: dict = None) -> list:
             continue
         for script in [script for word in words for script in shell.held(word)]:
             try:
-                read = shell.commands(script, spend, marked=True)
+                read = shell.commands(script, spend, scopes=True, marked=True)
             except ValueError:
                 # Most are text a quote holds, sed's code spans among them: one that cannot be split is refused only
                 # when, its quotes and backslashes taken out, it names git or gh.
@@ -431,7 +524,7 @@ def _evaluated(commands: list, spend, table: dict = None) -> list:
                 read = _unaliased(read, table, spend=spend) if table else read
             except Unreadable as err:
                 raise ValueError(str(err)) from None
-            out += _evaluated(read, spend, table)
+            out += [shell.SCOPE[0]] + _evaluated(read, spend, table) + [shell.SCOPE[1]]   # run later, in a subshell
     return out
 
 
@@ -503,14 +596,20 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         for marked, redirections in commands]
     scoped = []     # where the command stood when each subshell it is in began
     loops = _loops([c[:2] for c in commands if c[0] is not None], values)
-    for raw, redirections, marked in commands:
+    # Read only where the text names it, plainly or through quotes: one more reading of a long command costs seconds.
+    cdpath = bool(re.search(r"(?i)cdpath", re.sub(r"[\\'\"]", "", text))) and shell.sets(CDPATH, _quoted(
+        shell.without_heredocs(text)))
+    previous, depth = None, 0   # where the command stood before its last placed cd, for cd -; compounds opened
+    for index, (raw, redirections, marked) in enumerate(commands):
         spend()
-        if raw is None:     # a case pattern's substitution runs in a subshell: a cd in it is its own (shell.SCOPE)
+        if raw is None:     # a mark: what runs in a subshell is its own, so a cd in it is theirs alone (shell.SCOPE)
             if (raw, redirections) == shell.SCOPE[0]:
-                scoped.append((here, places, stood))
-            elif scoped:
-                here, places, stood = scoped.pop()
-            continue
+                scoped.append((here, places, stood, previous, depth))
+                depth = 0
+            elif (raw, redirections) == shell.SCOPE[1] and scoped:
+                here, places, stood, previous, depth = scoped.pop()
+            continue        # a JOIN mark is read beside the cd it joins (_placed)
+        outer, depth = depth, (_opened(raw, depth) if raw else depth)
         # A word is read with what the command set unconditionally put in for each variable it holds.
         words, targets = [expand(w, values) for w in raw], [expand(t, values) for _, t in redirections]
         # A path written is read with what the command set put in, but where a zsh modifier or a subscript follows the
@@ -523,11 +622,23 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
                                                "of its own" % w) for w in words + targets if GIT_CONFIG_FILE.search(w)]
         if not words:
             continue
-        if raw[0] in ("cd", "pushd", "popd"):
+        if raw[0] in CD_WORDS:
+            if not _placed(commands, index, words, outer, cdpath):
+                # A cd the hook cannot place exactly loses the directory, so a commit, a push or a relative write after
+                # it is directory_unreadable (decision 0040).
+                here, places, stood, previous = None, [None], [None], None
+                continue
             target = _directory(words)
-            # The hook keeps no stack: where the shell takes the directory from one, the command may stand in any
-            # directory it has stood in, and what it writes or commits is read in each (decision 0032).
-            places = list(dict.fromkeys(stood if target is None else [_join(place, target) for place in places]))
+            if words[0] == "pushd" and target == "." and len(words) > 1 and not words[-1].startswith("-"):
+                stood = list(dict.fromkeys(stood + [_join(place, words[-1]) for place in places]))  # pushd -n DIR
+            if words[0] == "cd" and words[1:] and words[-1] in PREVIOUS and previous is not None:
+                places, previous = previous, places      # cd - goes back to where the command stood before its last cd
+            else:
+                # The hook keeps no stack: where the shell takes the directory from one, the command may stand in any
+                # directory it has stood in, and what it writes or commits is read in each (decision 0032).
+                # popd, and pushd with no directory or +N, leave OLDPWD a place the hook does not know (decision 0040).
+                previous = places if target is not None else None
+                places = list(dict.fromkeys(stood if target is None else [_join(place, target) for place in places]))
             stood = list(dict.fromkeys(stood + places))
             if len(stood) > PLACES_MOST:    # cd - then a relative cd doubles them: past the most, the directory is lost
                 inline.append(("directory_unreadable", "the command may stand in more directories than the hook reads "
@@ -541,7 +652,11 @@ def _calls(commands: list, cwd, text: str, env: dict = None, spend=None) -> tupl
         program = os.path.basename(words[start])
         if at is None and program in DATA_HEADS:
             continue        # a loop's word list is data: what its body runs is a command of its own
-        inline += _git_directory(_written(program, [written(w, values) for w in raw[start + 1:]]), places, program,
+        if program in CD_WORDS and raw[0] != program:
+            # A cd behind a keyword or a prefix (then cd, builtin cd, time cd) is one the hook cannot place exactly.
+            here, places, stood, previous = None, [None], [None], None
+            continue
+        inline += _git_directory(_given(program, runs, [written(w, values) for w in raw[start + 1:]]), places, program,
                                  loops, spend)
         local = _local(words, at)
         named = present | local     # the environment git runs with: persisted, and set for it alone
@@ -874,10 +989,34 @@ def _loops(commands: list, values: dict) -> dict:
     return loops
 
 
+def _given(program: str, runs, args: list) -> list:
+    """The places a program may write, given its words (decision 0040): what _written reads for a writer the hook
+    knows; the next word after find's or tree's output options; none for git, gh, cd, a program of DATA_ONLY, or a
+    command that runs no program (`runs` is None: an assignment alone, command -v); and for any other program, each of
+    its words, each option's =value, what follows each letter of a bundle of short options, and where it stands."""
+    if program in PATH_WRITERS or program in IN_PLACE or program == "dd":
+        return _written(program, args)
+    if program in FIND_OUTPUTS:
+        return [args[i + 1] for i, word in enumerate(args[:-1]) if word in FIND_OUTPUTS[program]]
+    if runs is None or program in DATA_ONLY or program in ("git", "gh") or program in CD_WORDS:
+        return []
+    places = []
+    for word in args:
+        places.append(word)
+        if word.startswith("--") and "=" in word:
+            places.append(word.partition("=")[2])
+        elif word.startswith("-") and not word.startswith("--"):
+            # Only a suffix that begins where a . or a wildcard may begin the first component can name .git: the
+            # rest are read once, as the word, so a long bundle is read in linear time (decision 0032).
+            head = len(word.partition("/")[0])
+            places += [word[i:] for i in range(2, min(len(word), head)) if word[i] in ".*?[{$"]
+    return places + [HERE]
+
+
 def _written(program: str, args: list) -> list:
     """The paths `program`, given `args`, writes: by PATH_WRITERS, an option of its that names one (`-t DIR`,
     `--target-directory=DIR`, `-fFILE`, a bundle ending in one), and dd's of=; by IN_PLACE, sed's and perl's files when
-    -i is given. Any other program writes none of its words."""
+    -i is given. Any other program writes none of its words here; _given reads them (decision 0040)."""
     if program == "dd":
         return [w[3:] for w in args if w.startswith("of=")]
     if program in IN_PLACE:
@@ -886,8 +1025,6 @@ def _written(program: str, args: list) -> list:
         if not any(o == "-i" or shell.spelt(o, "--in-place") for o in given):
             return []
         return operands if set(given) & scripts else operands[1:]
-    if program not in PATH_WRITERS:
-        return []
     which, valued, destinations, stands = PATH_WRITERS[program]
     if program in TARS:     # GNU tar's options and bsdtar's take different words (-H, -s): each reading is read
         written = _tar(args, valued, destinations, stands) + _tar(args, TAR_BSD_VALUED, destinations, stands)

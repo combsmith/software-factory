@@ -131,9 +131,17 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
                 cases, in_pattern = cases - 1, False
             elif not punctuation:
                 arm.append(token)
-                found.append((None, token))
+                found.append((None, [token]))       # a list, so that no quoted pattern is read as a mark
             continue
         if punctuation:
+            if scopes and "(" in token and ("<" in token or ">" in token):
+                # <( or >(: a process of its own, whose commands are read between SCOPE's marks (decision 0040); its
+                # ) is marked below, as any ) is.
+                if words or targets:
+                    found.append((words, targets))
+                    words, targets = [], []
+                found.append(SCOPE[0])
+                continue
             if "<" in token or ">" in token:
                 if words and words[-1].isdigit():
                     words.pop()     # the 2 of 2>&1
@@ -142,6 +150,8 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
             if words or targets:
                 found.append((words, targets))
                 words, targets = [], []
+            if scopes:
+                found += _marks(token)      # a subshell's ( ), and what joins the commands (decision 0040)
             in_pattern = cases > 0 and (";;" in token or ";&" in token)
             continue
         if operator is not None:
@@ -161,22 +171,55 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
         raise ValueError("a case is never ended")
     out = []
     for words, targets in found:
+        if scopes and words is None and targets in MARKS:     # a mark stands where it was read
+            out.append((words, targets))
+            continue
         if words is None:       # a pattern runs nothing, but a substitution in it does, where the pattern stands
-            for script in _substituted(targets, spend):
+            for script in _substituted(targets[0], spend):
                 read = commands(script, spend, texts, scopes, marked)
                 out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read
             continue
         plain = [unmarked(word) for word in words]
         out.append((words, targets) if marked else (plain, [(op, unmarked(target)) for op, target in targets]))
-        out += _inner(plain, spend, texts, marked)
+        out += _inner(plain, spend, texts, marked, scopes)
         for word in words:
             for script in _substituted(word, spend):
-                out += commands(script, spend, texts, scopes, marked)
+                read = commands(script, spend, texts, scopes, marked)
+                out += [SCOPE[0]] + read + [SCOPE[1]] if scopes else read     # a substitution runs in a subshell
     return [(words, targets) for words, targets in out if words or targets]
 
 
-# The marks commands(scopes=True) puts around what a case pattern's substitution runs: no words, so no command spells one.
+# The marks commands(scopes=True) puts around what runs in a subshell: a ( ), a substitution, a case pattern's
+# substitution, a shell's -c script. No words, so no command spells one; a cd between them is the subshell's alone
+# (decisions 0032 and 0040).
 SCOPE = ((None, "("), (None, ")"))
+# The marks it puts where || , | or & joins two commands, so that a cd joined by one is seen for what it is: one that
+# may not run, or runs in a subshell (decision 0040). && and ; put no mark: a command after them is read as run.
+JOINS = ("||", "|", "&")
+MARKS = ("(", ")") + JOINS
+
+
+def _marks(token: str) -> list:
+    """The marks for one run of punctuation: SCOPE at each ( and ), and a JOIN at each ||, | and &, never at &&, nor
+    at a case's ;;, ;& or ;;&."""
+    out, i = [], 0
+    while i < len(token):
+        three, two, one = token[i:i + 3], token[i:i + 2], token[i]
+        if three == ";;&":
+            i += 3
+        elif two in ("&&", ";;", ";&"):
+            i += 2
+        elif two in ("||", "|&"):
+            out.append((None, "||" if two == "||" else "|"))
+            i += 2
+        elif one in "()":
+            out.append(SCOPE[0] if one == "(" else SCOPE[1])
+            i += 1
+        else:
+            if one in "|&":
+                out.append((None, one))
+            i += 1
+    return out
 
 
 # Each character that ends a word or a command, as it stands while a quote or a backslash holds it: one of the Unicode
@@ -340,14 +383,16 @@ def _held(text: str) -> str:
     return "".join(out)
 
 
-def _inner(words: list, spend=None, texts: list = None, marked: bool = False) -> list:
+def _inner(words: list, spend=None, texts: list = None, marked: bool = False, scopes: bool = False) -> list:
     """The commands of a script run by this one: `bash -c '...'` or `eval ...`, also after env, xargs or sudo; and
     the command string of `flock -c`, `script -c`, `runuser -c`, `su -c` and `env -S`. `words` are as the shell gives
-    them, with no LIVE mark: the script is read again as text."""
+    them, with no LIVE mark: the script is read again as text. With `scopes`, a shell's or a program's script, which
+    runs in a process of its own, comes between SCOPE's marks; eval's and env -S's run in this shell, read flat but
+    with the marks of what they hold (decision 0040)."""
     for at, word in enumerate(words):
         name = os.path.basename(word)
         if name == "eval":
-            return commands(" ".join(words[at + 1:]), spend, texts, marked=marked)
+            return commands(" ".join(words[at + 1:]), spend, texts, scopes, marked)
         if name == "env":       # -S's string is split into the words of the command env runs, before the rest
             for i in range(at + 1, len(words)):
                 if not words[i].startswith("-") and "=" not in words[i] and words[i - 1] not in ENV_VALUED:
@@ -355,10 +400,13 @@ def _inner(words: list, spend=None, texts: list = None, marked: bool = False) ->
                 script, taken = _value(words, i, "S", ("--split-string",), True)
                 if script is not None:
                     rest = words[i + 1 + taken:]
-                    return commands(" ".join([script] + [shlex.quote(w) for w in rest]), spend, texts, marked=marked)
+                    return commands(" ".join([script] + [shlex.quote(w) for w in rest]), spend, texts, scopes, marked)
         if name in SHELLS or name in STRINGS:
             script = script_of(words, at)
-            return [] if script is None else commands(script, spend, texts, marked=marked)
+            if script is None:
+                return []
+            read = commands(script, spend, texts, scopes, marked)
+            return [SCOPE[0]] + read + [SCOPE[1]] if scopes else read
     return []
 
 
