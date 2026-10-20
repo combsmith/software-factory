@@ -2856,8 +2856,8 @@ MUTANTS = ISSUE + [
      "    return [name for name in names if name in slow] + [name for name in names if name not in slow]\n",
      ORDER_TESTS),
     ("a module is left out of the suite", "tools/mutants.py",
-     'for path in (cwd / "tests").rglob("test_*.py"))\n', 'for path in (cwd / "tests").glob("test_*.py"))[1:]\n',
-     ORDER_TESTS),
+     'and path.name.startswith("test") and path.suffix == ".py")\n',
+     'and path.name.startswith("test") and path.suffix == ".py")[1:]\n', ORDER_TESTS),
     ("a filtered run is not capped", "tools/mutants.py",
      "        if len(chosen) > FILTER_MOST:\n", "        if False:\n", FILTER_TESTS),
     ("a filtered run runs beside a shard", "tools/mutants.py",
@@ -2881,8 +2881,8 @@ MUTANTS = ISSUE + [
      '    slow = set("tests." + name for name in SLOW) | {"tests.test_hooks"}\n',
      '    slow = set("tests." + name for name in SLOW)\n', ORDER_TESTS),
     ("a name outside tests/ is a test", "tools/mutants.py",
-     '    if len(parts) < 2 or parts[0] != "tests" or not parts[1].startswith("test_") or not all(parts):\n',
-     "    if False:\n", NAMING_TESTS),
+     '    if parts[0] != "tests" or not module.startswith("test") or not all(parts):\n', "    if False:\n",
+     NAMING_TESTS),
     ("a class that is no TestCase is a test", "tools/mutants.py",
      '        return "" if _case(found) else "which is not a TestCase of a test module"\n', '        return ""\n',
      NAMING_TESTS),
@@ -2932,11 +2932,12 @@ def suite(cwd: pathlib.Path, timeout: float = TIMEOUT, first: tuple = (), only: 
 
 
 def modules(cwd: pathlib.Path) -> list:
-    """Every test module under `cwd`'s tests/, a package nested in it included, as the dotted names unittest runs them
-    by, in the order the suite runs: the modules tools/verify.py names in SLOW, and test_hooks, after all the others, so
+    """Every test module under `cwd`'s tests/, `test*.py` as discovery finds them, a package nested in it included, as
+    the dotted names unittest runs them by, in the order the suite runs: the modules tools/verify.py names in SLOW, and test_hooks, after all the others, so
     that a mutant the tests it names miss is still read by every test, the quick ones first. The modules are read from
-    the directory, never listed here, so a new one is never left out (issue 217)."""
-    names = sorted(".".join(path.relative_to(cwd).with_suffix("").parts) for path in (cwd / "tests").rglob("test_*.py"))
+    the tree by tools/walk.py, never listed here, so a new one is never left out (issue 217)."""
+    names = sorted(".".join(path.relative_to(cwd).with_suffix("").parts) for path in walk.files(cwd)
+                   if path.relative_to(cwd).parts[0] == "tests" and path.name.startswith("test") and path.suffix == ".py")
     slow = set("tests." + name for name in SLOW) | {"tests.test_hooks"}
     return [name for name in names if name not in slow] + [name for name in names if name in slow]
 
@@ -2966,7 +2967,8 @@ def _missing(test: str) -> str:
     """Why the dotted name `test` is not a test module under tests/, a TestCase in one, or a test method of one: ""
     where it is one of those."""
     parts = test.split(".")
-    if len(parts) < 2 or parts[0] != "tests" or not parts[1].startswith("test_") or not all(parts):
+    module = parts[-1 if len(parts) == 2 else 1] if len(parts) > 1 else ""
+    if parts[0] != "tests" or not module.startswith("test") or not all(parts):
         return "which is not a test module under tests/"
     for split in range(len(parts), 1, -1):
         try:

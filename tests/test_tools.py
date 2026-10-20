@@ -3186,12 +3186,14 @@ class Mutants(unittest.TestCase):
         module = "import unittest\n\n\nclass T(unittest.TestCase):\n"
         where = suite_of(passes, {"tests/test_hooks.py": module + fails, "tests/test_simulator.py": module + passes,
                                   "tests/test_new.py": module + passes, "tests/test_aardvark.py": module + passes,
-                                  "tests/deep/__init__.py": "", "tests/deep/test_nested.py": module + passes})
+                                  "tests/deep/__init__.py": "", "tests/deep/test_nested.py": module + passes,
+                                  "tests/testplain.py": module + passes, "tests/support.py": module + fails})
         self.assertEqual(mutants.modules(where), ["tests.deep.test_nested", "tests.test_aardvark", "tests.test_new",
-                                                  "tests.test_x", "tests.test_hooks", "tests.test_simulator"])
+                                                  "tests.test_x", "tests.testplain", "tests.test_hooks",
+                                                  "tests.test_simulator"])
         status, output = mutants.suite(where)
         self.assertEqual((status, output.count("FAIL: test_a (tests.test_hooks.T")), (1, 1), output)
-        self.assertIn("Ran 5 tests", output, "every quick module, a nested one too, ran before the slow one that failed")
+        self.assertIn("Ran 6 tests", output, "every quick module, a nested one too, ran before the slow one that failed")
         where = suite_of(passes, {"tests/test_new.py": module + fails})
         self.assertEqual(mutants.verdict(*mutants.suite(where))[0], "killed", "a module not named anywhere is run")
 
