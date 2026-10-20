@@ -15,6 +15,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -2756,6 +2757,126 @@ class Trials(unittest.TestCase):
             data = json.loads((ROOT / "trials" / ("%s.json" % name)).read_text())
             self.assertEqual(data["verdict"], "pass", name)
             self.assertEqual(data["ran_at"][:10], "2026-10-19", name)
+
+    def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
+        # Decision 0035: a trial of repos records the canary as its home, and a measurement's reads may span the org's
+        # repos. Held on what the reads say, for every fixture of the canary, and closed on what cannot be read: each
+        # read names its owner, in its REST path or in every repository and organization call of its query, each
+        # bound to a literal or to a declared variable, and a query with any other root field is refused; that owner
+        # is the org; every repo an answer names, by nameWithOwner, full_name, or a name beside its owner's login,
+        # is the org's; a read an App made names, and is answered with, only repos its installation reaches, the
+        # canary alone for an App the data does not know; and a command-line read is the Maintainer's own.
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
+        installed = {app["name"]: set(app["installed_on"]) for app in apps.values()}
+        canary = "combsmith/" + check_trials.CANARY
+        rest_path = re.compile(r"^[A-Z]+ /(?:repos/([^/?\s]+)/([^/?\s]+)|orgs/([^/?\s]+))")
+        any_repos = re.compile(r"\brepos/([^/?\s]+)/([^/?\s]+)")
+        root_field = re.compile(r"^(?:\w+\s*:\s*)?(\w+)\s*(?:\(([^)]*)\))?$")
+
+        def roots(query):
+            """Each root field of the one operation in `query`, as (field, its arguments): what stands at depth one
+            of its selection set, outside strings. A fragment or a second operation is not read, and fails."""
+            depth, found, text, quoted = 0, [], "", False
+            for ch in query:
+                if ch == '"':
+                    quoted = not quoted
+                if quoted:
+                    text += ch
+                    continue
+                if ch == "{":
+                    if depth == 1:
+                        found.append(text.strip())
+                        text = ""
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 1:
+                        text = ""
+                elif depth == 1:
+                    text += ch
+            out = []
+            for item in found:
+                found_field = root_field.match(item.strip())
+                self.assertTrue(found_field, "a root field the test cannot read: %r" % item)
+                out.append((found_field.group(1), found_field.group(2) or ""))
+            return out
+
+        argument = re.compile(r"\b(owner|name|login)\s*:\s*(?:\"([^\"]*)\"|\$(\w+))")
+
+        def bound(args, key, variables):
+            """The one value of `key` among `args`, a literal or a declared variable's; None if not exactly one."""
+            found = [m for m in argument.finditer(args) if m.group(1) == key]
+            if len(found) != 1:
+                return None
+            literal, var = found[0].group(2), found[0].group(3)
+            return literal if literal is not None else variables.get(var)
+
+        def names(value, under=None):
+            """Each repo an answer names: nameWithOwner, full_name, or a name beside its owner's login, which an App,
+            under the key app or with a slug, has as well and is not one."""
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key in ("nameWithOwner", "full_name") and isinstance(item, str):
+                        yield item
+                    yield from names(item, key)
+                owner = value.get("owner")
+                if isinstance(value.get("name"), str) and isinstance(owner, dict) and isinstance(owner.get("login"), str) \
+                        and under != "app" and "slug" not in value:
+                    yield owner["login"] + "/" + value["name"]
+            elif isinstance(value, list):
+                for item in value:
+                    yield from names(item, under)
+
+        def asked(request, where):
+            """(owners, repos) a request names; a read that cannot be read fails the test here."""
+            owners, repos = set(), set()
+            if request["via"] == "graphql":
+                body = request["body"]
+                variables = body.get("variables") or {}
+                self.assertTrue(body["query"].lstrip().startswith(("query", "{")), where + ": not a query")
+                for field, args in roots(body["query"]):
+                    if field == "repository":
+                        owner, name = bound(args, "owner", variables), bound(args, "name", variables)
+                        self.assertTrue(owner and name, "%s: a repository call that cannot be read: %s" % (where, args))
+                        owners.add(owner)
+                        repos.add(owner + "/" + name)
+                    elif field == "organization":
+                        login = bound(args, "login", variables)
+                        self.assertTrue(login, "%s: an organization call that cannot be read: %s" % (where, args))
+                        owners.add(login)
+                    elif field != "rateLimit":
+                        self.fail("%s: a root field the test does not read: %s" % (where, field))
+                self.assertTrue(owners, where + ": a query that names no repo and no org")
+            else:
+                found = rest_path.match(request["call"])
+                for owner, name in any_repos.findall(request["call"]):
+                    owners.add(owner)
+                    repos.add(owner + "/" + name)
+                if found and found.group(3):
+                    owners.add(found.group(3))
+            return owners, repos
+
+        checked = 0
+        for path in sorted((ROOT / "trials").glob("P-*.json")):
+            data = json.loads(path.read_text())
+            if data["repo"] != canary:
+                continue
+            checked += 1
+            for i, e in enumerate(data["exchanges"]):
+                where = "%s exchange %d" % (path.name, i)
+                request, asker = e["request"], e["request"]["as"]
+                owners, repos = asked(request, where)
+                answered = set(names(e["response"]["body"]))
+                self.assertTrue(owners <= {"combsmith"}, "%s names %s" % (where, sorted(owners - {"combsmith"})))
+                self.assertTrue(all(repo.startswith("combsmith/") for repo in answered),
+                                "%s was answered %s" % (where, sorted(r for r in answered if not r.startswith("combsmith/"))))
+                if request["via"] == "cli":
+                    self.assertEqual(asker, {"kind": "person", "name": "don-petry"}, where)
+                if asker["kind"] == "app":
+                    reach = installed.get(asker["name"].split(",")[0].replace("[bot]", ""), {canary})
+                    self.assertTrue(repos <= reach, "%s asks %s, beyond %s" % (where, sorted(repos - reach), sorted(reach)))
+                    self.assertTrue(answered <= reach, "%s was answered %s, beyond the reach" % (where, sorted(answered - reach)))
+        self.assertGreaterEqual(checked, 2)
 
     def test_the_cost_trials_estimate_is_marked_so_and_held_to_its_reads(self):
         # P-8's last exchange is the estimate (FR-35): its cost model is held to every read of the fixture that reports
