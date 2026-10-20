@@ -1616,7 +1616,7 @@ MUTANTS = ISSUE + [
      "        if EVAL_JOB in jobs and path.name != EVAL_WORKFLOW:\n", "        if False:\n",
      ("tests.test_evals.TheSet.test_the_eval_jobs_name_is_reserved",)),
     ("the scorer reads a file outside the directory it runs in", "tools/eval_result.py",
-     "    if not all(_inside(path, base) for path in paths):\n", "    if False:\n",
+     "    if not all(path.startswith(inside + os.sep) for path in real):\n", "    if False:\n",
      ("tests.test_evals.Scoring.test_the_front_door_scores_two_files_and_says_so_in_its_exit",)),
     ("a raised Finding may carry a category nobody owns", "tools/check_authority.py",
      '    for field, held in (("category", known), ("severity", set(finding["properties"]["severity"]["enum"]))):\n',

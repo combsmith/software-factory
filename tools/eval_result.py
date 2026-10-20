@@ -4,6 +4,7 @@ file cannot be read. The case comes from the private home at run time; nothing h
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import sys
 
@@ -98,28 +99,21 @@ def score(case: dict, result: dict, known: dict = None) -> dict:
     return {"case": case["id"], "verdict": PASS if not reasons else FAIL, "reasons": reasons}
 
 
-def _inside(path: pathlib.Path, base: pathlib.Path) -> bool:
-    """Whether `path`, followed to where it really is, lies under `base`: the scorer reads only what the job checked
-    out beside it, never a file a path given to it points at elsewhere."""
-    try:
-        path.resolve().relative_to(base.resolve())
-    except ValueError:
-        return False
-    return True
-
-
 def main(argv: list = None, base: pathlib.Path = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    base = pathlib.Path.cwd() if base is None else base
     if len(argv) != 2:
         print("usage: python3 -m tools.eval_result CASE RESULT", file=sys.stderr)
         return EXIT[UNREADABLE]
-    paths = [pathlib.Path(p) for p in argv]
-    if not all(_inside(path, base) for path in paths):
+    # The scorer reads only what the job checked out beside it: each path is followed to where it really is, and one
+    # outside the directory the scorer runs in is refused before it is opened; the refusal names no path.
+    inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
+    real = [os.path.realpath(os.path.join(inside, p)) for p in argv]
+    if not all(path.startswith(inside + os.sep) for path in real):
         print(json.dumps({"case": None, "verdict": UNREADABLE, "reasons": ["file_outside"]}), file=sys.stderr)
         return EXIT[UNREADABLE]
     try:
-        case, result = (json.loads(path.read_text()) for path in paths)
+        with open(real[0], encoding="utf-8") as first, open(real[1], encoding="utf-8") as second:
+            case, result = json.load(first), json.load(second)
     except (OSError, ValueError):
         print(json.dumps({"case": None, "verdict": UNREADABLE, "reasons": ["file"]}), file=sys.stderr)
         return EXIT[UNREADABLE]
