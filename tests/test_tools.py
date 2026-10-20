@@ -1603,6 +1603,11 @@ class Workflows(unittest.TestCase):
         verify = GOOD[GOOD.index("  verify:\n"):]
         cases.append((GOOD.replace(verify, verify.replace("      contents: read\n", "      contents: write\n")),
                       "granted other than"))
+        # Its env: is NEEDS alone, and the file has no top-level env: for the jobs to inherit: a PYTHONPATH there would
+        # change the interpreter that runs the base's tools/needs_passed.py.
+        cases.append((GOOD.replace(verify, verify.replace("      NEEDS:", "      PYTHONPATH: evil\n      NEEDS:")),
+                      "its env: holds other than NEEDS"))
+        cases.append((GOOD.replace("jobs:\n", "env:\n  PYTHONPATH: evil\njobs:\n"), "has a top-level env:"))
         for text, said in cases:
             self.assertNotEqual(text, GOOD, said)
             self.assertTrue(caught(self.lens_problems(text), said), said)

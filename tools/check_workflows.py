@@ -425,6 +425,8 @@ def _judging(text: str, entries: list, job: str, jobs: list) -> list:
                     "else, so the head's own tools/needs_passed.py could give its verdict" % BASE)
     if [(e["path"], e["value"]) for e in mine if e["key"] == "NEEDS"] != [(["jobs", job, "env"], NEEDS)]:
         whys.append("it does not give NEEDS: %s once, in its own env:, so what it needs cannot be read" % NEEDS)
+    if [e["key"] for e in mine if e["path"] == ["jobs", job, "env"]] != ["NEEDS"]:
+        whys.append("its env: holds other than NEEDS, with which the interpreter that runs `%s` could be changed" % JUDGE)
     # Its exact shape (issue 180): no key the rule does not name, on the job or on a step, so that nothing can change
     # where or how `JUDGE` runs: a working-directory:, a shell:, a container:, a default, an env: on the step.
     if set(inside) - JUDGING_KEYS:
@@ -556,6 +558,8 @@ def lens_job_problems(text: str, check: str) -> list:
                          for why in _judging(text, entries, job, jobs)]
     if any("needs" in inside for _, inside in named):     # the required check's workflow, whose job judges the rest
         problems += _commits(text, entries, jobs) + _shards(entries, jobs)
+        if "env" in top:
+            problems.append("has a top-level env:, which every job inherits, where each is told what it is and nothing else")
     return problems
 
 
