@@ -1581,6 +1581,56 @@ class Workflows(unittest.TestCase):
             self.assertTrue(caught(self.lens_problems(text), said), said)
         self.assertEqual(self.lens_problems(GOOD), [])
 
+    def test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape(self):
+        # Issue 180: a working-directory: on the judging step would run another tree's tools/needs_passed.py, a shell:
+        # or an env: on it or a container: on the job would change how it runs, and a missing checkout would leave no
+        # base to judge from. The job's keys, its permissions, and each step's keys are held exactly.
+        judge = "      - run: python3 -m tools.needs_passed\n"
+        base = ("      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n"
+                "          persist-credentials: false\n          ref: %s\n" % check_workflows.BASE)
+        self.assertEqual((GOOD.count(judge), GOOD.count(base)), (1, 1))
+        shape = "its steps are not a checkout"
+        cases = [(GOOD.replace(judge, judge + "        working-directory: evil\n"), shape),
+                 (GOOD.replace(judge, judge + "        shell: bash\n"), shape),
+                 (GOOD.replace(judge, judge + "        env:\n          NEEDS: '{}'\n"), shape),
+                 (GOOD.replace(base, ""), "its one checkout is not of the base alone"),
+                 (GOOD.replace("    env:\n      NEEDS:", "    container: ghcr.io/x/y:1\n    env:\n      NEEDS:"), "has keys other than"),
+                 (GOOD.replace("    env:\n      NEEDS:", "    defaults:\n      run:\n        working-directory: evil\n    env:\n      NEEDS:"),
+                  "has keys other than"),
+                 (GOOD.replace("    env:\n      NEEDS:", "    permissions:\n      contents: write\n    env:\n      NEEDS:"), "granted other than")]
+        verify = GOOD[GOOD.index("  verify:\n"):]
+        cases.append((GOOD.replace(verify, verify.replace("      contents: read\n", "      contents: write\n")),
+                      "granted other than"))
+        for text, said in cases:
+            self.assertNotEqual(text, GOOD, said)
+            self.assertTrue(caught(self.lens_problems(text), said), said)
+        self.assertEqual(self.lens_problems(GOOD), [])
+
+    def test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix(self):
+        # Issue 180: MUTANTS_SHARD written as a number would make every leg run one shard, and MUTANTS_SHARDS written as
+        # a number could differ from the matrix's size; each is the matrix's own expression, the matrix is the one key
+        # shard, and the job's shape is held exactly, as the judging job's is.
+        job = GOOD[GOOD.index("  mutants:\n"):GOOD.index("  commits:\n")]
+        index, total = "      MUTANTS_SHARD: ${{ strategy.job-index }}\n", "      MUTANTS_SHARDS: ${{ strategy.job-total }}\n"
+        run = "      - run: python3 -m tools.mutants\n"
+        self.assertEqual((job.count(index), job.count(total), job.count(run)), (1, 1, 1))
+        told, shape = "not told MUTANTS_SHARD", "whose steps are not a checkout of the head"
+        cases = [(index, "      MUTANTS_SHARD: 0\n", told), (total, "      MUTANTS_SHARDS: 8\n", told),
+                 (total, "", told), (index, index + "      OTHER: 1\n", told),
+                 ("        shard:\n", "        leg:\n", "not the one key shard"),
+                 ("    env:\n      MUTANTS_SHARD", "    container: ghcr.io/x/y:1\n    env:\n      MUTANTS_SHARD", "keys other than"),
+                 ("      contents: read\n", "      contents: write\n", "granted other than"),
+                 (run, run + "        working-directory: evil\n", shape), (run, run + "        env:\n          MUTANTS_SHARD: 0\n", shape),
+                 (run, run + "      - run: make verify\n", shape),
+                 (run, "      - run: python3 -m tools.mutants --quick\n", shape),
+                 (run, "      - run: |\n          python3 -m tools.mutants\n", shape),
+                 ("          fetch-depth: 0\n      - run: python3 -m tools.mutants\n", "      - run: python3 -m tools.mutants\n", shape)]
+        for old, new, said in cases:
+            text = GOOD.replace(job, job.replace(old, new))
+            self.assertNotEqual(text, GOOD, said)
+            self.assertTrue(caught(self.lens_problems(text), said), (old, new, said))
+        self.assertEqual(self.lens_problems(GOOD), [])
+
     def test_a_lens_job_that_judges_its_needs_runs_from_the_base(self):
         # verify's verdict is the base's tools/needs_passed.py: its one checkout is of the base, on a pull request and in
         # the merge queue, and of nothing else, so a change cannot make its own verdict pass (decision 0023).
@@ -2227,7 +2277,9 @@ class Context(unittest.TestCase):
         block, prose = "x: 1\n" * 130, "Words.\n" * 130
         for name, text, over in (("code", page % ("Code", block, ""), True),
                                  ("workflows", page % ("Workflows", block, ""), False),
-                                 ("workflows", page % ("Workflows", "x: 1\n", prose), True)):
+                                 ("workflows", page % ("Workflows", "x: 1\n", prose), True),
+                                 # The first yaml block alone: prose between it and a later fence still counts.
+                                 ("workflows", page % ("Workflows", "x: 1\n", prose + "```\nx\n```\n"), True)):
             problems = check_context._standards(tree({"docs/standards/%s.md" % name: text, "tools/x.py": ""}))
             self.assertEqual(caught(problems, "%s.md is over one page" % name), over, name)
 
