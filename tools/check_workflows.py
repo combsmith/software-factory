@@ -416,33 +416,39 @@ def _judging(text: str, entries: list, job: str, jobs: list) -> list:
 
 def _commits(text: str, entries: list, jobs: list) -> list:
     """Why the workflow's job `commits` would not read every commit the pull request carries from the base (decision
-    0041): it is missing; it is not told the base, the head and the event in its own env:, as the expressions name them;
-    its one checkout is not of the base with the whole history, persist-credentials: false and nothing else; it does
-    not run `COMMITS` on a line of its own, with no if: on the step; or its steps are more than that."""
+    0041). Its shape is closed: the keys runs-on, timeout-minutes, permissions (contents: read), env and steps and no
+    other, so no container, strategy, if: or default can change what runs; env: exactly BASE_SHA, HEAD_SHA and EVENT as
+    the expressions name them; two steps, a checkout of the base with the whole history and persist-credentials: false,
+    and `COMMITS` on a line of its own, each step holding no other key, since a step's env: or if: would override the
+    job's or skip it."""
     if "commits" not in jobs:
         return ["has no job commits, which reads every commit the pull request carries from the base"]
     mine = [e for e in entries if e["path"][:2] == ["jobs", "commits"]]
     inside = {e["key"]: e for e in mine if e["path"] == ["jobs", "commits"]}
     whys = []
-    if "if" in inside:
-        whys.append("its job commits has a job-level if:, which could skip it")
+    if set(inside) != {"runs-on", "timeout-minutes", "permissions", "env", "steps"}:
+        whys.append("its job commits has keys other than runs-on, timeout-minutes, permissions, env and steps, or lacks "
+                    "one: a container, a strategy, an if: or a default could change what runs")
+    if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", "commits", "permissions"]} != {"contents": "read"}:
+        whys.append("its job commits is granted other than contents: read")
     given = {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", "commits", "env"]}
     if given != {"BASE_SHA": BASE, "HEAD_SHA": HEAD, "EVENT": EVENT}:
         whys.append("its job commits is not told BASE_SHA: %s, HEAD_SHA: %s and EVENT: %s in its own env:, and "
                     "nothing else" % (BASE, HEAD, EVENT))
-    steps = [e for e in mine if e["path"] == ["jobs", "commits", "steps"]]
+    steps = _steps(entries, "commits")
+    keys = [set(step) for step in steps]
     wanted = {"persist-credentials": "false", "fetch-depth": "0", "ref": BASE}
-    if [_with(entries, c) for c in steps if _checkout(c)] != [wanted]:
+    if keys != [{"uses", "with"}, {"run"}]:
+        whys.append("its job commits's steps are not a checkout with its with: and then one run:, each holding no "
+                    "other key: a step's env: or if: would override the job's or skip it, and another step could act "
+                    "for it")
+    checkouts = [e for e in mine if e["path"] == ["jobs", "commits", "steps"] and _checkout(e)]
+    if [_with(entries, c) for c in checkouts] != [wanted]:
         whys.append("its job commits does not check out the base alone, with the whole history: `ref: %s`, "
                     "fetch-depth: 0 and persist-credentials: false and nothing else" % BASE)
-    runs = [e for e in steps if e["key"] == "run"]
-    reading = [e for e in runs if e["value"] == COMMITS and not e["body"]]
-    if not reading:
-        whys.append("its job commits runs no step `%s`, on a line of its own" % COMMITS)
-    elif any(e["key"] == "if" and e["step"] == r["step"] for e in steps for r in reading):
-        whys.append("an if: can skip its job commits's step `%s`" % COMMITS)
-    if any(e["key"] == "uses" and not _checkout(e) for e in steps) or len(runs) > 1:
-        whys.append("its job commits's steps are more than a checkout and `%s`" % COMMITS)
+    runs = [e for e in mine if e["path"] == ["jobs", "commits", "steps"] and e["key"] == "run"]
+    if [(e["value"], e["body"]) for e in runs] != [(COMMITS, [])] and [(e["value"], e["body"]) for e in runs] != [(COMMITS, None)]:
+        whys.append("its job commits runs no step `%s`, on a line of its own, as its one run:" % COMMITS)
     return whys
 
 

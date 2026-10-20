@@ -1555,18 +1555,26 @@ class Workflows(unittest.TestCase):
         reading = "      - run: python3 -m tools.commits_are_the_maintainers\n"
         depth = "          fetch-depth: 0\n          ref: %s\n" % check_workflows.BASE
         self.assertEqual((job.count(reading), job.count(depth)), (1, 1))
+        shape = "its job commits's steps are not a checkout"
         cases = [(GOOD.replace(job, "").replace("      - commits\n", ""), "has no job commits"),
-                 (GOOD.replace(job, job.replace("    env:\n", "    if: always()\n    env:\n")), "a job-level if:"),
+                 (GOOD.replace(job, job.replace("    env:\n", "    if: always()\n    env:\n")), "has keys other than"),
+                 (GOOD.replace(job, job.replace("    env:\n", "    container: ghcr.io/x/y:1\n    env:\n")), "has keys other than"),
+                 (GOOD.replace(job, job.replace("    env:\n", "    strategy:\n      matrix:\n        a:\n          - 1\n    env:\n")),
+                  "has keys other than"),
+                 (GOOD.replace(job, job.replace("    timeout-minutes: 10\n", "")), "has keys other than"),
+                 (GOOD.replace(job, job.replace("      contents: read\n", "      contents: write\n")), "granted other than"),
                  (GOOD.replace(job, job.replace("      EVENT: ${{ github.event_name }}\n", "")), "is not told BASE_SHA"),
                  (GOOD.replace(job, job.replace("github.event.merge_group.head_sha", "github.sha")), "is not told BASE_SHA"),
                  (GOOD.replace(job, job.replace(depth, "          ref: %s\n" % check_workflows.BASE)), "whole history"),
                  (GOOD.replace(job, job.replace(depth, "          fetch-depth: 0\n")), "check out the base alone"),
                  (GOOD.replace(job, job.replace(depth, depth.replace("base.sha", "head.sha"))), "check out the base alone"),
                  (GOOD.replace(job, job.replace(reading, "      - run: make verify\n")), "runs no step"),
-                 (GOOD.replace(job, job.replace(reading, reading + "        if: false\n")), "an if: can skip"),
-                 (GOOD.replace(job, job.replace(reading, reading + "      - run: make verify\n")), "more than a checkout"),
+                 (GOOD.replace(job, job.replace(reading, reading + "        if: false\n")), shape),
+                 (GOOD.replace(job, job.replace(reading, reading + "        env:\n          BASE_SHA: abc\n")), shape),
+                 (GOOD.replace(job, job.replace(reading, reading + "        shell: bash\n")), shape),
+                 (GOOD.replace(job, job.replace(reading, reading + "      - run: make verify\n")), shape),
                  (GOOD.replace(job, job.replace(reading, "      - uses: actions/github-script@" + "a" * 40 + " # v7\n" + reading)),
-                  "more than a checkout")]
+                  shape)]
         for text, said in cases:
             self.assertNotEqual(text, GOOD, said)
             self.assertTrue(caught(self.lens_problems(text), said), said)
