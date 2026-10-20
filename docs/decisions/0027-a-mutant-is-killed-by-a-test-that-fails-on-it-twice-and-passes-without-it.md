@@ -81,4 +81,7 @@ budgets get mutants; and a test that kills only when the whole suite runs, if on
 | The test is read from the line each Python prints under unittest's rule, a subtest's and `setUpClass`'s among them; a line not read is an `ERROR` | `tests/test_tools.py::test_the_failing_test_is_read_from_the_line_each_python_prints` |
 | A test named to run alone runs alone, in a suite of many | `tests/test_tools.py::test_the_tests_a_mutant_names_run_first_and_the_whole_suite_after_them` |
 | Exactly the tests that read the clock or sleep, however `time` is imported, carry `@wall_clock`, which skips it when mutating and leaves it as it is otherwise | `tests/test_tools.py::test_every_test_timed_by_the_wall_clock_is_marked_and_skipped_when_mutating` |
+| Every mutant names the tests that kill it, and each name is a module, a TestCase or a test method that exists; a list with one that is not is refused before any test runs | `tests/test_tools.py::test_every_mutant_names_a_test_that_exists` |
+| The suite after the named tests runs every module under `tests/`, read from the directory, with `SLOW`'s modules and `test_hooks` last | `tests/test_tools.py::test_slow_modules_run_last` |
+| A run filtered by path breaks the mutants that target the paths, at most 40, two at a time, and refuses a shard beside it; with no path it runs as before | `tests/test_tools.py::test_a_filtered_run_is_capped` |
 | Each rule above has a mutant that a test kills | `tools/mutants.py` |
