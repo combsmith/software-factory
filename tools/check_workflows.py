@@ -83,6 +83,11 @@ CHECKOUT_USE = re.compile(r"^actions/checkout[@/]", re.I)
 ALWAYS = "always()"
 JUDGE = "python3 -m tools.needs_passed"
 NEEDS = "${{ toJSON(needs) }}"
+# The job that reads every commit a pull request carries (decision 0041): the base's tool, from a checkout of the base
+# with the whole history, told the base, the head and the event by the expressions below and nothing else.
+COMMITS = "python3 -m tools.commits_are_the_maintainers"
+HEAD = "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}"
+EVENT = "${{ github.event_name }}"
 # The commit a pull request, or a merge-queue entry, is judged against (decision 0023). A judging job checks out this and
 # nothing else; the secret scan, which also runs on a push to main, falls back to the commit pushed.
 BASE = "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}"
@@ -409,6 +414,44 @@ def _judging(text: str, entries: list, job: str, jobs: list) -> list:
     return whys
 
 
+def _commits(text: str, entries: list, jobs: list) -> list:
+    """Why the workflow's job `commits` would not read every commit the pull request carries from the base (decision
+    0041). Its shape is closed: the keys runs-on, timeout-minutes, permissions (contents: read), env and steps and no
+    other, so no container, strategy, if: or default can change what runs; env: exactly BASE_SHA, HEAD_SHA and EVENT as
+    the expressions name them; two steps, a checkout of the base with the whole history and persist-credentials: false,
+    and `COMMITS` on a line of its own, each step holding no other key, since a step's env: or if: would override the
+    job's or skip it."""
+    if "commits" not in jobs:
+        return ["has no job commits, which reads every commit the pull request carries from the base"]
+    mine = [e for e in entries if e["path"][:2] == ["jobs", "commits"]]
+    inside = {e["key"]: e for e in mine if e["path"] == ["jobs", "commits"]}
+    whys = []
+    if set(inside) != {"runs-on", "timeout-minutes", "permissions", "env", "steps"}:
+        whys.append("its job commits has keys other than runs-on, timeout-minutes, permissions, env and steps, or lacks "
+                    "one: a container, a strategy, an if: or a default could change what runs")
+    if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", "commits", "permissions"]} != {"contents": "read"}:
+        whys.append("its job commits is granted other than contents: read")
+    given = {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", "commits", "env"]}
+    if given != {"BASE_SHA": BASE, "HEAD_SHA": HEAD, "EVENT": EVENT}:
+        whys.append("its job commits is not told BASE_SHA: %s, HEAD_SHA: %s and EVENT: %s in its own env:, and "
+                    "nothing else" % (BASE, HEAD, EVENT))
+    steps = _steps(entries, "commits")
+    keys = [set(step) for step in steps]
+    wanted = {"persist-credentials": "false", "fetch-depth": "0", "ref": BASE}
+    if keys != [{"uses", "with"}, {"run"}]:
+        whys.append("its job commits's steps are not a checkout with its with: and then one run:, each holding no "
+                    "other key: a step's env: or if: would override the job's or skip it, and another step could act "
+                    "for it")
+    checkouts = [e for e in mine if e["path"] == ["jobs", "commits", "steps"] and _checkout(e)]
+    if [_with(entries, c) for c in checkouts] != [wanted]:
+        whys.append("its job commits does not check out the base alone, with the whole history: `ref: %s`, "
+                    "fetch-depth: 0 and persist-credentials: false and nothing else" % BASE)
+    runs = [e for e in mine if e["path"] == ["jobs", "commits", "steps"] and e["key"] == "run"]
+    if [(e["value"], e["body"]) for e in runs] != [(COMMITS, [])] and [(e["value"], e["body"]) for e in runs] != [(COMMITS, None)]:
+        whys.append("its job commits runs no step `%s`, on a line of its own, as its one run:" % COMMITS)
+    return whys
+
+
 def lens_job_problems(text: str, check: str) -> list:
     """Why a workflow holding `text` would never report the check run `check` on every head and in the merge queue.
 
@@ -449,6 +492,8 @@ def lens_job_problems(text: str, check: str) -> list:
         if "needs" in inside or len(jobs) > 1:
             problems += ["has the job %s beside other jobs, and %s" % (job, why)
                          for why in _judging(text, entries, job, jobs)]
+    if any("needs" in inside for _, inside in named):     # the required check's workflow, whose job judges the rest
+        problems += _commits(text, entries, jobs)
     return problems
 
 

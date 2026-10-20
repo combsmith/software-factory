@@ -11,6 +11,7 @@ An org standard is cited from combsmith/.github at commit 9e2daad, by file and h
 # The required check, `factory / verify`: it passes only when `make verify` and every shard of the mutation check pass on the commit, with the history tools/check_decisions.py compares it with.
 # About 1,000 mutants, in eight shards of about 126, each kill confirmed by two runs of one test. With six shards of 168 the legs ran 14 to 25 minutes against a 25-minute timeout, and legs were cut at 25:00 in three pull requests, once 22 ms after the last kill had printed. Every mutant names the tests that kill it, which run first; the whole suite, its slow modules last, runs only when they pass ("Mutation run: every mutant names its tests, the slow suites run last, and a builder may break a few", issue 217). Add a shard before a leg nears its timeout.
 # `verify` checks out the base, never the head, and runs the base's tools/needs_passed.py, so a change cannot make its own verdict pass: decision 0023.
+# `commits` checks out the base too and runs the base's tools/commits_are_the_maintainers.py, which reads every commit the pull request carries and refuses unless each is the Maintainer's ("Identity: every commit a pull request carries is the Maintainer's, checked outside the shell", issue 204).
 name: factory
 on:
   pull_request:
@@ -54,10 +55,27 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - run: python3 -m tools.mutants
+  commits:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+      EVENT: ${{ github.event_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      - run: python3 -m tools.commits_are_the_maintainers
   verify:
     name: verify
     needs:
       - checks
+      - commits
       - mutants
     if: always()
     runs-on: ubuntu-24.04
@@ -80,7 +98,8 @@ name and the job's name: `factory / verify`. Renaming either silently stops it b
 GitHub passes a required check that is skipped, so `tools/needs_passed.py` fails it unless each passed.
 Its one checkout is of the base, never the head: the verdict is the base's `tools/needs_passed.py`, so a change
 cannot make its own pass (decision 0023). It runs on no event without a base. The checks and tests in `checks` and
-`mutants` are the head's.
+`mutants` are the head's. `commits` is the base's too: it fetches the head and reads who authored and committed each
+commit the pull request carries, which must be the Maintainer, read from `config/hooks.json` (decision 0041).
 
 The eval job is a reserved name, `factory / eval`, in a workflow file named eval.yml: the one job that will hold the
 held-out home's read token (design §4.9), scoring a Result against each case with `tools/eval_result.py`. It is the
