@@ -3973,22 +3973,25 @@ class ContextEval(unittest.TestCase):
         (folder / "verdicts.json").write_text(json.dumps(self.PASSED))
         (folder / "meta.json").write_text(json.dumps(self.META))
         out = folder / "record.json"
+        # The scratch directory the recorder is told is its own: everything it reads and writes lies under it, and the
+        # repo does not, wherever the repo is (under the mutation check it is a copy under the system's own scratch).
+        scratch = pathlib.Path(SCRATCH.name).resolve()
         args = ["record", str(folder / "raw"), str(pristine), str(work), str(folder / "verdicts.json"), str(folder / "meta.json"), str(out)]
         with mock.patch("sys.stdout", io.StringIO()):
-            self.assertEqual(context_eval.main(args), 0)
+            self.assertEqual(context_eval.main(args, base=scratch), 0)
         self.assertTrue(json.loads(out.read_text())["passed"])
         with mock.patch("sys.stderr", io.StringIO()) as said:
-            self.assertEqual(context_eval.main(["record", str(ROOT / "AGENTS.md")] + args[2:]), 2)
-            self.assertEqual(context_eval.main(args[:-1] + [str(ROOT / "never.json")]), 2)
+            self.assertEqual(context_eval.main(["record", str(ROOT / "AGENTS.md")] + args[2:], base=scratch), 2)
+            self.assertEqual(context_eval.main(args[:-1] + [str(ROOT / "never.json")], base=scratch), 2)
             self.assertEqual(context_eval.main(args, base=folder), 2, "the exports are outside the base given")
-            self.assertEqual(context_eval.main(["record", str(folder / "none")] + args[2:]), 2)
-            self.assertEqual(context_eval.main(["record"]), 2)
-            self.assertEqual(context_eval.main(["mutants", str(ROOT / "tools"), str(work)]), 2)
+            self.assertEqual(context_eval.main(["record", str(folder / "none")] + args[2:], base=scratch), 2)
+            self.assertEqual(context_eval.main(["record"], base=scratch), 2)
+            self.assertEqual(context_eval.main(["mutants", str(ROOT / "tools"), str(work)], base=scratch), 2)
         self.assertFalse((ROOT / "never.json").exists())
         self.assertIn("outside the repo", said.getvalue())
         self.assertNotIn(str(ROOT), said.getvalue(), "the refusal names no path")
         with mock.patch("sys.stdout", io.StringIO()) as said:
-            self.assertEqual(context_eval.main(["mutants", str(pristine), str(work)]), 0)
+            self.assertEqual(context_eval.main(["mutants", str(pristine), str(work)], base=scratch), 0)
         self.assertEqual(json.loads(said.getvalue()), {"names": ["an empty diff converges"], "targets": ["kernel/derive.py"]})
 
 
