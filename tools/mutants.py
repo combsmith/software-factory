@@ -62,6 +62,8 @@ ORDER_TESTS = ("tests.test_tools.Mutants.test_slow_modules_run_last",)
 FILTER_TESTS = ("tests.test_tools.Mutants.test_a_filtered_run_is_capped",)
 COMMITS_TESTS = ("tests.test_tools.Workflows.test_every_commit_a_pull_request_carries_is_the_maintainers",)
 COMMITS_JOB_TESTS = ("tests.test_tools.Workflows.test_the_commits_job_reads_the_pull_requests_commits_from_the_base",)
+JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape",)
+SHARDS_TESTS = ("tests.test_tools.Workflows.test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix",)
 HOOK_TESTS = "tests.test_hooks.ProtectedPaths."
 BYPASS_TESTS = (HOOK_TESTS + "test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked",)
 SESSION_TESTS = (HOOK_TESTS + "test_a_command_that_runs_claude_code_with_no_one_asked_asks",
@@ -3035,7 +3037,53 @@ MUTANTS = ISSUE + [
     ("the commits job may run another tool", "tools/check_workflows.py",
      '    if [(e["value"], e["body"]) for e in runs] != [(COMMITS, [])] and', "    if False and", COMMITS_JOB_TESTS),
     ("a workflow without the commits job passes the lens rules", "tools/check_workflows.py",
-     "        problems += _commits(text, entries, jobs)\n", "        pass\n", COMMITS_JOB_TESTS),
+     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs)\n",
+     "        problems += _shards(entries, jobs)\n", COMMITS_JOB_TESTS),
+    # Issue 180: the judging step and the mutant shards held to their exact shape.
+    ("the judging job may have other keys", "tools/check_workflows.py",
+     "    if set(inside) - JUDGING_KEYS:\n", "    if False:\n", JUDGING_SHAPE_TESTS),
+    ("the judging job may be granted more", "tools/check_workflows.py",
+     '    if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "permissions"]} != {"contents": "read"}:\n'
+     '        whys.append("it is granted', '    if False:\n        whys.append("it is granted', JUDGING_SHAPE_TESTS),
+    ("the judging step may carry a working-directory, a shell or an env", "tools/check_workflows.py",
+     '    if [set(step) for step in _steps(entries, job)] != [{"uses", "with"}, {"run"}]:\n', "    if False:\n",
+     JUDGING_SHAPE_TESTS),
+    ("a shard may be told its index by a number", "tools/check_workflows.py",
+     '        if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "env"]} != {"MUTANTS_SHARD": INDEX,\n',
+     '        if False and {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "env"]} != {"MUTANTS_SHARD": INDEX,\n',
+     SHARDS_TESTS),
+    ("the shards' matrix may be any key", "tools/check_workflows.py",
+     '        if [e["key"] for e in mine if e["path"] == ["jobs", job, "strategy", "matrix"]] != ["shard"]:\n',
+     "        if False:\n", SHARDS_TESTS),
+    ("the shard job may have other keys", "tools/check_workflows.py",
+     "        if set(inside) != SHARD_KEYS:\n", "        if False:\n", SHARDS_TESTS),
+    ("the shard job may be granted more", "tools/check_workflows.py",
+     '        if {e["key"]: e["value"] for e in mine if e["path"] == ["jobs", job, "permissions"]} != {"contents": "read"}:\n'
+     '            whys.append("has the job %s, which runs the mutants, granted', '        if False:\n            whys.append("has the job %s, which runs the mutants, granted',
+     SHARDS_TESTS),
+    ("the shard job's steps may be anything", "tools/check_workflows.py",
+     "        if not held:\n", "        if False:\n", SHARDS_TESTS),
+    ("a job running the mutants another way is not held", "tools/check_workflows.py",
+     '        if not any("mutants" in "\\n".join([e["value"]] + (e["body"] or [])) for e in runs):\n',
+     '        if not any(e["value"] == SHARDED for e in runs):\n', SHARDS_TESTS),
+    ("the shards are not held at all", "tools/check_workflows.py",
+     "        problems += _commits(text, entries, jobs) + _shards(entries, jobs)\n",
+     "        problems += _commits(text, entries, jobs)\n", SHARDS_TESTS),
+    ("no job need run the mutants", "tools/check_workflows.py",
+     "    if not found:\n        whys.append(\"has no job that runs the mutants", "    if False:\n        whys.append(\"has no job that runs the mutants",
+     SHARDS_TESTS),
+    ("a key may be written twice in one mapping", "tools/check_workflows.py",
+     "        if key in seen[len(stack)]:\n", "        if False:\n",
+     ("tests.test_tools.Workflows.test_a_rule_is_not_dodged_by_writing_the_workflow_another_way",) + SHARDS_TESTS + JUDGING_SHAPE_TESTS),
+    ("the judging job's env may hold more than NEEDS", "tools/check_workflows.py",
+     '    if [e["key"] for e in mine if e["path"] == ["jobs", job, "env"]] != ["NEEDS"]:\n', "    if False:\n",
+     JUDGING_SHAPE_TESTS),
+    ("the judging workflow may have a top-level env or defaults", "tools/check_workflows.py",
+     '            if key in top:\n                problems.append("has a top-level', '            if False:\n                problems.append("has a top-level',
+     JUDGING_SHAPE_TESTS),
+    ("the copied block runs to the last fence", "tools/check_context.py",
+     'COPIED = re.compile(r"```yaml\\n.*?```", re.S)', 'COPIED = re.compile(r"```yaml\\n.*```", re.S)',
+     ("tests.test_tools.Context.test_a_standard_over_one_page_is_caught",)),
 ]
 
 
