@@ -26,6 +26,12 @@ class Roll:
         return 0.0
 
 
+class Never:
+    """A generator that always draws 1.0: no chance taken."""
+    def random(self):
+        return 1.0
+
+
 def queued() -> World:
     """An agent's pull request in the merge queue, approved, reviewed and with every check passing."""
     w = World(2, faults=False, people=False)
@@ -395,7 +401,8 @@ class Simulation(unittest.TestCase):
         # A queued item read so is taken out: `apply` asks the Kernel again on what GitHub holds now, where the entry is
         # back, so the dequeue is refused and the item stays, as a dequeue on a path left out of the list is.
         w = queued()
-        w.activity = Roll()
+        # Faults on, with a generator that takes no chance of its own, so only the activity's draw fires.
+        w.faults, w.rng, w.activity = True, Never(), Roll()
         w.poll()
         self.assertEqual(([line.split(" ", 1)[1] for line in w.trace[-2:]], w.queue, w.missing_passes),
                          (["pass: None last_pusher_unreadable -> act", "apply: refused, the item changed"], True, 1))

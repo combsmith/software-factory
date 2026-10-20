@@ -524,7 +524,7 @@ class World:
             runs = runs[self.pick(range(1, len(runs) + 1)):]
             facts["complete"]["runs"] = False
         self.stale = (copy.deepcopy(facts), copy.deepcopy(runs), list(unidentified))
-        if self.activity is not None and self.activity.random() < 0.1:
+        if self.activity is not None and self.faults and self.activity.random() < 0.1:
             # The newest entry of the head branch's activity is not the head commit, so nobody can be named.
             # GitHub: a_push_is_missing_from_the_activity
             facts["last_pusher"] = None

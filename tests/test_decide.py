@@ -1430,6 +1430,12 @@ class Convergence(unittest.TestCase):
             # A queued item leaves the queue, as it does on every other unreadable fact.
             d = go(dict(f, queue=True, reviews=APPROVED), REVIEWED)
             self.assertEqual((d["reason"], d["outcome"], d["action"]), ("last_pusher_unreadable", "act", "dequeue"), value)
+            # Read before the Lenses and before a conflict, which admit the author's fix Run: a push nobody can name
+            # admits nothing either.
+            for over in ({"checks": with_check(0, "failure")}, {"mergeable": False}):
+                d = go(dict(f, **over), REVIEWED)
+                self.assertEqual((d["state"], d["reason"], d["outcome"]), (None, "last_pusher_unreadable", "defer"),
+                                 (value, over))
             # A dependency update is never excused the model review on a pusher nobody can name.
             f = facts(**dict(DEPENDENCY, last_pusher=value))
             if value == "missing":
