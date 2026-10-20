@@ -223,8 +223,8 @@ if isinstance(said, dict):
             kept_here = [(k, DROP if prose(k) else counts(v, where + "." + k, k)) for k, v in value.items()]
             taken.extend({"field": where + ".<key>", "characters": len(k)} for k, v in kept_here if v is DROP and prose(k))
             return {k: v for k, v in kept_here if v is not DROP}
-        if isinstance(value, list):
-            return [v for v in (counts(v, where + "[]", key) for v in value) if v is not DROP]
+        if isinstance(value, list):    # an item of a list is under no key of its own: a string there is never a code
+            return [v for v in (counts(v, where + "[]", None) for v in value) if v is not DROP]
         if isinstance(value, str) and (prose(value) or key not in string_keys):
             taken.append({"field": where, "characters": len(value)})
             return DROP

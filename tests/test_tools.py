@@ -2667,7 +2667,8 @@ PLAIN = ["6dcb09b5b57875f334f61aebed695e2e4193db5e", "a" * 40, "application/vnd.
 REFUSED_KEYS = ["Authorization", "AUTHORIZATION", "Authorization ", "Proxy-Authorization", "Set-Cookie", "cookie",
                 "x-github-otp", "x-access-token", "github_token", "GITHUB_TOKEN", "accessToken", "installation_token",
                 "encoded_jit_config", "x-jit-config", "jwt", "auth", "Auth ", "webhook_secret", "client_secret", "password", "credentials", "token",
-                "api_key", "apiKey", "x-api-key", "private_key", "privateKey", "passphrase", "ssh_passphrase"]
+                "api_key", "apiKey", "x-api-key", "private_key", "privateKey", "passphrase", "ssh_passphrase",
+                "authentication", "passwd", "passcode", "bearer", "access_key", "accessKey", "encryption_key", "signing_key", "master_key"]
 PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", "value", "author", "external_id",
               # The vendor CLI's counts (issue 178), as it spells them.
               "inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens", "maxOutputTokens",
@@ -2706,8 +2707,11 @@ class Trials(unittest.TestCase):
         data[SHAPED["ghs"]] = 1
         data["Bearer Zx9Qw8Er7Ty6Ui5Op4"] = 1        # a shape that spans a space
         data["exchanges"][0]["request"]["headers"][SHAPED["ghp"]] = "x"
-        said = "\n".join(check_trials.run(clone({"trials/P-12.json": json.dumps(data)})))
+        data["exchanges"][0]["request"]["as"]["kind"] = "Bearer\nZx9Qw8Er7Ty6Ui5Op4As3Df5"   # a shape a repr escapes
+        twice = '{"%s": 1, "%s": 2}' % (SHAPED["gho"], SHAPED["gho"])                        # a fixture that cannot be read
+        said = "\n".join(check_trials.run(clone({"trials/P-12.json": json.dumps(data), "trials/P-11.json": twice})))
         self.assertIn(check_trials.KEY_SHAPED, said)
+        self.assertIn("trials/P-11.json cannot be read", said)
         for value in list(SHAPED.values()) + ["Zx9Qw8Er7Ty6Ui5Op4"]:
             self.assertNotIn(value, said)
         for key in PLAIN_KEYS:
@@ -3142,7 +3146,8 @@ exit 9
 
     def answer(self, output=None, **extra) -> dict:
         said = {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1, "duration_ms": 5,
-                "total_cost_usd": 0.1, "usage": {"input_tokens": 1, "output_tokens": 2, "evil.provider": "LEAKED-DOTTED-KEY"},
+                "total_cost_usd": 0.1, "usage": {"input_tokens": 1, "output_tokens": 2, "evil.provider": "LEAKED-DOTTED-KEY",
+                                                "provider": ["LEAKWORD1", "LEAKWORD2"]},
                 "modelUsage": {"m": {"inputTokens": 1, "note": self.PROSE["in_usage"], "fallback": None, "provider": "firstParty",
                                      "note2": "LEAK-ONE-WORD", "canonicalModel": self.PROSE["long"]},
                                "sk-" + "ant-" + "api03-NEVER-SEEN": {"inputTokens": 2}, self.PROSE["as_key"]: 3},
@@ -3227,6 +3232,8 @@ exit 9
             pass
         to_repo = self.home.parent / (self.home.name + "-repo-link")
         to_repo.symlink_to(ROOT)
+        home_link = self.home.parent / (self.home.name + "-home-link")
+        home_link.symlink_to(self.home)
         cases = [("OUT exists", existing, self.cfg, None, "exists; name a new directory"),
                  ("OUT inside the repo", ROOT / self.INSIDE[0], self.cfg, None, "OUT is inside the repo"),
                  ("OUT inside the repo through a link", to_repo / self.INSIDE[1], self.cfg, None, "OUT is inside the repo"),
@@ -3238,6 +3245,7 @@ exit 9
                  ("CONFIG_DIR is ~/.claude", self.out, self.home / ".claude", None, "under ~/.claude"),
                  ("CONFIG_DIR under ~/.claude", self.out, dot_claude, None, "under ~/.claude"),
                  ("CONFIG_DIR linked to ~/.claude", self.out, linked, None, "under ~/.claude"),
+                 ("HOME through a link, CONFIG_DIR its ~/.claude", self.out, self.home / ".claude", home_link, "under ~/.claude"),
                  ("CONFIG_DIR is ~/.CLAUDE", self.out, self.home / ".CLAUDE", None, "under ~/.claude"),
                  ("CONFIG_DIR missing", self.out, self.home / "none", None, "CONFIG_DIR is not a directory")]
         for name, out, cfg, home, said in cases:
@@ -3312,13 +3320,14 @@ exit 9
                 self.assertEqual(kept["modelUsage"], {"m": {"inputTokens": 1, "fallback": None, "provider": "firstParty"}}, name)
                 self.assertNotIn("LEAK-ONE-WORD", "".join(texts.values()), name)
                 self.assertNotIn("LEAKED-DOTTED-KEY", "".join(texts.values()), name)
+                self.assertNotIn("LEAKWORD", "".join(texts.values()), name)
+                self.assertEqual(kept["usage"], {"input_tokens": 1, "output_tokens": 2, "provider": []}, name)
                 self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.modelUsage.m.note2", "$.modelUsage.m.canonicalModel", "$.stop_reason", "$.modelUsage.<key>")],
                                  [{"field": "$.modelUsage.m.note", "characters": len(self.PROSE["in_usage"])},
                                   {"field": "$.modelUsage.m.note2", "characters": len("LEAK-ONE-WORD")},
                                   {"field": "$.modelUsage.m.canonicalModel", "characters": len(self.PROSE["long"])},
                                   {"field": "$.modelUsage.<key>", "characters": len(self.PROSE["as_key"])},
                                   {"field": "$.stop_reason", "characters": len(self.PROSE["in_code"])}], name)
-                self.assertEqual(kept["usage"], {"input_tokens": 1, "output_tokens": 2}, name)
                 self.assertNotIn("stop_reason", kept, name)
                 self.assertEqual(kept.get("permission_denials"), [{"tool_name": "Bash"}] if "permission_denials" in answer else None, name)
                 self.assertEqual("structured_output" in kept, validates, name)

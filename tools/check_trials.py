@@ -46,7 +46,9 @@ MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 
 # A key that names a credential, however it is spelt: compared after strip(), lower() and - to _.
 KEY_PARTS = ("token", "secret", "password", "credential", "jit_config", "otp", "cookie", "authorization",
-             "api_key", "apikey", "private_key", "privatekey", "passphrase")
+             "api_key", "apikey", "private_key", "privatekey", "passphrase",
+             "authentication", "passwd", "passcode", "bearer", "access_key", "accesskey", "encryption_key", "signing_key",
+             "master_key")
 KEY_WHOLE = {"auth", "jwt"}
 KEY_HARMLESS = {"token_type", "input_tokens", "output_tokens", "total_tokens", "cache_creation_input_tokens",
                 "cache_read_input_tokens",
@@ -85,9 +87,10 @@ KEY_SHAPED = "<a key shaped like a credential>"
 
 def hidden(text: str) -> str:
     """`text` with each word shaped like a credential replaced by KEY_SHAPED, and hidden whole when a shape spans
-    words: a message never carries one."""
-    text = re.sub(r"\S+", lambda m: KEY_SHAPED if shaped(m.group()) else m.group(), text)
-    return text if not shaped(text) else "a message that holds something shaped like a credential, hidden whole"
+    words: a message never carries one. An escaped separator, as a repr writes a newline, is read as the separator."""
+    plain = re.sub(r"\\[ntrfv]", " ", text)
+    text = re.sub(r"\S+", lambda m: KEY_SHAPED if shaped(re.sub(r"\\[ntrfv]", " ", m.group())) else m.group(), text)
+    return text if not shaped(plain) else "a message that holds something shaped like a credential, hidden whole"
 
 
 def refused_key(key: str) -> bool:
@@ -261,7 +264,7 @@ def _fixtures(root: pathlib.Path, schema: dict, problems: list) -> dict:
         try:
             data = _load(path)
         except (OSError, ValueError) as err:
-            problems.append("%s cannot be read: %s" % (rel, err))
+            problems.append("%s cannot be read: %s" % (rel, hidden(str(err))))
             continue
         wrong = ["%s: %s" % (rel, hidden(err)) for err in validate(data, schema)]
         if not wrong and data["trial"] != name.group(1):
