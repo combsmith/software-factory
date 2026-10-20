@@ -30,7 +30,7 @@ import re
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RULES = {
     "form": "block style, even indents, bare keys with the colon against them; no tab, flow mapping, anchor "
-            "or quoted key",
+            "or quoted key, and no key written twice in one mapping",
     "pin": "an action is pinned to a full commit hash with its version beside it; one of the org's own "
            "reusable workflows, to its channel tag; nothing local but a reusable workflow",
     "target": "a workflow runs only on pull_request, merge_group, push, schedule, workflow_dispatch or "
@@ -140,9 +140,10 @@ def read(text: str) -> tuple:
     """(entries, numbers of the lines not in the narrow form). An entry is one `key: value` line.
 
     Its `path` is the keys above it, `step` numbers the list item it belongs to, and `body` holds
-    the lines of a block of text under it.
+    the lines of a block of text under it. A key written twice in one mapping is not in the narrow form: a
+    YAML reader would refuse it or keep one of the two, and the entries would merge what no reader yields.
     """
-    entries, bad, stack, step, block = [], [], [], 0, None
+    entries, bad, stack, step, block, seen = [], [], [], 0, None, [set()]
     for number, raw in enumerate(text.split("\n"), 1):
         if "\t" in raw or "\r" in raw:
             bad.append(number)
@@ -168,8 +169,13 @@ def read(text: str) -> tuple:
         value = value.strip()
         while stack and stack[-1][0] >= indent:
             stack.pop()
+        del seen[len(stack) + 1:]
         if found.group(2):
             step += 1
+            seen[len(stack)] = set()     # a list item is a mapping of its own
+        if key in seen[len(stack)]:
+            bad.append(number)
+        seen[len(stack)].add(key)
         entry = {"key": key, "value": _unquote(value), "comment": "#" + comment if comment else "",
                  "indent": indent, "line": number, "path": [k for _, k in stack], "step": step, "body": []}
         if value in ("|", "|-", "|+", ">", ">-", ">+"):
@@ -178,6 +184,7 @@ def read(text: str) -> tuple:
             bad.append(number)
         entries.append(entry)
         stack.append((indent, key))
+        seen.append(set())
     return entries, bad
 
 
@@ -433,18 +440,19 @@ def _judging(text: str, entries: list, job: str, jobs: list) -> list:
 
 
 def _shards(entries: list, jobs: list) -> list:
-    """Why a job that runs the mutants in shards would not run every mutant once (issue 180): its env: must be exactly
+    """Why the workflow would not run every mutant once (issue 180): a job that runs the mutants exists, and its env: is exactly
     MUTANTS_SHARD: INDEX and MUTANTS_SHARDS: TOTAL, the matrix's own index and size, so a number written in cannot make
     every leg run one shard; its matrix is one key, shard; and its shape is closed: the keys SHARD_KEYS and no other,
     contents: read, a checkout of the head with the whole history and `SHARDED` on a line of its own, each step holding
     no other key."""
-    whys = []
+    whys, found = [], False
     for job in jobs:
         mine = [e for e in entries if e["path"][:2] == ["jobs", job]]
         inside = {e["key"]: e for e in mine if e["path"] == ["jobs", job]}
         runs = [e for e in mine if e["path"] == ["jobs", job, "steps"] and e["key"] == "run"]
         if not any("mutants" in "\n".join([e["value"]] + (e["body"] or [])) for e in runs):
             continue
+        found = True
         if set(inside) != SHARD_KEYS:
             whys.append("has the job %s, which runs the mutants, with keys other than %s, or lacking one"
                         % (job, ", ".join(sorted(SHARD_KEYS))))
@@ -463,6 +471,8 @@ def _shards(entries: list, jobs: list) -> list:
         if not held:
             whys.append("has the job %s, which runs the mutants, whose steps are not a checkout of the head with the "
                         "whole history and `%s` on a line of its own, each holding no other key" % (job, SHARDED))
+    if not found:
+        whys.append("has no job that runs the mutants, so no mutant runs before a merge")
     return whys
 
 

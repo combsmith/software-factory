@@ -1594,6 +1594,8 @@ class Workflows(unittest.TestCase):
                  (GOOD.replace(judge, judge + "        shell: bash\n"), shape),
                  (GOOD.replace(judge, judge + "        env:\n          NEEDS: '{}'\n"), shape),
                  (GOOD.replace(base, ""), "its one checkout is not of the base alone"),
+                 (GOOD.replace("      contents: read\n    env:\n      NEEDS:", "      contents: read\n      issues: write\n    env:\n      NEEDS:"),
+                  "granted other than"),
                  (GOOD.replace("    env:\n      NEEDS:", "    container: ghcr.io/x/y:1\n    env:\n      NEEDS:"), "has keys other than"),
                  (GOOD.replace("    env:\n      NEEDS:", "    defaults:\n      run:\n        working-directory: evil\n    env:\n      NEEDS:"),
                   "has keys other than"),
@@ -1604,6 +1606,13 @@ class Workflows(unittest.TestCase):
         for text, said in cases:
             self.assertNotEqual(text, GOOD, said)
             self.assertTrue(caught(self.lens_problems(text), said), said)
+        # Two with: blocks on the checkout, which a reader would refuse or merge into a checkout of the head, are not
+        # the narrow form: the check never merges what no reader yields.
+        split = base.replace("        with:\n          persist-credentials: false\n          ref:",
+                             "        with:\n          ref: %s\n        with:\n          persist-credentials: false\n"
+                             "          ref:" % check_workflows.BASE)
+        self.assertNotEqual(split, base)
+        self.assertIn("form", rules(GOOD.replace(base, split)))
         self.assertEqual(self.lens_problems(GOOD), [])
 
     def test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix(self):
@@ -1620,6 +1629,7 @@ class Workflows(unittest.TestCase):
                  ("        shard:\n", "        leg:\n", "not the one key shard"),
                  ("    env:\n      MUTANTS_SHARD", "    container: ghcr.io/x/y:1\n    env:\n      MUTANTS_SHARD", "keys other than"),
                  ("      contents: read\n", "      contents: write\n", "granted other than"),
+                 ("      contents: read\n", "      contents: read\n      issues: write\n", "granted other than"),
                  (run, run + "        working-directory: evil\n", shape), (run, run + "        env:\n          MUTANTS_SHARD: 0\n", shape),
                  (run, run + "      - run: make verify\n", shape),
                  (run, "      - run: python3 -m tools.mutants --quick\n", shape),
@@ -1629,6 +1639,11 @@ class Workflows(unittest.TestCase):
             text = GOOD.replace(job, job.replace(old, new))
             self.assertNotEqual(text, GOOD, said)
             self.assertTrue(caught(self.lens_problems(text), said), (old, new, said))
+        # No job runs the mutants at all, or the job that did runs something else: the gate is gone, not reshaped.
+        self.assertIn("form", rules(GOOD.replace(job, job.replace("          fetch-depth: 0\n", "        with:\n          fetch-depth: 0\n"))))
+        gone = "has no job that runs the mutants"
+        self.assertTrue(caught(self.lens_problems(GOOD.replace(job, "").replace("      - mutants\n", "")), gone))
+        self.assertTrue(caught(self.lens_problems(GOOD.replace(job, job.replace(run, "      - run: make verify\n"))), gone))
         self.assertEqual(self.lens_problems(GOOD), [])
 
     def test_a_lens_job_that_judges_its_needs_runs_from_the_base(self):
@@ -2053,6 +2068,8 @@ class Workflows(unittest.TestCase):
             "a checkout in quotes": (GOOD.replace("actions/checkout@", '"actions/checkout@').replace(" # v7.0.1\n        with:\n          persist-credentials: false", '" # v7.0.1'), "credentials"),
             "a limit named in a comment": (GOOD.replace("    timeout-minutes: 15\n", "").replace("ubuntu-24.04\n", "ubuntu-24.04 # timeout-minutes: later\n"), "timeout"),
             "windows line ends": (GOOD.replace("\n", "\r\n"), "form"),
+            "a key written twice": (GOOD.replace("    timeout-minutes: 15\n", "    timeout-minutes: 15\n    timeout-minutes: 600\n"), "form"),
+            "a step's key written twice": (GOOD.replace(STEP, "      - run: make verify\n        run: make evil\n"), "form"),
             "nothing at all": ("", "form"),
         }
         for name, (text, rule) in ways.items():
