@@ -1,7 +1,7 @@
 # kernel/
 
 Every decision the Factory makes, as pure functions. `derive.py` works out the State of a pull request and answers "where does this item stand": its tests run in order and the first that applies wins.
-A queued item is read as if it were not, and stays only if that reading is approved. `decide.py` answers "what now". `terms.py` holds the codes. `gate.py` holds the gate: which open Findings hold a pull request, and the severities that gate.
+A queued item is read as if it were not, and stays only if that reading is approved. `decide.py` answers "what now"; what either kind of Work item reads the same way, the limit on a wait and the deferral of a Run, is one helper in `derive.py`, which `issue.py` calls too. `terms.py` holds the codes. `gate.py` holds the gate: which open Findings hold a pull request, and the severities that gate.
 `brakes.py` is the Kernel's half of the brakes (decision 0003): Admission refuses at a ceiling or under a Pause, and `decide.py` asks the brakes before every act and Run. `issue.py` derives an issue's State and decides on it (decisions 0028, 0031, 0034, 0037).
 `coverage.py` says whether a reviewing Result covers its rubric (decision 0029). Brakes, outside `kernel/`, wait on `controller/`. Only `brakes.py`, `gate.py` and `coverage.py` are protected paths; the rest of the Kernel is reported at a stop.
 
