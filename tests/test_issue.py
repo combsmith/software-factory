@@ -480,6 +480,25 @@ class Done(unittest.TestCase):
         d = derive(facts(label_events=[labelled(HOLD, minute=4)],
                          linked=merged + [agents(number=12, draft=True, events=[labelled(HANDS_OFF, minute=6)])]))
         self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
+        # A Hold on a linked draft that stood at the merge and closed since; a Hold an App placed before the merge,
+        # took off after it and a person put back, which an App's removal never ended.
+        d = derive(facts(linked=merged + [agents(number=12, draft=True, is_open=False, closed=6,
+                                                 events=[labelled(HOLD, OTHER_APP, 4)])]))
+        self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
+        d = derive(facts(label_events=[labelled(HOLD, OTHER_APP, 4), unlabelled(HOLD, OTHER_APP, 6), labelled(HOLD, minute=6)],
+                         linked=merged))
+        self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
+        # A Hold a person released after the merge and placed again later is a Hold of its own: the merge stays done.
+        self.assertEqual(derive(facts(label_events=[labelled(HOLD, minute=4), unlabelled(HOLD, minute=6),
+                                                    labelled(HOLD, minute=7)], linked=merged))["reason"], "merged")
+        self.assertEqual(derive(facts(label_events=[labelled(HOLD, minute=4), unlabelled(HOLD, minute=6),
+                                                    labelled(HOLD, OTHER_APP, 7)], linked=merged))["reason"], "merged")
+        # A label the Kernel does not read carries no time, and an event of it beside a Hold raises nothing.
+        d = derive(facts(label_events=[{"label": "bug"}, labelled(HOLD, minute=4)], linked=merged))
+        self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
+        # A person's hands-off placed in the merge's own second stood at the merge: the merge is done.
+        self.assertEqual(derive(facts(label_events=[labelled(HOLD, minute=3), labelled(HANDS_OFF, minute=5)],
+                                      linked=merged))["reason"], "merged")
         # The first merge in the life is the one each stop is read against: a Hold between two merges touches neither.
         two = [pr(is_open=False, merged=5), pr(number=12, is_open=False, merged=9)]
         self.assertEqual(derive(facts(label_events=[labelled(HOLD, minute=7)], linked=two))["reason"], "merged")

@@ -368,26 +368,48 @@ def readable_reopening(facts: dict) -> bool:
     return undone <= when
 
 
-def stopped_before(labels: dict, drafts: list, when: str) -> list:
-    """The labels that held the issue when the merge at `when` landed: a Hold, whoever placed it, and hands-off anyone
-    but a person placed, standing on the issue or on its linked draft, placed no later than `when`. Placed later, the
-    label does not touch what the merge did; placed in the merge's second, the reading that stops work wins."""
-    return [name for name in held_by(labels, drafts) if any(
-        name in each and each[name]["at"] <= when for each in [labels] + [standing_labels(p) for p in drafts])]
-
-
 def as_of(item: dict, when: str) -> dict:
-    """`item`, an issue or a linked pull request, with the label events up to `when` alone: its labels as they stood
-    then."""
-    return dict(item, label_events=[ev for ev in item["label_events"] if ev["at"] <= when])
+    """`item`, an issue or a linked pull request, with its control label events up to `when` alone: its labels as they
+    stood then. An event of another label is not read, so its time is not either."""
+    return dict(item, label_events=[ev for ev in item["label_events"]
+                                    if ev["label"] in t.CONTROL_LABELS and ev["at"] <= when])
 
 
-def a_persons_hands_off(labels: dict, facts: dict, drafts: list, by: str = None) -> bool:
+def drafts_at(links: list, when: str) -> list:
+    """The linked pull requests that were open drafts at `when`: opened by then and not closed by then. Whether one was
+    a draft then is read from its flag now, the one the facts carry."""
+    return [p for p in links if p["draft"] and p["opened_at"] <= when and (p["open"] or p["closed_at"] > when)]
+
+
+def released_since(item: dict, name: str, when: str) -> bool:
+    """Whether a person removed the label `name` from `item` after `when`: only a person ends what a label holds,
+    and a removal in the second of `when` is read as before it."""
+    return any(ev["label"] == name and ev["action"] == "unlabeled" and ev["at"] > when and is_person(ev["by"])
+               for ev in item["label_events"])
+
+
+def stopped_before(facts: dict, links: list, when: str) -> list:
+    """The labels that held the issue when the merge at `when` landed and that no person has released since: a Hold,
+    whoever placed it, and hands-off anyone but a person placed, standing then on the issue or on a draft linked then.
+    Placed later, a label does not touch what the merge did; placed in the merge's second, the reading that stops work
+    wins; released by a person since, it was answered, and placed again after that it is a Hold of its own; an App's
+    removal, and a draft closed since, release nothing."""
+    out = []
+    for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF):
+        for item in [facts] + drafts_at(links, when):
+            if name in standing_labels(as_of(item, when)) and not released_since(item, name, when):
+                out.append(name)
+                break
+    return out
+
+
+def a_persons_hands_off(labels: dict, facts: dict, drafts: list, links: list = (), by: str = None) -> bool:
     """Whether a person's hands-off stands on the issue or on its linked draft, or stood there at the time `by` where
-    one is given, lifted since or not: the Factory never acts on it, and leaves a queued item to merge under it."""
+    one is given, on a draft linked then, lifted since or not: the Factory never acts on it, and leaves a queued item
+    to merge under it."""
     items = [facts] + list(drafts)
     if by is not None:
-        items = [as_of(item, by) for item in items]
+        items = [as_of(item, by) for item in [facts] + drafts_at(links, by)]
         labels = standing_labels(items[0])
     return any(placed_by_a_person(each, item)
                for each, item in [(labels, items[0])] + [(standing_labels(p), p) for p in items[1:]])
@@ -453,7 +475,7 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
             return out(DECLINED, "merged_while_declined", merges)
         if facts["reopened_last_by"] == "other" and facts["reopened_last_at"] <= first:
             return out(DECLINED, "merged_while_declined", merges)
-        if stopped_before(labels, drafts, first) and not a_persons_hands_off(labels, facts, drafts, first):
+        if stopped_before(facts, links, first) and not a_persons_hands_off(labels, facts, drafts, links, first):
             return out(t.HELD, "merged_while_held", merges)
         return out(DONE, "merged", merges)
     # Row 2.

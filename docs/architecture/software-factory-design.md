@@ -1692,7 +1692,7 @@ and a person none while it is declined: the Controller dequeues the Factory's pu
 closes or holds its issue, as the Maintainer ruled (issue 227, "Design: does a merge end a held or a
 declined issue?"). The Kernel reads such a merge as the platform doing what the Controller should have prevented:
 never `done`; the State a person put the issue in stays, and the reason names the contradiction, `merged_while_declined`
-or `merged_while_held`, placed by time against the first merge in the life from the issue's latest close, its last
+or `merged_while_held`, placed by time against the first merge in the life from the first close of the issue's present life, its last
 reopening and the label's own time (§4.1, row 1; issue 237, "Kernel: a merge read while an issue is held or declined
 is a Hold, not done"). The Hold the brakes place for unmerged closes (I-43) is placed on a `new` issue too,
 an outsider's whose colleague closed their own pull requests (seed 137); the Lifecycle now declares
