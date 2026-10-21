@@ -6,7 +6,10 @@ reported it, the path of the workflow file that ran it, null where GitHub names 
 while it has not concluded, in GitHub's own word, lower-cased, and when it completed; the port drops, merges and renames
 none (decisions 0015, 0018, 0022, 0026). Whether the rollup itself keeps every check suite's run, and a re-run's alone
 replaces an earlier one, is GitHub's, which P-42 asks. A status context, which is not a check run and names no App, is no
-check. The list is whole only when its last page says there is no next one and every context it counts was read. A
+check. The list is whole only when its last page says there is no next one and every context it counts was read; read
+over more than one page, only when every context carries its own id and none was read twice, since a rollup that moves
+between pages can repeat one context and leave out another. A cursor that repeats, or pages past the count, end the read
+short. Whether the pull request is in the merge queue is its entry, an object, or null: any other shape is refused. A
 rollup of another commit than the head is refused, and so is one read while the pull request's head moved.
 
 A thread's resolved state and its Finding's category are `adapters/threads.py`'s, not built: here only their count is
@@ -37,8 +40,9 @@ QUERY = """query FactsChecks($owner: String!, $name: String!, $number: Int!, $af
                 pageInfo { hasNextPage endCursor }
                 nodes {
                   __typename
+                  ... on StatusContext { id }
                   ... on CheckRun {
-                    name conclusion status completedAt
+                    id name conclusion status completedAt
                     checkSuite { app { databaseId } workflowRun { file { path } } }
                   }
                 }
@@ -80,7 +84,7 @@ def read(transport, pull: dict) -> dict:
     """The head's check runs and whether they were read whole, whether the pull request is in the merge queue, and
     how many review threads it holds; every page is of the head the pull request's first read named."""
     owner, name = pull["base"]["repo"]["full_name"].split("/")
-    found, after, queue, threads, seen, total = [], None, None, None, 0, None
+    found, after, queue, threads, seen, total, ids, cursors = [], None, None, None, 0, None, [], set()
     while True:
         variables = {"owner": owner, "name": name, "number": pull["number"], "after": after}
         answer = transport.send(request("POST", "/graphql", body={"query": QUERY, "variables": variables}))
@@ -96,7 +100,10 @@ def read(transport, pull: dict) -> dict:
         count = (pr.get("reviewThreads") or {}).get("totalCount") if isinstance(pr.get("reviewThreads"), dict) else None
         if not isinstance(count, int) or isinstance(count, bool) or count < 0:
             raise Unanswered("the count of review threads cannot be read")
-        queue, threads = pr.get("mergeQueueEntry") is not None, count
+        entry = pr.get("mergeQueueEntry", False)
+        if not (entry is None or isinstance(entry, dict)):
+            raise Unanswered("the pull request's place in the merge queue cannot be read")
+        queue, threads = entry is not None, count
         rollup = commit.get("statusCheckRollup")
         if rollup is None:
             return {"checks": found, "complete": after is None, "queue": queue, "threads": threads}
@@ -110,13 +117,19 @@ def read(transport, pull: dict) -> dict:
             if not isinstance(node, dict):
                 raise Unanswered("a check of the rollup is not one GitHub gives")
             seen += 1
+            ids.append(node.get("id"))
             if node.get("__typename") == "CheckRun":
                 found.append(check(node))
             elif node.get("__typename") != "StatusContext":
                 raise Unanswered("a context GitHub does not give: %r" % (node.get("__typename"),))
         if page.get("hasNextPage") is False:
             whole = isinstance(total, int) and not isinstance(total, bool) and counted == total and seen == total
+            if after is not None:
+                whole = whole and all(isinstance(i, str) and i for i in ids) and len(set(ids)) == len(ids)
             return {"checks": found, "complete": whole, "queue": queue, "threads": threads}
         if page.get("hasNextPage") is not True or not isinstance(page.get("endCursor"), str) or not page["endCursor"]:
             return {"checks": found, "complete": False, "queue": queue, "threads": threads}
+        if page["endCursor"] in cursors or not isinstance(total, int) or isinstance(total, bool) or seen >= total:
+            return {"checks": found, "complete": False, "queue": queue, "threads": threads}
+        cursors.add(page["endCursor"])
         after = page["endCursor"]

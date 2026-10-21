@@ -962,12 +962,40 @@ class Checks(unittest.TestCase):
         first, second = p32_pull(), p32_pull()
         first["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["pageInfo"] = {"hasNextPage": True,
                                                                                             "endCursor": "c1"}
-        for page in (first, second):
-            page["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = 36
+        for at, page in enumerate((first, second)):
+            contexts = page["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]
+            contexts["totalCount"] = 36
+            for n, node in enumerate(contexts["nodes"]):
+                node["id"] = "CR_%d_%d" % (at, n)
         got = checks.read(github.Replay([checks_answer(first), checks_answer(second, "c1")]), as_pull(first))
         runs = [n for n in second["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
                 if n["__typename"] == "CheckRun"]
         self.assertEqual((len(got["checks"]), got["complete"]), (2 * len(runs), True))
+        # Over two pages, a context read twice, or one with no id to tell it by, is a short read: a rollup that moved
+        # between pages can repeat a passing check and leave out a failing one.
+        for change in ("CR_0_0", None):
+            again = copy.deepcopy(second)
+            again["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"][0]["id"] = change
+            got = checks.read(github.Replay([checks_answer(first), checks_answer(again, "c1")]), as_pull(first))
+            self.assertIs(got["complete"], False, change)
+        # A cursor that repeats, or a next page past the count, ends the read short rather than looping.
+        looping = copy.deepcopy(first)
+        looping["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = 100
+        got = checks.read(github.Replay([checks_answer(looping), checks_answer(looping, "c1")]), as_pull(first))
+        self.assertIs(got["complete"], False)
+        past = copy.deepcopy(first)
+        past["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = 18
+        self.assertIs(checks.read(github.Replay([checks_answer(past)]), as_pull(past))["complete"], False)
+        # The merge queue's entry is an object or null, and any other shape, or none at all, is refused.
+        for entry in (False, "queued", 1, []):
+            odd = p32_pull()
+            odd["mergeQueueEntry"] = entry
+            with self.assertRaises(github.Unanswered, msg=entry):
+                checks.read(github.Replay([checks_answer(odd)]), as_pull(odd))
+        missing = p32_pull()
+        del missing["mergeQueueEntry"]
+        with self.assertRaises(github.Unanswered):
+            checks.read(github.Replay([checks_answer(missing)]), as_pull(missing))
         # A pull request with no rollup has no checks, read whole; a status context names no App and is no check.
         bare = p32_pull()
         bare["commits"]["nodes"][0]["commit"]["statusCheckRollup"] = None
@@ -992,6 +1020,9 @@ class Checks(unittest.TestCase):
         first["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"].update(
             totalCount=36, pageInfo={"hasNextPage": True, "endCursor": "c1"})
         second["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = 37
+        for at, page in enumerate((first, second)):
+            for n, node in enumerate(page["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]):
+                node["id"] = "CR_%d_%d" % (at, n)
         got = checks.read(github.Replay([checks_answer(first), checks_answer(second, "c1")]), as_pull(first))
         self.assertIs(got["complete"], False)
 
