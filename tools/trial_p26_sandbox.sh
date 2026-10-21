@@ -7,9 +7,9 @@
 # Runbook. **M** is the Maintainer at his own terminal, **S** a session.
 #   0. The pass condition below is committed before the run, so the branch's history shows it came first.
 #   1. M: the login of decision 0033 under ~/.config/sf-factory-claude, made for P-13 and kept (tools/trial_p13_runbook.md,
-#      step 1). Nothing logs in here. The build for PIN must exist: `ls ~/.local/share/claude/versions/2.1.302`. If the
-#      installer pruned it, `claude install 2.1.302` brings it back and moves M's own `claude` to it, or pass the path of
-#      a 2.1.302 build as CLI. The CLI's shell tool loads M's ~/.bashrc and ~/.bash_profile into its shell: M checks
+#      step 1). Nothing logs in here. The build for PIN must exist: `ls ~/.local/share/claude/versions/2.1.306`. If the
+#      installer pruned it, `claude install 2.1.306` brings it back and moves M's own `claude` to it, or pass the path of
+#      a 2.1.306 build as CLI. The CLI's shell tool loads M's ~/.bashrc and ~/.bash_profile into its shell: M checks
 #      that neither exports a credential before the run. The script deletes the shell snapshots the run leaves under
 #      CONFIG_DIR/shell-snapshots, and counts them in checked.json.
 #   2. M, from a worktree of this branch, outside the main checkout:
@@ -67,7 +67,7 @@ export LC_ALL=C
 shopt -s nocasematch    # a path is compared without case: the file system may not tell .claude from .CLAUDE
 
 # The CLI's version, decision 0033's pin, as tools/trial_p13_cli.sh has it.
-PIN=2.1.302
+PIN=2.1.306
 KEPT_STATUS="loggedIn authMethod apiProvider subscriptionType"
 # The fields of each Task's answer kept, by name: what the CLI says of the run and its counts, never the model's text.
 KEPT_RESULT="type subtype is_error num_turns duration_ms duration_api_ms total_cost_usd usage modelUsage stop_reason permission_denials"

@@ -96,13 +96,15 @@ def _named(text: str, root: pathlib.Path, here: pathlib.Path) -> list:
 
 # A directory that is built in parts lists, in its own AGENTS.md, the files not built yet, in one line of plain words.
 PLANNED_FILES = re.compile(r"^Not built yet[^:\n]*:([^\n]*)$", re.M)
-FILE_NAME = re.compile(r"(?:[\w-]+(?:\.[\w-]+)*/)*[\w-]+(?:\.[\w-]+)*\.\w+")
+# A word of the plan, read with one class of characters so that no input can make it backtrack.
+FILE_WORD = re.compile(r"[\w./-]+")
 
 
 def _planned_files(root: pathlib.Path, top: str) -> set:
     path = root / top / "AGENTS.md"
     found = PLANNED_FILES.search(_text(path)) if path.is_file() else None
-    return set(FILE_NAME.findall(found.group(1))) if found else set()
+    words = (word.strip(".") for word in FILE_WORD.findall(found.group(1))) if found else ()
+    return {word for word in words if "." in word}
 
 
 def _arrived(root: pathlib.Path, path: str) -> bool:

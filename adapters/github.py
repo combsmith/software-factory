@@ -31,14 +31,23 @@ class Unanswered(Exception):
     """A request the transport will not answer: one off GitHub's API, or one a fixture does not hold."""
 
 
-def request(method: str, path: str, accept: str = JSON, body=None) -> dict:
-    """A request by its method and its path from the API's root, with its query, its Accept and a JSON body or none."""
+# The only headers a caller may add: a read of the run records keeps no cache (decision 0036, ruling 4).
+EXTRA = {"Cache-Control", "If-None-Match"}
+
+
+def request(method: str, path: str, accept: str = JSON, body=None, headers=None) -> dict:
+    """A request by its method and its path from the API's root, with its query, its Accept, a JSON body or none, and
+    at most the headers `EXTRA` names, each one line."""
     if method not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
         raise Unanswered("a request needs an HTTP method, not %r" % (method,))
     parts = urllib.parse.urlsplit(path)
     if parts.scheme or parts.netloc or not path.startswith("/") or path.startswith("//") or "\\" in path:
         raise Unanswered("a path is from the API's root, on %s alone: %r" % (HOST, path))
-    return {"method": method, "path": path, "accept": accept, "body": body}
+    extra = dict(headers or {})
+    for name, value in extra.items():
+        if name not in EXTRA or not isinstance(value, str) or any(c in value for c in "\r\n\0"):
+            raise Unanswered("a request may add %s alone, each one line" % ", ".join(sorted(EXTRA)))
+    return {"method": method, "path": path, "accept": accept, "body": body, "headers": extra}
 
 
 def _answer(status: int, headers, raw: bytes) -> dict:
@@ -78,13 +87,14 @@ class Live:
                                                   urllib.request.HTTPSHandler)
 
     def send(self, req: dict) -> dict:
-        req = request(req["method"], req["path"], req["accept"], req["body"])
+        req = request(req["method"], req["path"], req["accept"], req["body"], req.get("headers"))
         url = "https://%s%s" % (HOST, req["path"])
         if urllib.parse.urlsplit(url).netloc != HOST:
             raise Unanswered("a request goes to %s alone" % HOST)
         data = None if req["body"] is None else json.dumps(req["body"]).encode()
         headers = {"Accept": req["accept"], "Authorization": "Bearer " + self._token,
                    "X-GitHub-Api-Version": VERSION, "User-Agent": "software-factory"}
+        headers.update(req["headers"])
         if data is not None:
             headers["Content-Type"] = "application/json"
         sent = urllib.request.Request(url, data=data, headers=headers, method=req["method"])

@@ -47,6 +47,13 @@ FIXTURE = re.compile(r"^(P-[1-9][0-9]*)(\.[a-z0-9-]+)?\.json$")
 # resource path under these keys; and an App's read names, and is answered with, only repos its installation reaches.
 REST_READ = re.compile(r"^[A-Z]+ /(?:repos/([^/?\s]+)/([^/?\s]+)|orgs/([^/?\s]+)(?:[/?]|$)|app/|apps/|installation/)")
 ANY_REPO = re.compile(r"\brepos/([^/?\s]+)/([^/?\s]+)")
+# A star of a repo, by the account that asks, names that repo in its path (P-20).
+STARRED = re.compile(r"^[A-Z]+ /user/starred/([^/?,\s]+)/([^/?,\s]+)(?:[?,\s]|$)")
+# Decision 0035: a trial whose question is a read beyond the org's repos the App reaches is named here with what it may
+# read beyond. A trial of forks reads the forks of the canary, which keep its name, and their owners; a trial of reach
+# has its App read repos of the org its installation does not reach. Neither reads any other owner's repo.
+TRIALS_OF_FORKS = {"P-27"}
+TRIALS_OF_REACH = {"P-4"}
 # A command-line read names a repo by --repo, -R or GH_REPO, with or without a space, an equals sign, quotes or the
 # site's address; by `gh repo <verb> owner/name`; or by a path or an address in its words.
 CLI_REPO = re.compile(r"(?:--repo|-R|GH_REPO)[ =]?[\"']?(?:https://github\.com/)?([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)"
@@ -92,7 +99,8 @@ KEY_HARMLESS = {"token_type", "input_tokens", "output_tokens", "total_tokens", "
                 "thinkingtokens", "thinking_tokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens",
                 "output_tokens_details"}
 # The headers a fixture may keep, compared in lower case. Any other is left out: allow what is named.
-HEADERS = {"accept", "cache-control", "content-length", "content-type", "date", "etag", "last-modified", "link",
+# age and if-none-match: the records port keeps a read's age, and may ask by its etag (decision 0036, ruling 4).
+HEADERS = {"accept", "age", "cache-control", "content-length", "if-none-match", "content-type", "date", "etag", "last-modified", "link",
            "location", "retry-after", "server", "user-agent", "vary", "x-accepted-github-permissions",
            "x-accepted-oauth-scopes", "x-github-api-version", "x-github-media-type", "x-github-request-id",
            "x-oauth-scopes", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset",
@@ -333,7 +341,11 @@ def _asked(request: dict) -> tuple:
             wrong.append("is a query that names no repo and no org")
     elif via == "rest":
         found = REST_READ.match(call) if isinstance(call, str) else None
-        if not found:
+        starred = STARRED.match(call) if isinstance(call, str) else None
+        if starred:
+            owners.add(starred.group(1))
+            repos.add(starred.group(1) + "/" + starred.group(2))
+        if not found and not starred:
             wrong.append("names no repo of the org, nor the org, an App or an installation, in its path; a read of a "
                          "fixture of the canary is of one of those")
         elif CLIMBS.search(call.split(" ", 1)[1].split("?", 1)[0]):
@@ -342,7 +354,7 @@ def _asked(request: dict) -> tuple:
             for owner, name in ANY_REPO.findall(call):
                 owners.add(owner)
                 repos.add(owner + "/" + name)
-            if found.group(3):
+            if found and found.group(3):
                 owners.add(found.group(3))
     elif via in ("cli", "git") and isinstance(call, str):
         for m in CLI_REPO.finditer(call):
@@ -358,6 +370,25 @@ def _asked(request: dict) -> tuple:
                 wrong.append("asks gh api for %s, which names no repo of the org, nor the org, an App or an installation"
                              % path[:60])
     return owners, repos, wrong
+
+
+def _orgs_named(request: dict) -> set:
+    """The owners a request names at an org's level: an organization call of its query, or an /orgs/ path."""
+    out, via, call = set(), request.get("via"), request.get("call")
+    if via == "graphql":
+        body = request.get("body") if isinstance(request.get("body"), dict) else {}
+        variables = body.get("variables") if isinstance(body.get("variables"), dict) else {}
+        query = body.get("query")
+        roots, problem = _roots(query) if isinstance(query, str) else ([], None)
+        for field, args in roots:
+            login = _bound(args, "login", variables) if field == "organization" else None
+            if isinstance(login, str):
+                out.add(login)
+    elif via == "rest" and isinstance(call, str):
+        found = REST_READ.match(call)
+        if found and found.group(3):
+            out.add(found.group(3))
+    return out
 
 
 def _named(value, under=None):
@@ -405,6 +436,9 @@ def _repos(data: dict, installed) -> list:
     if installed is None:
         out.append(("config/apps.json", "cannot be read, so every App's reach is the canary alone"))
         installed = {}
+    trial = data.get("trial")
+    fork = lambda repo: trial in TRIALS_OF_FORKS and repo.count("/") == 1 and repo.split("/")[1] == CANARY
+    allowed = lambda repo: repo.startswith(ORG + "/") or fork(repo)
     for i, exchange in enumerate(data.get("exchanges") or []):
         request = exchange.get("request") if isinstance(exchange, dict) else None
         if not isinstance(request, dict):
@@ -412,18 +446,23 @@ def _repos(data: dict, installed) -> list:
         where = "exchanges[%d].request" % i
         owners, repos, wrong = _asked(request)
         out += [(where + ".call", what) for what in wrong]
-        for owner in sorted(owners - {ORG}):
-            out.append((where + ".call", "names the owner %s; a read of a fixture of the canary names the org alone" % owner))
+        forks_named = {r.split("/")[0] for r in repos if fork(r)} - _orgs_named(request)
+        for owner in sorted(owners - {ORG} - forks_named):
+            out.append((where + ".call", "names the owner %s; a read of a fixture of the canary names the org alone, or in a "
+                        "trial of forks the owner of a fork of the canary" % owner))
         response = exchange.get("response") if isinstance(exchange.get("response"), dict) else {}
         answered = set(_named(response.get("body")))
-        for repo in sorted(r for r in answered if not r.startswith(ORG + "/")):
-            out.append(("exchanges[%d].response.body" % i, "names the repo %s; an answer names the org's repos alone" % repo))
+        for repo in sorted(r for r in answered if not allowed(r)):
+            out.append(("exchanges[%d].response.body" % i, "names the repo %s; an answer names the org's repos alone, or "
+                        "in a trial of forks a fork of the canary" % repo))
         asker = request.get("as") if isinstance(request.get("as"), dict) else {}
         if request.get("via") == "cli" and asker.get("kind") != "person":
             out.append((where + ".as", "is %s; a command-line read is the Maintainer's own, a person's" % asker.get("kind")))
         if asker.get("kind") == "app":
             name = str(asker.get("name", "")).split(",")[0].replace("[bot]", "")
-            reach = installed.get(name, {canary})
+            # A trial of reach reads beyond the App's install by its question; the owner's check above still holds it to
+            # the org's repos.
+            reach = installed.get(name, {canary}) if trial not in TRIALS_OF_REACH else repos | answered
             if request.get("via") == "graphql" and ORG in owners and not repos:
                 out.append((where + ".call", "asks of the org by an App, whose installation reaches repos alone"))
             for repo in sorted(repos - reach):
