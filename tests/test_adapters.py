@@ -168,6 +168,19 @@ class Transport(unittest.TestCase):
         spaced[1]["response"]["headers"]["location"] = STORE + " b"
         with self.assertRaises(github.Unanswered):
             github.Replay(spaced[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        # A redirect whose address cannot be read is refused by both, naming nothing: the replay here, the live
+        # transport below.
+        self.assertIsNone(github._moved("https://api.github.com/x", "https://[::1/actions-results/x?sig=secret"))
+        broken = stored("o/r", 7, outcome_zip("{}"))
+        broken[1]["response"]["headers"]["location"] = "https://[::1/actions-results/x?sig=secret"
+        with self.assertRaises(github.Unanswered) as refused:
+            github.Replay(broken[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        self.assertNotIn("sig=", held(refused.exception))
+        # Dot segments are never resolved away before the storage's path is checked, by either transport.
+        climbing = STORE.replace("/actions-results/", "/other/../actions-results/")
+        self.assertEqual(github._moved("https://api.github.com/x", climbing), climbing)
+        with self.assertRaises(github.Unanswered):
+            github.storage(climbing)
         # A download GitHub answers itself, with no redirect, is bounded as the storage's answer is, by both.
         big = {"request": {"via": "rest", "call": "GET /repos/o/r/actions/artifacts/9/zip", "headers": {}},
                "response": {"status": 200, "headers": {}, "body": "z" * (github.STORED + 1)}}
@@ -233,6 +246,28 @@ class Transport(unittest.TestCase):
         live.opener = Permanent(1)
         self.assertEqual(live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))["status"], 200)
         self.assertEqual(sent[1].full_url, STORE)
+
+        # ... and its address is read as the 302's is, joined to the address asked.
+        class Relative(Opener):
+            def open(self, req, timeout=None):
+                sent.append(req)
+                if len(sent) % 2:
+                    raise github.urllib.error.HTTPError(req.full_url, 308, "Permanent",
+                                                        {"Location": STORE[len("https:"):]}, io.BytesIO())
+                return Zip(b"z")
+        sent.clear()
+        live.opener = Relative(1)
+        self.assertEqual(live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))["status"], 200)
+        self.assertEqual(sent[1].full_url, STORE)
+
+        class Unreadable(Opener):
+            def open(self, req, timeout=None):
+                raise github.urllib.error.HTTPError(req.full_url, 308, "Permanent",
+                                                    {"Location": "https://[::1/actions-results/x?sig=secret"}, io.BytesIO())
+        live.opener = Unreadable(1)
+        with self.assertRaises(github.Unanswered) as refused:
+            live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        self.assertNotIn("sig=", held(refused.exception))
         with self.assertRaises(github.Unanswered) as refused:
             live.send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
         self.assertNotIn("sig=", held(refused.exception))
