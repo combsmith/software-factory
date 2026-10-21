@@ -2954,7 +2954,7 @@ class Trials(unittest.TestCase):
         header = lambda e: datetime.strptime(e["response"]["headers"]["date"], "%a, %d %b %Y %H:%M:%S GMT").replace(tzinfo=timezone.utc)
         load = lambda t: json.loads((ROOT / "trials" / ("%s.json" % t)).read_text())
         canary = "combsmith/" + check_trials.CANARY
-        by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
+        by_code = {rule[0]: rule[3] for rule in check_trials.rules()}
         self.assertEqual(by_code["a_forks_run_never_counts"], "trials/P-27.json")
         self.assertEqual(by_code["a_pass_starts_its_successor"], "trials/P-9.json")
         self.assertEqual(by_code["a_public_event_starts_a_pass"], "trials/P-20.json")
