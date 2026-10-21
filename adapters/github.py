@@ -34,6 +34,8 @@ CHUNK = 1024 * 1024             # bytes read at a time, so the bound costs no mo
 ARTIFACT = re.compile(r"/repos/[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}/actions/artifacts/[1-9][0-9]{0,18}/zip")
 # GitHub names twenty such accounts, sa0 to sa19, among the hosts a runner must reach; no other is GitHub's.
 STORAGE = re.compile(r"productionresultssa(?:[0-9]|1[0-9])\.blob\.core\.windows\.net")
+# The path an artifact's storage serves it under (the Maintainer's answer of 2026-10-21 on #192).
+STORED_UNDER = "/actions-results/"
 STORED = 64 * 1024              # bytes an artifact's download may hold: an outcome is a few bytes, zipped
 REDIRECTS = {301, 302, 303, 307, 308}
 
@@ -81,12 +83,16 @@ def download(path: str) -> dict:
 
 
 def storage(url) -> str:
-    """The address an artifact's download redirects to, if it is GitHub's artifact storage over HTTPS on its own port;
-    refused otherwise. The address is never named in the refusal: it carries a signature."""
+    """The address an artifact's download redirects to, if it is GitHub's artifact storage over HTTPS on its own port,
+    under `/actions-results/`, with no segment that climbs out of it, plain or percent-encoded; refused otherwise. The
+    address is never named in the refusal: it carries a signature."""
     parts = urllib.parse.urlsplit(url) if isinstance(url, str) and url.isascii() else None
     # The whole netloc is the host, so a port, a user or a host's case GitHub would not give is refused with it.
     if parts is None or parts.scheme != "https" or not STORAGE.fullmatch(parts.netloc) or any(c in url for c in " \t\r\n\0\\"):
         raise Unanswered("an artifact's download redirects off GitHub's artifact storage, or not over HTTPS")
+    segments = parts.path.split("/")
+    if not parts.path.startswith(STORED_UNDER) or "%" in parts.path or any(segment in (".", "..") for segment in segments):
+        raise Unanswered("an artifact's download redirects outside %s" % STORED_UNDER)
     return url
 
 

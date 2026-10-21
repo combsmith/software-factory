@@ -98,14 +98,22 @@ class Transport(unittest.TestCase):
                                       **asked))
         self.assertNotIn("follow", github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
         self.assertEqual(github.storage(STORE), STORE)
-        for url in ("http://productionresultssa7.blob.core.windows.net/x", "https://evil.blob.core.windows.net/x",
-                    "https://productionresultssa7.blob.core.windows.net:8443/x",
-                    "https://u@productionresultssa7.blob.core.windows.net/x",
-                    "https://productionresultssa7.blob.core.windows.net.evil.com/x",
-                    "https://PRODUCTIONRESULTSSA7.blob.core.windows.net/x", "https://pipelines.actions.githubusercontent.com/x",
-                    "https://productionresultssa7.blob.core.windows.net/x\r\nHost: e", "https://api.github.com/x",
-                    "https://productionresultssa7.blob.core.windows.net\\@evil.com/x", None, 7,
-                    "https://productionresultssa20.blob.core.windows.net/x", "https://productionresultssa07.blob.core.windows.net/x"):
+        for url in ("http://productionresultssa7.blob.core.windows.net/actions-results/x", "https://evil.blob.core.windows.net/actions-results/x",
+                    "https://productionresultssa7.blob.core.windows.net:8443/actions-results/x",
+                    "https://u@productionresultssa7.blob.core.windows.net/actions-results/x",
+                    "https://productionresultssa7.blob.core.windows.net.evil.com/actions-results/x",
+                    "https://PRODUCTIONRESULTSSA7.blob.core.windows.net/actions-results/x", "https://pipelines.actions.githubusercontent.com/actions-results/x",
+                    "https://productionresultssa7.blob.core.windows.net/actions-results/x\r\nHost: e", "https://api.github.com/actions-results/x",
+                    "https://productionresultssa7.blob.core.windows.net\\@evil.com/actions-results/x", None, 7,
+                    "https://productionresultssa20.blob.core.windows.net/actions-results/x", "https://productionresultssa07.blob.core.windows.net/actions-results/x",
+                    # Under /actions-results/ alone, and no segment that climbs out, plain or percent-encoded.
+                    "https://productionresultssa7.blob.core.windows.net/other/x?sig=1",
+                    "https://productionresultssa7.blob.core.windows.net/actions-resultsx/x",
+                    "https://productionresultssa7.blob.core.windows.net/actions-results",
+                    "https://productionresultssa7.blob.core.windows.net/actions-results/../x",
+                    "https://productionresultssa7.blob.core.windows.net/actions-results/./x",
+                    "https://productionresultssa7.blob.core.windows.net/actions-results/%2e%2e/x",
+                    "https://productionresultssa7.blob.core.windows.net/actions-results/a%2Fb"):
             with self.assertRaises(github.Unanswered, msg=url):
                 github.storage(url)
         # The replay does as the live transport does: a redirect is refused to any other request, and followed for
