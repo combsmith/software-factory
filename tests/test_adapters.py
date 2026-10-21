@@ -869,9 +869,22 @@ class Timeline(unittest.TestCase):
     def test_what_each_credential_is_shown_of_a_permission_is_recorded(self):
         # L-57: what each credential is shown is recorded by a trial. The collaborator permission's trial, which the
         # Maintainer's ruling on issue 222 plans, has not run: no fixture yet holds a read of the permission endpoint.
+        # P-27 reads one as the Maintainer; what L-57 asks is what the reader App, a credential of the Factory's, is
+        # shown, which no fixture holds yet.
         reads = [e for path in sorted((ROOT / "trials").glob("P-*.json"))
-                 for e in json.loads(path.read_text())["exchanges"] if "/collaborators/" in e["request"].get("call", "")]
+                 for e in json.loads(path.read_text())["exchanges"]
+                 if "/collaborators/" in e["request"].get("call", "") and "/permission" in e["request"].get("call", "")
+                 and (e["request"].get("as") or {}).get("kind") == "app"]
         self.assertTrue(reads)
+
+    def test_a_permission_is_read_as_github_answers_it(self):
+        # trials/P-27.json: the permission endpoint, asked of a collaborator with read, answers read: no write access.
+        found = next(e for e in exchanges("P-27") if "/permission" in e["request"].get("call", ""))
+        login = found["request"]["call"].split("/collaborators/")[1].split("/")[0]
+        accounts = timeline.Accounts(github.Replay([found]), canary(), MACHINE, {})
+        who = found["response"]["body"]["user"]
+        self.assertEqual(accounts.actor({"login": login, "id": who["id"], "type": who["type"]}),
+                         {"kind": "human", "name": login, "can_write": False})
 
     def test_a_timeline_or_a_list_of_reviews_that_is_not_a_list_is_not_whole(self):
         broken = copy.deepcopy(exchanges("P-7")[16])
