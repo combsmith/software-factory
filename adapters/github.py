@@ -3,8 +3,9 @@ repo reaches the network (tools/check_repo.py). A request is `request(method, pa
 `{status, headers, body}`, a trial fixture's exchange as `trials/` records one, so the same port code runs on a live
 answer and on a recorded one.
 
-`Live` sends HTTPS to api.github.com alone: it follows no redirect, takes its token from its caller and never from
-the environment, sets a timeout on every request, and keeps no body anywhere but in the answer it returns. `Replay`
+`Live` sends HTTPS to api.github.com alone: it follows no redirect, uses no proxy, takes its token from its caller and
+never from the environment, sets a timeout on every request, bounds every answer, and keeps no body anywhere but in the
+answer it returns. A body that is not JSON is text decoded without loss, so its bytes are what any hash is taken over. `Replay`
 answers from a fixture's exchanges, each at most once, matched by method, path, Accept and GraphQL query, and refuses
 anything the fixture does not hold: it never answers with an empty default (L-51).
 """
@@ -21,6 +22,7 @@ DIFF = "application/vnd.github.diff"
 VERSION = "2022-11-28"
 TIMEOUT = 20      # seconds, for each request
 LARGEST = 64 * 1024 * 1024      # bytes an answer may hold; one larger is refused, never cut short silently
+CHUNK = 1024 * 1024             # bytes read at a time, so the bound costs no more memory than the answer
 
 
 class Unanswered(Exception):
@@ -39,17 +41,25 @@ def request(method: str, path: str, accept: str = JSON, body=None) -> dict:
 
 def _answer(status: int, headers, raw: bytes) -> dict:
     kept = {k.lower(): v for k, v in headers.items()}
-    text = raw.decode("utf-8", errors="replace")
     if kept.get("content-type", "").split(";")[0].strip().endswith("json"):
         try:
+            text = raw.decode("utf-8")
             return {"status": status, "headers": kept, "body": json.loads(text) if text else None}
         except ValueError:
             pass
-    return {"status": status, "headers": kept, "body": text}
+    # surrogateescape is lossless: text.encode("utf-8", "surrogateescape") gives back the bytes GitHub sent.
+    return {"status": status, "headers": kept, "body": raw.decode("utf-8", errors="surrogateescape")}
+
+
+def raw(text: str) -> bytes:
+    """The bytes a text body was sent as, the same for a live answer and for a fixture's."""
+    return text.encode("utf-8", errors="surrogateescape")
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if fp is not None:
+            fp.close()
         raise Unanswered("GitHub answered %d, a redirect; the transport follows none" % code)
 
 
@@ -61,9 +71,12 @@ class Live:
             raise Unanswered("a token is one word, given by the caller")
         self._token = token
         self._timeout = timeout
-        self._open = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler).open
+        # No proxy from the environment, and no redirect: the request goes to the host named, or nowhere.
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect,
+                                                  urllib.request.HTTPSHandler)
 
     def send(self, req: dict) -> dict:
+        req = request(req["method"], req["path"], req["accept"], req["body"])
         url = "https://%s%s" % (HOST, req["path"])
         if urllib.parse.urlsplit(url).netloc != HOST:
             raise Unanswered("a request goes to %s alone" % HOST)
@@ -74,18 +87,25 @@ class Live:
             headers["Content-Type"] = "application/json"
         sent = urllib.request.Request(url, data=data, headers=headers, method=req["method"])
         try:
-            with self._open(sent, timeout=self._timeout) as got:
+            with self.opener.open(sent, timeout=self._timeout) as got:
                 return _answer(got.status, got.headers, _bounded(got))
         except urllib.error.HTTPError as err:
             with err:
                 return _answer(err.code, err.headers, _bounded(err))
+        except (urllib.error.URLError, OSError, ValueError) as err:
+            raise Unanswered("GitHub could not be reached: %s" % type(err).__name__) from None
 
 
 def _bounded(stream) -> bytes:
-    raw = stream.read(LARGEST + 1)
-    if len(raw) > LARGEST:
-        raise Unanswered("an answer over %d bytes; it is refused, not cut short" % LARGEST)
-    return raw
+    parts, size = [], 0
+    while True:
+        part = stream.read(CHUNK)
+        if not part:
+            return b"".join(parts)
+        size += len(part)
+        if size > LARGEST:
+            raise Unanswered("an answer over %d bytes; it is refused, not cut short" % LARGEST)
+        parts.append(part)
 
 
 def _recorded(exchange: dict):

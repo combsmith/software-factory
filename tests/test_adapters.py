@@ -7,8 +7,10 @@ the network: the live transport is held by what it refuses before it sends anyth
 from __future__ import annotations
 
 import copy
+import hashlib
 import io
 import json
+import os
 import pathlib
 import unittest
 
@@ -31,8 +33,11 @@ def replay(name: str, *at: int) -> github.Replay:
     return github.Replay([found[i] for i in at])
 
 
-def person(login: str) -> dict:
-    return {"maintainer": {(login, "User")}}
+MAINTAINER = 36422719      # the Maintainer's account id, as the fixtures record it
+
+
+def person(ident: int = MAINTAINER) -> dict:
+    return {"maintainer": {(ident, "User")}}
 
 
 class Transport(unittest.TestCase):
@@ -64,13 +69,52 @@ class Transport(unittest.TestCase):
         for token in ("", " ", "a b", None):
             with self.assertRaises(github.Unanswered, msg=repr(token)):
                 github.Live(token)
+        sent = github.urllib.request.Request("https://api.github.com/x")
         with self.assertRaises(github.Unanswered):
-            github._NoRedirect().redirect_request(None, None, 302, "Found", {}, "https://example.com/")
+            github._NoRedirect().redirect_request(sent, None, 302, "Found", {}, "https://example.com/")
+        # The opener follows no redirect and takes no proxy from the environment.
+        kept = {k: os.environ.get(k) for k in ("https_proxy", "HTTPS_PROXY")}
+        try:
+            os.environ["https_proxy"] = os.environ["HTTPS_PROXY"] = "http://proxy.invalid:1"
+            handlers = github.Live("t").opener.handlers
+        finally:
+            for k, v in kept.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        self.assertTrue(any(isinstance(h, github._NoRedirect) for h in handlers))
+        self.assertFalse(any(type(h) is github.urllib.request.HTTPRedirectHandler for h in handlers))
+        self.assertFalse(any(isinstance(h, github.urllib.request.ProxyHandler) and h.proxies for h in handlers))
+        # GitHub out of reach is an answer refused, never an exception of another kind.
+        live = github.Live("t")
+
+        class Down:
+            def open(self, *a, **k):
+                raise github.urllib.error.URLError("down")
+        live.opener = Down()
+        with self.assertRaises(github.Unanswered):
+            live.send(github.request("GET", "/x"))
+        # A request built by hand is held to the same rules before anything is opened.
+        opened = []
+
+        class Record:
+            def open(self, *a, **k):
+                opened.append(a)
+        live.opener = Record()
+        for path in ("//example.com/x", "https://example.com/x"):
+            with self.assertRaises(github.Unanswered):
+                live.send({"method": "GET", "path": path, "accept": github.JSON, "body": None})
+        self.assertEqual(opened, [])
         # The answer it builds keeps the headers and reads JSON as JSON, and anything else as text.
         answer = github._answer(200, {"Content-Type": "application/json; charset=utf-8"}, b'{"a": 1}')
         self.assertEqual(answer, {"status": 200, "headers": {"content-type": "application/json; charset=utf-8"},
                                   "body": {"a": 1}})
         self.assertEqual(github._answer(200, {"Content-Type": github.DIFF}, b"diff --git")["body"], "diff --git")
+        # A body that is not UTF-8 is kept without loss: two that differ in one byte stay two.
+        one, two = (github._answer(200, {"Content-Type": github.DIFF}, b"+caf" + c + b"\n")["body"] for c in (b"\xe9", b"\xe8"))
+        self.assertNotEqual(one, two)
+        self.assertEqual(github.raw(one), b"+caf\xe9\n")
         # An answer over the bound is refused, never cut short silently.
         largest = github.LARGEST
         try:
@@ -86,7 +130,7 @@ class Own(unittest.TestCase):
     def test_the_pull_requests_own_facts_and_the_title_beside_them(self):
         # Decision 0039: the title comes back beside the facts, from the same read, and is never in them.
         data = body("P-29.base", 1)
-        part, title = pull.own(data, person("don-petry"))
+        part, title = pull.own(data, person())
         self.assertEqual(part, {"item": {"repo": data["base"]["repo"]["full_name"], "type": "pull_request",
                                          "number": 26},
                                 "state": "open", "is_draft": False, "author": "don-petry", "class": "maintainer",
@@ -99,15 +143,25 @@ class Own(unittest.TestCase):
         # always outside; anyone the caller does not name is outside, which asks for a person.
         data = body("P-29.base", 1)
         self.assertEqual(pull.own(data, {})[0]["class"], "outside")
-        self.assertEqual(pull.own(data, {"maintainer": {("don-petry", "Bot")}})[0]["class"], "outside")
-        self.assertEqual(pull.own(data, {"agent": {("don-petry", "User")}})[0]["class"], "agent")
-        self.assertEqual(pull.own(data, {"dependency": {("don-petry", "User")}})[0]["class"], "dependency")
+        self.assertEqual(pull.own(data, {"maintainer": {(MAINTAINER, "Bot")}})[0]["class"], "outside")
+        self.assertEqual(pull.own(data, person(MAINTAINER + 1))[0]["class"], "outside")
+        # An App's class needs a Bot: a person named as the Factory's App or a dependency bot is outside.
+        self.assertEqual(pull.own(data, {"agent": {(MAINTAINER, "User")}})[0]["class"], "outside")
+        self.assertEqual(pull.own(data, {"dependency": {(MAINTAINER, "User")}})[0]["class"], "outside")
+        bot = copy.deepcopy(data)
+        bot["user"].update(login="dependabot[bot]", id=49699333, type="Bot")
+        self.assertEqual(pull.own(bot, {"dependency": {(49699333, "Bot")}})[0]["class"], "dependency")
+        self.assertEqual(pull.own(bot, {"agent": {(49699333, "Bot")}})[0]["class"], "agent")
+        # A rename keeps the account's id, and a new account under the old login is someone else.
+        renamed = copy.deepcopy(data)
+        renamed["user"]["id"] = MAINTAINER + 1
+        self.assertEqual(pull.own(renamed, person())[0]["class"], "outside")
         fork = copy.deepcopy(data)
-        fork["head"]["repo"]["full_name"] = "someone/fork"
-        self.assertEqual(pull.own(fork, person("don-petry"))[0]["class"], "outside")
+        fork["head"]["repo"]["id"] += 1
+        self.assertEqual(pull.own(fork, person())[0]["class"], "outside")
         gone = copy.deepcopy(data)
         gone["head"]["repo"] = None
-        self.assertEqual(pull.own(gone, person("don-petry"))[0]["class"], "outside")
+        self.assertEqual(pull.own(gone, person())[0]["class"], "outside")
 
     def test_a_merge_a_state_and_an_unknown_mergeable_are_read_as_github_gives_them(self):
         data = body("P-29.base", 1)
@@ -116,7 +170,8 @@ class Own(unittest.TestCase):
         data["merged_at"], data["mergeable"] = None, None
         self.assertEqual(pull.own(data, {})[0]["state"], "closed")
         self.assertIsNone(pull.own(data, {})[0]["mergeable"])
-        for broken in ({"state": "reopened"}, {"draft": None}, {"user": None}, {"user": {"login": "x", "type": "Org"}}):
+        for broken in ({"state": "reopened"}, {"draft": None}, {"user": None}, {"user": {"login": "x", "type": "Org", "id": 1}},
+                       {"user": {"login": "x", "type": "User", "id": "1"}}):
             bad = dict(copy.deepcopy(data), **broken)
             with self.assertRaises(github.Unanswered, msg=broken):
                 pull.own(bad, {})
@@ -127,6 +182,31 @@ class Own(unittest.TestCase):
         del unread["response"]["body"]["protected"]
         with self.assertRaises(github.Unanswered):
             pull.targets_protected(github.Replay([unread]), body("P-29.base", 1))
+        # A branch's name is a name: a # or & in it is never a fragment or a parameter.
+        odd = copy.deepcopy(exchanges("P-29.base")[9])
+        odd["request"]["call"] = odd["request"]["call"].replace("/branches/main", "/branches/a%23b%26c")
+        named = body("P-29.base", 1)
+        named["base"]["ref"] = "a#b&c"
+        self.assertIs(pull.targets_protected(github.Replay([odd]), named), False)
+
+    def test_the_pull_request_is_read_once_and_must_be_the_one_asked_for(self):
+        repo = json.loads((ROOT / "trials" / "P-29.base.json").read_text())["repo"]
+        self.assertEqual(pull.read(replay("P-29.base", 1), repo, 26)["head"]["sha"], body("P-29.base", 1)["head"]["sha"])
+        other = copy.deepcopy(exchanges("P-29.base")[1])
+        other["response"]["body"]["number"] = 27
+        with self.assertRaises(github.Unanswered):
+            pull.read(github.Replay([other]), repo, 26)
+        with self.assertRaises(github.Unanswered):
+            pull.read(replay("P-29.base", 1), repo, 27)
+
+    def test_a_head_that_moved_while_it_was_read_is_refused(self):
+        # trials/P-29.base.json: read again after the base moved, the head is the same; after the plain push, it is not.
+        self.assertIs(pull.same_head(replay("P-29.base", 6), body("P-29.base", 1)), True)
+        self.assertIs(pull.same_head(replay("P-29.base", 12), body("P-29.base", 1)), False)
+        no_head = copy.deepcopy(exchanges("P-29.base")[6])
+        no_head["response"]["body"]["head"]["sha"] = "1234"
+        with self.assertRaises(github.Unanswered):
+            pull.same_head(github.Replay([no_head]), body("P-29.base", 1))
 
 
 class LastPusher(unittest.TestCase):
@@ -143,9 +223,16 @@ class LastPusher(unittest.TestCase):
         empty = {"request": exchanges("P-28")[7]["request"], "response": {"status": 200, "headers": {}, "body": []}}
         self.assertIsNone(pull.last_pusher(github.Replay([empty]), body("P-28", 10)))
 
+    def test_only_the_newest_entry_is_read(self):
+        # trials/P-28.json, after the force push: the plain push's entry is still listed, second. A head at that
+        # commit is not what the newest entry pushed, so no one is read, never the older entry's actor.
+        moved = body("P-28", 10)
+        moved["head"]["sha"] = exchanges("P-28")[7]["response"]["body"][1]["after"]
+        self.assertIsNone(pull.last_pusher(replay("P-28", 7), moved))
+
     def test_a_fork_is_read_as_no_one_and_its_activity_is_never_asked(self):
         fork = body("P-28", 10)
-        fork["head"]["repo"]["full_name"] = "someone/fork"
+        fork["head"]["repo"]["id"] += 1
         self.assertIsNone(pull.last_pusher(github.Replay([]), fork))
 
 
@@ -161,6 +248,22 @@ class Diff(unittest.TestCase):
             self.assertEqual(got["diff"]["truncated"], False)
         self.assertEqual(pull.diff(replay("P-29.base", 2), body("P-29.base", 1))["diff"],
                          {"files": 1, "lines": 3, "truncated": False})
+
+    def test_the_content_is_hashed_over_the_bytes_github_sent(self):
+        # A diff that is not UTF-8 keeps its bytes: its content id is theirs, so two diffs one byte apart are two.
+        data = body("P-29.base", 1)
+        data.update(changed_files=1, additions=1, deletions=0)
+        ids = []
+        for byte in (b"\xe9", b"\xe8"):
+            sent = b"diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -0,0 +1 @@\n+caf" + byte + b"\n"
+            answer = github._answer(200, {"Content-Type": github.DIFF}, sent)
+            exchange = dict(exchanges("P-29.base")[2], response=dict(exchanges("P-29.base")[2]["response"],
+                                                                     body=answer["body"]))
+            got = pull.diff(github.Replay([exchange]), data)
+            self.assertEqual(got["content_id"], "sha256:" + hashlib.sha256(sent).hexdigest())
+            self.assertIs(got["complete"], True)
+            ids.append(got["content_id"])
+        self.assertNotEqual(*ids)
 
     def test_a_diff_that_disagrees_with_the_counts_is_a_short_read(self):
         # Decision 0002: the diff is held to the same pull request's counts; a difference is a short read.
@@ -180,6 +283,24 @@ class Diff(unittest.TestCase):
         moved = copy.deepcopy(data)
         moved["head"]["sha"] = "0" * 40
         self.assertNotEqual(pull.diff(replay("P-29.truncated", 4), moved)["content_id"], got["content_id"])
+        # A 406 for anything but too_large, and a head that cannot be read, are refused.
+        other = copy.deepcopy(exchanges("P-29.truncated")[4])
+        other["response"]["body"]["errors"][0]["code"] = "not_acceptable"
+        with self.assertRaises(github.Unanswered):
+            pull.diff(github.Replay([other]), data)
+        no_head = copy.deepcopy(data)
+        no_head["head"]["sha"] = ""
+        with self.assertRaises(github.Unanswered):
+            pull.diff(replay("P-29.truncated", 4), no_head)
+
+    def test_a_line_of_content_that_looks_like_a_header_is_counted_as_the_line_it_is(self):
+        text = ("diff --git a/q.sql b/q.sql\nindex 1..2 100644\n--- a/q.sql\n+++ b/q.sql\n@@ -1,2 +1,2 @@\n"
+                " select 1;\n--- old comment\n+++ new comment\n\\ No newline at end of file\n")
+        self.assertEqual(pull._counts(text), (1, 1, 1))
+        self.assertIsNone(pull._counts(text.replace("@@ -1,2 +1,2 @@", "@@ -1,3 +1,2 @@")))
+        self.assertIsNone(pull._counts(text.replace(" select 1;", "?select 1;")))
+        # A diff that ends inside a hunk, its header promising more lines than came, is short.
+        self.assertIsNone(pull._counts(text.rstrip("\n").replace("@@ -1,2 +1,2 @@", "@@ -1,2 +1,3 @@")))
 
     def test_an_answer_that_is_not_a_diff_is_refused(self):
         broken = copy.deepcopy(exchanges("P-29.base")[2])
@@ -213,6 +334,13 @@ class ChangedPaths(unittest.TestCase):
         # trials/P-29.truncated.json: 3,001 files; page 30 is the last GitHub serves, and page 31 is a 200 with none.
         got = pull.changed_paths(github.Replay(files_pages(30, [])), body("P-29.truncated", 2))
         self.assertEqual((len(got["changed_paths"]), got["complete"]), (3000, False))
+
+    def test_a_list_at_an_exact_page_count_asks_for_no_page_past_it(self):
+        data = body("P-29.truncated", 2)
+        data["changed_files"] = 200
+        pages = files_pages(3, [])[:2]
+        got = pull.changed_paths(github.Replay(pages), data)
+        self.assertEqual((len(got["changed_paths"]), got["complete"]), (200, True))
 
     def test_a_rename_or_a_copy_gives_both_names_and_one_without_its_old_name_is_short(self):
         data = body("P-29.truncated", 12)
