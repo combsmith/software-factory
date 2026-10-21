@@ -355,6 +355,9 @@ see. An act that stops work, a Hold label or a dequeue, is counted and never ref
 is missing, negative or not a whole number is unreadable: the Kernel defers and makes no act
 (I-13). The count comes from the timeline, which is paged like any list, and `complete.timeline`
 says whether it was read in full: a timeline read short undercounts, and the item defers (I-20).
+A timeline's `totalCount` counts every item whatever types were asked, so a timeline read whole
+is told by its last page's `hasNextPage` being false, never by that count nor by a page
+shorter than was asked (P-33).
 The count bounds acts only; a Run is bounded by the Run ceiling.
 
 A check's `conclusion` is GitHub's own word, or the check's status while it has not concluded.
@@ -543,7 +546,7 @@ An issue has facts of its own (§4.1, the issue Lifecycle):
 | `type`, `label_names`, `assignees` | The issue's type, every label's name, and who it is assigned to |
 | `life_started_at`, `reopened_last_by` | When it was opened, or last reopened by a person with write access; and whether its latest reopening was by such a person, by someone else, or never happened |
 | `closed_first_at`, `reopened_last_at` | When its present life was first closed, from its timeline, null while it has not been: a time while it is closed, and while it is open only where anyone but a writer reopened it last and so undid a close of this life; and when it was last reopened, by anyone, null if never: a writer's reopening is the start of the present life, anyone else's no earlier. Each is read whole or the issue defers; against them a merge is placed before or after the first close of this life, an outsider's reopening and a Hold (§4.1, row 1) |
-| `content_id`, `content_changed_at` | A hash of the title and body, computed by the port, and when either last changed |
+| `content_id`, `content_changed_at` | A hash of the title and body, computed by the port, and when either last changed. The body's last edit is the issue's `lastEditedAt`; the title's is the timeline's rename event; the content's time is the newer of the two, which the port computes, and the issue's creation while neither has moved. The port reads no list of the body's edits: the first edit of a body leaves an edit dated at the issue's creation beside it, for the original content (P-34, read on the Maintainer's own edits) |
 | `label_events` | Every `labeled` and `unlabeled` event on the timeline, as on a pull request: the label, who added or removed it (kind, name and write access), and when. The control labels are read from them alone; every other label is in `label_names` |
 | `linked` | Each pull request that closes it: number, `class` as the port gives it for a pull request, opening actor, open, draft, `opened_at` (decision 0034), `merged_at`, `closed_at`, whether its diff was empty, and its own `label_events`, from which its Hold, hands-off and whether a person once admitted it are read |
 | `role_comments` | For each Factory App that has commented: the time of its latest comment |
@@ -1186,7 +1189,11 @@ condition of the content, `empty_diff` or `too_large`, ends when the diff change
 verifying` is declared by `human` and by `platform`. `not_served` is not terminal:
 GitHub serves a stacked pull request when it retargets it at the default branch, which takes it
 to `verifying` or `draft` by `platform`, and a person may close it. Every way into `not_served`
-is a person's, so no cycle passes through it without one. Re-running a check on unchanged content
+is a person's, so no cycle passes through it without one. A pull request to a base that is not
+the default branch carries no closing reference from the keywords in its description, which
+GitHub enforces (P-33). A link a person makes by hand was not tried, and GitHub may list it, so
+the port reads a pull request as `linked` only while its base is the default branch.
+Re-running a check on unchanged content
 is a person's act too. A Lens reports once for each run on a `content_id`, unchanged content admits no
 second model review (I-11), and no Effect re-runs a check (§3.6). Nor can a Factory workflow: a
 re-run needs a write, and under "Nothing is granted that is not named" in
@@ -1300,7 +1307,7 @@ write access.
 
 | # | If | State | Next actor |
 |---|---|---|---|
-| 1 | A linked pull request merged with a non-empty diff in its present life, whether or not GitHub has yet closed the issue. Unless, when the first such merge landed, a person had closed the issue in this life, anyone but a writer had reopened it, or a Hold stood (whoever placed it, or hands-off a person did not place, on the issue or its linked draft) with no person's hands-off beside it: then the State a person put it in stays, `declined` or `held`, and the reason names the contradiction, `merged_while_declined` or `merged_while_held` (§4.5, issue 227) | `done` | None |
+| 1 | A linked pull request merged with a non-empty diff in its present life, whether or not GitHub has yet closed the issue (P-33: the issue closed a second after the merge, and its closed event two). Unless, when the first such merge landed, a person had closed the issue in this life, anyone but a writer had reopened it, or a Hold stood (whoever placed it, or hands-off a person did not place, on the issue or its linked draft) with no person's hands-off beside it: then the State a person put it in stays, `declined` or `held`, and the reason names the contradiction, `merged_while_declined` or `merged_while_held` (§4.5, issue 227) | `done` | None |
 | 2 | Closed in any other way, an empty merge and a commit's closing keyword among them. It stays so if anyone but a person with write access reopens it | `declined` | None |
 | 3 | The Consumer entry does not serve it; or it, or its linked draft, carries `factory:hands-off` | `not_served` | A person |
 | 4 | It carries `factory:hold`, whoever added it; or its linked draft pull request does; or more than one linked pull request is open; or its Run ceiling is reached while it wants a Run (decision 0003) | `held` | As the Hold states |
@@ -1414,8 +1421,12 @@ close opens a second pull request and never finds the first. The first push is o
 an opening Run dies after pushing, the branch holds all of it; the next opening Run finds the
 branch, pushes nothing, and opens the pull request from what is there. From the fix and implement Intents onward the first commit is
 `qa-lead`'s contract and its failing tests (§4.8). The closing reference GitHub holds is the only
-join between the two items; it is read at every pass and written nowhere else. A pull request the
-Factory opens closes exactly one issue.
+join between the two items; it is read at every pass and written nowhere else. The join is read
+from each pull request's own closing references, never from the issue's cross-reference
+events, which anyone may cause by naming the issue and which say a pull request will close it
+only while it is open, unmerged and to the default branch, and nothing once the issue is closed
+(P-33). A pull request the Factory opens closes
+exactly one issue.
 
 While the linked pull request is a draft, the issue's Lifecycle governs and the pull request's
 does nothing. Runs are admitted on the issue, and the issue's facts carry the draft's own.
@@ -1708,8 +1719,10 @@ issue world makes that tests/test_transitions.py does not find").
 
 - **Grounding.** The fake GitHub is only as good as what it assumes. Each rule it applies cites a
   response recorded from the real platform in a trial of §6. A rule with no recording is listed as
-  unverified, and `factory / verify` prints that list. The POC's tests passed against a stub that
-  accepted calls the real interface rejects; this is the guard against repeating it.
+  unverified, and `factory / verify` prints that list, saying for each which trial of §6 asks it and
+  waits to run, or, where no trial can ask it, why not, in one sentence beside the rule (issue 190).
+  The POC's tests passed against a stub that accepted calls the real interface rejects; this is the
+  guard against repeating it.
 
 Two things are checked exhaustively rather than sampled, because they are small and finite: the
 Lifecycle graph (every state reaches a terminal one, every non-terminal state has a timer, and,
@@ -2032,7 +2045,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | # | Question | Pass |
 |---|---|---|
 | P-1 | Does a pull request authored by an App need an extra approval under the live ruleset's rule for unattributed changes? | One approval suffices |
-| P-2 | Can an App enable auto-merge and enter the merge queue, and take a pull request out of it before the queue merges it? And does the poller read a change before the queue merges it? | Yes to all three |
+| P-2 | Can an App enable auto-merge and enter the merge queue, and take a pull request out of it before the queue merges it? And does the poller read a change before the queue merges it? Does a push take a queued pull request out, can the queue eject one without merging it, its approval staying, is a draft ever merged by a person or the queue, and does the queue run the required checks on the merge group? | Yes to the first three; each of the rest answered and recorded, and the fake changed to match where it differs (`sim/AGENTS.md`, "Known to differ") |
 | P-3 | Is an environment secret restricted to the default branch unreadable from a workflow on a work-item branch? | Unreadable |
 | P-4 | Can an installation token be minted with a subset of the App's permissions and repos? | Yes |
 | P-5 | Can one App resolve a review thread opened by another App or by a third-party reviewer? | Yes, with pull-request write |
@@ -2071,6 +2084,11 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-38 | When GitHub dismisses an approving review as stale on a push, does the review stay on the commit it approved, readable with that commit and its reviewer; and who does the timeline record as dismissing it? | It stays, with its commit, and the dismissal names its actor: the contract a person approved is read at that commit (decision 0025). If it does not stay, the port reads the approval from somewhere that does, before any contract is in force |
 | P-39 | Does what GitHub granted each Factory App, its permissions, its events and the repos it reaches, agree with `config/apps.json`? Registered and installed alike, read through the Maintainer's login; the repos each installation reaches read with an installation token at his terminal, minted once and revoked (decision 0035) | They agree exactly, and a difference fails. A failing App's key is not stored; its registration is corrected and the trial runs again. **Passed** for all three Apps: the registrations and installations on 2026-10-18 (`trials/P-39.grants.json`), each with exactly the data's permissions and levels and no events, and the repos each installation reaches on 2026-10-19 (`trials/P-39.reach.json`), `selected` and exactly `installed_on`. Each App's key is stored in its job's environment |
 | P-40 | When only the base branch moves, does GitHub work out `mergeable` and `merge_commit_sha` again, for a pull request that still merges cleanly and for one the move makes conflict, and how long after? | Each answered and recorded. Until it runs, the transitions explorer's move "the base moves" (`tests/test_transitions.py`) makes `mergeable` unknown, which explores more cases than GitHub may produce; the simulator's fake models no move of the base |
+| P-41 | Under the ruleset that dismisses stale approvals on a push: does a request for changes survive the push; can an App with `pull_requests: write` dismiss a person's review, and a person with write access the machine user's approval, the timeline naming who dismissed and the review's earlier state; and can the Controller's App add and remove a control label on a pull request, the event naming the App? Is every actor named on a review, a dismissal, a thread and a label event read with its account type, a User or a Bot? | Yes to each. If a request for changes does not survive a push, the Kernel reads it from the timeline's record of it; if an App cannot dismiss a review, decision 0025 reads the approval only at the commit it approved |
+| P-42 | On a pull request's head: after a push, is every required check pending again; does a required check conclude `timed_out`, `neutral`, `skipped`, `cancelled` or `stale` and keep that conclusion until the content changes or a person runs it again; is every check run read with its exact name and its App's id, two workflow runs on one commit both staying, since `filter=latest` is per check suite; and can any App with `checks: write`, or any Actions job, post a check run under a required Lens's check name, or a result for any criterion of a contract, one the contract does not name among them, which then stays on that head? | Yes to each, so the Kernel's reading of checks (§4.2) and of acceptance results (§4.8) holds. If a check run can be deleted or renamed on the head, the port reads check runs from each check suite's own list |
+| P-43 | Does each list the facts are read from, reviews, threads, checks, timeline events, run records, acceptance results and the files a pull request changes, say when it was cut short, by a count, a last page or a next cursor that the same read gives; and can the list of run records stop short with the oldest Runs missing? Is every file a pull request changes listed once, by its path from the top of the repo, with the path a renamed or copied file had before? | Yes: each short read is told from the read itself, as P-29 showed for the diff and the list of files. If one is not, the port reads that list whole, or reads it as incomplete |
+| P-44 | With a concurrency group for each Work item on a Run's job, does GitHub keep one Run running and one pending, cancel the older pending Run, and never cancel the one running? | As GitHub documents it; the lane in `sim/world.py` then changes to match (`a_run_waits_its_turn`, "Known to differ" in `sim/AGENTS.md`) |
+| P-45 | When a dependency bot updates an Action's pin in a workflow file, does it open the pull request and push its head under its own `[bot]` identity, so that the port's class for it is `dependency`? | Yes, with the bot as author and last pusher. If a person's push follows, the class is read as any other change's (decision 0026) |
 
 ### 6.1 The order to run them in
 
@@ -2079,9 +2097,9 @@ An assumption audit on 2026-10-10 ranked each trial by what breaks if its answer
 | Batch | Trials | If the answer is no |
 |---|---|---|
 | **1. Before any code** | P-13 (the model CLI returns structured output on a subscription); P-1, P-7, P-24 (the approval mechanics); P-17, P-22 (run records can be identified); P-3 (secrets are isolated by environment); P-28, P-29 (last pusher and content identity are readable); P-8 (a pass fits its budget); P-39 (each App was granted what the data says) | The design does not work as written. Each of these is a foundation: no Run, no approval, no derived State, no credential boundary, or no poller |
-| **2. Before the first approval** | P-9, P-20, P-31 (chaining, the outside tick and the relay's host, on which W-2 rests: decision 0043); P-5, P-23, P-25 (resolving others' threads); P-2 (an App in the merge queue); P-30 (cutting a Release); P-27, P-14, P-4 (forks, caches, narrowed tokens); P-26 (the sandbox); P-35, P-36 (what a Lens's check is read from); P-37 (what a Lens reads from the base in the queue); P-38 (the commit an approved contract is read at); P-40 (whether a base move alone makes GitHub work `mergeable` out again) | One mechanism is replaced and the design stands. If threads cannot be resolved by an App, required thread resolution is dropped in repos the Factory serves |
+| **2. Before the first approval** | P-9, P-20, P-31 (chaining, the outside tick and the relay's host, on which W-2 rests: decision 0043); P-5, P-23, P-25 (resolving others' threads); P-2 (an App in the merge queue); P-30 (cutting a Release); P-27, P-14, P-4 (forks, caches, narrowed tokens); P-26 (the sandbox); P-35, P-36 (what a Lens's check is read from); P-37 (what a Lens reads from the base in the queue); P-38 (the commit an approved contract is read at); P-40 (whether a base move alone makes GitHub work `mergeable` out again); P-41, P-42, P-43 (reviews, labels, actors and check runs on a pull request, and the lists read short) | One mechanism is replaced and the design stands. If threads cannot be resolved by an App, required thread resolution is dropped in repos the Factory serves |
 | **3. Before the control room** | P-11, P-19, P-21 (publishing the page); P-16, P-18 (retention and final steps) | The page is published another way, or history is shorter |
-| **4. As they come up** | P-6, P-10, P-12, P-15 | A detail changes |
+| **4. As they come up** | P-6, P-10, P-12, P-15, P-44, P-45 (the lane's concurrency group; a dependency bot's pin) | A detail changes |
 
 P-32, P-33 and P-34 belong to the issue Lifecycle (§4.1). All three are run before the Factory's
 own author is built, since the hand-over reads labels, their actors and the closing reference. P-8 now measures a pass that lists every open issue.
