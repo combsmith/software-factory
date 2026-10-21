@@ -3306,7 +3306,7 @@ MUTANTS = ISSUE + [
     ("an authentication field is not a credential's", "tools/check_trials.py",
      '             "authentication", "passwd", "passcode", "bearer", "access_key", "accesskey", "encryption_key", "signing_key",\n'
      '             "master_key", "auth_key", "authkey", "pwd", "encryptionkey", "signingkey", "masterkey")\n', "             )\n", ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
-    ("a version that moved under the run holds", P13, '"held": version == pin == after}', '"held": version == pin}',
+    ("a version that moved under the run holds", P13, '"held": version == pin == after and', '"held": version == pin and',
      (P13_TESTS + "test_the_logins_exit_code_is_recorded",)),
     ("~/.claude is compared as written, not as the file system resolves it", P13,
      'dot=$(cd "$home/.claude" 2>/dev/null && pwd -P || echo "$home/.claude")', 'dot="$home/.claude"',
@@ -3386,6 +3386,15 @@ MUTANTS = ISSUE + [
     ("a child's CPU is not the hook's", "tests/support.py",
      '("user", "system", "children_user", "children_system")', '("user", "system")',
      ("tests.test_hooks.Budgets.test_the_cpu_a_child_spends_is_counted",)),
+    # Issue 247: what Muse's later rounds asked of P-13's script.
+    ("a reason may be any word", P13, '"reason": {"enum": ["fix_incomplete"]}', '"reason": {"type": "string", "pattern": "^[a-z_]+$"}',
+     (P13_TESTS + "test_a_reason_is_the_one_code_the_task_names",)),
+    ("the version after the Task holds whatever its exit", P13,
+     '                "held": version == pin == after and int(sys.argv[15]) == 0},\n',
+     '                "held": version == pin == after},\n', (P13_TESTS + "test_the_logins_exit_code_is_recorded",)),
+    ("a message about who asked may carry a credential", "tools/check_trials.py",
+     "    return [hidden(message) for message in out]\n", "    return out\n",
+     ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
 ]
 
 
