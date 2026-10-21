@@ -85,14 +85,17 @@ Held by: `tests/test_tools.py::test_something_shaped_like_a_credential_is_caught
 ## Nothing is fetched
 
 ```python
-import urllib.request      # refused: not in the allowed list
+import urllib.request      # refused: it reaches the network
 ```
 
 No dependency, no download and no module that reaches the network, so the required check reads
-nothing outside the commit it judges. The org's secret scan is a separate workflow and the one exception.
+nothing outside the commit it judges. The org's secret scan is a separate workflow and an exception. The
+other is the one transport, `adapters/github.py`, which alone may import what reaches the network, and
+sends HTTPS to GitHub's API with no redirect; every test of it replays a trial's fixture. The check refuses an
+import by name; a module reached by another name, importlib or a subprocess passes it, and review is the guard.
 
 Org standard: none. The one fetch is the org's own, push-protection.md, "Required CI job"; the org tools installed by a download are departed from: decision 0014.
-Held by: `tools/check_repo.py`
+Held by: `tools/check_repo.py`, `tests/test_tools.py::test_only_the_transport_reaches_the_network`
 
 ## The Factory cannot change what governs it
 

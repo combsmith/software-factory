@@ -10,7 +10,7 @@ import re
 from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-LOCAL = {"kernel", "tools", "sim", "tests"}
+LOCAL = {"kernel", "tools", "sim", "tests", "adapters"}
 # The standard-library modules in use. A new one is added here on purpose, in the same change.
 STDLIB = {"__future__", "ast", "contextlib", "copy", "datetime", "hashlib", "io", "json", "os", "pathlib", "random", "re", "shlex",
           "shutil", "subprocess", "sys", "tempfile", "time", "typing", "unittest"}
@@ -28,6 +28,14 @@ STDLIB = STDLIB | {"marshal"}
 STDLIB = STDLIB | {"difflib"}
 # importlib: tests/test_tools.py reads the import system's own suffixes, so that a Lens's inputs keep up with Python's.
 STDLIB = STDLIB | {"importlib"}
+# http: adapters/github.py, the one transport, refuses an answer http.client cut short. NETWORK refuses it anywhere else.
+STDLIB = STDLIB | {"http"}
+# The network. Only the one transport reaches it, so a request to GitHub is made in one file a review can read whole;
+# everywhere else these are refused, the required check fetches nothing, and a test replays what a trial recorded.
+# A net, as the search for secrets is: a subprocess or importlib can still reach out, and review is the real guard.
+NETWORK = {"urllib.request", "http", "socket", "ssl", "ftplib", "smtplib", "imaplib", "poplib", "nntplib",
+           "telnetlib", "xmlrpc", "socketserver", "asyncio", "webbrowser"}
+TRANSPORT = pathlib.PurePosixPath("adapters/github.py")
 MANIFESTS = {"pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "Pipfile.lock", "poetry.lock", "uv.lock",
              "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "environment.yml", "go.mod",
              "Cargo.toml", "Gemfile"}
@@ -95,11 +103,16 @@ def _python(rel: pathlib.PurePath, text: str) -> list:
             mods = [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom) and not node.level:
             mods = [node.module or ""]
+            reached = ["%s.%s" % (node.module, alias.name) for alias in node.names] if node.module else []
             if node.module == "random" and any(alias.name != "Random" for alias in node.names):
                 problems.append("%s:%d takes a draw from random by name; draw only with random()" % (rel, line))
         for mod in mods:
             if mod.split(".")[0] not in STDLIB | LOCAL:
                 problems.append("%s:%d imports %s, which is not in the allowed list" % (rel, line, mod))
+        for mod in mods + (reached if isinstance(node, ast.ImportFrom) and not node.level else []):
+            if any(mod == net or mod.startswith(net + ".") for net in NETWORK) and pathlib.PurePosixPath(*rel.parts) != TRANSPORT:
+                problems.append("%s:%d imports %s, which reaches the network; only %s does, as the one transport"
+                                % (rel, line, mod, TRANSPORT))
         if isinstance(node, ast.Name) and node.id in LOADERS:
             problems.append("%s:%d uses %s, which can load code no check has seen" % (rel, line, node.id))
         # Only random() gives the same sequence from the same seed on every Python version.

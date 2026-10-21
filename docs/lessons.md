@@ -276,22 +276,22 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-50 A credential's permissions were assumed
 **Failure.** A change of credential met a refusal on its first real write and was reverted. An App that could write contents could not move a tag on a repo with workflows, and the fleet was broken for six days.
 **Rule.** Each write a Role may make is tried once on a canary repo, and the recorded response is what the fake GitHub is held to.
-**Check.** waiting on `adapters/`
+**Check.** waiting on `adapters/effects.py`
 
 ### L-51 The tests passed against a fake that accepted anything
 **Failure.** The shared stub of the GitHub command returned empty for calls it did not know, so real flags and filters were never exercised.
 **Rule.** Every rule the fake GitHub applies cites a response recorded from the real one, and the required check prints the rules that do not.
-**Check.** `tests/test_tools.py::test_a_rule_of_the_fake_that_is_not_listed_is_caught`, `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate`, `tests/test_tools.py::test_verify_prints_every_rule_no_fixture_grounds`, `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can`; comparing the fake's answers with a fixture is waiting on `adapters/`
+**Check.** `tests/test_tools.py::test_a_rule_of_the_fake_that_is_not_listed_is_caught`, `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate`, `tests/test_tools.py::test_verify_prints_every_rule_no_fixture_grounds`, `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can`; comparing the fake's answers with a fixture is waiting on `adapters/facts.py`
 
 ### L-52 The fleet and every session shared one API quota
 **Failure.** "The fleet and every session share one GitHub API quota" (issue 2197). It ran out on 2026-10-10 and failed a workflow.
 **Rule.** The Factory reads through an App of its own, with a quota of its own, and what a pass costs is read and held to a budget.
-**Check.** waiting on `adapters/`
+**Check.** waiting on `controller/`
 
 ### L-53 The list itself was cut off, and nothing said so
 **Failure.** The list of workflow runs stops at 1,000 for a query, however it is paged. A query over the resource limit came back as a success with no data, and a whole repo was read as having no pull requests.
 **Rule.** A list read short is unreadable. The list of Runs and the list of items each say whether they are whole, as the facts of one item do.
-**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `examples/invalid/facts.no-completeness-for-runs.json` for the list of Runs; `examples/invalid/facts.no-completeness-for-timeline.json` for the timeline the acts are counted from; the list of items is waiting on `adapters/`
+**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `examples/invalid/facts.no-completeness-for-runs.json` for the list of Runs; `examples/invalid/facts.no-completeness-for-timeline.json` for the timeline the acts are counted from; the list of items is waiting on `adapters/facts.py`
 
 ### L-54 A wrong fix cleared a gate
 **Failure.** A fix added a new test and broke an existing one without editing it. Nobody ran the suite against the state before the fix, and an outside reviewer marked the thread addressed on the strength of the reply.
@@ -311,12 +311,12 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-57 Who counted as a writer depended on which token asked
 **Failure.** GitHub reports an author's standing relative to the token that reads it. Read with the wrong credential, every trusted marker was dropped as untrusted, and the breaker that counted them could never trip.
 **Rule.** Whether an actor can write is read with one named credential, and a trial records what each credential is shown.
-**Check.** waiting on `adapters/`
+**Check.** waiting on `adapters/timeline.py`
 
 ### L-58 The pause variable meant different things to different readers
 **Failure.** A repo's variable overrode the org's of the same name, and a workflow expression matched its value without regard to case while a script matched it exactly. One spelling delivered a credential to a run that then would not use it.
 **Rule.** A Pause on the org or on the repo is a Pause. Any value but an exact true, an exact false or nothing is unreadable.
-**Check.** waiting on `adapters/`
+**Check.** waiting on `controller/`
 
 ### L-59 An old streak on a quiet repo was read as a live outage
 **Failure.** A run of failures that had been fixed weeks before, on a repo with little traffic, was reported as an outage and held every scheduled run red. An outside reviewer's rate limit was at risk of counting toward the fleet's own breaker.
