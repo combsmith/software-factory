@@ -63,6 +63,9 @@ read: the facts give no window to judge "at the same time" by, and an outage sho
 did write `environment`, on which the automatic pause stops admission (decision 0003). An outcome
 GitHub has not yet listed just after its Run completed reads as none, so for that pass a failed Run
 is an attempt: a transient Hold, on the safe side, which the next pass lifts.
+An outcome past its retention reads as none too, so a failed Run whose outcome expired counts as
+an attempt; its run record is kept as long (P-16), and a writer's action renews the counts, so this
+holds an item, never acts on one.
 
 A Result is the model's word, so the Kernel reads only what follows from it, the run record, as it
 reads every other Run. A Result that does not say what it looked at cannot be told from one that

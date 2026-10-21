@@ -472,18 +472,21 @@ class Feed(unittest.TestCase):
         self.assertEqual(items["items"][1]["url"], "https://github.com/%s/pull/1" % REPO)
         self.assertEqual((items["items"][1]["runs"], items["items"][1]["sources"]), (1, ["r_01JA6Z"]))
         self.assertEqual(out["view"]["meta"]["reaches_back_to"], "2026-10-11T12:05:00Z")
-        # Attempts are counted as the brakes count them: completed Runs that failed by a fault of the item, since a
-        # person with write access last acted (Codex's read). Every Run is among `runs`.
+        # Attempts are counted as the brakes count them: completed Runs that failed by a fault of the item, or ran and
+        # left no outcome (decision 0046), since a person with write access last acted (Codex's read). Every Run is
+        # among `runs`.
         tried = [run("r_00000A", number=6, intent="fix-findings", role="dev-lead", conclusion="failure", outcome="item"),
                  run("r_00000B", number=6, intent="fix-findings", role="dev-lead", conclusion="failure",
                      outcome="environment"),
                  run("r_00000C", number=6, intent="fix-findings", role="dev-lead", conclusion="failure", outcome="item",
                      at="2026-10-11T11:00:00Z"),
                  run("r_00000D", number=6, at="2026-10-11T12:20:00Z"),
-                 run("r_00000E", number=6, intent="fix-findings", role="dev-lead", status="in_progress")]
+                 run("r_00000E", number=6, intent="fix-findings", role="dev-lead", status="in_progress"),
+                 run("r_00000F", number=6, intent="fix-findings", role="dev-lead", conclusion="timed_out", outcome=None),
+                 run("r_00000G", number=6, intent="fix-findings", role="dev-lead", conclusion="cancelled", outcome=None)]
         sixth = passed(reads(pulls=[pr(6)], runs=tried))["view"]["items"]["items"][0]
         self.assertEqual((sixth["attempts"], sixth["runs"]),
-                         ([{"intent": "fix-findings", "count": 1}, {"intent": "review-change", "count": 0}], 5))
+                         ([{"intent": "fix-findings", "count": 2}, {"intent": "review-change", "count": 0}], 7))
         # The table, changed, changes the feed: nothing else says who acts next or what is asked.
         cfg = config()
         cfg["feed"]["next_actor"]["by_outcome"][0]["actor"] = "lens"

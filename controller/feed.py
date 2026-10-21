@@ -57,10 +57,12 @@ def view(record: dict, before: list, titles: dict, feed: dict) -> dict:
         mine = [r for r in record["runs"] if r["item"] == d["item"]]
         intents = sorted({r["intent"] for r in mine})
         # An attempt is a completed Run that failed by a fault of the item, since a person with write access last acted,
-        # as the brakes count it (I-23): another Run is among the item's `runs`, never its attempts.
+        # as the brakes count it (I-23): one that ran and left no outcome among them (decision 0046). Another Run is
+        # among the item's `runs`, never its attempts.
         since = facts.get("last_writer_action_at")
         tried = [r for r in mine if r["status"] == "completed" and r["conclusion"] != "success"
-                 and r["outcome"] == "item" and (since is None or r["started_at"] > since)]
+                 and (r["outcome"] == "item" or (r["outcome"] is None and r["conclusion"] in t.RAN_AND_DIED))
+                 and (since is None or r["started_at"] > since)]
         items.append({
             "item": d["item"], "state": d["state"], "reason": d["reason"], "attention": d["attention"],
             "evidence": list(d["evidence"]), "next_actor": next_actor(d, feed), "decision_required": asked(d, feed),

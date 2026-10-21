@@ -1479,6 +1479,8 @@ MUTANTS = ISSUE + [
      "            for repo in sorted(answered - reach):\n", "            for repo in []:\n", ("tests.test_tools.Trials",)),
     ("a counter-example of a fixture is held to its schema alone", "tools/check_examples.py",
      '        if kind == "trial" and not errors:\n', "        if False:\n", ("tests.test_tools.Trials",)),
+    ("the feed counts no Run that left no outcome as an attempt", "controller/feed.py",
+     ' or (r["outcome"] is None and r["conclusion"] in t.RAN_AND_DIED))', ')', ("tests.test_controller",)),
     ("a job that never started is a failure, an attempt", "adapters/records.py",
      '"startup_failure": "cancelled"', '"startup_failure": "failure"', ("tests.test_adapters",)),
     ('a run of another workflow counts', 'adapters/records.py',
