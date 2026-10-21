@@ -311,7 +311,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-57 Who counted as a writer depended on which token asked
 **Failure.** GitHub reports an author's standing relative to the token that reads it. Read with the wrong credential, every trusted marker was dropped as untrusted, and the breaker that counted them could never trip.
 **Rule.** Whether an actor can write is read with one named credential, and a trial records what each credential is shown.
-**Check.** waiting on `adapters/timeline.py`
+**Check.** `tests/test_adapters.py::test_an_actor_is_told_by_its_account_type_and_the_configuration`
 
 ### L-58 The pause variable meant different things to different readers
 **Failure.** A repo's variable overrode the org's of the same name, and a workflow expression matched its value without regard to case while a script matched it exactly. One spelling delivered a credential to a run that then would not use it.
