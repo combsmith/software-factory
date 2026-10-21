@@ -96,7 +96,7 @@ def _named(text: str, root: pathlib.Path, here: pathlib.Path) -> list:
 
 # A directory that is built in parts lists, in its own AGENTS.md, the files not built yet, in one line of plain words.
 PLANNED_FILES = re.compile(r"^Not built yet[^:\n]*:([^\n]*)$", re.M)
-FILE_NAME = re.compile(r"[\w-]+(?:/[\w-]+)*\.\w+")
+FILE_NAME = re.compile(r"(?:[\w-]+(?:\.[\w-]+)*/)*[\w-]+(?:\.[\w-]+)*\.\w+")
 
 
 def _planned_files(root: pathlib.Path, top: str) -> set:

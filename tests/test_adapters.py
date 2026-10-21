@@ -124,6 +124,23 @@ class Transport(unittest.TestCase):
         live.opener = Error()
         with self.assertRaises(github.Unanswered):
             live.send(github.request("GET", "/x"))
+        # What it sends: HTTPS to GitHub's API, the path asked, and the caller's token as the bearer.
+        sent = []
+
+        class Answer(io.BytesIO):
+            status = 200
+            headers = {"Content-Type": "application/json"}
+
+        class Capture:
+            def open(self, request, timeout=None):
+                sent.append((request, timeout))
+                return Answer(b'{"ok": true}')
+        live = github.Live("the-token")
+        live.opener = Capture()
+        self.assertEqual(live.send(github.request("GET", "/repos/o/r"))["body"], {"ok": True})
+        request, timeout = sent[0]
+        self.assertEqual((request.full_url, request.get_header("Authorization"), timeout),
+                         ("https://api.github.com/repos/o/r", "Bearer the-token", github.TIMEOUT))
         # A request built by hand is held to the same rules before anything is opened.
         opened = []
 
@@ -232,6 +249,13 @@ class Own(unittest.TestCase):
         # trials/P-29.base.json: read again after the base moved, the head is the same; after the plain push, it is not.
         self.assertIs(pull.same_head(replay("P-29.base", 6), body("P-29.base", 1)), True)
         self.assertIs(pull.same_head(replay("P-29.base", 12), body("P-29.base", 1)), False)
+        # A retarget that keeps the head is a different pull request to read.
+        retargeted = copy.deepcopy(exchanges("P-29.base")[6])
+        retargeted["response"]["body"]["base"]["ref"] = "other"
+        self.assertIs(pull.same_head(github.Replay([retargeted]), body("P-29.base", 1)), False)
+        moved = copy.deepcopy(exchanges("P-29.base")[6])
+        moved["response"]["body"]["base"]["repo"]["id"] += 1
+        self.assertIs(pull.same_head(github.Replay([moved]), body("P-29.base", 1)), False)
         no_head = copy.deepcopy(exchanges("P-29.base")[6])
         no_head["response"]["body"]["head"]["sha"] = "1234"
         with self.assertRaises(github.Unanswered):

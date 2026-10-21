@@ -49,10 +49,13 @@ def read(transport, repo: str, number: int) -> dict:
 
 
 def same_head(transport, pull: dict) -> bool:
-    """Whether the pull request's head is still the commit the first read named, read once more after every other
-    part: a push in between makes the parts of two heads, and the snapshot is then refused and read again."""
+    """Whether the pull request is still at the head commit and on the base the first read named, read once more after
+    every other part: a push, or a retarget that keeps the head, in between makes the parts of two pull requests, and
+    the snapshot is then refused and read again."""
     again = read(transport, pull["base"]["repo"]["full_name"], pull["number"])
-    return again["head"]["sha"] == pull["head"]["sha"]
+    base, was = again.get("base") or {}, pull["base"]
+    return (again["head"]["sha"] == pull["head"]["sha"] and base.get("ref") == was.get("ref")
+            and (base.get("repo") or {}).get("id") == (was.get("repo") or {}).get("id"))
 
 
 def _account(actor) -> tuple:

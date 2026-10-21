@@ -2211,10 +2211,11 @@ class Context(unittest.TestCase):
     def test_a_wait_on_a_file_a_built_directory_plans_holds_until_the_file_exists(self):
         # Issue 191, ruling 2: a directory built in parts names, in its AGENTS.md, the files not built yet; a wait on
         # one of those holds until it exists, and a wait on any other file there has arrived, as a forgotten one would.
-        root = tree({"harness/apply.py": "", "harness/AGENTS.md": "Not built yet, by later stories: later.py, x/y.py.\n"})
+        root = tree({"harness/apply.py": "", "harness/AGENTS.md": "Not built yet, by later stories: later.py, x/y.py, run.test.py.\n"})
         held = check_context._held
         self.assertEqual(held("waiting on `harness/later.py`", "rule", root, root), [])
         self.assertEqual(held("waiting on `harness/x/y.py`", "rule", root, root), [])
+        self.assertEqual(held("waiting on `harness/run.test.py`", "rule", root, root), [])
         self.assertTrue(caught(held("waiting on `harness/never.py`", "rule", root, root), "exists now"))
         self.assertTrue(caught(held("waiting on `harness/`", "rule", root, root), "exists now"))
         (root / "harness" / "later.py").write_text("")
