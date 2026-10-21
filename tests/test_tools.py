@@ -2696,11 +2696,11 @@ PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", 
 class Trials(unittest.TestCase):
     def test_a_fixture_that_is_misnamed_or_invalid_is_caught(self):
         root = clone({"trials/P-12.json": fixture(trial="P-13"), "trials/P-12.retry.json": "{}",
-                      "trials/notes.md": "x\n", "trials/P12.json": fixture(), "trials/P-9.json/P-9.json": fixture(trial="P-9")})
+                      "trials/notes.md": "x\n", "trials/P12.json": fixture(), "trials/P-98.json/P-98.json": fixture(trial="P-98")})
         problems = check_trials.run(root)
         for words in ("trials/P-12.json: records trial P-13", "trials/P-12.retry.json: $: missing",
                       "trials/notes.md: trials/ holds fixtures only", "trials/P12.json: trials/ holds fixtures only",
-                      "trials/P-9.json: trials/ holds fixtures only"):
+                      "trials/P-98.json: trials/ holds fixtures only"):
             self.assertTrue(caught(problems, words), words)
         self.assertEqual(check_trials.run(clone({"trials/P-12.json": fixture(), "trials/P-12.retry.json": fixture()})), [])
 
@@ -2972,6 +2972,105 @@ class Trials(unittest.TestCase):
         self.assertNotIn("tick-probe.yml", check_workflows.EXEMPT)
         self.assertEqual(sorted(check_workflows.EXEMPT), ["ci.yml"])
 
+    def test_the_batch_2c_trials_ground_their_rules_on_what_the_runs_show(self):
+        # Issue 187: P-27, P-9 and P-20 ground a rule each, and each answer is recomputed here from the run records and
+        # the Date headers the fixture holds, never from its own summary. P-14 and P-4 ground no rule: §4.9 and §5.1
+        # cite them, and P-4's fail is on the repository subset alone.
+        from datetime import datetime, timezone
+        when = lambda s: datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        header = lambda e: datetime.strptime(e["response"]["headers"]["date"], "%a, %d %b %Y %H:%M:%S GMT").replace(tzinfo=timezone.utc)
+        load = lambda t: json.loads((ROOT / "trials" / ("%s.json" % t)).read_text())
+        canary = "combsmith/" + check_trials.CANARY
+        by_code = {rule[0]: rule[3] for rule in check_trials.rules()}
+        self.assertEqual(by_code["a_forks_run_never_counts"], "trials/P-27.json")
+        self.assertEqual(by_code["a_pass_starts_its_successor"], "trials/P-9.json")
+        self.assertEqual(by_code["a_public_event_starts_a_pass"], "trials/P-20.json")
+        calls = lambda f, end: [e for e in f["exchanges"] if e["request"]["call"].split(",")[0].endswith(end)]
+
+        # P-27 (a): the outside account's run waited, then ran as a second attempt a person triggered.
+        p27 = load("P-27")
+        waiting = [e for e in p27["exchanges"] if e["request"]["call"].endswith("/39534671364, before any approval")][0]["response"]["body"]
+        approved = [e for e in p27["exchanges"] if e["request"]["call"].endswith("/39534671364, after the approval")][0]["response"]["body"]
+        self.assertEqual((waiting["status"], waiting["conclusion"], waiting["head_repository"]["fork"]), ("completed", "action_required", True))
+        self.assertNotIn(waiting["actor"]["login"], ("don-petry", "donpetry-bot"))
+        self.assertEqual((approved["conclusion"], approved["run_attempt"], approved["triggering_actor"]["login"]), ("success", 2, "don-petry"))
+        # P-27 (b): every fork run is a pull request's; the fork's own file was refused a dispatch; no schedule ran.
+        runs = calls(p27, "actions/runs?event=pull_request&per_page=100")[0]["response"]["body"]["workflow_runs"]
+        forks = [r for r in runs if (r.get("head_repository") or {}).get("fork")]
+        self.assertTrue(any(r["path"] == ".github/workflows/p27-fork.yml" for r in forks))
+        self.assertTrue(all(r["event"] == "pull_request" for r in forks))
+        self.assertIn(calls(p27, "p27-fork.yml/dispatches")[0]["response"]["status"], (404, 422))
+        self.assertEqual(calls(p27, "actions/runs?event=schedule&per_page=100")[0]["response"]["body"]["total_count"], 0)
+        dispatched = calls(p27, "actions/runs?event=workflow_dispatch&per_page=100")[0]["response"]["body"]["workflow_runs"]
+        self.assertTrue(dispatched)
+        self.assertFalse([r for r in dispatched if r["path"].endswith("p27-fork.yml") or (r.get("head_repository") or {}).get("fork")])
+        heads = {r["path"]: r["head_branch"] for r in forks if r["head_repository"]["full_name"].startswith("don-petry/")}
+        self.assertEqual(heads.get(".github/workflows/p27-fork.yml"), "p27-fork")
+        self.assertEqual(waiting["head_branch"], "p27-outside")
+        self.assertEqual(p27["verdict"], "pass")
+
+        # P-9: the job's own dispatch was answered 204 and the next run, a dispatch, was listed within 60 seconds of it.
+        p9 = load("P-9")
+        job = [e for e in p9["exchanges"] if e["request"]["as"]["kind"] == "workflow"][0]
+        second = calls(p9, "actions/runs/39532289509")[0]["response"]["body"]
+        self.assertEqual(job["response"]["status"], 204)
+        self.assertEqual(second["event"], "workflow_dispatch")
+        first = calls(p9, "actions/runs/39532278207")[0]["response"]["body"]
+        self.assertEqual(second["actor"]["login"], "github-actions[bot]")
+        self.assertTrue(0 <= (when(second["created_at"]) - header(job)).total_seconds() <= 60)
+        # The ruling asks that the second run name the first run's actor; it does not, so P-9 fails on that clause.
+        self.assertNotEqual(second["actor"]["login"], first["actor"]["login"])
+        self.assertEqual(p9["verdict"], "fail")
+
+        # P-20: at least eight of ten stars have their own run within 120 seconds of the star's answer.
+        p20 = load("P-20")
+        stars = [header(e) for e in p20["exchanges"] if e["request"]["call"].startswith("PUT /user/starred/")]
+        created = sorted(when(r["created_at"]) for r in calls(p20, "p20-watch.yml/runs?per_page=100")[0]["response"]["body"]["workflow_runs"]
+                         if r["event"] == "watch")
+        self.assertEqual(len(stars), 10)
+        used = set()
+        for at in stars:
+            match = [c for c in created if c not in used and 0 <= (c - at).total_seconds() <= 120]
+            if match:
+                used.add(match[0])
+        delays = []
+        used = set()
+        for at in stars:
+            match = [c for c in created if c not in used and 0 <= (c - at).total_seconds() <= 120]
+            if match:
+                used.add(match[0])
+            delays.append(round((match[0] - at).total_seconds()) if match else None)
+        self.assertGreaterEqual(len(used), 8)
+        self.assertEqual(p20["exchanges"][-1]["response"]["body"]["seconds_from_star_to_run"], delays)
+        self.assertEqual(p20["verdict"], "pass")
+
+        # P-14: the job's token was refused the write, no cache-service token reached the step, and no cache exists.
+        p14 = load("P-14")
+        self.assertEqual(calls(p14, "actions/caches?key=p14-none")[0]["response"]["status"], 403)
+        step = [e for e in p14["exchanges"] if e["request"]["call"].startswith("The step's environment")][0]["response"]["body"]
+        self.assertEqual(step["runner_cache_access_in_a_run_step"], "not set")
+        self.assertEqual(calls(p14, "actions/caches")[-1]["response"]["body"]["total_count"], 0)
+        self.assertEqual(p14["verdict"], "pass")
+
+        # P-4: in the second run the permissions subset held and the repository subset did not narrow a public read.
+        p4 = load("P-4")
+        second_run = [e for e in p4["exchanges"] if "the second run" in e["request"]["call"]]
+        status = {e["request"]["call"].split(",")[0]: e["response"]["status"] for e in second_run}
+        self.assertEqual(status["GET /repos/%s/contents/" % canary], 200)
+        self.assertEqual(status["PUT /repos/%s/contents/p4/trial.md" % canary], 403)
+        self.assertEqual(status["GET /repos/combsmith/software-factory/contents/"], 200)
+        mint = [e for e in second_run if "/access_tokens" in e["request"]["call"]][0]
+        self.assertEqual(mint["request"]["body"], {"repositories": [check_trials.CANARY], "permissions": {"contents": "read"}})
+        self.assertEqual(mint["response"]["status"], 201)
+        self.assertEqual(mint["response"]["body"]["permissions"], {"contents": "read", "metadata": "read"})
+        self.assertEqual(mint["response"]["body"]["repository_selection"], "selected")
+        self.assertEqual([r["full_name"] for r in mint["response"]["body"]["repositories"]], [canary])
+        self.assertEqual(p4["verdict"], "fail")
+        design = (ROOT / "docs" / "architecture" / "software-factory-design.md").read_text()
+        for cited in ("(P-4, `trials/P-4.json`)", "(P-14, `trials/P-14.json`)", "(P-9, `trials/P-9.json`)",
+                      "P-27, `trials/P-27.json`)", "(P-20,\n  `trials/P-20.json`)"):
+            self.assertIn(cited, design)
+
     def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
         # Decision 0035, held in tools/check_trials.py since issue 226: a fixture of the canary reads the org's repos
         # alone and is answered with them alone, and an App's read names, and is answered with, only repos its
@@ -2998,6 +3097,18 @@ class Trials(unittest.TestCase):
             "a-git-read-of-another-repo": "names the owner outside",
             "an-unknown-apps-read-beyond-the-canary": "asks of combsmith/software-factory, which the App's installation does not reach",
             "an-apps-answer-beyond-its-reach": "names combsmith/another-repo, which the App's installation does not reach",
+            # A trial of forks (P-27) may read a fork of the canary, and a trial of reach (P-4) a repo of the org beyond
+            # its App's install; neither another owner's repo, and no other trial a fork. A star names its repo.
+            "a-fork-of-the-canary-read-outside-a-trial-of-forks": "names the owner someone",
+            "a-trial-of-forks-reading-another-owners-repo": "names the owner someone",
+            "a-trial-of-reach-reading-another-org": "names the owner outside",
+            "a-star-of-another-owners-repo": "names the owner outside",
+            # A trial of reach is spared the App's reach and nothing else; a fork licenses no owner a read names at an
+            # org's level; a star goes through the same reading as any path.
+            "a-trial-of-reach-traversing-the-org": "asks of the org by an App",
+            "a-trial-of-forks-reading-an-outside-org": "names the owner outside",
+            "a-star-beside-another-read": "names the owner outside",
+            "a-star-that-climbs": "climbs out of its repo",
         }
         for name, words in refused.items():
             data = json.loads((ROOT / "examples" / "invalid" / ("trial.%s.json" % name)).read_text())
@@ -3323,6 +3434,136 @@ class Trials(unittest.TestCase):
             self.assertTrue(caught(problems, where + ": names the proof-of-concept repo"), where)
         self.assertFalse(caught(problems, "trials/P-13.json"))
 
+
+class NarrowedToken(unittest.TestCase):
+    """`tools/trial_p4_narrow.sh` mints one narrowed token at the Maintainer's terminal, reads with it and revokes it.
+    Here it runs against a stand-in curl and openssl, which answer by method and path and record each call."""
+
+    TOKEN = "gh" + "s_" + "F" * 36
+
+    def stand_in(self, mint_status="201", mint_body=None, revoke_status="204", statuses=None) -> pathlib.Path:
+        """A directory holding a curl that answers by URL and an openssl that signs nothing real."""
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (folder / "bin").mkdir()
+        mint_body = mint_body if mint_body is not None else json.dumps(
+            {"token": self.TOKEN, "expires_at": "2026-10-21T00:00:00Z", "permissions": {"contents": "read"},
+             "repository_selection": "selected"})
+        answers = {"GET repos/x/canary/contents/": ("200", '[{"name":"trial-notes","type":"dir"}]'),
+                   "PUT repos/x/canary/contents/p4/trial.md": ("403", '{"message":"Resource not accessible by integration"}'),
+                   "GET repos/x/other/contents/": ("404", '{"message":"Not Found"}')}
+        answers.update(statuses or {})
+        (folder / "answers.json").write_text(json.dumps(answers))
+        (folder / "bin" / "openssl").write_text("#!/bin/sh\ncase \"$1\" in base64) exec /usr/bin/openssl \"$@\" ;; dgst) printf 'sig' ;; *) exit 1 ;; esac\n")
+        (folder / "bin" / "curl").write_text('''#!/bin/sh
+here=$(dirname "$0")/..
+cat > /dev/null
+method=GET; url=""; include=0; out=""; w=""; data=""
+all="$*"
+while [ $# -gt 0 ]; do
+  case "$1" in -X) method=$2; shift ;; -i) include=1 ;; -o) out=$2; shift ;; -w) w=$2; shift ;; -H) shift ;; --data-binary) data=$2; shift ;; http*) url=$1 ;; esac
+  shift
+done
+set -- $all
+printf '%s %s\\n' "$method" "$url" >> "$here/calls"
+printf '%s\\n' "$*" >> "$here/argv"
+path=${url#https://api.github.com/}
+case "$method $path" in
+  "GET repos/"*"/installation") body='{"id": 7, "app_id": 5363178}'; status=200 ;;
+  "POST app/installations/7/access_tokens") cp "${data#@}" "$here/mint.request"; body=$(cat "$here/mint.body"); status=$(cat "$here/mint.status") ;;
+  "DELETE installation/token") body=""; status=$(cat "$here/revoke.status") ;;
+  *) pair=$(python3 -c 'import json,sys; a=json.load(open(sys.argv[1])); k=sys.argv[2]; print(a[k][0] + " " + a[k][1] if k in a else "500 {}")' "$here/answers.json" "$method $path"); status=${pair%% *}; body=${pair#* } ;;
+esac
+if [ -n "$out" ]; then printf '%s' "$body" > "$out"
+elif [ "$include" = 1 ]; then printf 'HTTP/2 %s\\r\\ndate: Tue, 20 Oct 2026 23:00:00 GMT\\r\\ncontent-type: application/json\\r\\n\\r\\n%s' "$status" "$body"
+else printf '%s' "$body"; fi
+[ -n "$w" ] && printf "$(printf '%s' "$w" | sed "s/%{http_code}/$status/")"
+exit 0
+''')
+        (folder / "mint.body").write_text(mint_body)
+        (folder / "mint.status").write_text(mint_status)
+        (folder / "revoke.status").write_text(revoke_status)
+        for name in ("curl", "openssl"):
+            (folder / "bin" / name).chmod(0o755)
+        (folder / "key.pem").write_text("not a key\n")
+        return folder
+
+    def run_script(self, folder: pathlib.Path, *args, out="out") -> subprocess.CompletedProcess:
+        env = {"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder), "LANG": "C"}
+        return subprocess.run(["sh", str(ROOT / "tools" / "trial_p4_narrow.sh"), str(folder / out), str(folder / "key.pem"), *args],
+                              capture_output=True, text=True, env=env, cwd=str(folder), stdin=subprocess.DEVNULL, timeout=60)
+
+    def test_a_narrowed_token_is_minted_used_three_times_and_revoked_and_never_kept(self):
+        folder = self.stand_in()
+        done = self.run_script(folder, "x/canary", "x/other")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        calls = (folder / "calls").read_text().splitlines()
+        self.assertEqual([c.split(" ", 1)[0] for c in calls], ["GET", "POST", "GET", "PUT", "GET", "DELETE"])
+        self.assertTrue(calls[1].endswith("/app/installations/7/access_tokens"))
+        self.assertTrue(calls[-1].endswith("/installation/token"))
+        asked = json.loads((folder / "out" / "requests.json").read_text())
+        self.assertEqual(asked["revoked"], "204")
+        self.assertEqual(asked["narrowed_to"], {"repositories": ["canary"], "permissions": {"contents": "read"}})
+        # What the mint asked GitHub for, as the stand-in received it: the subset, not the script's own report of it.
+        self.assertEqual(json.loads((folder / "mint.request").read_text()),
+                         {"repositories": ["canary"], "permissions": {"contents": "read"}})
+        self.assertEqual([r["status"] for r in asked["reads"]], ["200", "201", "200", "403", "404"])
+        kept = "".join(p.read_text() for p in (folder / "out").iterdir())
+        self.assertNotIn(self.TOKEN, kept)
+        self.assertNotIn(self.TOKEN, done.stdout + done.stderr)
+        minted = json.loads((folder / "out" / "clean-2").read_text().split("\n\n", 1)[1])
+        self.assertEqual(minted, {"expires_at": "2026-10-21T00:00:00Z", "permissions": {"contents": "read"},
+                                  "repository_selection": "selected"})
+        self.assertEqual(sorted(p.name for p in (folder / "out").iterdir()),
+                         ["clean-1", "clean-2", "clean-3", "clean-4", "clean-5", "ran_at", "redacted-1", "redacted-2",
+                          "redacted-3", "redacted-4", "redacted-5", "requests.json"])
+        # No call carried the token, or a header that could, among curl's arguments: it reaches curl on stdin alone.
+        argv = (folder / "argv").read_text()
+        self.assertNotIn(self.TOKEN, argv)
+        self.assertNotIn("Authorization", argv)
+
+    def test_each_refusal_stops_before_anything_is_minted(self):
+        folder = self.stand_in()
+        (folder / "exists").mkdir()
+        for label, args, said in (
+                ("OUT exists", ("x/canary", "x/other"), "exists; name a new directory"),
+                ("a bad repo name", ("x/canary", "evil/*"), "is not OWNER/REPO"),
+                ("the same repo twice", ("x/canary", "x/canary"), "must differ"),
+                ("too few arguments", ("x/canary",), "usage:")):
+            out = "exists" if label == "OUT exists" else "new-" + label.replace(" ", "-")
+            done = self.run_script(folder, *args, out=out)
+            self.assertEqual(done.returncode, 2, label)
+            self.assertIn(said, done.stderr, label)
+        self.assertFalse((folder / "calls").exists(), "a refusal made a call")
+        done = subprocess.run(["sh", str(ROOT / "tools" / "trial_p4_narrow.sh"), str(folder / "new"), str(folder / "missing.pem"),
+                               "x/canary", "x/other"], capture_output=True, text=True,
+                              env={"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder)}, cwd=str(folder))
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("cannot read the key file", done.stderr)
+
+    def test_a_refused_mint_stops_with_nothing_read_and_the_answer_redacted(self):
+        folder = self.stand_in(mint_status="401", mint_body='{"message": "Bad credentials"}')
+        done = self.run_script(folder, "x/canary", "x/other")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("no token was read from the mint (status 401)", done.stderr)
+        calls = (folder / "calls").read_text().splitlines()
+        self.assertEqual([c.split(" ", 1)[0] for c in calls], ["GET", "POST"], "a read was made with no token")
+        self.assertIn("Bad credentials", (folder / "out" / "clean-2").read_text())
+
+    def test_a_revocation_that_is_not_204_is_told_and_fails(self):
+        folder = self.stand_in(revoke_status="500")
+        done = self.run_script(folder, "x/canary", "x/other")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("returned 500, not 204", done.stderr)
+        self.assertIn("revoke it by hand", done.stderr)
+        self.assertNotIn(self.TOKEN, done.stdout + done.stderr)
+
+    def test_a_reads_status_is_the_answer_whatever_it_is(self):
+        # A read of the other repo answered 200 is not refused by the script: the fixture's verdict judges it.
+        folder = self.stand_in(statuses={"GET repos/x/other/contents/": ("200", '[{"name":"README.md","type":"file"}]')})
+        done = self.run_script(folder, "x/canary", "x/other")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        asked = json.loads((folder / "out" / "requests.json").read_text())
+        self.assertEqual([r["status"] for r in asked["reads"]][-1], "200")
 
 class TrialScript(unittest.TestCase):
     """`tools/trial_p13_cli.sh`, run against a stand-in CLI and never the real one (issue 178): the environment the CLI is

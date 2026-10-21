@@ -193,4 +193,10 @@ RULES = (
      ("P-16",), None, None),
     ("a_draft_is_not_merged", "A draft pull request cannot be merged, by a person or by the queue",
      ("P-2",), None, None),
+    ("a_forks_run_never_counts", "A pull request from a fork runs its own workflow file, on pull_request, never on a "
+     "schedule or a dispatch, and I-34 counts none of it", ("P-27",), "trials/P-27.json", None),
+    ("a_pass_starts_its_successor", "A pass can dispatch the next with its own job's token", ("P-9",), "trials/P-9.json",
+     None),
+    ("a_public_event_starts_a_pass", "An event anyone may cause starts the poller's workflow, within a minute or two",
+     ("P-20",), "trials/P-20.json", None),
 )
