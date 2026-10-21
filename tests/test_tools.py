@@ -3920,6 +3920,150 @@ exit 9
                          "a configuration directory of its own, logged in to the Maintainer's own subscription (decision 0033)")
 
 
+class AppThreads(unittest.TestCase):
+    """`tools/trial_as_app.sh threads` (issue 282), run against a stand-in gh, curl and openssl that act out GitHub's
+    answers: the App opens a pull request and two review threads, resolves the first, deletes the second's first
+    comment, and revokes its token; the token never reaches a command line, and every exchange is one the fixture
+    check can read."""
+
+    SCRIPT = ROOT / "tools" / "trial_as_app.sh"
+    TOKEN = "ghs_" + "S" * 36
+    REPO = "combsmith/" + check_trials.CANARY
+    # The stand-in gh: what the App's installation is answered, from the state it keeps beside itself.
+    GH = r'''#!/usr/bin/env python3
+import json, os, pathlib, sys
+here = pathlib.Path(__file__).resolve().parent
+args = sys.argv[1:]
+with open(here / "calls", "a") as calls:
+    calls.write(json.dumps({"argv": args, "token": os.environ.get("GH_TOKEN")}) + "\n")
+state = json.loads((here / "state").read_text()) if (here / "state").exists() else {"reviews": 0, "resolved": False, "reply": False, "deleted": False}
+def answer(status, body):
+    (here / "state").write_text(json.dumps(state))
+    print("HTTP/2.0 %d %s\nContent-Type: application/json\n" % (status, "OK"))
+    if body is not None:
+        print(json.dumps(body))
+    sys.exit(0)
+if args[0] == "api" and "graphql" in args:
+    query = next(a.split("=", 1)[1] for a in args if a.startswith("query="))
+    if query.lstrip().startswith("mutation"):
+        state["resolved"] = True
+        answer(200, {"data": {"resolveReviewThread": {"thread": {"id": "T1", "isResolved": True, "resolvedBy": None}}}})
+    threads = []
+    if state["reviews"] >= 1:
+        threads.append({"id": "T1", "isResolved": state["resolved"], "resolvedBy": None,
+                        "comments": {"totalCount": 1, "nodes": [{"databaseId": 101, "author": {"login": "combsmith-sf-trial-author", "__typename": "Bot"},
+                                                                 "body": "Trial thread 1: the App resolves it.", "replyTo": None}]}})
+    if state["reviews"] >= 2:
+        nodes = [] if state["deleted"] else [{"databaseId": 201, "author": {"login": "combsmith-sf-trial-author", "__typename": "Bot"},
+                                               "body": "Trial thread 2: its first comment is deleted.", "replyTo": None}]
+        if state["reply"]:
+            nodes.append({"databaseId": 202, "author": {"login": "combsmith-sf-trial-author", "__typename": "Bot"},
+                          "body": "Trial thread 2: a reply, which should stay.", "replyTo": {"databaseId": 201}})
+        threads.append({"id": "T2", "isResolved": False, "resolvedBy": None, "comments": {"totalCount": len(nodes), "nodes": nodes}})
+    answer(200, {"data": {"repository": {"pullRequest": {"reviewThreads": {"totalCount": len(threads), "nodes": threads}}}}})
+method = args[args.index("-X") + 1]
+path = next(a for a in args[1:] if not a.startswith("-") and a not in (method, "Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"))
+repo = os.environ.get("STANDIN_REPO")
+if path == "installation/token":
+    answer(204, None)
+if path == "installation/repositories":
+    answer(200, {"total_count": 1, "repositories": [{"full_name": repo}]})
+if path == "repos/%s" % repo:
+    answer(200, {"full_name": repo, "default_branch": "main"})
+if path.endswith("/git/ref/heads/main"):
+    answer(200, {"object": {"sha": "a" * 40}})
+if path.endswith("/git/refs") or "/contents/" in path:
+    answer(201, {"ok": True})
+if path.endswith("/pulls") and method == "POST":
+    answer(201, {"number": 7})
+if path.endswith("/pulls/7") and method == "GET":
+    answer(200, {"number": 7, "state": "open", "head": {"sha": "b" * 40, "ref": "trial/p-threads", "repo": {"full_name": repo}}})
+if path.endswith("/pulls/7/reviews"):
+    state["reviews"] += 1
+    answer(200, {"id": state["reviews"]})
+if path.endswith("/comments/201/replies"):
+    state["reply"] = True
+    answer(201, {"id": 202})
+if path.endswith("/pulls/comments/201") and method == "DELETE":
+    state["deleted"] = True
+    answer(204, None)
+answer(404, {"message": "the stand-in does not know " + path})
+'''
+    # The stand-in curl: the App's installation and its token, by its JWT; it records what it was asked.
+    CURL = r'''#!/usr/bin/env python3
+import json, pathlib, sys
+here = pathlib.Path(__file__).resolve().parent
+args = sys.argv[1:]
+with open(here / "curl-calls", "a") as calls:
+    calls.write(json.dumps({"argv": args, "stdin_has_bearer": None}) + "\n")
+sys.stdin.read()
+url = args[-1]
+if url.endswith("/installation"):
+    print("HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n" + json.dumps({"id": 42, "app_id": 5363178}))
+elif url.endswith("/access_tokens"):
+    print("HTTP/2.0 201 Created\r\nContent-Type: application/json\r\n\r\n" + json.dumps({"token": "''' + "ghs_" + "S" * 36 + r'''", "expires_at": "2026-10-22T00:00:00Z", "permissions": {"contents": "write", "pull_requests": "write"}}))
+else:
+    print("HTTP/2.0 404 Not Found\r\n\r\n{}")
+'''
+    OPENSSL = r'''#!/bin/sh
+case "$1" in
+  base64) /usr/bin/base64 | tr -d '\n' ;;
+  dgst) cat > /dev/null; printf 'signature' ;;
+esac
+'''
+
+    def test_the_app_opens_resolves_and_deletes_and_revokes_its_token(self):
+        bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        for name, text in (("gh", self.GH), ("curl", self.CURL), ("openssl", self.OPENSSL)):
+            (bin_ / name).write_text(text)
+            (bin_ / name).chmod(0o755)
+        key = bin_ / "key.pem"
+        key.write_text("not a key: the stand-in openssl never reads it\n")
+        env = {"PATH": "%s:/usr/bin:/bin" % bin_, "HOME": str(bin_), "LANG": "C", "STANDIN_REPO": self.REPO,
+               "TMPDIR": str(pathlib.Path(SCRATCH.name).resolve())}
+        ran = subprocess.run(["bash", str(self.SCRIPT), "threads", str(key), self.REPO, "trial/p-threads", "trial-notes/threads.md"],
+                             capture_output=True, text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+        calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
+        curl_calls = [json.loads(line) for line in (bin_ / "curl-calls").read_text().splitlines()]
+        # The token reaches gh through its environment alone, never an argument; curl never holds it at all.
+        self.assertTrue(all(self.TOKEN not in " ".join(c["argv"]) for c in calls))
+        self.assertTrue(all(self.TOKEN not in " ".join(c["argv"]) for c in curl_calls))
+        self.assertEqual({c["token"] for c in calls}, {self.TOKEN})
+        # The order of what the App did: two reviews, a resolution between them, a reply, a deletion, and the revocation last.
+        said = [" ".join(a for a in c["argv"] if not a.startswith(("Accept:", "X-GitHub"))) for c in calls]
+        kinds = []
+        for line in said:
+            if "graphql" in line:
+                kinds.append("resolve" if "mutation" in line else "read")
+            elif "/reviews" in line:
+                kinds.append("review")
+            elif "/replies" in line:
+                kinds.append("reply")
+            elif "DELETE" in line and "pulls/comments/" in line:
+                kinds.append("delete")
+            elif "installation/token" in line:
+                kinds.append("revoke")
+        self.assertEqual(kinds, ["review", "read", "resolve", "read", "review", "read", "reply", "read", "delete", "read", "revoke"])
+        # Every exchange it kept is one the fixture check reads, of the canary alone; the resolution is the command line.
+        out = pathlib.Path(ran.stdout.strip().splitlines()[-1].strip())
+        exchanges = json.loads((out / "exchanges.json").read_text())["exchanges"]
+        self.assertNotIn(self.TOKEN, json.dumps(exchanges))
+        for exchange in exchanges:
+            owners, repos, wrong = check_trials._asked(exchange["request"])
+            self.assertEqual(wrong, [], exchange["request"]["call"])
+            self.assertLessEqual(repos, {self.REPO}, exchange["request"]["call"])
+        resolve = [e for e in exchanges if "resolveReviewThread" in e["request"]["call"]]
+        self.assertEqual([(e["request"]["via"], e["response"]["status"]) for e in resolve], [("cli", 200)])
+        self.assertEqual(resolve[0]["request"]["body"]["variables"], {"id": "T1"})
+        reads = [e["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"] for e in exchanges
+                 if e["request"]["via"] == "graphql"]
+        self.assertEqual([[t["id"] for t in r["nodes"]] for r in reads], [["T1"], ["T1"], ["T1", "T2"], ["T1", "T2"], ["T1", "T2"]])
+        self.assertEqual([r["nodes"][0]["isResolved"] for r in reads], [False, True, True, True, True])
+        self.assertEqual(exchanges[-1]["request"]["call"], "DELETE /installation/token")
+
+
 class Redaction(unittest.TestCase):
     """`tools/redact_trial.py` runs on the raw capture, outside the repo, before anyone reads it."""
 
