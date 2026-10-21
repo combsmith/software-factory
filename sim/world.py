@@ -848,7 +848,8 @@ class World:
         run["status"] = "completed"
         if self.faults and self.rng.random() < 0.12:
             # GitHub: a_killed_job_times_out
-            run.update(conclusion="timed_out", outcome=self.pick(["item", "capacity", "environment"]))
+            # A killed Run may write no outcome (section 3.10): with none, it is an attempt (issue 286).
+            run.update(conclusion="timed_out", outcome=self.pick(["item", "capacity", "environment", None]))
             self.note("run %s: killed (%s)" % (run["run"], run["outcome"]))
             return
         if self.held() or not self.agreed() or run["content_id"] != self.cid() or self.pr_state != "open":
@@ -1261,7 +1262,9 @@ class World:
         self.check(self.acts <= ceiling or (self.acts == ceiling + 1 and self.last_act == "dequeue"),
                    "I-8 acts since a writer exceed the ceiling")
         unlanded = [r for r in spent if r["intent"] == t.ISSUE_APPROVAL]
-        self.check(len([r for r in unlanded if r["outcome"] == "item"]) <= CONFIG["limits"]["max_attempts"],
+        self.check(len([r for r in unlanded if r["outcome"] == "item" or (r["outcome"] is None and r["conclusion"]
+                                                                            in ("failure", "timed_out"))])
+                   <= CONFIG["limits"]["max_attempts"],
                    "I-8 an approval that does not land is issued again")
         self.check(len(unlanded) <= CONFIG["limits"]["max_runs_per_item"],
                    "I-8 an approval that fails for a cause outside the item is issued for ever")

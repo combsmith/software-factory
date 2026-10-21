@@ -2010,7 +2010,8 @@ class AReviewThatReported(unittest.TestCase):
     def test_a_run_that_ran_and_left_no_outcome_is_an_attempt(self):  # issue 286's ruling, I-23
         # A Run that failed or timed out with no outcome ran and did not report: killed, out of memory, or crashed in its
         # own step. It is the item's, as section 3.10 reads a killed Run, so three such are held at max_attempts and not
-        # left to the Run ceiling. One cancelled, or that never ran the Role, with no outcome is no attempt.
+        # left to the Run ceiling. One cancelled with no outcome is no attempt; a job that never started is read as
+        # cancelled by the records port (tests/test_adapters.py).
         top = LIMITS["max_attempts"]
         for conclusion in ("failure", "timed_out"):
             died = [run(conclusion=conclusion, outcome=None, at=at(10 + i), name="d%d" % i) for i in range(top)]
@@ -2018,17 +2019,17 @@ class AReviewThatReported(unittest.TestCase):
             self.assertEqual((d["state"], d["reason"], d["outcome"], d["evidence"]),
                              ("held", "attempts_exhausted", "hold", [r["run"] for r in died]), conclusion)
             self.assertEqual(go(facts(), died[1:]).get("admit"), REVIEW_IT, conclusion)
-        for conclusion in ("cancelled", "startup_failure", "skipped", "neutral", "action_required", "stale"):
-            gone = [run(conclusion=conclusion, outcome=None, at=at(10 + i), name="g%d" % i) for i in range(top)]
-            d = go(facts(), gone)
-            self.assertEqual((d["reason"], d.get("admit")), ("awaiting_review", REVIEW_IT), conclusion)
+        gone = [run(conclusion="cancelled", outcome=None, at=at(10 + i), name="g%d" % i) for i in range(top)]
+        d = go(facts(), gone)
+        self.assertEqual((d["reason"], d.get("admit")), ("awaiting_review", REVIEW_IT))
         # An outcome the Run wrote is read as it says: a failure by the environment or capacity is no attempt.
         for outcome in ("environment", "capacity", "superseded"):
             other = [run(conclusion="failure", outcome=outcome, at=at(10 + i), name="o%d" % i) for i in range(top)]
             self.assertEqual(go(facts(), other)["reason"], "awaiting_review", outcome)
-        # A Run still in flight has no outcome yet, and is no attempt.
-        flying = [run(conclusion=None, status="in_progress", outcome=None, at=at(10), name="f0")]
-        self.assertNotEqual(go(facts(), flying)["reason"], "attempts_exhausted")
+        # A Run still in flight has no outcome yet, and is no attempt: one attempt short, it does not hold the item.
+        died = [run(conclusion="failure", outcome=None, at=at(10 + i), name="d%d" % i) for i in range(top - 1)]
+        flying = run(conclusion=None, status="in_progress", outcome=None, at=at(20), name="f0")
+        self.assertNotEqual(go(facts(), died + [flying])["reason"], "attempts_exhausted")
 
     def test_a_review_that_succeeded_with_a_fault_is_unreadable(self):  # I-13
         # A Run that succeeded and names whose fault its failure was contradicts itself: no report is read from it,

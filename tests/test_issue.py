@@ -1387,6 +1387,16 @@ class Investigation(unittest.TestCase):
         renewed = facts(label_events=ACCEPTED, last_writer_action_at=at(30))
         self.assertEqual(what(decide(renewed, runs)), ("admit", "triage", INVESTIGATE))
 
+    def test_an_issues_run_that_ran_and_left_no_outcome_is_an_attempt(self):  # issue 286's ruling
+        # An investigating Run that failed or timed out with no outcome is the item's; one cancelled with none is not.
+        tries = LIMITS["max_attempts"]
+        for conclusion in ("failure", "timed_out"):
+            died = [dict(failed(INVESTIGATE, 1 + i, "d%d" % i, outcome=None), conclusion=conclusion) for i in range(tries)]
+            self.assertEqual(what(decide(TRIAGED, died[:-1])), ("admit", "triage", INVESTIGATE), conclusion)
+            self.assertEqual(what(decide(TRIAGED, died)), ("hold", "attempts_exhausted", None), conclusion)
+        gone = [dict(failed(INVESTIGATE, 1 + i, "g%d" % i, outcome=None), conclusion="cancelled") for i in range(tries)]
+        self.assertEqual(what(decide(TRIAGED, gone)), ("admit", "triage", INVESTIGATE))
+
     def test_a_run_in_flight_admits_nothing_and_the_brakes_hold_still_applies(self):
         tries = LIMITS["max_attempts"]
         queued = investigated(status="queued", minute=20, name="q1")

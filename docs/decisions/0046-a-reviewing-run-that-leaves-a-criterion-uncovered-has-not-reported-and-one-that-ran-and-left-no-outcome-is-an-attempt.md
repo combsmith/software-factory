@@ -41,8 +41,11 @@ item is an attempt of `review-change`: at `max_attempts` since a person with wri
 the item is held, `attempts_exhausted`, with those Runs' ids, for the Maintainer. Each counts toward
 the Run ceiling and stops under a Pause. A review Run that failed with no outcome is no report.
 One that ran, `failure` or `timed_out`, is an attempt, as section 3.10 reads a killed Run: it is the
-item's. One `cancelled`, or of any other conclusion, which never ran the Role, is no attempt, and
-the Run ceiling bounds it. So for an approval that ran and left no outcome, and for every Intent. A review of this content that succeeded and names an
+item's. That a job killed at its timeout concludes `timed_out` is unverified, waiting on P-18
+(`a_killed_job_times_out`). One `cancelled`, by a person or by its concurrency group, is no attempt,
+and the Run ceiling bounds it; so is a job that never started, `startup_failure`, which the records
+port reads as `cancelled`. So for an approval that ran and left no outcome, and for every Intent. A
+review of this content that succeeded and names an
 outcome contradicts itself: it is `run_unreadable`, read where the wait for a review is read, a
 deferral for the Maintainer with the Run's id as evidence, and it takes a queued item out.
 
@@ -57,7 +60,9 @@ ceiling. A Run cancelled is no attempt, as section 3.10 says of one cancelled be
 runner: its concurrency group cancels the one waiting behind a newer one (P-44), or a person did.
 Section 3.10's exception, unless other Runs are failing as `environment` at the same time, is not
 read: the facts give no window to judge "at the same time" by, and an outage shows in the Runs that
-did write `environment`, on which the automatic pause stops admission (decision 0003).
+did write `environment`, on which the automatic pause stops admission (decision 0003). An outcome
+GitHub has not yet listed just after its Run completed reads as none, so for that pass a failed Run
+is an attempt: a transient Hold, on the safe side, which the next pass lifts.
 
 A Result is the model's word, so the Kernel reads only what follows from it, the run record, as it
 reads every other Run. A Result that does not say what it looked at cannot be told from one that
@@ -97,4 +102,6 @@ usage, not coverage, so coverage has its own schema now.
 | `apply` calls `covered` before any Effect, and ends an uncovered Run `failure` and `item`, an unreadable one `failure` and `environment` | waiting on `harness/` |
 | The port reads the outcome of a Run that did not succeed | `tests/test_adapters.py::test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other` |
 | The Result's schema takes `coverage/1` by reference, in "Schemas for Task, Result, Effect and Disposition" (issue 19) | `schemas/result.schema.json`, `tools/check_examples.py` |
-| A Run that failed or timed out with no outcome is an attempt, of a review, an approval or any Intent, held at `max_attempts`; one cancelled, or of any other conclusion, with none is no attempt; an outcome a Run wrote is read as it says | `tests/test_decide.py::test_a_run_that_ran_and_left_no_outcome_is_an_attempt`, `tests/test_decide.py::test_an_approval_that_ran_and_left_no_outcome_is_an_attempt` |
+| A Run that failed or timed out with no outcome is an attempt, of a review, an approval, an issue's Run or any Intent, held at `max_attempts`; one cancelled with none is no attempt; an outcome a Run wrote is read as it says | `tests/test_decide.py::test_a_run_that_ran_and_left_no_outcome_is_an_attempt`, `tests/test_decide.py::test_an_approval_that_ran_and_left_no_outcome_is_an_attempt`, `tests/test_issue.py::test_an_issues_run_that_ran_and_left_no_outcome_is_an_attempt` |
+| A job that never started, `startup_failure`, is read by the records port as `cancelled`, no attempt | `tests/test_adapters.py::test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other` |
+| In the simulator a killed Run may leave no outcome, and an approval so killed counts toward `max_attempts` | `tests/test_simulator.py` |

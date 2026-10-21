@@ -881,9 +881,11 @@ cost is not known exactly; its duration is the estimate.
 A pass reads `outcome.json` only for Runs that did not succeed, which are few. A killed Run has no
 outcome file; one that ran, its conclusion `failure` or `timed_out`, is read as `item`, an attempt,
 whatever other Runs are failing as (decision 0046, issue 286): the facts give no window to judge an
-outage by, and the automatic pause stops admission on the Runs that did write `environment`. A Run
-`cancelled`, or of any other conclusion, with no outcome is no attempt: it is read as `superseded`. Its concurrency group cancels a Run that waits behind another as a newer
-one queues (P-44); a person's cancel of a waiting Run reads the same, and then the Run ceiling, not
+outage by, and the automatic pause stops admission on the Runs that did write `environment`. That a
+job killed at its timeout concludes `timed_out` waits on P-18. A Run `cancelled` with no outcome is
+no attempt: it is read as `superseded`, and so is a job that never started, `startup_failure`, which
+the records port reads as `cancelled`. Its concurrency group cancels a Run that waits behind another
+as a newer one queues (P-44); a person's cancel of a waiting Run reads the same, and then the Run ceiling, not
 the attempts, bounds it. GitHub lists a Run waiting for its group as `pending`, which the records
 port reads as `queued` (`adapters/records.py`). The simulator's lane holds this
 (`tests/test_simulator.py::test_a_newer_run_cancels_the_one_waiting_in_each_world`); the outcome of
