@@ -468,6 +468,11 @@ class Done(unittest.TestCase):
         d = derive(facts(state="closed", closed_first_at=at(2), reopened_last_by="other", reopened_last_at=at(5),
                          linked=[late]))
         self.assertEqual((d["state"], d["reason"]), ("declined", "merged_while_declined"))
+        # Two merges in one second, the first of the life: one that closed the issue makes it done, though the other
+        # closed nothing.
+        d = derive(facts(state="closed", closed_first_at=at(5), linked=[pr(is_open=False, merged=5),
+                                                                      dict(late, number=12)]))
+        self.assertEqual((d["state"], d["reason"]), ("done", "merged"))
         # Of two merges, only the one that closed the issue is done's evidence.
         d = derive(facts(state="closed", closed_first_at=at(6), linked=[late, pr(number=12, is_open=False, merged=6)]))
         self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["12"]))
@@ -491,6 +496,8 @@ class Done(unittest.TestCase):
         self.assertEqual(derive(dict(ready, read_at=read(lag))), derive(dict(ready, read_at=read(lag), linked=[])))
         self.assertEqual(derive(dict(ready, read_at=read(0)))["reason"], "merge_closing")
         self.assertEqual(merged, read(0))
+        # A read the facts time before the merge is no read after it: the issue waits.
+        self.assertEqual(derive(dict(ready, read_at=at(0)))["reason"], "merge_closing")
         # A stranger's merge moves nothing, in the lag as after it (I-39); nor an empty merge, nor one before the life.
         for link in (strangers(is_open=False, merged=5, closed_issue=None), dict(late, empty=True)):
             f = dict(ready, linked=[link], read_at=read(1))
@@ -1212,6 +1219,17 @@ class UnmergedCloses(unittest.TestCase):
         strangers_too = facts(label_events=READIED_BY_A_PERSON,
                               linked=closed_links(*range(2, 2 + top)) + [strangers(number=30, is_open=False, closed=9)])
         self.assertEqual(what(decide(strangers_too)), ("admit", "ready", OPEN))
+
+    def test_a_merge_that_closed_nothing_counts_as_a_close_without_done(self):  # issue 267
+        # Read past the lag, a merge that closed nothing is no merge of the issue, and a close of a linked pull request
+        # all the same: it counts toward the bound, so a Factory merge GitHub never closes the issue for opens at most
+        # max_unmerged_closes more before a person is asked, and so does a reference an edit added after a merge.
+        top = LIMITS["max_unmerged_closes"]
+        never = [agents(number=20 + i, is_open=False, merged=2 + i, closed_issue=None) for i in range(top + 1)]
+        within = facts(label_events=READIED_BY_A_PERSON, linked=never[:top])
+        self.assertEqual(what(decide(within)), ("admit", "ready", OPEN))
+        d = decide(facts(label_events=READIED_BY_A_PERSON, linked=never))
+        self.assertEqual((what(d), d["attention"]), (("act", "unmerged_closes", "place_hold"), "needs_you"))
 
     def test_closes_are_counted_in_this_life_since_a_person_released_the_hold(self):
         self.assertEqual(LIMITS["max_unmerged_closes"], 1)

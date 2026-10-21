@@ -1452,9 +1452,14 @@ the life no later than the merge's second, by anyone, when the merge could close
 227's contradiction). Any other merge closed nothing and landed while the issue stood open. Read
 within `max_close_lag_seconds` of it (`config/defaults.json`), an open issue waits, quietly, with
 `merge_closing`: GitHub closes the issue a second after the merge and records the close two
-(P-33), and nothing is admitted meanwhile. Read later, the merge closed nothing and never will, as
-an edit's reference never does: it is no merge of this issue, and the rows below read the issue
-(issue 267). Untried, and owed by a trial before the port relies on it: P-33's closer came from a
+(P-33), and nothing is admitted meanwhile. Read later, the merge closed nothing, as an edit's
+reference never does: it is no merge of this issue, and the rows below read the issue (issue 267).
+It is still a close of a linked pull request without `done`, and counts toward
+`max_unmerged_closes` (I-43): so a Factory merge GitHub never closes the issue for, were a
+repository to close none, opens at most that many more before a person is asked; and a reference
+an edit added to a once-merged linked pull request can bring that Hold nearer, never `done`. Nor
+can the facts tell such an edit from issue 227's contradiction on a closed issue: a merge that
+landed while the issue stood closed reads `merged_while_declined`, and a person is asked. Untried, and owed by a trial before the port relies on it: P-33's closer came from a
 merge commit a person made with the ruleset off, and the Factory merges through the queue by
 squash, which may name the commit the closer rather than the pull request; and whether an edit
 that takes out a reference that stood at the merge changes the close already recorded. The port
