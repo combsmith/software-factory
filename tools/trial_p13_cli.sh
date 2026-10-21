@@ -48,8 +48,9 @@ KEPT_STATUS="loggedIn authMethod apiProvider subscriptionType"
 KEPT_RESULT="type subtype is_error num_turns duration_ms duration_api_ms total_cost_usd usage modelUsage stop_reason permission_denials structured_output"
 # Under a kept field a string is kept only under one of these keys, and only in a code's shape: letters, digits, _ . : -
 # and no more than 64 of them. The CLI's counts are numbers; its words are codes under known keys; anything else is dropped.
-# These are the keys the run at 2.1.306 (trials/P-13.v2-1-306.json) found holding a string, and tool_name, which holds one
-# only when a tool is refused (issue 247).
+# These are the keys the run at 2.1.306 (trials/P-13.v2-1-306.json) found holding a string, at the top or under a kept
+# key, and tool_name, which holds one only when a tool is refused (issue 247). One list serves every kept field: it is
+# usage's and modelUsage's few words and the answer's own codes, and nothing else.
 STRING_KEYS="type subtype stop_reason tool_name service_tier inference_geo speed canonicalModel provider costBasis"
 
 usage() {

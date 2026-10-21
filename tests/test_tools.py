@@ -3908,10 +3908,11 @@ exit 9
                 self.assertNotIn("LEAKED-DOTTED-KEY", "".join(texts.values()), name)
                 self.assertNotIn("LEAKWORD", "".join(texts.values()), name)
                 self.assertEqual(kept["usage"], {"input_tokens": 1, "output_tokens": 2, "provider": []}, name)
-                self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.modelUsage.m.note2", "$.modelUsage.m.canonicalModel", "$.stop_reason", "$.modelUsage.<key>")],
+                self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.modelUsage.m.note2", "$.modelUsage.m.canonicalModel", "$.modelUsage.m.model", "$.stop_reason", "$.modelUsage.<key>")],
                                  [{"field": "$.modelUsage.m.note", "characters": len(self.PROSE["in_usage"])},
                                   {"field": "$.modelUsage.m.note2", "characters": len("LEAK-ONE-WORD")},
                                   {"field": "$.modelUsage.m.canonicalModel", "characters": len(self.PROSE["long"])},
+                                  {"field": "$.modelUsage.m.model", "characters": len(self.PROSE["under_model"])},
                                   {"field": "$.modelUsage.<key>", "characters": len(self.PROSE["as_key"])},
                                   {"field": "$.stop_reason", "characters": len(self.PROSE["in_code"])}], name)
                 self.assertNotIn("stop_reason", kept, name)
