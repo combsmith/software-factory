@@ -91,7 +91,7 @@ redact() {   # RAW
     (cd "$root" && python3 -m tools.redact_trial < "$1" 2>&1 > "${1%.raw}.clean") | sed "s|^|$(basename "${1%.raw}"): |" ||
         failed=1
     rm -f "$1"
-    if [ "$failed" -ne 0 ]; then
+    if [[ "$failed" -ne 0 ]]; then
         rm -f "${1%.raw}.clean"
         echo "trial_as_app: the redaction of $(basename "${1%.raw}") failed; its capture is deleted unread" >&2
         return 1
@@ -133,7 +133,7 @@ finish() {
     token="" jwt=""
     unset token jwt
     for left in "$out"/*.raw; do
-        [ -e "$left" ] && { redact "$left" || status=1; }
+        [[ -e "$left" ]] && { redact "$left" || status=1; }
     done
     python3 -I -c '
 import json, pathlib, sys
