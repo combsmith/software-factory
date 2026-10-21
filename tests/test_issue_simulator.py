@@ -102,6 +102,22 @@ class IssueSimulation(unittest.TestCase):
         else:
             self.assertEqual(sorted(UNMADE - unmade), [], "a change the world now makes on fewer seeds")
 
+    def test_an_authors_write_access_is_read_from_the_permission(self):  # decision 0043
+        # The world serves each person's permission on the repo, as the collaborator permission endpoint answers it, and
+        # builds an author's write access from it as the port will: admin, maintain and write are write access, and
+        # triage, read and none are not.
+        self.assertEqual(issues.WRITE_ACCESS, ("admin", "maintain", "write"))
+        for seed in (2, 1):
+            w = IssueWorld(seed, faults=False, people=False)
+            author = w.facts()["author"]
+            self.assertEqual(author["can_write"], issues.PERMISSIONS[author["name"]] in ("admin", "maintain", "write"), seed)
+        w = IssueWorld(1, faults=False, people=False)
+        name = w.facts()["author"]["name"]
+        for permission, writes in (("admin", True), ("maintain", True), ("write", True), ("triage", False), ("read", False),
+                                   ("none", False)):
+            with mock.patch.dict(issues.PERMISSIONS, {name: permission}):
+                self.assertEqual(w.facts()["author"]["can_write"], writes, permission)
+
     def test_a_seed_replays_exactly(self):
         traces = [run(7, steps=200).trace for _ in range(2)]
         self.assertEqual(traces[0], traces[1])

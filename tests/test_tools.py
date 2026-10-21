@@ -1084,6 +1084,14 @@ class Apps(unittest.TestCase):
     def test_a_read_of_a_fact_that_does_not_exist_is_caught(self):
         self.needs["read:facts.title"] = {"permission": "pull_requests", "level": "read"}
         self.assertTrue(caught(self.check(), "read:facts.title reads a field facts/1 does not have"))
+        # A property of one of facts/1's definitions is named as definition.property, and only one it has.
+        for code in ("read:facts.actor.title", "read:facts.nothing.can_write", "read:facts.can_write"):
+            self.setUp()
+            self.needs[code] = {"permission": "metadata", "level": "read"}
+            self.assertTrue(caught(self.check(), "%s reads a field facts/1 does not have" % code), code)
+        self.setUp()
+        self.assertIn("read:facts.actor.can_write", self.needs)
+        self.assertEqual(self.check(), [])
 
     def test_an_app_installed_across_the_org_is_caught(self):
         self.apps["controller"]["installed_on"] = "all"
@@ -3036,9 +3044,11 @@ class Trials(unittest.TestCase):
         self.assertTrue(events)
         self.assertTrue(all(e["actor"]["login"] and e["actor"]["__typename"] and e["createdAt"] for e in events))
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
-        # The events ground the rule about them; the association, which an App reads wrong, stays unverified.
+        # The events ground the rule about them; the association, which an App reads wrong, is no rule of the fake: write
+        # access is read from the collaborator permission, which P-46 asks (decision 0043).
         self.assertEqual(by_code["a_label_event_names_its_actor"], "trials/P-32.json")
-        self.assertIsNone(by_code["an_issues_author_has_an_association"])
+        self.assertNotIn("an_issues_author_has_an_association", by_code)
+        self.assertIn("a_logins_permission_is_read_from_the_collaborator_endpoint", by_code)
 
     def test_the_issue_fixtures_hold_what_grounds_the_four_rules(self):
         # trials/P-33.json and trials/P-34.json (issue 184) ground four rules of the issue world: each is held to the
@@ -4525,3 +4535,157 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.assertEqual(ran.returncode, 1)
         self.assertIn("is version '0.0.1', exit 0, not " + self.PIN, ran.stderr)
         self.assertFalse((wrong / "args").exists(), "the agent was not asked")
+
+
+class ReaderTrialScript(unittest.TestCase):
+    """`tools/trial_reader_reads.sh`, run against a stand-in curl and openssl and never GitHub (issues 222 and 231): each
+    refusal before anything is minted, two tokens each narrowed to one permission on the canary alone, every read made
+    with each and kept with its status, each token revoked, and no token anywhere the Maintainer hands to a session."""
+
+    SCRIPT = ROOT / "tools" / "trial_reader_reads.sh"
+    CANARY = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]["installed_on"]
+              if r != "combsmith/software-factory"][0]
+    TOKEN = "gh" + "s_" + "R" * 36
+    # The stand-in GitHub: each call is logged with its method, URL, body and whether a credential came on stdin; a mint
+    # answers a token, a revocation the status in revoke.status, and a read an answer by its path and the token's grant.
+    CURL = r'''#!/usr/bin/env python3
+import json, os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+args = sys.argv[1:]
+url = [a for a in args if a.startswith("https://")][-1]
+method = args[args.index("-X") + 1] if "-X" in args else "GET"
+body = args[args.index("-d") + 1] if "-d" in args else None
+said = sys.stdin.read() if "@-" in args else ""
+grant = open(os.path.join(here, "grant")).read().strip() if os.path.exists(os.path.join(here, "grant")) else ""
+with open(os.path.join(here, "log"), "a") as log:
+    log.write(json.dumps({"method": method, "url": url, "body": body, "credential": "Bearer " in said,
+                          "grant": grant}) + "\n")
+if url.endswith("/access_tokens"):
+    status = open(os.path.join(here, "mint.status")).read().strip()
+    if status != "201":
+        sys.stdout.write(json.dumps({"message": "Bad credentials"}) + "\n" + status)
+        sys.exit(0)
+    open(os.path.join(here, "grant"), "w").write(json.loads(body)["permissions"] and list(json.loads(body)["permissions"])[0])
+    sys.stdout.write(json.dumps({"token": "''' + "gh" + "s_" + "R" * 36 + r'''", "permissions": json.loads(body)["permissions"],
+                                 "repository_selection": "selected"}) + "\n201")
+    sys.exit(0)
+if method == "DELETE":
+    sys.stdout.write(open(os.path.join(here, "revoke.status")).read().strip())
+    sys.exit(0)
+roles = json.load(open(os.path.join(here, "roles")))
+if "/collaborators/" in url:
+    login = url.split("/collaborators/")[1].split("/")[0]
+    if login in roles:
+        status, answer = 200, {"permission": roles[login], "role_name": roles[login], "user": {"login": login, "type": "User"}}
+    else:
+        status, answer = 404, {"message": "Not Found"}
+elif "/activity" in url:
+    if grant == "contents":
+        status, answer = 200, [{"before": "0" * 40, "after": "a" * 40, "activity_type": "push",
+                                "actor": {"login": "don-petry", "type": "User"}}]
+    else:
+        status, answer = 403, {"message": "Resource not accessible by integration"}
+else:
+    status, answer = 404, {"message": "Not Found"}
+sys.stdout.write("HTTP/2 %d\r\ncontent-type: application/json\r\n\r\n%s" % (status, json.dumps(answer)))
+'''
+    OPENSSL = '''#!/bin/sh
+case "$1" in
+  base64) cat | od -An -tx1 | tr -d ' \\n' ;;
+  dgst) cat > /dev/null; printf 'signed' ;;
+  *) exit 9 ;;
+esac
+'''
+
+    def setUp(self):
+        self.stand_in = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        for name, text in (("curl", self.CURL), ("openssl", self.OPENSSL)):
+            (self.stand_in / name).write_text(text)
+            (self.stand_in / name).chmod(0o755)
+        (self.stand_in / "mint.status").write_text("201\n")
+        (self.stand_in / "revoke.status").write_text("204\n")
+        (self.stand_in / "roles").write_text(json.dumps({"don-petry": "admin", "a-writer": "write", "a-triager": "triage",
+                                                         "an-outsider": "read"}))
+        self.key = self.stand_in / "reader.pem"
+        self.key.write_text("not a key\n")
+        self.out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
+
+    def run_script(self, *args, out=None) -> subprocess.CompletedProcess:
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
+               "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
+        given = args or (self.CANARY, "main", "don-petry", "a-writer", "a-triager", "an-outsider")
+        return subprocess.run(["sh", str(self.SCRIPT), str(out or self.out), str(self.key), *given],
+                              cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=120)
+
+    def calls(self) -> list:
+        log = self.stand_in / "log"
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+        calls = self.calls()
+        mints = [c for c in calls if c["url"].endswith("/access_tokens")]
+        self.assertEqual([json.loads(m["body"]) for m in mints],
+                         [{"repositories": [self.CANARY.split("/")[1]], "permissions": {"metadata": "read"}},
+                          {"repositories": [self.CANARY.split("/")[1]], "permissions": {"contents": "read"}}])
+        self.assertEqual([c["method"] for c in calls if c["method"] == "DELETE"], ["DELETE", "DELETE"])
+        self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
+        reads = [c for c in calls if c["method"] == "GET"]
+        self.assertEqual([c["url"].split("/repos/")[1] for c in reads[:5]],
+                         ["%s/collaborators/%s/permission" % (self.CANARY, login)
+                          for login in ("don-petry", "a-writer", "a-triager", "an-outsider")]
+                         + ["%s/activity?ref=refs/heads/main&per_page=5" % self.CANARY])
+        self.assertEqual(len(reads), 10)
+        texts = {p.name: p.read_text() for p in self.out.iterdir()}
+        self.assertEqual(sorted(texts), sorted(["ran_at", "requests.json"] + ["clean-%d" % n for n in range(1, 11)]
+                                               + ["redacted-%d" % n for n in range(1, 11)]))
+        asked = json.loads(texts["requests.json"])
+        statuses = [(a["narrowed_to"], "activity" if "/activity?" in a["call"] else "permission", a["status"])
+                    for a in asked if "call" in a]
+        self.assertIn(("metadata: read", "activity", 403), statuses)
+        self.assertIn(("contents: read", "activity", 200), statuses)
+        self.assertIn(("metadata: read", "permission", 200), statuses)
+        self.assertEqual([a for a in asked if "revoked" in a],
+                         [{"revoked": "metadata: read", "status": 204}, {"revoked": "contents: read", "status": 204}])
+        self.assertIn('"permission": "triage"', texts["clean-3"])
+        everything = "".join(texts.values()) + ran.stdout + ran.stderr
+        self.assertNotIn(self.TOKEN, everything)
+        self.assertNotIn("NEVER-SEEN", everything)
+
+    def test_each_refusal_comes_before_anything_is_minted(self):
+        self.out.parent.mkdir(parents=True, exist_ok=True)
+        cases = [((self.CANARY, "main", "don-petry"), self.out.parent, "exists"),
+                 ((self.CANARY, "main", "don-petry"), ROOT / "never-made", "inside the repo"),
+                 (("combsmith/software-factory", "main", "don-petry"), None, "is not the canary the reader is installed on"),
+                 (("combsmith/elsewhere", "main", "don-petry"), None, "is not the canary the reader is installed on"),
+                 (("combsmith", "main", "don-petry"), None, "is not owner/name"),
+                 ((self.CANARY, "main;x", "don-petry"), None, "is not a branch name"),
+                 ((self.CANARY, "../x", "don-petry"), None, "is not a branch name"),
+                 ((self.CANARY, "main", "don/petry"), None, "is not a login"),
+                 ((self.CANARY, "main", "-x"), None, "is not a login")]
+        for args, out, said in cases:
+            ran = self.run_script(*args, out=out)
+            self.assertNotEqual(ran.returncode, 0, args)
+            self.assertIn(said, ran.stderr, args)
+            self.assertEqual(self.calls(), [], args)
+        self.key.unlink()
+        ran = self.run_script()
+        self.assertIn("cannot read the key file", ran.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_refused_mint_or_revocation_stops_the_run_and_says_so(self):
+        (self.stand_in / "mint.status").write_text("401\n")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 1)
+        self.assertIn("no token narrowed to metadata was minted (status 401)", ran.stderr)
+        self.assertEqual([c for c in self.calls() if c["method"] == "GET"], [])
+        (self.stand_in / "log").unlink()
+        (self.stand_in / "mint.status").write_text("201\n")
+        (self.stand_in / "revoke.status").write_text("500\n")
+        ran = self.run_script(out=self.out.parent / "again")
+        self.assertEqual(ran.returncode, 1)
+        self.assertIn("returned 500, not 204. The token may be live", ran.stderr)
+        self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+        # The exit trap tried once more to revoke the live token.
+        self.assertEqual(len([c for c in self.calls() if c["method"] == "DELETE"]), 2)

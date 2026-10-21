@@ -152,11 +152,12 @@ RULES = (
      (), None,
      "assumed, no trial can ask it: it needs an account outside the org, which no trial has (#27 is the last story to "
      "use the canary token); GitHub documents that anyone may review a public repo"),
-    # The issue world's rules (sim/issues.py, issue 43). Contradicted by trials/P-32.json for an App's read: the
-    # listing says MEMBER to a person and CONTRIBUTOR to an App, for an owner's issue. Left unverified, as it is: the
-    # Factory reads an issue as the machine user, and no trial has yet asked what that read says.
-    ("an_issues_author_has_an_association", "The listing of issues says whether an issue's author has write access",
-     ("P-32",), None, None),
+    # The issue world's rules (sim/issues.py, issue 43). trials/P-32.json showed the listing's authorAssociation tells
+    # an App nothing of write access (CONTRIBUTOR for the org's owner), so write access is read from the repository's
+    # collaborator permission instead (issue 222, decision 0043).
+    ("a_logins_permission_is_read_from_the_collaborator_endpoint", "A person's write access is read from the "
+     "repository's collaborator permission: admin, maintain and write are write access, and triage, read and none are "
+     "not", ("P-46",), None, None),
     # trials/P-33.json: a pull request to a base that is not the default branch carries no closing reference at all
     # (section 6's fallback: the issue Lifecycle serves the default branch only). The reverse read from the issue is
     # no substitute: willCloseTarget is false for a closed-unmerged pull request that keeps its reference, false for
