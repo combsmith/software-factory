@@ -1289,6 +1289,7 @@ class Identity(unittest.TestCase):
         # Issue 239: the same answers as the regexes they replace, at every edge the regexes had.
         for text, expected in (("Don Petry <d@example.com> 1792545124 -0500", ("Don Petry", "d@example.com")),
                                ("a b c <d> 1 +0000", ("a b c", "d")), (" <d> 1 +0000", ("", "d")),
+                               ("a <b <c> 1 +0000", ("a <b", "c")), ("a <b<c> 1 +0000", ("a", "b<c")),   # the last " <" bounds the email, as the greedy regex had it
                                ("<d> 1 +0000", None), ("a <d> x +0000", None), ("a <d> 1 +00000", None),
                                ("a <d> 1 0000", None), ("a <d>1 +0000", None), ("a d> 1 +0000", None), ("", None)):
             self.assertEqual(identity._ident(text), expected, text)
