@@ -3922,6 +3922,20 @@ class Redaction(unittest.TestCase):
         # would go to the file.
         script = (ROOT / "tools" / "trial_as_app.sh").read_text()
         self.assertIn('python3 -m tools.redact_trial < "$1" 2>&1 > "${1%.raw}.clean") | sed', script)
+        # Its redact(), run alone: a capture that redacts is deleted beside its clean file; one that fails is deleted
+        # unread with its partial clean file, since both lie in OUT, which a session reads, and the failure is returned.
+        function = re.search(r"^redact\(\) \{.*?^\}$", script, re.M | re.S).group(0)
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (folder / "good.raw").write_text("HTTP/2.0 200 OK\nAuthorization: x\n\nfine\n")
+        (folder / "bad.raw").write_bytes(b"\xff\xfe")
+        ran = subprocess.run(["bash", "-c", 'set -uo pipefail\nroot="$1"\n%s\nredact "$2/good.raw"; echo "good=$?"\n'
+                              'redact "$2/bad.raw"; echo "bad=$?"' % function, "-", str(ROOT), str(folder)],
+                             capture_output=True, text=True, timeout=60)
+        self.assertIn("good=0", ran.stdout)
+        self.assertIn("bad=1", ran.stdout)
+        self.assertIn("failed; its capture is deleted unread", ran.stderr)
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ["good.clean"])
+        self.assertEqual((folder / "good.clean").read_text(), "HTTP/2.0 200 OK\n\nfine\n")
 
     def test_a_drafted_fixture_comes_out_with_no_credential(self):
         data = json.loads(fixture())

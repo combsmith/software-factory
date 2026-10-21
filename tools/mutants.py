@@ -3574,6 +3574,8 @@ MUTANTS = ISSUE + [
     ("the redaction writes in the locale's encoding", "tools/redact_trial.py",
      '    target = getattr(stdout, "buffer", None)\n', '    target = None\n',
      ("tests.test_tools.Redaction.test_it_opens_no_path_it_is_given",)),
+    ("the App's failed redaction leaves its partial clean file", "tools/trial_as_app.sh",
+     '        rm -f "${1%.raw}.clean"\n', '', ("tests.test_tools.Redaction.test_it_opens_no_path_it_is_given",)),
     ("the text redaction names a header by a credential", "tools/redact_trial.py",
      "            shown = KEY_SHAPED if shaped(name.strip()) else name.strip()    # a place is never named by a credential\n",
      "            shown = name.strip()\n", ("tests.test_tools.Redaction.test_a_header_named_by_a_credential_is_reported_without_it",)),
