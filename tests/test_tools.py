@@ -3190,13 +3190,36 @@ class Trials(unittest.TestCase):
             problems = check_trials.run(clone({"sim/grounding.py": GROUNDING.replace("RULES = (", head % note, 1),
                                                "sim/world.py": (ROOT / "sim" / "world.py").read_text() + "\n# GitHub: a_rule_nobody_asks\n"}))
             self.assertTrue(caught(problems, "a_rule_nobody_asks: no trial asks this; name the trial of section 6 that will, or "
-                                             "say why none can"), note)
+                                             "say in one sentence why none can"), note)
         said = GROUNDING.replace("RULES = (", head % '"%sa race no trial can force"' % check_trials.ASSUMED, 1)
         world = (ROOT / "sim" / "world.py").read_text() + "\n# GitHub: a_rule_nobody_asks\n"
         self.assertEqual(check_trials.run(clone({"sim/grounding.py": said, "sim/world.py": world})), [])
+        # The reason says something, in one sentence, after the whole of its opening: a full stop or a character that
+        # does not print is no sentence, nor are two, nor a reason with another opening.
+        for empty in (".", "\u200b", " - ", "a race. And a second one", "a race! Then more"):
+            problems = check_trials.run(clone({"sim/grounding.py": GROUNDING.replace("RULES = (", head % ('"%s%s"' % (check_trials.ASSUMED, empty)), 1),
+                                               "sim/world.py": world}))
+            self.assertTrue(caught(problems, "a_rule_nobody_asks: no trial asks this"), repr(empty))
+        # A trial a rule names has a row in section 6: a P-number of the right shape is not enough.
+        for other in ('"assumed: a race no trial can force"', '"Assumed, no trial can ask it: a race no trial can force"',
+                      '"assumed, no trial can ask it a race no trial can force"'):
+            problems = check_trials.run(clone({"sim/grounding.py": GROUNDING.replace("RULES = (", head % other, 1),
+                                               "sim/world.py": world}))
+            self.assertTrue(caught(problems, "a_rule_nobody_asks: no trial asks this"), other)
+        grounded_too = GROUNDING.replace('"trials/P-29.base.json", None)', '"trials/P-29.base.json", "%sa race")' % check_trials.ASSUMED, 1)
+        self.assertNotEqual(grounded_too, GROUNDING)
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": grounded_too})),
+                               "a_push_is_new_content: a trial asks this, or a fixture grounds it, so it says nothing"))
+        nowhere = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_nobody_asks", "It is so", ("P-99",), None, None),', 1)
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": nowhere, "sim/world.py": world})),
+                               "a_rule_nobody_asks: P-99 has no row in section 6; add the trial there first"))
+        design = (ROOT / check_trials.DESIGN).read_text()
+        rowless = design.replace("| P-41 |", "| P-41a |", 1)
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: rowless})),
+                               "a_request_for_changes_survives_a_push: P-41 has no row in section 6"))
         asked = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_nobody_asks", "It is so", ("P-1",), None, "%sx"),' % check_trials.ASSUMED, 1)
         self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": asked, "sim/world.py": world})),
-                               "a_rule_nobody_asks: a trial asks this, so it says nothing of why none can"))
+                               "a_rule_nobody_asks: a trial asks this, or a fixture grounds it, so it says nothing of why none can"))
         # The list verify prints says, for each rule no fixture grounds, the trials that ask it or why none can.
         lines = {line.split(":", 1)[0]: line for line in check_trials.unverified(clone({"sim/grounding.py": said, "sim/world.py": world}))}
         self.assertIn("(%sa race no trial can force)" % check_trials.ASSUMED, lines["a_rule_nobody_asks"])

@@ -37,7 +37,7 @@ RULES = (
      ("P-42",), None, None),
     ("a_check_can_time_out_or_give_no_verdict", "A required check can conclude timed_out, neutral, skipped, cancelled "
      "or stale, and keeps that conclusion until the content changes or a person runs it again",
-     ("P-18", "P-42"), None, None),
+     ("P-42",), None, None),
     ("a_check_is_read_by_name_from_every_app", "Every check run on the head is read with its exact name and the id of "
      "the App that reported it, from every App, never dropped, merged or renamed", ("P-42",), None, None),
     ("a_rerun_replaces_only_its_own_run", "Only a re-run of the same job in the same check suite replaces an earlier "
@@ -65,8 +65,10 @@ RULES = (
     ("an_app_leaves_the_queue", "An App can take a pull request out of the merge queue", ("P-2",), None, None),
     ("a_writer_can_dismiss_an_approval", "A person with write access can dismiss the machine user's approval, and the "
      "timeline says who and what the review was before", ("P-41",), None, None),
+    # Contradicted by this repo's own merge queue, which ran the verify workflow on #243's merge group and ejected it on
+    # a failure. Left unverified, as it is, until P-2 records it: changing the fake is a story of its own.
     ("the_merge_group_is_not_checked", "The merge queue merges without running the checks on the merge group",
-     ("P-37",), None, None),
+     ("P-2",), None, None),
     ("the_machine_users_approval_counts", "The machine user's approval counts when an App pushed last",
      ("P-7",), "trials/P-7.json", None),
     ("an_approval_can_fail_to_land", "The machine user's approval can fail to land, by a fault of the item or of the "
@@ -89,7 +91,7 @@ RULES = (
      "and when", ("P-32",), "trials/P-32.json", None),
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an "
      "account type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any "
-     "other App and the machine user apart, never from a name's spelling", ("P-28", "P-32", "P-38"), None, None),
+     "other App and the machine user apart, never from a name's spelling", ("P-38", "P-41"), None, None),
     ("a_run_waits_its_turn", "One Run on an item is in progress, and any number wait queued behind it",
      ("P-44",), None, None),
     ("a_queued_run_is_listed", "A Run is in the list of run records from when it is queued, before its job starts",
@@ -109,12 +111,12 @@ RULES = (
      ("P-43",), None, None),
     ("a_pull_request_lists_the_paths_it_changes", "Every file a pull request changes is read once, as many as the diff "
      "counts, by its path from the top of the repo, with the path a renamed or copied file had before",
-     ("P-29",), None, None),
+     ("P-43",), None, None),
     ("a_path_list_can_leave_out_a_file", "A list of the files a pull request changes can leave one out while it says it "
      "was read in full; it then holds fewer records than the diff has files: GitHub's list stops at its cap with a 200 "
      "and an empty next page, and only changed_files shows it short", ("P-29",), "trials/P-29.truncated.json", None),
     ("a_short_path_list_says_so", "The list of paths a pull request changes, read short or cut off at its limit, says "
-     "so", ("P-29",), None, None),
+     "so", ("P-43",), None, None),
     ("a_dependency_bot_updates_a_workflow_pin", "A dependency bot's update can change the pin of an Action in a "
      "workflow file, a Lens's own among them; the bot opens it and pushes its head, and its class is dependency",
      ("P-45",), None, None),

@@ -44,6 +44,11 @@ TRIAL = re.compile(r"^P-[1-9][0-9]*$")
 CODE = re.compile(r"^[a-z_]+$")
 # What a rule no trial can ask says, before its reason (issue 190).
 ASSUMED = "assumed, no trial can ask it: "
+# Where section 6's trials are, one row each: a trial a rule names must be one of them.
+DESIGN = "docs/architecture/software-factory-design.md"
+WORD = re.compile(r"[A-Za-z]{2,}")
+SECOND = re.compile(r"[.!?]\s+\S")       # a sentence that ends before the reason does
+ROW = re.compile(r"^\| (P-[1-9][0-9]*) \|", re.M)
 MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 
 # A key that names a credential, however it is spelt: compared after strip(), lower() and - to _.
@@ -305,12 +310,24 @@ def _examples(root: pathlib.Path) -> list:
     return problems
 
 
+def section_6(root: pathlib.Path) -> set:
+    """The trials section 6 of the design has a row for, or None when the design cannot be read."""
+    try:
+        return set(ROW.findall((root / DESIGN).read_text()))
+    except OSError:
+        return None
+
+
 def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
     try:
         listed = rules(root)
     except ValueError as err:
         problems.append("sim/grounding.py: %s" % err)
         return
+    rows = section_6(root)
+    if rows is None:
+        problems.append("%s cannot be read, so no trial a rule names can be found in section 6" % DESIGN)
+        rows = set()
     seen = set()
     for code, rule, trials, fixture, note in listed:
         if not isinstance(code, str) or not CODE.match(code):
@@ -324,14 +341,20 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
         if not isinstance(trials, tuple) or not all(isinstance(t, str) and TRIAL.match(t) for t in trials):
             problems.append("sim/grounding.py: %s: %r is not a tuple of trials of section 6" % (code, trials))
             continue
+        for trial in trials:
+            if trial not in rows:
+                problems.append("sim/grounding.py: %s: %s has no row in section 6; add the trial there first"
+                                % (code, trial))
         # A rule no trial asks names the trial that will, or says in one sentence why none can (issue 190); a rule a
-        # trial asks says nothing more.
+        # trial asks, or a fixture grounds, says nothing more.
         if not trials and fixture is None:
-            if not (isinstance(note, str) and note.startswith(ASSUMED) and note[len(ASSUMED):].strip()):
-                problems.append("sim/grounding.py: %s: no trial asks this; name the trial of section 6 that will, or say "
-                                "why none can, '%s...'" % (code, ASSUMED))
+            if not (isinstance(note, str) and note.startswith(ASSUMED) and WORD.search(note[len(ASSUMED):])
+                    and not SECOND.search(note[len(ASSUMED):])):
+                problems.append("sim/grounding.py: %s: no trial asks this; name the trial of section 6 that will, "
+                                "or say in one sentence why none can, '%s...'" % (code, ASSUMED))
         elif note is not None:
-            problems.append("sim/grounding.py: %s: a trial asks this, so it says nothing of why none can" % code)
+            problems.append("sim/grounding.py: %s: a trial asks this, or a fixture grounds it, so it says nothing of "
+                            "why none can" % code)
         if fixture is None:
             continue
         # One fixture grounds a rule, or a tuple of them when more than one trial's fixture shows it holds.
@@ -403,7 +426,8 @@ def unverified(root: pathlib.Path = ROOT) -> list:
     except ValueError:
         return []           # run() reports it
     return ["%s: %s (%s)" % (code, rule, "asked by %s, no fixture yet" % ", ".join(trials)
-                             if isinstance(trials, tuple) and trials else note if isinstance(note, str) else "no trial asks it")
+                             if isinstance(trials, tuple) and trials
+                             else note if isinstance(note, str) else "no trial asks it")
             for code, rule, trials, fixture, note in listed if fixture is None]
 
 
