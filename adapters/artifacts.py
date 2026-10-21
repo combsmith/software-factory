@@ -55,15 +55,17 @@ def _member(zipped: bytes):
     try:
         with zipfile.ZipFile(io.BytesIO(zipped)) as archive:
             files = archive.infolist()
-            if len(files) != 1 or files[0].filename != MEMBER or files[0].is_dir() or files[0].flag_bits & 0x1 \
+            # One file, by name, stored or deflated, and no larger than the bound as the zip gives it, or it is never
+            # opened. An encrypted one Python refuses to open, and a zip that under-states the file fails its check.
+            if len(files) != 1 or files[0].filename != MEMBER \
                     or files[0].compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED) \
                     or files[0].file_size > HELD:
                 return None
             with archive.open(files[0]) as member:
-                held = member.read(HELD + 1)
+                held = member.read(HELD)
     except (zipfile.BadZipFile, zlib.error, EOFError, OSError, ValueError, NotImplementedError, RuntimeError):
         return None
-    return held if len(held) <= HELD else None
+    return held
 
 
 def outcome(transport, repo: str, github_id: int, run: str) -> tuple:
