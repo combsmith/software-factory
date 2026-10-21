@@ -1,0 +1,87 @@
+{
+  "schema": "rulesets/1",
+  "repo": "combsmith/software-factory",
+  "read_on": "2026-10-21",
+  "rulesets": {
+    "main": {
+      "id": 24886320,
+      "target": "branch",
+      "enforcement": "active",
+      "include": [
+        "~DEFAULT_BRANCH"
+      ],
+      "exclude": [],
+      "bypass_actors": [],
+      "rules": {
+        "deletion": {},
+        "non_fast_forward": {},
+        "pull_request": {
+          "required_approving_review_count": 0,
+          "dismiss_stale_reviews_on_push": false,
+          "required_reviewers": [],
+          "require_code_owner_review": false,
+          "dismissal_restriction": {
+            "enabled": false,
+            "allowed_actors": []
+          },
+          "require_last_push_approval": false,
+          "required_review_thread_resolution": false,
+          "require_extra_approval_for_unattributed_changes": false,
+          "allowed_merge_methods": [
+            "squash"
+          ]
+        },
+        "required_status_checks": {
+          "strict_required_status_checks_policy": false,
+          "do_not_enforce_on_create": false,
+          "required_status_checks": [
+            {
+              "context": "verify",
+              "integration_id": 15368
+            }
+          ]
+        },
+        "merge_queue": {
+          "merge_method": "SQUASH",
+          "max_entries_to_build": 5,
+          "min_entries_to_merge": 1,
+          "max_entries_to_merge": 5,
+          "min_entries_to_merge_wait_minutes": 0,
+          "grouping_strategy": "ALLGREEN",
+          "check_response_timeout_minutes": 45
+        },
+        "code_scanning": {
+          "code_scanning_tools": [
+            {
+              "tool": "CodeQL",
+              "security_alerts_threshold": "all",
+              "alerts_threshold": "errors"
+            }
+          ]
+        }
+      }
+    },
+    "factory release tags": {
+      "id": 25183656,
+      "target": "tag",
+      "enforcement": "active",
+      "include": [
+        "refs/tags/factory/*"
+      ],
+      "exclude": [],
+      "bypass_actors": [
+        {
+          "actor_id": 5,
+          "actor_type": "RepositoryRole",
+          "bypass_mode": "always"
+        }
+      ],
+      "rules": {
+        "creation": {},
+        "update": {},
+        "deletion": {},
+        "non_fast_forward": {}
+      }
+    }
+  }
+}

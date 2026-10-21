@@ -391,7 +391,15 @@ and the Kernel pins every required Lens to its own. The configuration names each
 run GitHub reports for it, and `app_id`, the id of its App: `verify` is the check `verify` and
 `secret-scan` the check `Secret scan (gitleaks)`, both from GitHub Actions, 15368, the integration id
 the `main` ruleset pins for `verify`; `code-scanning` is the check `CodeQL`, from GitHub Advanced
-Security, 57789, as the check runs of a merged pull request's head showed on 2026-10-15. The
+Security, 57789, as the check runs of a merged pull request's head showed on 2026-10-15. A
+deterministic Lens gates only through its check's conclusion, so code scanning's threshold is the
+`main` ruleset's: its `code_scanning` rule names CodeQL with `security_alerts_threshold: all`, so a
+security alert of any severity fails the check, as a `security` Finding gates at any severity
+(issue 95; `alerts_threshold` is `errors`). The rule holds the pull request and not the merge
+queue's group, as the oversight session saw on 2026-10-21: what enters the queue has passed it on
+its own head. The rulesets are recorded as data, `config/rulesets.json`, held by its schema where a
+ruling fixed them and by `tools/check_rulesets.py` to the Lenses here, and `tools/rulesets_drift.sh`
+compares the live rulesets with the file, by hand: CI reads nothing from GitHub. The
 schema refuses a Lens with no check or no App (`examples/invalid/config.a-required-lens-with-no-check.json`,
 `examples/invalid/config.a-required-lens-with-no-app.json`), and `tools/check_authority.py` a Lens
 or a check named twice, a model Lens among them. The port's contract: it gives every check run on
@@ -436,10 +444,12 @@ approves it (§4.2, I-45, decision 0020). What holds `.github/` today is GitHub
 refusing an App's push there without the `workflows` permission, which no Factory App holds
 (`config/apps.json`, held by `tools/check_apps.py`); a person's admission of a fork's pull request
 after its last push (I-36); a Role's `apply`, which waits on `harness/`; and the session hooks,
-locally. The `main` ruleset requires no review and pins only `verify` to its App; pinning each
-required check is the Maintainer's, in the repo's settings, with
-"The Factory repo's rulesets hold the Release tags and each required check's App" (issue 62), and
-the Kernel's pin does not wait on it. A Lens
+locally. The `main` ruleset requires no review and pins only `verify` to its App, as
+`config/rulesets.json` records it; pinning each other required check is the Maintainer's, in the
+repo's settings and then in that file, and the Kernel's pin does not wait on it. The tag ruleset
+`factory release tags` refuses the creation, update and deletion of a `factory/*` tag to all but the
+repository's admin role, which the Maintainer alone holds today, though nothing here records who
+holds it, until trial P-30 names the release identity, when it and its record change together. A Lens
 no workflow runs has a gap of its own: whether an upload to code scanning under CodeQL's tool and
 category, by an identity holding `security_events: write`, can replace the CodeQL verdict is
 unverified (trial P-36). Such an upload would be reported by the Lens's own App under its own
@@ -2786,7 +2796,7 @@ Found by explaining the design on one page and by comparing it with the PRD grou
 | FR-1, for issues | Designed in §4.1 on 2026-10-11. Not yet declared as data, nor checked for termination. The Kernel has no facts or derivation for an issue yet. Left open there: which Role's App opens the draft pull request; the Consumer entry's fields for issues; the promotion record of an Intent that owns no category; and the PRD's own text on triage and arming (§10) |
 | FR-6, resumable Runs | Not designed. A Run that times out pushes nothing and starts again |
 | FR-33 and I-15, for a Finding that does not gate | Designed in §4.2 and §4.3 on 2026-10-14, by the Maintainer's ruling. A required model Lens's `minor` or `info` Finding of any category but `security` is an annotation on its Lens's check run, has no Disposition, and closes when its Lens stops reporting it; a `security` Finding gates at any severity. The Kernel holds the gate. Refusing such a Finding when it is posted on a thread is waiting on `harness/` |
-| A `security` Finding from a deterministic Lens, at any severity | Not held. A deterministic Lens gates through its check's conclusion, and code scanning's default fails the check only on a security alert of `high` or higher. Its threshold must be set to fail on a security alert of any severity: issue #95 "Code scanning fails on a security alert of any severity" |
+| A `security` Finding from a deterministic Lens, at any severity | Set on the pull request: the `main` ruleset's `code_scanning` rule, set on 2026-10-20 (issue 95), has CodeQL's results block a merge on a security alert of any severity (`security_alerts_threshold: all`). The file records it and its schema refuses less (`examples/invalid/rulesets.a-security-alert-below-high-passes.json`); the live rule is compared with the file only by hand (`tools/rulesets_drift.sh`); and no trial has yet seen GitHub block a merge on an alert below `high`, nor said whether the rule changes the check's conclusion or only the merge. Not held in the merge queue's group, which the rule does not hold, where decision 0022 holds a required model Lens's `security` Finding: what two changes make together is not scanned before it merges. Open |
 | FR-12, the injection test suite | Required before promotion; not designed |
 | FR-14, shared-branch safety | The rule is stated; the push guard is to be carried over from the POC |
 | FR-21, FR-36, priority and graceful degradation | Backpressure and the capacity outcome exist. The stages between full service and Pause are not designed |
