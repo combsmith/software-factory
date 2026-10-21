@@ -66,6 +66,8 @@ JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its
 SHARDS_TESTS = ("tests.test_tools.Workflows.test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix",)
 P13 = "tools/trial_p13_cli.sh"
 P13_TESTS = "tests.test_tools.TrialScript."
+P26 = "tools/trial_p26_sandbox.sh"
+P26_TESTS = "tests.test_tools.SandboxTrial."
 HOOK_TESTS = "tests.test_hooks.ProtectedPaths."
 BYPASS_TESTS = (HOOK_TESTS + "test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked",)
 SESSION_TESTS = (HOOK_TESTS + "test_a_command_that_runs_claude_code_with_no_one_asked_asks",
@@ -3558,6 +3560,22 @@ MUTANTS = ISSUE + [
     ("a message about who asked may carry a credential", "tools/check_trials.py",
      "    return [hidden(message) for message in out]\n", "    return out\n",
      ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
+    # Issue 188: P-26's script, run against a stand-in CLI, curl and ps.
+    ("P-26's CLI inherits the shell's environment", P26, '(cd "$work" && exec env -i HOME="$HOME"', '(cd "$work" && exec env HOME="$HOME"',
+     (P26_TESTS + "test_the_cli_is_given_only_the_named_environment_and_one_command",)),
+    ("P-26's model is given every tool", P26, ' $OPTIONS \\\n        --tools "$TOOLS" --allowedTools', ' $OPTIONS \\\n        --allowedTools',
+     (P26_TESTS + "test_the_cli_is_given_only_the_named_environment_and_one_command",)),
+    ("P-26's sandbox lets a command out", P26, '"allowUnsandboxedCommands": false', '"allowUnsandboxedCommands": true',
+     (P26_TESTS + "test_the_cli_is_given_only_the_named_environment_and_one_command",)),
+    ("P-26's probe reads the script that started the CLI", P26, ' && [ "$pid" != "$P26_ABOVE" ]; do', '; do',
+     (P26_TESTS + "test_the_probe_reads_nothing_above_the_cli",)),
+    ("P-26's environment is hidden if the tool's own is", P26,
+     'all(part[k]["seen"] is not None and not any(part[k]["seen"].values()) for k in ("env", "ancestors"))',
+     'all(part[k]["seen"] is not None and not any(part[k]["seen"].values()) for k in ("env",))',
+     (P26_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
+    ("P-26's denied host may answer around the proxy", P26,
+     ' and not answered(fetches.get("denied_around_proxy"))', '',
+     (P26_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
     # Issue 260: the hook's lexer grows a word in pieces.
     ("the hook reads with shlex's own lexer, copying a word at each character", "tools/hooks/shell.py",
      "    lex = Lexer(held, posix=True, punctuation_chars=PUNCTUATION)\n",
