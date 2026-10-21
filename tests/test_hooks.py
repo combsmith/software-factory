@@ -1270,6 +1270,38 @@ class Identity(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 5, command[:40])
             self.assertIn(code, said)
 
+    @wall_clock
+    def test_the_readings_sonarcloud_flagged_are_read_in_linear_time(self):
+        # Issue 239: three regexes with super-linear backtracking are string readings now. A remote of 200,000 characters
+        # with an @ in every other one took the old pattern ten seconds, and an identity of 40,000 " <" nineteen; each
+        # reading is a pass now. The whole hook on a 20,000-character remote answers too; past that, Python's shlex and
+        # the hook's passes over the command cost more than the readings, within the hook's own budget.
+        started = time.monotonic()
+        self.assertFalse(identity._urlish("a@" * 100000 + "b"))
+        self.assertIsNone(identity._ident("x <" * 40000 + "y"))
+        long = "https://" + "a" * 100000 + " " + "://@" * 50000
+        self.assertEqual(identity._without_credential(long), long)
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertIn("account_unreadable", self.codes("git push " + "a@" * 10000 + "b HEAD"))
+        self.assertLess(time.monotonic() - started, 5)
+
+    def test_the_readings_sonarcloud_flagged_read_what_their_regexes_read(self):
+        # Issue 239: the same answers as the regexes they replace, at every edge the regexes had.
+        for text, expected in (("Don Petry <d@example.com> 1792545124 -0500", ("Don Petry", "d@example.com")),
+                               ("a b c <d> 1 +0000", ("a b c", "d")), (" <d> 1 +0000", ("", "d")),
+                               ("<d> 1 +0000", None), ("a <d> x +0000", None), ("a <d> 1 +00000", None),
+                               ("a <d> 1 0000", None), ("a <d>1 +0000", None), ("a d> 1 +0000", None), ("", None)):
+            self.assertEqual(identity._ident(text), expected, text)
+        for text, expected in (("git push https://u:p@github.com/o/r https://github.com/x", "git push https://github.com/o/r https://github.com/x"),
+                               ("ssh://u@h/p and https://h", "ssh://h/p and https://h"), ("://@x", "://@x"),
+                               ("x://a b@c", "x://a b@c"), ("://a/@b", "://a/@b"), ("no url at all", "no url at all"),
+                               ("https://u@", "https://"), ("://a@://b@c", "://://c")):
+            self.assertEqual(identity._without_credential(text), expected, text)
+        for remote, expected in (("git@github.com:o/r.git", True), ("https://github.com/o/r", True), ("origin", False),
+                                 ("/a@b:c", False), ("a@:b", False), ("a@b:c", True), ("@b:c", False), ("a@b/c:d", False),
+                                 ("x/y", False), ("a@b@c:d", True), ("", False)):
+            self.assertEqual(identity._urlish(remote), expected, remote)
+
     def test_a_push_refspec_the_hook_cannot_read_is_refused(self):
         # A variable no earlier command set, a command substitution, a wildcard: what the push sends cannot be read.
         side = self.a_side_branch()
