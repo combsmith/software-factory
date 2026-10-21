@@ -24,7 +24,7 @@ Maintainer's own subscription (decision 0033). Run this once, at M's own termina
 
 ```
 mkdir -m 700 ~/.config/sf-factory-claude
-ls ~/.local/share/claude/versions/2.1.302          # the pinned build; the script runs this file
+ls ~/.local/share/claude/versions/2.1.306          # the pinned build; the script runs this file
 CLAUDE_CONFIG_DIR=~/.config/sf-factory-claude claude auth login --claudeai
 ```
 
@@ -33,9 +33,10 @@ be shared with M's own login (unverified). Do not copy the directory into a repo
 it out while P-26 waits on it. The CI credential (`claude setup-token`, an environment secret) belongs to
 slice 1, after P-3 and P-26.
 
-If `versions/2.1.302` is gone because the installer pruned it, `claude install 2.1.302` brings it back. That
-also moves M's own `claude` to 2.1.302, so say so before running it. Otherwise pass the path of a 2.1.302 build
-as the script's third argument.
+If `versions/2.1.306` is gone because the installer pruned it, `claude install 2.1.306` brings it back. That
+also moves M's own `claude` to 2.1.306, so say so before running it. Otherwise pass the path of a 2.1.306 build
+as the script's third argument. The pin moves only by a run of this script at the new version, recorded as a
+fixture of P-13 and a row on decision 0033, as 2.1.302 gave way to 2.1.306 when the installer pruned it.
 
 ## 2. Run the trial (M, or S once step 1 is done)
 
@@ -62,7 +63,7 @@ bash tools/trial_p13_cli.sh ~/sf-trial-p13-out ~/.config/sf-factory-claude
 - It exits 0 only when every part holds.
 - It refuses, before asking anything, when OUT exists or is inside the repo or CONFIG_DIR, when CONFIG_DIR is
   missing, inside the repo, the home directory or any directory holding it, or anywhere under `~/.claude`. It
-  stops after asking the version when it is not 2.1.302, and after asking the login when `auth status` exits
+  stops after asking the version when it is not 2.1.306, and after asking the login when `auth status` exits
   non-zero or does not say it is logged in; `checked.json` then records the login's exit code and status.
 - In a session, `tools/hooks/protected.py` asks about this command, or under bypass tells it, because the
   script starts Claude Code with `CLAUDE_CONFIG_DIR` set (decision 0021). That is expected.

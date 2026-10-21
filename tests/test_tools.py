@@ -1255,6 +1255,17 @@ class Repo(unittest.TestCase):
         self.assertFalse(caught(check_repo.run(tree({"tools/a.py": "import urllib.parse\nfrom urllib import parse\n"})),
                                 "reaches the network"))
 
+    def test_only_the_transport_names_githubs_artifact_storage(self):
+        # The Maintainer's ruling on #192: the transport alone follows the artifact's redirect, so no other code names
+        # the storage it goes to, by either of GitHub's hosts; a test may, to answer for it.
+        for text in ('U = "https://productionresultssa0.blob.core.windows.net/x"\n',
+                     'U = "pipelines.actions.githubusercontent.com"\n', 'U = "X.BLOB.CORE.WINDOWS.NET"\n'):
+            for rel in ("adapters/artifacts.py", "tools/a.py", "sim/a.py"):
+                self.assertTrue(caught(check_repo.run(tree({rel: text})), "artifact storage"), (rel, text))
+            for rel in ("adapters/github.py", "tests/test_a.py"):
+                self.assertFalse(caught(check_repo.run(tree({rel: text})), "artifact storage"), (rel, text))
+        self.assertFalse(caught(check_repo.run(tree({"adapters/a.py": 'U = "api.github.com"\n'})), "artifact storage"))
+
     def test_code_loaded_round_the_import_list_is_caught(self):
         root = tree({"a.py": "s = __import__('socket')\nexec('import requests')\n"})
         problems = check_repo.run(root)
@@ -3708,6 +3719,29 @@ exit 9
 
     def texts(self, out) -> dict:
         return {p.name: p.read_text() for p in pathlib.Path(out).iterdir()}
+
+    def test_every_script_pins_the_cli_at_one_version(self):
+        # Decision 0033: the engine port is pinned to one version of the CLI, and every script that runs it runs that one,
+        # so a pin moved in one script and left in another is caught here.
+        pins = {}
+        for path in sorted((ROOT / "tools").glob("*.sh")):
+            found = re.search(r"^PIN=(\S+)$", path.read_text(), re.M)
+            if found:
+                pins[path.name] = found.group(1)
+        self.assertLessEqual({"trial_p13_cli.sh", "context_eval.sh"}, set(pins))
+        self.assertEqual(set(pins.values()), {self.PIN}, pins)
+        # The pin moves only by a run of P-13 at the new version: it is the version the newest P-13 fixture ran at, before
+        # and after its Task, and that run passed.
+        runs = sorted((json.loads(p.read_text()) for p in (ROOT / "trials").glob("P-13*.json")), key=lambda f: f["ran_at"])
+        pinned = [next(e for e in f["exchanges"] if e["request"]["call"].startswith("claude -p"))["request"]["body"]["pinned"]
+                  for f in runs]
+        newest = runs[-1]
+        checked = newest["exchanges"][-1]["response"]["body"]                # the script's own check, the version held
+        held = checked.get("version", {}).get("held") if isinstance(checked, dict) else None
+        self.assertEqual((newest["verdict"], pinned[-1], newest["exchanges"][0]["response"]["body"], held),
+                         ("pass", self.PIN, self.PIN + " (Claude Code)", True))
+        # The older runs are kept beside it, each at the version it ran at: a pin that moved has its earlier run still.
+        self.assertGreaterEqual(len(set(pinned)), 2, pinned)
 
     def test_the_cli_is_given_only_the_named_environment_and_no_tool(self):
         folder = self.stand_in()
