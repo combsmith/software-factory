@@ -938,7 +938,9 @@ class Checks(unittest.TestCase):
         self.assertEqual(checks.check(node)["conclusion"], "in_progress")
         for broken in ({"name": ""}, {"checkSuite": {"app": None}}, {"status": "in progress"},
                        {"conclusion": "SUCCESS"}, {"completedAt": "2026-10-20T00:51:22Z"},
-                       {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": {"file": {"path": ""}}}}):
+                       {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": {"file": {"path": ""}}}},
+                       {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": "verify"}},
+                       {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": {"file": "verify.yml"}}}):
             with self.assertRaises(github.Unanswered, msg=broken):
                 checks.check(dict(node, **broken))
 
@@ -1045,7 +1047,7 @@ class Snapshot(unittest.TestCase):
         return facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW)
 
     def test_a_snapshot_holds_every_part_of_the_facts_and_the_title_beside_them(self):
-        got, title = self.read(6)
+        got, title = self.read(1)
         self.assertEqual(title, body("P-29.base", 1)["title"])
         self.assertEqual((got["item"]["number"], got["class"], got["targets_protected"], got["diff"]["files"]),
                          (26, "maintainer", False, 1))
@@ -1075,8 +1077,31 @@ class Snapshot(unittest.TestCase):
         with self.assertRaises(github.Unanswered):
             self.read(12)
 
+    def test_a_snapshot_of_a_pull_request_that_changed_while_it_was_read_is_refused(self):
+        # trials/P-29.base.json: the base moved and the head did not, and GitHub moved the pull request's updated_at.
+        # Any change between the first read and the last, a label added after the timeline was read among them, makes
+        # the parts of two pull requests.
+        self.assertEqual(body("P-29.base", 6)["head"]["sha"], body("P-29.base", 1)["head"]["sha"])
+        self.assertNotEqual(body("P-29.base", 6)["updated_at"], body("P-29.base", 1)["updated_at"])
+        with self.assertRaises(github.Unanswered):
+            self.read(6)
+
+    def test_a_push_that_names_its_pusher_and_no_time_is_refused(self):
+        seq = self.sequence(1)
+        entry = seq[2]["response"]["body"][0]
+        entry["after"] = body("P-29.base", 1)["head"]["sha"]
+        router = Router(github.Replay(copy.deepcopy(seq)), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW)
+        self.assertEqual((got["last_pusher"], got["last_push_at"]), ("don-petry", entry["timestamp"]))
+        entry["timestamp"] = "yesterday"
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        with self.assertRaises(github.Unanswered):
+            facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                           lambda: self.NOW)
+
     def test_a_snapshot_of_a_pull_request_with_threads_is_not_read_whole_on_them(self):
-        seq = self.sequence(6)
+        seq = self.sequence(1)
         seq[7]["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["totalCount"] = 2
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}),
@@ -1084,7 +1109,7 @@ class Snapshot(unittest.TestCase):
         self.assertEqual((got["complete"]["threads"], got["complete"]["runs"], got["threads"]), (False, False, []))
 
     def test_the_snapshots_time_is_taken_after_its_last_read(self):
-        replay = github.Replay(self.sequence(6))
+        replay = github.Replay(self.sequence(1))
         router = Router(replay, {"don-petry": "admin"})
         left = []
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
@@ -1093,7 +1118,7 @@ class Snapshot(unittest.TestCase):
 
     def test_a_snapshot_that_does_not_hold_to_the_schema_is_refused(self):
         # A part the reads give that facts/1 does not take, here a time out of its range, refuses the whole.
-        router = Router(github.Replay(self.sequence(6)), {"don-petry": "admin"})
+        router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
         with self.assertRaises(github.Unanswered):
             facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                            lambda: "2026-10-18T24:00:00Z")
@@ -1149,8 +1174,29 @@ class Contract(unittest.TestCase):
             "a_new_run_is_listed_unnamed": Records().read(listing("P-17", 9, total=1), listing("P-17", 10, total=1),
                                                           per_page=1)[0]["unidentified"] == ["39086879694"],
         }
+        # Each is read from the fixture that grounds it, and no other.
+        replayed = {"a_push_is_new_content": {"P-29.base"}, "the_pusher_is_the_last_pusher": {"P-28", "P-28.app"},
+                    "a_short_diff_says_so": {"P-29.truncated"}, "a_path_list_can_leave_out_a_file": {"P-29.truncated"},
+                    "a_forks_run_never_counts": {"P-27"}, "a_new_run_is_listed_unnamed": {"P-17"}}
+        # Every other rule a fixture grounds is named, with why this test does not read it yet: a rule added to the
+        # fake's grounding fails here until it is read or named.
+        not_read = {
+            # Read by the port or by a part of it, but not yet compared here with what the fake assumes.
+            "a_queued_run_is_listed", "a_new_run_is_listed_late", "a_run_list_stops_short", "a_short_list_says_so",
+            "a_pull_request_lists_the_paths_it_changes", "a_short_path_list_says_so",
+            "the_machine_users_approval_counts", "an_app_pushes_to_the_head",
+            # The fixture records GraphQL's shape; the port reads the REST timeline, which no fixture holds whole.
+            "a_label_event_names_its_actor",
+            # Not the facts or records port's: the Controller's lane and passes, and the issues port, not built.
+            "a_run_waits_its_turn", "a_tick_can_be_lost", "a_pass_starts_its_successor", "a_public_event_starts_a_pass",
+            "a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read",
+            "an_issues_content_time_is_read_apart", "a_reopening_names_its_actor", "an_issues_close_and_reopening_say_when",
+        }
+        self.assertEqual(set(grounded), set(reads) | not_read)
+        self.assertFalse(set(reads) & not_read)
         for code, holds in reads.items():
-            self.assertIn(code, grounded, code)
+            fixtures = grounded[code] if isinstance(grounded[code], tuple) else (grounded[code],)
+            self.assertEqual({pathlib.PurePath(f).stem for f in fixtures}, replayed[code], code)
             self.assertTrue(holds, code)
 
 

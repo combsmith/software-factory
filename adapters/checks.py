@@ -57,7 +57,10 @@ def check(node: dict) -> dict:
     suite = node.get("checkSuite") if isinstance(node.get("checkSuite"), dict) else {}
     app = (suite.get("app") or {}).get("databaseId") if isinstance(suite.get("app"), dict) else None
     run = suite.get("workflowRun")
-    path = ((run or {}).get("file") or {}).get("path") if isinstance(run, dict) else None
+    file = run.get("file") if isinstance(run, dict) else None
+    if not (run is None or isinstance(run, dict)) or not (file is None or isinstance(file, dict)):
+        raise Unanswered("a check run's workflow run cannot be read")
+    path = file.get("path") if isinstance(file, dict) else None
     name, status, conclusion, done = node.get("name"), node.get("status"), node.get("conclusion"), node.get("completedAt")
     if not isinstance(name, str) or not name or not isinstance(app, int) or isinstance(app, bool) or app < 1:
         raise Unanswered("a check run's name or App cannot be read")

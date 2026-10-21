@@ -52,10 +52,23 @@ def same_head(transport, pull: dict) -> bool:
     """Whether the pull request is still at the head commit and on the base the first read named, read once more after
     every other part: a push, or a retarget that keeps the head, in between makes the parts of two pull requests, and
     the snapshot is then refused and read again."""
-    again = read(transport, pull["base"]["repo"]["full_name"], pull["number"])
+    return _same(read(transport, pull["base"]["repo"]["full_name"], pull["number"]), pull)
+
+
+def _same(again: dict, pull: dict) -> bool:
     base, was = again.get("base") or {}, pull["base"]
     return (again["head"]["sha"] == pull["head"]["sha"] and base.get("ref") == was.get("ref")
             and (base.get("repo") or {}).get("id") == (was.get("repo") or {}).get("id"))
+
+
+def unchanged(transport, pull: dict) -> bool:
+    """`same_head`, and nothing else on the pull request changed while its parts were read: GitHub moves its
+    `updated_at` when its base moves (P-29) and is taken to move it on a label, a review or a change of state too,
+    which no trial has asked yet. So a snapshot is never of a pull request that changed between its first read and
+    its last; one that did is read again at the next pass."""
+    again = read(transport, pull["base"]["repo"]["full_name"], pull["number"])
+    return (_same(again, pull) and isinstance(pull.get("updated_at"), str)
+            and again.get("updated_at") == pull["updated_at"])
 
 
 def _account(actor) -> tuple:

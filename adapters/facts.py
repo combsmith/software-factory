@@ -1,8 +1,9 @@
 """The one snapshot of a pull request: every part of `facts/1`, each from its own read, put together and held to the
 schema, with the title handed beside it (design section 3.3, decision 0039).
 
-The pull request is read first and once more last (`adapters/pull.same_head`): a push or a retarget between makes the
-parts of two pull requests, and the snapshot is refused, to be read again at the next pass. A head pushed away and back
+The pull request is read first and once more last (`adapters/pull.unchanged`): a push, a retarget, or any change
+GitHub records on it between makes the parts of two pull requests, and the snapshot is refused, to be read again at the
+next pass. A head pushed away and back
 between the two reads is not seen: the diff and the files are the pull request's, not pinned to its head commit, so they
 may be of the commit between (the known limit; pinning them is still to be built). A part that cannot be read
 refuses the whole; a list that was not read whole says so in its `complete` flag, and the Kernel defers on it.
@@ -51,8 +52,10 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
     writer = timeline.since_writer(events, accounts)
     labels = timeline.label_events(events, accounts)
     read = checks.read(transport, first)
-    if not pull.same_head(transport, first):
-        raise Unanswered("the pull request moved while it was read; it is read again at the next pass")
+    if pusher is not None and pushed_at is None:
+        raise Unanswered("the head's push names its pusher but no time that can be read")
+    if not pull.unchanged(transport, first):
+        raise Unanswered("the pull request changed while it was read; it is read again at the next pass")
     now = clock()
     facts = dict(own)
     facts.update({
