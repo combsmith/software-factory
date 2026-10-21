@@ -114,6 +114,13 @@
       ]
     },
     {
+      "reason": "limits_unreadable",
+      "question": "fact_unreadable",
+      "choices": [
+        "fix_the_source"
+      ]
+    },
+    {
       "reason": "outside_not_admitted",
       "question": "admit_outside_work",
       "choices": [

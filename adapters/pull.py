@@ -52,10 +52,23 @@ def same_head(transport, pull: dict) -> bool:
     """Whether the pull request is still at the head commit and on the base the first read named, read once more after
     every other part: a push, or a retarget that keeps the head, in between makes the parts of two pull requests, and
     the snapshot is then refused and read again."""
-    again = read(transport, pull["base"]["repo"]["full_name"], pull["number"])
+    return _same(read(transport, pull["base"]["repo"]["full_name"], pull["number"]), pull)
+
+
+def _same(again: dict, pull: dict) -> bool:
     base, was = again.get("base") or {}, pull["base"]
     return (again["head"]["sha"] == pull["head"]["sha"] and base.get("ref") == was.get("ref")
             and (base.get("repo") or {}).get("id") == (was.get("repo") or {}).get("id"))
+
+
+def unchanged(transport, pull: dict) -> bool:
+    """`same_head`, and nothing else on the pull request changed while its parts were read: GitHub moves its
+    `updated_at` when its base moves (P-29) and is taken to move it on a label, a review or a change of state too,
+    which no trial has asked yet. So a snapshot is never of a pull request that changed between its first read and
+    its last; one that did is read again at the next pass."""
+    again = read(transport, pull["base"]["repo"]["full_name"], pull["number"])
+    return (_same(again, pull) and isinstance(pull.get("updated_at"), str)
+            and again.get("updated_at") == pull["updated_at"])
 
 
 def _account(actor) -> tuple:
@@ -93,14 +106,23 @@ def own(pull: dict, identities: dict) -> tuple:
     return part, pull.get("title")
 
 
-def targets_protected(transport, pull: dict) -> bool:
-    """Whether the base branch is a protected one, from the branch itself as the pass reads it."""
-    base = pull["base"]
-    path = "/repos/%s/branches/%s" % (base["repo"]["full_name"], _ref(base.get("ref")))
+def base(transport, pull: dict) -> dict:
+    """The base branch as the pass reads it: whether it is protected, and its head commit, which a review's content is
+    compared against, never the pull request's `base.sha`, which moves only when the head is pushed (P-29)."""
+    branch = pull["base"]
+    path = "/repos/%s/branches/%s" % (branch["repo"]["full_name"], _ref(branch.get("ref")))
     body = _ok(transport.send(request("GET", path)), "the base branch")
     if not isinstance(body, dict) or not isinstance(body.get("protected"), bool):
         raise Unanswered("the base branch's protection cannot be read")
-    return body["protected"]
+    head = (body.get("commit") or {}).get("sha") if isinstance(body.get("commit"), dict) else None
+    if not SHA.match(str(head)):
+        raise Unanswered("the base branch's head commit cannot be read")
+    return {"protected": body["protected"], "head": head}
+
+
+def targets_protected(transport, pull: dict) -> bool:
+    """Whether the base branch is a protected one, from the branch itself as the pass reads it."""
+    return base(transport, pull)["protected"]
 
 
 def last_pusher(transport, pull: dict):
@@ -108,16 +130,30 @@ def last_pusher(transport, pull: dict):
     its actor when its `after` is the head commit, a person's push and an App's alike, and null otherwise, which the
     Kernel reads as unreadable; an older entry is never read (decision 0026). A head in another repo is null: no
     Factory App reads a fork's activity until a trial grounds it. Never a commit's author or committer."""
+    return last_push(transport, pull)[0]
+
+
+def last_push(transport, pull: dict) -> tuple:
+    """`(last pusher, when)`: the newest activity entry's actor and time when its `after` is the head, else
+    `(None, None)`: one read for both, so the time is the push's own."""
     head = pull["head"]
     if (head.get("repo") or {}).get("id") != pull["base"]["repo"].get("id"):
-        return None
+        return None, None
     path = "/repos/%s/activity?ref=refs/heads/%s&per_page=10" % (head["repo"]["full_name"], _ref(head.get("ref")))
     entries = _ok(transport.send(request("GET", path)), "the head branch's activity")
     if not isinstance(entries, list) or not entries or not isinstance(entries[0], dict):
-        return None
+        return None, None
     newest = entries[0]
     login, _, _ = _account(newest.get("actor"))
-    return login if newest.get("after") == head.get("sha") else None
+    if newest.get("after") != head.get("sha") or login is None:
+        return None, None
+    return login, _iso(newest.get("timestamp"))
+
+
+def _iso(value):
+    """An activity entry's timestamp, which GitHub gives with a Z, or None where it cannot be read."""
+    return value if isinstance(value, str) and re.fullmatch(
+        r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z", value) else None
 
 
 def _counts(text: str):

@@ -5,7 +5,7 @@ answer and on a recorded one.
 
 `Live` sends HTTPS to api.github.com alone: it follows no redirect, uses no proxy, takes its token from its caller and
 never from the environment, sets a timeout on every request, bounds every answer, and keeps no body anywhere but in the
-answer it returns. One redirect is followed, and one only (the Maintainer's ruling on #192, under decision 0044): an
+answer it returns. One redirect is followed, and one only (decision 0045, the Maintainer's ruling on #192): an
 artifact's download, `download(path)`, from that endpoint alone, to GitHub's artifact storage alone, over HTTPS, with
 no token sent there and its body bounded far tighter. The address it is sent to carries a signature, and is never put
 in an error or kept. A body that is not JSON is text decoded without loss, so its bytes are what any hash is taken over. `Replay`

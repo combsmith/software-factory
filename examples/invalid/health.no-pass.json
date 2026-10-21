@@ -1,0 +1,57 @@
+{
+  "schema": "health/1",
+  "release": "factory/v0.3.1",
+  "written_at": "2026-10-11T13:00:00Z",
+  "last_pass_at": "2026-10-11T13:00:00Z",
+  "previous_pass_at": "2026-10-11T12:54:00Z",
+  "relay_started_at": null,
+  "pause": {
+    "state": "none",
+    "by": []
+  },
+  "chain": {
+    "since": "2026-10-11T08:05:00Z",
+    "started_by": "own_repo",
+    "successors": 0
+  },
+  "starts": {
+    "schedule": 1,
+    "relay": 0,
+    "public": 0,
+    "own_repo": 1,
+    "successor": 1,
+    "dispatch": 0
+  },
+  "faults": [
+    {
+      "run": "r_01JA6Y",
+      "item": {
+        "repo": "combsmith/software-factory",
+        "type": "pull_request",
+        "number": 41
+      },
+      "outcome": "capacity",
+      "at": "2026-10-11T11:20:00Z"
+    }
+  ],
+  "alerts": [
+    "capacity"
+  ],
+  "thresholds": {
+    "job_minutes_share": {
+      "value": 0.0443,
+      "limit": 0.1,
+      "met": true
+    },
+    "graphql_points_per_hour": {
+      "value": 1840,
+      "limit": 3000,
+      "met": true
+    },
+    "decision_delay_p95_minutes": {
+      "value": 6.5,
+      "limit": 15,
+      "met": true
+    }
+  }
+}

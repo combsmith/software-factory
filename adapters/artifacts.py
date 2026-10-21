@@ -2,8 +2,8 @@
 3.10, decisions 0029 and 0039).
 
 The outcome is the artifact named `outcome` the run lists, a zip of one file, `outcome.json`, a few bytes long. It is
-downloaded through the transport's one redirect, to GitHub's artifact storage (the Maintainer's ruling on #192, under
-decision 0044), and bounded at every step: the size the listing gives, the bytes downloaded, the file's size in the zip
+downloaded through the transport's one redirect, to GitHub's artifact storage (decision 0045, the Maintainer's ruling on
+#192), and bounded at every step: the size the listing gives, the bytes downloaded, the file's size in the zip
 and the bytes read out of it. Its digest, where the listing gives one, is checked against the bytes. The file is held
 to `outcome/1` and must name the Run whose artifact it is.
 

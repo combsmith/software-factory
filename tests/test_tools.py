@@ -3295,10 +3295,17 @@ class Trials(unittest.TestCase):
         self.assertEqual(p44["verdict"], "pass")
     def test_an_edit_after_the_merge_changes_the_closing_references(self):
         # trials/P-46.json (issue 256): its verdict is computed here from the reads by the pass condition, so a fixture
-        # edited to pass, or to say what it did not see, fails. The rule it contradicts stays unverified (issue 267).
+        # edited to pass, or to say what it did not see, fails. It grounds the rule the fake now applies (issue 267):
+        # the edit closed nothing, and the merge's own close, in trials/P-33.json, names the pull request the closer.
         by_code = {rule[0]: rule for rule in check_trials.rules()}
-        rule = by_code["a_merged_pull_requests_closing_references_are_fixed"]
-        self.assertEqual((rule[2], rule[3]), (("P-46",), None))
+        self.assertNotIn("a_merged_pull_requests_closing_references_are_fixed", by_code)
+        rule = by_code["a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing"]
+        self.assertEqual((rule[2], rule[3]), (("P-33", "P-46"), "trials/P-46.json"))
+        p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())
+        closes = [node for e in p33["exchanges"] if isinstance(e["response"].get("body"), dict)
+                  for node in (((e["response"]["body"].get("data") or {}).get("repository") or {}).get("issue") or {})
+                  .get("timelineItems", {}).get("nodes", []) if node.get("__typename") == "ClosedEvent"]
+        self.assertEqual([c["closer"] for c in closes], [{"__typename": "PullRequest", "number": 38}])
         p46 = json.loads((ROOT / "trials" / "P-46.json").read_text())
         n = p46["exchanges"][0]["response"]["body"]["number"]           # the issue the trial opened
         reads = [e["response"]["body"]["data"]["repository"] for e in p46["exchanges"] if e["request"]["via"] == "graphql"]
@@ -3894,11 +3901,59 @@ class Redaction(unittest.TestCase):
     """`tools/redact_trial.py` runs on the raw capture, outside the repo, before anyone reads it."""
 
     def redact(self, raw: str) -> tuple:
+        out, said = io.StringIO(), io.StringIO()
+        self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 0)
+        return out.getvalue(), said.getvalue()
+
+    def test_it_opens_no_path_it_is_given(self):
+        # SonarCloud S2083 and S8707: the capture comes on standard input and goes out on standard output, so a path is
+        # never taken from the arguments. Any argument is refused before anything is read.
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
-        (folder / "raw").write_text(raw)
-        with contextlib.redirect_stdout(io.StringIO()) as said:
-            self.assertEqual(redact_trial.main([str(folder / "raw"), str(folder / "out")]), 0)
-        return (folder / "out").read_text(), said.getvalue()
+        (folder / "raw").write_text("HTTP/2.0 200 OK\n\n{}\n")
+        for argv in ([str(folder / "raw"), str(folder / "out")], [str(folder / "raw")], ["-"]):
+            said, read = io.StringIO(), io.BytesIO(b"{}")
+            self.assertEqual(redact_trial.main(argv, stdin=read, stdout=io.StringIO(), stderr=said), 2, argv)
+            self.assertEqual(read.tell(), 0, argv)
+            self.assertIn("opens no path", said.getvalue())
+        self.assertFalse((folder / "out").exists())
+        # As the scripts run it: in through a pipe, out through a pipe, and what it took out named on standard error.
+        ran = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=ROOT, capture_output=True, text=True,
+                             input="HTTP/2.0 200 OK\nAuthorization: x\nContent-Type: text/plain\n\nfine\n", timeout=60)
+        self.assertEqual((ran.returncode, ran.stdout), (0, "HTTP/2.0 200 OK\nContent-Type: text/plain\n\nfine\n"))
+        self.assertIn("the header Authorization", ran.stderr)
+        # A head with CR LF, as gh writes it, is read as a head: its headers and the body's fields are redacted.
+        crlf = 'HTTP/2.0 200 OK\r\nX-Foo: bar\r\nContent-Type: application/json\r\n\r\n{"password": "hunter2", "ok": 1}'
+        out, said = self.redact(crlf)
+        self.assertNotIn("X-Foo", out)
+        self.assertNotIn("hunter2", out)
+        self.assertIn('"ok": 1', out)
+        # Bytes that are not UTF-8 stop it, with nothing written; and what it writes is UTF-8 whatever the locale.
+        bad = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=ROOT, capture_output=True,
+                             input=b"\xff\xfe", timeout=60)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertEqual(bad.stdout, b"")
+        wide = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=ROOT, capture_output=True,
+                              input="HTTP/2.0 200 OK\n\nfine \u2713\n".encode(), timeout=60,
+                              env=dict(os.environ, LC_ALL="C", LANG="C", PYTHONIOENCODING="ascii"))
+        self.assertEqual((wide.returncode, wide.stdout), (0, "HTTP/2.0 200 OK\n\nfine \u2713\n".encode()))
+        # The App's script sends the report to its pipe and the clean text to its file: in that order, or the report
+        # would go to the file.
+        script = (ROOT / "tools" / "trial_as_app.sh").read_text()
+        self.assertIn('python3 -m tools.redact_trial < "$1" 2>&1 > "${1%.raw}.clean") | sed', script)
+        # Its redact(), run alone: a capture that redacts is deleted beside its clean file; one that fails is deleted
+        # unread with its partial clean file, since both lie in OUT, which a session reads, and the failure is returned.
+        function = re.search(r"^redact\(\) \{.*?^\}$", script, re.M | re.S).group(0)
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (folder / "good.raw").write_text("HTTP/2.0 200 OK\nAuthorization: x\n\nfine\n")
+        (folder / "bad.raw").write_bytes(b"\xff\xfe")
+        ran = subprocess.run(["bash", "-c", 'set -uo pipefail\nroot="$1"\n%s\nredact "$2/good.raw"; echo "good=$?"\n'
+                              'redact "$2/bad.raw"; echo "bad=$?"' % function, "-", str(ROOT), str(folder)],
+                             capture_output=True, text=True, timeout=60)
+        self.assertIn("good=0", ran.stdout)
+        self.assertIn("bad=1", ran.stdout)
+        self.assertIn("failed; its capture is deleted unread", ran.stderr)
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ["good.clean"])
+        self.assertEqual((folder / "good.clean").read_text(), "HTTP/2.0 200 OK\n\nfine\n")
 
     def test_a_drafted_fixture_comes_out_with_no_credential(self):
         data = json.loads(fixture())
@@ -5137,7 +5192,8 @@ except OSError:
         bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
         (bin_ / "gh").write_text(self.STAND_IN)
         (bin_ / "gh").chmod(0o755)
-        head = "HTTP/2.0 200 OK\nContent-Type: application/json\nAuthorization: token ghs_%s\n\n" % ("x" * 36)
+        # As real gh writes them: each line of the head ends in CR LF.
+        head = "HTTP/2.0 200 OK\r\nContent-Type: application/json\r\nAuthorization: token ghs_%s\r\n\r\n" % ("x" * 36)
         listed = [{"id": r["id"], "name": n} for n, r in live.items()]
         (bin_ / "repos_combsmith_software-factory_rulesets_per_page=100").write_text(head + json.dumps(listed))
         for r in live.values():

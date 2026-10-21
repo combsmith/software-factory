@@ -1138,7 +1138,7 @@ def linked_pull_request(how: str):
             p["draft"] = True
         else:
             p.update(open=False, closed_at=now(item), merged_at=now(item) if how != "close" else None,
-                     empty=how == "empty")
+                     empty=how == "empty", closed_issue_at=closes_the_issue(item) if how != "close" else None)
         return item
     return a_writers(change)
 
@@ -1178,8 +1178,14 @@ def queue_merges_issue(item: dict):
     live = [p for p in item["facts"]["linked"] if p["open"] and p["class"] == "agent" and not p["draft"]]
     if not live or issue_kernel(item)["state"] != "in_review":
         return None
-    live[0].update(open=False, closed_at=now(item), merged_at=now(item))
+    live[0].update(open=False, closed_at=now(item), merged_at=now(item), closed_issue_at=closes_the_issue(item))
     return item
+
+
+def closes_the_issue(item: dict):
+    """The close a merge makes: GitHub closes the open issue, and its timeline names the pull request the closer
+    (trials/P-33.json); a closed issue it cannot close."""
+    return now(item) if item["facts"]["state"] == "open" else None
 
 
 def outsider_edits(item: dict):

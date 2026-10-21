@@ -211,7 +211,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-37 One person's token served seven purposes
 **Failure.** The owner account's token was named 70 times and served seven purposes, and nine workflows passed every secret to whatever they called. Its rotation would show only as a refusal on the next run.
 **Rule.** No workflow names a personal access token, and none inherits secrets. The age of each credential is read, and one near its limit raises one alert.
-**Check.** `examples/workflows/invalid/token.a-persons-token.yml`; a credential's age is waiting on `controller/`
+**Check.** `examples/workflows/invalid/token.a-persons-token.yml`; a credential's age is waiting on `harness/`
 
 ### L-38 A gate was allowed to fail
 **Failure.** The eval gate ran only with its failure ignored, and the release never looked at its result.
@@ -266,12 +266,12 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-48 Nobody noticed
 **Failure.** "Engine-token liveness monitoring: a 7-day fleet-wide dev-lead outage went unalerted, and pr-review fails open" (issue 1587). The daily failure report appears to have stopped as well; the review could not confirm it.
 **Rule.** One cause raises one alert, a pass that did not run is itself reported, and an item that needs a person is assigned to one.
-**Check.** waiting on `controller/`
+**Check.** `tests/test_controller.py::test_one_cause_raises_one_alert`, `tests/test_controller.py::test_the_first_pass_after_six_hours_with_none_raises_the_not_run_alert_and_the_next_clears_it`; assigning an item to a person is waiting on `adapters/effects.py`
 
 ### L-49 The Maintainer's attention was the real limit
 **Failure.** Runs rose about fivefold while merges stayed at 14 to 36 a week. The owner account cleared holds 64 times across 150 merged pull requests.
 **Rule.** While more items need the Maintainer than a declared number, only a Run that unblocks a merge is admitted.
-**Check.** waiting on `controller/`
+**Check.** waiting on `controller/backpressure.py`
 
 ### L-50 A credential's permissions were assumed
 **Failure.** A change of credential met a refusal on its first real write and was reverted. An App that could write contents could not move a tag on a repo with workflows, and the fleet was broken for six days.
@@ -281,17 +281,17 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-51 The tests passed against a fake that accepted anything
 **Failure.** The shared stub of the GitHub command returned empty for calls it did not know, so real flags and filters were never exercised.
 **Rule.** Every rule the fake GitHub applies cites a response recorded from the real one, and the required check prints the rules that do not.
-**Check.** `tests/test_tools.py::test_a_rule_of_the_fake_that_is_not_listed_is_caught`, `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate`, `tests/test_tools.py::test_verify_prints_every_rule_no_fixture_grounds`, `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can`; comparing the fake's answers with a fixture is waiting on `adapters/facts.py`
+**Check.** `tests/test_tools.py::test_a_rule_of_the_fake_that_is_not_listed_is_caught`, `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate`, `tests/test_tools.py::test_verify_prints_every_rule_no_fixture_grounds`, `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can`; the port's reading of each fixture that grounds a rule of the fake, held to what the rule states, the fake not run: `tests/test_adapters.py::test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it`
 
 ### L-52 The fleet and every session shared one API quota
 **Failure.** "The fleet and every session share one GitHub API quota" (issue 2197). It ran out on 2026-10-10 and failed a workflow.
 **Rule.** The Factory reads through an App of its own, with a quota of its own, and what a pass costs is read and held to a budget.
-**Check.** waiting on `controller/`
+**Check.** `tests/test_controller.py::test_the_three_thresholds_of_decision_0011_are_computed_and_shown`; reading what a pass costs is waiting on `adapters/usage.py`
 
 ### L-53 The list itself was cut off, and nothing said so
 **Failure.** The list of workflow runs stops at 1,000 for a query, however it is paged. A query over the resource limit came back as a success with no data, and a whole repo was read as having no pull requests.
 **Rule.** A list read short is unreadable. The list of Runs and the list of items each say whether they are whole, as the facts of one item do.
-**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `examples/invalid/facts.no-completeness-for-runs.json` for the list of Runs; `examples/invalid/facts.no-completeness-for-timeline.json` for the timeline the acts are counted from; the list of items is waiting on `adapters/facts.py`
+**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `examples/invalid/facts.no-completeness-for-runs.json` for the list of Runs; `examples/invalid/facts.no-completeness-for-timeline.json` for the timeline the acts are counted from; the list of items is waiting on `adapters/items.py`
 
 ### L-54 A wrong fix cleared a gate
 **Failure.** A fix added a new test and broke an existing one without editing it. Nobody ran the suite against the state before the fix, and an outside reviewer marked the thread addressed on the strength of the reply.
@@ -316,12 +316,12 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-58 The pause variable meant different things to different readers
 **Failure.** A repo's variable overrode the org's of the same name, and a workflow expression matched its value without regard to case while a script matched it exactly. One spelling delivered a credential to a run that then would not use it.
 **Rule.** A Pause on the org or on the repo is a Pause. Any value but an exact true, an exact false or nothing is unreadable.
-**Check.** waiting on `controller/`
+**Check.** `tests/test_controller.py::test_a_pause_on_the_org_or_the_repo_is_a_pause_and_any_other_value_is_unreadable`
 
 ### L-59 An old streak on a quiet repo was read as a live outage
 **Failure.** A run of failures that had been fixed weeks before, on a repo with little traffic, was reported as an outage and held every scheduled run red. An outside reviewer's rate limit was at risk of counting toward the fleet's own breaker.
 **Rule.** An automatic pause needs faults that agree, from Runs on different items, of the Factory's own capacity, inside a recent window.
-**Check.** waiting on `controller/`
+**Check.** `tests/test_controller.py::test_an_automatic_pause_needs_agreeing_faults_from_runs_on_different_items_in_a_recent_window`
 
 ## Not carried over
 
