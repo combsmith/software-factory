@@ -3126,6 +3126,36 @@ class Trials(unittest.TestCase):
                          ("don-petry", "don-petry", "REOPENED"))
         self.assertEqual([n["editor"]["login"] for n in issue["userContentEdits"]["nodes"]], ["don-petry", "don-petry"])
 
+    def test_the_lane_keeps_one_running_and_one_waiting(self):
+        # trials/P-44.json (issue 251) grounds a_run_waits_its_turn: the pass is computed here from the run lists and the
+        # jobs as GitHub gave them, so a fixture edited to pass, or to say what it did not see, fails.
+        by_code = {rule[0]: rule for rule in check_trials.rules()}
+        self.assertEqual(by_code["a_run_waits_its_turn"][3], "trials/P-44.json")
+        p44 = json.loads((ROOT / "trials" / "P-44.json").read_text())
+        lists = [e["response"]["body"]["workflow_runs"] for e in p44["exchanges"]
+                 if "/runs?branch=" in e["request"]["call"] and e["response"]["status"] == 200]
+        self.assertGreaterEqual(len(lists), 10)
+        for runs in lists:
+            statuses = [r["status"] for r in runs]
+            self.assertLessEqual(statuses.count("in_progress"), 1)
+            self.assertLessEqual(sum(s in ("queued", "pending", "waiting") for s in statuses), 1)
+        last = {r["run_number"]: r for r in lists[-1]}
+        self.assertEqual({n: (r["event"], r["status"], r["conclusion"]) for n, r in last.items()},
+                         {1: ("push", "completed", "success"), 2: ("push", "completed", "cancelled"),
+                          3: ("push", "completed", "cancelled"), 4: ("push", "completed", "success")})
+        jobs = {}
+        for e in p44["exchanges"]:
+            if e["request"]["call"].endswith("whether it ever had a runner and a step"):
+                run = next(n for n, r in last.items() if "/runs/%d/jobs" % r["id"] in e["request"]["call"])
+                (job,) = e["response"]["body"]["jobs"]
+                jobs[run] = (job["conclusion"], bool(job["runner_name"]), len(job["steps"]))
+        # Each cancelled run never started: no runner and no step. Each run that started finished.
+        self.assertEqual(jobs, {1: ("success", True, 3), 2: ("cancelled", False, 0), 3: ("cancelled", False, 0),
+                                4: ("success", True, 3)})
+        # Run 1 was running when 2, 3 and 4 were queued, and finished; 4 started only once 1 had.
+        self.assertLess(last[4]["created_at"], last[1]["updated_at"])
+        self.assertEqual(p44["verdict"], "pass")
+
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
         problems = check_trials.run(clone({"sim/world.py": world + "\n# GitHub: a_rule_nobody_listed\n"}))

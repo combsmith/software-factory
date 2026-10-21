@@ -84,6 +84,25 @@ class Simulation(unittest.TestCase):
         found, _ = test_transitions.explored()
         self.assertEqual(sorted(made - set(found)), [])
 
+    def test_a_newer_run_cancels_the_one_waiting_in_each_world(self):
+        # trials/P-44.json (a_run_waits_its_turn): in the item's concurrency group one Run is in progress and at most one
+        # waits; a newer Run cancels the one waiting, which never starts, and never the one running. A cancelled Run is
+        # read as superseded, so it is no attempt. The pull request's world and the issue's alike.
+        from sim.issues import IssueWorld
+        for make in (lambda: World(2, faults=False, people=False), lambda: IssueWorld(2, faults=False, people=False)):
+            w = make()
+            w.runs.clear()
+            base = {"item": dict(world.ITEM), "role": "pr-review", "intent": "review-change", "content_id": "c",
+                    "conclusion": None, "outcome": None, "started_at": "2026-10-21T00:00:00Z"}
+            w.runs.append(dict(base, run="r0", status="in_progress"))
+            for n in (1, 2, 3):
+                w.enqueue(dict(base, run="r%d" % n, status="queued"))
+            got = [(r["run"], r["status"], r["conclusion"], r["outcome"]) for r in w.runs]
+            self.assertEqual(got, [("r0", "in_progress", None, None),
+                                   ("r1", "completed", "cancelled", "superseded"),
+                                   ("r2", "completed", "cancelled", "superseded"),
+                                   ("r3", "queued", None, None)], type(w).__name__)
+
     def test_a_change_of_state_in_the_first_step_is_checked(self):  # I-12
         # The world starts from the State the Kernel gives it, so the first change is checked like any other.
         w = World(1, faults=False, people=False)
@@ -634,7 +653,9 @@ class Simulation(unittest.TestCase):
                 causes |= {line.split("(")[-1].rstrip(")") for line in w.trace if "apply: dequeued" in line}
                 impostors += sum("another App posted" in line for line in w.trace)
                 workflows += sum("another workflow posted" in line for line in w.trace)
-        self.assertLessEqual({"approval_lost", "gate_open", "human_hold"}, causes)
+        # Since the lane cancels a waiting Run (trials/P-44.json), the first seed whose Hold takes an item out is 109,
+        # past a shortened local run: the whole run of 300 seeds still asks for it.
+        self.assertLessEqual({"approval_lost", "gate_open"} | ({"human_hold"} if len(SEEDS) >= 300 else set()), causes)
         self.assertTrue(impostors)
         self.assertTrue(workflows)
         self.assertLessEqual({"from_app", "from_workflow"}, shown)

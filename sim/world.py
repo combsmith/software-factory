@@ -595,9 +595,9 @@ class World:
             self.paused(facts, runs, d, ctx)
         if d["outcome"] == "admit":
             self.moves()
-            self.runs.append({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"],
-                              "intent": d["admit"]["intent"], "content_id": d["admit"]["content_id"],
-                              "status": "queued", "conclusion": None, "outcome": None, "started_at": self.now()})
+            self.enqueue({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"],
+                          "intent": d["admit"]["intent"], "content_id": d["admit"]["content_id"],
+                          "status": "queued", "conclusion": None, "outcome": None, "started_at": self.now()})
             if self.seed % UNNAMED_EVERY == UNNAMED:
                 self.unnamed = (self.runs[-1], "%d" % (FIRST_RUN_ID + len(self.runs) - 1), None)
             self.caused("factory")
@@ -786,6 +786,16 @@ class World:
             self.unnamed = (run, "%d" % (FIRST_RUN_ID + len(self.runs) - 1), end)
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
+    def enqueue(self, run: dict):
+        """Queue a Run in the item's concurrency group. A Run already waiting there is cancelled, and never starts: one
+        Run is in progress and at most one waits (trials/P-44.json). The records port reads the cancelled one as
+        superseded, since its job had no runner and no step, so it is no attempt."""
+        # GitHub: a_run_waits_its_turn
+        for older in [r for r in self.runs if r["status"] == "queued"]:
+            older.update(status="completed", conclusion="cancelled", outcome="superseded")
+            self.note("run %s: cancelled by its concurrency group" % older["run"])
+        self.runs.append(run)
+
     def start_next(self):
         # GitHub: a_run_waits_its_turn
         if any(r["status"] == "in_progress" for r in self.runs):

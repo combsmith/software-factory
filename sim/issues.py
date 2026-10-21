@@ -394,7 +394,7 @@ class IssueWorld:
                "content_id": d["admit"]["content_id"], "status": "queued", "conclusion": None, "outcome": None,
                "started_at": self.now(), "minute": self.minute, "head": d["admit"].get("branch_head")}
         # GitHub: a_queued_run_is_listed
-        self.runs.append(run)
+        self.enqueue(run)
         self.moves()
         self.note("run %s: admitted %s %s" % (run["run"], run["role"], intent))
         self.caused(FACTORY)
@@ -420,6 +420,15 @@ class IssueWorld:
         self.caused(FACTORY)
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
+    def enqueue(self, run: dict):
+        """Queue a Run in the issue's concurrency group, as the pull request's world does: a Run already waiting there
+        is cancelled, and never starts (trials/P-44.json), and is read as superseded."""
+        # GitHub: a_run_waits_its_turn
+        for older in [r for r in self.runs if r["status"] == "queued"]:
+            older.update(status="completed", conclusion="cancelled", outcome="superseded")
+            self.note("run %s: cancelled by its concurrency group" % older["run"])
+        self.runs.append(run)
+
     def start_next(self):
         if any(r["status"] == "in_progress" for r in self.runs):
             return

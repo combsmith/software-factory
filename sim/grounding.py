@@ -92,8 +92,11 @@ RULES = (
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an "
      "account type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any "
      "other App and the machine user apart, never from a name's spelling", ("P-41",), None, None),
-    ("a_run_waits_its_turn", "One Run on an item is in progress, and any number wait queued behind it",
-     ("P-44",), None, None),
+    # trials/P-44.json: four pushes under one concurrency group, cancel-in-progress false; the second and third runs
+    # were cancelled as a newer one queued, with no runner and no step, and the running one finished.
+    ("a_run_waits_its_turn", "One Run on an item is in progress and at most one waits: a newer Run in the item's "
+     "concurrency group cancels the one waiting, which never starts, and never the one running",
+     ("P-44",), "trials/P-44.json", None),
     ("a_queued_run_is_listed", "A Run is in the list of run records from when it is queued, before its job starts",
      ("P-17",), "trials/P-17.json", None),
     ("a_new_run_is_listed_unnamed", "A Run can be listed under its workflow's name, not its run-name, for its first "
