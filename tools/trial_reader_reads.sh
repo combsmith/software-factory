@@ -1,5 +1,5 @@
 #!/bin/sh
-# Trial P-46, with #231's question: what the reader App reads of a login's permission and of a branch's activity,
+# Trial P-47, with #231's question: what the reader App reads of a login's permission and of a branch's activity,
 # and the least permission each read needs (issues 222 and 231, decision 0035).
 #
 #   tools/trial_reader_reads.sh OUT READER_KEY REPO BRANCH LOGIN...

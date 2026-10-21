@@ -17,7 +17,7 @@ login appears in the pass; it caches nothing across passes, and never asks it of
 nothing in `kernel/` or in a schema of the facts changes. No read of `authorAssociation` decides write access.
 
 The reader App holds what the reads need, and the Apps data names each read: `read:facts.actor.can_write` for the
-permission read, and the activity read under `read:facts.last_pusher`, each under the grant trial P-46 shows it needs.
+permission read, and the activity read under `read:facts.last_pusher`, each under the grant trial P-47 shows it needs.
 
 ## Why
 
@@ -39,7 +39,7 @@ W-4 allows, 820.
 | Boundary | Check |
 |---|---|
 | The issue world builds an author's write access from the permission it serves, as the port will, and `admin`, `maintain` and `write` are write access | `tests/test_issue_simulator.py::test_an_authors_write_access_is_read_from_the_permission` |
-| The simulator's rule names the trial that grounds it, P-46 | `tools/check_trials.py`, `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can` |
+| The simulator's rule names the trial that grounds it, P-47 | `tools/check_trials.py`, `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can` |
 | The Apps data names the permission read, `read:facts.actor.can_write`, under the reader's `metadata: read`; a fact need names a field of facts/1, or a property of one of its definitions | `tools/check_apps.py`, `tests/test_tools.py::test_a_read_of_a_fact_that_does_not_exist_is_caught` |
 | The reader's grants are what P-39 recorded: re-read on 2026-10-21 through the Maintainer's login, each App's permissions and events and the org's installations equal `trials/P-39.grants.json`, so no new fixture | `tools/check_apps.py` |
 | The trial's script mints only tokens narrowed to one grant on the canary alone, revokes each, refuses before minting anything it cannot hold, and leaves no token in what it hands over | `tests/test_tools.py::test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept`, `tests/test_tools.py::test_each_refusal_comes_before_anything_is_minted`, `tests/test_tools.py::test_a_refused_mint_or_revocation_stops_the_run_and_says_so` |

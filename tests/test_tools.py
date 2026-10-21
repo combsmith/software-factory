@@ -3045,7 +3045,7 @@ class Trials(unittest.TestCase):
         self.assertTrue(all(e["actor"]["login"] and e["actor"]["__typename"] and e["createdAt"] for e in events))
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         # The events ground the rule about them; the association, which an App reads wrong, is no rule of the fake: write
-        # access is read from the collaborator permission, which P-46 asks (decision 0043).
+        # access is read from the collaborator permission, which P-47 asks (decision 0043).
         self.assertEqual(by_code["a_label_event_names_its_actor"], "trials/P-32.json")
         self.assertNotIn("an_issues_author_has_an_association", by_code)
         self.assertIn("a_logins_permission_is_read_from_the_collaborator_endpoint", by_code)

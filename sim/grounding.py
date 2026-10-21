@@ -157,7 +157,7 @@ RULES = (
     # collaborator permission instead (issue 222, decision 0043).
     ("a_logins_permission_is_read_from_the_collaborator_endpoint", "A person's write access is read from the "
      "repository's collaborator permission: admin, maintain and write are write access, and triage, read and none are "
-     "not", ("P-46",), None, None),
+     "not", ("P-47",), None, None),
     # trials/P-33.json: a pull request to a base that is not the default branch carries no closing reference at all
     # (section 6's fallback: the issue Lifecycle serves the default branch only). The reverse read from the issue is
     # no substitute: willCloseTarget is false for a closed-unmerged pull request that keeps its reference, false for
