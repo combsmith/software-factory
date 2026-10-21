@@ -1508,9 +1508,12 @@ def _ident(text: str):
     """(name, email) of an identity as `git var` gives it, NAME <EMAIL> TIMESTAMP ZONE, or None. Read in one pass with
     string methods, not a regex that backtracks over every " <" (SonarCloud S8786, issue 239): git strips < and > from
     a name and an email, so the last " <" and the last ">" bound the email."""
+    if "\n" in text:    # one line, as the regex read it
+        return None
     head, _, zone = text.rpartition(" ")
     head, _, stamp = head.rpartition(" ")
-    if not (stamp.isdigit() and len(zone) == 5 and zone[0] in "+-" and zone[1:].isdigit() and head.endswith(">")):
+    # isdecimal is the regex's \d, the decimal digits; isdigit would take a superscript too.
+    if not (stamp.isdecimal() and len(zone) == 5 and zone[0] in "+-" and zone[1:].isdecimal() and head.endswith(">")):
         return None
     name, found, email = head[:-1].rpartition(" <")
     return (name, email) if found else None
@@ -1519,7 +1522,8 @@ def _ident(text: str):
 def _without_credential(text: str) -> str:
     """`text` with every USER:PASSWORD@ that follows a :// taken out, so that no sentence shows one. One pass, not a
     regex (SonarCloud S8786, issue 239): after each ://, the run of characters that are not /, @ or a space is dropped
-    with its @ when an @ ends it."""
+    with its @ when an @ ends it; when no @ ends it, the search goes on from just after that ://, so a :// nested in
+    the run, as in https://a://user:secret@host, is read too."""
     out, i = [], 0
     while True:
         at = text.find("://", i)
@@ -1534,8 +1538,8 @@ def _without_credential(text: str) -> str:
             out.append(text[i:at])
             i = j + 1
         else:
-            out.append(text[i:j])
-            i = j
+            out.append(text[i:at])
+            i = at
 
 
 def _urlish(remote: str) -> bool:

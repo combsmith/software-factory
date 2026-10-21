@@ -1291,12 +1291,15 @@ class Identity(unittest.TestCase):
                                ("a b c <d> 1 +0000", ("a b c", "d")), (" <d> 1 +0000", ("", "d")),
                                ("a <b <c> 1 +0000", ("a <b", "c")), ("a <b<c> 1 +0000", ("a", "b<c")),   # the last " <" bounds the email, as the greedy regex had it
                                ("<d> 1 +0000", None), ("a <d> x +0000", None), ("a <d> 1 +00000", None),
-                               ("a <d> 1 0000", None), ("a <d>1 +0000", None), ("a d> 1 +0000", None), ("", None)):
+                               ("a <d> 1 0000", None), ("a <d>1 +0000", None), ("a d> 1 +0000", None), ("", None),
+                               ("a <d> \u00b2 +0000", None), ("a <d> 1 +00\u00b20", None), ("a\n <d> 1 +0000", None)):
             self.assertEqual(identity._ident(text), expected, text)
         for text, expected in (("git push https://u:p@github.com/o/r https://github.com/x", "git push https://github.com/o/r https://github.com/x"),
                                ("ssh://u@h/p and https://h", "ssh://h/p and https://h"), ("://@x", "://@x"),
                                ("x://a b@c", "x://a b@c"), ("://a/@b", "://a/@b"), ("no url at all", "no url at all"),
-                               ("https://u@", "https://"), ("://a@://b@c", "://://c")):
+                               ("https://u@", "https://"), ("://a@://b@c", "://://c"),
+                               ("https://a://someone:hunter2secret@github.com/x/y.git", "https://a://github.com/x/y.git"),
+                               ("x://a:b://c@d", "x://a:b://d")):
             self.assertEqual(identity._without_credential(text), expected, text)
         for remote, expected in (("git@github.com:o/r.git", True), ("https://github.com/o/r", True), ("origin", False),
                                  ("/a@b:c", False), ("a@:b", False), ("a@b:c", True), ("@b:c", False), ("a@b/c:d", False),
@@ -1540,6 +1543,8 @@ class Identity(unittest.TestCase):
         said = self.refused("git push https://someone:hunter2secret@github.com/x/y.git HEAD")
         self.assertNotIn("hunter2secret", said)
         self.assertNotIn("someone", said)
+        said = self.refused("git push https://a://someone:hunter2secret@github.com/x/y.git HEAD")   # a :// nested in a run
+        self.assertNotIn("hunter2secret", said)
         said = self.refused("git push", repo(helper="store --file /tmp/hunter2secret"))
         self.assertNotIn("hunter2secret", said)
 

@@ -3190,6 +3190,12 @@ MUTANTS = ISSUE + [
     ("a credential after :// is shown", "tools/hooks/identity.py",
      '        if j > at and j < len(text) and text[j] == "@":\n', "        if False:\n",
      READINGS_TESTS + (IDENTITY_TESTS + "test_a_credential_is_never_shown",)),
+    ("a :// nested in a run is skipped", "tools/hooks/identity.py",
+     "            out.append(text[i:at])\n            i = at\n", "            out.append(text[i:j])\n            i = j\n",
+     READINGS_TESTS + (IDENTITY_TESTS + "test_a_credential_is_never_shown",)),
+    ("a superscript is a digit", "tools/hooks/identity.py",
+     '    if not (stamp.isdecimal() and len(zone) == 5 and zone[0] in "+-" and zone[1:].isdecimal() and head.endswith(">")):\n',
+     '    if not (stamp.isdigit() and len(zone) == 5 and zone[0] in "+-" and zone[1:].isdigit() and head.endswith(">")):\n', READINGS_TESTS),
     ("an scp-like remote is a remote's name", "tools/hooks/identity.py",
      '    return at > 0 and head.find(":", at + 2) >= 0\n', "    return False\n", READINGS_TESTS),
 ]
