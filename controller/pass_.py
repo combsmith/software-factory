@@ -163,7 +163,8 @@ def wait_before_reading(previous, now: str, config: dict) -> int:
 
 def rebuild(records: list, titles: dict, config: dict) -> list:
     """The feed's two files as each pass record left them, rebuilt from the records alone (decision 0002)."""
-    return feed_.rebuild(records, titles, config["feed"])
+    return feed_.rebuild(records, titles, config["feed"],
+                         lambda r: pull_request.unnamed_scope(r["context"], config["kernel"], r["now"])["alerts"])
 
 
 def _run_name(item: dict, intent: str, role: str, content: str, run: str) -> str:

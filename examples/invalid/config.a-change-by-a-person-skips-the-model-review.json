@@ -67,6 +67,7 @@
     "max_diff_lines": 4000,
     "max_acts_per_item": 6,
     "max_path_length": 255,
+    "max_close_lag_seconds": 300,
     "max_unnamed_run_seconds": 60,
     "max_unnamed_runs": 1
   },

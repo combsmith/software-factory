@@ -47,7 +47,7 @@ def age(entry: dict, record: dict, before: list) -> float:
     return round(seconds(record["now"], since) / 3600.0, 2)
 
 
-def view(record: dict, before: list, titles: dict, feed: dict, alerts: list = ()) -> dict:
+def view(record: dict, before: list, titles: dict, feed: dict, alerts: list) -> dict:
     """The feed's two files: every open item the pass decided on, and when and from what the feed was written, with the
     alerts of the whole scope, one to a Run unnamed past the window (issue 270)."""
     items = []
@@ -76,9 +76,10 @@ def view(record: dict, before: list, titles: dict, feed: dict, alerts: list = ()
     return {"meta": checked(meta, "view-meta"), "items": checked(listed, "view-items")}
 
 
-def rebuild(records: list, titles: dict, feed: dict) -> list:
+def rebuild(records: list, titles: dict, feed: dict, alerts_of) -> list:
     """The view as each pass record leaves it, rebuilt from the records alone, oldest first. A record holds no title,
     so the titles are the ones read with the rebuild: a title changed since a pass is the one thing a rebuild shows
-    otherwise, and it is untrusted text that decides nothing."""
+    otherwise, and it is untrusted text that decides nothing. `alerts_of` gives a record's alerts of the whole scope,
+    as the Kernel reads them from that record's context and time (issue 270)."""
     ordered = sorted(records, key=lambda r: r["now"])
-    return [view(r, [e for e in ordered if e["now"] < r["now"]], titles, feed) for r in ordered]
+    return [view(r, [e for e in ordered if e["now"] < r["now"]], titles, feed, alerts_of(r)) for r in ordered]

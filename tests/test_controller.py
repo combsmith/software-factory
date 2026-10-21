@@ -531,19 +531,24 @@ class Feed(unittest.TestCase):
                  ("2026-10-11T13:05:00Z", reads(pulls=[pr(1), pr(2)], runs=[run(number=1, status="in_progress")])),
                  ("2026-10-11T13:10:00Z", reads(pulls=[pr(1)], runs=[run(number=1, status="in_progress")])),
                  ("2026-10-11T13:15:00Z", reads(pulls=[pr(1), pr(2)], runs=[run(number=1)])),
-                 ("2026-10-11T13:20:00Z", reads(pulls=[pr(1), pr(2, state="closed")], runs=[run(number=1)]))]
+                 ("2026-10-11T13:20:00Z", reads(pulls=[pr(1), pr(2, state="closed")], runs=[run(number=1)])),
+                 # A run unnamed past the window is an alert of that pass, and of the rebuild (issue 270).
+                 ("2026-10-11T13:25:00Z", reads(pulls=[pr(1)], runs=[run(number=1)],
+                                                unidentified=[unnamed("9", created="2026-10-11T13:00:00Z",
+                                                                      status="completed")]))]
         for now, read in steps:
             out = pass_.run(read, cfg, now, list(kept), mint)
             kept.append(out["record"])
             written.append({"meta": out["view"]["meta"], "items": out["view"]["items"]})
         titles = {"https://github.com/%s/pull/%d" % (REPO, n): "A title" for n in (1, 2)}
         self.assertEqual(pass_.rebuild(list(reversed(kept)), titles, cfg), written)
+        self.assertEqual([w["meta"]["alerts"] for w in written][-2:], [[], [{"alert": "run_unnamed", "run": "9"}]])
 
         def ages(n):
             return [[i["age_hours"] for i in w["items"]["items"] if i["item"]["number"] == n] for w in written]
-        self.assertEqual(ages(1), [[0.0], [0.08], [0.17], [0.0], [0.08]])
+        self.assertEqual(ages(1), [[0.0], [0.08], [0.17], [0.0], [0.08], [0.17]])
         # Read in a pass, missed by the next and read again: its time in its State starts again.
-        self.assertEqual(ages(2), [[0.0], [0.08], [], [0.0], []])
+        self.assertEqual(ages(2), [[0.0], [0.08], [], [0.0], [], []])
 
     def test_the_three_thresholds_of_decision_0011_are_computed_and_shown(self):  # decision 0011
         thresholds = passed()["view"]["health"]["thresholds"]

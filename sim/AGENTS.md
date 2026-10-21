@@ -15,7 +15,7 @@ the issue is held or declined, and a person none while it is declined: the Contr
 | A rule the fake applies about GitHub is marked `# GitHub: <code>` where it is applied, and listed once in `grounding.py` with its trials and its fixture in `trials/`, one or a tuple, or none. Verify prints each with none | `tools/check_trials.py` |
 | A rule no trial asks is grounded only once a trial for it is added to section 6 of the design | `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate` |
 | Until then it names that trial, or says in one sentence why none can; `make verify` prints which | `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can` |
-| The fake answers in GitHub's own shapes, so that its answers can be compared with a fixture | waiting on `adapters/facts.py` |
+| Each rule of the fake that a fixture grounds is read by the port from that fixture as the rule states it, or is named as not read yet; the fake itself is not run | `tests/test_adapters.py::test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it` |
 
 The world is one pull request, paused for a span on some seeds, or with a Pause that cannot be read, and on some with no writer's action yet.
 On those seeds the Pause may begin early, as an approval falls due or a count is spent (`tests/test_simulator.py::test_the_pause_falls_due_with_an_approval`, `..._with_a_spent_count`).
@@ -36,5 +36,5 @@ On another seed in eight a run never takes its name: it defers admissions only i
 In each world one Run holds the item's lane and at most one waits behind it; a newer one cancels the one waiting (`tests/test_simulator.py::test_a_newer_run_cancels_the_one_waiting_in_each_world`).
 A rule about anything else is not exercised here, so its boundary cases are all that hold it. An invariant is a call to `check()` with its name. When a seed finds a fault, the fix goes in the Kernel with a boundary case in `tests/test_decide.py`.
 
-Known to differ, unverified until the fake changes or its trial runs: a push leaves an earlier approval in place (`an_approval_survives_a_push`; `trials/P-7.json` saw it dismissed); the queue merges
-without checking the merge group (`the_merge_group_is_not_checked`; this repo's queue checks it, P-2); and a merged pull request's references are fixed (`a_merged_pull_requests_closing_references_are_fixed`; `trials/P-46.json` saw an edit change them).
+Known to differ, unverified until the fake changes or its trial runs: a push leaves an earlier approval in place (`an_approval_survives_a_push`; `trials/P-7.json` saw it dismissed); and the queue merges
+without checking the merge group (`the_merge_group_is_not_checked`; this repo's queue checks it, P-2).

@@ -11,9 +11,9 @@ that only what is still unnamed then is reported (decision 0036, rulings 1 and 3
 Every read of the list asks GitHub for the default branch's dispatches alone and sends `Cache-Control: no-cache`, and
 keeps the answer's `date` and `age` for the pass record, which never reach the Kernel (ruling 4). The list is whole
 only when every page was read, each run once, as many as the count GitHub gives, with every row readable and every
-counted run's outcome read (L-53). A Run that did not succeed has its outcome in an artifact, which GitHub serves by a
-redirect off its API, and the transport follows none (decision 0044): until `adapters/artifacts.py` reads it, a list
-holding one is not whole, so that no failed Run is ever read as no attempt.
+counted run's outcome read (L-53). A Run that did not succeed has its outcome read from its artifact by
+`adapters/artifacts.py`, once the list is final, and for no other Run (decisions 0029 and 0039): one it cannot read
+leaves the list not whole, so that no failed Run is ever read as no attempt.
 """
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ import datetime
 import re
 import time
 
+from adapters import artifacts
 from adapters.github import Unanswered, request
 from kernel import issue
 from kernel import terms
@@ -157,12 +158,12 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     read whole, and each read's date and age for the pass record. `dispatcher` is the Controller's App, by its account
     id and type, `(id, "Bot")`: only a run it dispatched is a Run.
 
-    `outcome` is null on every record, and a list holding a completed Run that did not succeed is not whole: its
-    outcome is in an artifact that waits on `adapters/artifacts.py`."""
+    `outcome` is the fault a completed Run that did not succeed names in its artifact, and null on every other record
+    and on one that left none."""
     roles = {".github/workflows/%s" % name for name in workflows}
 
     def read() -> tuple:
-        records, unnamed, reads, whole = [], [], [], True
+        records, unnamed, reads, whole, failed = [], [], [], True, []
         for workflow in workflows:
             rows, got, complete = _list(transport, repo, workflow, branch, per_page)
             reads += got
@@ -176,14 +177,17 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
                 if record is not None:
                     records.append(record)
                     if record["status"] == "completed" and record["conclusion"] != "success":
-                        whole = False
+                        failed.append((record, row["id"]))
                 if unidentified is not None:
                     unnamed.append(unidentified)
-        return records, unnamed, reads, whole
+        return records, unnamed, reads, whole, failed
 
-    records, unnamed, reads, whole = read()
+    records, unnamed, reads, whole, failed = read()
     if unnamed:
         sleep(WAIT)
-        records, unnamed, again, whole = read()
+        records, unnamed, again, whole, failed = read()
         reads += again
+    for record, github_id in failed:
+        record["outcome"], read_whole = artifacts.outcome(transport, repo, github_id, record["run"])
+        whole = whole and read_whole
     return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads}
