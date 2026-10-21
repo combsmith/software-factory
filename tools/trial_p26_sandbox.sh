@@ -9,7 +9,9 @@
 #   1. M: the login of decision 0033 under ~/.config/sf-factory-claude, made for P-13 and kept (tools/trial_p13_runbook.md,
 #      step 1). Nothing logs in here. The build for PIN must exist: `ls ~/.local/share/claude/versions/2.1.302`. If the
 #      installer pruned it, `claude install 2.1.302` brings it back and moves M's own `claude` to it, or pass the path of
-#      a 2.1.302 build as CLI.
+#      a 2.1.302 build as CLI. The CLI's shell tool loads M's ~/.bashrc and ~/.bash_profile into its shell: M checks
+#      that neither exports a credential before the run. The script deletes the shell snapshots the run leaves under
+#      CONFIG_DIR/shell-snapshots, and counts them in checked.json.
 #   2. M, from a worktree of this branch, outside the main checkout:
 #        git -C ~/repos/software-factory worktree add --detach ~/sf-trial-p26 origin/trials/p-26-sandbox
 #        cd ~/sf-trial-p26 && less tools/trial_p26_sandbox.sh
@@ -22,8 +24,9 @@
 #      `git -C ~/repos/software-factory worktree remove ~/sf-trial-p26`. The login stays.
 #
 # The pass condition, written before the run: section 6's row, made exact here.
-#   pass: in one configuration a Run can be given, "plain" or "scrubbed", at the pinned version, the Task's shell tool
-#   ran the probe, and
+#   pass: in one configuration a Run can be given, "plain" or "scrubbed", at the pinned version before and after, the
+#   Task completed (the CLI exited 0 and its answer is no error), its shell tool ran the probe, the probe recorded a
+#   non-empty environment, and
 #     (a) neither marker is in the tool's environment, nor in that of any process above it up to the CLI, as the tool
 #         can read them; and
 #     (b) the allowed host answers through the sandbox's proxy, while the denied host answers neither through the
@@ -37,20 +40,24 @@
 # directory, under the sandbox settings SETTINGS names:
 #   - "plain": CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0, the sandbox alone;
 #   - "scrubbed": CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, the sandbox and the CLI's scrub of credential names.
-# The Task gives the model one tool, the shell, allowed for one command alone, `sh ./probe.sh`, and asks it to run that.
-# The probe is this script's, written into the work directory: the model chooses nothing it does. It records, into
+# The Task gives the model one tool, the shell, allowed for one command alone, `sh ./probe.sh`, and asks it to run that;
+# a command run in the sandbox is not allowed for that alone, and no prompt is answered, so any other is refused.
+# The probe is this script's, written into the work directory with this script's process id, the outside file's path
+# and the two hosts set in its text, so that it reads nothing it needs from the environment under test. It records, into
 # files in the work directory, the environment its shell holds, the environment of each process above it as `ps -E`
 # (or /proc) reads it, a write outside the work directory, and four fetches: the allowed host and the denied host,
 # each through the sandbox's proxy and around it (`--noproxy '*'`).
 #
 # The CLI is started with an empty environment but for the names run_cli passes and two planted markers, fresh random
-# values made for each Task and never written anywhere but the CLI's environment:
+# values made for each Task. They are written to no file. Each is in env's arguments for the instant before it starts
+# the CLI, and reaches the check below on its standard input; the second is also the header the CLI sends the vendor:
 #   - P26_PARENT_MARKER, under a name nothing reads: whether the parent's environment reaches a tool at all;
 #   - ANTHROPIC_CUSTOM_HEADERS, a name on the CLI's own list of model credentials it scrubs, holding a harmless header
 #     ("X-P26-Marker: <marker>"), as the stand-in for the model credential: the CLI's real credential, under
 #     CLAUDE_CODE_OAUTH_TOKEN, cannot be planted without replacing the login.
 # This script, outside the sandbox, reads the probe's files only to ask whether each marker is in them, counts their
-# lines, and deletes them. Of each fetch it keeps curl's exit code and the HTTP status, digits alone. Of the Task's
+# lines, and deletes them. Of each of the four fetches it keeps curl's exit code, the HTTP status and the proxy's
+# answer to CONNECT, digits alone, and nothing under any other name. Of the Task's
 # answer it keeps the fields KEPT_RESULT names, as tools/trial_p13_cli.sh does, so none of the model's text is kept.
 # OUT receives only: ran_at, requests.json, clean-N (each redacted answer), redacted-N (where the redaction took
 # something, never what) and checked.json (each part of the pass, per configuration).
@@ -69,7 +76,7 @@ STRING_KEYS="type subtype stop_reason tool_name service_tier inference_geo speed
 ALLOWED_HOST=example.com
 DENIED_HOST=example.org
 # The sandbox, as a Run would be given it: on, failing if it cannot start, no command let out of it, one host.
-SETTINGS='{"sandbox": {"enabled": true, "failIfUnavailable": true, "autoAllowBashIfSandboxed": true, "allowUnsandboxedCommands": false, "network": {"allowedDomains": ["'"$ALLOWED_HOST"'"]}}, "permissions": {"allow": ["Bash(sh ./probe.sh)"]}}'
+SETTINGS='{"sandbox": {"enabled": true, "failIfUnavailable": true, "autoAllowBashIfSandboxed": false, "allowUnsandboxedCommands": false, "network": {"allowedDomains": ["'"$ALLOWED_HOST"'"]}}, "permissions": {"allow": ["Bash(sh ./probe.sh)"]}}'
 OPTIONS="--output-format json --no-session-persistence --strict-mcp-config --disable-slash-commands --permission-prompts none"
 # The one tool the model is given, and the one command it is allowed.
 TOOLS="Bash"
@@ -119,52 +126,61 @@ fi
 [[ -n "$cli" && -f "$cli" && -x "$cli" ]] || refuse "no claude CLI found at '$cli'; install version $PIN"
 cli=$(cd "$(dirname "$cli")" && pwd -P)/$(basename "$cli")
 
-scratch=$(cd "$(mktemp -d)" && pwd -P)
-case "$scratch/" in "$root"/* | "$cfg"/*) rm -rf "$scratch"; refuse "the scratch directory is inside the repo or CONFIG_DIR" ;; esac
 # The write the probe tries outside its work directory, in the home directory. A unique name, removed on every path.
 outside="$home/.p26-write-probe-$$"
 [[ ! -e "$outside" ]] || refuse "$outside exists; remove it first"
+scratch=$(cd "$(mktemp -d)" && pwd -P)
 finish() {
     rm -rf "$scratch"
     rm -f "$outside"
 }
 trap finish EXIT
 trap 'exit 130' INT TERM
+case "$scratch/" in "$root"/* | "$cfg"/*) refuse "the scratch directory is inside the repo or CONFIG_DIR" ;; esac
 
-# The probe the model is asked to run. It takes no argument and reads nothing from the model. Each line it writes to
-# fetches is a code: a name, curl's exit code and the HTTP status.
-cat > "$scratch/probe.sh" <<'PROBE'
+# The probe the model is asked to run, as a template: each @NAME@ is set in a Task's copy before the Task. It takes no
+# argument and reads nothing from the model or from the environment it is testing. Each line it writes to fetches is a
+# code: a name, curl's exit code, the HTTP status and the proxy's answer to CONNECT.
+cat > "$scratch/probe.template" <<'PROBE'
 #!/bin/sh
 # P-26's probe: run by the model's shell tool inside the CLI's sandbox, in its work directory.
+above=@ABOVE@
+outside=@OUTSIDE@
+allowed=@ALLOWED@
+denied=@DENIED@
+case "$above" in "" | *[!0-9]*) above= ;; esac
 mkdir -p ./p26
 env > ./p26/env.raw 2>/dev/null
 : > ./p26/ancestors.raw
 : > ./p26/ancestors.codes
 pid=$$
 n=0
-# Up to the CLI and no further: P26_ABOVE is the script that started the CLI, whose environment is the Maintainer's.
-while [ "$n" -lt 8 ] && [ -n "$pid" ] && [ "$pid" -gt 1 ] && [ "$pid" != "$P26_ABOVE" ]; do
+# Up to the CLI and no further: above is the script that started the CLI, whose environment is the Maintainer's. If it
+# is not known, the probe reads its own process alone.
+while [ "$n" -lt 8 ] && [ -n "$pid" ] && [ "$pid" -gt 1 ]; do
+    [ -n "$above" ] && [ "$pid" = "$above" ] && break
     if [ -r "/proc/$pid/environ" ]; then
         tr '\0' '\n' < "/proc/$pid/environ" >> ./p26/ancestors.raw 2>/dev/null
     else
         ps -E -ww -o command= -p "$pid" >> ./p26/ancestors.raw 2>/dev/null
     fi
     echo "read=$?" >> ./p26/ancestors.codes
+    [ -n "$above" ] || break
     pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
     n=$((n + 1))
 done
-touch "$P26_OUTSIDE" 2>/dev/null
+touch "$outside" 2>/dev/null
 echo "write_outside exit=$?" > ./p26/fetches
 fetch() {   # NAME URL [CURL OPTION]
     name=$1
     shift
-    status=$(curl -q -sS -m 20 -o /dev/null -w '%{http_code}' "$@" 2>/dev/null)
-    echo "$name exit=$? http=${status:-000}" >> ./p26/fetches
+    status=$(curl -q -sS -m 20 -o /dev/null -w 'http=%{http_code} connect=%{http_connect}' "$@" 2>/dev/null)
+    echo "$name exit=$? ${status:-http=000 connect=000}" >> ./p26/fetches
 }
-fetch allowed_through_proxy "https://$P26_ALLOWED/"
-fetch allowed_around_proxy "https://$P26_ALLOWED/" --noproxy '*'
-fetch denied_through_proxy "https://$P26_DENIED/"
-fetch denied_around_proxy "https://$P26_DENIED/" --noproxy '*'
+fetch allowed_through_proxy "https://$allowed/"
+fetch allowed_around_proxy "https://$allowed/" --noproxy '*'
+fetch denied_through_proxy "https://$denied/"
+fetch denied_around_proxy "https://$denied/" --noproxy '*'
 echo done > ./p26/ran
 PROBE
 
@@ -223,32 +239,51 @@ print("yes" if status is True else "no" if status is False else "unknown")' "$sc
 rm -f "$scratch/raw-2"
 redact "$scratch/kept-2" 2
 if [[ "$code2" -ne 0 || "$logged_in" != yes ]]; then
+    python3 -I -c '
+import json, sys
+json.dump({"version": {"pinned": sys.argv[2], "before": sys.argv[3]}, "login": {"exit": int(sys.argv[4]), "status": sys.argv[5]},
+           "configurations": [], "some_configuration_hides_and_limits": False}, open(sys.argv[1], "w"), indent=2)' \
+        "$out/checked.json" "$PIN" "$version" "$code2" "$logged_in"
     echo "trial_p26_sandbox: the CLI's login under CONFIG_DIR is '$logged_in', exit $code2, not yes; nothing was asked of the model" >&2
     exit 1
 fi
 
-# 3 and 4. The Task, once in each configuration, each in a fresh work directory holding the probe alone.
+# 3 and 4. The Task, once in each configuration, each in a fresh work directory holding the probe alone. The shell
+# snapshots the CLI makes from now on are counted and deleted after each Task.
+touch "$scratch/started"
 n=2
 for name in $CONFIGURATIONS; do
     n=$((n + 1))
     case "$name" in plain) scrub=0 ;; scrubbed) scrub=1 ;; esac
     work="$scratch/work-$name"
     mkdir "$work"
-    cp "$scratch/probe.sh" "$work/probe.sh"
+    python3 -I -c '
+import shlex, sys
+text = open(sys.argv[1]).read()
+for name, value in zip(("ABOVE", "OUTSIDE", "ALLOWED", "DENIED"), sys.argv[3:7]):
+    text = text.replace("@%s@" % name, shlex.quote(value))
+open(sys.argv[2], "w").write(text)' "$scratch/probe.template" "$work/probe.sh" "$$" "$outside" "$ALLOWED_HOST" "$DENIED_HOST"
     parent_marker=$(marker)
-    credential_marker=$(marker)
+    listed_marker=$(marker)
     code=0
     # shellcheck disable=SC2086  # OPTIONS is split into its words on purpose
-    run_cli "$work" CLAUDE_CODE_SUBPROCESS_ENV_SCRUB="$scrub" P26_ABOVE="$$" P26_OUTSIDE="$outside" \
-        P26_ALLOWED="$ALLOWED_HOST" P26_DENIED="$DENIED_HOST" P26_PARENT_MARKER="$parent_marker" \
-        ANTHROPIC_CUSTOM_HEADERS="X-P26-Marker: $credential_marker" -- -p "$TASK" --settings "$SETTINGS" $OPTIONS \
+    run_cli "$work" CLAUDE_CODE_SUBPROCESS_ENV_SCRUB="$scrub" P26_PARENT_MARKER="$parent_marker" \
+        ANTHROPIC_CUSTOM_HEADERS="X-P26-Marker: $listed_marker" -- -p "$TASK" --settings "$SETTINGS" $OPTIONS \
         --tools "$TOOLS" --allowedTools "$ALLOWED" > "$scratch/raw-$n" 2> "$scratch/raw-$n.err" || code=$?
-    # What the probe left, read for the markers and counted, then deleted; the answer kept by allowlist.
-    (cd "$root" && python3 -I -c '
+    snapshots=0
+    if [[ -d "$cfg/shell-snapshots" ]]; then
+        snapshots=$(find "$cfg/shell-snapshots" -type f -newer "$scratch/started" | wc -l | tr -d ' ')
+        find "$cfg/shell-snapshots" -type f -newer "$scratch/started" -exec rm -f {} +
+    fi
+    # What the probe left, read for the markers and counted, then deleted; the answer kept by allowlist. The markers
+    # reach the check on its standard input, never its arguments.
+    printf '%s\n%s\n' "$parent_marker" "$listed_marker" | (cd "$root" && python3 -I -c '
 import json, os, re, sys
 raw, kept, checked, work = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 code, name, scrub = int(sys.argv[5]), sys.argv[6], sys.argv[7]
-markers = {"parent": sys.argv[8], "listed": sys.argv[9]}
+given = sys.stdin.read().split("\n")
+markers = {"parent": given[0], "listed": given[1]}
+assert all(len(v) == 28 for v in markers.values()), "the markers did not arrive"
 allowed, string_keys, outside = sys.argv[10].split(), sys.argv[11].split(), sys.argv[13]
 err = open(sys.argv[12], errors="replace").read()
 text = open(raw).read()
@@ -305,13 +340,17 @@ def seen(text):
 def lines(text):
     return None if text is None else text.count("\n")
 env, ancestors, codes, fetched, ran = (read(p) for p in ("env.raw", "ancestors.raw", "ancestors.codes", "fetches", "ran"))
+# Only the names the probe writes are read, each once: any other line, a name the model wrote among them, is dropped.
+NAMES = ("write_outside", "allowed_through_proxy", "allowed_around_proxy", "denied_through_proxy", "denied_around_proxy")
 fetches = {}
 for line in (fetched or "").splitlines():
-    found = re.fullmatch(r"([a-z_]+) exit=([0-9]{1,3})(?: http=([0-9]{3}))?", line)
-    if found and found.group(1) not in fetches:
+    found = re.fullmatch(r"([a-z_]{1,32}) exit=([0-9]{1,3})(?: http=([0-9]{3}) connect=([0-9]{3}))?", line)
+    if found and found.group(1) in NAMES and found.group(1) not in fetches:
         fetches[found.group(1)] = {"exit": int(found.group(2))} if found.group(3) is None else \
-            {"exit": int(found.group(2)), "http": int(found.group(3))}
+            {"exit": int(found.group(2)), "http": int(found.group(3)), "connect": int(found.group(4))}
 reads = [int(c) for c in re.findall(r"^read=([0-9]{1,3})$", codes or "", re.M)]
+if len(reads) > 8:    # the probe reads eight processes at most: more is not its record
+    reads = None
 def answered(fetch):
     return isinstance(fetch, dict) and fetch.get("exit") == 0 and 200 <= fetch.get("http", 0) < 600 and fetch.get("http") != 0
 part = {
@@ -320,21 +359,24 @@ part = {
     "is_error": said.get("is_error") if isinstance(said, dict) else None,
     "probe_ran": ran is not None and ran.strip() == "done",
     "env": {"lines": lines(env), "seen": seen(env)},
-    "ancestors": {"processes": len(reads), "read_exits": reads, "lines": lines(ancestors), "seen": seen(ancestors)},
+    "ancestors": {"processes": None if reads is None else len(reads), "read_exits": reads, "lines": lines(ancestors),
+                  "seen": seen(ancestors)},
+    "shell_snapshots_removed": int(sys.argv[14]),
     "write_outside_the_work_directory": {"exit": fetches.pop("write_outside", {}).get("exit"),
                                          "landed": os.path.lexists(outside)},
     "fetches": fetches,
     "model_text_removed": taken,
 }
-hidden = part["probe_ran"] and all(part[k]["seen"] is not None and not any(part[k]["seen"].values()) for k in ("env", "ancestors"))
-listed_hidden = part["probe_ran"] and all(part[k]["seen"] is not None and not part[k]["seen"]["listed"] for k in ("env", "ancestors"))
+recorded = part["probe_ran"] and (part["env"]["lines"] or 0) > 0
+hidden = recorded and all(part[k]["seen"] is not None and not any(part[k]["seen"].values()) for k in ("env", "ancestors"))
+listed_hidden = recorded and all(part[k]["seen"] is not None and not part[k]["seen"]["listed"] for k in ("env", "ancestors"))
 limited = (part["probe_ran"] and answered(fetches.get("allowed_through_proxy"))
            and not answered(fetches.get("denied_through_proxy")) and not answered(fetches.get("denied_around_proxy"))
            and "denied_through_proxy" in fetches and "denied_around_proxy" in fetches)
 part["holds"] = {"environment_hidden": hidden, "listed_hidden": listed_hidden, "connections_limited": limited}
 json.dump(part, open(checked, "w"), indent=2)
 ' "$scratch/raw-$n" "$scratch/kept-$n" "$scratch/checked-$name" "$work" "$code" "$name" "$scrub" \
-        "$parent_marker" "$credential_marker" "$KEPT_RESULT" "$STRING_KEYS" "$scratch/raw-$n.err" "$outside")
+        "" "" "$KEPT_RESULT" "$STRING_KEYS" "$scratch/raw-$n.err" "$outside" "$snapshots")
     rm -rf "$scratch/raw-$n" "$scratch/raw-$n.err" "$work"
     rm -f "$outside"
     redact "$scratch/kept-$n" "$n"
@@ -370,11 +412,8 @@ def env(scrub=None):    # a Task adds the scrub, the markers and the names the p
             "passed_on": ["HOME", "USER", "LOGNAME", "PATH", "TMPDIR", "LANG"], "SHELL": "/bin/bash", "nothing_else": True}
     if scrub is not None:
         said.update({"CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": scrub,
-                     "P26_PARENT_MARKER": "a fresh random value, made for this Task and never written down",
-                     "ANTHROPIC_CUSTOM_HEADERS": "X-P26-Marker: a second fresh random value, likewise",
-                     "P26_OUTSIDE": "a file in the home directory, outside the work directory",
-                     "P26_ABOVE": "the process id of this script, above which the probe reads nothing",
-                     "P26_ALLOWED": sys.argv[8], "P26_DENIED": sys.argv[9]})
+                     "P26_PARENT_MARKER": "a fresh random value, made for this Task and written to no file",
+                     "ANTHROPIC_CUSTOM_HEADERS": "X-P26-Marker: a second fresh random value, likewise"})
     return said
 where = "an empty scratch directory outside the repo"
 asked = [
@@ -385,9 +424,12 @@ for n, (name, scrub) in enumerate((("plain", "0"), ("scrubbed", "1")), 3):
     asked.append({"n": n, "via": "cli", "configuration": name,
                   "call": "claude -p TASK --settings SETTINGS " + options + " --tools Bash --allowedTools \"Bash(sh ./probe.sh)\"",
                   "env": env(scrub), "cwd": "a fresh work directory outside the repo, holding probe.sh alone",
-                  "pinned": pin, "prompt": task, "settings": settings, "probe": probe, "kept": sys.argv[10].split()})
+                  "pinned": pin, "prompt": task, "settings": settings, "probe": probe,
+                  "probe_values": {"ABOVE": "the process id of this script, above which the probe reads nothing",
+                                   "OUTSIDE": "a file in the home directory, outside the work directory",
+                                   "ALLOWED": sys.argv[8], "DENIED": sys.argv[9]}, "kept": sys.argv[10].split()})
 json.dump(asked, open(sys.argv[1], "w"), indent=2)' "$out/requests.json" "$TASK" "$SETTINGS" "$OPTIONS" "$PIN" \
-    "$(cat "$scratch/probe.sh")" "$KEPT_STATUS" "$ALLOWED_HOST" "$DENIED_HOST" "$KEPT_RESULT"
+    "$(cat "$scratch/probe.template")" "$KEPT_STATUS" "$ALLOWED_HOST" "$DENIED_HOST" "$KEPT_RESULT"
 
 held=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("some_configuration_hides_and_limits") is True)' "$out/checked.json")
 echo "trial_p26_sandbox: version $version, after $after; logged in: $logged_in; some configuration hides and limits: $held"
