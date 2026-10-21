@@ -1255,6 +1255,17 @@ class Repo(unittest.TestCase):
         self.assertFalse(caught(check_repo.run(tree({"tools/a.py": "import urllib.parse\nfrom urllib import parse\n"})),
                                 "reaches the network"))
 
+    def test_only_the_transport_names_githubs_artifact_storage(self):
+        # The Maintainer's ruling on #192: the transport alone follows the artifact's redirect, so no other code names
+        # the storage it goes to, by either of GitHub's hosts; a test may, to answer for it.
+        for text in ('U = "https://productionresultssa0.blob.core.windows.net/x"\n',
+                     'U = "pipelines.actions.githubusercontent.com"\n', 'U = "X.BLOB.CORE.WINDOWS.NET"\n'):
+            for rel in ("adapters/artifacts.py", "tools/a.py", "sim/a.py"):
+                self.assertTrue(caught(check_repo.run(tree({rel: text})), "artifact storage"), (rel, text))
+            for rel in ("adapters/github.py", "tests/test_a.py"):
+                self.assertFalse(caught(check_repo.run(tree({rel: text})), "artifact storage"), (rel, text))
+        self.assertFalse(caught(check_repo.run(tree({"adapters/a.py": 'U = "api.github.com"\n'})), "artifact storage"))
+
     def test_code_loaded_round_the_import_list_is_caught(self):
         root = tree({"a.py": "s = __import__('socket')\nexec('import requests')\n"})
         problems = check_repo.run(root)
