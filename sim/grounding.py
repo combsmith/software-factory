@@ -141,4 +141,5 @@ RULES = (
      "trials/P-34.json"),
     ("an_issues_run_record_expires", "A run record is gone from the list once it is past the retention", ("P-16",),
      None),
+    ("a_draft_is_not_merged", "A draft pull request cannot be merged, by a person or by the queue", (), None),
 )

@@ -1073,6 +1073,11 @@ ISSUE_BASES = {
     "an outsider's admitted issue, investigated, one Run short": issue_item(
         OUTSIDERS_ISSUE, INVESTIGATED + issue_spent(issue_facts.JUDGE, ISSUE_RUNS - 2, "readiness")),
     "new, one act short": issue_item(issue_facts.facts(acts_since_writer=LIMITS["max_acts_per_item"] - 1)),
+    # The act ceiling from new (issue 202): a factory:ready the readiness App added with no Run that judged it does not
+    # count, and the Controller's removal of it is the last act.
+    "new, one act short, with a factory:ready no Run judged": issue_item(issue_facts.facts(
+        acts_since_writer=LIMITS["max_acts_per_item"] - 1,
+        label_events=[issue_facts.labelled(issue_facts.READY, issue_facts.READINESS, 2)])),
     # The Factory's pull request open and ready on an issue a person triaged and readied: a person who removes
     # factory:ready and closes it unmerged sends the issue back to triage.
     "in review, triaged and ready": issue_item(issue_facts.facts(
@@ -1119,18 +1124,61 @@ def writer_comments(item: dict) -> dict:
 
 
 def linked_pull_request(how: str):
-    """A person marks the linked draft ready, closes the linked pull request unmerged, or merges it."""
+    """A person marks the linked draft ready, converts the ready one back to a draft, closes the linked pull request
+    unmerged, merges it, or merges it with an empty diff."""
     def change(item):
         live = [p for p in item["facts"]["linked"] if p["open"]]
-        if not live or (how == "ready" and not live[0]["draft"]) or (how == "merge" and live[0]["draft"]):
+        if not live or (how == "ready" and not live[0]["draft"]) or (how == "draft" and live[0]["draft"]) \
+                or (how in ("merge", "empty") and live[0]["draft"]):
             return None
         p = live[0]
         if how == "ready":
             p["draft"] = False
+        elif how == "draft":
+            p["draft"] = True
         else:
-            p.update(open=False, closed_at=now(item), merged_at=now(item) if how == "merge" else None)
+            p.update(open=False, closed_at=now(item), merged_at=now(item) if how != "close" else None,
+                     empty=how == "empty")
         return item
     return a_writers(change)
+
+
+def opens_own(draft: bool):
+    """A person opens a pull request of their own that closes the issue, a draft or ready; one at a time."""
+    def change(item):
+        f = item["facts"]
+        if any(p["open"] and p["class"] == "maintainer" for p in f["linked"]):
+            return None
+        f["linked"].append(dict(issue_facts.pr(number=30 + len(f["linked"]), draft=draft), opened_at=now(item)))
+        return item
+    return a_writers(change)
+
+
+def closes_issue(item: dict):
+    """A person closes the issue."""
+    if item["facts"]["state"] != "open":
+        return None
+    item["facts"]["state"] = "closed"
+    return item
+
+
+def app_marks_ready(item: dict):
+    """The Factory's author App marks its own draft ready: no person acted, so no count is renewed."""
+    live = [p for p in item["facts"]["linked"] if p["open"] and p["class"] == "agent" and p["draft"]]
+    if not live:
+        return None
+    live[0]["draft"] = False
+    return item
+
+
+def queue_merges_issue(item: dict):
+    """The merge queue merges the Factory's ready pull request, after the Factory's approval and enqueue: only while
+    the issue is in review, since the Controller dequeues on a person's hold or close (issue 227)."""
+    live = [p for p in item["facts"]["linked"] if p["open"] and p["class"] == "agent" and not p["draft"]]
+    if not live or issue_kernel(item)["state"] != "in_review":
+        return None
+    live[0].update(open=False, closed_at=now(item), merged_at=now(item))
+    return item
 
 
 def outsider_edits(item: dict):
@@ -1209,13 +1257,20 @@ def issue_run_ends(how: str):
 
 
 ISSUE_MOVES = [Move("a person adds %s" % name, "human", writer_labels(name, "labeled"))
-               for name in (issue.LABEL_READY, issue.LABEL_TRIAGE, t.LABEL_HOLD)] + \
+               for name in (issue.LABEL_READY, issue.LABEL_TRIAGE, t.LABEL_HOLD, t.LABEL_HANDS_OFF)] + \
               [Move("a person removes %s" % name, "human", writer_labels(name, "unlabeled"))
-               for name in (issue.LABEL_READY, issue.LABEL_TRIAGE, t.LABEL_HOLD)] + [
+               for name in (issue.LABEL_READY, issue.LABEL_TRIAGE, t.LABEL_HOLD, t.LABEL_HANDS_OFF)] + [
     Move("a person comments", "human", a_writers(writer_comments)),
+    Move("a person closes the issue", "human", a_writers(closes_issue)),
     Move("a person marks the linked draft ready", "human", linked_pull_request("ready")),
+    Move("a person converts the linked pull request to a draft", "human", linked_pull_request("draft")),
     Move("a person closes the linked pull request", "human", linked_pull_request("close")),
     Move("a person merges the linked pull request", "human", linked_pull_request("merge")),
+    Move("a person merges the linked pull request with an empty diff", "human", linked_pull_request("empty")),
+    Move("a person opens a draft of their own", "human", opens_own(True)),
+    Move("a person opens a pull request of their own", "human", opens_own(False)),
+    Move("the author App marks its draft ready", "factory", app_marks_ready),
+    Move("the queue merges the Factory's pull request", "platform", queue_merges_issue),
     Move("the outsider edits the issue", "stranger", outsider_edits),
     Move("another App adds factory:hold", "platform",
          lambda item: None if issue_stands(item, t.LABEL_HOLD) else issue_label(item, t.LABEL_HOLD,
@@ -1229,6 +1284,31 @@ ISSUE_MOVES = [Move("a person adds %s" % name, "human", writer_labels(name, "lab
 # The Holds of the brakes, which are readings: an outsider's edit, after which the issue is not accepted, reads past
 # them, as it never reads past a Hold a label or more than one open link makes.
 BRAKES_HOLDS = {"run_ceiling", "attempts_exhausted", "act_ceiling"}
+# Rows the issue Lifecycle declares that the exploration does not reach, each with why it is kept, as UNREACHED keeps
+# the pull request's. A closed issue is a dead end here (a writer's reopening is a new life, not a transition), and
+# a person cannot merge a draft, so a person brings an issue to done from in review alone.
+ISSUE_UNREACHED = {
+    ("in_progress", "done", "human"): "a draft cannot be merged; declared for a person's own ready pull request beside "
+                                      "the Factory's draft, which the Kernel holds first as two links (issue 228)",
+    ("ready", "done", "human"): "a pull request linked to the issue only after it merged, by an edit to its description, "
+                                "which the exploration does not make",
+    ("triage", "done", "human"): "the same, from triage",
+    ("in_review", "held", "factory"): "declared with the bound of unmerged closes; the close that reaches it is a "
+                                      "person's act, so the exploration finds it as the person's",
+    ("in_review", "ready", "factory"): "the same",
+    ("in_review", "triage", "factory"): "the same",
+    ("new", "in_progress", "factory"): "a Run admitted on a stale read of the facts (I-38), which the exploration does "
+                                       "not make and the world makes on a seed past its fixed ones (issue 232)",
+}
+ISSUE_EXPLORED = {}
+
+
+def issue_explored():
+    """The exploration of every change of an issue, four deep, computed once a process: the simulator's test holds the
+    world to it too."""
+    if not ISSUE_EXPLORED:
+        ISSUE_EXPLORED["made"], ISSUE_EXPLORED["reached"] = explore(ISSUE_BASES, ISSUE_MOVES, issue_kernel, depth=4)
+    return ISSUE_EXPLORED["made"], ISSUE_EXPLORED["reached"]
 # The real case of issue 171: the outsider's issue one Run short of the ceiling, its readiness Run admitted twice and
 # the first failing, which reaches the ceiling; then the outsider edits it while the second waits.
 REAL_CASE = ("an outsider's admitted issue, investigated, one Run short",
@@ -1244,18 +1324,15 @@ class AnyLifecycle(unittest.TestCase):
         lc = check_lifecycle.load("issue")
         for name, item in ISSUE_BASES.items():
             self.assertEqual(validate(item["facts"], issue_facts.SCHEMA), [], name)
-        seen = {}
-
-        def judge(item):
-            d = issue_kernel(item)
-            seen[key(item)] = (d["state"], d["reason"], d["outcome"], d["attention"])
-            return d
-
-        made, _ = explore(ISSUE_BASES, ISSUE_MOVES, judge, depth=4)
-        # Every change of State anyone makes is declared, with who makes it: an outsider's too.
+        made, _ = issue_explored()
+        # Every change of State anyone makes is declared, with who makes it: an outsider's too; and every row the
+        # Lifecycle declares is reached, or named above with why it is kept.
         missing = check_lifecycle.undeclared(lc, made)
         self.assertEqual(missing, [], "\n".join("%s -> %s by %s: %s" % (*m, example(made[m])) for m in missing))
         self.assertEqual({by for _, _, by in made}, {"human", "factory", "platform", "stranger"})
+        declared = check_lifecycle.declared(lc)
+        self.assertEqual(sorted(declared - set(made) - set(ISSUE_UNREACHED)), [], "reach it, or say in ISSUE_UNREACHED why not")
+        self.assertEqual(sorted(set(ISSUE_UNREACHED) - (declared - set(made))), [], "reached now, or undeclared: take it off")
         # A person who closes the ready pull request unmerged, factory:ready removed, sends the issue back to triage.
         self.assertIn(("linked_ready", "triage"), made[("in_review", "triage", "human")])
         # An outsider moves an issue only to new, its acceptance lapsed, which needs a person: only a person admits it
@@ -1273,8 +1350,9 @@ class AnyLifecycle(unittest.TestCase):
         moves = {m.name: m for m in ISSUE_MOVES}
         for step in steps:
             item = moves[step].make(item)
-            self.assertIn(key(item), seen, step)
-            readings.append(seen[key(item)])
+            self.assertIsNotNone(item, step)
+            d = issue_kernel(item)
+            readings.append((d["state"], d["reason"], d["outcome"], d["attention"]))
         self.assertEqual(readings, [("triage", "triage", "nothing", "working"), ("triage", "triage", "nothing", "working"),
                                     ("held", "run_ceiling", "hold", "needs_you"),
                                     ("new", "acceptance_lapsed", "nothing", "working")])
