@@ -2844,6 +2844,11 @@ class UnidentifiedRuns(unittest.TestCase):
             else:
                 cfg["limits"]["max_unnamed_runs"] = bad
             self.assertEqual(go(facts(), ctx=context(unidentified_runs=[]), cfg=cfg)["outcome"], "admit", bad)
+            d = go(facts(), REVIEWED, ctx=context(unidentified_runs=[]), cfg=cfg)
+            self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"), bad)
+        # At the bound exactly, an approval goes ahead; one more, and it waits.
+        d = go(facts(), REVIEWED, ctx=context(unidentified_runs=past(most)))
+        self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"))
 
     def test_the_scope_reads_the_unnamed_runs_as_each_decision_does(self):  # issue 270, issue 193's ruling 8 amended
         # A pass with no item to decide still raises what holds the whole scope: unnamed_scope says what every
@@ -2861,6 +2866,12 @@ class UnidentifiedRuns(unittest.TestCase):
             reason = go(facts(), ctx=ctx)["reason"]
             self.assertEqual(reason == "run_unidentified", defers, listed)
             self.assertEqual(reason == "runs_unnamed", bounded, listed)
+        flight = runs(limit + 1, status="in_progress") + runs(*[limit + 5 + i for i in range(most + 1)])
+        for i, entry in enumerate(flight):
+            entry["run"] = str(100 + i)
+        got = unnamed_scope(context(unidentified_runs=flight), CONFIG, NOW)
+        self.assertEqual((got["defers"], got["bounded"], len(got["alerts"])), (True, False, most + 2))
+        self.assertEqual(go(facts(), ctx=context(unidentified_runs=flight))["reason"], "run_unidentified")
         for bad in (None, "x", [None]):
             got = unnamed_scope(context(unidentified_runs=bad), CONFIG, NOW)
             self.assertEqual((got["defers"], got["alerts"], got["bounded"]), (True, [], False), bad)

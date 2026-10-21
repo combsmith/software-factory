@@ -255,7 +255,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     # id, and past max_unnamed_runs of them every Run defers (issue 270).
     unnamed = pull_request.unnamed_scope(context, config["kernel"], now)
     causes |= {"run_unidentified"} if unnamed["defers"] else set()
-    causes |= {"runs_unnamed"} if not unnamed["defers"] and unnamed["bounded"] else set()
+    causes |= {"runs_unnamed"} if unnamed["bounded"] else set()
     if automatic is not None and capacity is None:
         causes.discard("capacity")
     causes |= {ENVIRONMENT} if automatic is not None else set()

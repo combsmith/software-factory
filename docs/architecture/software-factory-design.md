@@ -591,8 +591,8 @@ code, never a sentence; the sentence a person reads is rendered from it.
 
 Every pass uploads a **pass record**, `pass/1` (`schemas/pass.schema.json`): the time it gave the
 Kernel, the whole context (`paused`, `active_runs`, `model_deferred_until`, `passes_since` and
-`unidentified_runs`, each a run id and its record's creation, every key always present, since a
-key left out reads differently from null),
+`unidentified_runs`, each a run id, its record's creation and its status, every key always
+present, since a key left out reads differently from null),
 every run record it read, once for the pass, each read's `date` and `age` from GitHub, and, in one
 list for pull requests and one for issues, each item's facts, its Decision and the Run id the
 Controller minted for an admission or an approval, or null. The configuration is not copied: it is

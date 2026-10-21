@@ -109,8 +109,8 @@ def unnamed_scope(context: dict, config: dict, now: str) -> dict:
     limits = config.get("limits") if isinstance(config, dict) else {}
     alerts = stuck_runs(context, config, now)
     most = limits.get("max_unnamed_runs") if isinstance(limits, dict) else None
-    return {"defers": unnamed_within(context, now, limits) != [], "alerts": alerts,
-            "bounded": bool(alerts) and len(alerts) > most}
+    defers = unnamed_within(context, now, limits) != []
+    return {"defers": defers, "alerts": alerts, "bounded": not defers and bool(alerts) and len(alerts) > most}
 
 
 def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> dict:

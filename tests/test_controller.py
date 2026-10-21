@@ -290,6 +290,7 @@ class Context(unittest.TestCase):
                        {"unidentified": [dict(unnamed("7"), status="done")]},
                        {"unidentified": [dict(unnamed("7"), created_at="soon")]},
                        {"unidentified": [dict(unnamed("7"), more=1)]}, {"unidentified": [39086879694]},
+                       {"unidentified": [dict(unnamed("7"), run=["7"])]}, {"unidentified": [dict(unnamed("7"), run=7)]},
                        {"reads": [{"read": "runs", "date": "yesterday", "age": 0}]},
                        {"reads": [{"read": "runs", "date": NOW, "age": -1}]}, {"reads": [{"read": "facts", "date": NOW, "age": 0}]},
                        {"reads": [{"read": "runs", "date": NOW, "age": True}]}):
