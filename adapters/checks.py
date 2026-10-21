@@ -1,5 +1,5 @@
-"""The checks on a pull request's head, its place in the merge queue, and how many review threads it holds, in one
-GraphQL read of the head's status rollup (design section 3.3; P-32's read gives the shape).
+"""The checks on a pull request's head and its place in the merge queue, in one GraphQL read of the head's status
+rollup (design section 3.3; P-32's read gives the shape).
 
 Every check run the head's rollup lists is given with its name exactly as GitHub gives it, the id of the App that
 reported it, the path of the workflow file that ran it, null where GitHub names none, its conclusion, or its status
@@ -12,8 +12,6 @@ between pages can repeat one context and leave out another. A cursor that repeat
 short. Whether the pull request is in the merge queue is its entry, an object, or null: any other shape is refused. A
 rollup of another commit than the head is refused, and so is one read while the pull request's head moved.
 
-A thread's resolved state and its Finding's category are `adapters/threads.py`'s, not built: here only their count is
-read, so that a pull request with no thread is read whole and one with any is not.
 """
 from __future__ import annotations
 
@@ -29,7 +27,6 @@ QUERY = """query FactsChecks($owner: String!, $name: String!, $number: Int!, $af
     pullRequest(number: $number) {
       headRefOid
       mergeQueueEntry { position }
-      reviewThreads(first: 1) { totalCount }
       commits(last: 1) {
         nodes {
           commit {
@@ -82,9 +79,9 @@ def check(node: dict) -> dict:
 
 def read(transport, pull: dict) -> dict:
     """The head's check runs and whether they were read whole, whether the pull request is in the merge queue, and
-    how many review threads it holds; every page is of the head the pull request's first read named."""
+    every page is of the head the pull request's first read named."""
     owner, name = pull["base"]["repo"]["full_name"].split("/")
-    found, after, queue, threads, seen, total, ids, cursors = [], None, None, None, 0, None, [], set()
+    found, after, queue, seen, total, ids, cursors = [], None, None, 0, None, [], set()
     while True:
         variables = {"owner": owner, "name": name, "number": pull["number"], "after": after}
         answer = transport.send(request("POST", "/graphql", body={"query": QUERY, "variables": variables}))
@@ -97,20 +94,17 @@ def read(transport, pull: dict) -> dict:
             raise Unanswered("the checks were read of another commit than the head")
         if pr.get("headRefOid") != pull["head"]["sha"]:
             raise Unanswered("the pull request's head moved while its checks were read")
-        count = (pr.get("reviewThreads") or {}).get("totalCount") if isinstance(pr.get("reviewThreads"), dict) else None
-        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-            raise Unanswered("the count of review threads cannot be read")
         entry = pr.get("mergeQueueEntry", False)
         if not (entry is None or isinstance(entry, dict)):
             raise Unanswered("the pull request's place in the merge queue cannot be read")
-        queue, threads = entry is not None, count
+        queue = entry is not None
         rollup = commit.get("statusCheckRollup")
         if rollup is None:
-            return {"checks": found, "complete": after is None, "queue": queue, "threads": threads}
+            return {"checks": found, "complete": after is None, "queue": queue}
         contexts = rollup.get("contexts") if isinstance(rollup, dict) else None
         page = (contexts or {}).get("pageInfo") if isinstance(contexts, dict) else None
         if not isinstance(contexts, dict) or not isinstance(contexts.get("nodes"), list) or not isinstance(page, dict):
-            return {"checks": found, "complete": False, "queue": queue, "threads": threads}
+            return {"checks": found, "complete": False, "queue": queue}
         counted = contexts.get("totalCount")
         total = counted if total is None else total
         for node in contexts["nodes"]:
@@ -126,10 +120,10 @@ def read(transport, pull: dict) -> dict:
             whole = isinstance(total, int) and not isinstance(total, bool) and counted == total and seen == total
             if after is not None:
                 whole = whole and all(isinstance(i, str) and i for i in ids) and len(set(ids)) == len(ids)
-            return {"checks": found, "complete": whole, "queue": queue, "threads": threads}
+            return {"checks": found, "complete": whole, "queue": queue}
         if page.get("hasNextPage") is not True or not isinstance(page.get("endCursor"), str) or not page["endCursor"]:
-            return {"checks": found, "complete": False, "queue": queue, "threads": threads}
+            return {"checks": found, "complete": False, "queue": queue}
         if page["endCursor"] in cursors or not isinstance(total, int) or isinstance(total, bool) or seen >= total:
-            return {"checks": found, "complete": False, "queue": queue, "threads": threads}
+            return {"checks": found, "complete": False, "queue": queue}
         cursors.add(page["endCursor"])
         after = page["endCursor"]
