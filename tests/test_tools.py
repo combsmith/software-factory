@@ -3714,11 +3714,16 @@ exit 9
         self.assertEqual(set(pins.values()), {self.PIN}, pins)
         # The pin moves only by a run of P-13 at the new version: it is the version the newest P-13 fixture ran at, before
         # and after its Task, and that run passed.
-        runs = [json.loads(p.read_text()) for p in sorted((ROOT / "trials").glob("P-13*.json"))]
-        newest = max(runs, key=lambda f: f["ran_at"])
-        task = next(e for e in newest["exchanges"] if e["request"]["call"].startswith("claude -p"))
-        self.assertEqual((newest["verdict"], task["request"]["body"]["pinned"], newest["exchanges"][0]["response"]["body"]),
-                         ("pass", self.PIN, self.PIN + " (Claude Code)"))
+        runs = sorted((json.loads(p.read_text()) for p in (ROOT / "trials").glob("P-13*.json")), key=lambda f: f["ran_at"])
+        pinned = [next(e for e in f["exchanges"] if e["request"]["call"].startswith("claude -p"))["request"]["body"]["pinned"]
+                  for f in runs]
+        newest = runs[-1]
+        checked = newest["exchanges"][-1]["response"]["body"]                # the script's own check, the version held
+        held = checked.get("version", {}).get("held") if isinstance(checked, dict) else None
+        self.assertEqual((newest["verdict"], pinned[-1], newest["exchanges"][0]["response"]["body"], held),
+                         ("pass", self.PIN, self.PIN + " (Claude Code)", True))
+        # The older runs are kept beside it, each at the version it ran at: a pin that moved has its earlier run still.
+        self.assertGreaterEqual(len(set(pinned)), 2, pinned)
 
     def test_the_cli_is_given_only_the_named_environment_and_no_tool(self):
         folder = self.stand_in()

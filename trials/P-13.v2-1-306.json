@@ -284,7 +284,7 @@
           "name": "the Maintainer's own subscription, logged in under ~/.config/sf-factory-claude (decision 0033)"
         },
         "via": "cli",
-        "call": "the script's own check of exchanges 1 to 3 and of claude --version asked after the Task (checked.json), at the Maintainer's terminal, with what this run answers for issues 194 and 247",
+        "call": "checked.json as the script wrote it at the Maintainer's terminal, its check of exchanges 1 to 3 and of claude --version asked after the Task; and, added by the session from clean-3 and checked.json, what this run answers for issues 194 and 247",
         "headers": {},
         "body": null
       },
@@ -345,10 +345,10 @@
             }
           ],
           "every_part_holds": true,
-          "principle": "The pass condition is trials/P-13.json's, fixed before that first run, with the pin moved from 2.1.302 to 2.1.306; nothing else in it changed, and the verdict follows it.",
+          "principle": "The pass condition is trials/P-13.json's, fixed before that first run, with the pin moved from 2.1.302 to 2.1.306; nothing in its criteria changed, and one sentence says why it ran again. The verdict follows it.",
           "tools_none_with_json_schema": {
             "asked": "issue 194: does --tools \"\" leave --json-schema working?",
-            "answer": "yes: with no tool given, the structured output validated, permission_denials is empty and stop_reason is tool_use, so the CLI delivers the structured output by a tool of its own that --tools \"\" does not take away"
+            "answer": "yes: with no tool given, the structured output validated and permission_denials is empty; stop_reason tool_use and two turns are consistent with the CLI handing the structured output back through a tool of its own, which --tools \"\" leaves in place"
           },
           "string_keys": {
             "asked": "issue 247, its fourth item: whether STRING_KEYS should name fewer keys",
@@ -367,7 +367,8 @@
               "model",
               "tool_name"
             ],
-            "dropped_strings": [
+            "note": "Within the kept fields: tool_name is reached only when a tool is refused, which this run had none of; model appeared nowhere, the model's name being a key of modelUsage and the value of canonicalModel. The 14 fields dropped whole were not read.",
+            "fields_dropped_whole": [
               {
                 "field": "result",
                 "characters": 207
@@ -377,7 +378,21 @@
                 "fields": 14
               }
             ],
-            "note": "tool_name is reached only when a tool is refused, which this run had none of; model appeared nowhere, the model's name being a key of modelUsage and the value of canonicalModel"
+            "usage_and_modelUsage": {
+              "asked": "whether usage and modelUsage should be held to numbers and a few known words",
+              "usage_strings": [
+                "service_tier",
+                "inference_geo",
+                "speed",
+                "iterations[].type"
+              ],
+              "modelUsage_strings": [
+                "canonicalModel",
+                "provider",
+                "costBasis"
+              ],
+              "answer": "they hold numbers and these seven words' keys alone, each a code"
+            }
           }
         }
       }
