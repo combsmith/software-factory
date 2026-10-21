@@ -53,6 +53,10 @@
     {"lens": "verify", "path": "sim/", "is": "the simulator verify runs"},
     {"lens": "verify", "path": "adapters/", "is": "the ports, whose tests verify runs"},
     {"lens": "verify", "path": "controller/", "is": "the Controller, whose tests verify runs"},
+    {"lens": "pr-review", "path": "roles/pr-review.*", "is": "the review Role's manifest and its prompt beside it"},
+    {"lens": "pr-review", "path": "config/rubric-pr-review.json", "is": "a rubric"},
+    {"lens": "pr-review", "path": "harness/task.py", "is": "what the review is given"},
+    {"lens": "pr-review", "path": "harness/engine.py", "is": "how the review's answer is taken"},
     {"lens": "secret-scan", "path": ".gitleaks.toml", "is": "what the secret scan looks for, and what it lets pass"},
     {"lens": "secret-scan", "path": ".gitleaksignore", "is": "the findings the secret scan is told to pass over"},
     {"lens": "verify", "path": "*", "is": "a file or a link at the top of the repo, which verify may import before the standard library"}

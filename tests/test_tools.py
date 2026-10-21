@@ -2149,6 +2149,7 @@ class TheList(unittest.TestCase):
 
     def test_each_lens_input_is_a_required_lens_and_verifys_cover_every_check(self):
         lenses = {lens["lens"] for lens in support.CONFIG["required_lenses"]["deterministic"]}
+        lenses |= set(support.CONFIG["required_lenses"]["model"])     # a model Lens's own inputs (issue 140)
         inputs = {}
         for entry in self.HOOKS["lens_inputs"]:
             self.assertIn(entry["lens"], lenses, entry["path"])

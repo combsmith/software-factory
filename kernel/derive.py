@@ -206,12 +206,13 @@ def readable_pattern(pattern) -> bool:
 
 
 def readable_rules(config: dict) -> bool:
-    """Whether the protected paths and Lenses' inputs the Kernel is given can be read: a list of at least one pattern,
-    each in its shape (readable_pattern). The Controller builds it from the base branch's config/hooks.json, never the
-    head's (decision 0020). A list that is empty, or not there, would let a change to the Factory's own rules pass as
-    any other (I-13)."""
-    rules = config.get("protected_paths")
-    return isinstance(rules, list) and len(rules) > 0 and all(readable_pattern(p) for p in rules)
+    """Whether the protected paths and Lenses' inputs the Kernel is given can be read, and the model Lenses' own inputs
+    among them: each a list of at least one pattern, each in its shape (readable_pattern). The Controller builds both
+    from the base branch's config/hooks.json, never the head's, by one function (decision 0020, issue 140). A list that
+    is empty, or not there, would let a change to the Factory's own rules, or to what a model Lens is given, pass as any
+    other (I-13)."""
+    return all(isinstance(rules, list) and len(rules) > 0 and all(readable_pattern(p) for p in rules)
+               for rules in (config.get("protected_paths"), config.get("model_lens_inputs")))
 
 
 def fits(pattern: str, path: str) -> bool:
@@ -281,6 +282,24 @@ def touched(facts: dict, config: dict) -> list:
     """
     changed = names(facts["changed_paths"])
     return [p for p in dict.fromkeys(config["protected_paths"]) if any(matches(p, path) for path in changed)]
+
+
+def lens_inputs_touched(facts: dict, config: dict) -> list:
+    """Each model Lens's own input this pull request changes, as the configuration names it, once, in its order: the
+    Role's manifest and prompt, its rubric, and what the Harness gives it and takes back (issue 140)."""
+    changed = names(facts["changed_paths"])
+    return [p for p in dict.fromkeys(config["model_lens_inputs"]) if any(matches(p, path) for path in changed)]
+
+
+def judged_by_a_person(facts: dict) -> bool:
+    """Whether a person has judged this head, so that no model Lens is the only judge of a change to its own inputs: a
+    person with write access, neither its author nor its last pusher, approved this content and the approval stands; or
+    the Maintainer wrote it, opening it and pushing its head, since GitHub counts no author's approval of their own
+    change (issue 140)."""
+    if facts["class"] == "maintainer" and facts["last_pusher"] == facts["author"]:
+        return True
+    return any(is_person(rv["by"]) and rv["state"] == "approved" and rv["content_id"] == facts["content_id"]
+               and rv["by"]["name"] not in (facts["author"], facts["last_pusher"]) for rv in facts["reviews"])
 
 
 def required_model_lenses(facts: dict, config: dict) -> list:
@@ -999,6 +1018,12 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
         return {"state": t.ADDRESSING, "reason": "acceptance_failed", "evidence": criteria}
     if said == "missing":
         return {"state": t.VERIFYING, "reason": "acceptance_evidence_missing", "evidence": criteria}
+
+    # A change to a model Lens's own inputs needs a person as well as every model Lens's review: with one model family,
+    # the only judge that is not the Lens is a person (issue 140). It is no wait a queued item is read past.
+    own = lens_inputs_touched(facts, config)
+    if own and not judged_by_a_person(facts):
+        return {"state": t.VERIFYING, "reason": "model_lens_input_needs_person", "evidence": own}
 
     # GitHub does not count an approval by the author or the last pusher, so nothing may merge on one (I-26). It is
     # a Hold the facts establish, read here so that a queued item leaves the queue on it too.
