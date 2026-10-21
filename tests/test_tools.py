@@ -2616,10 +2616,10 @@ GROUNDING = (ROOT / "sim" / "grounding.py").read_text()
 def grounded(fixture_path: str, trials: str = '("P-18",)') -> str:
     """sim/grounding.py with the rule P-18 asks grounded by `fixture_path`, a path or a tuple of them written as a
     literal, and asked by `trials`."""
-    rule = '("P-18",), None)'
+    rule = '("P-18",), None, None)'
     assert GROUNDING.count(rule) == 1
     literal = fixture_path if fixture_path.startswith("(") else '"%s"' % fixture_path
-    return GROUNDING.replace(rule, '%s, %s)' % (trials, literal))
+    return GROUNDING.replace(rule, '%s, %s, None)' % (trials, literal))
 
 
 TAIL = "A" * 36
@@ -2873,7 +2873,7 @@ class Trials(unittest.TestCase):
     def test_the_approval_trials_ground_the_rules_they_asked(self):
         # The sitting of 2026-10-19: P-7 passed with the App's push and the machine user's approval of it, and P-28
         # read the App's push; the rule P-7 contradicts stays unverified (sim/AGENTS.md, "Known to differ").
-        by_code = {code: (trials, fixture) for code, _, trials, fixture in check_trials.rules()}
+        by_code = {code: (trials, fixture) for code, _, trials, fixture, _ in check_trials.rules()}
         self.assertEqual(by_code["an_app_pushes_to_the_head"], (("P-7",), "trials/P-7.json"))
         self.assertEqual(by_code["the_machine_users_approval_counts"], (("P-7",), "trials/P-7.json"))
         self.assertEqual(by_code["the_pusher_is_the_last_pusher"], (("P-28",), ("trials/P-28.json", "trials/P-28.app.json")))
@@ -2891,7 +2891,7 @@ class Trials(unittest.TestCase):
         # rule the fake applies, a_tick_can_be_lost, is grounded by it.
         from datetime import datetime, timedelta, timezone
         data = json.loads((ROOT / "trials" / "P-8.ticks.json").read_text())
-        by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
+        by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         self.assertEqual(by_code["a_tick_can_be_lost"], "trials/P-8.ticks.json")
         early, final, computed = data["exchanges"]
         self.assertIn("by mistake", early["request"]["call"])
@@ -3108,7 +3108,7 @@ class Trials(unittest.TestCase):
         events = [e for i in by_app for e in i["timelineItems"]["nodes"]]
         self.assertTrue(events)
         self.assertTrue(all(e["actor"]["login"] and e["actor"]["__typename"] and e["createdAt"] for e in events))
-        by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
+        by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         # The events ground the rule about them; the association, which an App reads wrong, stays unverified.
         self.assertEqual(by_code["a_label_event_names_its_actor"], "trials/P-32.json")
         self.assertIsNone(by_code["an_issues_author_has_an_association"])
@@ -3116,7 +3116,7 @@ class Trials(unittest.TestCase):
     def test_the_issue_fixtures_hold_what_grounds_the_four_rules(self):
         # trials/P-33.json and trials/P-34.json (issue 184) ground four rules of the issue world: each is held to the
         # content that grounds it, so a fixture emptied or inverted ungrounds its rule.
-        by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
+        by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         for code in ("a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read"):
             self.assertEqual(by_code[code], "trials/P-33.json", code)
         for code in ("an_issues_content_time_is_read_apart", "a_reopening_names_its_actor"):
@@ -3169,22 +3169,46 @@ class Trials(unittest.TestCase):
         world = (ROOT / "sim" / "world.py").read_text()
         problems = check_trials.run(clone({"sim/world.py": world + "\n# GitHub: a_rule_nobody_listed\n"}))
         self.assertTrue(caught(problems, "sim/world.py applies a_rule_nobody_listed, which sim/grounding.py does not list"))
-        listed = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_never_applied", "It is so", (), None),', 1)
+        listed = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_never_applied", "It is so", ("P-1",), None, None),', 1)
         problems = check_trials.run(clone({"sim/grounding.py": listed}))
         self.assertTrue(caught(problems, "a_rule_never_applied is listed in sim/grounding.py and applied nowhere under sim/"))
         issues = (ROOT / "sim" / "issues.py").read_text()
         problems = check_trials.run(clone({"sim/issues.py": issues + "\n# GitHub: a_rule_nobody_listed\n"}))
         self.assertTrue(caught(problems, "sim/issues.py applies a_rule_nobody_listed, which sim/grounding.py does not list"))
-        twice = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_tick_can_be_lost", "It is so", ("P-8",), None),', 1)
+        twice = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_tick_can_be_lost", "It is so", ("P-8",), None, None),', 1)
         self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": twice})), "a_tick_can_be_lost is listed twice"))
-        for broken in ("RULES = rules()\n", "RULES = (('Not a code', 'x', ('P-1',), None),)\n", "RULES = (('x', 'x'),)\n",
-                       "x = 1\n", "RULES = (('a_tick_can_be_lost', 'x', 'P-8', None),)\n"):
+        for broken in ("RULES = rules()\n", "RULES = (('Not a code', 'x', ('P-1',), None, None),)\n", "RULES = (('x', 'x'),)\n",
+                       "x = 1\n", "RULES = (('a_tick_can_be_lost', 'x', 'P-8', None, None),)\n",
+                       "RULES = (('a_tick_can_be_lost', 'x', ('P-8',), None),)\n"):
             self.assertTrue(check_trials.run(clone({"sim/grounding.py": broken})), broken)
+
+    def test_a_rule_no_trial_asks_names_one_or_says_why_none_can(self):  # issue 190
+        # A rule with no trial and no fixture says, in one sentence, why no trial can ask it; one a trial asks says
+        # nothing of the kind; and the printed list says which it is.
+        head = 'RULES = (\n    ("a_rule_nobody_asks", "It is so", (), None, %s),'
+        for note in ("None", '""', '"no trial asks it"', '"%s"' % check_trials.ASSUMED, '"%s  "' % check_trials.ASSUMED, "5"):
+            problems = check_trials.run(clone({"sim/grounding.py": GROUNDING.replace("RULES = (", head % note, 1),
+                                               "sim/world.py": (ROOT / "sim" / "world.py").read_text() + "\n# GitHub: a_rule_nobody_asks\n"}))
+            self.assertTrue(caught(problems, "a_rule_nobody_asks: no trial asks this; name the trial of section 6 that will, or "
+                                             "say why none can"), note)
+        said = GROUNDING.replace("RULES = (", head % '"%sa race no trial can force"' % check_trials.ASSUMED, 1)
+        world = (ROOT / "sim" / "world.py").read_text() + "\n# GitHub: a_rule_nobody_asks\n"
+        self.assertEqual(check_trials.run(clone({"sim/grounding.py": said, "sim/world.py": world})), [])
+        asked = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_nobody_asks", "It is so", ("P-1",), None, "%sx"),' % check_trials.ASSUMED, 1)
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": asked, "sim/world.py": world})),
+                               "a_rule_nobody_asks: a trial asks this, so it says nothing of why none can"))
+        # The list verify prints says, for each rule no fixture grounds, the trials that ask it or why none can.
+        lines = {line.split(":", 1)[0]: line for line in check_trials.unverified(clone({"sim/grounding.py": said, "sim/world.py": world}))}
+        self.assertIn("(%sa race no trial can force)" % check_trials.ASSUMED, lines["a_rule_nobody_asks"])
+        self.assertIn("(asked by P-7, P-29, no fixture yet)", lines["an_approval_survives_a_push"])
+        for code, _, trials, fixture, note in check_trials.rules():
+            self.assertTrue(trials or fixture is not None or (isinstance(note, str) and note.startswith(check_trials.ASSUMED)), code)
+            self.assertTrue(not trials or note is None, code)
 
     def test_verify_prints_every_rule_no_fixture_grounds(self):
         listed = check_trials.rules()
-        codes = [code for code, _, _, fixture in listed if fixture is None]
-        grounded = [code for code, _, _, fixture in listed if fixture is not None]
+        codes = [code for code, _, _, fixture, _ in listed if fixture is None]
+        grounded = [code for code, _, _, fixture, _ in listed if fixture is not None]
         self.assertTrue(codes)
         self.assertEqual(len(check_trials.unverified()), len(codes))
         ran = {}

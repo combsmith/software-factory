@@ -42,6 +42,8 @@ CLIMBS = re.compile(r"(^|/)\.{1,2}(/|$)|%2e", re.I)
 FIXTURE = re.compile(r"^(P-[1-9][0-9]*)(\.[a-z0-9-]+)?\.json$")
 TRIAL = re.compile(r"^P-[1-9][0-9]*$")
 CODE = re.compile(r"^[a-z_]+$")
+# What a rule no trial can ask says, before its reason (issue 190).
+ASSUMED = "assumed, no trial can ask it: "
 MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 
 # A key that names a credential, however it is spelt: compared after strip(), lower() and - to _.
@@ -249,8 +251,8 @@ def rules(root: pathlib.Path = ROOT) -> list:
                 found = ast.literal_eval(node.value)
             except ValueError:
                 raise ValueError("RULES must be a literal, so that a check can read it")
-            if not isinstance(found, (tuple, list)) or not all(isinstance(r, tuple) and len(r) == 4 for r in found):
-                raise ValueError("RULES must be a tuple of (code, rule, trials, fixture)")
+            if not isinstance(found, (tuple, list)) or not all(isinstance(r, tuple) and len(r) == 5 for r in found):
+                raise ValueError("RULES must be a tuple of (code, rule, trials, fixture, note)")
             return list(found)
     raise ValueError("holds no RULES")
 
@@ -310,7 +312,7 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
         problems.append("sim/grounding.py: %s" % err)
         return
     seen = set()
-    for code, rule, trials, fixture in listed:
+    for code, rule, trials, fixture, note in listed:
         if not isinstance(code, str) or not CODE.match(code):
             problems.append("sim/grounding.py: %r is not a code" % (code,))
             continue
@@ -322,6 +324,14 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
         if not isinstance(trials, tuple) or not all(isinstance(t, str) and TRIAL.match(t) for t in trials):
             problems.append("sim/grounding.py: %s: %r is not a tuple of trials of section 6" % (code, trials))
             continue
+        # A rule no trial asks names the trial that will, or says in one sentence why none can (issue 190); a rule a
+        # trial asks says nothing more.
+        if not trials and fixture is None:
+            if not (isinstance(note, str) and note.startswith(ASSUMED) and note[len(ASSUMED):].strip()):
+                problems.append("sim/grounding.py: %s: no trial asks this; name the trial of section 6 that will, or say "
+                                "why none can, '%s...'" % (code, ASSUMED))
+        elif note is not None:
+            problems.append("sim/grounding.py: %s: a trial asks this, so it says nothing of why none can" % code)
         if fixture is None:
             continue
         # One fixture grounds a rule, or a tuple of them when more than one trial's fixture shows it holds.
@@ -392,9 +402,9 @@ def unverified(root: pathlib.Path = ROOT) -> list:
         listed = rules(root)
     except ValueError:
         return []           # run() reports it
-    return ["%s: %s (%s)" % (code, rule, ", ".join(trials) if isinstance(trials, tuple) and trials
-                             else "no trial asks it")
-            for code, rule, trials, fixture in listed if fixture is None]
+    return ["%s: %s (%s)" % (code, rule, "asked by %s, no fixture yet" % ", ".join(trials)
+                             if isinstance(trials, tuple) and trials else note if isinstance(note, str) else "no trial asks it")
+            for code, rule, trials, fixture, note in listed if fixture is None]
 
 
 def main(root: pathlib.Path = ROOT) -> int:
