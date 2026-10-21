@@ -787,11 +787,14 @@ class World:
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
     def enqueue(self, run: dict):
-        """Queue a Run in the item's concurrency group. A Run already waiting there is cancelled, and never starts: one
-        Run is in progress and at most one waits (trials/P-44.json). The records port reads the cancelled one as
-        superseded, since its job had no runner and no step, so it is no attempt."""
+        """Queue a Run in the item's concurrency group. The group's first Run holds it, in progress or waiting for a
+        runner; a Run waiting behind that one is cancelled as a newer one queues, and never starts: one Run holds the
+        group and at most one waits (trials/P-44.json). The records port reads the cancelled one as superseded, since
+        its job had no runner and no step, so it is no attempt."""
         # GitHub: a_run_waits_its_turn
-        for older in [r for r in self.runs if r["status"] == "queued"]:
+        live = [r for r in self.runs if r["status"] in ("in_progress", "queued")]
+        holder = next((r for r in live if r["status"] == "in_progress"), live[0] if live else None)
+        for older in [r for r in live if r["status"] == "queued" and r is not holder]:
             older.update(status="completed", conclusion="cancelled", outcome="superseded")
             self.note("run %s: cancelled by its concurrency group" % older["run"])
         self.runs.append(run)
@@ -1212,6 +1215,9 @@ class World:
         self.invariants()
 
     def invariants(self):
+        # GitHub: a_run_waits_its_turn
+        self.check(len([r for r in self.runs if r["status"] in ("in_progress", "queued")]) <= 2,
+                   "the lane holds more than one Run waiting behind the one that holds it")
         self.check(len([r for r in self.runs if r["status"] == "in_progress"]) <= 1, "I-2 one writer per item")
         for rv in self.reviews:
             self.check(rv["by"]["name"] not in (self.author,), "I-26 the approver is the author")

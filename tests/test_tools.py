@@ -3152,8 +3152,24 @@ class Trials(unittest.TestCase):
         # Each cancelled run never started: no runner and no step. Each run that started finished.
         self.assertEqual(jobs, {1: ("success", True, 3), 2: ("cancelled", False, 0), 3: ("cancelled", False, 0),
                                 4: ("success", True, 3)})
-        # Run 1 was running when 2, 3 and 4 were queued, and finished; 4 started only once 1 had.
+        # Run 1 was running when 2, 3 and 4 were queued, and finished; 4 started only once 1 had. Each cancelled run
+        # ended as the next one was created.
         self.assertLess(last[4]["created_at"], last[1]["updated_at"])
+        ended = {}
+        for e in p44["exchanges"]:
+            if e["request"]["call"].endswith("whether it ever had a runner and a step"):
+                (job,) = e["response"]["body"]["jobs"]
+                ended[job["run_id"]] = job["completed_at"]
+        for n in (2, 3):
+            self.assertGreaterEqual(ended[last[n]["id"]], last[n + 1]["created_at"], n)
+        # The workflow ran as the analysis gives it, one job under one group that cancels nothing in progress: its blob
+        # is the one the upload answered with.
+        analysis = p44["exchanges"][-1]["response"]["body"]
+        text = analysis["workflow"]
+        self.assertIn("    concurrency:\n      group: lane-p44\n      cancel-in-progress: false\n", text)
+        blob = hashlib.sha1(b"blob %d\0" % len(text.encode()) + text.encode()).hexdigest()
+        upload = next(e for e in p44["exchanges"] if "contents/.github/workflows/trial-p44.yml" in e["request"]["call"])
+        self.assertEqual(upload["response"]["body"]["content"]["sha"], blob)
         self.assertEqual(p44["verdict"], "pass")
     def test_an_edit_after_the_merge_changes_the_closing_references(self):
         # trials/P-46.json (issue 256): its verdict is computed here from the reads by the pass condition, so a fixture

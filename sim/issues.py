@@ -422,10 +422,13 @@ class IssueWorld:
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
     def enqueue(self, run: dict):
-        """Queue a Run in the issue's concurrency group, as the pull request's world does: a Run already waiting there
-        is cancelled, and never starts (trials/P-44.json), and is read as superseded."""
+        """Queue a Run in the issue's concurrency group, as the pull request's world does: the group's first Run holds
+        it, and a Run waiting behind that one is cancelled as a newer one queues, never starts (trials/P-44.json), and
+        is read as superseded."""
         # GitHub: a_run_waits_its_turn
-        for older in [r for r in self.runs if r["status"] == "queued"]:
+        live = [r for r in self.runs if r["status"] in ("in_progress", "queued")]
+        holder = next((r for r in live if r["status"] == "in_progress"), live[0] if live else None)
+        for older in [r for r in live if r["status"] == "queued" and r is not holder]:
             older.update(status="completed", conclusion="cancelled", outcome="superseded")
             self.note("run %s: cancelled by its concurrency group" % older["run"])
         self.runs.append(run)
@@ -737,6 +740,9 @@ class IssueWorld:
 
     def invariants(self):
         self.check(len([r for r in self.runs if r["status"] == "in_progress"]) <= 1, "I-44 two Runs in flight")
+        # GitHub: a_run_waits_its_turn
+        self.check(len([r for r in self.runs if r["status"] in ("in_progress", "queued")]) <= 2,
+                   "the lane holds more than one Run waiting behind the one that holds it")
         # I-40: factory:ready is added by nobody but the readiness App inside its Run, or a person.
         for ev in self.events:
             if ev["label"] == issue.LABEL_READY and ev["action"] == "labeled":
