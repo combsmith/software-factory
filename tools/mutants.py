@@ -1414,7 +1414,7 @@ MUTANTS = ISSUE + [
     ("a property of a definition of the facts is no fact", "tools/check_apps.py",
      '            named.add("%s.%s" % (name, prop))\n', "            pass\n",
      ("tests.test_tools.Apps.test_a_read_of_a_fact_that_does_not_exist_is_caught",)),
-    ("triage is write access", "sim/issues.py",
+    ("the issue world reads triage as write access", "sim/issues.py",
      'WRITE_ACCESS = ("admin", "maintain", "write")', 'WRITE_ACCESS = ("admin", "maintain", "write", "triage", "read")',
      ("tests.test_issue_simulator.IssueSimulation.test_an_authors_write_access_is_read_from_the_permission",)),
     ("the reader's token is not narrowed", "tools/trial_reader_reads.sh",
