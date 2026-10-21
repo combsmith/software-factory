@@ -47,7 +47,8 @@ def run(seed: int, steps: int = STEPS, **kw) -> IssueWorld:
 def agents_draft(w: IssueWorld) -> dict:
     """The Factory's draft pull request, linked to the issue."""
     return {"number": 100, "class": "agent", "opener": dict(issues.AUTHOR_APP), "open": True, "draft": True,
-            "opened_at": w.now(), "merged_at": None, "closed_at": None, "empty": False, "label_events": []}
+            "opened_at": w.now(), "merged_at": None, "closed_at": None, "empty": False, "label_events": [],
+            "closed_issue_at": None}
 
 
 def after(trace: list, first: str, then: str) -> bool:
@@ -109,13 +110,14 @@ class IssueSimulation(unittest.TestCase):
 
     def test_the_seeds_reach_each_fault(self):
         worlds = {seed: run(seed) for seed in FIRST}
-        on = {n: [seed for seed, w in worlds.items() if n in w.reached] for n in range(1, 6)}
+        on = {n: [seed for seed, w in worlds.items() if n in w.reached] for n in range(1, 7)}
         chosen = {
             1: lambda s: s % issues.EDITS_EVERY == issues.EDITS,
             2: lambda s: s % issues.STRANGER_PR_EVERY == issues.STRANGER_PR,
             3: lambda s: s % issues.REOPENS_EVERY == issues.REOPENS,
             4: lambda s: s % issues.REMOVES_EVERY == issues.REMOVES,
             5: lambda s: s % issues.EXPIRES_EVERY == issues.EXPIRES,
+            6: lambda s: s % issues.LATE_EVERY == issues.LATE,
         }
         for n, seeds in on.items():
             with self.subTest(fault=n):
@@ -146,6 +148,13 @@ class IssueSimulation(unittest.TestCase):
             w = worlds[seed]
             self.assertTrue(after(w.trace, "while a Run was in flight", "apply refused, the issue changed"),
                             "\n".join(w.trace))
+        # 6. An edit after a merge makes a merged pull request name the issue (P-46): it closed nothing, so the issue is
+        # never done by it; within max_close_lag_seconds of the merge the Kernel waits, quietly, and after it reads
+        # the issue as if the reference were not there, checked after every step (issue 267).
+        for seed in on[6]:
+            w = worlds[seed]
+            self.assertTrue(w.late and all(p["closed_issue_at"] is None for p in w.linked if p["number"] in w.late))
+            self.assertTrue(after(w.trace, "an edit after its merge made", "pass: "), "\n".join(w.trace))
         # 5. Run records expire: a pass read fewer records than Runs, and what the Apps wrote stood in (decision 0031).
         for seed in on[5]:
             w = worlds[seed]
@@ -214,7 +223,7 @@ class IssueSimulation(unittest.TestCase):
         w.linked.append(dict(agents_draft(w), draft=False))
         w.starts()
         self.assertEqual(w.true_state, "in_review")
-        w.linked[0].update(open=False, merged_at=w.now(), closed_at=w.now())
+        w.linked[0].update(open=False, merged_at=w.now(), closed_at=w.now(), closed_issue_at=w.closes_the_issue())
         w.caused("platform")
         self.assertEqual(w.made, {("in_review", "done", "platform")})
         # The brakes hold a new issue whose linked pull requests closed unmerged past the bound (I-43, seed 137).

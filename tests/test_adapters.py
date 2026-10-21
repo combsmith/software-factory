@@ -13,8 +13,9 @@ import json
 import os
 import pathlib
 import unittest
+import zipfile
 
-from adapters import github, pull, records, timeline
+from adapters import artifacts, checks, facts, github, pull, records, threads, timeline
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -82,6 +83,156 @@ class Transport(unittest.TestCase):
                         {"If-None-Match": None}):
             with self.assertRaises(github.Unanswered, msg=headers):
                 github.request("GET", "/x", headers=headers)
+
+    def test_only_an_artifacts_download_follows_its_redirect_and_only_to_githubs_storage(self):
+        # Decision 0045, the Maintainer's ruling on #192: the one redirect is an artifact's download, to GitHub's
+        # artifact storage alone, over HTTPS on its own port.
+        self.assertTrue(github.download("/repos/o/r/actions/artifacts/9/zip")["follow"])
+        for path in ("/repos/o/r/actions/artifacts/9", "/repos/o/r/actions/runs/9/logs", "/repos/o/r/zipball/main",
+                     "/repos/o/r/actions/artifacts/09/zip", "/repos/o/r/actions/artifacts/9/zip?x=1"):
+            with self.assertRaises(github.Unanswered, msg=path):
+                github.download(path)
+        for asked in ({"method": "POST"}, {"body": {}}, {"headers": {"Cache-Control": "no-cache"}}, {"follow": 1}):
+            with self.assertRaises(github.Unanswered, msg=asked):
+                github.request(**dict({"method": "GET", "path": "/repos/o/r/actions/artifacts/9/zip", "follow": True},
+                                      **asked))
+        self.assertNotIn("follow", github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        self.assertEqual(github.storage(STORE), STORE)
+        for url in ("http://productionresultssa7.blob.core.windows.net/x", "https://evil.blob.core.windows.net/x",
+                    "https://productionresultssa7.blob.core.windows.net:8443/x",
+                    "https://u@productionresultssa7.blob.core.windows.net/x",
+                    "https://productionresultssa7.blob.core.windows.net.evil.com/x",
+                    "https://PRODUCTIONRESULTSSA7.blob.core.windows.net/x", "https://pipelines.actions.githubusercontent.com/x",
+                    "https://productionresultssa7.blob.core.windows.net/x\r\nHost: e", "https://api.github.com/x",
+                    "https://productionresultssa7.blob.core.windows.net\\@evil.com/x", None, 7,
+                    "https://productionresultssa20.blob.core.windows.net/x", "https://productionresultssa07.blob.core.windows.net/x"):
+            with self.assertRaises(github.Unanswered, msg=url):
+                github.storage(url)
+        # The replay does as the live transport does: a redirect is refused to any other request, and followed for
+        # the download only to the storage exchange recorded next, at the address redirected to.
+        zipped = outcome_zip("{}")
+        found = stored("o/r", 7, zipped)
+        with self.assertRaises(github.Unanswered):
+            github.Replay(found[1:]).send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        self.assertEqual(github.raw(github.Replay(found[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+                                    ["body"]), zipped)
+        elsewhere = stored("o/r", 7, zipped, store="https://evil.example/x")
+        with self.assertRaises(github.Unanswered):
+            github.Replay(elsewhere[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        other = stored("o/r", 7, zipped)
+        other[2]["request"]["call"] = "GET " + STORE.replace("0a1b", "ffff")
+        with self.assertRaises(github.Unanswered):
+            github.Replay(other[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        # The storage's answer is bounded, and a redirect off it refused, as the live transport does.
+        for answer in ({"status": 302, "headers": {"location": STORE}, "body": None},
+                       {"status": 200, "headers": {}, "body": "z" * (github.STORED + 1)}):
+            off = stored("o/r", 7, zipped)
+            off[2]["response"] = answer
+            with self.assertRaises(github.Unanswered):
+                github.Replay(off[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        # No error the replay raises holds the signed address.
+        try:
+            github.Replay(found[1:]).send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        except github.Unanswered as err:
+            self.assertNotIn("sig=", held(err))
+
+    def test_the_live_transport_sends_no_token_to_the_storage_and_bounds_what_it_holds(self):
+        sent = []
+
+        class Zip(io.BytesIO):
+            status, headers = 200, {"Content-Type": "application/zip"}
+
+        class Opener:
+            def __init__(self, size):
+                self.size = size
+
+            def open(self, req, timeout=None):
+                sent.append(req)
+                if len(sent) % 2:
+                    raise github.Redirected(302, STORE)
+                return Zip(b"z" * self.size)
+        live = github.Live("t")
+        live.opener = Opener(github.STORED)
+        got = live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        self.assertEqual((got["status"], len(github.raw(got["body"]))), (200, github.STORED))
+        first, second = sent
+        self.assertEqual((first.full_url, first.get_header("Authorization")),
+                         ("https://api.github.com/repos/o/r/actions/artifacts/9/zip", "Bearer t"))
+        self.assertEqual((second.full_url, second.get_method()), (STORE, "GET"))
+        self.assertEqual({k.lower() for k, _ in second.header_items()}, {"user-agent"})
+        live.opener = Opener(github.STORED + 1)
+        with self.assertRaises(github.Unanswered):
+            live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        # Any other request that GitHub redirects is refused; and so is a redirect off the storage.
+        sent.clear()
+        live.opener = Opener(1)
+        with self.assertRaises(github.Unanswered):
+            live.send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        self.assertEqual(len(sent), 1)
+
+        # A 308, which Python before 3.11 hands on as an error, is followed the same way, and refused the same way.
+        class Permanent(Opener):
+            def open(self, req, timeout=None):
+                sent.append(req)
+                if len(sent) % 2:
+                    raise github.urllib.error.HTTPError(req.full_url, 308, "Permanent", {"Location": STORE}, io.BytesIO())
+                return Zip(b"z")
+        sent.clear()
+        live.opener = Permanent(1)
+        self.assertEqual(live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))["status"], 200)
+        self.assertEqual(sent[1].full_url, STORE)
+        with self.assertRaises(github.Unanswered) as refused:
+            live.send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        self.assertNotIn("sig=", held(refused.exception))
+
+        class Elsewhere(Opener):
+            def open(self, req, timeout=None):
+                sent.append(req)
+                if len(sent) % 2:
+                    raise github.Redirected(302, "https://evil.example/x")
+                return Zip(b"z")
+        sent.clear()
+        live.opener = Elsewhere(1)
+        with self.assertRaises(github.Unanswered) as refused:
+            live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        self.assertEqual(len(sent), 1)
+        self.assertNotIn("evil", held(refused.exception))
+
+        # A redirect off the storage is refused, and no error raised holds the signed address, nor is chained to one.
+        class Again(Opener):
+            def open(self, req, timeout=None):
+                sent.append(req)
+                raise github.Redirected(302, STORE)
+        sent.clear()
+        live.opener = Again(1)
+        with self.assertRaises(github.Unanswered) as refused:
+            live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        self.assertEqual(len(sent), 2)
+        self.assertNotIn("sig=", held(refused.exception))
+        with self.assertRaises(github.Unanswered) as refused:
+            live.send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        self.assertNotIn("sig=", held(refused.exception))
+
+        # An error the storage answers, cut short or over the bound, raises a refusal chained to no error that holds
+        # the address: urllib names it as each error's filename.
+        class Cut(io.BytesIO):
+            def read(self, *a):
+                raise github.http.client.IncompleteRead(b"")
+
+        for answer in (lambda req: Cut(), lambda req: io.BytesIO(b"z" * (github.STORED + 1)),
+                       lambda req: (_ for _ in ()).throw(ValueError("unknown url type: %s" % req.full_url))):
+            class Failing(Opener):
+                def open(self, req, timeout=None, answer=answer):
+                    sent.append(req)
+                    if len(sent) % 2:
+                        raise github.Redirected(302, STORE)
+                    found = answer(req)
+                    raise github.urllib.error.HTTPError(req.full_url, 500, "x", {}, found)
+            sent.clear()
+            live.opener = Failing(1)
+            with self.assertRaises(github.Unanswered) as refused:
+                live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+            self.assertNotIn("sig=", held(refused.exception))
 
     def test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect(self):
         for token in ("", " ", "a b", None):
@@ -486,6 +637,56 @@ def http_date(sent: str) -> str:
 NAME = "sf combsmith/software-factory#264 review-change pr-review sha256:5d0c r_01JA6Z"
 
 
+def outcome_of(run: str, fault, reason="engine_failed") -> dict:
+    """An `outcome/1` as a Run's final step writes it, of the shape examples/outcome.json gives."""
+    found = json.loads((ROOT / "examples" / "outcome.json").read_text())
+    return dict(found, run=run, outcome=fault, reason=reason)
+
+
+def outcome_zip(record, member: str = artifacts.MEMBER, more: tuple = ()) -> bytes:
+    """A zip as GitHub serves an artifact: the one file, or the files named."""
+    held = io.BytesIO()
+    with zipfile.ZipFile(held, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(member, record if isinstance(record, (bytes, str)) else json.dumps(record))
+        for name in more:
+            archive.writestr(name, "{}")
+    return held.getvalue()
+
+
+def held(err: BaseException) -> str:
+    """Every text an error holds, and every error it is chained to: its message and each attribute's value."""
+    found = []
+    while err is not None:
+        found += [str(err)] + [repr(v) for v in vars(err).values()]
+        err = err.__cause__ or err.__context__
+    return " ".join(found)
+
+
+STORE = "https://productionresultssa7.blob.core.windows.net/actions-results/0a1b/outcome.zip?sig=redacted"
+
+
+def stored(repo: str, github_id: int, zipped, ident: int = 9, store: str = STORE, **listed) -> list:
+    """A run's artifacts listed, its outcome's download redirected, and the storage's answer, in the shapes GitHub's
+    REST reference gives: no trial has recorded an artifact read yet (the pending test below says when one does).
+    `zipped` None lists none."""
+    artifact = {"id": ident, "name": artifacts.NAME, "expired": False}
+    if zipped is not None:
+        artifact.update(size_in_bytes=len(zipped), digest="sha256:" + hashlib.sha256(zipped).hexdigest())
+    artifact.update(listed)
+    listing_ = [artifact] if zipped is not None else []
+    found = [{"request": {"via": "rest", "call": "GET /repos/%s/actions/runs/%d/artifacts?name=outcome&per_page=100"
+                          % (repo, github_id), "headers": {}},
+              "response": {"status": 200, "headers": {}, "body": {"total_count": len(listing_), "artifacts": listing_}}}]
+    if zipped is not None:
+        found.append({"request": {"via": "rest", "call": "GET /repos/%s/actions/artifacts/%d/zip" % (repo, ident),
+                                  "headers": {}},
+                      "response": {"status": 302, "headers": {"location": store}, "body": None}})
+        found.append({"request": {"via": "storage", "call": "GET %s" % store, "headers": {}},
+                      "response": {"status": 200, "headers": {"content-type": "application/zip"},
+                                   "body": zipped.decode("utf-8", errors="surrogateescape")}})
+    return found
+
+
 class Records(unittest.TestCase):
     def read(self, *found, **kw):
         slept = []
@@ -556,15 +757,27 @@ class Records(unittest.TestCase):
         again = listing("P-17", 10, page=2, total=2, rows={"name": NAME})
         self.assertIs(self.read(one, again, per_page=1)[0]["complete"], False)
 
-    def test_a_run_that_did_not_succeed_leaves_the_list_not_whole_until_its_outcome_is_read(self):
-        # Decision 0029: a failed Run's outcome is read from its artifact, which waits on adapters/artifacts.py. Until
-        # then the list holding it is not whole, so that the Kernel defers and never reads it as no attempt.
+    def test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other(self):
+        # Decisions 0029 and 0039: a failed Run's outcome is read from its artifact; a Run that succeeded has none
+        # read, and one whose outcome cannot be read leaves the list not whole, never read as no attempt.
         done = {"name": NAME, "status": "completed"}
-        got, _ = self.read(listing("P-17", 3, rows=dict(done, conclusion="success")))
-        self.assertEqual((got["runs"][0]["conclusion"], got["complete"]), ("success", True))
+        row = listing("P-17", 3, rows=dict(done, conclusion="success"))
+        github_id = row["response"]["body"]["workflow_runs"][0]["id"]
+        got, _ = self.read(row)
+        self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"], got["complete"]), ("success", None, True))
         for conclusion, read in (("startup_failure", "failure"), ("timed_out", "timed_out"), ("cancelled", "cancelled")):
-            got, _ = self.read(listing("P-17", 3, rows=dict(done, conclusion=conclusion)))
-            self.assertEqual((got["runs"][0]["conclusion"], got["complete"]), (read, False), conclusion)
+            failed = listing("P-17", 3, rows=dict(done, conclusion=conclusion))
+            got, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item"))))
+            self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"], got["complete"]),
+                             (read, "item", True), conclusion)
+            got, _ = self.read(failed, stored(canary(), github_id, None)[0])
+            self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, True), conclusion)
+            got, _ = self.read(failed, stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item")),
+                                              expired=True)[0])
+            self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, True), conclusion)
+            got, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item")),
+                                               expired=None))
+            self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, False), conclusion)
 
     def test_a_status_or_a_conclusion_github_would_not_give_a_run_makes_the_list_short(self):
         self.assertEqual(self.read(listing("P-17", 3, rows={"name": NAME, "status": "waiting"}))[0]["runs"][0]["status"],
@@ -607,10 +820,90 @@ class Records(unittest.TestCase):
                 self.assertEqual((got["runs"], got["unidentified"], got["complete"]), ([], ids, True), (name, at))
 
     @pending
-    def test_the_outcome_of_a_run_that_did_not_succeed_is_read(self):
-        # Decision 0029: outcome.json is read for a Run that did not succeed. The artifact is downloaded by a redirect
-        # off GitHub's API, which the transport follows none of (decision 0044), so this waits on adapters/artifacts.py.
-        self.assertTrue(callable(records.outcome))
+    def test_an_artifact_download_a_trial_recorded_is_read_as_the_port_reads_it(self):
+        # The Maintainer's ruling on #192: the download's one redirect goes to GitHub's artifact storage. No trial has
+        # recorded one yet, so the host the transport allows is GitHub's documented one, not yet seen; the first trial
+        # whose Run uploads an outcome records it, and this test then reads it.
+        found = [(name.stem, at) for name in sorted((ROOT / "trials").glob("P-*.json"))
+                 for at, e in enumerate(json.loads(name.read_text()).get("exchanges", []))
+                 if (e.get("request") or {}).get("via") == "storage"]
+        self.assertTrue(found)
+        for name, at in found:
+            moved = exchanges(name)[at - 1]["response"]["headers"]["location"]
+            self.assertEqual(github.storage(moved), moved)
+
+
+class Artifacts(unittest.TestCase):
+    RUN = "r_01JA6Z"
+
+    def read(self, zipped, **listed):
+        return artifacts.outcome(github.Replay(stored("o/r", 7, zipped, **listed)), "o/r", 7, self.RUN)
+
+    def test_a_runs_outcome_is_read_from_its_one_file_and_held_to_outcome_1(self):
+        for fault in ("item", "capacity", "environment", "superseded"):
+            self.assertEqual(self.read(outcome_zip(outcome_of(self.RUN, fault))), (fault, True), fault)
+        # A listing that gives no digest is read by its size alone.
+        zipped = outcome_zip(outcome_of(self.RUN, "item"))
+        self.assertEqual(self.read(zipped, digest=None), ("item", True))
+        # A Run that left no outcome, as a killed one does, is read whole with none, and so is one past its retention,
+        # which is never downloaded.
+        self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, None)), "o/r", 7, self.RUN), (None, True))
+        expired = stored("o/r", 7, zipped, expired=True)[:1]
+        self.assertEqual(artifacts.outcome(github.Replay(expired), "o/r", 7, self.RUN), (None, True))
+
+    def test_an_outcome_that_cannot_be_read_whole_is_not_whole(self):
+        good = outcome_of(self.RUN, "item")
+        zipped = outcome_zip(good)
+        for listed in ({"expired": None}, {"expired": "false"}, {"size_in_bytes": 0}, {"size_in_bytes": True}, {"size_in_bytes": len(zipped) + 1},
+                       {"digest": "sha256:" + "0" * 64}, {"digest": "md5:x"}, {"id": True}, {"id": 0}):
+            transport = github.Replay(stored("o/r", 7, zipped, **listed))
+            self.assertEqual(artifacts.outcome(transport, "o/r", 7, self.RUN), (None, False), listed)
+        for record in (outcome_zip(good, member="result.json"), outcome_zip(good, more=("other.json",)),
+                       outcome_zip(" " * (artifacts.HELD + 1)), outcome_zip(b"\xff\xfe"), outcome_zip("[]"),
+                       outcome_zip(dict(good, run="r_OTHER1")), outcome_zip(dict(good, outcome=None)),
+                       outcome_zip(dict(good, reason="A sentence.")), b"PK\x03\x04 not a zip"):
+            self.assertEqual(self.read(record), (None, False), record[:40])
+        # A zip over the bound is not read, though it holds an outcome that could be.
+        wide = io.BytesIO()
+        with zipfile.ZipFile(wide, "w") as archive:
+            archive.writestr(artifacts.MEMBER, json.dumps(good))
+            archive.comment = b" " * 65535
+        self.assertGreater(len(wide.getvalue()), artifacts.ZIPPED)
+        self.assertEqual(self.read(wide.getvalue()), (None, False))
+        # A list that is not what its count says, or holds an artifact of another name, is not whole.
+        miscounted = stored("o/r", 7, zipped)
+        miscounted[0]["response"]["body"]["total_count"] = 2
+        self.assertEqual(artifacts.outcome(github.Replay(miscounted), "o/r", 7, self.RUN), (None, False))
+        for body in ({"total_count": 1, "artifacts": [{"name": "result"}]},
+                     {"total_count": None, "artifacts": []}, {"artifacts": None, "total_count": 0}):
+            listing_ = stored("o/r", 7, None)
+            listing_[0]["response"]["body"] = body
+            self.assertEqual(artifacts.outcome(github.Replay(listing_), "o/r", 7, self.RUN), (None, False), body)
+        # Two artifacts of the name, each one that could be read, are not read as one.
+        twice = stored("o/r", 7, zipped)
+        listed = twice[0]["response"]["body"]
+        listed.update(total_count=2, artifacts=listed["artifacts"] * 2)
+        self.assertEqual(artifacts.outcome(github.Replay(twice), "o/r", 7, self.RUN), (None, False))
+        # An answer that is no answer is refused: the list's, the download's and the storage's.
+        for at, status in ((0, 404), (2, 403)):
+            found = stored("o/r", 7, zipped)
+            found[at]["response"]["status"] = status
+            with self.assertRaises(github.Unanswered, msg=at):
+                artifacts.outcome(github.Replay(found), "o/r", 7, self.RUN)
+
+    def test_an_outcome_is_held_in_the_bounds_before_it_is_read_out(self):
+        # A file the zip says is over the bound is never read.
+        wide = io.BytesIO()
+        with zipfile.ZipFile(wide, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(artifacts.MEMBER, "{" + " " * (10 * artifacts.HELD) + "}")
+        self.assertIsNone(artifacts._member(wide.getvalue()))
+        self.assertEqual(artifacts._member(outcome_zip("{}")), b"{}")
+        # Only a file stored or deflated is read: bzip2 and LZMA decompress a whole chunk past any bound Python sets.
+        for method in (zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA, zipfile.ZIP_STORED):
+            packed = io.BytesIO()
+            with zipfile.ZipFile(packed, "w", method) as archive:
+                archive.writestr(artifacts.MEMBER, "{}")
+            self.assertEqual(artifacts._member(packed.getvalue()), b"{}" if method == zipfile.ZIP_STORED else None, method)
 
 
 APPROVER = "donpetry-bot"        # the machine user, as config/defaults.json names the approver
@@ -897,6 +1190,470 @@ class Timeline(unittest.TestCase):
             timeline.label_events(["labeled"], self.accounts(router))
         with self.assertRaises(github.Unanswered):
             timeline.since_writer([None], self.accounts(router))
+
+
+def p32_pull() -> dict:
+    """Pull request 216 of trials/P-32.json, as its GraphQL read records it."""
+    return copy.deepcopy(exchanges("P-32")[1]["response"]["body"]["data"]["repository"]["pullRequests"]["nodes"][0])
+
+
+def checks_answer(node: dict, after=None) -> dict:
+    """An exchange of the port's own checks query, answered with P-32's pull request as GitHub gave it."""
+    repo = "combsmith/software-factory"
+    owner, name = repo.split("/")
+    asked = {"query": checks.QUERY, "variables": {"owner": owner, "name": name, "number": node["number"], "after": after}}
+    return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+            "response": {"status": 200, "headers": {}, "body": {"data": {"repository": {"pullRequest": node}}}}}
+
+
+def as_pull(node: dict) -> dict:
+    return {"number": node["number"], "head": {"sha": node["headRefOid"]},
+            "base": {"repo": {"full_name": "combsmith/software-factory"}}}
+
+
+class Checks(unittest.TestCase):
+    def test_every_check_run_on_the_head_is_read_with_its_name_app_and_workflow(self):
+        # trials/P-32.json: pull request 216's 18 checks, as GitHub's rollup gave them; a check no workflow file names,
+        # CodeQL's default set-up, has none, and the port passes that on.
+        node = p32_pull()
+        got = checks.read(github.Replay([checks_answer(node)]), as_pull(node))
+        nodes = node["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+        self.assertEqual(len(got["checks"]), len([n for n in nodes if n["__typename"] == "CheckRun"]))
+        self.assertEqual(got["checks"][0], {"name": "Analyze (actions)", "app_id": 15368, "workflow": None,
+                                            "conclusion": "success", "completed_at": "2026-10-20T00:51:22Z"})
+        self.assertIn({"name": "checks", "app_id": 15368, "workflow": ".github/workflows/verify.yml",
+                       "conclusion": "success", "completed_at": "2026-10-20T01:01:25Z"}, got["checks"])
+        self.assertEqual((got["complete"], got["queue"]), (True, True))
+
+    def test_a_check_still_running_gives_its_status_and_no_time(self):
+        node = {"__typename": "CheckRun", "name": "verify", "conclusion": None, "status": "IN_PROGRESS",
+                "completedAt": None, "checkSuite": {"app": {"databaseId": 15368}, "workflowRun": None}}
+        self.assertEqual(checks.check(node)["conclusion"], "in_progress")
+        for broken in ({"name": ""}, {"checkSuite": {"app": None}}, {"status": "in progress"},
+                       {"conclusion": "SUCCESS"}, {"completedAt": "2026-10-20T00:51:22Z"},
+                       {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": {"file": {"path": ""}}}},
+                       {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": "verify"}},
+                       {"checkSuite": {"app": {"databaseId": 1}, "workflowRun": {"file": "verify.yml"}}}):
+            with self.assertRaises(github.Unanswered, msg=broken):
+                checks.check(dict(node, **broken))
+
+    def test_a_rollup_of_another_commit_or_cut_short_is_not_read_whole(self):
+        node = p32_pull()
+        moved = as_pull(node)
+        moved["head"]["sha"] = "0" * 40
+        with self.assertRaises(github.Unanswered):
+            checks.read(github.Replay([checks_answer(node)]), moved)
+        # The pull request names the head, but the rollup is another commit's.
+        other = p32_pull()
+        other["commits"]["nodes"][0]["commit"]["oid"] = "0" * 40
+        with self.assertRaises(github.Unanswered):
+            checks.read(github.Replay([checks_answer(other)]), as_pull(p32_pull()))
+        short = p32_pull()
+        short["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["pageInfo"] = {"hasNextPage": None}
+        self.assertIs(checks.read(github.Replay([checks_answer(short)]), as_pull(short))["complete"], False)
+        # A next page is read by its cursor, and the list is whole when that page has none after it.
+        first, second = p32_pull(), p32_pull()
+        first["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["pageInfo"] = {"hasNextPage": True,
+                                                                                            "endCursor": "c1"}
+        for at, page in enumerate((first, second)):
+            contexts = page["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]
+            contexts["totalCount"] = 36
+            for n, node in enumerate(contexts["nodes"]):
+                node["id"] = "CR_%d_%d" % (at, n)
+        got = checks.read(github.Replay([checks_answer(first), checks_answer(second, "c1")]), as_pull(first))
+        runs = [n for n in second["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+                if n["__typename"] == "CheckRun"]
+        self.assertEqual((len(got["checks"]), got["complete"]), (2 * len(runs), True))
+        # Over two pages, a context read twice, or one with no id to tell it by, is a short read: a rollup that moved
+        # between pages can repeat a passing check and leave out a failing one.
+        for change in ("CR_0_0", None):
+            again = copy.deepcopy(second)
+            again["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"][0]["id"] = change
+            got = checks.read(github.Replay([checks_answer(first), checks_answer(again, "c1")]), as_pull(first))
+            self.assertIs(got["complete"], False, change)
+        # A cursor that repeats, or a next page past the count, ends the read short rather than looping.
+        looping = copy.deepcopy(first)
+        looping["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = 100
+        got = checks.read(github.Replay([checks_answer(looping), checks_answer(looping, "c1")]), as_pull(first))
+        self.assertIs(got["complete"], False)
+        past = copy.deepcopy(first)
+        past["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = 18
+        self.assertIs(checks.read(github.Replay([checks_answer(past)]), as_pull(past))["complete"], False)
+        # The merge queue's entry is an object or null, and any other shape, or none at all, is refused.
+        for entry in (False, "queued", 1, []):
+            odd = p32_pull()
+            odd["mergeQueueEntry"] = entry
+            with self.assertRaises(github.Unanswered, msg=entry):
+                checks.read(github.Replay([checks_answer(odd)]), as_pull(odd))
+        missing = p32_pull()
+        del missing["mergeQueueEntry"]
+        with self.assertRaises(github.Unanswered):
+            checks.read(github.Replay([checks_answer(missing)]), as_pull(missing))
+        # A pull request with no rollup has no checks, read whole; a status context names no App and is no check.
+        bare = p32_pull()
+        bare["commits"]["nodes"][0]["commit"]["statusCheckRollup"] = None
+        self.assertEqual(checks.read(github.Replay([checks_answer(bare)]), as_pull(bare))["checks"], [])
+        with self.assertRaises(github.Unanswered):
+            odd = p32_pull()
+            odd["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"].append({"__typename": "Odd"})
+            checks.read(github.Replay([checks_answer(odd)]), as_pull(odd))
+
+    def test_a_rollup_whose_count_is_not_what_was_read_is_not_whole(self):
+        # GitHub counts the rollup's contexts: a last page that says no next one, but leaves counted contexts unread,
+        # or a count that changed between pages, is a short read.
+        for count in (19, None, True):
+            node = p32_pull()
+            node["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = count
+            self.assertIs(checks.read(github.Replay([checks_answer(node)]), as_pull(node))["complete"], False, count)
+        first, second = p32_pull(), p32_pull()
+        first["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"].update(
+            totalCount=36, pageInfo={"hasNextPage": True, "endCursor": "c1"})
+        second["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = 37
+        for at, page in enumerate((first, second)):
+            for n, node in enumerate(page["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]):
+                node["id"] = "CR_%d_%d" % (at, n)
+        got = checks.read(github.Replay([checks_answer(first), checks_answer(second, "c1")]), as_pull(first))
+        self.assertIs(got["complete"], False)
+
+    def test_a_rollup_read_while_the_head_moved_is_refused(self):
+        # The rollup is of the head the port asked about, but the pull request names another head by then.
+        node = p32_pull()
+        asked = as_pull(node)
+        node["headRefOid"] = "0" * 40
+        with self.assertRaises(github.Unanswered):
+            checks.read(github.Replay([checks_answer(node)]), asked)
+
+
+def p26_files() -> dict:
+    """Pull request 26's one file, in the shape P-29.truncated's list of files gives."""
+    found = copy.deepcopy(exchanges("P-29.truncated")[13])
+    found["request"]["call"] = "GET /repos/%s/pulls/26/files?per_page=100" % canary()
+    found["response"]["body"] = [dict(found["response"]["body"][0], filename="p28-p29/content.txt", status="added")]
+    return found
+
+
+def p26_reviews() -> dict:
+    found = copy.deepcopy(exchanges("P-7")[22])
+    found["request"]["call"] = "GET /repos/%s/pulls/26/reviews?per_page=100" % canary()
+    found["response"]["body"] = []
+    return found
+
+
+def p26_checks(head: str) -> dict:
+    node = p32_pull()
+    node.update(number=26, headRefOid=head, mergeQueueEntry=None)
+    node["commits"]["nodes"][0]["commit"]["oid"] = head
+    found = checks_answer(node)
+    owner, name = canary().split("/")
+    found["request"]["body"]["variables"].update(owner=owner, name=name)
+    return found
+
+
+PERSON = ("don-petry", MAINTAINER, "User")        # the Maintainer, as the fixtures record him
+LENS = ("coderabbitai", 136622811, "Bot")          # a Lens's App, as GraphQL names a Bot: its login has no [bot]
+APP = ("github-actions", 41898282, "Bot")          # an App no Lens is
+
+
+def thread_node(ident: str, opened=PERSON, at: str = "2026-10-21T16:18:57Z", resolved_by=None) -> dict:
+    """A review thread as the port's query asks it. No trial has recorded a thread's author, time or resolver yet (P-43
+    recorded only its path and state); the pending test below reads the first that does."""
+    login, account, kind = opened
+    node = {"id": ident, "isResolved": resolved_by is not None,
+            "resolvedBy": None if resolved_by is None else {"login": resolved_by[0], "databaseId": resolved_by[1]},
+            "comments": {"nodes": [{"createdAt": at, "author": {"__typename": kind, "login": login,
+                                                                 "databaseId": account}}]}}
+    return node
+
+
+def threads_answer(repo: str, number: int, nodes: list, total=None, after=None, cursor=None) -> dict:
+    """An exchange of the port's threads query, in the page shape P-43 recorded for review threads."""
+    owner, name = repo.split("/")
+    asked = {"query": threads.QUERY, "variables": {"owner": owner, "name": name, "number": number, "after": after}}
+    page = {"hasNextPage": cursor is not None, "endCursor": cursor}
+    listed = {"totalCount": len(nodes) if total is None else total, "pageInfo": page, "nodes": nodes}
+    return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+            "response": {"status": 200, "headers": {},
+                         "body": {"data": {"repository": {"pullRequest": {"reviewThreads": listed}}}}}}
+
+
+class Threads(unittest.TestCase):
+    PULL = {"number": 26, "base": {"repo": {"full_name": "o/r"}}}
+
+    def read(self, *pages, permissions=None):
+        router = Router(github.Replay(list(pages)), permissions or {"don-petry": "admin", "outsider": "read"})
+        accounts = timeline.Accounts(router, "o/r", MACHINE, {LENS[1:]: "coderabbit"})
+        return threads.read(router, self.PULL, accounts)
+
+    def test_each_thread_is_read_with_who_opened_and_resolved_it_and_a_persons_is_human(self):
+        got, whole = self.read(threads_answer("o/r", 26, [
+            thread_node("PRRT_1"), thread_node("PRRT_2", LENS, resolved_by=("don-petry", MAINTAINER)),
+            thread_node("PRRT_3", APP), thread_node("PRRT_4", ("outsider", 7, "User")),
+            thread_node("PRRT_5", (APPROVER,) + MACHINE)]))
+        self.assertTrue(whole)
+        self.assertEqual(got[0], {"id": "PRRT_1", "resolved": False, "category": "human", "severity": None,
+                                  "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
+                                  "resolved_by": None, "opened_at": "2026-10-21T16:18:57Z"})
+        # A Lens's thread has no category or severity until its Finding record can be joined (decision 0038).
+        self.assertEqual((got[1]["opened_by"], got[1]["category"], got[1]["severity"]),
+                         ({"kind": "lens", "name": "coderabbit", "can_write": False}, None, None))
+        self.assertEqual(got[1]["resolved_by"], {"kind": "human", "name": "don-petry", "can_write": True})
+        self.assertEqual((got[2]["opened_by"]["kind"], got[2]["category"]), ("app", None))
+        self.assertEqual((got[3]["opened_by"], got[3]["category"]),
+                         ({"kind": "human", "name": "outsider", "can_write": False}, "human"))
+        # The machine user is no person: its thread, as an App's, has no category.
+        self.assertEqual((got[4]["opened_by"]["kind"], got[4]["category"]), ("machine_user", None))
+        # A resolved thread GitHub names no resolver for, as when an App resolved it, is read with none: the Kernel
+        # defers on that thread alone, never on the whole pull request.
+        resolved, _ = self.read(threads_answer("o/r", 26, [dict(thread_node("PRRT_6", LENS), isResolved=True)]))
+        self.assertEqual((resolved[0]["resolved"], resolved[0]["resolved_by"]), (True, None))
+
+    def test_a_thread_that_cannot_be_read_is_refused(self):
+        good = thread_node("PRRT_1")
+        broken = [dict(good, id=""), dict(good, id=None), dict(good, isResolved=None), dict(good, comments={"nodes": []}),
+                  dict(good, comments=None), dict(good, resolvedBy={"login": "don-petry", "databaseId": MAINTAINER}),
+                  dict(good, isResolved=0),
+                  dict(good, isResolved=1, resolvedBy={"login": "don-petry", "databaseId": MAINTAINER}),
+                  thread_node("PRRT_1", at="yesterday"),
+                  thread_node("PRRT_1", ("ghost", 1, "Mannequin")), thread_node("PRRT_1", ("don-petry", None, "User")),
+                  thread_node("PRRT_1", ("x[bot]", 9, "User")), "PRRT_1", thread_node("PRRT_1")]
+        broken[-1]["comments"]["nodes"][0]["author"] = None    # a deleted account, which GraphQL gives as null
+        reply = thread_node("PRRT_1")
+        reply["comments"]["nodes"][0]["replyTo"] = {"id": "PRRC_0"}
+        broken.append(reply)
+        for node in broken:
+            with self.assertRaises(github.Unanswered, msg=node):
+                self.read(threads_answer("o/r", 26, [node]))
+
+    def test_threads_are_read_page_by_page_and_whole_only_when_every_one_was_read_once(self):
+        one, two = [thread_node("PRRT_1")], [thread_node("PRRT_2")]
+        first = threads_answer("o/r", 26, one, total=2, cursor="c1")
+        got, whole = self.read(first, threads_answer("o/r", 26, two, total=2, after="c1"))
+        self.assertEqual(([t["id"] for t in got], whole), (["PRRT_1", "PRRT_2"], True))
+        for second in (threads_answer("o/r", 26, one, total=2, after="c1"),            # a thread read twice
+                       threads_answer("o/r", 26, two, total=3, after="c1"),            # the count moved
+                       threads_answer("o/r", 26, [], total=2, after="c1")):            # one counted never read
+            self.assertIs(self.read(first, second)[1], False)
+        # A cursor that repeats, or a next page past the count, ends the read short rather than looping.
+        start = threads_answer("o/r", 26, one, total=5, cursor="c1")
+        looping = threads_answer("o/r", 26, two, total=5, after="c1", cursor="c1")
+        self.assertIs(self.read(start, looping)[1], False)
+        self.assertIs(self.read(threads_answer("o/r", 26, one + two, total=2, cursor="c1"))[1], False)
+        for change in ({"pageInfo": {"hasNextPage": None}}, {"nodes": None}, {"totalCount": None},
+                       {"totalCount": True}, {"pageInfo": {"hasNextPage": True, "endCursor": ""}}):
+            page = threads_answer("o/r", 26, one)
+            page["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"].update(change)
+            self.assertIs(self.read(page)[1], False, change)
+        bare = threads_answer("o/r", 26, one)
+        bare["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"] = None
+        self.assertEqual(self.read(bare), ([], False))
+        for status, answer_body in ((502, None), (200, {"errors": [{"message": "x"}]})):
+            failed = threads_answer("o/r", 26, one)
+            failed["response"].update(status=status, body=answer_body)
+            with self.assertRaises(github.Unanswered):
+                self.read(failed)
+
+    @pending
+    def test_a_thread_a_trial_recorded_is_read_as_the_port_reads_it(self):
+        # A thread's author, time and resolver, as GitHub's GraphQL gives them, are not yet recorded: the first trial
+        # that records one, asked as the port asks, is read here.
+        found = [e for name in sorted((ROOT / "trials").glob("P-*.json"))
+                 for e in json.loads(name.read_text()).get("exchanges", [])
+                 if (e.get("request") or {}).get("body", {}) and "FactsThreads" in json.dumps(e["request"]["body"])]
+        self.assertTrue(found)
+
+
+class Snapshot(unittest.TestCase):
+    NOW = "2026-10-18T03:00:00Z"
+
+    def sequence(self, reread: int) -> list:
+        """Pull request 26's reads, in the order the snapshot asks them: trials/P-29.base.json for the pull request,
+        its branch, its diff and its read again; trials/P-28.json for its activity and its timeline; the shapes of
+        P-29.truncated, P-7 and P-32 for its files, reviews and checks, which no fixture holds for this one."""
+        found = exchanges("P-29.base")
+        head = found[1]["response"]["body"]["head"]["sha"]
+        return [found[1], found[9], exchanges("P-28")[3], found[2], p26_files(), exchanges("P-28")[4], p26_reviews(),
+                p26_checks(head), threads_answer(canary(), 26, []), found[reread]]
+
+    def read(self, reread: int):
+        router = Router(github.Replay(self.sequence(reread)), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, canary(), MACHINE, {})
+        return facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW)
+
+    def test_a_snapshot_holds_every_part_of_the_facts_and_the_title_beside_them(self):
+        got, title = self.read(1)
+        self.assertEqual(title, body("P-29.base", 1)["title"])
+        self.assertEqual((got["item"]["number"], got["class"], got["targets_protected"], got["diff"]["files"]),
+                         (26, "maintainer", False, 1))
+        self.assertEqual(got["content_id"], "sha256:" + body("P-29.base", 24)["before the base moved"])
+        # The activity read is of a later push than the head the pull request was read at: no pusher, and the push's
+        # time is the read's, so nothing reads as placed after a push it could not see.
+        self.assertEqual((got["last_pusher"], got["last_push_at"]), (None, self.NOW))
+        self.assertEqual(got["complete"], {"acceptance": False, "reviews": True, "threads": True, "checks": True,
+                                           "diff": True, "changed_paths": True, "runs": True, "timeline": True})
+        self.assertIsNone(got["acceptance"])
+        self.assertNotIn(title, json.dumps(got))
+
+    def test_the_bases_head_and_a_pushs_time_are_read_or_refused(self):
+        self.assertEqual(pull.base(replay("P-29.base", 9), body("P-29.base", 1))["head"],
+                         body("P-29.base", 9)["commit"]["sha"])
+        headless = copy.deepcopy(exchanges("P-29.base")[9])
+        headless["response"]["body"]["commit"] = None
+        with self.assertRaises(github.Unanswered):
+            pull.base(github.Replay([headless]), body("P-29.base", 1))
+        pushed = pull.last_push(replay("P-28", 7), body("P-28", 10))
+        self.assertEqual(pushed, ("don-petry", body("P-28", 7)[0]["timestamp"]))
+        odd = copy.deepcopy(exchanges("P-28")[7])
+        odd["response"]["body"][0]["timestamp"] = "yesterday"
+        self.assertEqual(pull.last_push(github.Replay([odd]), body("P-28", 10)), ("don-petry", None))
+
+    def test_a_snapshot_whose_head_moved_while_it_was_read_is_refused(self):
+        with self.assertRaises(github.Unanswered):
+            self.read(12)
+
+    def test_a_snapshot_of_a_pull_request_that_changed_while_it_was_read_is_refused(self):
+        # trials/P-29.base.json: the base moved and the head did not, and GitHub moved the pull request's updated_at.
+        # Any change between the first read and the last, a label added after the timeline was read among them, makes
+        # the parts of two pull requests.
+        self.assertEqual(body("P-29.base", 6)["head"]["sha"], body("P-29.base", 1)["head"]["sha"])
+        self.assertNotEqual(body("P-29.base", 6)["updated_at"], body("P-29.base", 1)["updated_at"])
+        with self.assertRaises(github.Unanswered):
+            self.read(6)
+
+    def test_a_push_that_names_its_pusher_and_no_time_is_refused(self):
+        seq = self.sequence(1)
+        entry = seq[2]["response"]["body"][0]
+        entry["after"] = body("P-29.base", 1)["head"]["sha"]
+        router = Router(github.Replay(copy.deepcopy(seq)), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW)
+        self.assertEqual((got["last_pusher"], got["last_push_at"]), ("don-petry", entry["timestamp"]))
+        entry["timestamp"] = "yesterday"
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        with self.assertRaises(github.Unanswered):
+            facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                           lambda: self.NOW)
+
+    def test_a_snapshot_holds_every_thread_read_and_says_whether_they_were_read_whole(self):
+        seq = self.sequence(1)
+        seq[8] = threads_answer(canary(), 26, [thread_node("PRRT_1", PERSON), thread_node("PRRT_2", LENS)])
+        router = Router(github.Replay(copy.deepcopy(seq)), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, False, lambda: self.NOW)
+        self.assertEqual([(t["id"], t["category"]) for t in got["threads"]], [("PRRT_1", "human"), ("PRRT_2", None)])
+        self.assertEqual((got["complete"]["threads"], got["complete"]["runs"]), (True, False))
+        seq[8]["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["totalCount"] = 3
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW)
+        self.assertIs(got["complete"]["threads"], False)
+
+    def test_only_a_required_lenss_own_apps_open_thread_defers(self):
+        # A thread is a Lens thread only when its author is that Lens's own App, by account id and type. An outside
+        # reviewer's thread, CodeRabbit's or Codex's, is no required Lens's: with no category it does not defer.
+        # Only a required model Lens's own App's open thread with neither defers, until harness/ uploads its record.
+        from kernel import derive
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        role = ("combsmith-sf-pr-review", 99, "Bot")
+        seq = self.sequence(1)
+        seq[8] = threads_answer(canary(), 26, [thread_node("PRRT_1", LENS), thread_node("PRRT_2", role),
+                                               thread_node("PRRT_3", APP), thread_node("PRRT_4", PERSON)])
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit", role[1:]: "pr-review"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW)
+        self.assertEqual(config["required_lenses"]["model"], ["pr-review"])
+        self.assertEqual(derive.unreadable_threads(got, dict(config, approver=APPROVER)), ["PRRT_2"])
+
+    def test_the_snapshots_time_is_taken_after_its_last_read(self):
+        replay = github.Replay(self.sequence(1))
+        router = Router(replay, {"don-petry": "admin"})
+        left = []
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: left.append(len(replay._left)) or self.NOW)
+        self.assertEqual((left, got["read_at"]), ([0], self.NOW))
+
+    def test_a_snapshot_that_does_not_hold_to_the_schema_is_refused(self):
+        # A part the reads give that facts/1 does not take, here a time out of its range, refuses the whole.
+        router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
+        with self.assertRaises(github.Unanswered):
+            facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                           lambda: "2026-10-18T24:00:00Z")
+
+
+class ChecksAsked(unittest.TestCase):
+    @pending
+    def test_a_required_check_reports_on_every_head_and_a_rerun_replaces_only_its_own(self):
+        # Decisions 0015 and 0018: a required check reports on every head and in the merge queue, and only a re-run of
+        # the same job in the same check suite replaces an earlier run, so two suites' runs of one name both stand in
+        # the rollup the port reads. GitHub's behaviour, which P-42 (issue 250) records, its last exchange saying what
+        # was seen; until its fixture lands, this test is expected to fail.
+        seen = body("P-42", -1)
+        self.assertEqual((seen["reported on every head"], seen["reported in the merge queue"],
+                          seen["both suites' runs of one name listed"], seen["a re-run replaced only its own"]),
+                         (True, True, True, True))
+
+    @pending
+    def test_a_dynamic_workflows_path_is_read_as_github_gives_it(self):
+        # Decision 0018: a check GitHub Actions ran from a dynamic workflow, CodeQL's default set-up among them, is given
+        # with that path verbatim. The GraphQL rollup names no file for it (trials/P-32.json), so the read that gives
+        # it, the check suite's workflow run by REST, is still to be built.
+        node = p32_pull()
+        got = checks.read(github.Replay([checks_answer(node)]), as_pull(node))
+        codeql = next(c for c in got["checks"] if c["name"] == "Analyze (actions)")
+        self.assertTrue(str(codeql["workflow"]).startswith("dynamic/"))
+
+
+class Contract(unittest.TestCase):
+    def test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it(self):
+        # L-51 and sim/AGENTS.md: each rule of the fake GitHub a fixture grounds, and the port reads, is read by the
+        # port from that same fixture as the rule states it. The fake is not run here: a rule dropped from the fake's
+        # grounding, or a fixture the port reads otherwise, fails.
+        from sim import grounding
+        grounded = {code: fixture for code, _, _, fixture, _ in grounding.RULES if fixture}
+        before = pull.diff(replay("P-29.base", 2), body("P-29.base", 1))["content_id"]
+        after = pull.diff(replay("P-29.base", 13), body("P-29.base", 12))["content_id"]
+        fork = [e for e in exchanges("P-27") if "/runs?" in e["request"].get("call", "") and e["response"]["status"] == 200]
+        rows = [r for e in fork for r in e["response"]["body"].get("workflow_runs", [])
+                if r["head_repository"]["full_name"] != r["repository"]["full_name"]]
+        # A fork's run is a pull request's, and would not count even were it a dispatch of a Role's file.
+        recorded, rows = rows, rows + [dict(r, event="workflow_dispatch") for r in rows]
+        reads = {
+            "a_push_is_new_content": before != after,
+            "the_pusher_is_the_last_pusher": pull.last_pusher(replay("P-28", 7), body("P-28", 10)) == "don-petry"
+            and pull.last_pusher(replay("P-28.app", 1), body("P-28.app", 0)) == "combsmith-sf-trial-author[bot]",
+            "a_short_diff_says_so": pull.diff(replay("P-29.truncated", 4), body("P-29.truncated", 2))["diff"]["truncated"],
+            "a_path_list_can_leave_out_a_file": pull.changed_paths(github.Replay(files_pages(30, [])),
+                                                                   body("P-29.truncated", 2))["complete"] is False,
+            "a_forks_run_never_counts": bool(recorded) and all(r["event"] == "pull_request" for r in recorded)
+            and all(records._record(r, r["repository"]["full_name"], r.get("head_branch"), {r.get("path")},
+                                    (r["actor"]["id"], r["actor"]["type"])) == (None, None) for r in rows),
+            "a_new_run_is_listed_unnamed": Records().read(listing("P-17", 9, total=1), listing("P-17", 10, total=1),
+                                                          per_page=1)[0]["unidentified"] == ["39086879694"],
+        }
+        # Each is read from the fixture that grounds it, and no other.
+        replayed = {"a_push_is_new_content": {"P-29.base"}, "the_pusher_is_the_last_pusher": {"P-28", "P-28.app"},
+                    "a_short_diff_says_so": {"P-29.truncated"}, "a_path_list_can_leave_out_a_file": {"P-29.truncated"},
+                    "a_forks_run_never_counts": {"P-27"}, "a_new_run_is_listed_unnamed": {"P-17"}}
+        # Every other rule a fixture grounds is named, with why this test does not read it yet: a rule added to the
+        # fake's grounding fails here until it is read or named.
+        not_read = {
+            # Read by the port or by a part of it, but not yet compared here with what the fake assumes.
+            "a_queued_run_is_listed", "a_new_run_is_listed_late", "a_run_list_stops_short", "a_short_list_says_so",
+            "a_pull_request_lists_the_paths_it_changes", "a_short_path_list_says_so",
+            "the_machine_users_approval_counts", "an_app_pushes_to_the_head",
+            # The fixture records GraphQL's shape; the port reads the REST timeline, which no fixture holds whole.
+            "a_label_event_names_its_actor",
+            # Not the facts or records port's: the Controller's lane and passes, and the issues port, not built.
+            "a_run_waits_its_turn", "a_tick_can_be_lost", "a_pass_starts_its_successor", "a_public_event_starts_a_pass",
+            "a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read",
+            "an_issues_content_time_is_read_apart", "a_reopening_names_its_actor", "an_issues_close_and_reopening_say_when",
+            "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing",
+        }
+        self.assertEqual(set(grounded), set(reads) | not_read)
+        self.assertFalse(set(reads) & not_read)
+        for code, holds in reads.items():
+            fixtures = grounded[code] if isinstance(grounded[code], tuple) else (grounded[code],)
+            self.assertEqual({pathlib.PurePath(f).stem for f in fixtures}, replayed[code], code)
+            self.assertTrue(holds, code)
 
 
 if __name__ == "__main__":

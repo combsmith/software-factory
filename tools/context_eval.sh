@@ -37,7 +37,7 @@ set +x
 export LC_ALL=C
 
 # The version the engine port is pinned to, as trial P-13 recorded it (tools/trial_p13_cli.sh).
-PIN=2.1.302
+PIN=2.1.306
 # The most turns the agent may take. The record keeps it beside what the run cost.
 CAP=80
 # What the agent may use: its file and shell tools; never the network, and never another agent.
