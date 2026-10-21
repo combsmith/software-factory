@@ -4759,6 +4759,22 @@ except OSError:
         self.live["main"]["rules"].append({"type": "deletion"})
         self.assertTrue(caught(self.compare(), "rule (a rule type given twice)"))
 
+    def test_the_answers_are_read_from_stdin_in_the_order_listed(self):
+        def run(*answers, argv=()):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = rulesets_drift.main(list(argv), io.BytesIO("\0".join(answers).encode()))
+            return code, out.getvalue()
+        head = "HTTP/2.0 200 OK\nContent-Type: application/json\n\n"
+        listed = [{"id": r["id"], "name": n} for n, r in self.live.items()]
+        bodies = [head + json.dumps(self.live[n]) for n in self.live]
+        self.assertEqual(run(head + json.dumps(listed), argv=["--ids"]), (0, "%d\n%d\n" % tuple(i["id"] for i in listed)))
+        self.assertEqual(run(head + json.dumps(listed), *bodies), (0, "no drift\n"))
+        code, out = run(head + json.dumps(listed), bodies[0])
+        self.assertEqual(code, 1)
+        self.assertIn("2 rulesets were listed and 1 answers given", out)
+        self.assertEqual(run("HTTP/2.0 404 Not Found\n\n{}", argv=["--ids"]), (0, "\n"))
+
     def test_only_a_whole_number_is_an_id(self):
         self.assertEqual(rulesets_drift.ids([{"id": 3}, {"id": "1 2"}, {"id": "../../user"}, {"id": True}, {"id": 2.0},
                                              {"name": "x"}, "x"]), [3])
