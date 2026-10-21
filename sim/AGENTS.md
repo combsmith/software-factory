@@ -35,5 +35,5 @@ On every seed a review's Result now and then leaves a criterion of its rubric un
 In each world one Run holds the item's lane and at most one waits behind it; a newer one cancels the one waiting (`tests/test_simulator.py::test_a_newer_run_cancels_the_one_waiting_in_each_world`).
 A rule about anything else is not exercised here, so its boundary cases are all that hold it. An invariant is a call to `check()` with its name. When a seed finds a fault, the fix goes in the Kernel with a boundary case in `tests/test_decide.py`.
 
-Known to differ, unverified until the fake changes or its trial runs: a push leaves an earlier approval in place (`an_approval_survives_a_push`; `trials/P-7.json` saw it dismissed); the queue merges
-without checking the merge group (`the_merge_group_is_not_checked`; this repo's queue checks it, P-2); and a merged pull request's references are fixed (`a_merged_pull_requests_closing_references_are_fixed`; `trials/P-46.json` saw an edit change them).
+Known to differ, unverified until the fake changes or its trial runs: a push leaves an earlier approval in place (`an_approval_survives_a_push`; `trials/P-7.json` saw it dismissed); and the queue merges
+without checking the merge group (`the_merge_group_is_not_checked`; this repo's queue checks it, P-2).

@@ -83,10 +83,19 @@ json.dump({"as": {"kind": "app", "name": who}, "via": "rest", "call": call,
         "$1" "$2" "$3" "$VERSION" "$ACCEPT" "$out/$id.request.json"
 }
 
-# A raw capture, redacted beside it and then deleted. Only the redaction's report is printed.
+# A raw capture, redacted beside it and then deleted. Only the redaction's report is printed. A capture whose redaction
+# fails is deleted unread all the same, since it lies in OUT, which a session reads; its partial clean file goes with it,
+# and the failure is said and returned.
 redact() {   # RAW
-    (cd "$root" && python3 -m tools.redact_trial "$1" "${1%.raw}.clean") | sed "s|^|$(basename "${1%.raw}"): |"
+    local failed=0
+    (cd "$root" && python3 -m tools.redact_trial < "$1" 2>&1 > "${1%.raw}.clean") | sed "s|^|$(basename "${1%.raw}"): |" ||
+        failed=1
     rm -f "$1"
+    if [[ "$failed" -ne 0 ]]; then
+        rm -f "${1%.raw}.clean"
+        echo "trial_as_app: the redaction of $(basename "${1%.raw}") failed; its capture is deleted unread" >&2
+        return 1
+    fi
 }
 
 # As the App itself, by its JWT: the header goes to curl on its standard input, never as an argument.
@@ -124,7 +133,7 @@ finish() {
     token="" jwt=""
     unset token jwt
     for left in "$out"/*.raw; do
-        [ -e "$left" ] && redact "$left"
+        [[ -e "$left" ]] && { redact "$left" || status=1; }
     done
     python3 -I -c '
 import json, pathlib, sys
@@ -149,7 +158,8 @@ for asked in sorted(p for p in out.iterdir() if p.name.endswith(".request.json")
                                    "headers": headers, "body": body}})
 json.dump({"exchanges": exchanges}, open(str(out / "exchanges.unchecked.json"), "w"), indent=2)' "$out"
     redact_json="$out/exchanges.unchecked.json"
-    (cd "$root" && python3 -m tools.redact_trial "$redact_json" "$out/exchanges.json") > /dev/null
+    (cd "$root" && python3 -m tools.redact_trial < "$redact_json" > "$out/exchanges.json") 2> /dev/null ||
+        { echo "trial_as_app: the redaction of the exchanges failed" >&2; exit 1; }
     rm -f "$redact_json"
     echo "Done, status $status. Give the session this directory; it reads only exchanges.json and the .clean files:"
     echo "  $out"
