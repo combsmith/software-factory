@@ -109,6 +109,20 @@ class Broken(AssertionError):
     """An invariant did not hold."""
 
 
+def queue_in_lane(runs: list, run: dict, note) -> None:
+    """Queue `run` in its item's concurrency group, in either world. The group's first Run holds it, in progress or
+    waiting for a runner; a Run waiting behind that one is cancelled as a newer one queues, and never starts: one Run
+    holds the group and at most one waits (trials/P-44.json). The records port reads the cancelled one as superseded,
+    since its job had no runner and no step, so it is no attempt."""
+    # GitHub: a_run_waits_its_turn
+    live = [r for r in runs if r["status"] in ("in_progress", "queued")]
+    holder = next((r for r in live if r["status"] == "in_progress"), live[0] if live else None)
+    for older in [r for r in live if r["status"] == "queued" and r is not holder]:
+        older.update(status="completed", conclusion="cancelled", outcome="superseded")
+        note("run %s: cancelled by its concurrency group" % older["run"])
+    runs.append(run)
+
+
 class World:
     def __init__(self, seed: int, faults: bool = True, people: bool = True,
                  approval_fails: str = None, queue_merges: bool = True):
@@ -597,9 +611,9 @@ class World:
             self.paused(facts, runs, d, ctx)
         if d["outcome"] == "admit":
             self.moves()
-            self.runs.append({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"],
-                              "intent": d["admit"]["intent"], "content_id": d["admit"]["content_id"],
-                              "status": "queued", "conclusion": None, "outcome": None, "started_at": self.now()})
+            self.enqueue({"run": "r%d" % len(self.runs), "item": dict(ITEM), "role": d["admit"]["role"],
+                          "intent": d["admit"]["intent"], "content_id": d["admit"]["content_id"],
+                          "status": "queued", "conclusion": None, "outcome": None, "started_at": self.now()})
             if self.seed % UNNAMED_EVERY == UNNAMED:
                 self.unnamed = (self.runs[-1], "%d" % (FIRST_RUN_ID + len(self.runs) - 1), None)
             self.caused("factory")
@@ -788,6 +802,9 @@ class World:
             self.unnamed = (run, "%d" % (FIRST_RUN_ID + len(self.runs) - 1), end)
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
+    def enqueue(self, run: dict):
+        queue_in_lane(self.runs, run, self.note)
+
     def start_next(self):
         # GitHub: a_run_waits_its_turn
         if any(r["status"] == "in_progress" for r in self.runs):
@@ -1208,6 +1225,9 @@ class World:
         self.invariants()
 
     def invariants(self):
+        # GitHub: a_run_waits_its_turn
+        self.check(len([r for r in self.runs if r["status"] in ("in_progress", "queued")]) <= 2,
+                   "the lane holds more than one Run waiting behind the one that holds it")
         self.check(len([r for r in self.runs if r["status"] == "in_progress"]) <= 1, "I-2 one writer per item")
         for rv in self.reviews:
             self.check(rv["by"]["name"] not in (self.author,), "I-26 the approver is the author")

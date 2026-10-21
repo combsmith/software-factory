@@ -3237,6 +3237,51 @@ class Trials(unittest.TestCase):
                          ("don-petry", "don-petry", "REOPENED"))
         self.assertEqual([n["editor"]["login"] for n in issue["userContentEdits"]["nodes"]], ["don-petry", "don-petry"])
 
+    def test_the_lane_keeps_one_running_and_one_waiting(self):
+        # trials/P-44.json (issue 251) grounds a_run_waits_its_turn: the pass is computed here from the run lists and the
+        # jobs as GitHub gave them, so a fixture edited to pass, or to say what it did not see, fails.
+        by_code = {rule[0]: rule for rule in check_trials.rules()}
+        self.assertEqual(by_code["a_run_waits_its_turn"][3], "trials/P-44.json")
+        p44 = json.loads((ROOT / "trials" / "P-44.json").read_text())
+        lists = [e["response"]["body"]["workflow_runs"] for e in p44["exchanges"]
+                 if "/runs?branch=" in e["request"]["call"] and e["response"]["status"] == 200]
+        self.assertGreaterEqual(len(lists), 10)
+        for runs in lists:
+            statuses = [r["status"] for r in runs]
+            self.assertLessEqual(statuses.count("in_progress"), 1)
+            self.assertLessEqual(sum(s in ("queued", "pending", "waiting") for s in statuses), 1)
+        last = {r["run_number"]: r for r in lists[-1]}
+        self.assertEqual({n: (r["event"], r["status"], r["conclusion"]) for n, r in last.items()},
+                         {1: ("push", "completed", "success"), 2: ("push", "completed", "cancelled"),
+                          3: ("push", "completed", "cancelled"), 4: ("push", "completed", "success")})
+        jobs = {}
+        for e in p44["exchanges"]:
+            if e["request"]["call"].endswith("whether it ever had a runner and a step"):
+                run = next(n for n, r in last.items() if "/runs/%d/jobs" % r["id"] in e["request"]["call"])
+                (job,) = e["response"]["body"]["jobs"]
+                jobs[run] = (job["conclusion"], bool(job["runner_name"]), len(job["steps"]))
+        # Each cancelled run never started: no runner and no step. Each run that started finished.
+        self.assertEqual(jobs, {1: ("success", True, 3), 2: ("cancelled", False, 0), 3: ("cancelled", False, 0),
+                                4: ("success", True, 3)})
+        # Run 1 was running when 2, 3 and 4 were queued, and finished; 4 started only once 1 had. Each cancelled run
+        # ended as the next one was created.
+        self.assertLess(last[4]["created_at"], last[1]["updated_at"])
+        ended = {}
+        for e in p44["exchanges"]:
+            if e["request"]["call"].endswith("whether it ever had a runner and a step"):
+                (job,) = e["response"]["body"]["jobs"]
+                ended[job["run_id"]] = job["completed_at"]
+        for n in (2, 3):
+            self.assertGreaterEqual(ended[last[n]["id"]], last[n + 1]["created_at"], n)
+        # The workflow ran as the analysis gives it, one job under one group that cancels nothing in progress: its blob
+        # is the one the upload answered with.
+        analysis = p44["exchanges"][-1]["response"]["body"]
+        text = analysis["workflow"]
+        self.assertIn("    concurrency:\n      group: lane-p44\n      cancel-in-progress: false\n", text)
+        blob = hashlib.sha1(b"blob %d\0" % len(text.encode()) + text.encode()).hexdigest()
+        upload = next(e for e in p44["exchanges"] if "contents/.github/workflows/trial-p44.yml" in e["request"]["call"])
+        self.assertEqual(upload["response"]["body"]["content"]["sha"], blob)
+        self.assertEqual(p44["verdict"], "pass")
     def test_an_edit_after_the_merge_changes_the_closing_references(self):
         # trials/P-46.json (issue 256): its verdict is computed here from the reads by the pass condition, so a fixture
         # edited to pass, or to say what it did not see, fails. The rule it contradicts stays unverified (issue 267).

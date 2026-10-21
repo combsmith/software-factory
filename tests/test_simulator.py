@@ -16,6 +16,9 @@ from tools.hooks import protected
 
 # Fixed seeds: the required check cannot fail at random. SIM_SEEDS shortens a local run.
 SEEDS = range(1, 1 + int(os.environ.get("SIM_SEEDS", "300")))
+# The first seed whose Hold takes a queued item out (test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause),
+# and the first of each world on which a newer Run cancels the one waiting (a_run_waits_its_turn).
+HOLD_SEED, LANE_SEED, ISSUE_LANE_SEED = 109, 2, 54
 # Seeds on which the item is a dependency update with no acceptance contract: to a workflow's pin, and to neither list.
 DEPENDENCY_ON_THE_LIST, DEPENDENCY_OFF_THE_LIST = 4, 34
 
@@ -83,6 +86,38 @@ class Simulation(unittest.TestCase):
         # is held by the exploration, which needs no seeds.
         found, _ = test_transitions.explored()
         self.assertEqual(sorted(made - set(found)), [])
+
+    def test_a_newer_run_cancels_the_one_waiting_in_each_world(self):
+        # trials/P-44.json (a_run_waits_its_turn): in the item's concurrency group one Run is in progress and at most one
+        # waits; a newer Run cancels the one waiting, which never starts, and never the one running. A cancelled Run is
+        # read as superseded, so it is no attempt. The pull request's world and the issue's alike.
+        from sim.issues import IssueWorld
+        for make in (lambda: World(2, faults=False, people=False), lambda: IssueWorld(2, faults=False, people=False)):
+            w = make()
+            w.runs.clear()
+            base = {"item": dict(world.ITEM), "role": "pr-review", "intent": "review-change", "content_id": "c",
+                    "conclusion": None, "outcome": None, "started_at": "2026-10-21T00:00:00Z"}
+            w.runs.append(dict(base, run="r0", status="in_progress"))
+            for n in (1, 2, 3):
+                w.enqueue(dict(base, run="r%d" % n, status="queued"))
+            got = [(r["run"], r["status"], r["conclusion"], r["outcome"]) for r in w.runs]
+            self.assertEqual(got, [("r0", "in_progress", None, None),
+                                   ("r1", "completed", "cancelled", "superseded"),
+                                   ("r2", "completed", "cancelled", "superseded"),
+                                   ("r3", "queued", None, None)], type(w).__name__)
+            # With nothing in progress, the first Run queued holds the group and is never cancelled; only one waiting
+            # behind it is, and then it starts first.
+            w.runs.clear()
+            for n in (0, 1, 2):
+                w.enqueue(dict(base, run="r%d" % n, status="queued"))
+            got = [(r["run"], r["status"], r["conclusion"]) for r in w.runs]
+            self.assertEqual(got, [("r0", "queued", None), ("r1", "completed", "cancelled"), ("r2", "queued", None)],
+                             type(w).__name__)
+        # Each world queues its Runs through enqueue(): on a pinned seed of each, a newer Run cancels the one waiting.
+        for w in (World(LANE_SEED), IssueWorld(ISSUE_LANE_SEED)):
+            for _ in range(250):
+                w.step()
+            self.assertTrue(any("cancelled by its concurrency group" in line for line in w.trace), type(w).__name__)
 
     def test_a_change_of_state_in_the_first_step_is_checked(self):  # I-12
         # The world starts from the State the Kernel gives it, so the first change is checked like any other.
@@ -626,8 +661,10 @@ class Simulation(unittest.TestCase):
                 shown.update(e.split(":")[1] for e in d["evidence"] if e.count(":") >= 2)
             return d
 
+        # The first seed whose Hold takes an item out lies past a local run of forty seeds since the lane cancels a
+        # waiting Run (trials/P-44.json): it is run as well, so a short run still asks for that cause.
         with mock.patch.object(world, "decide", recording):
-            for seed in SEEDS:
+            for seed in sorted(set(SEEDS) | {HOLD_SEED}):
                 w = World(seed)
                 for _ in range(250):
                     w.step()
