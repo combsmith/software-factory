@@ -3,10 +3,11 @@
 All of the Factory's I/O. `github.py` is the one transport: every request to GitHub goes through it, and nothing else in
 this repo reaches the network. `pull.py` reads the facts of a pull request that its own reads give, `timeline.py` its reviews, labels and who acted,
 `checks.py` its checks and its place in the queue, `facts.py` the one snapshot of it all, `records.py` the Factory's own run records,
-and `artifacts.py` a failed Run's outcome from its artifact. A port decides nothing
+`artifacts.py` a failed Run's outcome from its artifact, and `acceptance.py` whether the issues it closes ask for a
+contract. A port decides nothing
 and hands the Kernel no text: what it cannot read whole it says is short, and the title travels beside the facts.
 
-Not built yet, by the stories that hold their rules: threads.py, items.py, acceptance.py, issues.py, settings.py, effects.py, usage.py.
+Not built yet, by the stories that hold their rules: threads.py, items.py, contract.py, issues.py, settings.py, effects.py, usage.py.
 
 | Rule | Held by |
 |---|---|
@@ -29,5 +30,7 @@ Not built yet, by the stories that hold their rules: threads.py, items.py, accep
 | A review's dismissal, its dismisser and its state before are read from the timeline; no text of GitHub's is kept | `tests/test_adapters.py::test_reviews_are_read_with_their_commit_content_and_who_dismissed_them` |
 | Every check run on the head is given with its exact name, its App and its workflow file, and none dropped | `tests/test_adapters.py::test_every_check_run_on_the_head_is_read_with_its_name_app_and_workflow` |
 | The snapshot is refused when the pull request moved while it was read, and is held to `facts/1` | `tests/test_adapters.py::test_a_snapshot_whose_head_moved_while_it_was_read_is_refused` |
+| An issue asks for a contract only by an Intent that asks, or the `factory:contract` label a person added; none asks, and `acceptance` is null and whole | `tests/test_adapters.py::test_an_issue_asks_for_a_contract_only_by_a_persons_label` |
+| Closing references read short, or of another repo, are not whole | `tests/test_adapters.py::test_closing_references_are_whole_only_of_this_repo_and_every_one_counted` |
 | The title is handed beside the facts, never in them | `tests/test_adapters.py::test_the_pull_requests_own_facts_and_the_title_beside_them` |
 | A rule of a part not built yet waits on the file named above, and the story that builds it re-points its rows | `tests/test_tools.py::test_a_wait_on_a_file_a_built_directory_plans_holds_until_the_file_exists` |

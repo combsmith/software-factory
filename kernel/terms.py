@@ -131,3 +131,8 @@ LABEL_ADMIT = "factory:admit"
 # The labels the Kernel reads on a pull request, and what the timeline records was done to one.
 CONTROL_LABELS = ("factory:hold", "factory:hands-off", "factory:admit")
 LABEL_ACTIONS = ("labeled", "unlabeled")
+# The label a person adds to an issue to ask for an acceptance contract, and the Intents whose items ask for one
+# whatever their labels (the Maintainer's rule of 2026-10-21, decision 0046). The facts port reads both from the issue a
+# pull request closes; no Lifecycle runs either Intent yet, so in slice 1 only the label asks.
+LABEL_CONTRACT = "factory:contract"
+CONTRACT_INTENTS = ("fix", "implement")

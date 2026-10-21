@@ -8,9 +8,9 @@ between the two reads is not seen: the diff and the files are the pull request's
 may be of the commit between (the known limit; pinning them is still to be built). A part that cannot be read
 refuses the whole; a list that was not read whole says so in its `complete` flag, and the Kernel defers on it.
 
-Two parts are not read yet, and say so: a thread's state and its Finding's category wait on `adapters/threads.py`, so
-`threads` is whole only when the pull request holds none; and the acceptance contract waits on
-`adapters/acceptance.py`, so `acceptance` is null and never read whole. The run records are the records port's, read
+A part is not read yet, and says so: a thread's state and its Finding's category wait on `adapters/threads.py`, so
+`threads` is whole only when the pull request holds none. `acceptance` is null, and whole only where no issue the pull
+request closes asks for a contract (`adapters/acceptance.py`): the contract itself waits on `adapters/contract.py`. The run records are the records port's, read
 once a pass: the caller says whether that read was whole.
 
 `read_at` is taken after the last read, never given by the caller. `last_push_at` is the push's own time where the head
@@ -25,7 +25,7 @@ import datetime
 import json
 import pathlib
 
-from adapters import checks, pull, timeline
+from adapters import acceptance, checks, pull, timeline
 from adapters.github import Unanswered
 from tools.jsonschema_lite import validate
 
@@ -52,6 +52,7 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
     writer = timeline.since_writer(events, accounts)
     labels = timeline.label_events(events, accounts)
     read = checks.read(transport, first)
+    contract, contract_whole = acceptance.read(transport, first, accounts)
     if pusher is not None and pushed_at is None:
         raise Unanswered("the head's push names its pusher but no time that can be read")
     if not pull.unchanged(transport, first):
@@ -73,8 +74,8 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
         "checks": read["checks"],
         "queue": read["queue"],
         "acts_since_writer": writer["acts_since_writer"],
-        "acceptance": None,
-        "complete": {"acceptance": False, "reviews": reviews_whole, "threads": read["threads"] == 0,
+        "acceptance": contract,
+        "complete": {"acceptance": contract_whole, "reviews": reviews_whole, "threads": read["threads"] == 0,
                      "checks": read["complete"], "diff": content["complete"],
                      "changed_paths": paths["complete"], "runs": runs_whole is True, "timeline": timeline_whole},
         "read_at": now,
