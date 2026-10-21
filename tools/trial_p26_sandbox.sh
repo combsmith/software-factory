@@ -204,7 +204,7 @@ marker() {   # a fresh value no one has seen: p26- and 24 hex digits
 }
 
 redact() {   # RAW N
-    (cd "$root" && python3 -m tools.redact_trial "$1" "$out/clean-$2") > "$out/redacted-$2"
+    (cd "$root" && python3 -m tools.redact_trial < "$1" > "$out/clean-$2") 2> "$out/redacted-$2"
     rm -f "$1"
 }
 
@@ -400,7 +400,8 @@ whole["some_configuration_hides_and_limits"] = whole["version"]["held"] and any(
     for p in parts)
 json.dump(whole, open(checked, "w"), indent=2)' "$scratch/checked" "$PIN" "$version" "$after" "$code_after" "$code2" \
     "$logged_in" "$scratch/checked-plain" "$scratch/checked-scrubbed"
-(cd "$root" && python3 -m tools.redact_trial "$scratch/checked" "$out/checked.json") > /dev/null
+(cd "$root" && python3 -m tools.redact_trial < "$scratch/checked" > "$out/checked.json") 2> /dev/null ||
+    { echo "trial_p26_sandbox: the redaction of checked.json failed" >&2; exit 1; }
 
 # What was asked: the command lines, the Task, the settings and the probe. No credential, marker or path is in it.
 python3 -I -c '
