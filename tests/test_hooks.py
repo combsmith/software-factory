@@ -162,21 +162,23 @@ class Budgets(unittest.TestCase):
 
     def test_a_reading_that_grows_faster_than_its_size_fails(self):
         # Spends at a quarter, half and whole of a size. Past the quarter, linear growth is three times the half's and
-        # passes, quadratic is five and fails, however small and whatever the load; what does not grow falls away.
+        # passes, quadratic is five and fails, whatever the load; what does not grow falls away.
         def three(*cpus):
             return [self.spent(cpu, cpu) for cpu in cpus]
         self.assertEqual(faster_than_linear(*three(1.0, 2.0, 4.0)), "")                  # linear
         self.assertEqual(faster_than_linear(*three(0.1, 0.12, 0.15)), "")                # what does not grow
         self.assertIn("at half", faster_than_linear(*three(0.25, 1.0, 4.0)))             # quadratic
-        self.assertIn("at half", faster_than_linear(*three(0.05, 0.2, 0.8)))             # quadratic, and small
+        self.assertIn("at half", faster_than_linear(*three(0.1, 0.4, 1.6)))              # quadratic, and small
+        self.assertEqual(faster_than_linear(*three(0.24, 0.63, 1.80)), "")              # n to the 1.6, as the hook has
         # A second of what does not grow must not hide a quadratic past it, and a first run that costs more than the
         # half, as warming what the others reuse does, is not growth.
-        self.assertIn("at half", faster_than_linear(*three(1.05, 1.2, 1.8)))
+        self.assertIn("at half", faster_than_linear(*three(1.1, 1.4, 2.6)))
         self.assertEqual(faster_than_linear(*three(0.3, 0.1, 0.15)), "")
         self.assertEqual(faster_than_linear(*three(0.07, 0.03, 0.04)), "")
-        # At the edge: exactly four times and the noise is past it.
-        self.assertIn("at half", faster_than_linear(*three(0.0, 1.0, 4.1)))
-        self.assertEqual(faster_than_linear(*three(0.0, 1.0, 4.09)), "")
+        self.assertEqual(faster_than_linear(*three(1.3, 1.0, 1.5)), "")         # linear, after a warm-up the quarter paid
+        # At the edge: exactly four and a half times and the noise is past it.
+        self.assertIn("at half", faster_than_linear(*three(0.0, 1.0, 4.6)))
+        self.assertEqual(faster_than_linear(*three(0.0, 1.0, 4.59)), "")
         # The sizes a reading is run at: a quarter, half and whole, so the three spends are of three sizes on one path.
         self.assertEqual(sizes(16000), (4000, 8000, 16000))
         self.assertEqual(sizes(901), (225, 450, 901))
@@ -192,8 +194,10 @@ class Budgets(unittest.TestCase):
     def test_a_fast_hook_passes_beside_a_busy_sibling(self):
         # Siblings that spin on every core stretch the clock; the hook's CPU and the slack keep the verdict the hook's.
         # As many as the CPUs this process may use, and no more than four, so a quota-limited runner is not swamped.
-        siblings = [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(min(cores(), 4))]
-        self.addCleanup(lambda: [p.kill() or p.wait() for p in siblings])
+        siblings = []
+        self.addCleanup(lambda: [p.kill() or p.wait() for p in siblings])    # before any starts, so none is left
+        for _ in range(min(cores(), 4)):
+            siblings.append(subprocess.Popen([sys.executable, "-c", "while True: pass"]))
         time.sleep(0.5)
         with Spent() as fast:
             identity._ident("x <" * 40000 + "y")
