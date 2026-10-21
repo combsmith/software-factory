@@ -32,7 +32,8 @@ LARGEST = 64 * 1024 * 1024      # bytes an answer may hold; one larger is refuse
 CHUNK = 1024 * 1024             # bytes read at a time, so the bound costs no more memory than the answer
 # The one redirect followed: an artifact's download, to the storage GitHub keeps Actions' artifacts in, its v4 store.
 ARTIFACT = re.compile(r"/repos/[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}/actions/artifacts/[1-9][0-9]{0,18}/zip")
-STORAGE = re.compile(r"productionresultssa[0-9]{1,3}\.blob\.core\.windows\.net")
+# GitHub names twenty such accounts, sa0 to sa19, among the hosts a runner must reach; no other is GitHub's.
+STORAGE = re.compile(r"productionresultssa(?:[0-9]|1[0-9])\.blob\.core\.windows\.net")
 STORED = 64 * 1024              # bytes an artifact's download may hold: an outcome is a few bytes, zipped
 REDIRECTS = {301, 302, 303, 307, 308}
 
@@ -42,7 +43,8 @@ class Unanswered(Exception):
 
 
 class Redirected(Unanswered):
-    """A redirect GitHub answered: refused, but for an artifact's download, which `Live` follows to `storage` alone."""
+    """A redirect GitHub answered, raised by the opener and caught at once by `Live._open`, which keeps only the
+    address: no error the transport raises holds the address, or is chained to one that does."""
 
     def __init__(self, code: int, location):
         super().__init__("GitHub answered %d, a redirect; the transport follows none" % code)
@@ -137,31 +139,35 @@ class Live:
         if data is not None:
             headers["Content-Type"] = "application/json"
         sent = urllib.request.Request(url, data=data, headers=headers, method=req["method"])
-        # A connection that fails, or an answer cut short while it is read, a body or an error's, is refused.
+        answer, moved = self._open(sent, LARGEST)
+        if answer is not None:
+            return answer
+        if not req.get("follow"):
+            raise Unanswered("GitHub answered a redirect; the transport follows none")
+        # The artifact at the storage address: no token, no header of the API's, no redirect, `STORED` bytes at most.
+        fetched = urllib.request.Request(storage(moved), headers={"User-Agent": "software-factory"}, method="GET")
+        answer, moved = self._open(fetched, STORED)
+        if answer is None:
+            raise Unanswered("the artifact's storage answered a redirect; the transport follows none")
+        return answer
+
+    def _open(self, sent, largest: int) -> tuple:
+        """`(answer, None)`, or `(None, the address redirected to)`; a connection that fails, or an answer cut short
+        while it is read, a body or an error's, is refused. A 308, which Python before 3.11 hands on as an error, is a
+        redirect too, and its address is never kept in an answer."""
         try:
             try:
                 with self.opener.open(sent, timeout=self._timeout) as got:
-                    return _answer(got.status, got.headers, _bounded(got))
+                    return _answer(got.status, got.headers, _bounded(got, largest)), None
             except urllib.error.HTTPError as err:
                 with err:
-                    return _answer(err.code, err.headers, _bounded(err))
-            except Redirected as moved:
-                if not req.get("follow"):
-                    raise
-                return self._stored(storage(moved.location))
+                    if err.code in REDIRECTS:
+                        return None, urllib.parse.urljoin(sent.full_url, str(err.headers.get("Location", "")))
+                    return _answer(err.code, err.headers, _bounded(err, largest)), None
+            except Redirected as err:
+                return None, err.location
         except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as err:
             raise Unanswered("GitHub could not be reached, or its answer was cut short: %s" % type(err).__name__) from None
-
-    def _stored(self, url: str) -> dict:
-        """The artifact at the storage address: no token, no header of the API's, no redirect, `STORED` bytes at
-        most."""
-        fetched = urllib.request.Request(url, headers={"User-Agent": "software-factory"}, method="GET")
-        try:
-            with self.opener.open(fetched, timeout=self._timeout) as got:
-                return _answer(got.status, got.headers, _bounded(got, STORED))
-        except urllib.error.HTTPError as err:
-            with err:
-                return _answer(err.code, err.headers, _bounded(err, STORED))
 
 
 def _bounded(stream, largest=None) -> bytes:
@@ -210,13 +216,17 @@ class Replay:
         if self._left and self._left[0][0] == want:
             asked, answer = self._left.pop(0)
             if answer["status"] in REDIRECTS:
-                location = {str(k).lower(): v for k, v in (answer.get("headers") or {}).items()}.get("location")
                 if not req.get("follow"):
-                    raise Redirected(answer["status"], location)
+                    raise Unanswered("GitHub answered a redirect; the transport follows none")
+                location = {str(k).lower(): v for k, v in (answer.get("headers") or {}).items()}.get("location")
                 stored = ("GET", storage(location), None, _body(None))
                 if not self._left or self._left[0][0] != stored:
                     raise Unanswered("the fixture holds no answer, next, from the artifact's storage")
                 asked, answer = self._left.pop(0)
+                if answer["status"] in REDIRECTS:
+                    raise Unanswered("the artifact's storage answered a redirect; the transport follows none")
+                if isinstance(answer.get("body"), str) and len(raw(answer["body"])) > STORED:
+                    raise Unanswered("an answer over %d bytes; it is refused, not cut short" % STORED)
             return {"status": answer["status"], "headers": dict(answer.get("headers") or {}),
                     "body": answer.get("body")}
         raise Unanswered("the fixture holds no answer, next, to %s %s (%s)" % want[:3])

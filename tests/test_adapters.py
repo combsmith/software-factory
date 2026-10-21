@@ -104,7 +104,8 @@ class Transport(unittest.TestCase):
                     "https://productionresultssa7.blob.core.windows.net.evil.com/x",
                     "https://PRODUCTIONRESULTSSA7.blob.core.windows.net/x", "https://pipelines.actions.githubusercontent.com/x",
                     "https://productionresultssa7.blob.core.windows.net/x\r\nHost: e", "https://api.github.com/x",
-                    "https://productionresultssa7.blob.core.windows.net\\@evil.com/x", None, 7):
+                    "https://productionresultssa7.blob.core.windows.net\\@evil.com/x", None, 7,
+                    "https://productionresultssa20.blob.core.windows.net/x", "https://productionresultssa07.blob.core.windows.net/x"):
             with self.assertRaises(github.Unanswered, msg=url):
                 github.storage(url)
         # The replay does as the live transport does: a redirect is refused to any other request, and followed for
@@ -122,6 +123,18 @@ class Transport(unittest.TestCase):
         other[2]["request"]["call"] = "GET " + STORE.replace("0a1b", "ffff")
         with self.assertRaises(github.Unanswered):
             github.Replay(other[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        # The storage's answer is bounded, and a redirect off it refused, as the live transport does.
+        for answer in ({"status": 302, "headers": {"location": STORE}, "body": None},
+                       {"status": 200, "headers": {}, "body": "z" * (github.STORED + 1)}):
+            off = stored("o/r", 7, zipped)
+            off[2]["response"] = answer
+            with self.assertRaises(github.Unanswered):
+                github.Replay(off[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        # No error the replay raises holds the signed address.
+        try:
+            github.Replay(found[1:]).send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        except github.Unanswered as err:
+            self.assertNotIn("sig=", held(err))
 
     def test_the_live_transport_sends_no_token_to_the_storage_and_bounds_what_it_holds(self):
         sent = []
@@ -157,6 +170,21 @@ class Transport(unittest.TestCase):
             live.send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
         self.assertEqual(len(sent), 1)
 
+        # A 308, which Python before 3.11 hands on as an error, is followed the same way, and refused the same way.
+        class Permanent(Opener):
+            def open(self, req, timeout=None):
+                sent.append(req)
+                if len(sent) % 2:
+                    raise github.urllib.error.HTTPError(req.full_url, 308, "Permanent", {"Location": STORE}, io.BytesIO())
+                return Zip(b"z")
+        sent.clear()
+        live.opener = Permanent(1)
+        self.assertEqual(live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))["status"], 200)
+        self.assertEqual(sent[1].full_url, STORE)
+        with self.assertRaises(github.Unanswered) as refused:
+            live.send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        self.assertNotIn("sig=", held(refused.exception))
+
         class Elsewhere(Opener):
             def open(self, req, timeout=None):
                 sent.append(req)
@@ -165,9 +193,25 @@ class Transport(unittest.TestCase):
                 return Zip(b"z")
         sent.clear()
         live.opener = Elsewhere(1)
-        with self.assertRaises(github.Unanswered):
+        with self.assertRaises(github.Unanswered) as refused:
             live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
         self.assertEqual(len(sent), 1)
+        self.assertNotIn("evil", held(refused.exception))
+
+        # A redirect off the storage is refused, and no error raised holds the signed address, nor is chained to one.
+        class Again(Opener):
+            def open(self, req, timeout=None):
+                sent.append(req)
+                raise github.Redirected(302, STORE)
+        sent.clear()
+        live.opener = Again(1)
+        with self.assertRaises(github.Unanswered) as refused:
+            live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        self.assertEqual(len(sent), 2)
+        self.assertNotIn("sig=", held(refused.exception))
+        with self.assertRaises(github.Unanswered) as refused:
+            live.send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        self.assertNotIn("sig=", held(refused.exception))
 
     def test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect(self):
         for token in ("", " ", "a b", None):
@@ -588,6 +632,15 @@ def outcome_zip(record, member: str = artifacts.MEMBER, more: tuple = ()) -> byt
     return held.getvalue()
 
 
+def held(err: BaseException) -> str:
+    """Every text an error holds, and every error it is chained to: its message and each attribute's value."""
+    found = []
+    while err is not None:
+        found += [str(err)] + [repr(v) for v in vars(err).values()]
+        err = err.__cause__ or err.__context__
+    return " ".join(found)
+
+
 STORE = "https://productionresultssa7.blob.core.windows.net/actions-results/0a1b/outcome.zip?sig=redacted"
 
 
@@ -698,8 +751,11 @@ class Records(unittest.TestCase):
                              (read, "item", True), conclusion)
             got, _ = self.read(failed, stored(canary(), github_id, None)[0])
             self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, True), conclusion)
+            got, _ = self.read(failed, stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item")),
+                                              expired=True)[0])
+            self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, True), conclusion)
             got, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item")),
-                                               expired=True))
+                                               expired=None))
             self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, False), conclusion)
 
     def test_a_status_or_a_conclusion_github_would_not_give_a_run_makes_the_list_short(self):
@@ -768,13 +824,16 @@ class Artifacts(unittest.TestCase):
         # A listing that gives no digest is read by its size alone.
         zipped = outcome_zip(outcome_of(self.RUN, "item"))
         self.assertEqual(self.read(zipped, digest=None), ("item", True))
-        # A Run that left no outcome, as a killed one does, is read whole with none.
+        # A Run that left no outcome, as a killed one does, is read whole with none, and so is one past its retention,
+        # which is never downloaded.
         self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, None)), "o/r", 7, self.RUN), (None, True))
+        expired = stored("o/r", 7, zipped, expired=True)[:1]
+        self.assertEqual(artifacts.outcome(github.Replay(expired), "o/r", 7, self.RUN), (None, True))
 
     def test_an_outcome_that_cannot_be_read_whole_is_not_whole(self):
         good = outcome_of(self.RUN, "item")
         zipped = outcome_zip(good)
-        for listed in ({"expired": True}, {"expired": None}, {"size_in_bytes": 0}, {"size_in_bytes": True}, {"size_in_bytes": len(zipped) + 1},
+        for listed in ({"expired": None}, {"expired": "false"}, {"size_in_bytes": 0}, {"size_in_bytes": True}, {"size_in_bytes": len(zipped) + 1},
                        {"digest": "sha256:" + "0" * 64}, {"digest": "md5:x"}, {"id": True}, {"id": 0}):
             transport = github.Replay(stored("o/r", 7, zipped, **listed))
             self.assertEqual(artifacts.outcome(transport, "o/r", 7, self.RUN), (None, False), listed)
@@ -812,12 +871,18 @@ class Artifacts(unittest.TestCase):
                 artifacts.outcome(github.Replay(found), "o/r", 7, self.RUN)
 
     def test_an_outcome_is_held_in_the_bounds_before_it_is_read_out(self):
-        # A file the zip says is over the bound is never read; one the zip under-states is read no further than it.
+        # A file the zip says is over the bound is never read.
         wide = io.BytesIO()
         with zipfile.ZipFile(wide, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr(artifacts.MEMBER, "{" + " " * (10 * artifacts.HELD) + "}")
         self.assertIsNone(artifacts._member(wide.getvalue()))
         self.assertEqual(artifacts._member(outcome_zip("{}")), b"{}")
+        # Only a file stored or deflated is read: bzip2 and LZMA decompress a whole chunk past any bound Python sets.
+        for method in (zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA, zipfile.ZIP_STORED):
+            packed = io.BytesIO()
+            with zipfile.ZipFile(packed, "w", method) as archive:
+                archive.writestr(artifacts.MEMBER, "{}")
+            self.assertEqual(artifacts._member(packed.getvalue()), b"{}" if method == zipfile.ZIP_STORED else None, method)
 
 
 APPROVER = "donpetry-bot"        # the machine user, as config/defaults.json names the approver
