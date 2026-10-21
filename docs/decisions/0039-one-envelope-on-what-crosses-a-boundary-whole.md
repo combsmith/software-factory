@@ -90,5 +90,5 @@ table, is a reserved path, so the table is data now.
 | Every pass uploads a `pass/1` with every key of the context, every run record and every read's `date` and `age`; the Controller mints `pass` and `run`, and writes `run` beside the Decision that admitted it | waiting on `controller/` |
 | The feed's two files are written by one pass, carrying its id; `next_actor` and `decision_required` are read from `config/feed.json` and from nothing else | waiting on `controller/` |
 | `apply` uploads `applied/1` with every Effect it met and every Finding it posted, and a final step writes `outcome/1` | waiting on `harness/` |
-| The records port reads a Run's `outcome/1` only for a Run that did not succeed | waiting on `adapters/records.py` |
+| The records port reads a Run's `outcome/1` only for a Run that did not succeed | waiting on `adapters/artifacts.py` |
 | A shadow's Intents permit no Effect and spend from `shadow`; an owner's `owns` agrees with `config/authority.json`; a Role's `name` is its file's; the manifests join `LIVE` | waiting on `roles/` |

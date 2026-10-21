@@ -1,10 +1,10 @@
 # adapters/
 
 All of the Factory's I/O. `github.py` is the one transport: every request to GitHub goes through it, and nothing else in
-this repo reaches the network. `pull.py` reads the facts of a pull request that its own reads give. A port decides nothing
+this repo reaches the network. `pull.py` reads the facts of a pull request that its own reads give, and `records.py` the Factory's own run records. A port decides nothing
 and hands the Kernel no text: what it cannot read whole it says is short, and the title travels beside the facts.
 
-Not built yet, by the stories that hold their rules: records.py, timeline.py, checks.py, facts.py, acceptance.py, issues.py, settings.py, effects.py.
+Not built yet, by the stories that hold their rules: timeline.py, checks.py, facts.py, acceptance.py, issues.py, settings.py, effects.py, artifacts.py.
 
 | Rule | Held by |
 |---|---|
@@ -16,5 +16,7 @@ Not built yet, by the stories that hold their rules: records.py, timeline.py, ch
 | A fact that cannot be read is null or refused, never guessed | `tests/test_adapters.py::test_an_activity_that_has_not_caught_up_with_the_head_names_no_one` |
 | A head that moved while it was read is refused | `tests/test_adapters.py::test_a_head_that_moved_while_it_was_read_is_refused` |
 | An account is told by its id and its type, a Bot for an App and a User for the Maintainer, as the caller names it; anyone else is `outside` | `tests/test_adapters.py::test_the_class_is_the_account_named_or_outside` |
+| A run counts only as a dispatch of a Role's workflow from this repo's default branch; its name says whose it is | `tests/test_adapters.py::test_only_a_dispatch_of_a_role_workflow_from_the_default_branch_in_this_repo_counts` |
+| A counted run not yet named is reported by its id after one more read 5 s later, and every read of runs is uncached | `tests/test_adapters.py::test_a_run_listed_under_its_workflows_name_is_unidentified_after_one_more_read` |
 | The title is handed beside the facts, never in them | `tests/test_adapters.py::test_the_pull_requests_own_facts_and_the_title_beside_them` |
 | A rule of a part not built yet waits on the file named above, and the story that builds it re-points its rows | `tests/test_tools.py::test_a_wait_on_a_file_a_built_directory_plans_holds_until_the_file_exists` |
