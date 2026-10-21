@@ -144,6 +144,42 @@ class Transport(unittest.TestCase):
         except github.Unanswered as err:
             self.assertNotIn("sig=", held(err))
 
+    def test_a_redirects_address_is_read_alike_by_both_transports_and_never_named_when_refused(self):
+        # A malformed address is refused, never let through as another error, and the refusal does not name it.
+        for url in ("https://[productionresultssa7.blob.core.windows.net&sig=secret]/actions-results/x",
+                    "https://[::1/actions-results/x?sig=secret"):
+            with self.assertRaises(github.Unanswered) as refused:
+                github.storage(url)
+            self.assertNotIn("sig=", held(refused.exception))
+        # The live transport reads a redirect's address as the replay does, joined to the address asked and never
+        # quoted first, as urllib's own handler would: an address with a space is refused by both.
+        asked = github.urllib.request.Request("https://api.github.com/repos/o/r/actions/artifacts/9/zip")
+        relative = "//productionresultssa7.blob.core.windows.net/actions-results/0a1b/outcome.zip?sig=redacted"
+        for location, joined in ((relative, "https:" + relative), (STORE + " b", STORE + " b")):
+            with self.assertRaises(github.Redirected) as moved:
+                github._NoRedirect().http_error_302(asked, None, 302, "Found", {"Location": location})
+            self.assertEqual(moved.exception.location, joined)
+        found = stored("o/r", 7, outcome_zip("{}"))
+        found[1]["response"]["headers"]["location"] = relative
+        found[2]["request"]["call"] = "GET https:" + relative
+        self.assertEqual(github.Replay(found[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))["status"],
+                         200)
+        spaced = stored("o/r", 7, outcome_zip("{}"), store=STORE + "%20b")
+        spaced[1]["response"]["headers"]["location"] = STORE + " b"
+        with self.assertRaises(github.Unanswered):
+            github.Replay(spaced[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        # A download GitHub answers itself, with no redirect, is bounded as the storage's answer is, by both.
+        big = {"request": {"via": "rest", "call": "GET /repos/o/r/actions/artifacts/9/zip", "headers": {}},
+               "response": {"status": 200, "headers": {}, "body": "z" * (github.STORED + 1)}}
+        with self.assertRaises(github.Unanswered):
+            github.Replay([big]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        # The replay checks a request as the live transport does: one built by hand to follow elsewhere is refused.
+        elsewhere = copy.deepcopy(stored("o/r", 7, outcome_zip("{}")))
+        elsewhere[1]["request"]["call"] = "GET /repos/o/r/pulls/1"
+        with self.assertRaises(github.Unanswered):
+            github.Replay(elsewhere[1:]).send({"method": "GET", "path": "/repos/o/r/pulls/1", "accept": github.JSON,
+                                               "body": None, "follow": True})
+
     def test_the_live_transport_sends_no_token_to_the_storage_and_bounds_what_it_holds(self):
         sent = []
 
@@ -169,6 +205,14 @@ class Transport(unittest.TestCase):
         self.assertEqual((second.full_url, second.get_method()), (STORE, "GET"))
         self.assertEqual({k.lower() for k, _ in second.header_items()}, {"user-agent"})
         live.opener = Opener(github.STORED + 1)
+        with self.assertRaises(github.Unanswered):
+            live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+
+        class Direct(Opener):
+            def open(self, req, timeout=None):
+                sent.append(req)
+                return Zip(b"z" * self.size)
+        live.opener = Direct(github.STORED + 1)
         with self.assertRaises(github.Unanswered):
             live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
         # Any other request that GitHub redirects is refused; and so is a redirect off the storage.
@@ -906,6 +950,21 @@ class Artifacts(unittest.TestCase):
             archive.writestr(artifacts.MEMBER, "{" + " " * (10 * artifacts.HELD) + "}")
         self.assertIsNone(artifacts._member(wide.getvalue()))
         self.assertEqual(artifacts._member(outcome_zip("{}")), b"{}")
+        # ... and never opened, so no byte of it is decompressed.
+        opened = []
+        real = zipfile.ZipFile.open
+        try:
+            zipfile.ZipFile.open = lambda *a, **k: opened.append(a) or real(*a, **k)
+            self.assertIsNone(artifacts._member(wide.getvalue()))
+        finally:
+            zipfile.ZipFile.open = real
+        self.assertEqual(opened, [])
+        # An encrypted file, which Python will not open without its password, is not read.
+        locked = bytearray(outcome_zip("{}"))
+        for header, flag in ((b"PK\x03\x04", 6), (b"PK\x01\x02", 8)):
+            at = bytes(locked).index(header) + flag
+            locked[at] |= 0x1
+        self.assertIsNone(artifacts._member(bytes(locked)))
         # Only a file stored or deflated is read: bzip2 and LZMA decompress a whole chunk past any bound Python sets.
         for method in (zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA, zipfile.ZIP_STORED):
             packed = io.BytesIO()
