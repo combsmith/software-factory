@@ -4084,6 +4084,11 @@ class Mutants(unittest.TestCase):
                     for a in n.names for name in (clock if a.name == "*" else [a.asname or a.name] if a.name in clock else [])}
             judges = {a.asname or a.name for n in ast.walk(module) if isinstance(n, ast.ImportFrom)
                       and n.module == "tests.support" for a in n.names if a.name in judging}
+            # The module itself, however imported, so support.within(...) is read as within(...) is (Muse on PR 257).
+            supports = ({a.asname or a.name for n in ast.walk(module) if isinstance(n, ast.ImportFrom)
+                         and n.module == "tests" for a in n.names if a.name == "support"}
+                        | {a.asname for n in ast.walk(module) if isinstance(n, ast.Import) for a in n.names
+                           if a.name == "tests.support" and a.asname})
             for owner in [n for n in ast.walk(module) if isinstance(n, ast.ClassDef)]:
                 for node in owner.body:
                     if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
@@ -4094,6 +4099,8 @@ class Mutants(unittest.TestCase):
                     if any((isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in modules
                             and n.attr in clock) or (isinstance(n, ast.Name) and n.id in bare)
                            or (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in judges)
+                           or (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in judging
+                               and isinstance(n.func.value, ast.Name) and n.func.value.id in supports)
                            for n in ast.walk(node)):
                         reads.add(where)
         # The order of the runs is told by a stand-in that sleeps: that test reads no clock of its own.

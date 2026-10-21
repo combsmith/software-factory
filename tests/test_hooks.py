@@ -21,7 +21,7 @@ import time
 import unittest
 from unittest import mock
 
-from tests.support import Spent, faster_than_linear, linear, over, slack, wall_clock, within
+from tests.support import Spent, cores, faster_than_linear, linear, over, sizes, slack, wall_clock, within
 from tools.hooks import after_edit, before_stop, identity, protected, rules_changed, shell
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -141,23 +141,40 @@ class Budgets(unittest.TestCase):
 
     def test_a_slow_hook_fails_and_a_loaded_machine_does_not(self):
         # Spends written down, not measured, so the verdict is the same on any machine and under the mutation check.
-        with mock.patch("os.getloadavg", return_value=(0.0, 0.0, 0.0)), mock.patch("os.cpu_count", return_value=4):
+        with mock.patch("os.getloadavg", return_value=(0.0, 0.0, 0.0)), mock.patch("tests.support.cores", return_value=4):
             self.assertEqual(slack(), 2.0)
             self.assertEqual(over(self.spent(0.9, 1.9), 1), "")        # within its CPU, and within twice by the clock
             self.assertIn("of CPU", over(self.spent(1.1, 1.1), 1))     # its own CPU past the budget: a slow hook
             self.assertIn("by the clock", over(self.spent(0.1, 2.1), 1))   # a hook that waits, on an idle machine
-        with mock.patch("os.getloadavg", return_value=(80.0, 0.0, 0.0)), mock.patch("os.cpu_count", return_value=10):
+            self.assertIn("of CPU", over(self.spent(1.0, 0.5), 1))     # at the budget is past it: it must be under
+            self.assertIn("by the clock", over(self.spent(0.5, 2.0), 1))   # and so is the clock at its ceiling
+        with mock.patch("os.getloadavg", return_value=(80.0, 0.0, 0.0)), mock.patch("tests.support.cores", return_value=10):
             self.assertEqual(slack(), 16.0)
             self.assertEqual(over(self.spent(0.9, 15.0), 1), "")       # a machine at eight times its cores
             self.assertIn("of CPU", over(self.spent(10.0, 10.0), 1))   # a slow hook still fails there
         with mock.patch("os.getloadavg", side_effect=OSError):
             self.assertEqual(slack(), 2.0)
+        # The CPUs the process may use, not the machine's, where the system says.
+        with mock.patch("os.sched_getaffinity", return_value={0, 1}, create=True), mock.patch("os.cpu_count", return_value=64):
+            self.assertEqual(cores(), 2)
+        with mock.patch("os.sched_getaffinity", side_effect=AttributeError, create=True), mock.patch("os.cpu_count", return_value=None):
+            self.assertEqual(cores(), 1)
 
     def test_a_reading_that_grows_faster_than_its_size_fails(self):
-        # Twice the size: twice the CPU is linear and passes, four times is quadratic and fails, whatever the load.
-        self.assertEqual(faster_than_linear(self.spent(1.0, 9.0), self.spent(2.0, 30.0)), "")
-        self.assertEqual(faster_than_linear(self.spent(0.01, 0.01), self.spent(0.2, 0.2)), "")   # what does not grow
-        self.assertIn("at half", faster_than_linear(self.spent(1.0, 1.0), self.spent(4.0, 4.0)))
+        # Twice the size: twice the CPU past size 0 is linear and passes, four times is quadratic and fails, whatever
+        # the load and however small; what costs the same at every size, such as git, is not growth.
+        none = self.spent(0.1, 0.1)
+        self.assertEqual(faster_than_linear(none, self.spent(1.1, 9.0), self.spent(2.1, 30.0)), "")
+        self.assertEqual(faster_than_linear(none, self.spent(0.12, 0.12), self.spent(0.15, 0.15)), "")
+        self.assertEqual(faster_than_linear(self.spent(0.07, 0.07), self.spent(0.03, 0.03), self.spent(0.04, 0.04)), "")
+        self.assertIn("at half", faster_than_linear(none, self.spent(1.1, 1.1), self.spent(4.1, 4.1)))
+        self.assertIn("at half", faster_than_linear(self.spent(0.0, 0.0), self.spent(0.2, 0.2), self.spent(0.8, 0.8)))
+        # At the edge: exactly three times and the noise is past it.
+        self.assertIn("at half", faster_than_linear(self.spent(0.0, 0.0), self.spent(1.0, 1.0), self.spent(3.1, 3.1)))
+        self.assertEqual(faster_than_linear(self.spent(0.0, 0.0), self.spent(1.0, 1.0), self.spent(3.09, 3.09)), "")
+        # The sizes a reading is run at: none, half and whole, so the three spends are of three sizes.
+        self.assertEqual(sizes(16000), (0, 8000, 16000))
+        self.assertEqual(sizes(901), (0, 450, 901))
 
     def test_the_cpu_a_child_spends_is_counted(self):
         # The hook runs git; what git spends is the hook's too. CPU time, so a busy machine does not change it.
@@ -169,7 +186,8 @@ class Budgets(unittest.TestCase):
     @wall_clock
     def test_a_fast_hook_passes_beside_a_busy_sibling(self):
         # Siblings that spin on every core stretch the clock; the hook's CPU and the slack keep the verdict the hook's.
-        siblings = [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(os.cpu_count() or 1)]
+        # As many as the CPUs this process may use, and no more than four, so a quota-limited runner is not swamped.
+        siblings = [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(min(cores(), 4))]
         self.addCleanup(lambda: [p.kill() or p.wait() for p in siblings])
         time.sleep(0.5)
         with Spent() as fast:

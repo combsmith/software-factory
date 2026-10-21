@@ -50,6 +50,15 @@ class Spent:
         return False
 
 
+def cores() -> int:
+    """The CPUs this process may run on: its affinity where the system says, as a container's or a quota's runner
+    does, else the machine's count; at least one (Codex on PR 257)."""
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return max(1, os.cpu_count() or 1)
+
+
 def slack() -> float:
     """How many times its CPU budget a block may take by the clock on this machine now: twice, and more by as much as
     the load is above the cores, so a loaded machine is not read as a slow hook (issue 253)."""
@@ -57,7 +66,7 @@ def slack() -> float:
         load = os.getloadavg()[0]
     except (AttributeError, OSError):
         load = 0.0
-    return 2.0 * max(1.0, load / (os.cpu_count() or 1))
+    return 2.0 * max(1.0, load / cores())
 
 
 def over(spent: Spent, budget: float) -> str:
@@ -71,13 +80,22 @@ def over(spent: Spent, budget: float) -> str:
     return ""
 
 
-def faster_than_linear(half: Spent, whole: Spent) -> str:
-    """Why a reading of twice the size grew faster than linearly from the half, or "": it may cost three times the CPU of
-    the half, and a quarter of a second over for what does not grow, such as the git the hook runs. Twice is linear,
-    four times is quadratic, and both are measured in the same run, so a loaded machine slows both alike (issue 253)."""
-    if whole.cpu >= 3 * half.cpu + 0.25:
-        return "cost %.2f s of CPU at its size, against %.2f s at half" % (whole.cpu, half.cpu)
+def faster_than_linear(base: Spent, half: Spent, whole: Spent) -> str:
+    """Why a reading of twice the size grew faster than linearly from the half, or "": what it costs past `base`, the
+    same reading at size 0, which is what does not grow, such as the git the hook runs, may be three times what the half
+    costs past it, and a tenth of a second over for the noise of a measure. Twice is linear, four times is quadratic,
+    and all three are measured in the same run, so a loaded machine slows them alike (issue 253; Muse on PR 257)."""
+    floor = min(base.cpu, half.cpu)    # the first run warms what the others reuse, so size 0 can cost more than half
+    grew, grew_half = whole.cpu - floor, half.cpu - floor
+    if grew >= 3 * grew_half + 0.1:
+        return "cost %.2f s of CPU at its size past %.2f s at size 0, against %.2f s at half" % (whole.cpu, base.cpu,
+                                                                                               half.cpu)
     return ""
+
+
+def sizes(size: int) -> tuple:
+    """The sizes a reading is run at to tell how it grows: none, half and whole."""
+    return 0, size // 2, size
 
 
 def within(test, spent: Spent, budget: float, what: str = "") -> None:
@@ -85,19 +103,21 @@ def within(test, spent: Spent, budget: float, what: str = "") -> None:
     test.assertEqual(over(spent, budget), "", what)
 
 
-def grows_linearly(test, half: Spent, whole: Spent, what: str = "") -> None:
+def grows_linearly(test, base: Spent, half: Spent, whole: Spent, what: str = "") -> None:
     """Fail `test` unless the reading grew linearly, as `faster_than_linear` reads it."""
-    test.assertEqual(faster_than_linear(half, whole), "", what)
+    test.assertEqual(faster_than_linear(base, half, whole), "", what)
 
 
 def linear(test, run, size: int, budget: float, what: str = ""):
-    """`run(size)`'s result, failing `test` unless it kept to `budget` and grew linearly from `run(size // 2)`."""
-    with Spent() as half:
-        run(size // 2)
-    with Spent() as whole:
-        result = run(size)
-    within(test, whole, budget, what)
-    grows_linearly(test, half, whole, what)
+    """`run(size)`'s result, failing `test` unless it kept to `budget` and grew linearly from `run(0)` and
+    `run(size // 2)`, the `sizes` of it."""
+    spent = []
+    for n in sizes(size):
+        with Spent() as one:
+            result = run(n)
+        spent.append(one)
+    within(test, spent[-1], budget, what)
+    grows_linearly(test, *spent, what)
     return result
 
 
