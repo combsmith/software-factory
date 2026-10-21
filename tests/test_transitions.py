@@ -1155,10 +1155,11 @@ def opens_own(draft: bool):
 
 
 def closes_issue(item: dict):
-    """A person closes the issue."""
+    """A person closes the issue: the first close of its present life, since no change here reopens one."""
     if item["facts"]["state"] != "open":
         return None
     item["facts"]["state"] = "closed"
+    item["facts"]["closed_first_at"] = now(item)
     return item
 
 

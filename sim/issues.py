@@ -81,6 +81,8 @@ class IssueWorld:
         self.state = "open"            # as GitHub holds it
         self.life_started = 0          # when the present life began: opened, or last reopened by a writer
         self.reopened_last_by = "never"
+        self.closed = None             # when the present life was first closed, from its timeline; None while not
+        self.reopened_last = None      # when the issue was last reopened, by anyone; None while never
         self.content = 1
         self.content_changed = 0
         self.type = None
@@ -173,11 +175,14 @@ class IssueWorld:
     def facts(self) -> dict:
         return {
             "schema": "issue-facts/1", "item": dict(ITEM), "state": self.state,
+            # GitHub: an_issues_close_and_reopening_say_when
+            "closed_first_at": None if self.closed is None else World.at(self.closed),
             # GitHub: an_issues_author_has_an_association
             "author": dict(self.author), "type": self.type, "label_names": list(self.label_names),
             "assignees": [],
             # GitHub: a_reopening_names_its_actor
             "life_started_at": World.at(self.life_started), "reopened_last_by": self.reopened_last_by,
+            "reopened_last_at": None if self.reopened_last is None else World.at(self.reopened_last),
             # GitHub: an_issues_content_time_is_read_apart
             "content_id": self.cid(), "content_changed_at": World.at(self.content_changed),
             # GitHub: a_label_event_names_its_actor
@@ -516,7 +521,7 @@ class IssueWorld:
                 # change in the facts is the platform's, as the pull request's Lifecycle says of a queued merge. Only
                 # while the issue is in review: the Controller dequeues the pull request of an issue a person held or
                 # closed (the Maintainer's ruling on issue 227), so no merge lands while the issue is held or
-                # declined, nor from new. The Kernel still reads such a merge as done; issue 237 builds the Hold.
+                # declined, nor from new. Were one to land, the Kernel would read it as never done (issue 237).
                 p.update(open=False, merged_at=self.now(), closed_at=self.now(), empty=False)
                 self.moves()
                 self.note("#%d merged by the queue" % p["number"])
@@ -620,6 +625,8 @@ class IssueWorld:
         if self.state == "closed":
             return
         self.state = "closed"
+        if self.closed is None:
+            self.closed = self.minute
         self.writer_acted()
         self.note("%s closed the issue" % who["name"])
 
@@ -628,10 +635,10 @@ class IssueWorld:
         opening did: `declined` is an end of the life that closed, and the new life's first State is no transition
         from it. A Hold, an admission and hands-off outlast it (section 4.1). By anyone else, the issue stays
         declined."""
-        self.state = "open"
+        self.state, self.reopened_last = "open", self.minute
         # GitHub: a_reopening_names_its_actor
         if self.is_person(who):
-            self.life_started = self.minute
+            self.life_started, self.closed = self.minute, None
             self.reopened_last_by = "writer"
             self.writer_acted()
             self.starts()

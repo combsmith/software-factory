@@ -100,6 +100,20 @@
       ]
     },
     {
+      "reason": "merged_while_held",
+      "question": "merged_while_held",
+      "choices": [
+        "end_hold"
+      ]
+    },
+    {
+      "reason": "merged_while_declined",
+      "question": "merged_while_declined",
+      "choices": [
+        "reopen"
+      ]
+    },
+    {
       "reason": "outside_not_admitted",
       "question": "admit_outside_work",
       "choices": [

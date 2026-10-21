@@ -542,6 +542,7 @@ An issue has facts of its own (§4.1, the issue Lifecycle):
 | `item`, `state`, `author` | Identity, open or closed, and the opening actor: its kind, name and write access, as any actor in the facts. Only a person who opened it accepts it by authorship |
 | `type`, `label_names`, `assignees` | The issue's type, every label's name, and who it is assigned to |
 | `life_started_at`, `reopened_last_by` | When it was opened, or last reopened by a person with write access; and whether its latest reopening was by such a person, by someone else, or never happened |
+| `closed_first_at`, `reopened_last_at` | When its present life was first closed, from its timeline, null while it has not been: a time while it is closed, and while it is open only where anyone but a writer reopened it last and so undid a close of this life; and when it was last reopened, by anyone, null if never: a writer's reopening is the start of the present life, anyone else's no earlier. Each is read whole or the issue defers; against them a merge is placed before or after the first close of this life, an outsider's reopening and a Hold (§4.1, row 1) |
 | `content_id`, `content_changed_at` | A hash of the title and body, computed by the port, and when either last changed |
 | `label_events` | Every `labeled` and `unlabeled` event on the timeline, as on a pull request: the label, who added or removed it (kind, name and write access), and when. The control labels are read from them alone; every other label is in `label_names` |
 | `linked` | Each pull request that closes it: number, `class` as the port gives it for a pull request, opening actor, open, draft, `opened_at` (decision 0034), `merged_at`, `closed_at`, whether its diff was empty, and its own `label_events`, from which its Hold, hands-off and whether a person once admitted it are read |
@@ -1299,7 +1300,7 @@ write access.
 
 | # | If | State | Next actor |
 |---|---|---|---|
-| 1 | A linked pull request merged with a non-empty diff in its present life, whether or not GitHub has yet closed the issue | `done` | None |
+| 1 | A linked pull request merged with a non-empty diff in its present life, whether or not GitHub has yet closed the issue. Unless, when the first such merge landed, a person had closed the issue in this life, anyone but a writer had reopened it, or a Hold stood (whoever placed it, or hands-off a person did not place, on the issue or its linked draft) with no person's hands-off beside it: then the State a person put it in stays, `declined` or `held`, and the reason names the contradiction, `merged_while_declined` or `merged_while_held` (§4.5, issue 227) | `done` | None |
 | 2 | Closed in any other way, an empty merge and a commit's closing keyword among them. It stays so if anyone but a person with write access reopens it | `declined` | None |
 | 3 | The Consumer entry does not serve it; or it, or its linked draft, carries `factory:hands-off` | `not_served` | A person |
 | 4 | It carries `factory:hold`, whoever added it; or its linked draft pull request does; or more than one linked pull request is open; or its Run ceiling is reached while it wants a Run (decision 0003) | `held` | As the Hold states |
@@ -1689,9 +1690,11 @@ own after an outsider had reopened it (seed 99). The Lifecycle now declares `in_
 platform, the queue's merge. The queue makes no merge in the world while the issue is held or declined,
 and a person none while it is declined: the Controller dequeues the Factory's pull request when a person
 closes or holds its issue, as the Maintainer ruled (issue 227, "Design: does a merge end a held or a
-declined issue?"). The Kernel still reads such a merge as `done`; that it becomes a Hold naming the
-contradiction is a Kernel story not built yet, with its boundary case and mutant (issue 237, "Kernel: a
-merge read while an issue is held or declined is a Hold, not done"). The Hold the brakes place for unmerged closes (I-43) is placed on a `new` issue too,
+declined issue?"). The Kernel reads such a merge as the platform doing what the Controller should have prevented:
+never `done`; the State a person put the issue in stays, and the reason names the contradiction, `merged_while_declined`
+or `merged_while_held`, placed by time against the first merge in the life from the first close of the issue's present life, its last
+reopening and the label's own time (§4.1, row 1; issue 237, "Kernel: a merge read while an issue is held or declined
+is a Hold, not done"). The Hold the brakes place for unmerged closes (I-43) is placed on a `new` issue too,
 an outsider's whose colleague closed their own pull requests (seed 137); the Lifecycle now declares
 `new → held` by the Factory. Past the fixed seeds, an outsider's edit lapsed acceptance from `in_review`
 (seed 617), and a Run admitted on a stale read showed a `new` issue in progress until it superseded

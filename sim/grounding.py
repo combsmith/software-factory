@@ -139,6 +139,8 @@ RULES = (
      "anything on it changed", ("P-34",), "trials/P-34.json"),
     ("a_reopening_names_its_actor", "Each reopening of an issue is on its timeline, with who did it", ("P-34",),
      "trials/P-34.json"),
+    ("an_issues_close_and_reopening_say_when", "Each close and each reopening of an issue is on its timeline with "
+     "its time, so the first close of its present life is read across a reopening", ("P-34",), "trials/P-34.json"),
     ("an_issues_run_record_expires", "A run record is gone from the list once it is past the retention", ("P-16",),
      None),
     ("a_draft_is_not_merged", "A draft pull request cannot be merged, by a person or by the queue", (), None),
