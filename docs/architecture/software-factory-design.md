@@ -355,6 +355,9 @@ see. An act that stops work, a Hold label or a dequeue, is counted and never ref
 is missing, negative or not a whole number is unreadable: the Kernel defers and makes no act
 (I-13). The count comes from the timeline, which is paged like any list, and `complete.timeline`
 says whether it was read in full: a timeline read short undercounts, and the item defers (I-20).
+A timeline's `totalCount` counts every item whatever types were asked, so a timeline read whole
+is told by its last page's `hasNextPage` being false, never by that count nor by a page
+shorter than was asked (P-33).
 The count bounds acts only; a Run is bounded by the Run ceiling.
 
 A check's `conclusion` is GitHub's own word, or the check's status while it has not concluded.
@@ -543,7 +546,7 @@ An issue has facts of its own (§4.1, the issue Lifecycle):
 | `type`, `label_names`, `assignees` | The issue's type, every label's name, and who it is assigned to |
 | `life_started_at`, `reopened_last_by` | When it was opened, or last reopened by a person with write access; and whether its latest reopening was by such a person, by someone else, or never happened |
 | `closed_first_at`, `reopened_last_at` | When its present life was first closed, from its timeline, null while it has not been: a time while it is closed, and while it is open only where anyone but a writer reopened it last and so undid a close of this life; and when it was last reopened, by anyone, null if never: a writer's reopening is the start of the present life, anyone else's no earlier. Each is read whole or the issue defers; against them a merge is placed before or after the first close of this life, an outsider's reopening and a Hold (§4.1, row 1) |
-| `content_id`, `content_changed_at` | A hash of the title and body, computed by the port, and when either last changed |
+| `content_id`, `content_changed_at` | A hash of the title and body, computed by the port, and when either last changed. The body's last edit is the issue's `lastEditedAt`; the title's is the timeline's rename event; the content's time is the newer of the two, which the port computes, and the issue's creation while neither has moved. The port reads no list of the body's edits: the first edit of a body leaves an edit dated at the issue's creation beside it, for the original content (P-34, read on the Maintainer's own edits) |
 | `label_events` | Every `labeled` and `unlabeled` event on the timeline, as on a pull request: the label, who added or removed it (kind, name and write access), and when. The control labels are read from them alone; every other label is in `label_names` |
 | `linked` | Each pull request that closes it: number, `class` as the port gives it for a pull request, opening actor, open, draft, `opened_at` (decision 0034), `merged_at`, `closed_at`, whether its diff was empty, and its own `label_events`, from which its Hold, hands-off and whether a person once admitted it are read |
 | `role_comments` | For each Factory App that has commented: the time of its latest comment |
@@ -1186,7 +1189,11 @@ condition of the content, `empty_diff` or `too_large`, ends when the diff change
 verifying` is declared by `human` and by `platform`. `not_served` is not terminal:
 GitHub serves a stacked pull request when it retargets it at the default branch, which takes it
 to `verifying` or `draft` by `platform`, and a person may close it. Every way into `not_served`
-is a person's, so no cycle passes through it without one. Re-running a check on unchanged content
+is a person's, so no cycle passes through it without one. A pull request to a base that is not
+the default branch carries no closing reference from the keywords in its description, which
+GitHub enforces (P-33). A link a person makes by hand was not tried, and GitHub may list it, so
+the port reads a pull request as `linked` only while its base is the default branch.
+Re-running a check on unchanged content
 is a person's act too. A Lens reports once for each run on a `content_id`, unchanged content admits no
 second model review (I-11), and no Effect re-runs a check (§3.6). Nor can a Factory workflow: a
 re-run needs a write, and under "Nothing is granted that is not named" in
@@ -1300,7 +1307,7 @@ write access.
 
 | # | If | State | Next actor |
 |---|---|---|---|
-| 1 | A linked pull request merged with a non-empty diff in its present life, whether or not GitHub has yet closed the issue. Unless, when the first such merge landed, a person had closed the issue in this life, anyone but a writer had reopened it, or a Hold stood (whoever placed it, or hands-off a person did not place, on the issue or its linked draft) with no person's hands-off beside it: then the State a person put it in stays, `declined` or `held`, and the reason names the contradiction, `merged_while_declined` or `merged_while_held` (§4.5, issue 227) | `done` | None |
+| 1 | A linked pull request merged with a non-empty diff in its present life, whether or not GitHub has yet closed the issue (P-33: the issue closed a second after the merge, and its closed event two). Unless, when the first such merge landed, a person had closed the issue in this life, anyone but a writer had reopened it, or a Hold stood (whoever placed it, or hands-off a person did not place, on the issue or its linked draft) with no person's hands-off beside it: then the State a person put it in stays, `declined` or `held`, and the reason names the contradiction, `merged_while_declined` or `merged_while_held` (§4.5, issue 227) | `done` | None |
 | 2 | Closed in any other way, an empty merge and a commit's closing keyword among them. It stays so if anyone but a person with write access reopens it | `declined` | None |
 | 3 | The Consumer entry does not serve it; or it, or its linked draft, carries `factory:hands-off` | `not_served` | A person |
 | 4 | It carries `factory:hold`, whoever added it; or its linked draft pull request does; or more than one linked pull request is open; or its Run ceiling is reached while it wants a Run (decision 0003) | `held` | As the Hold states |
@@ -1414,8 +1421,12 @@ close opens a second pull request and never finds the first. The first push is o
 an opening Run dies after pushing, the branch holds all of it; the next opening Run finds the
 branch, pushes nothing, and opens the pull request from what is there. From the fix and implement Intents onward the first commit is
 `qa-lead`'s contract and its failing tests (§4.8). The closing reference GitHub holds is the only
-join between the two items; it is read at every pass and written nowhere else. A pull request the
-Factory opens closes exactly one issue.
+join between the two items; it is read at every pass and written nowhere else. The join is read
+from each pull request's own closing references, never from the issue's cross-reference
+events, which anyone may cause by naming the issue and which say a pull request will close it
+only while it is open, unmerged and to the default branch, and nothing once the issue is closed
+(P-33). A pull request the Factory opens closes
+exactly one issue.
 
 While the linked pull request is a draft, the issue's Lifecycle governs and the pull request's
 does nothing. Runs are admitted on the issue, and the issue's facts carry the draft's own.
