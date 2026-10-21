@@ -886,7 +886,7 @@ one queues (P-44); a person's cancel of a waiting Run reads the same, and then t
 the attempts, bounds it. GitHub lists a Run waiting for its group as `pending`, which the records
 port reads as `queued` (`adapters/records.py`). The simulator's lane holds this
 (`tests/test_simulator.py::test_a_newer_run_cancels_the_one_waiting_in_each_world`); the outcome of
-a Run that did not succeed waits on `adapters/artifacts.py`. The `capacity` outcome is the capacity signal the PRD has lacked (OQ-3): observed, not
+a Run that did not succeed is read from its artifact by `adapters/artifacts.py`, through the transport's one redirect. The `capacity` outcome is the capacity signal the PRD has lacked (OQ-3): observed, not
 estimated. One cause must never become fifty Holds.
 
 **The act Run.** An approval is a Run with no Engine, Intent `issue-approval`, because only `apply`
