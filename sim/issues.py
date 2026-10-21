@@ -685,7 +685,7 @@ class IssueWorld:
             p["draft"] = not p["draft"]
             self.note("%s %s #%d" % (who["name"], "converted to draft" if p["draft"] else "marked ready", p["number"]))
         elif roll < 0.6 and self.true_state != issue.DECLINED and not p["draft"]:
-            # GitHub refuses to merge a draft; a person merges a ready pull request alone.
+            # GitHub: a_draft_is_not_merged
             # Not while the issue is declined, closed or reopened by an outsider: the Lifecycle lets nothing out of
             # declined, and the Kernel would read the merge as done (issue 237 builds the Hold for it). A person's
             # merge while the issue is held stands: the Lifecycle declares held -> done by a person.

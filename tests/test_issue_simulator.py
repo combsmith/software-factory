@@ -21,17 +21,18 @@ STEPS = 250
 # One the world starts to make is a row taken off; a change the world makes that the exploration does not find fails
 # the test by name.
 UNMADE = {
-    # The outsider's edit lapses acceptance from a Hold, from a Run in flight or from a review: the seeds' outsider
-    # edits land while the issue is new or in triage.
+    # The outsider's edit lapses acceptance from a Hold of the brakes, from a draft in flight or from a review: the
+    # seeds' six outsider edits land elsewhere, and one from a label's Hold leaves the issue held.
     ("held", "new", "stranger"), ("in_progress", "new", "stranger"), ("in_review", "new", "stranger"),
     # The world places a Hold or hands-off while the issue carries neither, never one on top of the other.
     ("held", "not_served", "human"), ("not_served", "held", "human"),
     # The brakes hold from in_progress or from new: the seeds reach the Run ceiling and the act ceiling in triage and
     # from ready, and the unmerged closes that hold a new issue need two closes a writer makes in one life.
     ("in_progress", "held", "factory"), ("new", "held", "factory"),
-    # Another App's stray Hold lands while the issue is new, in triage or in progress on the seeds, never while ready.
+    # Another App's stray Hold lands while the issue is new, in triage, in progress or in review on the seeds, never
+    # while ready.
     ("ready", "held", "platform"),
-    # A person's own ready pull request on a ready issue: the seeds open a person's pull request while new or in triage.
+    # A person's own pull request opened while the issue is ready: on the seeds each of the six is a draft.
     ("ready", "in_review", "human"),
 }
 
@@ -93,10 +94,13 @@ class IssueSimulation(unittest.TestCase):
         # every change finds too: what the world reaches and the exploration does not is a gap in the exploration.
         # What the exploration finds and the world never makes is named above, with why.
         self.assertEqual(sorted(made - issues.DECLARED), [])
-        explored, _ = test_transitions.explore(test_transitions.ISSUE_BASES, test_transitions.ISSUE_MOVES,
-                                               test_transitions.issue_kernel, depth=4)
+        explored, _ = test_transitions.issue_explored()
         self.assertEqual(sorted(made - set(explored)), [])
-        self.assertEqual(sorted(UNMADE - (set(explored) - made)), [], "a change the world now makes, or one unexplored")
+        unmade = set(explored) - made
+        if len(SEEDS) >= 300:
+            self.assertEqual(sorted(unmade ^ UNMADE), [], "a change the world now makes, or one it no longer makes")
+        else:
+            self.assertEqual(sorted(UNMADE - unmade), [], "a change the world now makes on fewer seeds")
 
     def test_a_seed_replays_exactly(self):
         traces = [run(7, steps=200).trace for _ in range(2)]
