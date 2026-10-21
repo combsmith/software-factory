@@ -2174,10 +2174,10 @@ late or not at all.
 
 - Passes cannot overlap, and at most one waits behind the one running. A flood of events costs at
   most back-to-back passes: one runner slot, 5% of the pool.
-- A pass ends by starting its successor if an item is due within fifteen minutes, W-2's figure.
-  Anything due later waits for a tick, a nudge or a Run's end, so with ticks hours apart (option
-  2's row) a successor never stands in for a timer of hours, and a chain ends when nothing is due
-  that soon. An item deferred because a Run is unidentified (§3.10) is
+- A pass ends by starting its successor only if an item is due at its end, and only while the
+  passes of the last hour, read from the run records, are fewer than W-4 allows: twenty at the cost
+  `trials/P-8.json` estimated with every page read. Anything due later waits for a tick, a nudge or
+  a Run's end, so a successor never stands in for a timer, and a chain ends when nothing is due. An item deferred because a Run is unidentified (§3.10) is
   not due: the records port has already read the list again 5 s later, so a record still
   unnamed is not the normal lag, and passes chained on it would feed themselves without bound (W-7).
   The next pass comes at the next tick or nudge (decision 0036).
@@ -2212,8 +2212,8 @@ late or not at all.
 - The relay is the one permitted exception to "no always-on service". Correctness never depends on
   it (W-1). While it is down W-2 is not met, and that is accepted (the Maintainer, 2026-10-21,
   decision 0043): a change that produces no event then waits for a tick, which came 287 minutes
-  after the last at the 95th percentile, and the outage is itself reported within fifteen minutes,
-  so those hours are hours a person knows about. Which host, and which public event, are settled by
+  after the last at the 95th percentile, and the outage is itself shown within fifteen minutes, on
+  a page that computes it in the browser, so those hours are hours a person knows about. Which host, and which public event, are settled by
   trial (P-20, P-31).
 - The Factory's own repo nudges the poller directly from the first day, by the `workflow_run`
   trigger above.
@@ -2238,8 +2238,12 @@ late or not at all.
   fire all day. No pass at all for six hours, above the longest gap the schedule left, is the same
   alert with a second cause named, the whole poller's, and it clears at the next pass. Until the
   relay runs, in slice 3, only the second reading is read. A chain that ended with nothing due
-  breaks nothing: `passes_since` starts again only after a gap of the second reading (§4.1). Both
-  readings wait on `controller/`.
+  breaks nothing: `passes_since` starts again only after a gap of the second reading (§4.1). The
+  alert needs no pass to be raised: `view/health.json` carries when the last pass ran and when the
+  relay last started a run, and the page computes both readings in the browser, as it does the
+  view's age (CR-3), so a silent relay or a stalled poller shows with nothing having to run. Until
+  the page exists, in slice 4, the alert is raised by the first pass after the gap, and the fifteen
+  minutes holds only while some pass runs. Both readings wait on `controller/`.
 - Only the poller can be started from outside the Factory, and it takes no inputs. A Run starts
   from a recorded Decision (§3.5), so a credential that can start workflows cannot direct one.
 - Option 3 is not pursued (the Maintainer, 2026-10-21, decision 0043): it would hold one of 20
@@ -2408,7 +2412,7 @@ board. It is also not where a chat session's output is made terser; that is a se
 | `view/scorecard.json` | The success metrics of PRD §9 and the adoption and use measures of §9.2 |
 | `view/comparison.json` | The weekly comparison of the POC and the Factory (§9.2) |
 | `view/capacity.json` | Usage per window, the estimate of what is left, and the degradation stage |
-| `view/health.json` | Whether Admission is paused and why, when the last pass ran, and recent capacity and environment faults |
+| `view/health.json` | Whether Admission is paused and why, when the last pass ran, when the relay last started a run (decision 0043), and recent capacity and environment faults |
 | `view/consumers.json` | Each Consumer repo's ring, and what its readiness check finds missing |
 
 ```json
