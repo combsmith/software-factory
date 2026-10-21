@@ -220,7 +220,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     record = {"schema": "pass/1", "pass": mint("p"), "release": config["release"], "now": now,
               "started_by": started_by(reads.get("started"), rules["accounts"]), "context": context, "runs": runs,
               "reads": (copy.deepcopy(records["reads"]) if listed else [])
-              + [{"read": "facts", "date": r["date"], "age": r["age"]} for r in reads.get("facts_reads") or []],
+              + [dict(r, read="facts") if isinstance(r, dict) else r for r in reads.get("facts_reads") or []],
               "pull_requests": asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"]),
               "issues": asked(issues, issue.decide, config["lifecycles"]["issue"])}
     checked(record, "pass")
@@ -246,10 +246,15 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     # defer; facts left out are one; and the first pass after six hours with none raises the not-run alert, which the
     # next pass clears (decision 0043).
     causes = {e["decision"]["reason"] for e in entries} & t.SCOPE_DEFERRALS
+    # A cause that holds the whole scope is raised from the context too, so that it is raised with no item to defer.
+    causes |= {"paused"} if context["paused"] is True else set()
+    causes |= {"pause_unreadable"} if context["paused"] is None else set()
+    causes |= {"capacity"} if capacity is not None else set()
+    causes |= {"capacity_unreadable"} if context["active_runs"] is None else set()
+    causes |= {"run_unidentified"} if context["unidentified_runs"] != [] else set()
     if automatic is not None and capacity is None:
         causes.discard("capacity")
     causes |= {ENVIRONMENT} if automatic is not None else set()
-    causes |= {"pause_unreadable"} if context["paused"] is None else set()
     causes |= {"facts_unreadable"} if left_out else set()
 
     def gap(later: str, earlier_: str) -> bool:

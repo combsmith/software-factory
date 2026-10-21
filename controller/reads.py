@@ -37,7 +37,10 @@ def _read(entry) -> bool:
 def items(entries, kind: str) -> tuple:
     """`(kept, left_out)`: the entries whose facts are facts of `kind`, and the item of each that is not, as one list.
     An item listed twice is left out every time it is listed, so that one pass never decides it twice."""
-    entries = entries if isinstance(entries, list) else []
+    if not isinstance(entries, list):
+        # A list of items that could not be read is no evidence that there are none: a pass that wrote an empty feed
+        # from it would look healthy. It is refused, and the not-run alert reports it.
+        raise Refused("the list of %s could not be read" % ("pull requests" if kind == "facts" else "issues"))
     readable = [e for e in entries if isinstance(e, dict) and not errors(e.get("facts"), kind)]
     seen = [key(e["facts"]["item"]) for e in readable]
     kept = [e for e in readable if seen.count(key(e["facts"]["item"])) == 1]

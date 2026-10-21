@@ -56,11 +56,16 @@ def view(record: dict, before: list, titles: dict, feed: dict) -> dict:
             continue
         mine = [r for r in record["runs"] if r["item"] == d["item"]]
         intents = sorted({r["intent"] for r in mine})
+        # An attempt is a completed Run that failed by a fault of the item, since a person with write access last acted,
+        # as the brakes count it (I-23): another Run is among the item's `runs`, never its attempts.
+        since = facts.get("last_writer_action_at")
+        tried = [r for r in mine if r["status"] == "completed" and r["conclusion"] != "success"
+                 and r["outcome"] == "item" and (since is None or r["started_at"] > since)]
         items.append({
             "item": d["item"], "state": d["state"], "reason": d["reason"], "attention": d["attention"],
             "evidence": list(d["evidence"]), "next_actor": next_actor(d, feed), "decision_required": asked(d, feed),
             "content_id": facts.get("content_id"), "age_hours": age(entry, record, before),
-            "attempts": [{"intent": i, "count": len([r for r in mine if r["intent"] == i])} for i in intents],
+            "attempts": [{"intent": i, "count": len([r for r in tried if r["intent"] == i])} for i in intents],
             "runs": len(mine), "cost_usd": None, "sources": sorted({r["run"] for r in mine}), "url": key(d["item"]),
             "untrusted": {"title": titles.get(key(d["item"]), "")}})
     reach = min([r["started_at"] for r in record["runs"]] or [record["now"]])
@@ -71,6 +76,8 @@ def view(record: dict, before: list, titles: dict, feed: dict) -> dict:
 
 
 def rebuild(records: list, titles: dict, feed: dict) -> list:
-    """The view as each pass record leaves it, rebuilt from the records alone, oldest first."""
+    """The view as each pass record leaves it, rebuilt from the records alone, oldest first. A record holds no title,
+    so the titles are the ones read with the rebuild: a title changed since a pass is the one thing a rebuild shows
+    otherwise, and it is untrusted text that decides nothing."""
     ordered = sorted(records, key=lambda r: r["now"])
     return [view(r, [e for e in ordered if e["now"] < r["now"]], titles, feed) for r in ordered]

@@ -174,10 +174,15 @@ class Record(unittest.TestCase):
             passed(mint=lambda prefix: "%s_bad" % prefix)
         with self.assertRaises(pass_.Refused):
             passed(reads(pulls=[pr(1), pr(2)]), mint=lambda prefix: "%s_000001A" % prefix)
-        undated = reads()
-        undated["facts_reads"] = [{"date": "yesterday", "age": 0}]
-        with self.assertRaises(pass_.Refused):
-            passed(undated)
+        for facts_reads in ([{"date": "yesterday", "age": 0}], [{}], ["x"], [{"date": NOW, "age": 0, "by": "x"}]):
+            undated = reads()
+            undated["facts_reads"] = facts_reads
+            with self.assertRaises(pass_.Refused, msg=facts_reads):
+                passed(undated)
+        # A list of items that could not be read is no empty list (Codex's read).
+        for change in ({"pull_requests": None}, {"issues": "x"}):
+            with self.assertRaises(pass_.Refused, msg=change):
+                passed(dict(reads(), **change))
         # A pass told nothing it can read of what started it or when to wait is no pass.
         for broken in ({"read_gap_seconds": 0}, {"accounts": {"workflow_token": {"id": None, "type": None}, "relay": None}},
                        {"schema": "controller/2"}):
@@ -439,6 +444,14 @@ class Feed(unittest.TestCase):
         self.assertEqual(quiet["alerts"], ["pause_unreadable"])
         self.assertEqual(quiet["view"]["health"]["pause"], {"state": "unreadable", "by": ["org"]})
         self.assertEqual(passed()["alerts"], [])
+        # A cause that holds the whole scope is raised with no item to defer (Codex's read).
+        fault = run("r_00000F", number=9, conclusion="failure", outcome="capacity", at="2026-10-11T12:00:00Z")
+        for read, raised in ((reads(pulls=[], pause={"org": "true", "repos": {}}), ["paused"]),
+                             (reads(pulls=[], runs=[fault]), ["capacity"]),
+                             (reads(pulls=[], unidentified=["1"]), ["run_unidentified"]),
+                             (reads(pulls=[], complete=False), ["capacity_unreadable"]),
+                             (reads(pulls=[], records_=False), ["capacity_unreadable", "run_unidentified"])):
+            self.assertEqual(passed(read)["alerts"], raised, raised)
 
     def test_next_actor_and_the_decision_required_are_read_from_the_feed_table_alone(self):  # decision 0039
         held = pr(1, acts_since_writer=support.CONFIG["limits"]["max_acts_per_item"], reviews=[support.review()])
@@ -459,6 +472,18 @@ class Feed(unittest.TestCase):
         self.assertEqual(items["items"][1]["url"], "https://github.com/%s/pull/1" % REPO)
         self.assertEqual((items["items"][1]["runs"], items["items"][1]["sources"]), (1, ["r_01JA6Z"]))
         self.assertEqual(out["view"]["meta"]["reaches_back_to"], "2026-10-11T12:05:00Z")
+        # Attempts are counted as the brakes count them: completed Runs that failed by a fault of the item, since a
+        # person with write access last acted (Codex's read). Every Run is among `runs`.
+        tried = [run("r_00000A", number=6, intent="fix-findings", role="dev-lead", conclusion="failure", outcome="item"),
+                 run("r_00000B", number=6, intent="fix-findings", role="dev-lead", conclusion="failure",
+                     outcome="environment"),
+                 run("r_00000C", number=6, intent="fix-findings", role="dev-lead", conclusion="failure", outcome="item",
+                     at="2026-10-11T11:00:00Z"),
+                 run("r_00000D", number=6, at="2026-10-11T12:20:00Z"),
+                 run("r_00000E", number=6, intent="fix-findings", role="dev-lead", status="in_progress")]
+        sixth = passed(reads(pulls=[pr(6)], runs=tried))["view"]["items"]["items"][0]
+        self.assertEqual((sixth["attempts"], sixth["runs"]),
+                         ([{"intent": "fix-findings", "count": 1}, {"intent": "review-change", "count": 0}], 5))
         # The table, changed, changes the feed: nothing else says who acts next or what is asked.
         cfg = config()
         cfg["feed"]["next_actor"]["by_outcome"][0]["actor"] = "lens"
@@ -526,6 +551,13 @@ class Feed(unittest.TestCase):
         self.assertIsNone(old["view"]["health"]["thresholds"]["decision_delay_p95_minutes"]["value"])
         now = passed(reads(pulls=[pr(1, last_push_at=NOW)]), previous=[before])
         self.assertEqual(now["view"]["health"]["thresholds"]["decision_delay_p95_minutes"]["value"], 0.0)
+        # A change a pass in between missed is read late by the first pass that read it (Codex's read).
+        missed = earlier("2026-10-11T12:50:00Z")
+        late = passed(reads(pulls=[pr(1, last_push_at="2026-10-11T12:45:00Z")]), previous=[before, missed])
+        self.assertEqual(late["view"]["health"]["thresholds"]["decision_delay_p95_minutes"]["value"], 15.0)
+        again = dict(copy.deepcopy(late["record"]), now="2026-10-11T12:55:00Z")
+        once = passed(reads(pulls=[pr(1, last_push_at="2026-10-11T12:45:00Z")]), previous=[before, missed, again])
+        self.assertEqual(once["view"]["health"]["thresholds"]["decision_delay_p95_minutes"]["value"], 10.0)
         changed = an_issue(7, content_changed_at="2026-10-11T12:50:00Z")
         issue = passed(reads(pulls=[], issues=[changed]), previous=[before])
         self.assertEqual(issue["view"]["health"]["thresholds"]["decision_delay_p95_minutes"]["value"], 10.0)

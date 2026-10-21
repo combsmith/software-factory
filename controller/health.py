@@ -4,7 +4,7 @@ what holds it, the chain, what started the passes of the window, the recent capa
 cause once, and decision 0011's three thresholds, null where a figure was not read."""
 from __future__ import annotations
 
-from controller.shared import checked, moment, seconds
+from controller.shared import checked, key, moment, seconds
 
 STARTS = ("schedule", "relay", "public", "own_repo", "successor", "dispatch")
 CAPACITY, ENVIRONMENT = "capacity", "environment"
@@ -23,14 +23,18 @@ def threshold(value, limit, exact=None) -> dict:
 
 def delay_p95(records: list):
     """The 95th percentile of minutes from a change to the first pass that read it: a push to a pull request, or a
-    change to an issue's content, made after the pass before. None when no change was read."""
-    delays = []
-    for before, record in zip(records, records[1:]):
+    change to an issue's content, made after the window's first pass. None when no change was read."""
+    delays, seen = [], {}
+    for at_first, record in enumerate(records):
         for entry in record["pull_requests"] + record["issues"]:
             facts = entry["facts"]
             at = facts.get("last_push_at") if "last_push_at" in facts else facts.get("content_changed_at")
-            if moment(at) is not None and before["now"] < at <= record["now"]:
+            item = key(facts["item"])
+            # Counted once, by the first pass that read this change, if it came after the window's first pass, even
+            # when passes between them missed the item.
+            if at_first and moment(at) is not None and seen.get(item) != at and records[0]["now"] < at <= record["now"]:
                 delays.append(seconds(record["now"], at))
+            seen[item] = at
     if not delays:
         return None
     delays.sort()
