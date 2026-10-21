@@ -2904,6 +2904,81 @@ class Trials(unittest.TestCase):
         self.assertNotIn("tick-probe.yml", check_workflows.EXEMPT)
         self.assertEqual(sorted(check_workflows.EXEMPT), ["ci.yml"])
 
+    def test_the_batch_2c_trials_ground_their_rules_on_what_the_runs_show(self):
+        # Issue 187: P-27, P-9 and P-20 ground a rule each, and each answer is recomputed here from the run records and
+        # the Date headers the fixture holds, never from its own summary. P-14 and P-4 ground no rule: §4.9 and §5.1
+        # cite them, and P-4's fail is on the repository subset alone.
+        from datetime import datetime, timezone
+        when = lambda s: datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        header = lambda e: datetime.strptime(e["response"]["headers"]["date"], "%a, %d %b %Y %H:%M:%S GMT").replace(tzinfo=timezone.utc)
+        load = lambda t: json.loads((ROOT / "trials" / ("%s.json" % t)).read_text())
+        by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
+        self.assertEqual(by_code["a_forks_run_never_counts"], "trials/P-27.json")
+        self.assertEqual(by_code["a_pass_starts_its_successor"], "trials/P-9.json")
+        self.assertEqual(by_code["a_public_event_starts_a_pass"], "trials/P-20.json")
+        calls = lambda f, end: [e for e in f["exchanges"] if e["request"]["call"].split(",")[0].endswith(end)]
+
+        # P-27 (a): the outside account's run waited, then ran as a second attempt a person triggered.
+        p27 = load("P-27")
+        waiting = [e for e in p27["exchanges"] if e["request"]["call"].endswith("/39534671364, before any approval")][0]["response"]["body"]
+        approved = [e for e in p27["exchanges"] if e["request"]["call"].endswith("/39534671364, after the approval")][0]["response"]["body"]
+        self.assertEqual((waiting["status"], waiting["conclusion"], waiting["head_repository"]["fork"]), ("completed", "action_required", True))
+        self.assertNotIn(waiting["actor"]["login"], ("don-petry", "donpetry-bot"))
+        self.assertEqual((approved["conclusion"], approved["run_attempt"], approved["triggering_actor"]["login"]), ("success", 2, "don-petry"))
+        # P-27 (b): every fork run is a pull request's; the fork's own file was refused a dispatch; no schedule ran.
+        runs = calls(p27, "actions/runs?event=pull_request&per_page=100")[0]["response"]["body"]["workflow_runs"]
+        forks = [r for r in runs if (r.get("head_repository") or {}).get("fork")]
+        self.assertTrue(any(r["path"] == ".github/workflows/p27-fork.yml" for r in forks))
+        self.assertTrue(all(r["event"] == "pull_request" for r in forks))
+        self.assertIn(calls(p27, "p27-fork.yml/dispatches")[0]["response"]["status"], (404, 422))
+        self.assertEqual(calls(p27, "actions/runs?event=schedule&per_page=100")[0]["response"]["body"]["total_count"], 0)
+        self.assertEqual(p27["verdict"], "pass")
+
+        # P-9: the job's own dispatch was answered 204 and the next run, a dispatch, was listed within 60 seconds of it.
+        p9 = load("P-9")
+        job = [e for e in p9["exchanges"] if e["request"]["as"]["kind"] == "workflow"][0]
+        second = calls(p9, "actions/runs/39532289509")[0]["response"]["body"]
+        self.assertEqual(job["response"]["status"], 204)
+        self.assertEqual(second["event"], "workflow_dispatch")
+        self.assertTrue(second["actor"]["login"])
+        self.assertLessEqual((when(second["created_at"]) - header(job)).total_seconds(), 60)
+        self.assertEqual(p9["verdict"], "pass")
+
+        # P-20: at least eight of ten stars have their own run within 120 seconds of the star's answer.
+        p20 = load("P-20")
+        stars = [header(e) for e in p20["exchanges"] if e["request"]["call"].startswith("PUT /user/starred/")]
+        created = sorted(when(r["created_at"]) for r in calls(p20, "p20-watch.yml/runs?per_page=100")[0]["response"]["body"]["workflow_runs"]
+                         if r["event"] == "watch")
+        self.assertEqual(len(stars), 10)
+        used = set()
+        for at in stars:
+            match = [c for c in created if c not in used and 0 <= (c - at).total_seconds() <= 120]
+            if match:
+                used.add(match[0])
+        self.assertGreaterEqual(len(used), 8)
+        self.assertEqual(p20["verdict"], "pass")
+
+        # P-14: the job's token was refused the write, no cache-service token reached the step, and no cache exists.
+        p14 = load("P-14")
+        self.assertEqual(calls(p14, "actions/caches?key=p14-none")[0]["response"]["status"], 403)
+        step = [e for e in p14["exchanges"] if e["request"]["call"].startswith("The step's environment")][0]["response"]["body"]
+        self.assertEqual(step["runner_cache_access_in_a_run_step"], "not set")
+        self.assertEqual(calls(p14, "actions/caches")[-1]["response"]["body"]["total_count"], 0)
+        self.assertEqual(p14["verdict"], "pass")
+
+        # P-4: in the second run the permissions subset held and the repository subset did not narrow a public read.
+        p4 = load("P-4")
+        second_run = [e for e in p4["exchanges"] if "the second run" in e["request"]["call"]]
+        status = {e["request"]["call"].split(",")[0]: e["response"]["status"] for e in second_run}
+        self.assertEqual(status["GET /repos/combsmith/software-factory-canary/contents/"], 200)
+        self.assertEqual(status["PUT /repos/combsmith/software-factory-canary/contents/p4/trial.md"], 403)
+        self.assertEqual(status["GET /repos/combsmith/software-factory/contents/"], 200)
+        self.assertEqual(p4["verdict"], "fail")
+        design = (ROOT / "docs" / "architecture" / "software-factory-design.md").read_text()
+        for cited in ("(P-4, `trials/P-4.json`)", "(P-14, `trials/P-14.json`)", "(P-9, `trials/P-9.json`)",
+                      "P-27, `trials/P-27.json`)", "(P-20,\n  `trials/P-20.json`)"):
+            self.assertIn(cited, design)
+
     def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
         # Decision 0035: a trial of repos records the canary as its home, and a measurement's reads may span the org's
         # repos. Held on what the reads say, for every fixture of the canary, and closed on what cannot be read: each

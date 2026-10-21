@@ -1,0 +1,1238 @@
+{
+  "schema": "trial/1",
+  "trial": "P-4",
+  "question": "Can an installation token be minted with a subset of the App's permissions and repos?",
+  "pass": "Yes (section 6), as the working rulings on #187 read it. At the Maintainer's terminal, by tools/trial_p4_narrow.sh: an installation token for the trial-author App, minted with permissions a subset of the installation's (contents read alone) and repositories naming one repo, is answered 201 with exactly that subset as permissions and repository_selection selected; a read the subset permits (the named repo's README through the contents API) is answered 200; a write the subset does not permit (a PUT to the contents API) is answered 403; and a read of a repository the token does not name is refused, with 404 or 403, never 200. The redaction deletes the token and the fixture keeps the requests and the statuses.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-21T02:46:00Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author, by its JWT"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/installation, the first run, by tools/trial_p4_narrow.sh run by the session at the Maintainer's word in chat",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 02:46:00 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1914",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"0917129f493a10c77bee17714ad7022272fab05a9b9643ba075a930824c6d526\"",
+          "x-github-media-type": "github.v3; format=json",
+          "server": "github.com",
+          "x-github-request-id": "F7AD:3E8B94:19CF364:53F6B8E:6AD82768"
+        },
+        "body": {
+          "id": 172549542,
+          "client_id": "Iv23li54FyJsjn6Xfu8u",
+          "account": {
+            "login": "combsmith",
+            "id": 258516906,
+            "node_id": "O_kgDOD2inqg",
+            "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/combsmith",
+            "html_url": "https://github.com/combsmith",
+            "followers_url": "https://api.github.com/users/combsmith/followers",
+            "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+            "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+            "organizations_url": "https://api.github.com/users/combsmith/orgs",
+            "repos_url": "https://api.github.com/users/combsmith/repos",
+            "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/combsmith/received_events",
+            "type": "Organization",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "repository_selection": "selected",
+          "repositories_url": "https://api.github.com/installation/repositories",
+          "html_url": "https://github.com/organizations/combsmith/settings/installations/172549542",
+          "app_id": 5363178,
+          "app_slug": "combsmith-sf-trial-author",
+          "target_id": 258516906,
+          "target_type": "Organization",
+          "permissions": {
+            "contents": "write",
+            "metadata": "read",
+            "pull_requests": "write"
+          },
+          "events": [],
+          "created_at": "2026-10-18T00:03:01.000Z",
+          "updated_at": "2026-10-18T00:30:05.000Z",
+          "single_file_name": null,
+          "has_multiple_single_files": false,
+          "single_file_paths": [],
+          "suspended_by": null,
+          "suspended_at": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author, by its JWT"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172549542/access_tokens, the first run, by tools/trial_p4_narrow.sh run by the session at the Maintainer's word in chat",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "repositories": [
+            "software-factory-canary"
+          ],
+          "permissions": {
+            "contents": "read"
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": {
+          "expires_at": "2026-10-21T03:46:01Z",
+          "permissions": {
+            "contents": "read",
+            "metadata": "read"
+          },
+          "repository_selection": "selected",
+          "repositories": [
+            {
+              "id": 1414593263,
+              "node_id": "R_kgDOVFD67w",
+              "name": "software-factory-canary",
+              "full_name": "combsmith/software-factory-canary",
+              "private": false,
+              "owner": {
+                "login": "combsmith",
+                "id": 258516906,
+                "node_id": "O_kgDOD2inqg",
+                "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/combsmith",
+                "html_url": "https://github.com/combsmith",
+                "followers_url": "https://api.github.com/users/combsmith/followers",
+                "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                "repos_url": "https://api.github.com/users/combsmith/repos",
+                "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "html_url": "https://github.com/combsmith/software-factory-canary",
+              "description": "Throwaway repo for the Factory's platform trials. Nothing here is depended on.",
+              "fork": false,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+              "forks_url": "https://api.github.com/repos/combsmith/software-factory-canary/forks",
+              "keys_url": "https://api.github.com/repos/combsmith/software-factory-canary/keys{/key_id}",
+              "collaborators_url": "https://api.github.com/repos/combsmith/software-factory-canary/collaborators{/collaborator}",
+              "teams_url": "https://api.github.com/repos/combsmith/software-factory-canary/teams",
+              "hooks_url": "https://api.github.com/repos/combsmith/software-factory-canary/hooks",
+              "issue_events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events{/number}",
+              "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/events",
+              "assignees_url": "https://api.github.com/repos/combsmith/software-factory-canary/assignees{/user}",
+              "branches_url": "https://api.github.com/repos/combsmith/software-factory-canary/branches{/branch}",
+              "tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/tags",
+              "blobs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs{/sha}",
+              "git_tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/tags{/sha}",
+              "git_refs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs{/sha}",
+              "trees_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees{/sha}",
+              "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/{sha}",
+              "languages_url": "https://api.github.com/repos/combsmith/software-factory-canary/languages",
+              "stargazers_url": "https://api.github.com/repos/combsmith/software-factory-canary/stargazers",
+              "contributors_url": "https://api.github.com/repos/combsmith/software-factory-canary/contributors",
+              "subscribers_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscribers",
+              "subscription_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscription",
+              "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits{/sha}",
+              "git_commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits{/sha}",
+              "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/comments{/number}",
+              "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments{/number}",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/{+path}",
+              "compare_url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/{base}...{head}",
+              "merges_url": "https://api.github.com/repos/combsmith/software-factory-canary/merges",
+              "archive_url": "https://api.github.com/repos/combsmith/software-factory-canary/{archive_format}{/ref}",
+              "downloads_url": "https://api.github.com/repos/combsmith/software-factory-canary/downloads",
+              "issues_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues{/number}",
+              "pulls_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls{/number}",
+              "milestones_url": "https://api.github.com/repos/combsmith/software-factory-canary/milestones{/number}",
+              "notifications_url": "https://api.github.com/repos/combsmith/software-factory-canary/notifications{?since,all,participating}",
+              "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/labels{/name}",
+              "releases_url": "https://api.github.com/repos/combsmith/software-factory-canary/releases{/id}",
+              "deployments_url": "https://api.github.com/repos/combsmith/software-factory-canary/deployments",
+              "created_at": "2026-10-11T17:23:37Z",
+              "updated_at": "2026-10-21T02:28:10Z",
+              "pushed_at": "2026-10-21T02:16:20Z",
+              "git_url": "git://github.com/combsmith/software-factory-canary.git",
+              "ssh_url": "git@github.com:combsmith/software-factory-canary.git",
+              "clone_url": "https://github.com/combsmith/software-factory-canary.git",
+              "svn_url": "https://github.com/combsmith/software-factory-canary",
+              "homepage": null,
+              "size": 14,
+              "stargazers_count": 0,
+              "watchers_count": 0,
+              "language": null,
+              "has_issues": true,
+              "has_projects": true,
+              "has_downloads": false,
+              "has_wiki": true,
+              "has_pages": false,
+              "has_discussions": false,
+              "forks_count": 2,
+              "mirror_url": null,
+              "archived": false,
+              "disabled": false,
+              "open_issues_count": 30,
+              "license": null,
+              "allow_forking": true,
+              "is_template": false,
+              "web_commit_signoff_required": false,
+              "has_pull_requests": true,
+              "pull_request_creation_policy": "all",
+              "topics": [],
+              "visibility": "public",
+              "forks": 2,
+              "open_issues": 30,
+              "watchers": 0,
+              "default_branch": "main"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by the narrowed installation token"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/README.md, the first run, by tools/trial_p4_narrow.sh run by the session at the Maintainer's word in chat",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-length": "141",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 02:46:01 GMT",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "contents=read",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F7AF:1C91EA:1AF9EAE:57743C0:6AD82769",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4999",
+          "x-ratelimit-reset": "1792554361",
+          "x-ratelimit-used": "1",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "message": "Not Found",
+          "documentation_url": "https://docs.github.com/rest/repos/contents#get-repository-content",
+          "status": "404"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by the narrowed installation token"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/p4/trial.md, the first run, by tools/trial_p4_narrow.sh run by the session at the Maintainer's word in chat",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "message": "Trial P-4: a write the token does not permit",
+          "content": "QSBwbGF0Zm9ybSB0cmlhbC4K"
+        }
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 02:46:01 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "178",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "contents=write; contents=write,workflows=write",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-github-request-id": "F7B0:17E6CD:1A427E2:54F29E0:6AD82769",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4998",
+          "x-ratelimit-reset": "1792554361",
+          "x-ratelimit-used": "2",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "message": "Resource not accessible by integration",
+          "documentation_url": "https://docs.github.com/rest/repos/contents#create-or-update-file-contents",
+          "status": "403"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by the narrowed installation token"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/contents/README.md, the first run, by tools/trial_p4_narrow.sh run by the session at the Maintainer's word in chat",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "4133",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 02:46:02 GMT",
+          "etag": "\"e63b9e114443536f21eff62d71b45701f1632bc9\"",
+          "last-modified": "Wed, 21 Oct 2026 02:27:44 GMT",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "contents=read",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F7B1:9A5AB:1C2B045:5BA0215:6AD8276A",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4997",
+          "x-ratelimit-reset": "1792554361",
+          "x-ratelimit-used": "3",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "name": "README.md",
+          "path": "README.md",
+          "sha": "e63b9e114443536f21eff62d71b45701f1632bc9",
+          "size": 2347,
+          "url": "https://api.github.com/repos/combsmith/software-factory/contents/README.md?ref=main",
+          "html_url": "https://github.com/combsmith/software-factory/blob/main/README.md",
+          "git_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs/e63b9e114443536f21eff62d71b45701f1632bc9",
+          "download_url": "https://raw.githubusercontent.com/combsmith/software-factory/main/README.md",
+          "type": "file",
+          "content": "IyBzb2Z0d2FyZS1mYWN0b3J5CgpUaGUgZGVjaXNpb24gY29yZSBvZiB0aGUg\nRmFjdG9yeSwgYW5kIHRoZSBjb250ZXh0IGl0cyBhdXRob3JzIHdvcmsgZnJv\nbS4gSXQgYmVnYW4gYXMgYSBwcm9vZiBvZgpvbmUgY2xhaW06IHRoYXQgZXZl\ncnkgZGVjaXNpb24gY2FuIGJlIGEgcHVyZSBmdW5jdGlvbiBvZiBmYWN0cyBy\nZWFkIGZyb20gR2l0SHViIGFuZCB0aGUgRmFjdG9yeSdzCm93biBydW4gcmVj\nb3JkcywgYW5kIHRoYXQgc3VjaCBhIGZ1bmN0aW9uIGNhbiBiZSBjaGVja2Vk\nIGJlZm9yZSBpdCBpcyB0cnVzdGVkLgoKSWYgeW91IGFyZSBhYm91dCB0byBj\naGFuZ2Ugc29tZXRoaW5nLCByZWFkIGBBR0VOVFMubWRgLiBJdCBpcyBvbmUg\ncGFnZS4KCiMjIFdoYXQgaXMgaGVyZQoKLSAqKlRoZSBLZXJuZWwqKiBmb3Ig\nYSBwdWxsIHJlcXVlc3Q6IGRlcml2ZWQgU3RhdGUsIENvbnZlcmdlbmNlLCBB\nZG1pc3Npb24gYW5kIHRoZSBhdHRlbnRpb24gY2xhc3MuCi0gKipTY2hlbWFz\nKiogZm9yIHRoZSBmYWN0cywgYSBydW4gcmVjb3JkLCBhIERlY2lzaW9uLCBh\nIEZpbmRpbmcsIGFuIGFjY2VwdGFuY2UgY29udHJhY3QsIGEgcnVicmljLCBh\nIFJlc3VsdCdzIGNvdmVyYWdlLAogIHRoZSBhdXRob3JpdHkgdGFibGUsIHRo\nZSBMaWZlY3ljbGUgYW5kIHRoZSBjb25maWd1cmF0aW9uLCBlYWNoIHdpdGgg\nYW4gZXhhbXBsZSBhbmQgd2l0aAogIGNvdW50ZXItZXhhbXBsZXMgdGhhdCBt\ndXN0IGJlIHJlamVjdGVkLiBBIHZhbGlkYXRvciBmb3IgdGhlbSB3aXRoIG5v\nIGRlcGVuZGVuY2llcy4KLSAqKlRoZSBMaWZlY3ljbGVzKiogb2YgYSBwdWxs\nIHJlcXVlc3QgYW5kIG9mIGFuIGlzc3VlLCBhcyBkYXRhLCB3aXRoIHRoZSBi\nb3VuZHMgb24gZWFjaCBjeWNsZS4KLSAqKkNoZWNrcyoqOiBLZXJuZWwgcHVy\naXR5LCBMaWZlY3ljbGUgdGVybWluYXRpb24sIGF1dGhvcml0eSwgZXhhbXBs\nZXMsIHdoYXQgbXVzdCBuZXZlciBiZSBpbiB0aGUKICByZXBvLCB0aGUgcnVs\nZXMgZXZlcnkgd29ya2Zsb3cgb2JleXMsIGFuZCB0aGUgcnVsZXMgdGhlIGRv\nY3VtZW50cyB0aGVtc2VsdmVzIG9iZXkuCi0gKipBIHNpbXVsYXRvcioqIHRo\nYXQgcGxheXMgdGhlIHBvbGxlciwgdGhlIGpvYnMgb2YgYSBSdW4gYW5kIHRo\nZSBwZW9wbGUsIGFuZCBpbmplY3RzIHN0YWxlIHJlYWRzLAogIGluY29tcGxl\ndGUgcmVhZHMsIGRyb3BwZWQgdGlja3MsIGEgUnVuIG1pc3NpbmcgZnJvbSB0\naGUgbGlzdCwgYW5kIFJ1bnMga2lsbGVkIG1pZC1mbGlnaHQuCi0gKipBIG11\ndGF0aW9uIGNoZWNrKiogdGhhdCBicmVha3Mgb25lIEtlcm5lbCBydWxlIGF0\nIGEgdGltZS4KLSAqKlRoZSBjb250ZXh0Kio6IGBBR0VOVFMubWRgIGhlcmUg\nYW5kIGluIGVhY2ggZGlyZWN0b3J5LCBhbmQgdW5kZXIgYGRvY3MvYCB0aGUg\nc3RhbmRhcmRzLCB0aGUKICBkZWNpc2lvbiBsb2csIHRoZSBsZXNzb25zIG9m\nIHRoZSBwcm9vZiBvZiBjb25jZXB0LCBhbmQgdGhlIGdsb3NzYXJ5LgoKIyMg\nV2hhdCBpcyBub3QgaGVyZQoKQW55dGhpbmcgdGhhdCB0b3VjaGVzIEdpdEh1\nYiwgYW55IG1vZGVsLCBhbnkgd29ya2Zsb3cgdGhhdCBydW5zLCB0aGUgS2Vy\nbmVsIGZvciBhbiBpc3N1ZSwKYWNjZXB0YW5jZSBldmlkZW5jZSBpbiBDb252\nZXJnZW5jZSwgYW5kIHRoZSBjb250cm9sIHJvb20uCgojIyBMb2NhbCBEZXZl\nbG9wbWVudCBDb21tYW5kcwoKLSBJbnN0YWxsOiBub3RoaW5nLiBQeXRob24g\nMy45IG9yIGxhdGVyLCBzdGFuZGFyZCBsaWJyYXJ5IG9ubHkKLSBEZXYgcnVu\nOiB0aGVyZSBpcyBub3RoaW5nIHRvIHJ1biB5ZXQ7IHRoZSBzaW11bGF0b3Ig\ncnVucyBpbnNpZGUgdGhlIHRlc3RzCi0gVGVzdDogYG1ha2UgdmVyaWZ5YCwg\ndGhlbiBgcHl0aG9uMyAtbSB0b29scy5tdXRhbnRzYAotIExpbnQ6IGBtYWtl\nIHZlcmlmeWAgcnVucyBldmVyeSBjaGVjayB0aGVyZSBpcwotIFR5cGVjaGVj\nazogbm9uZTsgYSB0eXBlIGNoZWNrZXIgaXMgYW4gaW5zdGFsbCAoYGRvY3Mv\nZGVjaXNpb25zLzAwMTQtd2hlcmUtdGhpcy1yZXBvLWRlcGFydHMtZnJvbS10\naGUtb3Jncy1zdGFuZGFyZHMubWRgKQoKIyMgUmVxdWlyZWQgRW52aXJvbm1l\nbnQgVmFyaWFibGVzCgpOb25lLiBgU0lNX1NFRURTYCBpcyBvcHRpb25hbDog\ndGhlIG51bWJlciBvZiBzaW11bGF0b3Igc2VlZHMgdG8gcnVuLCAzMDAgaWYg\ndW5zZXQ7CmBTSU1fU0VFRFM9NDAgbWFrZSB2ZXJpZnlgIGlzIGEgcXVpY2tl\nciBsb2NhbCBydW4uCgpUaGUgZGVzaWduIHRoaXMgaW1wbGVtZW50cyBpcyBg\nZG9jcy9hcmNoaXRlY3R1cmUvc29mdHdhcmUtZmFjdG9yeS1kZXNpZ24ubWRg\nOyBpdHMgZmlyc3Qgc2VjdGlvbiBpcwp0aGUgd2hvbGUgb2YgaXQgb24gb25l\nIHBhZ2UuCg==\n",
+          "encoding": "base64",
+          "_links": {
+            "self": "https://api.github.com/repos/combsmith/software-factory/contents/README.md?ref=main",
+            "git": "https://api.github.com/repos/combsmith/software-factory/git/blobs/e63b9e114443536f21eff62d71b45701f1632bc9",
+            "html": "https://github.com/combsmith/software-factory/blob/main/README.md"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by the narrowed installation token"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token, the first run: the revocation, whose status the script records",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author, by its JWT"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/installation, the second run, by tools/trial_p4_narrow.sh run by the session at the Maintainer's word in chat",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 02:47:08 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1914",
+          "cache-control": "public, max-age=60, s-maxage=60",
+          "vary": "Accept,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"0917129f493a10c77bee17714ad7022272fab05a9b9643ba075a930824c6d526\"",
+          "x-github-media-type": "github.v3; format=json",
+          "server": "github.com",
+          "x-github-request-id": "F7C2:698D5:1B7A1A6:58BC2AD:6AD827AB"
+        },
+        "body": {
+          "id": 172549542,
+          "client_id": "Iv23li54FyJsjn6Xfu8u",
+          "account": {
+            "login": "combsmith",
+            "id": 258516906,
+            "node_id": "O_kgDOD2inqg",
+            "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/combsmith",
+            "html_url": "https://github.com/combsmith",
+            "followers_url": "https://api.github.com/users/combsmith/followers",
+            "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+            "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+            "organizations_url": "https://api.github.com/users/combsmith/orgs",
+            "repos_url": "https://api.github.com/users/combsmith/repos",
+            "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/combsmith/received_events",
+            "type": "Organization",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "repository_selection": "selected",
+          "repositories_url": "https://api.github.com/installation/repositories",
+          "html_url": "https://github.com/organizations/combsmith/settings/installations/172549542",
+          "app_id": 5363178,
+          "app_slug": "combsmith-sf-trial-author",
+          "target_id": 258516906,
+          "target_type": "Organization",
+          "permissions": {
+            "contents": "write",
+            "metadata": "read",
+            "pull_requests": "write"
+          },
+          "events": [],
+          "created_at": "2026-10-18T00:03:01.000Z",
+          "updated_at": "2026-10-18T00:30:05.000Z",
+          "single_file_name": null,
+          "has_multiple_single_files": false,
+          "single_file_paths": [],
+          "suspended_by": null,
+          "suspended_at": null
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author, by its JWT"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172549542/access_tokens, the second run, by tools/trial_p4_narrow.sh run by the session at the Maintainer's word in chat",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "repositories": [
+            "software-factory-canary"
+          ],
+          "permissions": {
+            "contents": "read"
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": {
+          "expires_at": "2026-10-21T03:47:08Z",
+          "permissions": {
+            "contents": "read",
+            "metadata": "read"
+          },
+          "repository_selection": "selected",
+          "repositories": [
+            {
+              "id": 1414593263,
+              "node_id": "R_kgDOVFD67w",
+              "name": "software-factory-canary",
+              "full_name": "combsmith/software-factory-canary",
+              "private": false,
+              "owner": {
+                "login": "combsmith",
+                "id": 258516906,
+                "node_id": "O_kgDOD2inqg",
+                "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/combsmith",
+                "html_url": "https://github.com/combsmith",
+                "followers_url": "https://api.github.com/users/combsmith/followers",
+                "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                "repos_url": "https://api.github.com/users/combsmith/repos",
+                "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "html_url": "https://github.com/combsmith/software-factory-canary",
+              "description": "Throwaway repo for the Factory's platform trials. Nothing here is depended on.",
+              "fork": false,
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+              "forks_url": "https://api.github.com/repos/combsmith/software-factory-canary/forks",
+              "keys_url": "https://api.github.com/repos/combsmith/software-factory-canary/keys{/key_id}",
+              "collaborators_url": "https://api.github.com/repos/combsmith/software-factory-canary/collaborators{/collaborator}",
+              "teams_url": "https://api.github.com/repos/combsmith/software-factory-canary/teams",
+              "hooks_url": "https://api.github.com/repos/combsmith/software-factory-canary/hooks",
+              "issue_events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events{/number}",
+              "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/events",
+              "assignees_url": "https://api.github.com/repos/combsmith/software-factory-canary/assignees{/user}",
+              "branches_url": "https://api.github.com/repos/combsmith/software-factory-canary/branches{/branch}",
+              "tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/tags",
+              "blobs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs{/sha}",
+              "git_tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/tags{/sha}",
+              "git_refs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs{/sha}",
+              "trees_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees{/sha}",
+              "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/{sha}",
+              "languages_url": "https://api.github.com/repos/combsmith/software-factory-canary/languages",
+              "stargazers_url": "https://api.github.com/repos/combsmith/software-factory-canary/stargazers",
+              "contributors_url": "https://api.github.com/repos/combsmith/software-factory-canary/contributors",
+              "subscribers_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscribers",
+              "subscription_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscription",
+              "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits{/sha}",
+              "git_commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits{/sha}",
+              "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/comments{/number}",
+              "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments{/number}",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/{+path}",
+              "compare_url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/{base}...{head}",
+              "merges_url": "https://api.github.com/repos/combsmith/software-factory-canary/merges",
+              "archive_url": "https://api.github.com/repos/combsmith/software-factory-canary/{archive_format}{/ref}",
+              "downloads_url": "https://api.github.com/repos/combsmith/software-factory-canary/downloads",
+              "issues_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues{/number}",
+              "pulls_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls{/number}",
+              "milestones_url": "https://api.github.com/repos/combsmith/software-factory-canary/milestones{/number}",
+              "notifications_url": "https://api.github.com/repos/combsmith/software-factory-canary/notifications{?since,all,participating}",
+              "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/labels{/name}",
+              "releases_url": "https://api.github.com/repos/combsmith/software-factory-canary/releases{/id}",
+              "deployments_url": "https://api.github.com/repos/combsmith/software-factory-canary/deployments",
+              "created_at": "2026-10-11T17:23:37Z",
+              "updated_at": "2026-10-21T02:28:10Z",
+              "pushed_at": "2026-10-21T02:16:20Z",
+              "git_url": "git://github.com/combsmith/software-factory-canary.git",
+              "ssh_url": "git@github.com:combsmith/software-factory-canary.git",
+              "clone_url": "https://github.com/combsmith/software-factory-canary.git",
+              "svn_url": "https://github.com/combsmith/software-factory-canary",
+              "homepage": null,
+              "size": 14,
+              "stargazers_count": 0,
+              "watchers_count": 0,
+              "language": null,
+              "has_issues": true,
+              "has_projects": true,
+              "has_downloads": false,
+              "has_wiki": true,
+              "has_pages": false,
+              "has_discussions": false,
+              "forks_count": 2,
+              "mirror_url": null,
+              "archived": false,
+              "disabled": false,
+              "open_issues_count": 30,
+              "license": null,
+              "allow_forking": true,
+              "is_template": false,
+              "web_commit_signoff_required": false,
+              "has_pull_requests": true,
+              "pull_request_creation_policy": "all",
+              "topics": [],
+              "visibility": "public",
+              "forks": 2,
+              "open_issues": 30,
+              "watchers": 0,
+              "default_branch": "main"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by the narrowed installation token"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/, the second run, by tools/trial_p4_narrow.sh run by the session at the Maintainer's word in chat",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "5152",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 02:47:08 GMT",
+          "etag": "\"2443cf1be94428b9da3b5e334ce7f11a6a2fda5d\"",
+          "last-modified": "Wed, 21 Oct 2026 02:28:10 GMT",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "contents=read",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F7C4:3FFAF7:1B8DB08:597AAB6:6AD827AC",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4996",
+          "x-ratelimit-reset": "1792554361",
+          "x-ratelimit-used": "4",
+          "x-ratelimit-resource": "core"
+        },
+        "body": [
+          {
+            "name": ".github",
+            "path": ".github",
+            "sha": "e7e7af9731345fe8a13039b4a6eb5d97555ba0e6",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory-canary/tree/main/.github",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/e7e7af9731345fe8a13039b4a6eb5d97555ba0e6",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/e7e7af9731345fe8a13039b4a6eb5d97555ba0e6",
+              "html": "https://github.com/combsmith/software-factory-canary/tree/main/.github"
+            }
+          },
+          {
+            "name": "p24",
+            "path": "p24",
+            "sha": "5c6130de4de5ab1f1e8182746e20f1d04353dc15",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p24?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory-canary/tree/main/p24",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/5c6130de4de5ab1f1e8182746e20f1d04353dc15",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p24?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/5c6130de4de5ab1f1e8182746e20f1d04353dc15",
+              "html": "https://github.com/combsmith/software-factory-canary/tree/main/p24"
+            }
+          },
+          {
+            "name": "p29-unrelated.txt",
+            "path": "p29-unrelated.txt",
+            "sha": "b3d8fb696ac6a6dd7180babc3597a0c4d9db9a57",
+            "size": 106,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p29-unrelated.txt?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory-canary/blob/main/p29-unrelated.txt",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/b3d8fb696ac6a6dd7180babc3597a0c4d9db9a57",
+            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory-canary/main/p29-unrelated.txt",
+            "type": "file",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p29-unrelated.txt?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/b3d8fb696ac6a6dd7180babc3597a0c4d9db9a57",
+              "html": "https://github.com/combsmith/software-factory-canary/blob/main/p29-unrelated.txt"
+            }
+          },
+          {
+            "name": "p3",
+            "path": "p3",
+            "sha": "99ebc1989553774a57504376f9bb0bd9787b5d52",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p3?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory-canary/tree/main/p3",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/99ebc1989553774a57504376f9bb0bd9787b5d52",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p3?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/99ebc1989553774a57504376f9bb0bd9787b5d52",
+              "html": "https://github.com/combsmith/software-factory-canary/tree/main/p3"
+            }
+          },
+          {
+            "name": "trial-notes",
+            "path": "trial-notes",
+            "sha": "d8a0085907a4b6b113324dfa0f1236a277dd4252",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/trial-notes?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory-canary/tree/main/trial-notes",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/d8a0085907a4b6b113324dfa0f1236a277dd4252",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/trial-notes?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/d8a0085907a4b6b113324dfa0f1236a277dd4252",
+              "html": "https://github.com/combsmith/software-factory-canary/tree/main/trial-notes"
+            }
+          },
+          {
+            "name": "trial",
+            "path": "trial",
+            "sha": "044a0fc8b5796b26bdc575aa9016287b96a57ec0",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/trial?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory-canary/tree/main/trial",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/044a0fc8b5796b26bdc575aa9016287b96a57ec0",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/trial?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/044a0fc8b5796b26bdc575aa9016287b96a57ec0",
+              "html": "https://github.com/combsmith/software-factory-canary/tree/main/trial"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by the narrowed installation token"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/p4/trial.md, the second run, by tools/trial_p4_narrow.sh run by the session at the Maintainer's word in chat",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "message": "Trial P-4: a write the token does not permit",
+          "content": "QSBwbGF0Zm9ybSB0cmlhbC4K"
+        }
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 02:47:09 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "178",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "contents=write; contents=write,workflows=write",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-github-request-id": "F7C5:75127:1B4D1E8:589DAEA:6AD827AD",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4995",
+          "x-ratelimit-reset": "1792554361",
+          "x-ratelimit-used": "5",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "message": "Resource not accessible by integration",
+          "documentation_url": "https://docs.github.com/rest/repos/contents#create-or-update-file-contents",
+          "status": "403"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by the narrowed installation token"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/contents/, the second run, by tools/trial_p4_narrow.sh run by the session at the Maintainer's word in chat",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "19380",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 02:47:09 GMT",
+          "etag": "\"8f656b6e41a302350f58682f6cbca7932290c6f7\"",
+          "last-modified": "Wed, 21 Oct 2026 02:41:32 GMT",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-github-permissions": "contents=read",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F7C6:1C91EA:1B130AC:57C604C:6AD827AD",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4994",
+          "x-ratelimit-reset": "1792554361",
+          "x-ratelimit-used": "6",
+          "x-ratelimit-resource": "core"
+        },
+        "body": [
+          {
+            "name": ".claude",
+            "path": ".claude",
+            "sha": "02fb79ee511f8ece27f77a0c99b2c494b9fd1378",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/.claude?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/tree/main/.claude",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/trees/02fb79ee511f8ece27f77a0c99b2c494b9fd1378",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/.claude?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/trees/02fb79ee511f8ece27f77a0c99b2c494b9fd1378",
+              "html": "https://github.com/combsmith/software-factory/tree/main/.claude"
+            }
+          },
+          {
+            "name": ".coderabbit.yaml",
+            "path": ".coderabbit.yaml",
+            "sha": "66bac571a835e68a14cf707a32085c640d0d22f3",
+            "size": 547,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/.coderabbit.yaml?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/blob/main/.coderabbit.yaml",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs/66bac571a835e68a14cf707a32085c640d0d22f3",
+            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory/main/.coderabbit.yaml",
+            "type": "file",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/.coderabbit.yaml?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/blobs/66bac571a835e68a14cf707a32085c640d0d22f3",
+              "html": "https://github.com/combsmith/software-factory/blob/main/.coderabbit.yaml"
+            }
+          },
+          {
+            "name": ".github",
+            "path": ".github",
+            "sha": "00266754bcd68598776a43bef45528aef43bf673",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/.github?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/tree/main/.github",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/trees/00266754bcd68598776a43bef45528aef43bf673",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/.github?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/trees/00266754bcd68598776a43bef45528aef43bf673",
+              "html": "https://github.com/combsmith/software-factory/tree/main/.github"
+            }
+          },
+          {
+            "name": ".gitignore",
+            "path": ".gitignore",
+            "sha": "adcc34c2350192c641e58a53fc41e1f2dd410fc0",
+            "size": 11008,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/.gitignore?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/blob/main/.gitignore",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs/adcc34c2350192c641e58a53fc41e1f2dd410fc0",
+            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory/main/.gitignore",
+            "type": "file",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/.gitignore?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/blobs/adcc34c2350192c641e58a53fc41e1f2dd410fc0",
+              "html": "https://github.com/combsmith/software-factory/blob/main/.gitignore"
+            }
+          },
+          {
+            "name": ".gitleaks.toml",
+            "path": ".gitleaks.toml",
+            "sha": "2f253439d933875014385315d78af7bce4352f52",
+            "size": 451,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/.gitleaks.toml?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/blob/main/.gitleaks.toml",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs/2f253439d933875014385315d78af7bce4352f52",
+            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory/main/.gitleaks.toml",
+            "type": "file",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/.gitleaks.toml?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/blobs/2f253439d933875014385315d78af7bce4352f52",
+              "html": "https://github.com/combsmith/software-factory/blob/main/.gitleaks.toml"
+            }
+          },
+          {
+            "name": ".gitleaksignore",
+            "path": ".gitleaksignore",
+            "sha": "34018c2b7ab805b1b6136059d662c2dde37ea5ad",
+            "size": 419,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/.gitleaksignore?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/blob/main/.gitleaksignore",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs/34018c2b7ab805b1b6136059d662c2dde37ea5ad",
+            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory/main/.gitleaksignore",
+            "type": "file",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/.gitleaksignore?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/blobs/34018c2b7ab805b1b6136059d662c2dde37ea5ad",
+              "html": "https://github.com/combsmith/software-factory/blob/main/.gitleaksignore"
+            }
+          },
+          {
+            "name": "AGENTS.md",
+            "path": "AGENTS.md",
+            "sha": "52c8ed20b69f04d81b53e1d5fec08d424ecfbcaf",
+            "size": 3971,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/AGENTS.md?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/blob/main/AGENTS.md",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs/52c8ed20b69f04d81b53e1d5fec08d424ecfbcaf",
+            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory/main/AGENTS.md",
+            "type": "file",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/AGENTS.md?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/blobs/52c8ed20b69f04d81b53e1d5fec08d424ecfbcaf",
+              "html": "https://github.com/combsmith/software-factory/blob/main/AGENTS.md"
+            }
+          },
+          {
+            "name": "CLAUDE.md",
+            "path": "CLAUDE.md",
+            "sha": "43c994c2d3617f947bcb5adf1933e21dabe46bb5",
+            "size": 11,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/CLAUDE.md?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/blob/main/CLAUDE.md",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs/43c994c2d3617f947bcb5adf1933e21dabe46bb5",
+            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory/main/CLAUDE.md",
+            "type": "file",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/CLAUDE.md?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/blobs/43c994c2d3617f947bcb5adf1933e21dabe46bb5",
+              "html": "https://github.com/combsmith/software-factory/blob/main/CLAUDE.md"
+            }
+          },
+          {
+            "name": "LICENSE",
+            "path": "LICENSE",
+            "sha": "6a7d11ab796a8ec0338052d7a1dfb4c1fe16c297",
+            "size": 1060,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/LICENSE?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/blob/main/LICENSE",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs/6a7d11ab796a8ec0338052d7a1dfb4c1fe16c297",
+            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory/main/LICENSE",
+            "type": "file",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/LICENSE?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/blobs/6a7d11ab796a8ec0338052d7a1dfb4c1fe16c297",
+              "html": "https://github.com/combsmith/software-factory/blob/main/LICENSE"
+            }
+          },
+          {
+            "name": "Makefile",
+            "path": "Makefile",
+            "sha": "1a3654147f17904443e79b12f296c3800b1a08bd",
+            "size": 103,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/Makefile?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/blob/main/Makefile",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs/1a3654147f17904443e79b12f296c3800b1a08bd",
+            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory/main/Makefile",
+            "type": "file",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/Makefile?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/blobs/1a3654147f17904443e79b12f296c3800b1a08bd",
+              "html": "https://github.com/combsmith/software-factory/blob/main/Makefile"
+            }
+          },
+          {
+            "name": "README.md",
+            "path": "README.md",
+            "sha": "e63b9e114443536f21eff62d71b45701f1632bc9",
+            "size": 2347,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/README.md?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/blob/main/README.md",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs/e63b9e114443536f21eff62d71b45701f1632bc9",
+            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory/main/README.md",
+            "type": "file",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/README.md?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/blobs/e63b9e114443536f21eff62d71b45701f1632bc9",
+              "html": "https://github.com/combsmith/software-factory/blob/main/README.md"
+            }
+          },
+          {
+            "name": "config",
+            "path": "config",
+            "sha": "38ffcde914a976d8e6dc75ff05bf43318135fe25",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/config?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/tree/main/config",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/trees/38ffcde914a976d8e6dc75ff05bf43318135fe25",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/config?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/trees/38ffcde914a976d8e6dc75ff05bf43318135fe25",
+              "html": "https://github.com/combsmith/software-factory/tree/main/config"
+            }
+          },
+          {
+            "name": "docs",
+            "path": "docs",
+            "sha": "3a38cf7faf05d6db0e929f8ec937f797977fc57f",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/docs?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/tree/main/docs",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/trees/3a38cf7faf05d6db0e929f8ec937f797977fc57f",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/docs?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/trees/3a38cf7faf05d6db0e929f8ec937f797977fc57f",
+              "html": "https://github.com/combsmith/software-factory/tree/main/docs"
+            }
+          },
+          {
+            "name": "evals",
+            "path": "evals",
+            "sha": "2d966ddadec914407915d935e0b2311e4aaf90d0",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/evals?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/tree/main/evals",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/trees/2d966ddadec914407915d935e0b2311e4aaf90d0",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/evals?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/trees/2d966ddadec914407915d935e0b2311e4aaf90d0",
+              "html": "https://github.com/combsmith/software-factory/tree/main/evals"
+            }
+          },
+          {
+            "name": "examples",
+            "path": "examples",
+            "sha": "21388babcd078863d16960b5848504bd6948543a",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/examples?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/tree/main/examples",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/trees/21388babcd078863d16960b5848504bd6948543a",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/examples?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/trees/21388babcd078863d16960b5848504bd6948543a",
+              "html": "https://github.com/combsmith/software-factory/tree/main/examples"
+            }
+          },
+          {
+            "name": "kernel",
+            "path": "kernel",
+            "sha": "f3871c104f592002c59135ac95fad925a27f6906",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/kernel?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/tree/main/kernel",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/trees/f3871c104f592002c59135ac95fad925a27f6906",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/kernel?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/trees/f3871c104f592002c59135ac95fad925a27f6906",
+              "html": "https://github.com/combsmith/software-factory/tree/main/kernel"
+            }
+          },
+          {
+            "name": "lifecycle",
+            "path": "lifecycle",
+            "sha": "d000791ccedcc2a783e84534d3704721164d0829",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/lifecycle?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/tree/main/lifecycle",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/trees/d000791ccedcc2a783e84534d3704721164d0829",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/lifecycle?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/trees/d000791ccedcc2a783e84534d3704721164d0829",
+              "html": "https://github.com/combsmith/software-factory/tree/main/lifecycle"
+            }
+          },
+          {
+            "name": "schemas",
+            "path": "schemas",
+            "sha": "cf0da7525e13fbb88f5c772f9be5295104562529",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/schemas?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/tree/main/schemas",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/trees/cf0da7525e13fbb88f5c772f9be5295104562529",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/schemas?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/trees/cf0da7525e13fbb88f5c772f9be5295104562529",
+              "html": "https://github.com/combsmith/software-factory/tree/main/schemas"
+            }
+          },
+          {
+            "name": "sim",
+            "path": "sim",
+            "sha": "3892d9a8cdeec6f2daa8ca868fd337ef273eded8",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/sim?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/tree/main/sim",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/trees/3892d9a8cdeec6f2daa8ca868fd337ef273eded8",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/sim?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/trees/3892d9a8cdeec6f2daa8ca868fd337ef273eded8",
+              "html": "https://github.com/combsmith/software-factory/tree/main/sim"
+            }
+          },
+          {
+            "name": "sonar-project.properties",
+            "path": "sonar-project.properties",
+            "sha": "1e2b5addf4416e810e8f286dc3df0b57893683a4",
+            "size": 534,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/sonar-project.properties?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/blob/main/sonar-project.properties",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs/1e2b5addf4416e810e8f286dc3df0b57893683a4",
+            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory/main/sonar-project.properties",
+            "type": "file",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/sonar-project.properties?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/blobs/1e2b5addf4416e810e8f286dc3df0b57893683a4",
+              "html": "https://github.com/combsmith/software-factory/blob/main/sonar-project.properties"
+            }
+          },
+          {
+            "name": "tests",
+            "path": "tests",
+            "sha": "f02b05d8f626a3408a401ed43b79730001b577fc",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/tests?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/tree/main/tests",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/trees/f02b05d8f626a3408a401ed43b79730001b577fc",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/tests?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/trees/f02b05d8f626a3408a401ed43b79730001b577fc",
+              "html": "https://github.com/combsmith/software-factory/tree/main/tests"
+            }
+          },
+          {
+            "name": "tools",
+            "path": "tools",
+            "sha": "430046fba3f8f8422517cfbe3a8a2f9458dfc227",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/tools?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/tree/main/tools",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/trees/430046fba3f8f8422517cfbe3a8a2f9458dfc227",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/tools?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/trees/430046fba3f8f8422517cfbe3a8a2f9458dfc227",
+              "html": "https://github.com/combsmith/software-factory/tree/main/tools"
+            }
+          },
+          {
+            "name": "trials",
+            "path": "trials",
+            "sha": "33ad248895a496ae4b30736490b1481e0ca5568a",
+            "size": 0,
+            "url": "https://api.github.com/repos/combsmith/software-factory/contents/trials?ref=main",
+            "html_url": "https://github.com/combsmith/software-factory/tree/main/trials",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory/git/trees/33ad248895a496ae4b30736490b1481e0ca5568a",
+            "download_url": null,
+            "type": "dir",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory/contents/trials?ref=main",
+              "git": "https://api.github.com/repos/combsmith/software-factory/git/trees/33ad248895a496ae4b30736490b1481e0ca5568a",
+              "html": "https://github.com/combsmith/software-factory/tree/main/trials"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-trial-author[bot], by the narrowed installation token"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token, the second run: the revocation, whose status the script records",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "python3, in a scratch directory outside the repo: the answer, from the second run's reads and nothing else",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": {
+          "minted": {
+            "status": 201,
+            "permissions": {
+              "contents": "read",
+              "metadata": "read"
+            },
+            "repository_selection": "selected",
+            "repositories": [
+              "combsmith/software-factory-canary"
+            ]
+          },
+          "read_the_subset_permits": "200",
+          "write_beyond_the_permissions": "403",
+          "read_of_a_repository_not_named": "200",
+          "first_run": {
+            "read_the_subset_permits": "404",
+            "why": "it asked README.md, which the canary does not hold: a fault of the script, fixed for the second run"
+          },
+          "permissions_subset_holds": true,
+          "repository_subset_narrows_a_read": false,
+          "words": "A token can be minted with a subset of the App's permissions and repositories (201, contents read with metadata read, which GitHub adds, and the canary alone). The permissions subset holds: a read it permits is answered 200 and a write it does not is refused 403. The repository subset does not narrow a read: the token read the root of combsmith/software-factory, a repository it does not name and the App is not installed on, and was answered 200, because every repository of the org is public and any token reads public content. A write beyond the named repository could not be tried, since the App's installation reaches the canary alone. So the condition's last clause fails, and section 5.1's 'a token cannot reach a repo its Run is not about' holds for writes and private repos only."
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
+    "exchanges[11].request.headers.authorization"
+  ],
+  "verdict": "fail"
+}

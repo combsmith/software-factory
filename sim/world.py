@@ -304,8 +304,10 @@ class World:
                                          and self.head == self.approved["digest"])
 
     def records(self) -> list:
-        """What the records port lists: every Run, including one still waiting for a runner."""
+        """What the records port lists: every Run, including one still waiting for a runner. Each is the Factory's
+        own: a fork's pull-request run never is one, so none is listed here (I-34)."""
         # GitHub: a_queued_run_is_listed
+        # GitHub: a_forks_run_never_counts
         return [copy.deepcopy(r) for r in self.runs]
 
     def pausing(self) -> bool:
@@ -1186,7 +1188,11 @@ class World:
             return
         roll = self.rng.random()
         if roll < 0.40:
+            # A pass comes when a pass chains to the next, or a tick or the relay's nudge arrives: a tick can be lost,
+            # and the chain and the nudge keep passes coming within the minute the clock counts.
             # GitHub: a_tick_can_be_lost
+            # GitHub: a_pass_starts_its_successor
+            # GitHub: a_public_event_starts_a_pass
             if not (self.faults and self.rng.random() < 0.3):
                 self.poll()
             else:

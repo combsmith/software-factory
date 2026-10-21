@@ -141,4 +141,9 @@ RULES = (
      "trials/P-34.json"),
     ("an_issues_run_record_expires", "A run record is gone from the list once it is past the retention", ("P-16",),
      None),
+    ("a_forks_run_never_counts", "A pull request from a fork runs its own workflow file, on pull_request, never on a "
+     "schedule or a dispatch, and I-34 counts none of it", ("P-27",), "trials/P-27.json"),
+    ("a_pass_starts_its_successor", "A pass can dispatch the next with its own job's token", ("P-9",), "trials/P-9.json"),
+    ("a_public_event_starts_a_pass", "An event anyone may cause starts the poller's workflow, within a minute or two",
+     ("P-20",), "trials/P-20.json"),
 )
