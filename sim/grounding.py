@@ -135,6 +135,7 @@ RULES = (
      "so", ("P-43",), "trials/P-43.json", None),
     # trials/P-45.json: Dependabot moved actions/checkout's pin in a canary workflow; it opened the pull request and pushed
     # its head as dependabot[bot], a Bot, id 49699333, which GraphQL names dependabot: the port reads it by id and type.
+    # The workflow it updated was an ordinary one; that a Lens's own is updated alike is GitHub's rule, not shown here.
     ("a_dependency_bot_updates_a_workflow_pin", "A dependency bot's update can change the pin of an Action in a "
      "workflow file, a Lens's own among them; the bot opens it and pushes its head, and its class is dependency",
      ("P-45",), "trials/P-45.json", None),

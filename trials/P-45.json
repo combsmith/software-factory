@@ -4,7 +4,7 @@
   "question": "When a dependency bot updates an Action's pin in a workflow file, does it open the pull request and push its head under its own [bot] identity, so that the port's class for it is dependency?",
   "pass": "Yes, with the bot as author and last pusher (section 6; the working rulings on issue 251, ruling 3). With Dependabot version updates for GitHub Actions configured on the canary's default branch, allowed for actions/checkout alone, and a workflow there pinning actions/checkout at v7.0.0's full sha, one release behind: Dependabot's pull request that moves the pin is read for its author and that author's type, the head branch's activity for the last pusher (P-28's read), its commits' author and committer, and its timeline. Pass if the author and the last pusher are both dependabot[bot], a Bot, so that decision 0026's exact identity gives the class dependency. If a person's push follows, the class is read as any other change's, and the fixture says so.",
   "repo": "combsmith/software-factory-canary",
-  "ran_at": "2026-10-21T18:00:37Z",
+  "ran_at": "2026-10-21T18:00:24Z",
   "exchanges": [
     {
       "request": {
@@ -2312,6 +2312,155 @@
           "kind": "person",
           "name": "don-petry"
         },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/0bd9df2e31d758cea12c551c213820672a351ac1 (gh api), read after the review of this fixture: the pushed commit, for when the trial began",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 23:17:12 GMT",
+          "etag": "W/\"95d722655e419309e5dd6f728f29356e79129fdc85887c49ecca482d5c717baa\"",
+          "last-modified": "Wed, 21 Oct 2026 18:00:24 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D66C:149150:FE7BD:332A4A:6AD947F7",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4811",
+          "x-ratelimit-reset": "1792627133",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "189"
+        },
+        "body": {
+          "sha": "0bd9df2e31d758cea12c551c213820672a351ac1",
+          "node_id": "C_kwDOVFD679oAKDBiZDlkZjJlMzFkNzU4Y2VhMTJjNTUxYzIxMzgyMDY3MmEzNTFhYzE",
+          "commit": {
+            "author": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com",
+              "date": "2026-10-21T18:00:24Z"
+            },
+            "committer": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com",
+              "date": "2026-10-21T18:00:24Z"
+            },
+            "message": "Trial P-45: Dependabot for actions/checkout, and a workflow pinned one release back",
+            "tree": {
+              "sha": "24a47bb84202c74195725f13a9ebea9009324c8c",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/24a47bb84202c74195725f13a9ebea9009324c8c"
+            },
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/0bd9df2e31d758cea12c551c213820672a351ac1",
+            "comment_count": 0,
+            "verification": {
+              "verified": false,
+              "reason": "unsigned",
+              "signature": null,
+              "payload": null,
+              "verified_at": null
+            }
+          },
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/0bd9df2e31d758cea12c551c213820672a351ac1",
+          "html_url": "https://github.com/combsmith/software-factory-canary/commit/0bd9df2e31d758cea12c551c213820672a351ac1",
+          "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/0bd9df2e31d758cea12c551c213820672a351ac1/comments",
+          "author": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "committer": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "parents": [
+            {
+              "sha": "54ccf0807156a4352d19390205cc30efa1373b39",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/54ccf0807156a4352d19390205cc30efa1373b39",
+              "html_url": "https://github.com/combsmith/software-factory-canary/commit/54ccf0807156a4352d19390205cc30efa1373b39"
+            }
+          ],
+          "stats": {
+            "total": 24,
+            "additions": 24,
+            "deletions": 0
+          },
+          "files": [
+            {
+              "sha": "5ffff02f10f58048ed7870629000c060b4b6da19",
+              "filename": ".github/dependabot.yml",
+              "status": "added",
+              "additions": 12,
+              "deletions": 0,
+              "changes": 12,
+              "blob_url": "https://github.com/combsmith/software-factory-canary/blob/0bd9df2e31d758cea12c551c213820672a351ac1/.github%2Fdependabot.yml",
+              "raw_url": "https://github.com/combsmith/software-factory-canary/raw/0bd9df2e31d758cea12c551c213820672a351ac1/.github%2Fdependabot.yml",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github%2Fdependabot.yml?ref=0bd9df2e31d758cea12c551c213820672a351ac1",
+              "patch": "@@ -0,0 +1,12 @@\n+# Trial P-45 (software-factory, issue 251): Dependabot version updates for GitHub Actions, allowed for\n+# actions/checkout alone, so that its pull request for the pin in p45-pinned.yml can be read: its author, the\n+# last pusher of its head and the class the port gives it.\n+version: 2\n+updates:\n+  - package-ecosystem: github-actions\n+    directory: /\n+    schedule:\n+      interval: daily\n+    allow:\n+      - dependency-name: actions/checkout\n+    open-pull-requests-limit: 1"
+            },
+            {
+              "sha": "6be983fccb773bf9bc9cae04efa47e97161a34ab",
+              "filename": ".github/workflows/p45-pinned.yml",
+              "status": "added",
+              "additions": 12,
+              "deletions": 0,
+              "changes": 12,
+              "blob_url": "https://github.com/combsmith/software-factory-canary/blob/0bd9df2e31d758cea12c551c213820672a351ac1/.github%2Fworkflows%2Fp45-pinned.yml",
+              "raw_url": "https://github.com/combsmith/software-factory-canary/raw/0bd9df2e31d758cea12c551c213820672a351ac1/.github%2Fworkflows%2Fp45-pinned.yml",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github%2Fworkflows%2Fp45-pinned.yml?ref=0bd9df2e31d758cea12c551c213820672a351ac1",
+              "patch": "@@ -0,0 +1,12 @@\n+# Trial P-45 (software-factory, issue 251): an Action pinned one release back, for Dependabot to update. It runs\n+# only by hand, and no one runs it. It is granted nothing, holds no secret and keeps no credential.\n+name: trial-p45-pinned\n+on: workflow_dispatch\n+permissions: {}\n+jobs:\n+  pinned:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0\n+        with:\n+          persist-credentials: false"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
         "via": "cli",
         "call": "python3, in a scratch directory outside the repo: the author, the pushers and the commits, from the reads above alone",
         "headers": {},
@@ -2375,7 +2524,8 @@
           "noted": [
             "GraphQL names the author dependabot and REST dependabot[bot], with the same id, 49699333, and type Bot: the port tells the bot by id and type, never by a name's spelling.",
             "The head's commit is authored by dependabot[bot] and committed by GitHub's web-flow.",
-            "Dependabot deleted its branch when its pull request was closed; dependabot.yml stays on main."
+            "Dependabot created its branch at 21:59:44Z with one commit and force-pushed another at 22:10:00Z, its own, before it opened the pull request: no person's push is in the head's history.",
+            "Dependabot deleted its branch when its pull request was closed; dependabot.yml stays on main, so it will open such a pull request on a later release of actions/checkout."
           ],
           "author_and_last_pusher_are_the_bot": true
         }
@@ -2393,7 +2543,8 @@
     "exchanges[9].request.headers.authorization",
     "exchanges[10].request.headers.authorization",
     "exchanges[11].request.headers.authorization",
-    "exchanges[12].request.headers.authorization"
+    "exchanges[12].request.headers.authorization",
+    "exchanges[13].request.headers.authorization"
   ],
   "verdict": "pass"
 }

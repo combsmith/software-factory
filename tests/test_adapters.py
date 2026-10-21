@@ -1501,7 +1501,9 @@ class Contract(unittest.TestCase):
             "a_dependency_bot_updates_a_workflow_pin":
                 pull.own(body("P-45", 5), {"dependency": {(49699333, "Bot")}})[0]["class"] == "dependency"
                 and pull.own(body("P-45", 5), {})[0]["class"] == "outside"
-                and pull.last_pusher(replay("P-45", 7), body("P-45", 5)) == "dependabot[bot]",
+                and pull.last_pusher(replay("P-45", 7), body("P-45", 5)) == "dependabot[bot]"
+                # The Kernel compares the last pusher with the author as the port reads both, by REST's one spelling.
+                and pull.own(body("P-45", 5), {})[0]["author"] == pull.last_pusher(replay("P-45", 7), body("P-45", 5)),
         }
         # Each is read from the fixture that grounds it, and no other.
         replayed = {"a_push_is_new_content": {"P-29.base"}, "the_pusher_is_the_last_pusher": {"P-28", "P-28.app"},
