@@ -13,8 +13,10 @@ deleted and another made between two pages leaves the count the same and one unr
 
 A thread a person opened is `human`, with no severity (section 3.3). Any other thread, a Lens's among them, has neither:
 a required Lens's category and severity come from its own Finding record, in its Run's `applied/1`, joined by
-`surface.key` (decision 0038), and no Run uploads one until `harness/` builds `apply`. The Kernel reads a required model
-Lens's open thread with neither as unreadable, and defers (`kernel/derive.py`'s `unreadable_thread`).
+`surface.key` (decision 0038), and no Run uploads one until `harness/` builds `apply`. A thread is a Lens's only when
+its author is that Lens's own App, by account id and type, as the caller names it: an outside reviewer's, CodeRabbit's
+or Codex's, is no required Lens's, and gates nothing. The Kernel reads a required model Lens's own App's open thread
+with neither as unreadable, and defers on it alone (`kernel/derive.py`'s `unreadable_thread`).
 
 The list is whole only when its last page says there is no next one, every thread it counts was read, and none twice;
 a cursor that repeats, or a next page past the count, ends the read short, as `adapters/checks.py` does for the rollup.

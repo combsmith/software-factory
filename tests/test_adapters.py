@@ -1547,6 +1547,22 @@ class Snapshot(unittest.TestCase):
         got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW)
         self.assertIs(got["complete"]["threads"], False)
 
+    def test_only_a_required_lenss_own_apps_open_thread_defers(self):
+        # A thread is a Lens thread only when its author is that Lens's own App, by account id and type. An outside
+        # reviewer's thread, CodeRabbit's or Codex's, is no required Lens's: with no category it does not defer.
+        # Only a required model Lens's own App's open thread with neither defers, until harness/ uploads its record.
+        from kernel import derive
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        role = ("combsmith-sf-pr-review", 99, "Bot")
+        seq = self.sequence(1)
+        seq[8] = threads_answer(canary(), 26, [thread_node("PRRT_1", LENS), thread_node("PRRT_2", role),
+                                               thread_node("PRRT_3", APP), thread_node("PRRT_4", PERSON)])
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit", role[1:]: "pr-review"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW)
+        self.assertEqual(config["required_lenses"]["model"], ["pr-review"])
+        self.assertEqual(derive.unreadable_threads(got, dict(config, approver=APPROVER)), ["PRRT_2"])
+
     def test_the_snapshots_time_is_taken_after_its_last_read(self):
         replay = github.Replay(self.sequence(1))
         router = Router(replay, {"don-petry": "admin"})
