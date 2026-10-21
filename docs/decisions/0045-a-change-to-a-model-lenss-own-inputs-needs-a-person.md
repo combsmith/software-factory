@@ -32,5 +32,6 @@ Lens of another family exists, its review of the head may stand for the person's
 | The Maintainer's own change, opened and pushed by the Maintainer, is a person's judgment; anyone else's push is not | `tests/test_decide.py::test_the_maintainers_own_change_is_a_persons_judgment` |
 | The list is the configuration's, never the change's | `tests/test_decide.py::test_the_list_is_the_configurations_never_the_change` |
 | An unreadable list defers for the Maintainer, and a queued item leaves the queue | `tests/test_decide.py::test_an_unreadable_list_of_a_model_lenss_inputs_defers_for_the_maintainer` |
+| A Lens's App that dismisses the person's approval takes a converged item back to `verifying`, a transition the Lifecycle declares, bounded by the Run ceiling | `tests/test_transitions.py::test_every_change_of_state_is_declared_with_who_makes_it` |
 | The Controller builds the list from the base branch's `config/hooks.json` | waiting on `adapters/settings.py` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

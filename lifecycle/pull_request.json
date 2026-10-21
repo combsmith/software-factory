@@ -172,6 +172,12 @@
       "bound": "max_acts_per_item"
     },
     {
+      "from": "converged",
+      "to": "verifying",
+      "by": "lens",
+      "bound": "max_runs_per_item"
+    },
+    {
       "from": "queued",
       "to": "closed",
       "by": "human",
