@@ -80,9 +80,10 @@ DEPENDENCY_SEED = 4
 DEPENDABOT = "dependabot[bot]"
 # What each who changes the item may touch, in the world's own words: a path on the list, a protected path or a Lens's
 # input, or one on neither. A Role's fix Run touches the tests, the dependency bot a workflow's pin, the Maintainer the
-# brakes' limits. What a change touches draws from its own generator, so that the rest of each world stays as it was.
+# authority table. None is a model Lens's own input, which waits for a person's approval no world gives (issue 140). What
+# a change touches draws from its own generator, so that the rest of each world stays as it was.
 ON_THE_LIST = {"role": "tests/test_decide.py", "dependency": ".github/workflows/verify.yml",
-               "maintainer": "config/defaults.json"}
+               "maintainer": "config/authority.json"}
 OFF_THE_LIST = {"role": "docs/lessons.md", "dependency": "docs/requirements.txt", "maintainer": "docs/glossary.md"}
 # On every seed, under faults, a review's Result leaves a criterion of its rubric uncovered half the time, which `apply`
 # refuses before any Effect: the Run fails by a fault of the item (decision 0029). The Factory's own behaviour, not
