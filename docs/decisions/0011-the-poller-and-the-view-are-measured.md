@@ -21,7 +21,7 @@ than trusted. Because the Kernel does no I/O, either can be replaced without tou
 | Boundary | Check |
 |---|---|
 | Replacing the poller or the view changes no decision: the Kernel imports neither | `tools/check_purity.py` |
-| The three thresholds are computed from run records and shown | waiting on `controller/` |
-| W-2 is measured with the relay in place; while the relay is down it is not met, and the outage is itself reported within fifteen minutes (decision 0043) | waiting on `controller/` |
+| The three thresholds are computed from run records and shown | `tests/test_controller.py::test_the_three_thresholds_of_decision_0011_are_computed_and_shown`; the job-minutes and the GraphQL points are read by a port, waiting on `adapters/usage.py` |
+| W-2 is measured with the relay in place; while the relay is down it is not met, and the outage is itself reported within fifteen minutes (decision 0043) | waiting on `controller/relay.py` |
 | Until the first Consumer is onboarded, a pass's cost an hour is an estimate, marked so (FR-35): the reader App's reads on the two repos it reaches, GitHub's cost model held to them, and the counts of open items in every repo of the org, recorded in `trials/P-8.json` | `tests/test_tools.py::test_the_cost_trials_estimate_is_marked_so_and_held_to_its_reads` |
 | How often a scheduled tick arrives in this repo is measured once, over a day, by a workflow that does nothing but exist, and set against W-2: the schedule alone does not carry it, and the relay's nudges must; the measurement is `trials/P-8.ticks.json` | `tests/test_tools.py::test_the_tick_probes_intervals_are_held_to_its_runs` |
