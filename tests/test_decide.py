@@ -2830,6 +2830,20 @@ class UnidentifiedRuns(unittest.TestCase):
         # The same run listed twice is one.
         twice = past(most) + past(most)
         self.assertEqual(go(facts(), ctx=context(unidentified_runs=twice))["outcome"], "admit")
+        # The brakes come first: spent attempts hold an approval, and a Pause defers it, before the bound.
+        ctx = context(unidentified_runs=past(most + 1))
+        d = go(facts(), REVIEWED + approvals(LIMITS["max_attempts"]), ctx=ctx)
+        self.assertEqual((d["outcome"], d["reason"]), ("hold", "attempts_exhausted"))
+        d = go(facts(), REVIEWED, ctx=dict(ctx, paused=True))
+        self.assertEqual(d["reason"], "paused")
+        # With none past the window the bound is not read, as a limit of the list.
+        for bad in (None, "1", 0, True):
+            cfg = json.loads(json.dumps(CONFIG))
+            if bad is None:
+                del cfg["limits"]["max_unnamed_runs"]
+            else:
+                cfg["limits"]["max_unnamed_runs"] = bad
+            self.assertEqual(go(facts(), ctx=context(unidentified_runs=[]), cfg=cfg)["outcome"], "admit", bad)
 
     def test_an_unidentified_run_that_cannot_be_read_defers_and_raises_no_alert(self):  # issue 270, I-13
         # A run id, a creation, a status or a limit that cannot be read is a list that cannot be read: every Run defers,

@@ -455,7 +455,8 @@ def run_deferral(_decision, facts: dict, state, evidence: list, context: dict, n
         return _decision(facts, state, "concurrency", evidence, t.DEFER)
     if unnamed_within(context, now, limits) != []:
         return _decision(facts, state, "run_unidentified", evidence, t.DEFER)
-    if len(unnamed_past(context, now, limits)) > limits["max_unnamed_runs"]:
+    past = unnamed_past(context, now, limits)
+    if past and len(past) > limits["max_unnamed_runs"]:
         return _decision(facts, state, "runs_unnamed", evidence, t.DEFER)
     return None
 

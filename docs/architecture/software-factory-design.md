@@ -856,12 +856,14 @@ record. It defers nothing, and every Run unnamed past the window is one alert of
 within one pass and sees it once. A Run on an item among them is missing from that item's attempts
 and Run ceiling, so past `max_unnamed_runs` of them (1) every Run and approval defers,
 `runs_unnamed`, as a deferral of the whole scope: a name the port cannot read admits at most that
-many Runs more before a person must act. A person clears an alert by deleting the run, since a
-run-name is fixed at the dispatch; it also leaves the view once the run falls from the newest runs
-the port reads. Nothing in the Factory clears one (issue 270). The window is measured from the
-pass's `now`, not from the list's own `date` and `age`: a read served stale, or a pass whose clock
-runs ahead of GitHub's, can read a completed Run as past it a little early, which the Run's
-re-checks at its start and in `apply` and its item's lane bound. Only a record
+many Runs more before a person must act. A person clears an alert by deleting the run, cancelling
+it first if it is still running, since a run-name is fixed at the dispatch; it also leaves the view
+once the run falls from the newest runs the port reads. Nothing in the Factory clears one (issue
+270). The window is measured from the pass's `now`, not from the list's own `date` and `age`: a
+read served stale, or a pass whose clock runs ahead of GitHub's, can read a completed Run as past
+it a little early. The item's lane bounds what follows, and so will the Run's re-checks at its
+start and in `apply`, which wait on `harness/`. Rules 1 and 2 of decision 0036 hold as narrowed
+here. Only a record
 started by a `workflow_dispatch` of a Role's workflow, with an item in its input, can be
 unidentified, and only while its name is not yet listed, whether or not it has completed: a
 completed record read as no one's would fall out of its item's attempts and Run ceiling. The name is

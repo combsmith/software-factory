@@ -86,7 +86,8 @@ def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, conte
     # An approval is a Run, so a Run that cannot be told whose it is defers it. An enqueue admits none (decision 0036).
     if action == "issue_approval" and unnamed_within(context, now, config["limits"]) != []:
         return _decision(facts, state, "run_unidentified", evidence, t.DEFER)
-    if action == "issue_approval" and len(unnamed_past(context, now, config["limits"])) > config["limits"]["max_unnamed_runs"]:
+    past = unnamed_past(context, now, config["limits"]) if action == "issue_approval" else []
+    if past and len(past) > config["limits"]["max_unnamed_runs"]:
         return _decision(facts, state, "runs_unnamed", evidence, t.DEFER)
     return _decision(facts, state, reason, evidence, t.ACT, action=action, content_id=facts["content_id"])
 

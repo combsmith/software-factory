@@ -223,7 +223,7 @@
           "minimum": 1
         },
         "max_unnamed_runs": {
-          "description": "How many completed Runs may be listed unnamed past max_unnamed_run_seconds before every Run defers, runs_unnamed: such a Run, were it on an item, is missing from that item's attempts and Run ceiling, so past this bound nothing admits until a person deletes them (issue 270)",
+          "description": "How many Runs may be listed unnamed past max_unnamed_run_seconds, of any status, each counted once, before every Run defers, runs_unnamed: such a Run, were it on an item, is missing from that item's attempts and Run ceiling, so past this bound nothing admits until a person deletes them (issue 270)",
           "type": "integer",
           "minimum": 1
         }

@@ -503,6 +503,10 @@ class Records(unittest.TestCase):
         self.assertEqual((got["runs"], got["unidentified"], got["complete"], slept),
                          ([], [{"run": "39086879694", "created_at": created,
                                 "status": "in_progress" if exchanges("P-17")[10]["response"]["body"]["workflow_runs"][0]["status"] == "in_progress" else "queued"}], True, [5]))
+        # A run not yet started is listed as queued, whichever word GitHub uses for it (issue 270).
+        got, _ = self.read(listing("P-17", 9, total=1), listing("P-17", 10, total=1, rows={"status": "pending"}),
+                           per_page=1)
+        self.assertEqual([u["status"] for u in got["unidentified"]], ["queued"])
         # A record whose creation cannot be read is a row that cannot be read: the list is not whole (issue 270).
         got, _ = self.read(listing("P-17", 9, total=1), listing("P-17", 10, total=1, rows={"created_at": "soon"}),
                            per_page=1)
