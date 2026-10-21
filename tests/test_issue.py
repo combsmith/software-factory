@@ -460,14 +460,21 @@ class Done(unittest.TestCase):
                         linked=[late])):
             d = derive(f)
             self.assertEqual((d["state"], d["reason"], d["evidence"]), ("declined", "merged_while_declined", ["11"]), f)
-        # An outsider's reopening before the merge left the issue open, so a merge then that closed nothing is read
-        # as nothing; one in the merge's second leaves the issue read as closed at it, the reading that names it.
+        # An outsider's reopening before the merge left the issue open, so a merge then that closed nothing, while the
+        # issue stays open, is read as nothing; one in the merge's second leaves the issue read as closed at it, the
+        # reading that names it.
+        d = derive(facts(closed_first_at=at(2), reopened_last_by="other", reopened_last_at=at(4), linked=[late]))
+        self.assertEqual((d["state"], d["reason"]), ("declined", "reopened_by_other"))
+        for f in (facts(closed_first_at=at(2), reopened_last_by="other", reopened_last_at=at(5), linked=[late]),
+                  facts(state="closed", closed_first_at=at(2), reopened_last_by="other", reopened_last_at=at(5),
+                        linked=[late])):
+            d = derive(f)
+            self.assertEqual((d["state"], d["reason"]), ("declined", "merged_while_declined"), f)
+        # Closed again since, at a time the facts do not carry: read as closed at the merge, so the contradiction is
+        # named, not read as a quiet close (the Codex review of the pull request for issue 267).
         d = derive(facts(state="closed", closed_first_at=at(2), reopened_last_by="other", reopened_last_at=at(4),
                          linked=[late]))
-        self.assertEqual((d["state"], d["reason"]), ("declined", "closed"))
-        d = derive(facts(state="closed", closed_first_at=at(2), reopened_last_by="other", reopened_last_at=at(5),
-                         linked=[late]))
-        self.assertEqual((d["state"], d["reason"]), ("declined", "merged_while_declined"))
+        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("declined", "merged_while_declined", ["11"]))
         # Two merges in one second, the first of the life: one that closed the issue makes it done, though the other
         # closed nothing.
         d = derive(facts(state="closed", closed_first_at=at(5), linked=[pr(is_open=False, merged=5),

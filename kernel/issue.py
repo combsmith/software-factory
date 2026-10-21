@@ -378,10 +378,13 @@ def closed_at(facts: dict, when: str) -> bool:
     """Whether the issue stood closed at `when`, so that a merge then could not close it: its present life was first
     closed no later than that second, and no one but a writer had reopened it before that second, which would have
     left it open. A close or a reopening in that second leaves it read as closed, the reading that names the
-    contradiction."""
+    contradiction. Where an outsider's reopening came before it and the issue is closed again now, the facts carry no
+    time for that second close: it is read as standing at `when`, the reading that names the contradiction."""
     if facts["closed_first_at"] is None or not facts["closed_first_at"] <= when:
         return False
-    return not (facts["reopened_last_by"] == "other" and facts["reopened_last_at"] < when)
+    if facts["reopened_last_by"] == "other" and facts["reopened_last_at"] < when:
+        return facts["state"] == "closed"
+    return True
 
 
 def as_of(item: dict, when: str) -> dict:
