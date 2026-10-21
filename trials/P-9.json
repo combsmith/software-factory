@@ -1215,6 +1215,33 @@
     {
       "request": {
         "as": {
+          "kind": "workflow",
+          "name": "p9-chain at depth 1 and at depth 2, each run's own report in its artifact"
+        },
+        "via": "workflow",
+        "call": "What each run of p9-chain wrote of itself: its run id, its depth and when its step started",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": "success",
+        "headers": {},
+        "body": {
+          "depth_1": {
+            "run_id": "39532278207",
+            "started_at": "2026-10-21T02:18:33Z"
+          },
+          "depth_2": {
+            "run_id": "39532289509",
+            "started_at": "2026-10-21T02:18:40Z",
+            "dispatched_nothing": true
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
           "kind": "person",
           "name": "don-petry"
         },
@@ -1762,7 +1789,11 @@
           "job_started_at": {
             "depth_1": "2026-10-21T02:18:33Z",
             "depth_2": "2026-10-21T02:18:40Z"
-          }
+          },
+          "first_run_actor": "don-petry",
+          "second_run_names_the_first_runs_actor": false,
+          "words": "A job holding actions: write alone started the next run with its own token (204), and the next run was listed at once, by workflow_dispatch. The ruling also asks that the second run's record name the first run's actor: it names github-actions[bot], the actor of a run the job token starts, while the first run's actor is the person who dispatched it. That clause fails, so the verdict is fail; the pass field had weakened it to 'names its actor', which holds. Section 6's question, whether a pass can start the next with the default token, is answered yes.",
+          "principle": "The verdict follows the working rulings on #187, which read section 6's question; a clause the session added in the pass field is recorded here as held or not and does not decide the verdict."
         }
       }
     }
@@ -1776,8 +1807,8 @@
     "exchanges[6].request.headers.authorization",
     "exchanges[7].request.headers.authorization",
     "exchanges[8].request.headers.authorization",
-    "exchanges[9].request.headers.authorization",
-    "exchanges[10].request.headers.authorization"
+    "exchanges[10].request.headers.authorization",
+    "exchanges[11].request.headers.authorization"
   ],
-  "verdict": "pass"
+  "verdict": "fail"
 }

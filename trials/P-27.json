@@ -1859,149 +1859,6 @@
       "request": {
         "as": {
           "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "GET /orgs/combsmith/members/rachel-petry",
-        "headers": {
-          "accept": "application/vnd.github+json",
-          "x-github-api-version": "2022-11-28"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 404,
-        "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 21 Oct 2026 12:11:42 GMT",
-          "server": "github.com",
-          "vary": "Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "read:org, repo, user",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D362:88257:3E53FA:CBBF98:6AD8ABFE",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4827",
-          "x-ratelimit-reset": "1792586702",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "173"
-        },
-        "body": {
-          "message": "User does not exist or is not a member of the organization",
-          "documentation_url": "https://docs.github.com/rest/orgs/members#check-organization-membership-for-a-user",
-          "status": "404"
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/collaborators/rachel-petry/permission",
-        "headers": {
-          "accept": "application/vnd.github+json",
-          "x-github-api-version": "2022-11-28"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 21 Oct 2026 12:11:43 GMT",
-          "etag": "W/\"6d3908b308ebb221a6e1288c107a7bbaa76ecd7246e84db2296dd9af5fc720a9\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D363:1D3FCC:43420D:DA31D2:6AD8ABFF",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4826",
-          "x-ratelimit-reset": "1792586702",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "174"
-        },
-        "body": {
-          "permission": "read",
-          "user": {
-            "login": "rachel-petry",
-            "id": 287457313,
-            "node_id": "U_kgDOESJAIQ",
-            "avatar_url": "https://avatars.githubusercontent.com/u/287457313?v=4",
-            "gravatar_id": "",
-            "url": "https://api.github.com/users/rachel-petry",
-            "html_url": "https://github.com/rachel-petry",
-            "followers_url": "https://api.github.com/users/rachel-petry/followers",
-            "following_url": "https://api.github.com/users/rachel-petry/following{/other_user}",
-            "gists_url": "https://api.github.com/users/rachel-petry/gists{/gist_id}",
-            "starred_url": "https://api.github.com/users/rachel-petry/starred{/owner}{/repo}",
-            "subscriptions_url": "https://api.github.com/users/rachel-petry/subscriptions",
-            "organizations_url": "https://api.github.com/users/rachel-petry/orgs",
-            "repos_url": "https://api.github.com/users/rachel-petry/repos",
-            "events_url": "https://api.github.com/users/rachel-petry/events{/privacy}",
-            "received_events_url": "https://api.github.com/users/rachel-petry/received_events",
-            "type": "User",
-            "user_view_type": "public",
-            "site_admin": false,
-            "permissions": {
-              "admin": false,
-              "maintain": false,
-              "push": false,
-              "triage": false,
-              "pull": true
-            },
-            "role_name": "read"
-          },
-          "role_name": "read"
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/commits?author=rachel-petry&per_page=5",
-        "headers": {
-          "accept": "application/vnd.github+json",
-          "x-github-api-version": "2022-11-28"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-length": "2",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 21 Oct 2026 12:11:43 GMT",
-          "etag": "\"2bc662fc5a9e6027450e9b1a9d6a8fbe2d5f2b12f5ba601a92e316fbc8c275d9\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D365:2DF224:437B86:DB72D5:6AD8ABFF",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4823",
-          "x-ratelimit-reset": "1792586702",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "177"
-        },
-        "body": []
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
           "name": "rachel-petry"
         },
         "via": "cli",
@@ -7178,6 +7035,187 @@
           "kind": "person",
           "name": "don-petry"
         },
+        "via": "rest",
+        "call": "GET /orgs/combsmith/members/rachel-petry",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 12:11:42 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "read:org, repo, user",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D362:88257:3E53FA:CBBF98:6AD8ABFE",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4827",
+          "x-ratelimit-reset": "1792586702",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "173"
+        },
+        "body": {
+          "message": "User does not exist or is not a member of the organization",
+          "documentation_url": "https://docs.github.com/rest/orgs/members#check-organization-membership-for-a-user",
+          "status": "404"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/collaborators/rachel-petry/permission",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 12:11:43 GMT",
+          "etag": "W/\"6d3908b308ebb221a6e1288c107a7bbaa76ecd7246e84db2296dd9af5fc720a9\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D363:1D3FCC:43420D:DA31D2:6AD8ABFF",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4826",
+          "x-ratelimit-reset": "1792586702",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "174"
+        },
+        "body": {
+          "permission": "read",
+          "user": {
+            "login": "rachel-petry",
+            "id": 287457313,
+            "node_id": "U_kgDOESJAIQ",
+            "avatar_url": "https://avatars.githubusercontent.com/u/287457313?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/rachel-petry",
+            "html_url": "https://github.com/rachel-petry",
+            "followers_url": "https://api.github.com/users/rachel-petry/followers",
+            "following_url": "https://api.github.com/users/rachel-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/rachel-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/rachel-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/rachel-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/rachel-petry/orgs",
+            "repos_url": "https://api.github.com/users/rachel-petry/repos",
+            "events_url": "https://api.github.com/users/rachel-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/rachel-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false,
+            "permissions": {
+              "admin": false,
+              "maintain": false,
+              "push": false,
+              "triage": false,
+              "pull": true
+            },
+            "role_name": "read"
+          },
+          "role_name": "read"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits?author=rachel-petry&per_page=5",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "2",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 12:11:43 GMT",
+          "etag": "\"2bc662fc5a9e6027450e9b1a9d6a8fbe2d5f2b12f5ba601a92e316fbc8c275d9\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D365:2DF224:437B86:DB72D5:6AD8ABFF",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4823",
+          "x-ratelimit-reset": "1792586702",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "177"
+        },
+        "body": []
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/permissions/fork-pr-contributor-approval, after the trial; read the same way before it, uncaptured, and not changed between",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 13:09:43 GMT",
+          "etag": "W/\"8401ba07785d769849b96cbf8c68346f3fefbe607d126ba19169dc2b30daa879\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D70A:55A6E:809094:1A54540:6AD8B996",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4992",
+          "x-ratelimit-reset": "1792591581",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "8"
+        },
+        "body": {
+          "approval_policy": "first_time_contributors"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
         "via": "cli",
         "call": "python3, in a scratch directory outside the repo: the two halves, from the reads above and nothing else",
         "headers": {},
@@ -7202,7 +7240,7 @@
               "triggering_actor": "don-petry"
             },
             "holds": true,
-            "words": "GitHub records the wait in conclusion (action_required) with status completed; the pass condition named the field status. The run started only on a person's approval, as a second attempt triggered by that person."
+            "words": "GitHub records the wait in conclusion (action_required) with status completed; the pass field named the field status, a clause the session added: the ruling asks that the run show action_required until a person approves it, and it does. The run started only on a person's approval, as a second attempt triggered by that person."
           },
           "b_never_a_schedule_or_dispatch_run": {
             "fork_runs": [
@@ -7231,7 +7269,8 @@
             "dispatch_of_the_forks_file": 422,
             "schedule_runs_in_the_canary": 0,
             "holds": true
-          }
+          },
+          "principle": "The verdict follows the working rulings on #187, which read section 6's question; a clause the session added in the pass field is recorded here as held or not and does not decide the verdict."
         }
       }
     }
@@ -7245,9 +7284,9 @@
     "exchanges[6].request.headers.authorization",
     "exchanges[7].request.headers.authorization",
     "exchanges[8].request.headers.authorization",
-    "exchanges[9].request.headers.authorization",
     "exchanges[10].request.headers.authorization",
     "exchanges[11].request.headers.authorization",
+    "exchanges[12].request.headers.authorization",
     "exchanges[13].request.headers.authorization",
     "exchanges[14].request.headers.authorization",
     "exchanges[15].request.headers.authorization",
@@ -7258,7 +7297,8 @@
     "exchanges[20].request.headers.authorization",
     "exchanges[21].request.headers.authorization",
     "exchanges[22].request.headers.authorization",
-    "exchanges[23].request.headers.authorization"
+    "exchanges[23].request.headers.authorization",
+    "exchanges[24].request.headers.authorization"
   ],
   "verdict": "pass"
 }

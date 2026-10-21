@@ -19,6 +19,149 @@
           "x-github-api-version": "2022-11-28"
         },
         "body": {
+          "ref": "refs/heads/trial/p-14",
+          "sha": "the canary's main"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "384",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 20 Oct 2026 23:50:25 GMT",
+          "etag": "\"c569bbda65d93bcaf69a57e63a4111d207d5f71382bd1be9794bf7a1295e5749\"",
+          "location": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs/heads/trial/p-14",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EA44:38BB82:8D08DD:1CBDDA5:6AD7FE40",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4448",
+          "x-ratelimit-reset": "1792541678",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "552"
+        },
+        "body": {
+          "ref": "refs/heads/trial/p-14",
+          "node_id": "REF_kwDOVFD677VyZWZzL2hlYWRzL3RyaWFsL3AtMTQ",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs/heads/trial/p-14",
+          "object": {
+            "sha": "be2218fe4a5d68580a1474ddf77f93b5e011833a",
+            "type": "commit",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/be2218fe4a5d68580a1474ddf77f93b5e011833a"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p14-cache-scope.yml, on trial/p-14",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "message": "Trial workflow p14-cache-scope (combsmith/software-factory#187)",
+          "branch": "trial/p-14",
+          "content": "base64 of .github/workflows/p14-cache-scope.yml as committed; its blob is the response's content.sha"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "2333",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 20 Oct 2026 23:52:25 GMT",
+          "etag": "\"0677586c0ac99d9c03dd1d9337594c25c716530b735386568cd662f46a9cce28\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EA95:2729CE:B85A9E:25224E2:6AD7FEB8",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4430",
+          "x-ratelimit-reset": "1792541678",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "570"
+        },
+        "body": {
+          "content": {
+            "name": "p14-cache-scope.yml",
+            "path": ".github/workflows/p14-cache-scope.yml",
+            "sha": "dc09dd686e1451615139707727a9a611a4dfc8a7",
+            "size": 3685,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github/workflows/p14-cache-scope.yml?ref=trial/p-14",
+            "html_url": "https://github.com/combsmith/software-factory-canary/blob/trial/p-14/.github/workflows/p14-cache-scope.yml",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/dc09dd686e1451615139707727a9a611a4dfc8a7",
+            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory-canary/trial/p-14/.github/workflows/p14-cache-scope.yml",
+            "type": "file",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github/workflows/p14-cache-scope.yml?ref=trial/p-14",
+              "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/dc09dd686e1451615139707727a9a611a4dfc8a7",
+              "html": "https://github.com/combsmith/software-factory-canary/blob/trial/p-14/.github/workflows/p14-cache-scope.yml"
+            }
+          },
+          "commit": {
+            "sha": "f650b33bd921e64a8c6464857410bfc4e9b8f306",
+            "node_id": "C_kwDOVFD679oAKGY2NTBiMzNiZDkyMWU2NGE4YzY0NjQ4NTc0MTBiZmM0ZTliOGYzMDY",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/f650b33bd921e64a8c6464857410bfc4e9b8f306",
+            "html_url": "https://github.com/combsmith/software-factory-canary/commit/f650b33bd921e64a8c6464857410bfc4e9b8f306",
+            "author": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com",
+              "date": "2026-10-20T23:52:25Z"
+            },
+            "committer": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com",
+              "date": "2026-10-20T23:52:25Z"
+            },
+            "tree": {
+              "sha": "9ab5bcf68f2aa1c77e1ad95bde8615fc0425a418",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/9ab5bcf68f2aa1c77e1ad95bde8615fc0425a418"
+            },
+            "message": "Trial workflow p14-cache-scope (combsmith/software-factory#187)",
+            "parents": [
+              {
+                "sha": "be2218fe4a5d68580a1474ddf77f93b5e011833a",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/be2218fe4a5d68580a1474ddf77f93b5e011833a",
+                "html_url": "https://github.com/combsmith/software-factory-canary/commit/be2218fe4a5d68580a1474ddf77f93b5e011833a"
+              }
+            ],
+            "verification": {
+              "verified": false,
+              "reason": "unsigned",
+              "signature": null,
+              "payload": null,
+              "verified_at": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "POST /repos/combsmith/software-factory-canary/git/refs",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
           "ref": "refs/heads/trial/batch-2c-workflows",
           "sha": "the canary's main"
         }
@@ -641,6 +784,99 @@
           "name": "don-petry"
         },
         "via": "rest",
+        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p14-cache-scope.yml, on trial/p-14",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "message": "Trial workflow p14-cache-scope: captures normalised to LF before redaction",
+          "branch": "trial/p-14",
+          "content": "base64 of .github/workflows/p14-cache-scope.yml as committed; its blob is the response's content.sha",
+          "sha": "the blob it replaces"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 01:43:15 GMT",
+          "etag": "W/\"828fe1417f4d04692952c4612526f49aae34797ca8896253071f5189edef0989\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F27F:28F350:627324:13E56F6:6AD818B2",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4931",
+          "x-ratelimit-reset": "1792549362",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "69"
+        },
+        "body": {
+          "content": {
+            "name": "p14-cache-scope.yml",
+            "path": ".github/workflows/p14-cache-scope.yml",
+            "sha": "ad8d1ad5a31eeff0c1f3eaca45df9fbbf4401b9c",
+            "size": 3752,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github/workflows/p14-cache-scope.yml?ref=trial/p-14",
+            "html_url": "https://github.com/combsmith/software-factory-canary/blob/trial/p-14/.github/workflows/p14-cache-scope.yml",
+            "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/ad8d1ad5a31eeff0c1f3eaca45df9fbbf4401b9c",
+            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory-canary/trial/p-14/.github/workflows/p14-cache-scope.yml",
+            "type": "file",
+            "_links": {
+              "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github/workflows/p14-cache-scope.yml?ref=trial/p-14",
+              "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/ad8d1ad5a31eeff0c1f3eaca45df9fbbf4401b9c",
+              "html": "https://github.com/combsmith/software-factory-canary/blob/trial/p-14/.github/workflows/p14-cache-scope.yml"
+            }
+          },
+          "commit": {
+            "sha": "ee3704b6e267f0fb4734535ce4607895c8261c57",
+            "node_id": "C_kwDOVFD679oAKGVlMzcwNGI2ZTI2N2YwZmI0NzM0NTM1Y2U0NjA3ODk1YzgyNjFjNTc",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/ee3704b6e267f0fb4734535ce4607895c8261c57",
+            "html_url": "https://github.com/combsmith/software-factory-canary/commit/ee3704b6e267f0fb4734535ce4607895c8261c57",
+            "author": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com",
+              "date": "2026-10-21T01:43:14Z"
+            },
+            "committer": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com",
+              "date": "2026-10-21T01:43:14Z"
+            },
+            "tree": {
+              "sha": "724e1359218c2d6ac2c5ee85f53fd30683ee1f8a",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/724e1359218c2d6ac2c5ee85f53fd30683ee1f8a"
+            },
+            "message": "Trial workflow p14-cache-scope: captures normalised to LF before redaction (CodeRabbit on PR 43)",
+            "parents": [
+              {
+                "sha": "f650b33bd921e64a8c6464857410bfc4e9b8f306",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/f650b33bd921e64a8c6464857410bfc4e9b8f306",
+                "html_url": "https://github.com/combsmith/software-factory-canary/commit/f650b33bd921e64a8c6464857410bfc4e9b8f306"
+              }
+            ],
+            "verification": {
+              "verified": false,
+              "reason": "unsigned",
+              "signature": null,
+              "payload": null,
+              "verified_at": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
         "call": "PUT /repos/combsmith/software-factory-canary/pulls/43/reviews/5593269017/dismissals",
         "headers": {
           "accept": "application/vnd.github+json",
@@ -1143,242 +1379,6 @@
           "name": "don-petry"
         },
         "via": "rest",
-        "call": "POST /repos/combsmith/software-factory-canary/git/refs",
-        "headers": {
-          "accept": "application/vnd.github+json",
-          "x-github-api-version": "2022-11-28"
-        },
-        "body": {
-          "ref": "refs/heads/trial/p-14",
-          "sha": "the canary's main"
-        }
-      },
-      "response": {
-        "status": 201,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-length": "384",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Tue, 20 Oct 2026 23:50:25 GMT",
-          "etag": "\"c569bbda65d93bcaf69a57e63a4111d207d5f71382bd1be9794bf7a1295e5749\"",
-          "location": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs/heads/trial/p-14",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "repo",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "EA44:38BB82:8D08DD:1CBDDA5:6AD7FE40",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4448",
-          "x-ratelimit-reset": "1792541678",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "552"
-        },
-        "body": {
-          "ref": "refs/heads/trial/p-14",
-          "node_id": "REF_kwDOVFD677VyZWZzL2hlYWRzL3RyaWFsL3AtMTQ",
-          "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs/heads/trial/p-14",
-          "object": {
-            "sha": "be2218fe4a5d68580a1474ddf77f93b5e011833a",
-            "type": "commit",
-            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/be2218fe4a5d68580a1474ddf77f93b5e011833a"
-          }
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p14-cache-scope.yml, on trial/p-14",
-        "headers": {
-          "accept": "application/vnd.github+json",
-          "x-github-api-version": "2022-11-28"
-        },
-        "body": {
-          "message": "Trial workflow p14-cache-scope (combsmith/software-factory#187)",
-          "branch": "trial/p-14",
-          "content": "base64 of .github/workflows/p14-cache-scope.yml as committed; its blob is the response's content.sha"
-        }
-      },
-      "response": {
-        "status": 201,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-length": "2333",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Tue, 20 Oct 2026 23:52:25 GMT",
-          "etag": "\"0677586c0ac99d9c03dd1d9337594c25c716530b735386568cd662f46a9cce28\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "EA95:2729CE:B85A9E:25224E2:6AD7FEB8",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4430",
-          "x-ratelimit-reset": "1792541678",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "570"
-        },
-        "body": {
-          "content": {
-            "name": "p14-cache-scope.yml",
-            "path": ".github/workflows/p14-cache-scope.yml",
-            "sha": "dc09dd686e1451615139707727a9a611a4dfc8a7",
-            "size": 3685,
-            "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github/workflows/p14-cache-scope.yml?ref=trial/p-14",
-            "html_url": "https://github.com/combsmith/software-factory-canary/blob/trial/p-14/.github/workflows/p14-cache-scope.yml",
-            "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/dc09dd686e1451615139707727a9a611a4dfc8a7",
-            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory-canary/trial/p-14/.github/workflows/p14-cache-scope.yml",
-            "type": "file",
-            "_links": {
-              "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github/workflows/p14-cache-scope.yml?ref=trial/p-14",
-              "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/dc09dd686e1451615139707727a9a611a4dfc8a7",
-              "html": "https://github.com/combsmith/software-factory-canary/blob/trial/p-14/.github/workflows/p14-cache-scope.yml"
-            }
-          },
-          "commit": {
-            "sha": "f650b33bd921e64a8c6464857410bfc4e9b8f306",
-            "node_id": "C_kwDOVFD679oAKGY2NTBiMzNiZDkyMWU2NGE4YzY0NjQ4NTc0MTBiZmM0ZTliOGYzMDY",
-            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/f650b33bd921e64a8c6464857410bfc4e9b8f306",
-            "html_url": "https://github.com/combsmith/software-factory-canary/commit/f650b33bd921e64a8c6464857410bfc4e9b8f306",
-            "author": {
-              "name": "Don Petry",
-              "email": "36422719+don-petry@users.noreply.github.com",
-              "date": "2026-10-20T23:52:25Z"
-            },
-            "committer": {
-              "name": "Don Petry",
-              "email": "36422719+don-petry@users.noreply.github.com",
-              "date": "2026-10-20T23:52:25Z"
-            },
-            "tree": {
-              "sha": "9ab5bcf68f2aa1c77e1ad95bde8615fc0425a418",
-              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/9ab5bcf68f2aa1c77e1ad95bde8615fc0425a418"
-            },
-            "message": "Trial workflow p14-cache-scope (combsmith/software-factory#187)",
-            "parents": [
-              {
-                "sha": "be2218fe4a5d68580a1474ddf77f93b5e011833a",
-                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/be2218fe4a5d68580a1474ddf77f93b5e011833a",
-                "html_url": "https://github.com/combsmith/software-factory-canary/commit/be2218fe4a5d68580a1474ddf77f93b5e011833a"
-              }
-            ],
-            "verification": {
-              "verified": false,
-              "reason": "unsigned",
-              "signature": null,
-              "payload": null,
-              "verified_at": null
-            }
-          }
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
-        "call": "PUT /repos/combsmith/software-factory-canary/contents/.github/workflows/p14-cache-scope.yml, on trial/p-14",
-        "headers": {
-          "accept": "application/vnd.github+json",
-          "x-github-api-version": "2022-11-28"
-        },
-        "body": {
-          "message": "Trial workflow p14-cache-scope: captures normalised to LF before redaction",
-          "branch": "trial/p-14",
-          "content": "base64 of .github/workflows/p14-cache-scope.yml as committed; its blob is the response's content.sha",
-          "sha": "the blob it replaces"
-        }
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 21 Oct 2026 01:43:15 GMT",
-          "etag": "W/\"828fe1417f4d04692952c4612526f49aae34797ca8896253071f5189edef0989\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "F27F:28F350:627324:13E56F6:6AD818B2",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4931",
-          "x-ratelimit-reset": "1792549362",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "69"
-        },
-        "body": {
-          "content": {
-            "name": "p14-cache-scope.yml",
-            "path": ".github/workflows/p14-cache-scope.yml",
-            "sha": "ad8d1ad5a31eeff0c1f3eaca45df9fbbf4401b9c",
-            "size": 3752,
-            "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github/workflows/p14-cache-scope.yml?ref=trial/p-14",
-            "html_url": "https://github.com/combsmith/software-factory-canary/blob/trial/p-14/.github/workflows/p14-cache-scope.yml",
-            "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/ad8d1ad5a31eeff0c1f3eaca45df9fbbf4401b9c",
-            "download_url": "https://raw.githubusercontent.com/combsmith/software-factory-canary/trial/p-14/.github/workflows/p14-cache-scope.yml",
-            "type": "file",
-            "_links": {
-              "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github/workflows/p14-cache-scope.yml?ref=trial/p-14",
-              "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/ad8d1ad5a31eeff0c1f3eaca45df9fbbf4401b9c",
-              "html": "https://github.com/combsmith/software-factory-canary/blob/trial/p-14/.github/workflows/p14-cache-scope.yml"
-            }
-          },
-          "commit": {
-            "sha": "ee3704b6e267f0fb4734535ce4607895c8261c57",
-            "node_id": "C_kwDOVFD679oAKGVlMzcwNGI2ZTI2N2YwZmI0NzM0NTM1Y2U0NjA3ODk1YzgyNjFjNTc",
-            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/ee3704b6e267f0fb4734535ce4607895c8261c57",
-            "html_url": "https://github.com/combsmith/software-factory-canary/commit/ee3704b6e267f0fb4734535ce4607895c8261c57",
-            "author": {
-              "name": "Don Petry",
-              "email": "36422719+don-petry@users.noreply.github.com",
-              "date": "2026-10-21T01:43:14Z"
-            },
-            "committer": {
-              "name": "Don Petry",
-              "email": "36422719+don-petry@users.noreply.github.com",
-              "date": "2026-10-21T01:43:14Z"
-            },
-            "tree": {
-              "sha": "724e1359218c2d6ac2c5ee85f53fd30683ee1f8a",
-              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/724e1359218c2d6ac2c5ee85f53fd30683ee1f8a"
-            },
-            "message": "Trial workflow p14-cache-scope: captures normalised to LF before redaction (CodeRabbit on PR 43)",
-            "parents": [
-              {
-                "sha": "f650b33bd921e64a8c6464857410bfc4e9b8f306",
-                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/f650b33bd921e64a8c6464857410bfc4e9b8f306",
-                "html_url": "https://github.com/combsmith/software-factory-canary/commit/f650b33bd921e64a8c6464857410bfc4e9b8f306"
-              }
-            ],
-            "verification": {
-              "verified": false,
-              "reason": "unsigned",
-              "signature": null,
-              "payload": null,
-              "verified_at": null
-            }
-          }
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
-        "via": "rest",
         "call": "POST /repos/combsmith/software-factory-canary/actions/workflows/p14-cache-scope.yml/dispatches",
         "headers": {
           "accept": "application/vnd.github+json",
@@ -1480,6 +1480,45 @@
           "message": "Resource not accessible by integration",
           "documentation_url": "https://docs.github.com/rest/actions/cache#delete-github-actions-caches-for-a-repository-using-a-cache-key",
           "status": "403"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/caches, afterwards",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 12:10:20 GMT",
+          "etag": "W/\"41c113dc00f8f0df8673ea4e054dbd368fddc90230e8ab2a4f294d849677f919\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "D328:34B1B6:3E66B2:C9F46C:6AD8ABAC",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4940",
+          "x-ratelimit-reset": "1792587878",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "60"
+        },
+        "body": {
+          "total_count": 0,
+          "actions_caches": []
         }
       }
     },
@@ -1768,45 +1807,6 @@
           "kind": "person",
           "name": "don-petry"
         },
-        "via": "rest",
-        "call": "GET /repos/combsmith/software-factory-canary/actions/caches, afterwards",
-        "headers": {
-          "accept": "application/vnd.github+json",
-          "x-github-api-version": "2022-11-28"
-        },
-        "body": null
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "cache-control": "private, max-age=60, s-maxage=60",
-          "content-type": "application/json; charset=utf-8",
-          "date": "Wed, 21 Oct 2026 12:10:20 GMT",
-          "etag": "W/\"41c113dc00f8f0df8673ea4e054dbd368fddc90230e8ab2a4f294d849677f919\"",
-          "server": "github.com",
-          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "",
-          "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "D328:34B1B6:3E66B2:C9F46C:6AD8ABAC",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4940",
-          "x-ratelimit-reset": "1792587878",
-          "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "60"
-        },
-        "body": {
-          "total_count": 0,
-          "actions_caches": []
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
         "via": "cli",
         "call": "python3, in a scratch directory outside the repo: the answer, from the reads above and nothing else",
         "headers": {},
@@ -1821,7 +1821,8 @@
           "runner_cache_access_in_a_run_step": false,
           "caches_in_any_scope_afterwards": 0,
           "the_write_is_refused": true,
-          "words": "The question and the ruling's condition are about a write, and it cannot be made: the API refuses the job's token (403), a run step is given no cache-service token, and no cache exists in any scope afterwards. One clause the session added to the ruling's condition did not hold: listing the caches answered 200, not 403, since a public repo's caches list is open to any token. It bears on reading, not on writing, and the verdict rests on section 6's condition, cannot."
+          "words": "The question and the ruling's condition are about a write, and it cannot be made: the API refuses the job's token (403), a run step is given no cache-service token, and no cache exists in any scope afterwards. One clause the session added to the ruling's condition did not hold: listing the caches answered 200, not 403, since a public repo's caches list is open to any token. It bears on reading, not on writing. A second clause the session added, that a write through the runner's cache service lands in its own ref's scope, could not be tried: a run step holds no such token, so no cache was written anywhere (none with the ref trial/p-14 either).",
+          "principle": "The verdict follows the working rulings on #187, which read section 6's question; a clause the session added in the pass field is recorded here as held or not and does not decide the verdict."
         }
       }
     }
@@ -1832,15 +1833,14 @@
     "exchanges[2].request.headers.authorization",
     "exchanges[3].request.headers.authorization",
     "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
     "exchanges[6].request.headers.authorization",
     "exchanges[7].request.headers.authorization",
-    "exchanges[8].request.headers.authorization",
     "exchanges[9].request.headers.authorization",
     "exchanges[10].request.headers.authorization",
     "exchanges[11].request.headers.authorization",
     "exchanges[12].request.headers.authorization",
     "exchanges[13].request.headers.authorization",
-    "exchanges[14].request.headers.authorization",
     "exchanges[15].request.headers.authorization"
   ],
   "verdict": "pass"

@@ -155,14 +155,17 @@ rm -f "$scratch/raw-1"
 installation=$(sed -n '/^{/,$p' "$out/clean-1" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["id"])')
 asked="{\"n\": 1, \"call\": \"GET /repos/$repo/installation\", \"body\": null, \"status\": \"$(sed -n '1s/^HTTP\/[0-9.]* \([0-9][0-9]*\).*/\1/p' "$out/clean-1")\"},"
 
-# The mint, narrowed: contents read alone, and the one repository. Python keeps the answer without its token.
+# The mint, narrowed: contents read alone, and the one repository. GitHub's answer and its status are held in a
+# variable, never a file, since the minted token is in the answer; python keeps the answer without its token.
 n=2
 printf '{"repositories":["%s"],"permissions":{"contents":"read"}}' "${repo#*/}" > "$scratch/mint.json"
-minted_status=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -o "$scratch/mint-crlf" -w '%{http_code}' -X POST -H @- \
+minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- \
     -H "$ACCEPT" -H "$VERSION" -H "$JSON" --data-binary "@$scratch/mint.json" \
     "$API/app/installations/$installation/access_tokens" || true)
 jwt=""
-token=$(tr -d '\r' < "$scratch/mint-crlf" | python3 -I -c '
+rm -f "$scratch/mint.json"
+minted_status=$(printf '%s\n' "$minted" | tail -n 1)
+token=$(printf '%s\n' "$minted" | sed '$d' | tr -d '\r' | python3 -I -c '
 import json, sys
 text = sys.stdin.read()
 try:
@@ -171,9 +174,9 @@ except ValueError:
     data = None
 token = data.pop("token", "") if isinstance(data, dict) else ""
 with open(sys.argv[1], "w") as kept:
-    kept.write("HTTP/2 %s\n\n%s\n" % (sys.argv[2], json.dumps(data) if data is not None else text))
+    kept.write("HTTP/2 %s\n\n%s\n" % (sys.argv[2], json.dumps(data) if data is not None else "(an answer that is not JSON, not kept)"))
 sys.stdout.write(token)' "$scratch/raw-2" "${minted_status:-000}" 2>/dev/null || true)
-rm -f "$scratch/mint-crlf" "$scratch/mint.json"
+minted=""
 (cd "$root" && python3 -m tools.redact_trial "$scratch/raw-2" "$out/clean-2") > "$out/redacted-2"
 rm -f "$scratch/raw-2"
 asked="$asked{\"n\": 2, \"call\": \"POST /app/installations/$installation/access_tokens\", \"body\": {\"repositories\": [\"${repo#*/}\"], \"permissions\": {\"contents\": \"read\"}}, \"status\": \"${minted_status:-none}\"},"

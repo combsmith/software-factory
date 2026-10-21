@@ -1213,9 +1213,10 @@
             "read_the_subset_permits": "404",
             "why": "it asked README.md, which the canary does not hold: a fault of the script, fixed for the second run"
           },
+          "principle": "The verdict follows the working rulings on #187, which read section 6's question; a clause the session added in the pass field is recorded here as held or not and does not decide the verdict.",
           "permissions_subset_holds": true,
           "repository_subset_narrows_a_read": false,
-          "words": "A token can be minted with a subset of the App's permissions and repositories (201, contents read with metadata read, which GitHub adds, and the canary alone). The permissions subset holds: a read it permits is answered 200 and a write it does not is refused 403. The repository subset does not narrow a read: the token read the root of combsmith/software-factory, a repository it does not name and the App is not installed on, and was answered 200, because every repository of the org is public and any token reads public content. A write beyond the named repository could not be tried, since the App's installation reaches the canary alone. So the condition's last clause fails, and section 5.1's 'a token cannot reach a repo its Run is not about' holds for writes and private repos only."
+          "words": "A token can be minted with a subset of the App's permissions and repositories (201, contents read with metadata read, which GitHub adds, and the canary alone). The permissions subset holds: a read it permits is answered 200 and a write it does not is refused 403. The repository subset does not narrow a read: the token read the root of combsmith/software-factory, a repository it does not name and the App is not installed on, and was answered 200, because every repository of the org is public and any token reads public content. A write beyond the named repository could not be tried, since the App's installation reaches the canary alone. So the condition's last clause fails: section 5.1's 'a token cannot reach a repo its Run is not about' does not hold for reads of public repos, and whether it holds for a write to another repo the installation reaches is not shown here."
         }
       }
     }

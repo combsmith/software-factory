@@ -2658,11 +2658,11 @@ PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", 
 class Trials(unittest.TestCase):
     def test_a_fixture_that_is_misnamed_or_invalid_is_caught(self):
         root = clone({"trials/P-12.json": fixture(trial="P-13"), "trials/P-12.retry.json": "{}",
-                      "trials/notes.md": "x\n", "trials/P12.json": fixture(), "trials/P-9.json/P-9.json": fixture(trial="P-9")})
+                      "trials/notes.md": "x\n", "trials/P12.json": fixture(), "trials/P-98.json/P-98.json": fixture(trial="P-98")})
         problems = check_trials.run(root)
         for words in ("trials/P-12.json: records trial P-13", "trials/P-12.retry.json: $: missing",
                       "trials/notes.md: trials/ holds fixtures only", "trials/P12.json: trials/ holds fixtures only",
-                      "trials/P-9.json: trials/ holds fixtures only"):
+                      "trials/P-98.json: trials/ holds fixtures only"):
             self.assertTrue(caught(problems, words), words)
         self.assertEqual(check_trials.run(clone({"trials/P-12.json": fixture(), "trials/P-12.retry.json": fixture()})), [])
 
@@ -2912,6 +2912,7 @@ class Trials(unittest.TestCase):
         when = lambda s: datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
         header = lambda e: datetime.strptime(e["response"]["headers"]["date"], "%a, %d %b %Y %H:%M:%S GMT").replace(tzinfo=timezone.utc)
         load = lambda t: json.loads((ROOT / "trials" / ("%s.json" % t)).read_text())
+        canary = "combsmith/" + check_trials.CANARY
         by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
         self.assertEqual(by_code["a_forks_run_never_counts"], "trials/P-27.json")
         self.assertEqual(by_code["a_pass_starts_its_successor"], "trials/P-9.json")
@@ -2932,6 +2933,9 @@ class Trials(unittest.TestCase):
         self.assertTrue(all(r["event"] == "pull_request" for r in forks))
         self.assertIn(calls(p27, "p27-fork.yml/dispatches")[0]["response"]["status"], (404, 422))
         self.assertEqual(calls(p27, "actions/runs?event=schedule&per_page=100")[0]["response"]["body"]["total_count"], 0)
+        heads = {r["path"]: r["head_branch"] for r in forks if r["head_repository"]["full_name"].startswith("don-petry/")}
+        self.assertEqual(heads.get(".github/workflows/p27-fork.yml"), "p27-fork")
+        self.assertEqual(waiting["head_branch"], "p27-outside")
         self.assertEqual(p27["verdict"], "pass")
 
         # P-9: the job's own dispatch was answered 204 and the next run, a dispatch, was listed within 60 seconds of it.
@@ -2940,9 +2944,12 @@ class Trials(unittest.TestCase):
         second = calls(p9, "actions/runs/39532289509")[0]["response"]["body"]
         self.assertEqual(job["response"]["status"], 204)
         self.assertEqual(second["event"], "workflow_dispatch")
-        self.assertTrue(second["actor"]["login"])
-        self.assertLessEqual((when(second["created_at"]) - header(job)).total_seconds(), 60)
-        self.assertEqual(p9["verdict"], "pass")
+        first = calls(p9, "actions/runs/39532278207")[0]["response"]["body"]
+        self.assertEqual(second["actor"]["login"], "github-actions[bot]")
+        self.assertTrue(0 <= (when(second["created_at"]) - header(job)).total_seconds() <= 60)
+        # The ruling asks that the second run name the first run's actor; it does not, so P-9 fails on that clause.
+        self.assertNotEqual(second["actor"]["login"], first["actor"]["login"])
+        self.assertEqual(p9["verdict"], "fail")
 
         # P-20: at least eight of ten stars have their own run within 120 seconds of the star's answer.
         p20 = load("P-20")
@@ -2955,7 +2962,15 @@ class Trials(unittest.TestCase):
             match = [c for c in created if c not in used and 0 <= (c - at).total_seconds() <= 120]
             if match:
                 used.add(match[0])
+        delays = []
+        used = set()
+        for at in stars:
+            match = [c for c in created if c not in used and 0 <= (c - at).total_seconds() <= 120]
+            if match:
+                used.add(match[0])
+            delays.append(round((match[0] - at).total_seconds()) if match else None)
         self.assertGreaterEqual(len(used), 8)
+        self.assertEqual(p20["exchanges"][-1]["response"]["body"]["seconds_from_star_to_run"], delays)
         self.assertEqual(p20["verdict"], "pass")
 
         # P-14: the job's token was refused the write, no cache-service token reached the step, and no cache exists.
@@ -2970,9 +2985,15 @@ class Trials(unittest.TestCase):
         p4 = load("P-4")
         second_run = [e for e in p4["exchanges"] if "the second run" in e["request"]["call"]]
         status = {e["request"]["call"].split(",")[0]: e["response"]["status"] for e in second_run}
-        self.assertEqual(status["GET /repos/combsmith/software-factory-canary/contents/"], 200)
-        self.assertEqual(status["PUT /repos/combsmith/software-factory-canary/contents/p4/trial.md"], 403)
+        self.assertEqual(status["GET /repos/%s/contents/" % canary], 200)
+        self.assertEqual(status["PUT /repos/%s/contents/p4/trial.md" % canary], 403)
         self.assertEqual(status["GET /repos/combsmith/software-factory/contents/"], 200)
+        mint = [e for e in second_run if "/access_tokens" in e["request"]["call"]][0]
+        self.assertEqual(mint["request"]["body"], {"repositories": [check_trials.CANARY], "permissions": {"contents": "read"}})
+        self.assertEqual(mint["response"]["status"], 201)
+        self.assertEqual(mint["response"]["body"]["permissions"], {"contents": "read", "metadata": "read"})
+        self.assertEqual(mint["response"]["body"]["repository_selection"], "selected")
+        self.assertEqual([r["full_name"] for r in mint["response"]["body"]["repositories"]], [canary])
         self.assertEqual(p4["verdict"], "fail")
         design = (ROOT / "docs" / "architecture" / "software-factory-design.md").read_text()
         for cited in ("(P-4, `trials/P-4.json`)", "(P-14, `trials/P-14.json`)", "(P-9, `trials/P-9.json`)",
@@ -3087,23 +3108,32 @@ class Trials(unittest.TestCase):
                     owners.add(found.group(3))
             return owners, repos
 
+        # A trial whose question is a read beyond those, P-4's repository subset and P-27's forks, is held only to the
+        # org's repos and the forks of the canary, which keep the canary's name; its own verdict judges the rest.
+        beyond = {"P-4", "P-27"}
+        fork_of_the_canary = lambda repo: repo.count("/") == 1 and repo.split("/")[1] == check_trials.CANARY
         checked = 0
         for path in sorted((ROOT / "trials").glob("P-*.json")):
             data = json.loads(path.read_text())
             if data["repo"] != canary:
                 continue
             checked += 1
+            reach_trial = data["trial"] in beyond
+            fork_owners = {r.split("/")[0] for e in data["exchanges"] for r in names(e["response"]["body"])
+                           if reach_trial and fork_of_the_canary(r)}
             for i, e in enumerate(data["exchanges"]):
                 where = "%s exchange %d" % (path.name, i)
                 request, asker = e["request"], e["request"]["as"]
                 owners, repos = asked(request, where)
                 answered = set(names(e["response"]["body"]))
-                self.assertTrue(owners <= {"combsmith"}, "%s names %s" % (where, sorted(owners - {"combsmith"})))
-                self.assertTrue(all(repo.startswith("combsmith/") for repo in answered),
-                                "%s was answered %s" % (where, sorted(r for r in answered if not r.startswith("combsmith/"))))
+                allowed_repo = lambda r: r.startswith("combsmith/") or (reach_trial and fork_of_the_canary(r))
+                self.assertTrue(owners <= {"combsmith"} | fork_owners, "%s names %s" % (where, sorted(owners - {"combsmith"} - fork_owners)))
+                self.assertTrue(all(allowed_repo(r) for r in repos | answered),
+                                "%s names or was answered %s" % (where, sorted(r for r in repos | answered if not allowed_repo(r))))
                 if request["via"] == "cli":
-                    self.assertEqual(asker, {"kind": "person", "name": "don-petry"}, where)
-                if asker["kind"] == "app":
+                    self.assertEqual(asker["kind"], "person", where)
+                    self.assertTrue(asker["name"] == "don-petry" or asker["name"] in fork_owners, where)
+                if asker["kind"] == "app" and not reach_trial:
                     reach = installed.get(asker["name"].split(",")[0].replace("[bot]", ""), {canary})
                     self.assertTrue(repos <= reach, "%s asks %s, beyond %s" % (where, sorted(repos - reach), sorted(reach)))
                     self.assertTrue(answered <= reach, "%s was answered %s, beyond the reach" % (where, sorted(answered - reach)))
@@ -3288,22 +3318,26 @@ class NarrowedToken(unittest.TestCase):
         (folder / "bin" / "curl").write_text('''#!/bin/sh
 here=$(dirname "$0")/..
 cat > /dev/null
-method=GET; url=""; include=0; out=""; w=""
+method=GET; url=""; include=0; out=""; w=""; data=""
+all="$*"
 while [ $# -gt 0 ]; do
-  case "$1" in -X) method=$2; shift ;; -i) include=1 ;; -o) out=$2; shift ;; -w) w=$2; shift ;; -H|--data-binary) shift ;; http*) url=$1 ;; esac
+  case "$1" in -X) method=$2; shift ;; -i) include=1 ;; -o) out=$2; shift ;; -w) w=$2; shift ;; -H) shift ;; --data-binary) data=$2; shift ;; http*) url=$1 ;; esac
   shift
 done
+set -- $all
 printf '%s %s\\n' "$method" "$url" >> "$here/calls"
+printf '%s\\n' "$*" >> "$here/argv"
 path=${url#https://api.github.com/}
 case "$method $path" in
   "GET repos/"*"/installation") body='{"id": 7, "app_id": 5363178}'; status=200 ;;
-  "POST app/installations/7/access_tokens") body=$(cat "$here/mint.body"); status=$(cat "$here/mint.status") ;;
+  "POST app/installations/7/access_tokens") cp "${data#@}" "$here/mint.request"; body=$(cat "$here/mint.body"); status=$(cat "$here/mint.status") ;;
   "DELETE installation/token") body=""; status=$(cat "$here/revoke.status") ;;
   *) pair=$(python3 -c 'import json,sys; a=json.load(open(sys.argv[1])); k=sys.argv[2]; print(a[k][0] + " " + a[k][1] if k in a else "500 {}")' "$here/answers.json" "$method $path"); status=${pair%% *}; body=${pair#* } ;;
 esac
-if [ -n "$out" ]; then printf '%s' "$body" > "$out"; fi
-[ "$include" = 1 ] && printf 'HTTP/2 %s\\r\\ndate: Tue, 20 Oct 2026 23:00:00 GMT\\r\\ncontent-type: application/json\\r\\n\\r\\n%s' "$status" "$body"
-[ -n "$w" ] && printf '%s' "$status"
+if [ -n "$out" ]; then printf '%s' "$body" > "$out"
+elif [ "$include" = 1 ]; then printf 'HTTP/2 %s\\r\\ndate: Tue, 20 Oct 2026 23:00:00 GMT\\r\\ncontent-type: application/json\\r\\n\\r\\n%s' "$status" "$body"
+else printf '%s' "$body"; fi
+[ -n "$w" ] && printf "$(printf '%s' "$w" | sed "s/%{http_code}/$status/")"
 exit 0
 ''')
         (folder / "mint.body").write_text(mint_body)
@@ -3317,7 +3351,7 @@ exit 0
     def run_script(self, folder: pathlib.Path, *args, out="out") -> subprocess.CompletedProcess:
         env = {"PATH": "%s:%s" % (folder / "bin", os.environ["PATH"]), "HOME": str(folder), "LANG": "C"}
         return subprocess.run(["sh", str(ROOT / "tools" / "trial_p4_narrow.sh"), str(folder / out), str(folder / "key.pem"), *args],
-                              capture_output=True, text=True, env=env, cwd=str(folder))
+                              capture_output=True, text=True, env=env, cwd=str(folder), stdin=subprocess.DEVNULL, timeout=60)
 
     def test_a_narrowed_token_is_minted_used_three_times_and_revoked_and_never_kept(self):
         folder = self.stand_in()
@@ -3330,6 +3364,9 @@ exit 0
         asked = json.loads((folder / "out" / "requests.json").read_text())
         self.assertEqual(asked["revoked"], "204")
         self.assertEqual(asked["narrowed_to"], {"repositories": ["canary"], "permissions": {"contents": "read"}})
+        # What the mint asked GitHub for, as the stand-in received it: the subset, not the script's own report of it.
+        self.assertEqual(json.loads((folder / "mint.request").read_text()),
+                         {"repositories": ["canary"], "permissions": {"contents": "read"}})
         self.assertEqual([r["status"] for r in asked["reads"]], ["200", "201", "200", "403", "404"])
         kept = "".join(p.read_text() for p in (folder / "out").iterdir())
         self.assertNotIn(self.TOKEN, kept)
@@ -3337,7 +3374,13 @@ exit 0
         minted = json.loads((folder / "out" / "clean-2").read_text().split("\n\n", 1)[1])
         self.assertEqual(minted, {"expires_at": "2026-10-21T00:00:00Z", "permissions": {"contents": "read"},
                                   "repository_selection": "selected"})
-        self.assertFalse(list((folder / "out").glob("*.raw")))
+        self.assertEqual(sorted(p.name for p in (folder / "out").iterdir()),
+                         ["clean-1", "clean-2", "clean-3", "clean-4", "clean-5", "ran_at", "redacted-1", "redacted-2",
+                          "redacted-3", "redacted-4", "redacted-5", "requests.json"])
+        # No call carried the token, or a header that could, among curl's arguments: it reaches curl on stdin alone.
+        argv = (folder / "argv").read_text()
+        self.assertNotIn(self.TOKEN, argv)
+        self.assertNotIn("Authorization", argv)
 
     def test_each_refusal_stops_before_anything_is_minted(self):
         folder = self.stand_in()

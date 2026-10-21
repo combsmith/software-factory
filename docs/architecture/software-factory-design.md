@@ -1935,9 +1935,10 @@ This table is generated from the manifests and the authority table, so it always
 state. The fourth column is the plan.
 
 - **Until a Consumer repo is served (slice 3), each App is installed on named repos only; from
-  then, as decided at that cutover, against UJ-6.** Tokens are minted for one repo, so a token
-  cannot write to a repo its Run is not about. It can still read any public repo, as every token
-  can: a repository subset narrows writes, not reads of public content (P-4, `trials/P-4.json`).
+  then, as decided at that cutover, against UJ-6.** Tokens are minted for one repo and narrowed to
+  the permissions their Effects need, and a token is held to those permissions. A repository subset
+  does not narrow a read of a public repo, which any token reads; whether it refuses a write to
+  another repo the installation reaches is not yet shown (P-4, `trials/P-4.json`).
 - **Reading is shared; writing is not.** Every `run` job reads GitHub through one App,
   `combsmith-sf-reader`, which can write nothing. A Role is given an App of its own when it first
   needs to write, and `apply` mints that App's token. A Role in shadow writes nothing, so it runs
@@ -2040,7 +2041,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-6 | Does a job-level `if:` on the actor's prefix drop events authored by the Factory's Apps? | Dropped, with no step run |
 | P-7 | Does the machine user's approval satisfy code-owner review and the last-push rule when an App pushed last? | Yes |
 | P-8 | What does one pass over every open item in twelve repos cost in GraphQL points, and how often do scheduled ticks arrive in the new repo? | Within the budget of §7.3 |
-| P-9 | Can a pass start the next one with the default workflow token? | Yes. **Passed** on 2026-10-21 (`trials/P-9.json`): a job holding `actions: write` alone dispatched the next run (204), listed at once, its actor `github-actions[bot]` |
+| P-9 | Can a pass start the next one with the default workflow token? | Yes. **Failed** on 2026-10-21 (`trials/P-9.json`) on its ruling's last clause alone: a job holding `actions: write` alone dispatched the next run (204), listed at once, but that run's actor is `github-actions[bot]`, not the first run's. Nothing here reads a pass's actor |
 | P-10 | Does a nudge count against the content-creation limit, and can its credential be dispatch-only? | Does not count; can |
 | P-11 | Can the Controller's App write the control-room repo, and publish its page, without starting a workflow in the hub? | Yes |
 | P-12 | Does a check run's `external_id` round-trip, so it can serve as a recovery key? | Yes |

@@ -1188,8 +1188,8 @@ class World:
             return
         roll = self.rng.random()
         if roll < 0.40:
-            # A pass comes when a pass chains to the next, or a tick or the relay's nudge arrives: a tick can be lost,
-            # and the chain and the nudge keep passes coming within the minute the clock counts.
+            # A pass comes when a pass chains to the next, or a tick or the relay's nudge arrives. A tick can be lost;
+            # the chain and the nudge are why passes keep coming as the clock steps, on two steps in five here.
             # GitHub: a_tick_can_be_lost
             # GitHub: a_pass_starts_its_successor
             # GitHub: a_public_event_starts_a_pass
