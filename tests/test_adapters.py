@@ -427,10 +427,8 @@ class ChangedPaths(unittest.TestCase):
                                                                          body=rows))
             self.assertIs(pull.changed_paths(github.Replay([answer]), data)["complete"], False, change)
 
-    @pending
     def test_a_renamed_file_is_read_with_its_old_name_from_a_fixture(self):
-        # No fixture yet holds a rename: P-43 (issue 250) records one. Until then the rename is held by the synthetic
-        # case above, and this test, which reads the fixture, is expected to fail.
+        # trials/P-43.json (issue 250) records a rename: REST names its old path, as the synthetic case above does.
         found = exchanges("P-43")
         self.assertTrue(any(row.get("previous_filename") for e in found if isinstance(e["response"]["body"], list)
                             for row in e["response"]["body"] if isinstance(row, dict)))

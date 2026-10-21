@@ -100,10 +100,11 @@ RULES = (
      "seconds", ("P-17",), "trials/P-17.json", None),
     ("a_new_run_is_listed_late", "The newest Run can be missing from the list of run records for one pass",
      ("P-22",), "trials/P-22.json", None),
-    # trials/P-43.json read this repo's run list whole, all 1,873 runs, past the thousandth: it did not stop short there,
-    # so the rule is shown neither way. Runs past the retention leave the list (P-16).
+    # trials/P-43.json: with a filter, as the records port reads one, this repo's run list stops at 1,000 of the 1,879 it
+    # counts; page 1,001 is empty and counts 0, so only the first page's count says the oldest are missing. Unfiltered,
+    # the list read whole, all 1,873 runs.
     ("a_run_list_stops_short", "The list of run records can stop short, with the oldest Runs missing",
-     ("P-43",), None, None),
+     ("P-43",), "trials/P-43.json", None),
     ("a_killed_job_times_out", "A job killed part way concludes timed_out", ("P-18",), None, None),
     ("a_superseded_run_fails", "A Run whose apply refuses, or that never starts, concludes failure",
      ("P-17",), None, None),
@@ -114,13 +115,16 @@ RULES = (
     ("a_short_list_says_so", "A list of reviews, threads, checks or timeline events read short says so",
      ("P-43",), "trials/P-43.json", None),
     # trials/P-43.json: a rename, a copy and an edit are listed once each, by path; REST's previous_filename names the
-    # renamed file's old path, GraphQL's files give none, and an unchanged copy is listed as added, with no source.
+    # renamed file's old path, GraphQL's files give none, so the port reads them by REST; an unchanged copy was listed as
+    # added, with no source.
     ("a_pull_request_lists_the_paths_it_changes", "Every file a pull request changes is read once, as many as the diff "
-     "counts, by its path from the top of the repo, with the path a renamed file had before; a copy is listed as an "
-     "added file", ("P-43",), "trials/P-43.json", None),
+     "counts, by its path from the top of the repo, with the path a renamed file had before; an unchanged copy is "
+     "listed as an added file", ("P-43",), "trials/P-43.json", None),
     ("a_path_list_can_leave_out_a_file", "A list of the files a pull request changes can leave one out while it says it "
      "was read in full; it then holds fewer records than the diff has files: GitHub's list stops at its cap with a 200 "
      "and an empty next page, and only changed_files shows it short", ("P-29",), "trials/P-29.truncated.json", None),
+    # trials/P-43.json grounds the half read short, page by page; the half cut off at its limit says so only by the
+    # pull request's count of files, as trials/P-29.truncated.json shows (a_path_list_can_leave_out_a_file).
     ("a_short_path_list_says_so", "The list of paths a pull request changes, read short or cut off at its limit, says "
      "so", ("P-43",), "trials/P-43.json", None),
     ("a_dependency_bot_updates_a_workflow_pin", "A dependency bot's update can change the pin of an Action in a "

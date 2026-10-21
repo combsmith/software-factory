@@ -4,7 +4,7 @@
   "question": "Does each list the facts are read from, reviews, threads, checks, timeline events, run records, acceptance results and the files a pull request changes, say when it was cut short, by a count, a last page or a next cursor that the same read gives; and can the list of run records stop short with the oldest Runs missing? Is every file a pull request changes listed once, by its path from the top of the repo, with the path a renamed or copied file had before?",
   "pass": "Section 6's answer, made exact by the working rulings on issue 250, ruling 2. (1) On one canary pull request that holds at least two of each, its reviews, review threads, labels, timeline events, changed files and the head's check runs are each read one to a page, by GraphQL (first: 1) and, where REST lists it, by REST (per_page=1): each read that returns fewer than it holds says so itself, by hasNextPage with an endCursor, a Link header with rel=next, or a count larger than what it returned. (2) This repo's own run list is read at 100 a page to page 10 and past it: the trial records whether the oldest runs drop out of the list, and passes this part only if the read that stops short says so, by a total_count larger than what the pages can give or an empty page past the end. (3) The pull request renames one file, copies one and edits one: each is listed once, by its path from the top of the repo, the renamed one with the path it had before; whether the copy is told as a copy, with its source, is recorded. Pass if (1), (2) and the rename's part of (3) hold. Acceptance results are not read: no contract exists until slice 2, so a_short_acceptance_read_says_so stays asked.",
   "repo": "combsmith/software-factory-canary",
-  "ran_at": "2026-10-21T16:18:41Z",
+  "ran_at": "2026-10-21T16:18:27Z",
   "exchanges": [
     {
       "request": {
@@ -3509,6 +3509,838 @@
           "kind": "person",
           "name": "don-petry"
         },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/commits/38cc12cf13731f3ecb7288d37cb7d8743c6f6854 (gh api), read after the review of this fixture: the pushed commit, for when the trial began",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 16:52:27 GMT",
+          "etag": "W/\"1910d6230e37d94c49fe532838ecf73810f8b8e726f9fe60623df1e0f87dcc58\"",
+          "last-modified": "Wed, 21 Oct 2026 16:18:27 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EAF7:3F9E6E:1AE5A3:57C69F:6AD8EDCA",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4988",
+          "x-ratelimit-reset": "1792604934",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "12"
+        },
+        "body": {
+          "sha": "38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+          "node_id": "C_kwDOVFD679oAKDM4Y2MxMmNmMTM3MzFmM2VjYjcyODhkMzdjYjdkODc0M2M2ZjY4NTQ",
+          "commit": {
+            "author": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com",
+              "date": "2026-10-21T16:18:27Z"
+            },
+            "committer": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com",
+              "date": "2026-10-21T16:18:27Z"
+            },
+            "message": "Trial P-43: a rename, a copy and an edit, for the lists read short",
+            "tree": {
+              "sha": "bede0d4f9b4e93a82c95196ba3e4522b6b10c6c6",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/bede0d4f9b4e93a82c95196ba3e4522b6b10c6c6"
+            },
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+            "comment_count": 0,
+            "verification": {
+              "verified": false,
+              "reason": "unsigned",
+              "signature": null,
+              "payload": null,
+              "verified_at": null
+            }
+          },
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+          "html_url": "https://github.com/combsmith/software-factory-canary/commit/38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+          "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/comments",
+          "author": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "committer": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "parents": [
+            {
+              "sha": "54ccf0807156a4352d19390205cc30efa1373b39",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/54ccf0807156a4352d19390205cc30efa1373b39",
+              "html_url": "https://github.com/combsmith/software-factory-canary/commit/54ccf0807156a4352d19390205cc30efa1373b39"
+            }
+          ],
+          "stats": {
+            "total": 3,
+            "additions": 3,
+            "deletions": 0
+          },
+          "files": [
+            {
+              "sha": "d2ddef8cee37163f7ab0f0f120cb1b95a4ca843f",
+              "filename": "p3/README.md",
+              "status": "modified",
+              "additions": 2,
+              "deletions": 0,
+              "changes": 2,
+              "blob_url": "https://github.com/combsmith/software-factory-canary/blob/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/p3%2FREADME.md",
+              "raw_url": "https://github.com/combsmith/software-factory-canary/raw/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/p3%2FREADME.md",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p3%2FREADME.md?ref=38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+              "patch": "@@ -1 +1,3 @@\n Platform trial P-3. A change here runs `.github/workflows/p3-environment-secret.yml`.\n+\n+Edited by trial P-43 (software-factory issue 250)."
+            },
+            {
+              "sha": "63fc039b671a179a778e694d9dde58090528b039",
+              "filename": "p43/README-copied.md",
+              "status": "added",
+              "additions": 1,
+              "deletions": 0,
+              "changes": 1,
+              "blob_url": "https://github.com/combsmith/software-factory-canary/blob/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/p43%2FREADME-copied.md",
+              "raw_url": "https://github.com/combsmith/software-factory-canary/raw/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/p43%2FREADME-copied.md",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p43%2FREADME-copied.md?ref=38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+              "patch": "@@ -0,0 +1 @@\n+Platform trial P-24. `.github/CODEOWNERS` names @don-petry as the owner of everything under p24/."
+            },
+            {
+              "sha": "71e42be6c08edcfa7419c9da0f6ad25888a7cab7",
+              "filename": "trial-notes/p-43-renamed.md",
+              "status": "renamed",
+              "additions": 0,
+              "deletions": 0,
+              "changes": 0,
+              "blob_url": "https://github.com/combsmith/software-factory-canary/blob/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/trial-notes%2Fp-43-renamed.md",
+              "raw_url": "https://github.com/combsmith/software-factory-canary/raw/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/trial-notes%2Fp-43-renamed.md",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/trial-notes%2Fp-43-renamed.md?ref=38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+              "previous_filename": "trial-notes/p-1.md"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/pulls/48/reviews?per_page=1&page=3 (gh api), read after the review: the third review the counts name, which the trial did not make",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 16:52:27 GMT",
+          "etag": "W/\"638f45f517d35ea06c38f990dd53d1cb42d6d089ee372fa186636f6f8f1dbb11\"",
+          "link": "<https://api.github.com/repositories/1414593263/pulls/48/reviews?per_page=1&page=2>; rel=\"prev\", <https://api.github.com/repositories/1414593263/pulls/48/reviews?per_page=1&page=1>; rel=\"first\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EAF8:1D31A8:179284:4CF9C5:6AD8EDCB",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4987",
+          "x-ratelimit-reset": "1792604934",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "13"
+        },
+        "body": [
+          {
+            "id": 5602831525,
+            "node_id": "PRR_kwDOVFD6788AAAABTfRspQ",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "id": 136622811,
+              "node_id": "BOT_kgDOCCSy2w",
+              "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+              "html_url": "https://github.com/apps/coderabbitai",
+              "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "body": "",
+            "state": "APPROVED",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/48#pullrequestreview-5602831525",
+            "pull_request_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/48",
+            "author_association": "NONE",
+            "_links": {
+              "html": {
+                "href": "https://github.com/combsmith/software-factory-canary/pull/48#pullrequestreview-5602831525"
+              },
+              "pull_request": {
+                "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/48"
+              }
+            },
+            "submitted_at": "2026-10-21T16:24:54Z",
+            "commit_id": "38cc12cf13731f3ecb7288d37cb7d8743c6f6854"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs?status=completed&per_page=1&page=1 (gh api), read after the review: the run list with a filter, as the records port reads one, its count",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 16:52:28 GMT",
+          "etag": "W/\"2da2ba91ba1fc516ffad55a35937ee7b32924470ff16f94185417b0111cdbc8e\"",
+          "link": "<https://api.github.com/repositories/1414556245/actions/runs?status=completed&per_page=1&page=2>; rel=\"next\", <https://api.github.com/repositories/1414556245/actions/runs?status=completed&per_page=1&page=1879>; rel=\"last\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EAF9:1AFB61:1812CC:4EF379:6AD8EDCB",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4986",
+          "x-ratelimit-reset": "1792604934",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "14"
+        },
+        "body": {
+          "total_count": 1879,
+          "workflow_runs": [
+            {
+              "id": 39637242992,
+              "name": "ci",
+              "node_id": "WFR_kwLOVFBqVc8AAAAJOpBUcA",
+              "head_branch": "trials/p-44-lane",
+              "head_sha": "60c88c1579c60dfb4b9b5a4d01d42ca80bc2f1de",
+              "path": ".github/workflows/ci.yml",
+              "display_title": "Trial P-44 (pass): one Run holds the lane and at most one waits; the fake's lane does the same",
+              "run_number": 456,
+              "event": "pull_request",
+              "status": "completed",
+              "conclusion": "success",
+              "workflow_id": 381475226,
+              "check_suite_id": 107419365606,
+              "check_suite_node_id": "CS_kwDOVFBqVc8AAAAZArFw5g",
+              "url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/39637242992",
+              "html_url": "https://github.com/combsmith/software-factory/actions/runs/39637242992",
+              "pull_requests": [
+                {
+                  "url": "https://api.github.com/repos/combsmith/software-factory/pulls/271",
+                  "id": 4955081923,
+                  "number": 271,
+                  "head": {
+                    "ref": "trials/p-44-lane",
+                    "sha": "c2537bccacb20672d502a788696e72973bd89b1a",
+                    "repo": {
+                      "id": 1414556245,
+                      "url": "https://api.github.com/repos/combsmith/software-factory",
+                      "name": "software-factory"
+                    }
+                  },
+                  "base": {
+                    "ref": "main",
+                    "sha": "44522388cd22745f8496e5bd22f827d379e0355f",
+                    "repo": {
+                      "id": 1414556245,
+                      "url": "https://api.github.com/repos/combsmith/software-factory",
+                      "name": "software-factory"
+                    }
+                  }
+                }
+              ],
+              "created_at": "2026-10-21T16:42:56Z",
+              "updated_at": "2026-10-21T16:43:08Z",
+              "actor": {
+                "login": "don-petry",
+                "id": 36422719,
+                "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+                "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/don-petry",
+                "html_url": "https://github.com/don-petry",
+                "followers_url": "https://api.github.com/users/don-petry/followers",
+                "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+                "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+                "organizations_url": "https://api.github.com/users/don-petry/orgs",
+                "repos_url": "https://api.github.com/users/don-petry/repos",
+                "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/don-petry/received_events",
+                "type": "User",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "run_attempt": 1,
+              "referenced_workflows": [],
+              "run_started_at": "2026-10-21T16:42:56Z",
+              "triggering_actor": {
+                "login": "don-petry",
+                "id": 36422719,
+                "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+                "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/don-petry",
+                "html_url": "https://github.com/don-petry",
+                "followers_url": "https://api.github.com/users/don-petry/followers",
+                "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+                "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+                "organizations_url": "https://api.github.com/users/don-petry/orgs",
+                "repos_url": "https://api.github.com/users/don-petry/repos",
+                "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/don-petry/received_events",
+                "type": "User",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "jobs_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/39637242992/jobs",
+              "logs_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/39637242992/logs",
+              "check_suite_url": "https://api.github.com/repos/combsmith/software-factory/check-suites/107419365606",
+              "artifacts_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/39637242992/artifacts",
+              "cancel_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/39637242992/cancel",
+              "rerun_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/39637242992/rerun",
+              "previous_attempt_url": null,
+              "workflow_url": "https://api.github.com/repos/combsmith/software-factory/actions/workflows/381475226",
+              "head_commit": {
+                "id": "60c88c1579c60dfb4b9b5a4d01d42ca80bc2f1de",
+                "tree_id": "aa225d324ae52bb48d30861a9551d34773fc2316",
+                "message": "P-44's fix round: the group's first Run holds it, and the lane is held where the worlds queue\n\nMuse, AGY (Flash) and a fresh Claude review of 0e06e2d.\n- Muse: enqueue() cancelled any waiting Run, the one that holds the group among them when nothing\n  was in progress, where GitHub would start it; nearly every cancellation on the seeds was that\n  case. Now the group's first Run, in progress or waiting for a runner, holds it, and only a Run\n  waiting behind it is cancelled. The cancellations fall from 68 seeds in 300 to 10 in the pull\n  request's world. The empty lane is tested, and a mutant that drops the holder is killed.\n- AGY and the review: the call sites were not held. Each world now checks that no more than one Run\n  waits behind the one that holds the lane, a pinned seed of each world must show a cancellation,\n  and mutants that queue past enqueue() are killed. The first seed whose Hold takes an item out of\n  the queue is run as a pinned seed, so a run of forty seeds still asks for it.\n- The design's rule is worded on what the port can see, a Run cancelled before its job had a runner\n  or a step, names the test that holds it, says GitHub's pending is the records port's queued, and\n  says a person's cancel reads the same, bounded by the Run ceiling. The superseded row's example\n  names it. a_superseded_run_fails says a Run the Kernel refuses as it starts, and sim/AGENTS.md\n  names the lane's test.\n- The fixture's test ties each cancellation to the Run that replaced it, and holds the workflow's\n  group to the blob the upload answered with.\nAGY's major, that a cancelled Run spends an adjudication round, is the Kernel's reading of every\nsuperseded Run today; it holds early, never late, and is not changed here.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+                "timestamp": "2026-10-21T16:41:23Z",
+                "author": {
+                  "name": "Don Petry",
+                  "email": "36422719+don-petry@users.noreply.github.com"
+                },
+                "committer": {
+                  "name": "Don Petry",
+                  "email": "36422719+don-petry@users.noreply.github.com"
+                }
+              },
+              "repository": {
+                "id": 1414556245,
+                "node_id": "R_kgDOVFBqVQ",
+                "name": "software-factory",
+                "full_name": "combsmith/software-factory",
+                "private": false,
+                "owner": {
+                  "login": "combsmith",
+                  "id": 258516906,
+                  "node_id": "O_kgDOD2inqg",
+                  "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                  "gravatar_id": "",
+                  "url": "https://api.github.com/users/combsmith",
+                  "html_url": "https://github.com/combsmith",
+                  "followers_url": "https://api.github.com/users/combsmith/followers",
+                  "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                  "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                  "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                  "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                  "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                  "repos_url": "https://api.github.com/users/combsmith/repos",
+                  "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                  "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                  "type": "Organization",
+                  "user_view_type": "public",
+                  "site_admin": false
+                },
+                "html_url": "https://github.com/combsmith/software-factory",
+                "description": null,
+                "fork": false,
+                "url": "https://api.github.com/repos/combsmith/software-factory",
+                "forks_url": "https://api.github.com/repos/combsmith/software-factory/forks",
+                "keys_url": "https://api.github.com/repos/combsmith/software-factory/keys{/key_id}",
+                "collaborators_url": "https://api.github.com/repos/combsmith/software-factory/collaborators{/collaborator}",
+                "teams_url": "https://api.github.com/repos/combsmith/software-factory/teams",
+                "hooks_url": "https://api.github.com/repos/combsmith/software-factory/hooks",
+                "issue_events_url": "https://api.github.com/repos/combsmith/software-factory/issues/events{/number}",
+                "events_url": "https://api.github.com/repos/combsmith/software-factory/events",
+                "assignees_url": "https://api.github.com/repos/combsmith/software-factory/assignees{/user}",
+                "branches_url": "https://api.github.com/repos/combsmith/software-factory/branches{/branch}",
+                "tags_url": "https://api.github.com/repos/combsmith/software-factory/tags",
+                "blobs_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs{/sha}",
+                "git_tags_url": "https://api.github.com/repos/combsmith/software-factory/git/tags{/sha}",
+                "git_refs_url": "https://api.github.com/repos/combsmith/software-factory/git/refs{/sha}",
+                "trees_url": "https://api.github.com/repos/combsmith/software-factory/git/trees{/sha}",
+                "statuses_url": "https://api.github.com/repos/combsmith/software-factory/statuses/{sha}",
+                "languages_url": "https://api.github.com/repos/combsmith/software-factory/languages",
+                "stargazers_url": "https://api.github.com/repos/combsmith/software-factory/stargazers",
+                "contributors_url": "https://api.github.com/repos/combsmith/software-factory/contributors",
+                "subscribers_url": "https://api.github.com/repos/combsmith/software-factory/subscribers",
+                "subscription_url": "https://api.github.com/repos/combsmith/software-factory/subscription",
+                "commits_url": "https://api.github.com/repos/combsmith/software-factory/commits{/sha}",
+                "git_commits_url": "https://api.github.com/repos/combsmith/software-factory/git/commits{/sha}",
+                "comments_url": "https://api.github.com/repos/combsmith/software-factory/comments{/number}",
+                "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory/issues/comments{/number}",
+                "contents_url": "https://api.github.com/repos/combsmith/software-factory/contents/{+path}",
+                "compare_url": "https://api.github.com/repos/combsmith/software-factory/compare/{base}...{head}",
+                "merges_url": "https://api.github.com/repos/combsmith/software-factory/merges",
+                "archive_url": "https://api.github.com/repos/combsmith/software-factory/{archive_format}{/ref}",
+                "downloads_url": "https://api.github.com/repos/combsmith/software-factory/downloads",
+                "issues_url": "https://api.github.com/repos/combsmith/software-factory/issues{/number}",
+                "pulls_url": "https://api.github.com/repos/combsmith/software-factory/pulls{/number}",
+                "milestones_url": "https://api.github.com/repos/combsmith/software-factory/milestones{/number}",
+                "notifications_url": "https://api.github.com/repos/combsmith/software-factory/notifications{?since,all,participating}",
+                "labels_url": "https://api.github.com/repos/combsmith/software-factory/labels{/name}",
+                "releases_url": "https://api.github.com/repos/combsmith/software-factory/releases{/id}",
+                "deployments_url": "https://api.github.com/repos/combsmith/software-factory/deployments"
+              },
+              "head_repository": {
+                "id": 1414556245,
+                "node_id": "R_kgDOVFBqVQ",
+                "name": "software-factory",
+                "full_name": "combsmith/software-factory",
+                "private": false,
+                "owner": {
+                  "login": "combsmith",
+                  "id": 258516906,
+                  "node_id": "O_kgDOD2inqg",
+                  "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                  "gravatar_id": "",
+                  "url": "https://api.github.com/users/combsmith",
+                  "html_url": "https://github.com/combsmith",
+                  "followers_url": "https://api.github.com/users/combsmith/followers",
+                  "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                  "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                  "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                  "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                  "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                  "repos_url": "https://api.github.com/users/combsmith/repos",
+                  "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                  "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                  "type": "Organization",
+                  "user_view_type": "public",
+                  "site_admin": false
+                },
+                "html_url": "https://github.com/combsmith/software-factory",
+                "description": null,
+                "fork": false,
+                "url": "https://api.github.com/repos/combsmith/software-factory",
+                "forks_url": "https://api.github.com/repos/combsmith/software-factory/forks",
+                "keys_url": "https://api.github.com/repos/combsmith/software-factory/keys{/key_id}",
+                "collaborators_url": "https://api.github.com/repos/combsmith/software-factory/collaborators{/collaborator}",
+                "teams_url": "https://api.github.com/repos/combsmith/software-factory/teams",
+                "hooks_url": "https://api.github.com/repos/combsmith/software-factory/hooks",
+                "issue_events_url": "https://api.github.com/repos/combsmith/software-factory/issues/events{/number}",
+                "events_url": "https://api.github.com/repos/combsmith/software-factory/events",
+                "assignees_url": "https://api.github.com/repos/combsmith/software-factory/assignees{/user}",
+                "branches_url": "https://api.github.com/repos/combsmith/software-factory/branches{/branch}",
+                "tags_url": "https://api.github.com/repos/combsmith/software-factory/tags",
+                "blobs_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs{/sha}",
+                "git_tags_url": "https://api.github.com/repos/combsmith/software-factory/git/tags{/sha}",
+                "git_refs_url": "https://api.github.com/repos/combsmith/software-factory/git/refs{/sha}",
+                "trees_url": "https://api.github.com/repos/combsmith/software-factory/git/trees{/sha}",
+                "statuses_url": "https://api.github.com/repos/combsmith/software-factory/statuses/{sha}",
+                "languages_url": "https://api.github.com/repos/combsmith/software-factory/languages",
+                "stargazers_url": "https://api.github.com/repos/combsmith/software-factory/stargazers",
+                "contributors_url": "https://api.github.com/repos/combsmith/software-factory/contributors",
+                "subscribers_url": "https://api.github.com/repos/combsmith/software-factory/subscribers",
+                "subscription_url": "https://api.github.com/repos/combsmith/software-factory/subscription",
+                "commits_url": "https://api.github.com/repos/combsmith/software-factory/commits{/sha}",
+                "git_commits_url": "https://api.github.com/repos/combsmith/software-factory/git/commits{/sha}",
+                "comments_url": "https://api.github.com/repos/combsmith/software-factory/comments{/number}",
+                "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory/issues/comments{/number}",
+                "contents_url": "https://api.github.com/repos/combsmith/software-factory/contents/{+path}",
+                "compare_url": "https://api.github.com/repos/combsmith/software-factory/compare/{base}...{head}",
+                "merges_url": "https://api.github.com/repos/combsmith/software-factory/merges",
+                "archive_url": "https://api.github.com/repos/combsmith/software-factory/{archive_format}{/ref}",
+                "downloads_url": "https://api.github.com/repos/combsmith/software-factory/downloads",
+                "issues_url": "https://api.github.com/repos/combsmith/software-factory/issues{/number}",
+                "pulls_url": "https://api.github.com/repos/combsmith/software-factory/pulls{/number}",
+                "milestones_url": "https://api.github.com/repos/combsmith/software-factory/milestones{/number}",
+                "notifications_url": "https://api.github.com/repos/combsmith/software-factory/notifications{?since,all,participating}",
+                "labels_url": "https://api.github.com/repos/combsmith/software-factory/labels{/name}",
+                "releases_url": "https://api.github.com/repos/combsmith/software-factory/releases{/id}",
+                "deployments_url": "https://api.github.com/repos/combsmith/software-factory/deployments"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs?status=completed&per_page=1&page=1000 (gh api): the thousandth run of the filtered list",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 16:52:28 GMT",
+          "etag": "W/\"1f9699575f935867de176f833a44df1170c0f1ba57618e398f66032e647dc165\"",
+          "link": "<https://api.github.com/repositories/1414556245/actions/runs?status=completed&per_page=1&page=999>; rel=\"prev\", <https://api.github.com/repositories/1414556245/actions/runs?status=completed&per_page=1&page=1001>; rel=\"next\", <https://api.github.com/repositories/1414556245/actions/runs?status=completed&per_page=1&page=1879>; rel=\"last\", <https://api.github.com/repositories/1414556245/actions/runs?status=completed&per_page=1&page=1>; rel=\"first\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EAFA:F0C6B:169914:49F504:6AD8EDCC",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4985",
+          "x-ratelimit-reset": "1792604934",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "15"
+        },
+        "body": {
+          "total_count": 1879,
+          "workflow_runs": [
+            {
+              "id": 39025124630,
+              "name": "SonarCloud Analysis",
+              "node_id": "WFR_kwLOVFBqVc8AAAAJFhQlFg",
+              "head_branch": "gh-readonly-queue/main/pr-145-e1ac7820622521510ceef98dd5f51ed155a0ad08",
+              "head_sha": "3d4109c4bdef75cd4b01638b275ccf47bf323a7c",
+              "path": ".github/workflows/sonarcloud.yml",
+              "display_title": "SonarCloud Analysis",
+              "run_number": 168,
+              "event": "merge_group",
+              "status": "completed",
+              "conclusion": "success",
+              "workflow_id": 384840533,
+              "check_suite_id": 105761104503,
+              "check_suite_node_id": "CS_kwDOVFBqVc8AAAAYn9pidw",
+              "url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/39025124630",
+              "html_url": "https://github.com/combsmith/software-factory/actions/runs/39025124630",
+              "pull_requests": [],
+              "created_at": "2026-10-17T10:30:05Z",
+              "updated_at": "2026-10-17T10:31:06Z",
+              "actor": {
+                "login": "don-petry",
+                "id": 36422719,
+                "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+                "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/don-petry",
+                "html_url": "https://github.com/don-petry",
+                "followers_url": "https://api.github.com/users/don-petry/followers",
+                "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+                "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+                "organizations_url": "https://api.github.com/users/don-petry/orgs",
+                "repos_url": "https://api.github.com/users/don-petry/repos",
+                "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/don-petry/received_events",
+                "type": "User",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "run_attempt": 1,
+              "referenced_workflows": [],
+              "run_started_at": "2026-10-17T10:30:05Z",
+              "triggering_actor": {
+                "login": "don-petry",
+                "id": 36422719,
+                "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+                "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/don-petry",
+                "html_url": "https://github.com/don-petry",
+                "followers_url": "https://api.github.com/users/don-petry/followers",
+                "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+                "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+                "organizations_url": "https://api.github.com/users/don-petry/orgs",
+                "repos_url": "https://api.github.com/users/don-petry/repos",
+                "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/don-petry/received_events",
+                "type": "User",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "jobs_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/39025124630/jobs",
+              "logs_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/39025124630/logs",
+              "check_suite_url": "https://api.github.com/repos/combsmith/software-factory/check-suites/105761104503",
+              "artifacts_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/39025124630/artifacts",
+              "cancel_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/39025124630/cancel",
+              "rerun_url": "https://api.github.com/repos/combsmith/software-factory/actions/runs/39025124630/rerun",
+              "previous_attempt_url": null,
+              "workflow_url": "https://api.github.com/repos/combsmith/software-factory/actions/workflows/384840533",
+              "head_commit": {
+                "id": "3d4109c4bdef75cd4b01638b275ccf47bf323a7c",
+                "tree_id": "3e391ce178d4dcbb32ab9f0560ee12de618052c2",
+                "message": "CI: a Lens's verdict and the secret scan's rules run from the base (#145)\n\n* CI: the secret scan's rules and verify's verdict are read from the base\n\n\"Run each deterministic Lens from the base's inputs\" (issue 137), in the scope\nthe Maintainer shrank it to on 2026-10-17.\n\n- ci.yml checks out the base under base/ (pull_request base SHA, the merge\n  group's base_sha, or the pushed commit on a push) with the same pinned\n  actions/checkout and persist-credentials: false. gitleaks reads\n  --config base/.gitleaks.toml and --gitleaks-ignore-path base/.gitleaksignore,\n  and the head's .gitleaksignore is deleted first: gitleaks 8.30.1 also reads\n  <source>/.gitleaksignore whatever the flag says. EXEMPT gets the new hash.\n- verify.yml's verify job checks out only the base and runs the base's\n  tools/needs_passed.py. The example and the standard stay equal.\n- check_workflows: a Lens job that judges its needs has one checkout, of the\n  base and nothing else; scan_problems holds ci.yml to reading its rules from\n  the base. Two tests with counter-cases, nine mutants.\n- Decision 0023 records both, why no lens_inputs entry comes off the list, and\n  ci.yml's further departure from the org's text. Design: P-37 for what\n  merge_group.base_sha is for an entry behind another.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n* CI: the secret scan reads every file as text and honours no inline allow\n\nA fix round on \"Run each deterministic Lens from the base's inputs\" (issue 137),\nfrom its review and security pass.\n\n- ci.yml: gitleaks gets --log-opts=\"--full-history --all --diff-filter=tuxdb\n  --text\", its own 8.30.1 defaults plus --text, so a head's .gitattributes\n  marking a file -diff cannot hide it as binary; and --ignore-gitleaks-allow,\n  so an inline gitleaks:allow in head content passes over nothing. A local\n  canary on gitleaks 8.30.1: the -diff file is missed with the default log\n  options and caught with --text; the allowed line is caught only with the\n  flag. scan_problems and the EXEMPT hash hold both.\n- scan_problems strips quotes from a word, so bash -c \"gitleaks ...\" is read.\n- _judging: a workflow with a judging job runs on pull_request and\n  merge_group alone. On any other event ref: comes out empty and checkout\n  takes the head without a word; the trigger is refused in the text, before\n  any run, rather than given a fallback that fails at run time.\n- Decision 0023 says what the base read buys whatever rules the base's\n  configuration holds, and records the two flags and the trigger rule.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n* CI: the secret scan's job is held step by step, not line by line\n\nFrom the AGY review of \"CI: the secret scan's rules and verify's verdict are\nread from the base\" (pull request 145).\n\n- scan_problems held only the two lines around each gitleaks call, and the\n  checkouts only in their order to each other: a `cp .gitleaks.toml base/`\n  before the rm, or the base checkout moved after the scan, passed. It now\n  holds the job whole: one job of four steps, in order, the head's checkout,\n  the base's, an install that names no base and runs no gitleaks, and the\n  scan, whose whole block is SCAN_RUN. No workflow-level or job-level env,\n  defaults or container, no key on the scan step but name and run, and the\n  install given only GITLEAKS_VERSION and GITLEAKS_CHECKSUM, so neither\n  GIT_DIR nor a working-directory can move what the scan reads.\n- Tests and mutants for the two branches that had none: a single-line run:\n  read as a scan, and a judging workflow whose on: is a scalar.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n* CI: one rule for the secret scan's command, and no code no test can reach\n\nCI's mutation shards on pull request 145 reported four mutants as SURVIVED\nthat a local run had called killed: the reading of a gitleaks call by an\noption, by a path, inside quotes, and the comparison of every call found with\nSCAN_RUN. Run alone on an export, with gitleaks on PATH or off it, each\nsurvives. Once the scan step's whole block had to equal SCAN_RUN and the job\nhad to be exactly four steps, that reading could change no verdict: a call\nanywhere else is a fifth step, a changed block or an install line, all\nrefused already. The local kills were another test failing under a load\naverage near 30, which the harness counts as a kill.\n\n- scan_problems: the hunt for gitleaks calls (SUBCOMMANDS, QUOTES,\n  _runs_gitleaks) is gone. The rule is the job's shape and its last step's\n  whole block equal to SCAN_RUN, with one message.\n- Its mutants go with it; the comparison has two, false and the last line\n  alone. A single-line run: is now held where it matters, an install on one\n  line that names base/.\n- Decision 0023's Boundary says the same.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+                "timestamp": "2026-10-17T10:29:47Z",
+                "author": {
+                  "name": "Don Petry",
+                  "email": "36422719+don-petry@users.noreply.github.com"
+                },
+                "committer": {
+                  "name": "GitHub",
+                  "email": "noreply@github.com"
+                }
+              },
+              "repository": {
+                "id": 1414556245,
+                "node_id": "R_kgDOVFBqVQ",
+                "name": "software-factory",
+                "full_name": "combsmith/software-factory",
+                "private": false,
+                "owner": {
+                  "login": "combsmith",
+                  "id": 258516906,
+                  "node_id": "O_kgDOD2inqg",
+                  "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                  "gravatar_id": "",
+                  "url": "https://api.github.com/users/combsmith",
+                  "html_url": "https://github.com/combsmith",
+                  "followers_url": "https://api.github.com/users/combsmith/followers",
+                  "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                  "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                  "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                  "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                  "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                  "repos_url": "https://api.github.com/users/combsmith/repos",
+                  "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                  "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                  "type": "Organization",
+                  "user_view_type": "public",
+                  "site_admin": false
+                },
+                "html_url": "https://github.com/combsmith/software-factory",
+                "description": null,
+                "fork": false,
+                "url": "https://api.github.com/repos/combsmith/software-factory",
+                "forks_url": "https://api.github.com/repos/combsmith/software-factory/forks",
+                "keys_url": "https://api.github.com/repos/combsmith/software-factory/keys{/key_id}",
+                "collaborators_url": "https://api.github.com/repos/combsmith/software-factory/collaborators{/collaborator}",
+                "teams_url": "https://api.github.com/repos/combsmith/software-factory/teams",
+                "hooks_url": "https://api.github.com/repos/combsmith/software-factory/hooks",
+                "issue_events_url": "https://api.github.com/repos/combsmith/software-factory/issues/events{/number}",
+                "events_url": "https://api.github.com/repos/combsmith/software-factory/events",
+                "assignees_url": "https://api.github.com/repos/combsmith/software-factory/assignees{/user}",
+                "branches_url": "https://api.github.com/repos/combsmith/software-factory/branches{/branch}",
+                "tags_url": "https://api.github.com/repos/combsmith/software-factory/tags",
+                "blobs_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs{/sha}",
+                "git_tags_url": "https://api.github.com/repos/combsmith/software-factory/git/tags{/sha}",
+                "git_refs_url": "https://api.github.com/repos/combsmith/software-factory/git/refs{/sha}",
+                "trees_url": "https://api.github.com/repos/combsmith/software-factory/git/trees{/sha}",
+                "statuses_url": "https://api.github.com/repos/combsmith/software-factory/statuses/{sha}",
+                "languages_url": "https://api.github.com/repos/combsmith/software-factory/languages",
+                "stargazers_url": "https://api.github.com/repos/combsmith/software-factory/stargazers",
+                "contributors_url": "https://api.github.com/repos/combsmith/software-factory/contributors",
+                "subscribers_url": "https://api.github.com/repos/combsmith/software-factory/subscribers",
+                "subscription_url": "https://api.github.com/repos/combsmith/software-factory/subscription",
+                "commits_url": "https://api.github.com/repos/combsmith/software-factory/commits{/sha}",
+                "git_commits_url": "https://api.github.com/repos/combsmith/software-factory/git/commits{/sha}",
+                "comments_url": "https://api.github.com/repos/combsmith/software-factory/comments{/number}",
+                "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory/issues/comments{/number}",
+                "contents_url": "https://api.github.com/repos/combsmith/software-factory/contents/{+path}",
+                "compare_url": "https://api.github.com/repos/combsmith/software-factory/compare/{base}...{head}",
+                "merges_url": "https://api.github.com/repos/combsmith/software-factory/merges",
+                "archive_url": "https://api.github.com/repos/combsmith/software-factory/{archive_format}{/ref}",
+                "downloads_url": "https://api.github.com/repos/combsmith/software-factory/downloads",
+                "issues_url": "https://api.github.com/repos/combsmith/software-factory/issues{/number}",
+                "pulls_url": "https://api.github.com/repos/combsmith/software-factory/pulls{/number}",
+                "milestones_url": "https://api.github.com/repos/combsmith/software-factory/milestones{/number}",
+                "notifications_url": "https://api.github.com/repos/combsmith/software-factory/notifications{?since,all,participating}",
+                "labels_url": "https://api.github.com/repos/combsmith/software-factory/labels{/name}",
+                "releases_url": "https://api.github.com/repos/combsmith/software-factory/releases{/id}",
+                "deployments_url": "https://api.github.com/repos/combsmith/software-factory/deployments"
+              },
+              "head_repository": {
+                "id": 1414556245,
+                "node_id": "R_kgDOVFBqVQ",
+                "name": "software-factory",
+                "full_name": "combsmith/software-factory",
+                "private": false,
+                "owner": {
+                  "login": "combsmith",
+                  "id": 258516906,
+                  "node_id": "O_kgDOD2inqg",
+                  "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+                  "gravatar_id": "",
+                  "url": "https://api.github.com/users/combsmith",
+                  "html_url": "https://github.com/combsmith",
+                  "followers_url": "https://api.github.com/users/combsmith/followers",
+                  "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+                  "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+                  "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+                  "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+                  "organizations_url": "https://api.github.com/users/combsmith/orgs",
+                  "repos_url": "https://api.github.com/users/combsmith/repos",
+                  "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+                  "received_events_url": "https://api.github.com/users/combsmith/received_events",
+                  "type": "Organization",
+                  "user_view_type": "public",
+                  "site_admin": false
+                },
+                "html_url": "https://github.com/combsmith/software-factory",
+                "description": null,
+                "fork": false,
+                "url": "https://api.github.com/repos/combsmith/software-factory",
+                "forks_url": "https://api.github.com/repos/combsmith/software-factory/forks",
+                "keys_url": "https://api.github.com/repos/combsmith/software-factory/keys{/key_id}",
+                "collaborators_url": "https://api.github.com/repos/combsmith/software-factory/collaborators{/collaborator}",
+                "teams_url": "https://api.github.com/repos/combsmith/software-factory/teams",
+                "hooks_url": "https://api.github.com/repos/combsmith/software-factory/hooks",
+                "issue_events_url": "https://api.github.com/repos/combsmith/software-factory/issues/events{/number}",
+                "events_url": "https://api.github.com/repos/combsmith/software-factory/events",
+                "assignees_url": "https://api.github.com/repos/combsmith/software-factory/assignees{/user}",
+                "branches_url": "https://api.github.com/repos/combsmith/software-factory/branches{/branch}",
+                "tags_url": "https://api.github.com/repos/combsmith/software-factory/tags",
+                "blobs_url": "https://api.github.com/repos/combsmith/software-factory/git/blobs{/sha}",
+                "git_tags_url": "https://api.github.com/repos/combsmith/software-factory/git/tags{/sha}",
+                "git_refs_url": "https://api.github.com/repos/combsmith/software-factory/git/refs{/sha}",
+                "trees_url": "https://api.github.com/repos/combsmith/software-factory/git/trees{/sha}",
+                "statuses_url": "https://api.github.com/repos/combsmith/software-factory/statuses/{sha}",
+                "languages_url": "https://api.github.com/repos/combsmith/software-factory/languages",
+                "stargazers_url": "https://api.github.com/repos/combsmith/software-factory/stargazers",
+                "contributors_url": "https://api.github.com/repos/combsmith/software-factory/contributors",
+                "subscribers_url": "https://api.github.com/repos/combsmith/software-factory/subscribers",
+                "subscription_url": "https://api.github.com/repos/combsmith/software-factory/subscription",
+                "commits_url": "https://api.github.com/repos/combsmith/software-factory/commits{/sha}",
+                "git_commits_url": "https://api.github.com/repos/combsmith/software-factory/git/commits{/sha}",
+                "comments_url": "https://api.github.com/repos/combsmith/software-factory/comments{/number}",
+                "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory/issues/comments{/number}",
+                "contents_url": "https://api.github.com/repos/combsmith/software-factory/contents/{+path}",
+                "compare_url": "https://api.github.com/repos/combsmith/software-factory/compare/{base}...{head}",
+                "merges_url": "https://api.github.com/repos/combsmith/software-factory/merges",
+                "archive_url": "https://api.github.com/repos/combsmith/software-factory/{archive_format}{/ref}",
+                "downloads_url": "https://api.github.com/repos/combsmith/software-factory/downloads",
+                "issues_url": "https://api.github.com/repos/combsmith/software-factory/issues{/number}",
+                "pulls_url": "https://api.github.com/repos/combsmith/software-factory/pulls{/number}",
+                "milestones_url": "https://api.github.com/repos/combsmith/software-factory/milestones{/number}",
+                "notifications_url": "https://api.github.com/repos/combsmith/software-factory/notifications{?since,all,participating}",
+                "labels_url": "https://api.github.com/repos/combsmith/software-factory/labels{/name}",
+                "releases_url": "https://api.github.com/repos/combsmith/software-factory/releases{/id}",
+                "deployments_url": "https://api.github.com/repos/combsmith/software-factory/deployments"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/actions/runs?status=completed&per_page=1&page=1001 (gh api): the one after it",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Wed, 21 Oct 2026 16:52:29 GMT",
+          "etag": "W/\"e0f648ea9834a8d6d69c59b737ad707fbdd5ca6b4c92b65af1ec7e6e03995185\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "EAFB:3F9E6E:1AF35A:57F25E:6AD8EDCC",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4984",
+          "x-ratelimit-reset": "1792604934",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "16"
+        },
+        "body": {
+          "total_count": 0,
+          "workflow_runs": []
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
         "via": "cli",
         "call": "python3, in a scratch directory outside the repo: what each list read one to a page said, the files whole, and the run list's pages, from the reads above alone",
         "headers": {},
@@ -3649,16 +4481,28 @@
             }
           },
           "runs_reachable_by_the_pages": 1873,
-          "reads_left_out": "Three reads of the run list at 100 a page, as ruling 2 words it, were made and are left out for their size, about a megabyte each: page 11 gave 100 runs, page 19 gave 73 and page 20 none, each with total_count 1873. The reads one to a page above show the same list.",
+          "reads_left_out": "Part 2 was met by the reads one to a page above, at runs 1, 1,000, 1,001, 1,873 and 1,874, not by reads at 100 a page as the pass condition words it. Three reads at 100 a page were made, pages 11, 19 and 20, and are left out for their size, about a megabyte each; by the session's own count, not kept as GitHub said them, they gave 100, 73 and no runs, each with total_count 1873.",
           "part_1_each_short_read_says_so": true,
-          "part_2_the_run_list_stops_short": false,
+          "part_2_the_unfiltered_list_stops_short": false,
+          "filtered_list": {
+            "page_1_total_count": 1879,
+            "page_1000_returned": 1,
+            "page_1000_link_names_next": true,
+            "page_1001_returned": 0,
+            "page_1001_total_count": 0,
+            "page_1001_link": null,
+            "stops_short": true
+          },
+          "part_2_the_filtered_list_stops_short": true,
           "part_2_holds": true,
           "part_3_the_rename_gives_its_old_path": true,
-          "part_3_the_copy_is_told_as_a_copy": false,
+          "part_3_the_unchanged_copy_is_told_as_a_copy": false,
           "noted": [
             "GraphQL's files give changeType RENAMED and no old path; only REST's previous_filename names it.",
-            "GitHub lists the unchanged copy as added, with no source: a copy is never told as a copy.",
-            "The run list was read whole, all of this repo's runs, past the thousandth: it did not stop short here, so a_run_list_stops_short is not shown either way.",
+            "GitHub listed the unchanged copy as added, with no source.",
+            "Unfiltered, the run list reads whole, all 1,873 runs, past the thousandth. With a filter, as the records port reads one, it stops at 1,000: page 1 counts 1,879, page 1,000's Link names a next page and a last of 1,879, and page 1,001 returns no run with a total_count of 0 and no Link. Only page 1's count says the oldest are missing; a page past the thousandth says nothing is there.",
+            "The reviews count 3: the third is coderabbitai[bot]'s approval, which the trial did not make.",
+            "The head's checks count 3 in GraphQL's statusCheckRollup and 2 in REST's check runs.",
             "Acceptance results were not read: no contract exists until slice 2."
           ]
         }
@@ -3687,7 +4531,12 @@
     "exchanges[19].request.headers.authorization",
     "exchanges[20].request.headers.authorization",
     "exchanges[21].request.headers.authorization",
-    "exchanges[22].request.headers.authorization"
+    "exchanges[22].request.headers.authorization",
+    "exchanges[23].request.headers.authorization",
+    "exchanges[24].request.headers.authorization",
+    "exchanges[25].request.headers.authorization",
+    "exchanges[26].request.headers.authorization",
+    "exchanges[27].request.headers.authorization"
   ],
   "verdict": "pass"
 }

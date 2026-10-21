@@ -3168,7 +3168,7 @@ class Trials(unittest.TestCase):
         by_code = {rule[0]: rule[3] for rule in check_trials.rules()}
         for code in ("a_short_list_says_so", "a_pull_request_lists_the_paths_it_changes", "a_short_path_list_says_so"):
             self.assertEqual(by_code[code], "trials/P-43.json", code)
-        self.assertIsNone(by_code["a_run_list_stops_short"])
+        self.assertEqual(by_code["a_run_list_stops_short"], "trials/P-43.json")
         p43 = json.loads((ROOT / "trials" / "P-43.json").read_text())
         self.assertEqual(p43["verdict"], "pass")
         call = lambda fragment: next(e for e in p43["exchanges"] if fragment in e["request"]["call"])
@@ -3195,7 +3195,18 @@ class Trials(unittest.TestCase):
         # The run list reads whole: the last run is the count's, and a page past it is empty.
         last, past = call("page=1873 ")["response"]["body"], call("page=1874 ")["response"]["body"]
         self.assertEqual((last["total_count"], len(last["workflow_runs"]), len(past["workflow_runs"])), (1873, 1, 0))
-        self.assertEqual(len(call("page=1001 ")["response"]["body"]["workflow_runs"]), 1, "past the thousandth")
+        first, at, after = (call("runs?per_page=1&page=%d " % n)["response"]["body"] for n in (1, 1000, 1001))
+        self.assertEqual([b["total_count"] for b in (first, at, after)], [1873] * 3)
+        self.assertNotEqual(at["workflow_runs"][0]["id"], after["workflow_runs"][0]["id"], "past the thousandth")
+        self.assertGreater(call("check-runs?per_page=1 ")["response"]["body"]["total_count"], 1)
+        # With a filter, as the records port reads one, the list stops at 1,000: the first page counts more, the
+        # thousandth names a next page, and the one after is empty and counts nothing.
+        one, thousand, past = (call("status=completed&per_page=1&page=%d " % n)["response"] for n in (1, 1000, 1001))
+        self.assertGreater(one["body"]["total_count"], 1000)
+        self.assertEqual(len(thousand["body"]["workflow_runs"]), 1)
+        self.assertIn('rel="next"', thousand["headers"]["link"])
+        self.assertEqual((past["body"]["total_count"], past["body"]["workflow_runs"], past["headers"].get("link")), (0, [], None))
+        self.assertEqual(p43["ran_at"], call("for when the trial began")["response"]["body"]["commit"]["author"]["date"])
 
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
