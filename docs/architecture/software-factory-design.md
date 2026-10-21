@@ -852,7 +852,7 @@ for its name: a dispatch of the Controller's App whose run-name never resolves, 
 broken name expression, would otherwise defer every admission for the 90 days GitHub keeps its
 record. It defers nothing, and every Run unnamed past the window is one alert of the whole scope,
 `run_unnamed` with its run id, which every pass writes to the view's `alerts` (`view-meta/1`, from
-`kernel.decide.stuck_runs`): one alert to a run, not one to a pass or an item, so a person sees it
+`kernel.decide.unnamed_scope`): one alert to a run, not one to a pass or an item, so a person sees it
 within one pass and sees it once. A Run on an item among them is missing from that item's attempts
 and Run ceiling, so past `max_unnamed_runs` of them (1) every Run and approval defers,
 `runs_unnamed`, as a deferral of the whole scope: a name the port cannot read admits at most that

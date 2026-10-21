@@ -32,7 +32,7 @@
       "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
     },
     "alerts": {
-      "description": "The alerts of the whole scope the pass found, one to a cause however many items it touches: for each counted Run listed unnamed for max_unnamed_run_seconds or more, the alert run_unnamed and its run id, until a person deletes the run (issue 270). Written from kernel.decide.stuck_runs",
+      "description": "The alerts of the whole scope the pass found, one to a cause however many items it touches: for each counted Run listed unnamed for max_unnamed_run_seconds or more, the alert run_unnamed and its run id, until a person deletes the run (issue 270). Written from kernel.decide.unnamed_scope",
       "type": "array",
       "uniqueItems": true,
       "items": {

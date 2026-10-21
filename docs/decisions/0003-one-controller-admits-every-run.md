@@ -51,7 +51,7 @@ single decider has no race to lose and one place for every brake.
 | A Run's lane is one concurrency group for each Work item, declared on the job, and never cancels what is running | waiting on `harness/` |
 | Work is never lost once faults stop | `tests/test_simulator.py::test_work_is_never_lost_once_faults_stop` |
 | A run record counts only if it is the Factory's own workflow, on the default branch, started by a schedule or a dispatch | `tests/test_adapters.py::test_only_a_dispatch_of_a_role_workflow_from_the_default_branch_in_this_repo_counts`, `tests/test_adapters.py::test_a_status_or_a_conclusion_github_would_not_give_a_run_makes_the_list_short` |
-| A human Pause holds even when Factory code is broken; a Run ceiling is enforced outside `kernel/` | waiting on `controller/` |
+| A human Pause holds even when Factory code is broken; a Run ceiling is enforced outside `kernel/` | waiting on `.github/workflows/poller.yml` |
 | One workflow, the one that carries a Run, is the only one that references an LLM credential | waiting on `harness/` |
 | A Run and an act are held back under a Pause on an issue's seeds | `tests/test_issue_simulator.py::test_invariants_hold_under_faults` |
-| On a person's hold or close of an issue, the Controller dequeues the Factory's pull request for it, with the Lifecycle transition recorded, so that no merge lands while the issue is held or declined: the Maintainer's ruling on "Design: does a merge end a held or a declined issue? The issue world met it on seeds 20, 22 and 99" (issue 227) | waiting on `controller/` |
+| On a person's hold or close of an issue, the Controller dequeues the Factory's pull request for it, with the Lifecycle transition recorded, so that no merge lands while the issue is held or declined: the Maintainer's ruling on "Design: does a merge end a held or a declined issue? The issue world met it on seeds 20, 22 and 99" (issue 227) | waiting on `adapters/effects.py` |

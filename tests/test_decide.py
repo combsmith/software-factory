@@ -8,7 +8,7 @@ import re
 import unittest
 
 from kernel import derive
-from kernel.decide import decide, stuck_runs
+from kernel.decide import decide, stuck_runs, unnamed_scope
 from tests.support import (COMMIT, CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, REPORTER, ROOT,
                            changed, config, context, contract, evidence, facts, labelled, review, run, thread,
                            unlabelled)
@@ -2844,6 +2844,27 @@ class UnidentifiedRuns(unittest.TestCase):
             else:
                 cfg["limits"]["max_unnamed_runs"] = bad
             self.assertEqual(go(facts(), ctx=context(unidentified_runs=[]), cfg=cfg)["outcome"], "admit", bad)
+
+    def test_the_scope_reads_the_unnamed_runs_as_each_decision_does(self):  # issue 270, issue 193's ruling 8 amended
+        # A pass with no item to decide still raises what holds the whole scope: unnamed_scope says what every
+        # Decision would of the unnamed Runs, the alerts among it.
+        limit, most = LIMITS["max_unnamed_run_seconds"], LIMITS["max_unnamed_runs"]
+        def runs(*ages, status="completed") -> list:
+            return [{"run": str(7 + i), "created_at": seconds_before(NOW, a), "status": status} for i, a in enumerate(ages)]
+        cases = [([], (False, [], False)), (runs(0), (True, [], False)), (runs(limit + 1, status="in_progress"),
+                 (True, ["7"], False)), (runs(limit), (False, ["7"], False)),
+                 (runs(*[limit + i for i in range(most + 1)]), (False, [str(7 + i) for i in range(most + 1)], True))]
+        for listed, (defers, alerts, bounded) in cases:
+            ctx = context(unidentified_runs=listed)
+            got = unnamed_scope(ctx, CONFIG, NOW)
+            self.assertEqual((got["defers"], [a["run"] for a in got["alerts"]], got["bounded"]), (defers, alerts, bounded))
+            reason = go(facts(), ctx=ctx)["reason"]
+            self.assertEqual(reason == "run_unidentified", defers, listed)
+            self.assertEqual(reason == "runs_unnamed", bounded, listed)
+        for bad in (None, "x", [None]):
+            got = unnamed_scope(context(unidentified_runs=bad), CONFIG, NOW)
+            self.assertEqual((got["defers"], got["alerts"], got["bounded"]), (True, [], False), bad)
+        self.assertEqual(unnamed_scope(None, None, "now"), {"defers": True, "alerts": [], "bounded": False})
 
     def test_an_unidentified_run_that_cannot_be_read_defers_and_raises_no_alert(self):  # issue 270, I-13
         # A run id, a creation, a status or a limit that cannot be read is a list that cannot be read: every Run defers,

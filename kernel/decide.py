@@ -101,6 +101,18 @@ def stuck_runs(context: dict, config: dict, now: str) -> list:
     return [{"alert": t.RUN_UNNAMED, "run": run} for run in unnamed_past(context, now, limits)]
 
 
+def unnamed_scope(context: dict, config: dict, now: str) -> dict:
+    """The Kernel's reading of the unnamed Runs for the whole scope, which a pass needs with no item to decide on
+    (issue 270, the third entry point by the ruling on issue 193): `defers`, whether every Run waits on an unnamed Run
+    inside the window or not yet completed, or on a list that cannot be read; `alerts`, one for each Run unnamed past
+    the window; and `bounded`, whether more such Runs are listed than max_unnamed_runs, past which every Run waits."""
+    limits = config.get("limits") if isinstance(config, dict) else {}
+    alerts = stuck_runs(context, config, now)
+    most = limits.get("max_unnamed_runs") if isinstance(limits, dict) else None
+    return {"defers": unnamed_within(context, now, limits) != [], "alerts": alerts,
+            "bounded": bool(alerts) and len(alerts) > most}
+
+
 def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> dict:
     """Return the Decision for one pull request: what, if anything, happens next on it. No I/O, no clock."""
     # A context that cannot be read says nothing: not whether the Pause holds, which the brakes then read as
