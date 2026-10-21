@@ -6,11 +6,12 @@ Status: accepted. The Maintainer's rule of 2026-10-21, adopted on "Facts port: o
 
 | What | Decided | Because |
 |---|---|---|
-| When an issue asks for a contract | Only when its item's Intent is one that asks, `fix` or `implement` (`kernel/terms.py`'s `CONTRACT_INTENTS`), or when a person adds the `factory:contract` label to it: the label as it stands after the issue's last event for it, a `labeled` by a person, never by an App or the machine user | A contract is a person's statement of what done means; no rule said when one is owed, so every pull request deferred on a contract that could never be read |
-| Slice 1 | No Lifecycle runs an Intent that asks, so only the label asks; a test fails when such an Intent is added before the port reads an item's Intent | The first approval must not wait on a contract no story in slice 1 writes |
+| When an issue asks for a contract | Only when its item's Intent is one that asks, `fix` or `implement`, or when a person adds the `factory:contract` label (`kernel/terms.py`) to it. The label is read as the Kernel reads a control label (`standing_labels`): it binds from when it is added until a person removes it, so what a person placed only a person ends (L-17), and a removal in the same second reads as placed. It asks only where a person, with write access and no App acting for it, placed it. The labels GitHub lists on the issue must agree with its timeline | A contract is a person's statement of what done means; no rule said when one is owed, so every pull request deferred on a contract that could never be read |
+| Slice 1 | No Lifecycle runs an Intent named `fix` or `implement`: `fix-findings` fixes a pull request's Findings, not an issue's item. Every Intent a Lifecycle runs is named in a test, so a new one is ruled on before it runs | The first approval must not wait on a contract no story in slice 1 writes |
 | A pull request that closes no issue, or whose issues none ask | `acceptance` is null, read whole | Nothing asked for a contract, so there is none to read |
 | An issue that asks | The contract is read; until the part of the port that reads it is built, the read is not whole, and the Kernel defers | A contract asked for and not read is never read as no contract |
-| What is not whole | A list of closing references longer than its page, one of another repo, one named twice, or an issue's timeline read short | A read that cannot say every issue was read cannot say none asked |
+| What is not whole | A list of closing references longer than its page, one of another repo, one named twice, an issue whose labels are more than a page or disagree with its timeline, an issue's timeline read short, and a pull request to a base other than the default branch, which carries no closing reference (P-33) | A read that cannot say every issue was read cannot say none asked |
+| The known limit | The closing references are the pull request's own, which its author writes: an author who removes "Closes" before a pass removes the ask. Binding a pull request to its issue by its Run record or its branch, never its body, is a later story's | The rule says when an issue asks; which issue a pull request answers to is its author's to say until a Run opens the pull request itself |
 
 ## Why
 
@@ -20,8 +21,10 @@ Design sections 3.13 and 4.8 make the acceptance contract the item's, read from 
 
 | Boundary | Check |
 |---|---|
-| An issue asks only by the `factory:contract` label a person added, as it stands after its last event; none asks, and `acceptance` is null and whole; one asks, and it is not whole | `tests/test_adapters.py::test_an_issue_asks_for_a_contract_only_by_a_persons_label` |
+| An issue asks only by the `factory:contract` label a person placed, which only a person ends; none asks, and `acceptance` is null and whole; one asks, and it is not whole | `tests/test_adapters.py::test_an_issue_asks_for_a_contract_only_by_a_persons_label` |
+| An issue whose labels disagree with its timeline, or whose timeline is short, is not whole | `tests/test_adapters.py::test_an_issue_whose_labels_and_timeline_disagree_or_are_short_is_not_whole` |
 | Closing references read short, of another repo, or named twice are not whole | `tests/test_adapters.py::test_closing_references_are_whole_only_of_this_repo_and_every_one_counted` |
-| No Lifecycle runs an Intent that asks before the port reads an item's Intent | `tests/test_adapters.py::test_no_intent_that_asks_for_a_contract_runs_yet` |
-| A snapshot whose pull request closes no issue that asks reads `complete.acceptance` true | `tests/test_adapters.py::test_a_snapshot_holds_every_part_of_the_facts_and_the_title_beside_them` |
+| A pull request to another base than the default is not whole on its contract | `tests/test_adapters.py::test_a_pull_request_to_another_base_than_the_default_is_not_read_whole_on_its_contract` |
+| Every Intent a Lifecycle runs is ruled on whether it asks | `tests/test_adapters.py::test_every_intent_a_lifecycle_runs_is_ruled_on_whether_it_asks_for_a_contract` |
+| A snapshot reads `complete.acceptance` true where no closing issue asks, and false where one does | `tests/test_adapters.py::test_a_snapshot_holds_every_part_of_the_facts_and_the_title_beside_them`, `tests/test_adapters.py::test_a_snapshot_whose_closing_issue_asks_for_a_contract_is_not_read_whole_on_it` |
 | The contract asked for is read | waiting on `adapters/contract.py` |
