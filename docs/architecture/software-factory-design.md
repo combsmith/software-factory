@@ -1425,7 +1425,10 @@ join between the two items; it is read at every pass and written nowhere else. T
 from each pull request's own closing references, never from the issue's cross-reference
 events, which anyone may cause by naming the issue and which say a pull request will close it
 only while it is open, unmerged and to the default branch, and nothing once the issue is closed
-(P-33). A pull request the Factory opens closes
+(P-33). A merged pull request's references are not fixed at the merge: an edit to its description
+afterwards adds the issue a new keyword names, and undoing the edit takes it out (P-46). Until
+issue 267 reads the join as it stood at the merge, anyone who can edit a merged pull request's
+description can make an open issue read as `done`. A pull request the Factory opens closes
 exactly one issue.
 
 While the linked pull request is a draft, the issue's Lifecycle governs and the pull request's
@@ -2089,6 +2092,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-43 | Does each list the facts are read from, reviews, threads, checks, timeline events, run records, acceptance results and the files a pull request changes, say when it was cut short, by a count, a last page or a next cursor that the same read gives; and can the list of run records stop short with the oldest Runs missing? Is every file a pull request changes listed once, by its path from the top of the repo, with the path a renamed or copied file had before? | Yes: each short read is told from the read itself, as P-29 showed for the diff and the list of files. If one is not, the port reads that list whole, or reads it as incomplete |
 | P-44 | With a concurrency group for each Work item on a Run's job, does GitHub keep one Run running and one pending, cancel the older pending Run, and never cancel the one running? | As GitHub documents it; the lane in `sim/world.py` then changes to match (`a_run_waits_its_turn`, "Known to differ" in `sim/AGENTS.md`) |
 | P-45 | When a dependency bot updates an Action's pin in a workflow file, does it open the pull request and push its head under its own `[bot]` identity, so that the port's class for it is `dependency`? | Yes, with the bot as author and last pusher. If a person's push follows, the class is read as any other change's (decision 0026) |
+| P-46 | Does a merged pull request's closing reference change when its description is edited after the merge, or when an issue is linked to it by hand? | No: the reference stands as it was at the merge. **Failed** on 2026-10-21 (`trials/P-46.json`): an edit after the merge added issue 47 to canary pull request 38's references, and undoing it took the issue out; a link by hand was not tried. So the issue Lifecycle reads the join as it stood at the merge, never the live field; issue 267 chooses how, since the edit raised only the cross-reference a bare mention raises, and the undo left it standing |
 
 ### 6.1 The order to run them in
 
@@ -2097,11 +2101,11 @@ An assumption audit on 2026-10-10 ranked each trial by what breaks if its answer
 | Batch | Trials | If the answer is no |
 |---|---|---|
 | **1. Before any code** | P-13 (the model CLI returns structured output on a subscription); P-1, P-7, P-24 (the approval mechanics); P-17, P-22 (run records can be identified); P-3 (secrets are isolated by environment); P-28, P-29 (last pusher and content identity are readable); P-8 (a pass fits its budget); P-39 (each App was granted what the data says) | The design does not work as written. Each of these is a foundation: no Run, no approval, no derived State, no credential boundary, or no poller |
-| **2. Before the first approval** | P-9, P-20, P-31 (chaining, the outside tick and the relay's host, on which W-2 rests: decision 0043); P-5, P-23, P-25 (resolving others' threads); P-2 (an App in the merge queue); P-30 (cutting a Release); P-27, P-14, P-4 (forks, caches, narrowed tokens); P-26 (the sandbox); P-35, P-36 (what a Lens's check is read from); P-37 (what a Lens reads from the base in the queue); P-38 (the commit an approved contract is read at); P-40 (whether a base move alone makes GitHub work `mergeable` out again); P-41, P-42, P-43 (reviews, labels, actors and check runs on a pull request, and the lists read short) | One mechanism is replaced and the design stands. If threads cannot be resolved by an App, required thread resolution is dropped in repos the Factory serves |
+| **2. Before the first approval** | P-9, P-20, P-31 (chaining, the outside tick and the relay's host, on which W-2 rests: decision 0043); P-5, P-23, P-25 (resolving others' threads); P-2 (an App in the merge queue); P-30 (cutting a Release); P-27, P-14, P-4 (forks, caches, narrowed tokens); P-26 (the sandbox); P-35, P-36 (what a Lens's check is read from); P-37 (what a Lens reads from the base in the queue); P-38 (the commit an approved contract is read at); P-40 (whether a base move alone makes GitHub work `mergeable` out again); P-41, P-42, P-43 (reviews, labels, actors and check runs on a pull request, and the lists read short); P-46 (whether an edit after a merge changes the issues it closes) | One mechanism is replaced and the design stands. If threads cannot be resolved by an App, required thread resolution is dropped in repos the Factory serves |
 | **3. Before the control room** | P-11, P-19, P-21 (publishing the page); P-16, P-18 (retention and final steps) | The page is published another way, or history is shorter |
 | **4. As they come up** | P-6, P-10, P-12, P-15, P-44, P-45 (the lane's concurrency group; a dependency bot's pin) | A detail changes |
 
-P-32, P-33 and P-34 belong to the issue Lifecycle (§4.1). All three are run before the Factory's
+P-32, P-33, P-34 and P-46 belong to the issue Lifecycle (§4.1). All four are run before the Factory's
 own author is built, since the hand-over reads labels, their actors and the closing reference. P-8 now measures a pass that lists every open issue.
 
 Two assumptions are not trials. Whether a subscription used only by automation is within the
