@@ -291,16 +291,27 @@ def lens_inputs_touched(facts: dict, config: dict) -> list:
     return [p for p in dict.fromkeys(config["model_lens_inputs"]) if any(matches(p, path) for path in changed)]
 
 
+def a_judge(actor) -> bool:
+    """An account whose approval judges a change to a model Lens's own inputs: a person with write access, or the
+    machine user, with write access, as the Maintainer approves through it in the browser. Never an App or a Lens's App:
+    the Lens is the one judge it may not be (the Maintainer, 2026-10-21, issue 140)."""
+    return is_person(actor) or (isinstance(actor, dict) and actor.get("kind") == t.MACHINE_USER
+                                and actor.get("can_write") is True)
+
+
 def judged_by_a_person(facts: dict) -> bool:
-    """Whether a person has judged this head, so that no model Lens is the only judge of a change to its own inputs: a
-    person with write access, neither its author nor its last pusher, approved this content in a review that stands
-    (issue 140). That person's latest verdict counts, as for a request for changes (gate): an approval a later request
-    supersedes is none, whoever dismissed the request. Only a person's dismissal ends an approval: an App's, a Lens's
-    among them, ends nothing a person did (L-17). An author's own change is no judgment of a head, whoever pushed it: a
-    session may push as the Maintainer (L-44)."""
+    """Whether a person has judged this head, so that no model Lens is the only judge of a change to its own inputs: an
+    approval of this content that stands, by a judge (a_judge) other than its author and its last pusher (issue 140).
+    That judge's latest verdict counts, as for a request for changes (gate): an approval a later request supersedes is
+    none, whoever dismissed the request. Only a person's dismissal ends an approval: an App's, a Lens's among them, ends
+    nothing a person did (L-17). An author's own change is no judgment of a head, whoever pushed it: a session may push
+    as the Maintainer (L-44).
+
+    The machine user's approval counts only as the Maintainer's own: the Factory's approving act never supplies it here,
+    since no Decision issues an approval for such a change until a judge's approval already stands."""
     latest = {}
     for rv in sorted(facts["reviews"], key=verdict_order):
-        if is_person(rv["by"]) and rv["state"] != "commented" and rv["dismissed_from"] != "commented":
+        if a_judge(rv["by"]) and rv["state"] != "commented" and rv["dismissed_from"] != "commented":
             latest[rv["by"]["name"]] = rv
     for rv in latest.values():
         another = rv["by"]["name"] != facts["author"] and rv["by"]["name"] != facts["last_pusher"]
