@@ -40,6 +40,23 @@ ORG = "combsmith"
 ORG_CALL = re.compile(r"^[A-Z]+ /(apps/|orgs/%s/|installation/)" % ORG)
 CLIMBS = re.compile(r"(^|/)\.{1,2}(/|$)|%2e", re.I)
 FIXTURE = re.compile(r"^(P-[1-9][0-9]*)(\.[a-z0-9-]+)?\.json$")
+# A fixture of the canary reads the org's repos alone, and is answered with them alone (decision 0035, issue 226): a
+# REST read names a repo of the org, the org, an App or an installation in its path; a query's root fields are
+# repository, organization and rateLimit, each owner a literal or a declared variable; a command-line read names no
+# other owner's repo; an answer names a repo by nameWithOwner, full_name, a name beside its owner's login, or a URL or
+# resource path under these keys; and an App's read names, and is answered with, only repos its installation reaches.
+REST_READ = re.compile(r"^[A-Z]+ /(?:repos/([^/?\s]+)/([^/?\s]+)|orgs/([^/?\s]+)(?:[/?]|$)|app/|apps/|installation/)")
+ANY_REPO = re.compile(r"\brepos/([^/?\s]+)/([^/?\s]+)")
+CLI_REPO = re.compile(r"(?:--repo|-R)[ =]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)|\brepos/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)")
+ROOT_FIELD = re.compile(r"^(?:\w+\s*:\s*)?(\w+)\s*(?:\(([^)]*)\))?$")
+ARGUMENT = re.compile(r"\b(owner|name|login)\s*:\s*(?:\"([^\"]*)\"|\$(\w+))")
+URL_KEYS = {"url", "html_url", "resourcePath", "repository_url", "clone_url", "ssh_url", "git_url", "svn_url", "mirror_url"}
+URL_REPO = re.compile(r"^(?:https://(?:api\.)?github\.com/(?:repos/)?|git@github\.com:)([A-Za-z0-9_.-]+)/([A-Za-z0-9_-]+)(?:\.git)?(?:[/?#].*)?$")
+PATH_REPO = re.compile(r"^/([A-Za-z0-9_.-]+)/([A-Za-z0-9_-]+)(?:[/?#].*)?$")
+# The first segment of a URL that is not an owner: GitHub's own paths for Apps, users, orgs and the rest.
+NOT_AN_OWNER = {"apps", "app", "orgs", "organizations", "users", "user", "installation", "installations", "search",
+                "repositories", "repos", "login", "settings", "marketplace", "sponsors", "notifications", "gists",
+                "codes_of_conduct", "licenses", "emojis", "rate_limit", "meta", "events", "feeds"}
 TRIAL = re.compile(r"^P-[1-9][0-9]*$")
 CODE = re.compile(r"^[a-z_]+$")
 MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
@@ -191,6 +208,181 @@ def _askers(data) -> list:
     return out
 
 
+def _roots(query: str):
+    """([(root field, its arguments)] of the one operation in `query`, what is wrong or None). A string is read whole,
+    an escaped quote inside it included; a fragment on another type is skipped, since its fields hang off a root field
+    of the operation; a fragment on Query, or a second operation, is refused."""
+    depth, found, text, quoted, escaped, skipping, operations = 0, [], "", False, False, False, 0
+    for ch in query:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                quoted = False
+            text += ch
+            continue
+        if ch == '"':
+            quoted = True
+            text += ch
+            continue
+        if ch == "{":
+            if depth == 0:
+                opening = text.strip()
+                skipping = opening.startswith("fragment ")
+                if skipping and re.search(r"\bon\s+Query\b", opening):
+                    return [], "holds a fragment on Query, whose fields are root fields; write them in the operation"
+                if not skipping:
+                    operations += 1
+                text = ""
+            elif depth == 1 and not skipping:
+                found.append(text.strip())
+                text = ""
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth <= 1:
+                text = ""
+        elif depth == 0 or (depth == 1 and not skipping):
+            text += ch
+    if operations != 1 or depth != 0:
+        return [], "holds %d operations, or a brace left open; a read is one operation" % operations
+    out = []
+    for item in found:
+        field = ROOT_FIELD.match(item.strip())
+        if not field:
+            return [], "has a root field that cannot be read: %r" % item[:60]
+        out.append((field.group(1), field.group(2) or ""))
+    return out, None
+
+
+def _bound(args: str, key: str, variables: dict):
+    """The one value of `key` among `args`, a literal or a declared variable's; None if not exactly one."""
+    found = [m for m in ARGUMENT.finditer(args) if m.group(1) == key]
+    if len(found) != 1:
+        return None
+    literal, var = found[0].group(2), found[0].group(3)
+    return literal if literal is not None else variables.get(var)
+
+
+def _asked(request: dict) -> tuple:
+    """({owners}, {repos}, [what is wrong]) a request names, by its query's root fields, its REST path or its
+    command line."""
+    owners, repos, wrong = set(), set(), []
+    via, call = request.get("via"), request.get("call")
+    if via == "graphql":
+        body = request.get("body") if isinstance(request.get("body"), dict) else {}
+        query = body.get("query")
+        variables = body.get("variables") if isinstance(body.get("variables"), dict) else {}
+        if not isinstance(query, str) or not query.lstrip().startswith(("query", "{")):
+            return owners, repos, ["is a GraphQL read with no query"]
+        roots, problem = _roots(query)
+        if problem:
+            return owners, repos, [problem]
+        for field, args in roots:
+            if field == "repository":
+                owner, name = _bound(args, "owner", variables), _bound(args, "name", variables)
+                if not (isinstance(owner, str) and isinstance(name, str)):
+                    wrong.append("has a repository call whose owner or name cannot be read: %s" % args[:60])
+                    continue
+                owners.add(owner)
+                repos.add(owner + "/" + name)
+            elif field == "organization":
+                login = _bound(args, "login", variables)
+                if not isinstance(login, str):
+                    wrong.append("has an organization call whose login cannot be read: %s" % args[:60])
+                    continue
+                owners.add(login)
+            elif field != "rateLimit":
+                wrong.append("has a root field the check does not read: %s" % field)
+        if not owners and not wrong:
+            wrong.append("is a query that names no repo and no org")
+    elif via == "rest":
+        found = REST_READ.match(call) if isinstance(call, str) else None
+        if not found:
+            wrong.append("names no repo of the org, nor the org, an App or an installation, in its path")
+        else:
+            for owner, name in ANY_REPO.findall(call):
+                owners.add(owner)
+                repos.add(owner + "/" + name)
+            if found.group(3):
+                owners.add(found.group(3))
+    elif via == "cli" and isinstance(call, str):
+        for m in CLI_REPO.finditer(call):
+            owner, name = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+            owners.add(owner)
+            repos.add(owner + "/" + name)
+    return owners, repos, wrong
+
+
+def _named(value, under=None):
+    """Each repo an answer names: nameWithOwner, full_name, a name beside its owner's login (which an App, under the
+    key app or with a slug, has as well and is not one), or a URL or resource path under a key that names one."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in ("nameWithOwner", "full_name") and isinstance(item, str):
+                yield item
+            elif key in URL_KEYS and isinstance(item, str):
+                found = URL_REPO.match(item) or PATH_REPO.match(item)
+                if found and found.group(1) not in NOT_AN_OWNER:
+                    yield found.group(1) + "/" + found.group(2)
+            yield from _named(item, key)
+        owner = value.get("owner")
+        if isinstance(value.get("name"), str) and isinstance(owner, dict) and isinstance(owner.get("login"), str) \
+                and under != "app" and "slug" not in value:
+            yield owner["login"] + "/" + value["name"]
+    elif isinstance(value, list):
+        for item in value:
+            yield from _named(item, under)
+
+
+def _installed(root: pathlib.Path) -> dict:
+    """{App name: the repos its installation reaches}, from config/apps.json; empty when it cannot be read."""
+    try:
+        apps = _load(root / "config" / "apps.json")["apps"]
+        return {app["name"]: set(app["installed_on"]) for app in apps.values()}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {}
+
+
+def _repos(data: dict, installed: dict) -> list:
+    """(path, what is wrong) for each read of a fixture of the canary that names another owner's repo, is answered with
+    one, or, made by an App, names or is answered with a repo its installation does not reach."""
+    out, canary = [], "%s/%s" % (ORG, CANARY)
+    for i, exchange in enumerate(data.get("exchanges") or []):
+        request = exchange.get("request") if isinstance(exchange, dict) else None
+        if not isinstance(request, dict):
+            continue
+        where = "exchanges[%d].request" % i
+        owners, repos, wrong = _asked(request)
+        out += [(where + ".call", what) for what in wrong]
+        for owner in sorted(owners - {ORG}):
+            out.append((where + ".call", "names the owner %s; a read of a fixture of the canary names the org alone" % owner))
+        response = exchange.get("response") if isinstance(exchange.get("response"), dict) else {}
+        answered = set(_named(response.get("body")))
+        for repo in sorted(r for r in answered if not r.startswith(ORG + "/")):
+            out.append(("exchanges[%d].response.body" % i, "names the repo %s; an answer names the org's repos alone" % repo))
+        asker = request.get("as") if isinstance(request.get("as"), dict) else {}
+        if asker.get("kind") == "app":
+            name = str(asker.get("name", "")).split(",")[0].replace("[bot]", "")
+            reach = installed.get(name, {canary})
+            for repo in sorted(repos - reach):
+                out.append((where + ".call", "asks of %s, which the App's installation does not reach" % repo))
+            for repo in sorted(answered - reach):
+                out.append(("exchanges[%d].response.body" % i, "names %s, which the App's installation does not reach" % repo))
+    return out
+
+
+def fixture_problems(data: dict, root: pathlib.Path = ROOT) -> list:
+    """Every problem with one fixture beyond its schema, as the check finds them: who asked, the repos it reads and is
+    answered with, credentials and headers. A counter-example under examples/invalid is held to this."""
+    out = ["%s %s" % (where, what) for where, what in _askers(data)]
+    if not out and data.get("repo") == "%s/%s" % (ORG, CANARY):
+        out += ["%s %s" % (where, what) for where, what in _repos(data, _installed(root))]
+    return out + ["%s %s" % (where, what) for where, what in _credentials(data, "") + _headers(data)]
+
+
 def _of_org(request) -> bool:
     """Whether a request is a REST call of an App, of the org or of an installation, whose path climbs nowhere."""
     request = request if isinstance(request, dict) else {}
@@ -276,8 +468,9 @@ def _fixtures(root: pathlib.Path, schema: dict, problems: list) -> dict:
         if not wrong and data["trial"] != name.group(1):
             wrong.append("%s: records trial %s; a fixture is named for its trial" % (rel, data["trial"]))
         if not wrong:
-            wrong += ["%s: %s %s" % (rel, where, what) for where, what in _askers(data)]
-        wrong += ["%s: %s %s" % (rel, where, what) for where, what in _credentials(data, "") + _headers(data)]
+            wrong += ["%s: %s" % (rel, problem) for problem in fixture_problems(data, root)]
+        else:
+            wrong += ["%s: %s %s" % (rel, where, what) for where, what in _credentials(data, "") + _headers(data)]
         problems += wrong
         if not wrong:
             valid[rel] = data
