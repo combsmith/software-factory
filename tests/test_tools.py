@@ -5075,6 +5075,10 @@ with open(os.path.join(here, "log"), "a") as log:
                           "grant": grant}) + "\n")
 if url.endswith("/access_tokens"):
     status = open(os.path.join(here, "mint.status")).read().strip()
+    if os.path.exists(os.path.join(here, "cut")):
+        # The answer cut short after the token, as a transfer that broke would leave it.
+        sys.stdout.write('{"token": "ghs_RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR", "expires_at": "2026\n201')
+        sys.exit(18)
     if status != "201":
         sys.stdout.write(json.dumps({"message": "Bad credentials"}) + "\n" + status)
         sys.exit(0)
@@ -5086,6 +5090,10 @@ if method == "DELETE":
     sys.stdout.write(open(os.path.join(here, "revoke.status")).read().strip())
     sys.exit(0)
 roles = json.load(open(os.path.join(here, "roles")))
+if os.path.exists(os.path.join(here, "slow")):
+    import time
+    open(os.path.join(here, "reading"), "w").write("yes")
+    time.sleep(30)
 if "/collaborators/" in url:
     login = url.split("/collaborators/")[1].split("/")[0]
     if login in roles:
@@ -5100,6 +5108,9 @@ elif "/activity" in url:
         status, answer = 403, {"message": "Resource not accessible by integration"}
 else:
     status, answer = 404, {"message": "Not Found"}
+# Every answer carries a credential-shaped string, as an answer may: the redaction must take it out before OUT.
+if isinstance(answer, dict):
+    answer["leak"] = "gh" + "s_" + "L" * 36
 sys.stdout.write("HTTP/2 %d\r\ncontent-type: application/json\r\n\r\n%s" % (status, json.dumps(answer)))
 '''
     OPENSSL = '''#!/bin/sh
@@ -5163,6 +5174,9 @@ esac
                          [{"revoked": "metadata: read", "status": 204}, {"revoked": "contents: read", "status": 204}])
         self.assertIn('"permission": "triage"', texts["clean-3"])
         everything = "".join(texts.values()) + ran.stdout + ran.stderr
+        # Each answer carried a credential-shaped string; the redaction took it out of every clean answer, and said where.
+        self.assertNotIn("gh" + "s_" + "L" * 36, everything)
+        self.assertTrue(all("leak" in texts["redacted-%d" % n] for n in (1, 2, 3, 4, 6, 7, 8, 9)))
         self.assertNotIn(self.TOKEN, everything)
         self.assertNotIn("NEVER-SEEN", everything)
 
@@ -5186,6 +5200,50 @@ esac
         ran = self.run_script()
         self.assertIn("cannot read the key file", ran.stderr)
         self.assertEqual(self.calls(), [])
+
+    def test_a_mint_answered_201_and_cut_short_is_revoked_and_told(self):
+        # curl cut the mint's answer short: GitHub minted a token the script cannot parse. It finds the token, revokes
+        # it, says so, and stops; nothing is read with it, and no token reaches what it hands over.
+        (self.stand_in / "cut").write_text("yes\n")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 1)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST", "DELETE"])
+        self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+        self.assertFalse(self.out.exists() and any(self.TOKEN in p.read_text() for p in self.out.iterdir()))
+
+    def test_an_output_folder_reached_through_a_link_into_the_repo_is_refused(self):
+        # OUT is resolved as the file system resolves it: a folder whose parent is a link into the repo is inside it.
+        link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "into-the-repo"
+        link.symlink_to(ROOT)
+        ran = self.run_script(out=link / "never-made")
+        self.assertNotEqual(ran.returncode, 0)
+        self.assertIn("inside the repo", ran.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_signal_mid_read_revokes_the_live_token(self):
+        # Interrupted while a token is live, the script revokes it on its way out, and keeps no raw answer.
+        (self.stand_in / "slow").write_text("yes\n")
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
+        running = subprocess.Popen(["sh", str(self.SCRIPT), str(self.out), str(self.key), self.CANARY, "main", "don-petry"],
+                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        deadline = time.time() + 30
+        while not (self.stand_in / "reading").exists() and time.time() < deadline:
+            time.sleep(0.1)
+        (self.stand_in / "slow").unlink()
+        running.terminate()
+        out, err = running.communicate(timeout=60)
+        self.assertNotEqual(running.returncode, 0)
+        self.assertIn("DELETE", [c["method"] for c in self.calls()])
+        self.assertIn("stopped with a token live; revoking it returned 204", err)
+        self.assertNotIn(self.TOKEN, out + err)
+
+    def test_curl_reads_no_configuration_of_the_maintainers(self):
+        # A .curlrc that turns on verbose would print the Authorization header; -q comes first on every call.
+        (self.stand_in / ".curlrc").write_text("verbose\n")
+        script = self.SCRIPT.read_text()
+        calls = [line for line in script.splitlines() if "| curl " in line]
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(line.split("| curl ", 1)[1].startswith("-q ") for line in calls))
 
     def test_a_refused_mint_or_revocation_stops_the_run_and_says_so(self):
         (self.stand_in / "mint.status").write_text("401\n")

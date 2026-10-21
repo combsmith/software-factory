@@ -1180,6 +1180,18 @@ class Timeline(unittest.TestCase):
                          {"don-petry": {(200, "admin", "admin")}, "donpetry-bot": {(200, "write", "maintain")},
                           "Joaolfelicio": {(200, "write", "write")}, "octocat": {(200, "read", "read")}})
         self.assertTrue(all(set(by) == {"metadata: read", "contents: read"} for by in shown.values()))
+        # The port reads `permission`, which folds maintain into write: the machine user, whose role_name is maintain,
+        # has write access, as the ruling on issue 222 has it.
+        self.assertEqual(next(iter(shown["donpetry-bot"].values()))[1:], ("write", "maintain"))
+        self.assertIn("write", timeline.WRITE)
+        # Each read's least grant is the one GitHub's x-accepted-github-permissions names, and config/apps.json names it
+        # so: the canary is public, so a token without the grant read the activity all the same (issue 231).
+        needs = json.loads((ROOT / "config" / "apps.json").read_text())["needs"]
+        p47 = exchanges("P-47")
+        for fragment, need in (("/permission", "read:facts.actor.can_write"), ("/activity?", "read:facts.last_pusher")):
+            accepted = {e["response"]["headers"].get("x-accepted-github-permissions") for e in p47
+                        if fragment in e["request"]["call"]}
+            self.assertEqual(accepted, {"%s=%s" % (needs[need]["permission"], needs[need]["level"])}, need)
         for login, (_, permission, _) in ((l, next(iter(by.values()))) for l, by in shown.items()):
             self.assertEqual(permission in timeline.WRITE, login != "octocat", login)
 

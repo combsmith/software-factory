@@ -74,7 +74,7 @@ scratch=$(mktemp -d)
 token=""
 
 revoke() {
-    printf 'Authorization: Bearer %s\n' "$token" | curl -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
+    printf 'Authorization: Bearer %s\n' "$token" | curl -q -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
         -H "$ACCEPT" -H "$VERSION" "$API/installation/token"
 }
 
@@ -83,7 +83,19 @@ unrevoked() {
         "the Maintainer must revoke it by hand." >&2
 }
 
+# A token in an answer that may be cut short: the first "token" field's value, found without parsing the whole.
+token_in() {
+    printf '%s\n' "$1" | python3 -I -c '
+import re, sys
+found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.read())
+print(found.group(1) if found else "")' 2>/dev/null || true
+}
+
 finish() {
+    if [ -z "$token" ] && [ -n "${minted:-}" ]; then
+        token=$(token_in "$minted")
+        minted=""
+    fi
     if [ -n "$token" ]; then
         last=$(revoke || true)
         echo "trial_reader_reads: stopped with a token live; revoking it returned $last" >&2
@@ -124,7 +136,7 @@ read_one() {   # NARROWED PATH
     n=$((n + 1))
     read_ok=1
     # curl is the last command of the pipeline, so its exit is the pipeline's; nothing after it hides a failure.
-    printf 'Authorization: Bearer %s\n' "$token" | curl -sS -i -H @- -H "$ACCEPT" -H "$VERSION" \
+    printf 'Authorization: Bearer %s\n' "$token" | curl -q -sS -i -H @- -H "$ACCEPT" -H "$VERSION" \
         "$API/$2" > "$scratch/crlf-$n" || read_ok=0
     tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
     rm -f "$scratch/crlf-$n"
@@ -149,7 +161,7 @@ with_token() {   # PERMISSION
     signature=$(printf '%s.%s' "$header" "$claims" | openssl dgst -sha256 -sign "$key" -binary | b64url)
     jwt="$header.$claims.$signature"
     # GitHub's answer and its status are held in a variable, never a file, since a minted token is in the answer.
-    minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
+    minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
         -H "$VERSION" -d "{\"repositories\":[\"$name\"],\"permissions\":{\"$1\":\"read\"}}" \
         "$API/app/installations/$installation/access_tokens" || true)
     jwt=""
@@ -158,6 +170,21 @@ with_token() {   # PERMISSION
 import json, sys
 answer = json.load(sys.stdin)
 print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/null || true)
+    if [ "$minted_status" = 201 ] && [ -z "$token" ]; then
+        # GitHub minted a token and its answer could not be read whole: the token may be live. It is revoked if it
+        # can be found in what came back, and the Maintainer is told either way; nothing of the answer is kept.
+        token=$(token_in "$minted")
+        minted=""
+        if [ -n "$token" ]; then
+            revoked=$(revoke || true)
+            token=""
+            [ "$revoked" = 204 ] || unrevoked "a token narrowed to $1 whose answer was cut short" "$revoked"
+        else
+            echo "trial_reader_reads: $slug: GitHub minted a token narrowed to $1 and its answer was cut short; the" \
+                "token may be live for up to an hour, and the Maintainer must revoke it by hand." >&2
+        fi
+        exit 1
+    fi
     if [ "$minted_status" != 201 ] || [ -z "$token" ]; then
         # No token was minted, so the answer is GitHub's error; it is still redacted before it is shown.
         token=""

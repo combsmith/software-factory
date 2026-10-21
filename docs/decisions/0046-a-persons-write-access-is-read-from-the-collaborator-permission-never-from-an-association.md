@@ -16,9 +16,13 @@ login appears in the pass; it caches nothing across passes, and never asks it of
 `config/apps.json`'s (decision 0035). The facts keep their shape: `can_write` stays the boolean the port computes, and
 nothing in `kernel/` or in a schema of the facts changes. No read of `authorAssociation` decides write access.
 
-The reader App holds what the reads need, and the Apps data names each read: `read:facts.actor.can_write` for the
-permission read, and the activity read under `read:facts.last_pusher`, each under `metadata: read`, the least grant
-trial P-47 shows each needs (`trials/P-47.json`).
+The reader App holds what the reads need, and the Apps data names each read under the grant GitHub's own
+`x-accepted-github-permissions` gives for it in trial P-47 (`trials/P-47.json`): `read:facts.actor.can_write`, the
+permission read, under `metadata: read`, and `read:facts.last_pusher`, the activity read, under `contents: read`. The
+canary is public, so a token with `metadata` alone read the activity all the same; on a private repo it would not.
+The port reads GitHub's `permission` field, which folds `maintain` into `write`, as the machine user's showed
+(`role_name` `maintain`); GitHub documents that it folds `triage` into `read` too, which P-47 did not see, and either
+way only `admin`, `maintain` and `write` are write access.
 
 ## Why
 
@@ -31,9 +35,10 @@ a change: a person with triage can label an issue and cannot push, so a triage r
 stops work, and is the reading the Maintainer overturns by granting write.
 
 The cost is REST, not GraphQL: the read spends none of the 3,000 points an hour W-4 allows nor of the 1,788 P-8
-measured. At P-8's scale, 41 items on the repo it measured, the distinct logins on open items are fewer than the items:
-at most 41 requests a pass, 492 an hour at twelve passes, a tenth of an installation's 5,000; at the 20 passes an hour
-W-4 allows, 820.
+measured. At P-8's scale, 41 items on the repo it measured, it is one request for each distinct login the pass reads
+on them, authors, label actors, reviewers and thread actors alike; not measured, but a login is read once a pass
+however many items it touches, so the count is the people active on the repo, and a pass of 41 items by a handful of
+people is a handful of requests, far inside an installation's 5,000 an hour.
 
 ## Boundaries
 
@@ -43,6 +48,6 @@ W-4 allows, 820.
 | The simulator's rule is grounded by P-47's fixture, `trials/P-47.json` | `tools/check_trials.py`, `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can` |
 | The reader App is shown each login's permission with `metadata: read` alone, and with `contents: read` alone; the owner reads `admin`, a collaborator and the machine user `write`, an outsider `read`, and the port reads write access from it | `tests/test_adapters.py::test_what_each_credential_is_shown_of_a_permission_is_recorded` |
 | The Apps data names the permission read, `read:facts.actor.can_write`, under the reader's `metadata: read`; a fact need names a field of facts/1, or a property of one of its definitions | `tools/check_apps.py`, `tests/test_tools.py::test_a_read_of_a_fact_that_does_not_exist_is_caught` |
-| The reader's grants are what P-39 recorded: re-read on 2026-10-21 through the Maintainer's login, each App's permissions and events and the org's installations equal `trials/P-39.grants.json`, so no new fixture | `tools/check_apps.py` |
+| The Apps data still agrees with what P-39 recorded of each App's grants, and no grant changed here: the re-read made on 2026-10-21 through the Maintainer's login found them equal, which is no check, and the check is of the data against the fixture | `tools/check_apps.py` |
 | The trial's script mints only tokens narrowed to one grant on the canary alone, revokes each, refuses before minting anything it cannot hold, and leaves no token in what it hands over | `tests/test_tools.py::test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept`, `tests/test_tools.py::test_each_refusal_comes_before_anything_is_minted`, `tests/test_tools.py::test_a_refused_mint_or_revocation_stops_the_run_and_says_so` |
 | The port reads the permission once per distinct login per pass, never from an association, and never of an App | `tests/test_adapters.py::test_an_actor_is_told_by_its_account_type_and_the_configuration` |

@@ -2,7 +2,7 @@
   "schema": "trial/1",
   "trial": "P-47",
   "question": "Can the reader App read a login's repository permission from `GET /repos/{repo}/collaborators/{login}/permission`, for an owner, a collaborator with write, one with triage and an outsider, and does the answer tell write access apart? And which of its grants does each read need, and the read of a branch's activity (`GET /repos/{repo}/activity`), which P-28 made as a person? Run by `tools/trial_reader_reads.sh` at the Maintainer's terminal with the reader's key, each read made twice, narrowed once to `metadata: read` and once to `contents: read`",
-  "pass": "Yes: `admin` or `maintain` for the owner, `write` for the collaborator, `triage` for the triage role and `read` or `none` for the outsider; and the least grant each read needs is the one `config/apps.json` names for it (decision 0035) **Passed** on 2026-10-21 (`trials/P-47.json`): with each grant alone, `metadata: read` and `contents: read`, the reader read `admin` for the owner, `write` for the collaborator and for the machine user, whose `role_name` is `maintain`, and `read` for an outsider; and the activity of `trial/p-9`. So both reads need `metadata: read` alone, and `config/apps.json` names it for each. GitHub's `permission` folds `maintain` into `write` and `triage` into `read`, which `role_name` tells apart; write access reads the same either way. The triage role was not tried: the canary has none The triage role was not tried: the canary has no collaborator with triage, and the Maintainer chose to run without one (2026-10-21); the condition is judged on the owner, the collaborator with write and the outsider, and the machine user's maintain is recorded beside them.",
+  "pass": "Yes: `admin` or `maintain` for the owner, `write` for the collaborator, `triage` for the triage role and `read` or `none` for the outsider; and the least grant each read needs is the one `config/apps.json` names for it (decision 0035). The least grant each read needs is the one GitHub's x-accepted-github-permissions names for it, since the canary is public and a token without the grant reads it all the same. Not tried, and so not judged: the triage role, which the canary has none of; the Maintainer chose to run without one (2026-10-21). The mints' answers and the revocations' are the script's records of their statuses, not GitHub's bodies, which it keeps nowhere.",
   "repo": "combsmith/software-factory-canary",
   "ran_at": "2026-10-21T21:58:38Z",
   "exchanges": [
@@ -30,9 +30,7 @@
       "response": {
         "status": 201,
         "headers": {},
-        "body": {
-          "note": "minted narrowed to metadata: read on combsmith/software-factory-canary alone; the script records the read it made with it, not the mint's answer"
-        }
+        "body": null
       }
     },
     {
@@ -481,9 +479,7 @@
       "response": {
         "status": 204,
         "headers": {},
-        "body": {
-          "revoked": "metadata: read"
-        }
+        "body": null
       }
     },
     {
@@ -510,9 +506,7 @@
       "response": {
         "status": 201,
         "headers": {},
-        "body": {
-          "note": "minted narrowed to contents: read on combsmith/software-factory-canary alone; the script records the read it made with it, not the mint's answer"
-        }
+        "body": null
       }
     },
     {
@@ -961,15 +955,12 @@
       "response": {
         "status": 204,
         "headers": {},
-        "body": {
-          "revoked": "contents: read"
-        }
+        "body": null
       }
     }
   ],
   "removed": [
     "exchanges[0].request.headers.authorization",
-    "exchanges[0].response.body.token",
     "exchanges[1].request.headers.authorization",
     "exchanges[2].request.headers.authorization",
     "exchanges[3].request.headers.authorization",
@@ -977,7 +968,6 @@
     "exchanges[5].request.headers.authorization",
     "exchanges[6].request.headers.authorization",
     "exchanges[7].request.headers.authorization",
-    "exchanges[7].response.body.token",
     "exchanges[8].request.headers.authorization",
     "exchanges[9].request.headers.authorization",
     "exchanges[10].request.headers.authorization",
