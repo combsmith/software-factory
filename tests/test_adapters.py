@@ -1111,10 +1111,12 @@ class Threads(unittest.TestCase):
         good = thread_node("PRRT_1")
         broken = [dict(good, id=""), dict(good, id=None), dict(good, isResolved=None), dict(good, comments={"nodes": []}),
                   dict(good, comments=None), dict(good, resolvedBy={"login": "don-petry", "databaseId": MAINTAINER}),
-                  dict(good, isResolved=True), thread_node("PRRT_1", at="yesterday"),
+                  dict(good, isResolved=True), dict(good, isResolved=0),
+                  dict(good, isResolved=1, resolvedBy={"login": "don-petry", "databaseId": MAINTAINER}),
+                  thread_node("PRRT_1", at="yesterday"),
                   thread_node("PRRT_1", ("ghost", 1, "Mannequin")), thread_node("PRRT_1", ("don-petry", None, "User")),
-                  thread_node("PRRT_1", ("x[bot]", 9, "User")), "PRRT_1"]
-        broken[-4]["comments"]["nodes"][0]["author"] = None
+                  thread_node("PRRT_1", ("x[bot]", 9, "User")), "PRRT_1", thread_node("PRRT_1")]
+        broken[-1]["comments"]["nodes"][0]["author"] = None    # a deleted account, which GraphQL gives as null
         for node in broken:
             with self.assertRaises(github.Unanswered, msg=node):
                 self.read(threads_answer("o/r", 26, [node]))
@@ -1129,8 +1131,9 @@ class Threads(unittest.TestCase):
                        threads_answer("o/r", 26, [], total=2, after="c1")):            # one counted never read
             self.assertIs(self.read(first, second)[1], False)
         # A cursor that repeats, or a next page past the count, ends the read short rather than looping.
+        start = threads_answer("o/r", 26, one, total=5, cursor="c1")
         looping = threads_answer("o/r", 26, two, total=5, after="c1", cursor="c1")
-        self.assertIs(self.read(first, looping)[1], False)
+        self.assertIs(self.read(start, looping)[1], False)
         self.assertIs(self.read(threads_answer("o/r", 26, one + two, total=2, cursor="c1"))[1], False)
         for change in ({"pageInfo": {"hasNextPage": None}}, {"nodes": None}, {"totalCount": None},
                        {"totalCount": True}, {"pageInfo": {"hasNextPage": True, "endCursor": ""}}):

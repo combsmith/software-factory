@@ -4,7 +4,8 @@ who opened it and when, with its Finding's category and severity where the facts
 One GraphQL read of the threads, page by page. Who opened a thread is its first comment's author, and when, that
 comment's time; who resolved it is GitHub's `resolvedBy`, always a User. Each actor is told by its account id and type,
 never by a name's spelling (decision 0005, L-57), and its write access read once a login, as `adapters/timeline.py`
-does. No comment's text is read.
+does. No comment's text is read. A thread whose opener GitHub no longer names, a deleted account's, is refused with the
+snapshot, as an unreadable actor is anywhere: the known cost is that such a pull request is never read whole.
 
 A thread a person opened is `human`, with no severity (section 3.3). Any other thread, a Lens's among them, has neither:
 a required Lens's category and severity come from its own Finding record, in its Run's `applied/1`, joined by
