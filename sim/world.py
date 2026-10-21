@@ -109,6 +109,20 @@ class Broken(AssertionError):
     """An invariant did not hold."""
 
 
+def queue_in_lane(runs: list, run: dict, note) -> None:
+    """Queue `run` in its item's concurrency group, in either world. The group's first Run holds it, in progress or
+    waiting for a runner; a Run waiting behind that one is cancelled as a newer one queues, and never starts: one Run
+    holds the group and at most one waits (trials/P-44.json). The records port reads the cancelled one as superseded,
+    since its job had no runner and no step, so it is no attempt."""
+    # GitHub: a_run_waits_its_turn
+    live = [r for r in runs if r["status"] in ("in_progress", "queued")]
+    holder = next((r for r in live if r["status"] == "in_progress"), live[0] if live else None)
+    for older in [r for r in live if r["status"] == "queued" and r is not holder]:
+        older.update(status="completed", conclusion="cancelled", outcome="superseded")
+        note("run %s: cancelled by its concurrency group" % older["run"])
+    runs.append(run)
+
+
 class World:
     def __init__(self, seed: int, faults: bool = True, people: bool = True,
                  approval_fails: str = None, queue_merges: bool = True):
@@ -787,17 +801,7 @@ class World:
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
     def enqueue(self, run: dict):
-        """Queue a Run in the item's concurrency group. The group's first Run holds it, in progress or waiting for a
-        runner; a Run waiting behind that one is cancelled as a newer one queues, and never starts: one Run holds the
-        group and at most one waits (trials/P-44.json). The records port reads the cancelled one as superseded, since
-        its job had no runner and no step, so it is no attempt."""
-        # GitHub: a_run_waits_its_turn
-        live = [r for r in self.runs if r["status"] in ("in_progress", "queued")]
-        holder = next((r for r in live if r["status"] == "in_progress"), live[0] if live else None)
-        for older in [r for r in live if r["status"] == "queued" and r is not holder]:
-            older.update(status="completed", conclusion="cancelled", outcome="superseded")
-            self.note("run %s: cancelled by its concurrency group" % older["run"])
-        self.runs.append(run)
+        queue_in_lane(self.runs, run, self.note)
 
     def start_next(self):
         # GitHub: a_run_waits_its_turn

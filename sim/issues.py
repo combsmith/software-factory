@@ -14,7 +14,7 @@ import random
 
 from kernel import issue
 from kernel import terms as t
-from sim.world import COLLEAGUE, MAINTAINER, STRANGER, Broken, World
+from sim.world import COLLEAGUE, MAINTAINER, STRANGER, Broken, World, queue_in_lane
 from tools import check_lifecycle
 from tools.jsonschema_lite import validate
 
@@ -422,16 +422,9 @@ class IssueWorld:
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
     def enqueue(self, run: dict):
-        """Queue a Run in the issue's concurrency group, as the pull request's world does: the group's first Run holds
-        it, and a Run waiting behind that one is cancelled as a newer one queues, never starts (trials/P-44.json), and
-        is read as superseded."""
+        """Queue a Run in the issue's concurrency group, by the lane the pull request's world keeps (queue_in_lane)."""
         # GitHub: a_run_waits_its_turn
-        live = [r for r in self.runs if r["status"] in ("in_progress", "queued")]
-        holder = next((r for r in live if r["status"] == "in_progress"), live[0] if live else None)
-        for older in [r for r in live if r["status"] == "queued" and r is not holder]:
-            older.update(status="completed", conclusion="cancelled", outcome="superseded")
-            self.note("run %s: cancelled by its concurrency group" % older["run"])
-        self.runs.append(run)
+        queue_in_lane(self.runs, run, self.note)
 
     def start_next(self):
         if any(r["status"] == "in_progress" for r in self.runs):
