@@ -161,24 +161,25 @@ class Budgets(unittest.TestCase):
             self.assertEqual(cores(), 1)
 
     def test_a_reading_that_grows_faster_than_its_size_fails(self):
-        # Twice the size: twice the CPU past size 0 is linear and passes, four times is quadratic and fails, whatever
-        # the load and however small; what costs the same at every size, such as git, is not growth.
-        none = self.spent(0.1, 0.1)
-        self.assertEqual(faster_than_linear(none, self.spent(1.1, 9.0), self.spent(2.1, 30.0)), "")
-        self.assertEqual(faster_than_linear(none, self.spent(0.12, 0.12), self.spent(0.15, 0.15)), "")
-        self.assertEqual(faster_than_linear(self.spent(0.07, 0.07), self.spent(0.03, 0.03), self.spent(0.04, 0.04)), "")
-        # The first run warms what the others reuse: size 0 at 0.3 s, half at 0.1 s and whole at 0.15 s is linear.
-        self.assertEqual(faster_than_linear(self.spent(0.3, 0.3), self.spent(0.1, 0.1), self.spent(0.15, 0.15)), "")
-        # A second of what does not grow must not hide a quadratic past it: 0.2 s at half, 0.8 s at its size.
-        self.assertIn("at half", faster_than_linear(self.spent(1.0, 1.0), self.spent(1.2, 1.2), self.spent(1.8, 1.8)))
-        self.assertIn("at half", faster_than_linear(none, self.spent(1.1, 1.1), self.spent(4.1, 4.1)))
-        self.assertIn("at half", faster_than_linear(self.spent(0.0, 0.0), self.spent(0.2, 0.2), self.spent(0.8, 0.8)))
-        # At the edge: exactly three times and the noise is past it.
-        self.assertIn("at half", faster_than_linear(self.spent(0.0, 0.0), self.spent(1.0, 1.0), self.spent(3.1, 3.1)))
-        self.assertEqual(faster_than_linear(self.spent(0.0, 0.0), self.spent(1.0, 1.0), self.spent(3.09, 3.09)), "")
-        # The sizes a reading is run at: none, half and whole, so the three spends are of three sizes.
-        self.assertEqual(sizes(16000), (0, 8000, 16000))
-        self.assertEqual(sizes(901), (0, 450, 901))
+        # Spends at a quarter, half and whole of a size. Past the quarter, linear growth is three times the half's and
+        # passes, quadratic is five and fails, however small and whatever the load; what does not grow falls away.
+        def three(*cpus):
+            return [self.spent(cpu, cpu) for cpu in cpus]
+        self.assertEqual(faster_than_linear(*three(1.0, 2.0, 4.0)), "")                  # linear
+        self.assertEqual(faster_than_linear(*three(0.1, 0.12, 0.15)), "")                # what does not grow
+        self.assertIn("at half", faster_than_linear(*three(0.25, 1.0, 4.0)))             # quadratic
+        self.assertIn("at half", faster_than_linear(*three(0.05, 0.2, 0.8)))             # quadratic, and small
+        # A second of what does not grow must not hide a quadratic past it, and a first run that costs more than the
+        # half, as warming what the others reuse does, is not growth.
+        self.assertIn("at half", faster_than_linear(*three(1.05, 1.2, 1.8)))
+        self.assertEqual(faster_than_linear(*three(0.3, 0.1, 0.15)), "")
+        self.assertEqual(faster_than_linear(*three(0.07, 0.03, 0.04)), "")
+        # At the edge: exactly four times and the noise is past it.
+        self.assertIn("at half", faster_than_linear(*three(0.0, 1.0, 4.1)))
+        self.assertEqual(faster_than_linear(*three(0.0, 1.0, 4.09)), "")
+        # The sizes a reading is run at: a quarter, half and whole, so the three spends are of three sizes on one path.
+        self.assertEqual(sizes(16000), (4000, 8000, 16000))
+        self.assertEqual(sizes(901), (225, 450, 901))
 
     def test_the_cpu_a_child_spends_is_counted(self):
         # The hook runs git; what git spends is the hook's too. CPU time, so a busy machine does not change it.

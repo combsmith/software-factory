@@ -80,22 +80,23 @@ def over(spent: Spent, budget: float) -> str:
     return ""
 
 
-def faster_than_linear(base: Spent, half: Spent, whole: Spent) -> str:
-    """Why a reading of twice the size grew faster than linearly from the half, or "": what it costs past `base`, the
-    same reading at size 0, which is what does not grow, such as the git the hook runs, may be three times what the half
-    costs past it, and a tenth of a second over for the noise of a measure. Twice is linear, four times is quadratic,
-    and all three are measured in the same run, so a loaded machine slows them alike (issue 253; Muse on PR 257)."""
-    floor = min(base.cpu, half.cpu)    # the first run warms what the others reuse, so size 0 can cost more than half
+def faster_than_linear(quarter: Spent, half: Spent, whole: Spent) -> str:
+    """Why a reading grew faster than linearly over its `sizes`, or "": what the whole costs past the quarter may be four
+    times what the half costs past it, and a tenth of a second over for the noise of a measure. Past the quarter,
+    linear growth gives three times and quadratic five, and what does not grow, such as the git the hook runs, falls
+    away; a quarter, not size 0, because a reading of nothing may take another path, as an arithmetic the hook refuses
+    does not at size 0. All three are measured in the same run, so a loaded machine slows them alike (issue 253)."""
+    floor = min(quarter.cpu, half.cpu)    # the first run warms what the others reuse, so it can cost more than half
     grew, grew_half = whole.cpu - floor, half.cpu - floor
-    if grew >= 3 * grew_half + 0.1:
-        return "cost %.2f s of CPU at its size past %.2f s at size 0, against %.2f s at half" % (whole.cpu, base.cpu,
-                                                                                               half.cpu)
+    if grew >= 4 * grew_half + 0.1:
+        return "cost %.2f s of CPU at its size, against %.2f s at half and %.2f s at a quarter" % (whole.cpu, half.cpu,
+                                                                                                 quarter.cpu)
     return ""
 
 
 def sizes(size: int) -> tuple:
-    """The sizes a reading is run at to tell how it grows: none, half and whole."""
-    return 0, size // 2, size
+    """The sizes a reading is run at to tell how it grows: a quarter, half and whole."""
+    return size // 4, size // 2, size
 
 
 def within(test, spent: Spent, budget: float, what: str = "") -> None:
@@ -103,13 +104,13 @@ def within(test, spent: Spent, budget: float, what: str = "") -> None:
     test.assertEqual(over(spent, budget), "", what)
 
 
-def grows_linearly(test, base: Spent, half: Spent, whole: Spent, what: str = "") -> None:
+def grows_linearly(test, quarter: Spent, half: Spent, whole: Spent, what: str = "") -> None:
     """Fail `test` unless the reading grew linearly, as `faster_than_linear` reads it."""
-    test.assertEqual(faster_than_linear(base, half, whole), "", what)
+    test.assertEqual(faster_than_linear(quarter, half, whole), "", what)
 
 
 def linear(test, run, size: int, budget: float, what: str = ""):
-    """`run(size)`'s result, failing `test` unless it kept to `budget` and grew linearly from `run(0)` and
+    """`run(size)`'s result, failing `test` unless it kept to `budget` and grew linearly from `run(size // 4)` and
     `run(size // 2)`, the `sizes` of it."""
     spent = []
     for n in sizes(size):
