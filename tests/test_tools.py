@@ -3318,6 +3318,52 @@ class Trials(unittest.TestCase):
         self.assertEqual(list(analysis["closing_references"].values()), refs)
         self.assertTrue(analysis["n_added_by_the_edit"] and analysis["n_removed_when_undone"] and analysis["restored_exactly"])
 
+    def test_each_list_read_short_says_so(self):
+        # trials/P-43.json (issue 250) grounds three rules: its answer is computed here from the reads themselves, so a
+        # fixture edited to pass, or to say what it did not see, fails.
+        by_code = {rule[0]: rule[3] for rule in check_trials.rules()}
+        for code in ("a_short_list_says_so", "a_pull_request_lists_the_paths_it_changes", "a_short_path_list_says_so"):
+            self.assertEqual(by_code[code], "trials/P-43.json", code)
+        self.assertEqual(by_code["a_run_list_stops_short"], "trials/P-43.json")
+        p43 = json.loads((ROOT / "trials" / "P-43.json").read_text())
+        self.assertEqual(p43["verdict"], "pass")
+        call = lambda fragment: next(e for e in p43["exchanges"] if fragment in e["request"]["call"])
+        pr = call("each read one to a page")["response"]["body"]["data"]["repository"]["pullRequest"]
+        rollup = pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]
+        for name, read in [(k, pr[k]) for k in ("reviews", "reviewThreads", "labels", "timelineItems", "files")] + [("checks", rollup)]:
+            self.assertEqual(len(read["nodes"]), 1, name)
+            self.assertGreater(read["totalCount"], 1, name)
+            self.assertTrue(read["pageInfo"]["hasNextPage"] and read["pageInfo"]["endCursor"], name)
+        for fragment in ("files?per_page=1 ", "reviews?per_page=1 ", "comments?per_page=1 ", "timeline?per_page=1 ",
+                         "labels?per_page=1 ", "check-runs?per_page=1 "):
+            e = call(fragment)
+            body = e["response"]["body"]
+            self.assertEqual(len(body["check_runs"] if isinstance(body, dict) else body), 1, fragment)
+            self.assertIn('rel="next"', e["response"]["headers"]["link"], fragment)
+        # The files whole: once each, by path, the rename with its old path in REST alone, the copy as an added file.
+        files = {f["filename"]: (f["status"], f.get("previous_filename")) for f in call("files whole, by REST")["response"]["body"]}
+        self.assertEqual(files, {"p3/README.md": ("modified", None), "p43/README-copied.md": ("added", None),
+                                 "trial-notes/p-43-renamed.md": ("renamed", "trial-notes/p-1.md")})
+        self.assertEqual(call("for changed_files")["response"]["body"]["changed_files"], len(files))
+        nodes = call("files whole, by GraphQL")["response"]["body"]["data"]["repository"]["pullRequest"]["files"]["nodes"]
+        self.assertEqual({n["path"]: n["changeType"] for n in nodes},
+                         {"p3/README.md": "MODIFIED", "p43/README-copied.md": "ADDED", "trial-notes/p-43-renamed.md": "RENAMED"})
+        # The run list reads whole: the last run is the count's, and a page past it is empty.
+        last, past = call("page=1873 ")["response"]["body"], call("page=1874 ")["response"]["body"]
+        self.assertEqual((last["total_count"], len(last["workflow_runs"]), len(past["workflow_runs"])), (1873, 1, 0))
+        first, at, after = (call("runs?per_page=1&page=%d " % n)["response"]["body"] for n in (1, 1000, 1001))
+        self.assertEqual([b["total_count"] for b in (first, at, after)], [1873] * 3)
+        self.assertNotEqual(at["workflow_runs"][0]["id"], after["workflow_runs"][0]["id"], "past the thousandth")
+        self.assertGreater(call("check-runs?per_page=1 ")["response"]["body"]["total_count"], 1)
+        # With a filter, as the records port reads one, the list stops at 1,000: the first page counts more, the
+        # thousandth names a next page, and the one after is empty and counts nothing.
+        one, thousand, past = (call("status=completed&per_page=1&page=%d " % n)["response"] for n in (1, 1000, 1001))
+        self.assertGreater(one["body"]["total_count"], 1000)
+        self.assertEqual(len(thousand["body"]["workflow_runs"]), 1)
+        self.assertIn('rel="next"', thousand["headers"]["link"])
+        self.assertEqual((past["body"]["total_count"], past["body"]["workflow_runs"], past["headers"].get("link")), (0, [], None))
+        self.assertEqual(p43["ran_at"], call("for when the trial began")["response"]["body"]["commit"]["author"]["date"])
+
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
         problems = check_trials.run(clone({"sim/world.py": world + "\n# GitHub: a_rule_nobody_listed\n"}))
