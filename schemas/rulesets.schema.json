@@ -309,7 +309,7 @@
               "const": []
             },
             "bypass_actors": {
-              "title": "Only the repository's admin role, the Maintainer alone, until trial P-30 names the release identity (issue 62).",
+              "title": "Only the repository's admin role, which the Maintainer alone holds today (nothing here records who holds it), until trial P-30 names the release identity (issue 62).",
               "const": [
                 {
                   "actor_id": 5,

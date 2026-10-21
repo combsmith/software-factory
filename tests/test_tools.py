@@ -4615,6 +4615,10 @@ class Rulesets(unittest.TestCase):
     def test_files_that_cannot_be_read_are_a_problem(self):
         self.assertTrue(caught(check_rulesets.run(tree({"config/rulesets.json": "{}"})), "cannot be read"))
 
+    def test_a_value_of_the_wrong_kind_is_a_problem_not_a_crash(self):
+        self.main["required_status_checks"] = "x"
+        self.assertTrue(caught(self.run_on(), "holds a value of the wrong kind"))
+
 
 def as_github(name: str, recorded: dict) -> dict:
     """A ruleset of config/rulesets.json as GitHub answers it, sharing nothing with the record."""
@@ -4675,8 +4679,33 @@ except OSError:
 
     def test_a_ruleset_added_or_taken_away_is_drift(self):
         listed = [{"id": r["id"], "name": n} for n, r in self.live.items()]
-        self.assertTrue(caught(self.compare(listed + [{"id": 1, "name": "org-wide"}]), "'org-wide' is not in"))
-        self.assertTrue(caught(self.compare(listed[:1]), "records the ruleset 'factory release tags'"))
+        self.assertTrue(caught(self.compare(listed + [{"id": 1, "name": "org-wide"}]), "'org-wide', id 1, is not in"))
+        self.assertTrue(caught(self.compare(listed[:1]), "records the ruleset 'factory release tags', id"))
+
+    def test_a_ruleset_sharing_a_recorded_name_is_drift(self):
+        org = copy.deepcopy(self.live["main"])
+        org.update(id=99, source_type="Organization", enforcement="evaluate")
+        listed = [{"id": 99, "name": "main"}] + [{"id": r["id"], "name": n} for n, r in self.live.items()]
+        live = {r["id"]: (200, r) for r in self.live.values()}
+        live[99] = (200, org)
+        self.assertTrue(caught(rulesets_drift.compare(self.recorded, listed, live), "'main', id 99, is not in"))
+        self.assertTrue(caught(self.compare([{"id": 7, "name": "main"}, {"id": 25183656, "name": "factory release tags"}]),
+                               "records the ruleset 'main', id 24886320, and the repo has none"))
+
+    def test_a_rule_type_given_twice_is_drift(self):
+        self.live["main"]["rules"].append({"type": "deletion"})
+        self.assertTrue(caught(self.compare(), "rule (a rule type given twice)"))
+
+    def test_only_a_whole_number_is_an_id(self):
+        self.assertEqual(rulesets_drift.ids([{"id": 3}, {"id": "1 2"}, {"id": "../../user"}, {"id": True}, {"id": 2.0},
+                                             {"name": "x"}, "x"]), [3])
+        self.assertEqual(rulesets_drift.ids({"id": 3}), [])
+
+    def test_a_full_page_says_more_may_follow(self):
+        listed = [{"id": r["id"], "name": n} for n, r in self.live.items()]
+        filler = [{"id": 1000 + i, "name": "main"} for i in range(rulesets_drift.PAGE - len(listed))]
+        self.assertTrue(caught(self.compare(listed + filler), "a whole page, so more may follow"))
+        self.assertFalse(caught(self.compare(listed + filler[1:]), "a whole page"))
 
     def test_an_answer_that_is_not_200_or_no_list_is_drift(self):
         self.assertTrue(caught(self.compare(status=404), "answered 404, not 200"))
@@ -4692,6 +4721,8 @@ except OSError:
         for r in live.values():
             (bin_ / ("repos_combsmith_software-factory_rulesets_%d" % r["id"])).write_text(head + json.dumps(r))
         env = dict(os.environ, PATH="%s:/usr/bin:/bin" % bin_, TMPDIR=str(pathlib.Path(SCRATCH.name).resolve()))
+        # The stand-in, never a real gh further down the path, answers: else the test would read GitHub.
+        self.assertEqual(shutil.which("gh", path=env["PATH"]), str(bin_ / "gh"))
         done = subprocess.run(["sh", str(self.SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
         return done, (bin_ / "calls").read_text().splitlines()
 
@@ -4707,3 +4738,13 @@ except OSError:
         self.assertEqual(done.returncode, 1)
         self.assertIn("ruleset 'main', enforcement", done.stdout)
         self.assertNotIn("ghs_", done.stdout + done.stderr)
+
+    def test_a_scratch_directory_inside_the_repo_is_refused_however_it_is_reached(self):
+        link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "into-the-repo"
+        script = self.SCRIPT.read_text().replace("dir=$(mktemp -d)", 'dir="%s"' % link)
+        root = clone({"tools/rulesets_drift.sh": script, "scratch/.keep": ""})   # a copy: the repo itself is not written
+        link.symlink_to(root / "scratch")
+        done = subprocess.run(["sh", str(root / "tools" / "rulesets_drift.sh")], env=dict(os.environ, PATH="/nowhere:/usr/bin:/bin"),
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("is inside the repo", done.stderr)

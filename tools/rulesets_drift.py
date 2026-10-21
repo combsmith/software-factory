@@ -13,6 +13,7 @@ import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+PAGE = 100     # rulesets_drift.sh reads one page of this many; a full page may not be all
 
 
 def answer(path: pathlib.Path) -> tuple:
@@ -49,17 +50,20 @@ def compare(recorded: dict, listed, live: dict) -> list:
     if not isinstance(listed, list):
         return ["GitHub's list of the repo's rulesets could not be read; read it again"]
     problems = []
-    names = {}
-    for item in listed:
-        name = item.get("name") if isinstance(item, dict) else None
-        names[name] = item.get("id") if isinstance(item, dict) else None
-        if name not in recorded:
-            problems.append("the live ruleset %r is not in config/rulesets.json; record it, or take it off the repo" % (name,))
+    if len(listed) >= PAGE:
+        problems.append("GitHub listed %d rulesets, a whole page, so more may follow unread; read the rest" % len(listed))
+    # A ruleset is known by its name and its id together: an org's ruleset may share a repo ruleset's name.
+    pairs = [(item.get("name"), item.get("id")) if isinstance(item, dict) else (None, None) for item in listed]
+    for name, number in pairs:
+        if name not in recorded or recorded[name].get("id") != number:
+            problems.append("the live ruleset %r, id %s, is not in config/rulesets.json; record it, or take it off the "
+                            "repo" % (name, number))
     for name, want in sorted(recorded.items()):
-        if name not in names:
-            problems.append("config/rulesets.json records the ruleset %r, and the repo has none of that name" % name)
+        if (name, want.get("id")) not in pairs:
+            problems.append("config/rulesets.json records the ruleset %r, id %s, and the repo has none of that name "
+                            "and id" % (name, want.get("id")))
             continue
-        status, body = live.get(names[name], (0, None))
+        status, body = live.get(want.get("id"), (0, None))
         if status != 200 or not isinstance(body, dict):
             problems.append("the ruleset %r was answered %s, not 200; read it again" % (name, status))
             continue

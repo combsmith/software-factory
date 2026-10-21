@@ -19,6 +19,14 @@ VERIFY = "verify"
 
 def run(root: pathlib.Path = ROOT) -> list:
     try:
+        return _agree(root)
+    except (AttributeError, TypeError) as err:
+        return ["config/rulesets.json or config/defaults.json holds a value of the wrong kind, so they cannot be "
+                "compared; make each match its schema: %s" % err]
+
+
+def _agree(root: pathlib.Path) -> list:
+    try:
         rulesets = json.loads((root / "config" / "rulesets.json").read_text())["rulesets"]
         lenses = json.loads((root / "config" / "defaults.json").read_text())["required_lenses"]["deterministic"]
         rules = rulesets[BRANCH]["rules"]

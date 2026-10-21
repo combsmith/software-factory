@@ -27,6 +27,6 @@ Its protected paths and each Lens's inputs are also the Kernel's `protected_path
 | The rubric is the review standard. Add a criterion there; no document describes the review | `tests/test_tools.py::test_a_second_copy_of_the_review_standard_is_caught` |
 | The protected paths and each Lens's inputs are one list, in `hooks.json`, the Kernel's too, matched as the hooks match | `tests/test_tools.py::test_the_kernels_matcher_and_the_hooks_agree_on_one_corpus` |
 | In `rulesets.json`, CodeQL fails on a security alert of any severity, and a thread left open holds a merge | `examples/invalid/rulesets.a-security-alert-below-high-passes.json`, `examples/invalid/rulesets.a-thread-left-open-merges.json` |
-| Nobody bypasses `main`, and only the admin role moves a `factory/*` tag | `examples/invalid/rulesets.main-with-a-bypass.json`, `examples/invalid/rulesets.a-release-tag-a-writer-may-move.json` |
+| Nobody bypasses `main`, and only the admin role, whoever holds it, moves a `factory/*` tag | `examples/invalid/rulesets.main-with-a-bypass.json`, `examples/invalid/rulesets.a-release-tag-a-writer-may-move.json` |
 | Each check `main` requires is a deterministic Lens's, pinned to that Lens's App; `verify` is among them; each code-scanning tool is a Lens no workflow runs | `tools/check_rulesets.py` |
 | JSON, with each key written once | `tests/test_tools.py::test_a_key_written_twice_is_refused` |
