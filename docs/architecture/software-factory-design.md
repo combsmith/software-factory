@@ -2051,7 +2051,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-5 | Can one App resolve a review thread opened by another App or by a third-party reviewer? | Yes, with pull-request write |
 | P-6 | Does a job-level `if:` on the actor's prefix drop events authored by the Factory's Apps? | Dropped, with no step run |
 | P-7 | Does the machine user's approval satisfy code-owner review and the last-push rule when an App pushed last? | Yes |
-| P-8 | What does one pass over every open item in twelve repos cost in GraphQL points, and how often do scheduled ticks arrive in the new repo? | Within the budget of §7.3 |
+| P-8 | What does one pass over every open item in twelve repos cost in GraphQL points, and how often do scheduled ticks arrive in the new repo? | Within the budget of §7.3. **Passed** for the cost (`trials/P-8.json`). The ticks part **failed** on 2026-10-20 (`trials/P-8.ticks.json`): 19 of 335 due ticks over 28 hours, so the schedule is a backstop of hours and the relay carries W-2 (§7.3, decision 0043) |
 | P-9 | Can a pass start the next one with the default workflow token? | Yes |
 | P-10 | Does a nudge count against the content-creation limit, and can its credential be dispatch-only? | Does not count; can |
 | P-11 | Can the Controller's App write the control-room repo, and publish its page, without starting a workflow in the hub? | Yes |
@@ -2097,7 +2097,7 @@ An assumption audit on 2026-10-10 ranked each trial by what breaks if its answer
 | Batch | Trials | If the answer is no |
 |---|---|---|
 | **1. Before any code** | P-13 (the model CLI returns structured output on a subscription); P-1, P-7, P-24 (the approval mechanics); P-17, P-22 (run records can be identified); P-3 (secrets are isolated by environment); P-28, P-29 (last pusher and content identity are readable); P-8 (a pass fits its budget); P-39 (each App was granted what the data says) | The design does not work as written. Each of these is a foundation: no Run, no approval, no derived State, no credential boundary, or no poller |
-| **2. Before the first approval** | P-9, P-20 (chaining and the outside tick); P-5, P-23, P-25 (resolving others' threads); P-2 (an App in the merge queue); P-30 (cutting a Release); P-27, P-14, P-4 (forks, caches, narrowed tokens); P-26 (the sandbox); P-35, P-36 (what a Lens's check is read from); P-37 (what a Lens reads from the base in the queue); P-38 (the commit an approved contract is read at); P-40 (whether a base move alone makes GitHub work `mergeable` out again); P-41, P-42, P-43 (reviews, labels, actors and check runs on a pull request, and the lists read short) | One mechanism is replaced and the design stands. If threads cannot be resolved by an App, required thread resolution is dropped in repos the Factory serves |
+| **2. Before the first approval** | P-9, P-20, P-31 (chaining, the outside tick and the relay's host, on which W-2 rests: decision 0043); P-5, P-23, P-25 (resolving others' threads); P-2 (an App in the merge queue); P-30 (cutting a Release); P-27, P-14, P-4 (forks, caches, narrowed tokens); P-26 (the sandbox); P-35, P-36 (what a Lens's check is read from); P-37 (what a Lens reads from the base in the queue); P-38 (the commit an approved contract is read at); P-40 (whether a base move alone makes GitHub work `mergeable` out again); P-41, P-42, P-43 (reviews, labels, actors and check runs on a pull request, and the lists read short) | One mechanism is replaced and the design stands. If threads cannot be resolved by an App, required thread resolution is dropped in repos the Factory serves |
 | **3. Before the control room** | P-11, P-19, P-21 (publishing the page); P-16, P-18 (retention and final steps) | The page is published another way, or history is shorter |
 | **4. As they come up** | P-6, P-10, P-12, P-15, P-44, P-45 (the lane's concurrency group; a dependency bot's pin) | A detail changes |
 
@@ -2184,26 +2184,44 @@ late or not at all.
 | Option | How it works | Meets | Fails or strains |
 |---|---|---|---|
 | 1. A wake per event | A file in each Consumer forwards every subscribed event to the hub, which starts one Controller run for that item | W-2 at its best, W-5, W-9 | W-3: about three jobs per event, and at least 12,500 events a week from the busiest repo. W-1 still needs a sweep. W-7: the Factory's own writes are events. W-8: a `workflow_run` trigger must name each workflow |
-| 2. A scheduled poller | One job on a timer lists every open item in every repo in a few queries and evaluates them all in one process | W-1, W-3 to W-9. Nothing at all in any Consumer | W-2: a schedule cannot be finer than five minutes, about 60% of ticks are dropped here, and gaps of hours have been observed |
+| 2. A scheduled poller | One job on a timer lists every open item in every repo in a few queries and evaluates them all in one process | W-1, W-3 to W-9. Nothing at all in any Consumer | W-2: a schedule cannot be finer than five minutes, and in this repo, over 28 hours, 19 of 335 due ticks arrived, the gap between runs was 287 minutes at the 95th percentile, and the first run came 231 minutes after the workflow landed (`trials/P-8.ticks.json`) |
 | 3. A looping job | One job ticks every 30 seconds for some hours, then starts its successor | W-1 to W-8 | W-9 in spirit. One of 20 slots, permanently. GitHub's terms do not say whether this is allowed |
-| **4. A poller with nudges** | Option 2 is the base. An event carries no work: it only asks for a pass now. The poller holds one concurrency group, so any number of nudges during a pass collapse into exactly one more pass | W-1, W-3 to W-9, and W-2 while the relay is up | W-2 when the relay is down, when only the schedule remains |
+| **4. A poller with nudges** | Option 2 is the base. An event carries no work: it only asks for a pass now. The poller holds one concurrency group, so any number of nudges during a pass collapse into exactly one more pass | W-1, W-3 to W-9, and W-2 while the relay is up | W-2 when the relay is down, when only the schedule remains: accepted, and the outage is reported (decision 0043) |
 
 **Decided: option 4, built as option 2 first.**
 
 - Passes cannot overlap, and at most one waits behind the one running. A flood of events costs at
   most back-to-back passes: one runner slot, 5% of the pool.
-- A pass ends by starting its successor if anything is due sooner than the next tick. Scheduled
-  ticks then only restart a broken chain. An item deferred because a Run is unidentified (§3.10) is
-  not due sooner: the records port has already read the list again 5 s later, so a record still
+- A pass ends by starting its successor only if an item is due at its end. Anything due later
+  waits for a tick, a nudge or a Run's end, so a successor never stands in for a timer, and a chain
+  ends when nothing is due.
+- Every pass, whatever started it, reads no sooner than three minutes after the last pass that
+  read began, since W-4 allows twenty passes an hour at the cost `trials/P-8.json` estimated with
+  every page read. A pass started sooner waits out the rest before it reads, and as at most one
+  waits, the nudges that arrive meanwhile collapse into it. So the relay's nudges a minute or two
+  apart, a successor and a Run's end alike are held to W-4, and three minutes is within W-2's
+  fifteen (decision 0043). An item deferred because a Run is unidentified (§3.10) is
+  not due: the records port has already read the list again 5 s later, so a record still
   unnamed is not the normal lag, and passes chained on it would feed themselves without bound (W-7).
   The next pass comes at the next tick or nudge (decision 0036).
+- A chain breaks when a successor is evicted. It restarts on a tick, on a nudge from the relay,
+  and, from the first day and with the relay down too, at the end of any Run: the poller listens
+  to the completion of the Factory's Run workflows (`workflow_run`), named in its file, never to
+  its own. So while any Run is in flight a broken chain restarts at that Run's end, and only one
+  broken with no Run in flight waits for the schedule. The trigger reads nothing from the run that
+  ended and the poller takes no inputs, so a run of that name in a fork's pull request can cause
+  one pass and direct nothing. `workflow_run` is not among the triggers
+  `docs/standards/workflows.md` allows: the workflows story adds it for the poller alone, on these
+  conditions, before the poller is built (decision 0043).
 - The Factory's own writes cannot run away. A nudge asks for a pass; whether a Run is admitted is
   still Admission's decision, under the brakes.
 - One pass is the only decider, so an org-wide limit is a decision inside one process. No lease and
   no race.
 - A Run is still its own workflow run, holding its item's lane from `run` to `apply`.
-- Several staggered schedule lines on the poller restart a broken chain. A second scheduled
-  workflow was considered as a watchdog and dropped: it is the same unreliable scheduler twice.
+- Several staggered schedule lines on the poller are a backstop of hours, not minutes: more lines
+  are the same scheduler more times, and three lines five minutes apart got 19 of 335 due runs
+  over 28 hours (`trials/P-8.ticks.json`). A second scheduled workflow was considered as a watchdog and dropped:
+  it is the same unreliable scheduler twice.
 - **A hosted relay supplies the low latency, and holds no credential over the Factory.** One small
   stateless function outside GitHub does two things. It receives the Controller App's webhooks,
   which GitHub sends for every repo the App is installed on, and it runs a timer. Each webhook and
@@ -2215,13 +2233,45 @@ late or not at all.
   a credential able to start a workflow could also cancel runs and delete run records. Anyone can
   cause a pass this way, and the cost of that is already bounded at one runner slot.
 - The relay is the one permitted exception to "no always-on service". Correctness never depends on
-  it: if it is down, the Factory falls back to GitHub's schedule and only latency suffers. Which
-  host, and which public event, are settled by trial (P-20, P-31).
-- The Factory's own repo nudges the poller directly, from a workflow of its own, from the first
-  day.
+  it (W-1). While it is down W-2 is not met, and that is accepted (the Maintainer, 2026-10-21,
+  decision 0043): a change that produces no event then waits for a tick, which came 287 minutes
+  after the last at the 95th percentile, and the outage is itself shown within fifteen minutes, on
+  a page that computes it in the browser, so those hours are hours a person knows about. Which host, and which public event, are settled by
+  trial (P-20, P-31).
+- The Factory's own repo nudges the poller directly from the first day, by the `workflow_run`
+  trigger above.
+- **A pass records what started it**, as `started_by` in `pass/1`, a code read from the run that
+  started it, never from anything a dispatch carries: `schedule` for a scheduled run; `own_repo`
+  for `workflow_run`; `successor` for a dispatch by the workflow's own token; `dispatch` for a
+  dispatch by a person, the Maintainer's hand, and for any re-run, whatever event it keeps;
+  `relay` for the relay's public event sent by the relay's own account; and `public` for that
+  event sent by anyone else. An account is told by its type and id, held in configuration, never
+  by a name's spelling, and a scheduled run's actor is never read. So the relay acts through an
+  account of its own, which can do nothing anyone may not; which account is settled with P-20
+  and P-31. From the records come the relay's health, a chain's length (successors in a row) and
+  the schedule's share (decision 0043).
+- **The not-run alert is set from the relay's cadence, not the schedule's** (L-48). With the relay
+  up its nudges come every minute or two (P-20's pass condition). Its health is read from the
+  poller's run records, which keep a run the concurrency group cancelled with the event and the
+  account that started it, as well as from the passes, since a nudge queued behind a pass can be
+  replaced by that pass's successor. When nothing the relay sent has started a run for fifteen
+  minutes, W-2's figure, one alert is raised for one cause, the relay down or its account unable to
+  act, and it holds until the relay starts a run again. A threshold set from the schedule's
+  measured 287 minutes would let an outage go unseen for hours, and one from its nominal five would
+  fire all day. No pass at all for six hours, above the longest gap the schedule left, is the same
+  alert with a second cause named, the whole poller's, and it clears at the next pass. Until the
+  relay runs, in slice 3, only the second reading is read. A chain that ended with nothing due
+  breaks nothing: `passes_since` starts again only after a gap of the second reading (§4.1). The
+  alert needs no pass to be raised: `view/health.json` carries when the last pass ran and when the
+  relay last started a run, and the page computes both readings in the browser, as it does the
+  view's age (CR-3), so a silent relay or a stalled poller shows with nothing having to run. Until
+  the page exists, in slice 4, the alert is raised by the first pass after the gap, and the fifteen
+  minutes holds only while some pass runs. Both readings wait on `controller/`.
 - Only the poller can be started from outside the Factory, and it takes no inputs. A Run starts
   from a recorded Decision (§3.5), so a credential that can start workflows cannot direct one.
-- Option 3 is held until GitHub's terms are answered. Option 1 is held unless a requirement appears
+- Option 3 is not pursued (the Maintainer, 2026-10-21, decision 0043): it would hold one of 20
+  slots for the length of every outage, on terms GitHub has not answered, for an outage the relay's
+  host makes rare. Option 1 is held unless a requirement appears
   for a response in seconds; none is in the PRD.
 
 ### 7.4 What was set aside
@@ -2385,7 +2435,7 @@ board. It is also not where a chat session's output is made terser; that is a se
 | `view/scorecard.json` | The success metrics of PRD §9 and the adoption and use measures of §9.2 |
 | `view/comparison.json` | The weekly comparison of the POC and the Factory (§9.2) |
 | `view/capacity.json` | Usage per window, the estimate of what is left, and the degradation stage |
-| `view/health.json` | Whether Admission is paused and why, when the last pass ran, and recent capacity and environment faults |
+| `view/health.json` | Whether Admission is paused and why, when the last pass ran, when the relay last started a run (decision 0043), and recent capacity and environment faults |
 | `view/consumers.json` | Each Consumer repo's ring, and what its readiness check finds missing |
 
 ```json
@@ -2524,7 +2574,8 @@ block said why at each step.
 5. The review Intent has a prompt, a result schema and **an eval set**. A gate-deciding Intent may
    not serve without one (FR-55), so the eval set is on the critical path. Its cheapest source is
    the POC's own history: merged pull requests later reverted or fixed are known answers.
-6. The poller started the Run: the Controller's App exists, and a pass recorded the Decision.
+6. The poller started the Run: the Controller's App exists, and a pass recorded the Decision and
+   what started it.
 7. The Kernel reached that Decision: the pull-request Lifecycle, Convergence and the gate, with the
    deterministic Lenses already reported. Those Lenses are the required checks GitHub reports on the
    pull request: `factory / verify`, the org's secret scan, and code scanning. There is no separate
@@ -2604,7 +2655,7 @@ ranked, and each changed this document.
 | Domain owners make it slower and no better | Owners start in shadow and are promoted on evidence (§5.2) |
 | Third-party threads become the new comment gate | Only required Lenses gate; other Findings gate only when the reviewer adopts them (§4.2) |
 | The simulator passes and GitHub disagrees | The fake GitHub is grounded in recorded responses (§4.5, §6) |
-| The poller goes quiet | Staggered schedule lines, an optional external timer, and staleness computed in the browser (§7.3, §8.2) |
+| The poller goes quiet | A Run's end and the relay restart the chain, the schedule is a backstop of hours, the not-run alert is set from the relay's cadence, and staleness is computed in the browser (§7.3, §8.2, decision 0043) |
 | Two systems run forever | Decision points keyed to events (§9.2) |
 | The model window runs out | Shadow Roles run on a sample; Runs per merge shown on every item (§3.12, §8.4) |
 
@@ -2618,7 +2669,7 @@ A second pass on 2026-10-10 asked of each part what requirement would fail witho
 | A separate intake Role typing third-party prose | Adoption by `pr-review`, whose own Finding carries the fields (§3.7) |
 | Dispositions as standing records | The thread, resolved by the owner's App; the two halves travel in Results (§3.8) |
 | An App for every Role from the first day | One shared reader App; a Role's own App when it first writes (§5.1) |
-| A watchdog workflow | Staggered schedule lines, and an optional external timer (§7.3) |
+| A watchdog workflow | The relay's timer and a Run's end, with staggered schedule lines as a backstop of hours (§7.3) |
 | The Wake contract and a next-evaluation time on every Decision | A nudge that carries nothing; a staleness limit per state (§3.2, §4.1) |
 
 Kept after the same question: the three-job split, content identity, the four brakes, the

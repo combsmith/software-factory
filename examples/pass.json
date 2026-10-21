@@ -3,6 +3,7 @@
   "pass": "p_01JA7P",
   "release": "factory/v0.3.1",
   "now": "2026-10-11T13:00:00Z",
+  "started_by": "own_repo",
   "context": {
     "paused": false,
     "active_runs": 0,
