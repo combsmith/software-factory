@@ -2704,6 +2704,7 @@ class Trials(unittest.TestCase):
             found = check_trials._headers({"exchanges": [{"request": {"headers": {value: "x"}}}]})
             self.assertEqual([p for p, _ in found], ["exchanges[0].request.headers." + check_trials.KEY_SHAPED], name)
         split = "Bearer\x00Zx9Qw8Er7Ty6Ui5Op4As3Df5"            # a raw control character splits the shape
+        self.assertTrue(check_trials.shaped(SHAPED["runner registration"] + "\n"), "a registration token before a newline")
         found = check_trials._headers({"exchanges": [{"request": {"headers": {split: "x"}}}]})
         self.assertEqual([p for p, _ in found], ["exchanges[0].request.headers." + check_trials.KEY_SHAPED])
         # Nor does a schema's error, or any message of the check, carry such a key.

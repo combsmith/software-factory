@@ -121,7 +121,7 @@ def shaped(text: str, depth: int = 0) -> bool:
     """Whether `text` holds something shaped like a credential, plainly or in base64. A control character is read as a
     separator, so a shape split by one is still seen."""
     text = CONTROL.sub(" ", text)
-    if SHAPES.search(text) or REGISTRATION.match(text):
+    if SHAPES.search(text) or REGISTRATION.match(text.strip()):    # the whole string, a newline after it or not
         return True
     if depth:
         return False

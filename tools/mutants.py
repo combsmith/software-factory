@@ -3163,6 +3163,8 @@ MUTANTS = ISSUE + [
     ("a control character hides a credential's shape", "tools/check_trials.py",
      '    text = CONTROL.sub(" ", text)\n    if SHAPES.search(text)', '    if SHAPES.search(text)',
      ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught", "tests.test_tools.Redaction.test_a_drafted_fixture_comes_out_with_no_credential")),
+    ("a registration token before a newline is no credential", "tools/check_trials.py",
+     "REGISTRATION.match(text.strip()):", "REGISTRATION.match(text):", ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
     ("the model's text is a kept field", P13, 'KEPT_RESULT="type subtype', 'KEPT_RESULT="result type subtype',
      (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
     ("a key shaped like a credential is kept", "tools/check_trials.py", "            elif shaped(key):\n", "            elif False:\n",
