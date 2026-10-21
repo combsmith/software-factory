@@ -15,7 +15,7 @@ import urllib.parse
 
 from adapters.github import DIFF, Unanswered, raw, request
 
-PAGE = 100          # files on one page of a pull request's list of files
+COMPARED = 300      # the files a compare lists at most; a change of more is read short (issue 284's ruling)
 # What GitHub says of a file. A rename and a copy carry the name the file had; no other status does.
 STATUSES = {"added", "removed", "modified", "renamed", "copied", "changed", "unchanged"}
 MOVED = {"renamed", "copied"}
@@ -189,21 +189,36 @@ def _counts(text: str):
     return files, added, deleted
 
 
-def diff(transport, pull: dict) -> dict:
-    """`diff`, `content_id` and `complete.diff`, from the pull request's own diff against its merge base.
+def _compare(pull: dict, base_head: str) -> str:
+    """The compare of the base branch's head with the pull request's head commit, as its first read gave it: the one
+    read the diff and the files are taken from, so both are of that commit, whatever is pushed while the snapshot is
+    read (issue 284's ruling)."""
+    head = str(pull["head"].get("sha", ""))
+    if not SHA.match(head):
+        raise Unanswered("the pull request's head commit cannot be read")
+    if not SHA.match(str(base_head)):
+        raise Unanswered("the base branch's head commit cannot be read")
+    return "/repos/%s/compare/%s...%s" % (pull["base"]["repo"]["full_name"], base_head, head)
+
+
+def diff(transport, pull: dict, base_head: str) -> dict:
+    """`diff`, `content_id` and `complete.diff`, from the diff of the head commit against its merge base with the base
+    branch's head, `GET /repos/{repo}/compare/{base_head}...{head}`, pinned to the head of the pull request's first read
+    (issue 284). P-29 shows those bytes equal the pull request's own diff (`trials/P-29.base.json`), so the content id is
+    the one `adapters/timeline.py` gives a review's commit.
 
     The diff is checked against the counts of the same pull request's read, its files, added and deleted lines: a
     difference is a short read, `complete.diff` false. The content id is the sha256 of the bytes GitHub sent. A 406
     `too_large` is GitHub's whole answer that it will not serve the diff: `truncated`, read whole, which holds the pull
     request as too large; its `content_id` is the head commit's, so any push is new content and nothing is read as
-    unchanged (decision 0002). Any other 406 is refused. No read is built from `patch`."""
+    unchanged (decision 0002). P-29 grounds that answer for a pull request's diff; compare's is read the same,
+    unverified. A 404, a head no longer there, refuses the snapshot. Any other 406 is refused. No read is built from
+    `patch`."""
     files, added, deleted = pull.get("changed_files"), pull.get("additions"), pull.get("deletions")
     if not all(isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in (files, added, deleted)):
         raise Unanswered("the pull request's counts cannot be read")
-    head = str(pull["head"].get("sha", ""))
-    if not SHA.match(head):
-        raise Unanswered("the pull request's head commit cannot be read")
-    path = "/repos/%s/pulls/%d" % (pull["base"]["repo"]["full_name"], pull["number"])
+    path = _compare(pull, base_head)
+    head = str(pull["head"]["sha"])
     answer = transport.send(request("GET", path, accept=DIFF))
     size = {"files": files, "lines": added + deleted}
     if answer["status"] == 406:
@@ -220,37 +235,35 @@ def diff(transport, pull: dict) -> dict:
             "complete": whole}
 
 
-def changed_paths(transport, pull: dict) -> dict:
-    """`changed_paths` and `complete.changed_paths`: every file the pull request changes, page by page, each by its path
-    and, for a rename or a copy, the path it had before. Whole only when every page was read and the list holds exactly
-    as many files as the pull request's count, each once; GitHub stops listing at 3,000, and a page past the end is a
-    200 with nothing in it, so a list that ends short of the count is read as short, never as the whole (P-29, decision
-    0020)."""
+def changed_paths(transport, pull: dict, base_head: str) -> dict:
+    """`changed_paths` and `complete.changed_paths`: every file the head commit changes against its merge base, from the
+    same compare as the diff, pinned to the head of the pull request's first read (issue 284), each by its path and,
+    for a rename or a copy, the path it had before. Whole only when the list holds exactly as many files as the pull
+    request's count, each once. A compare lists at most COMPARED files, so a change of more is read short, never as the
+    whole, and the Kernel defers it for the Maintainer (issue 284's ruling; the pull request's own list gave 3,000, P-29)."""
     want = pull.get("changed_files")
     if not isinstance(want, int) or isinstance(want, bool) or want < 0:
         raise Unanswered("the pull request's count of files cannot be read")
-    base = "/repos/%s/pulls/%d/files?per_page=%d" % (pull["base"]["repo"]["full_name"], pull["number"], PAGE)
-    paths, page = [], 1
-    while True:
-        rows = _ok(transport.send(request("GET", base if page == 1 else "%s&page=%d" % (base, page))), "the files")
-        if not isinstance(rows, list):
-            raise Unanswered("a page of files is not a list")
-        for row in rows:
-            name = row.get("filename") if isinstance(row, dict) else None
-            if not isinstance(name, str) or not name:
-                return {"changed_paths": paths, "complete": False}
-            status = row.get("status")
-            moved = status in MOVED
-            before = row.get("previous_filename") if moved else None
-            # A status GitHub does not give, a move without its old name, or an old name on anything but a move, is a
-            # row that cannot be read: the list is short, never read as an ordinary change.
-            if status not in STATUSES or (moved and not (isinstance(before, str) and before)) \
-                    or (not moved and row.get("previous_filename") is not None):
-                return {"changed_paths": paths, "complete": False}
-            paths.append({"path": name, "previous": before})
-        if len(rows) < PAGE or len(paths) >= want:
-            break
-        page += 1
+    path = _compare(pull, base_head)
+    compared = _ok(transport.send(request("GET", path)), "the compare")
+    rows = compared.get("files") if isinstance(compared, dict) else None
+    if not isinstance(rows, list):
+        raise Unanswered("the compare's files are not a list")
+    paths = []
+    for row in rows:
+        name = row.get("filename") if isinstance(row, dict) else None
+        if not isinstance(name, str) or not name:
+            return {"changed_paths": paths, "complete": False}
+        status = row.get("status")
+        moved = status in MOVED
+        before = row.get("previous_filename") if moved else None
+        # A status GitHub does not give, a move without its old name, or an old name on anything but a move, is a
+        # row that cannot be read: the list is short, never read as an ordinary change.
+        if status not in STATUSES or (moved and not (isinstance(before, str) and before)) \
+                or (not moved and row.get("previous_filename") is not None):
+            return {"changed_paths": paths, "complete": False}
+        paths.append({"path": name, "previous": before})
     names = [p["path"] for p in paths]
-    whole = len(paths) == want and len(set(names)) == len(names)
+    # More files than a compare lists can never be read whole, whatever the list holds.
+    whole = want <= COMPARED and len(paths) == want and len(set(names)) == len(names)
     return {"changed_paths": paths, "complete": whole}
