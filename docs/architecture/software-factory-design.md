@@ -2192,10 +2192,15 @@ late or not at all.
 
 - Passes cannot overlap, and at most one waits behind the one running. A flood of events costs at
   most back-to-back passes: one runner slot, 5% of the pool.
-- A pass ends by starting its successor only if an item is due at its end, and only while the
-  passes of the last hour, read from the run records, are fewer than W-4 allows: twenty at the cost
-  `trials/P-8.json` estimated with every page read. Anything due later waits for a tick, a nudge or
-  a Run's end, so a successor never stands in for a timer, and a chain ends when nothing is due. An item deferred because a Run is unidentified (§3.10) is
+- A pass ends by starting its successor only if an item is due at its end. Anything due later
+  waits for a tick, a nudge or a Run's end, so a successor never stands in for a timer, and a chain
+  ends when nothing is due.
+- Every pass, whatever started it, reads no sooner than three minutes after the last pass that
+  read began, since W-4 allows twenty passes an hour at the cost `trials/P-8.json` estimated with
+  every page read. A pass started sooner waits out the rest before it reads, and as at most one
+  waits, the nudges that arrive meanwhile collapse into it. So the relay's nudges a minute or two
+  apart, a successor and a Run's end alike are held to W-4, and three minutes is within W-2's
+  fifteen (decision 0043). An item deferred because a Run is unidentified (§3.10) is
   not due: the records port has already read the list again 5 s later, so a record still
   unnamed is not the normal lag, and passes chained on it would feed themselves without bound (W-7).
   The next pass comes at the next tick or nudge (decision 0036).
