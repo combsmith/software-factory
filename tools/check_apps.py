@@ -212,7 +212,7 @@ def _keys(apps: dict) -> list:
 
 def fields(schema: dict) -> set:
     """What a read of facts/1 may name: each of its fields, and each property of one of its definitions as
-    definition.property, such as actor.can_write, which every actor the facts carry holds (decision 0045)."""
+    definition.property, such as actor.can_write, which every actor the facts carry holds (decision 0046)."""
     named = set(schema["properties"])
     for name, definition in schema.get("$defs", {}).items():
         for prop in definition.get("properties", {}) if isinstance(definition, dict) else {}:

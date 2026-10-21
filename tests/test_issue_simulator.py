@@ -104,7 +104,7 @@ class IssueSimulation(unittest.TestCase):
         else:
             self.assertEqual(sorted(UNMADE - unmade), [], "a change the world now makes on fewer seeds")
 
-    def test_an_authors_write_access_is_read_from_the_permission(self):  # decision 0045
+    def test_an_authors_write_access_is_read_from_the_permission(self):  # decision 0046
         # The world serves each person's permission on the repo, as the collaborator permission endpoint answers it, and
         # builds an author's write access from it as the port will: admin, maintain and write are write access, and
         # triage, read and none are not.

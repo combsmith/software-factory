@@ -1,4 +1,4 @@
-# 0045. A person's write access is read from the collaborator permission, never from an association
+# 0046. A person's write access is read from the collaborator permission, never from an association
 
 Status: accepted. Taken as the working rulings on 2026-10-20, with the Maintainer's answer of 2026-10-21 that triage is
 not write access, for this issue:

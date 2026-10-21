@@ -170,7 +170,7 @@ RULES = (
      "use the canary token); GitHub documents that anyone may review a public repo"),
     # The issue world's rules (sim/issues.py, issue 43). trials/P-32.json showed the listing's authorAssociation tells
     # an App nothing of write access (CONTRIBUTOR for the org's owner), so write access is read from the repository's
-    # collaborator permission instead (issue 222, decision 0045).
+    # collaborator permission instead (issue 222, decision 0046).
     ("a_logins_permission_is_read_from_the_collaborator_endpoint", "A person's write access is read from the "
      "repository's collaborator permission: admin, maintain and write are write access, and triage, read and none are "
      "not", ("P-47",), None, None),
