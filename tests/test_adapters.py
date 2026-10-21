@@ -15,7 +15,7 @@ import pathlib
 import unittest
 import zipfile
 
-from adapters import artifacts, checks, facts, github, pull, records, timeline
+from adapters import artifacts, checks, facts, github, pull, records, threads, timeline
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -1223,7 +1223,7 @@ class Checks(unittest.TestCase):
                                             "conclusion": "success", "completed_at": "2026-10-20T00:51:22Z"})
         self.assertIn({"name": "checks", "app_id": 15368, "workflow": ".github/workflows/verify.yml",
                        "conclusion": "success", "completed_at": "2026-10-20T01:01:25Z"}, got["checks"])
-        self.assertEqual((got["complete"], got["queue"], got["threads"]), (True, True, 0))
+        self.assertEqual((got["complete"], got["queue"]), (True, True))
 
     def test_a_check_still_running_gives_its_status_and_no_time(self):
         node = {"__typename": "CheckRun", "name": "verify", "conclusion": None, "status": "IN_PROGRESS",
@@ -1297,10 +1297,6 @@ class Checks(unittest.TestCase):
             odd = p32_pull()
             odd["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"].append({"__typename": "Odd"})
             checks.read(github.Replay([checks_answer(odd)]), as_pull(odd))
-        uncounted = p32_pull()
-        uncounted["reviewThreads"] = {"totalCount": None}
-        with self.assertRaises(github.Unanswered):
-            checks.read(github.Replay([checks_answer(uncounted)]), as_pull(uncounted))
 
     def test_a_rollup_whose_count_is_not_what_was_read_is_not_whole(self):
         # GitHub counts the rollup's contexts: a last page that says no next one, but leaves counted contexts unread,
@@ -1353,6 +1349,119 @@ def p26_checks(head: str) -> dict:
     return found
 
 
+PERSON = ("don-petry", MAINTAINER, "User")        # the Maintainer, as the fixtures record him
+LENS = ("coderabbitai", 136622811, "Bot")          # a Lens's App, as GraphQL names a Bot: its login has no [bot]
+APP = ("github-actions", 41898282, "Bot")          # an App no Lens is
+
+
+def thread_node(ident: str, opened=PERSON, at: str = "2026-10-21T16:18:57Z", resolved_by=None) -> dict:
+    """A review thread as the port's query asks it. No trial has recorded a thread's author, time or resolver yet (P-43
+    recorded only its path and state); the pending test below reads the first that does."""
+    login, account, kind = opened
+    node = {"id": ident, "isResolved": resolved_by is not None,
+            "resolvedBy": None if resolved_by is None else {"login": resolved_by[0], "databaseId": resolved_by[1]},
+            "comments": {"nodes": [{"createdAt": at, "author": {"__typename": kind, "login": login,
+                                                                 "databaseId": account}}]}}
+    return node
+
+
+def threads_answer(repo: str, number: int, nodes: list, total=None, after=None, cursor=None) -> dict:
+    """An exchange of the port's threads query, in the page shape P-43 recorded for review threads."""
+    owner, name = repo.split("/")
+    asked = {"query": threads.QUERY, "variables": {"owner": owner, "name": name, "number": number, "after": after}}
+    page = {"hasNextPage": cursor is not None, "endCursor": cursor}
+    listed = {"totalCount": len(nodes) if total is None else total, "pageInfo": page, "nodes": nodes}
+    return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+            "response": {"status": 200, "headers": {},
+                         "body": {"data": {"repository": {"pullRequest": {"reviewThreads": listed}}}}}}
+
+
+class Threads(unittest.TestCase):
+    PULL = {"number": 26, "base": {"repo": {"full_name": "o/r"}}}
+
+    def read(self, *pages, permissions=None):
+        router = Router(github.Replay(list(pages)), permissions or {"don-petry": "admin", "outsider": "read"})
+        accounts = timeline.Accounts(router, "o/r", MACHINE, {LENS[1:]: "coderabbit"})
+        return threads.read(router, self.PULL, accounts)
+
+    def test_each_thread_is_read_with_who_opened_and_resolved_it_and_a_persons_is_human(self):
+        got, whole = self.read(threads_answer("o/r", 26, [
+            thread_node("PRRT_1"), thread_node("PRRT_2", LENS, resolved_by=("don-petry", MAINTAINER)),
+            thread_node("PRRT_3", APP), thread_node("PRRT_4", ("outsider", 7, "User")),
+            thread_node("PRRT_5", (APPROVER,) + MACHINE)]))
+        self.assertTrue(whole)
+        self.assertEqual(got[0], {"id": "PRRT_1", "resolved": False, "category": "human", "severity": None,
+                                  "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
+                                  "resolved_by": None, "opened_at": "2026-10-21T16:18:57Z"})
+        # A Lens's thread has no category or severity until its Finding record can be joined (decision 0038).
+        self.assertEqual((got[1]["opened_by"], got[1]["category"], got[1]["severity"]),
+                         ({"kind": "lens", "name": "coderabbit", "can_write": False}, None, None))
+        self.assertEqual(got[1]["resolved_by"], {"kind": "human", "name": "don-petry", "can_write": True})
+        self.assertEqual((got[2]["opened_by"]["kind"], got[2]["category"]), ("app", None))
+        self.assertEqual((got[3]["opened_by"], got[3]["category"]),
+                         ({"kind": "human", "name": "outsider", "can_write": False}, "human"))
+        # The machine user is no person: its thread, as an App's, has no category.
+        self.assertEqual((got[4]["opened_by"]["kind"], got[4]["category"]), ("machine_user", None))
+        # A resolved thread GitHub names no resolver for, as when an App resolved it, is read with none: the Kernel
+        # defers on that thread alone, never on the whole pull request.
+        resolved, _ = self.read(threads_answer("o/r", 26, [dict(thread_node("PRRT_6", LENS), isResolved=True)]))
+        self.assertEqual((resolved[0]["resolved"], resolved[0]["resolved_by"]), (True, None))
+
+    def test_a_thread_that_cannot_be_read_is_refused(self):
+        good = thread_node("PRRT_1")
+        broken = [dict(good, id=""), dict(good, id=None), dict(good, isResolved=None), dict(good, comments={"nodes": []}),
+                  dict(good, comments=None), dict(good, resolvedBy={"login": "don-petry", "databaseId": MAINTAINER}),
+                  dict(good, isResolved=0),
+                  dict(good, isResolved=1, resolvedBy={"login": "don-petry", "databaseId": MAINTAINER}),
+                  thread_node("PRRT_1", at="yesterday"),
+                  thread_node("PRRT_1", ("ghost", 1, "Mannequin")), thread_node("PRRT_1", ("don-petry", None, "User")),
+                  thread_node("PRRT_1", ("x[bot]", 9, "User")), "PRRT_1", thread_node("PRRT_1")]
+        broken[-1]["comments"]["nodes"][0]["author"] = None    # a deleted account, which GraphQL gives as null
+        reply = thread_node("PRRT_1")
+        reply["comments"]["nodes"][0]["replyTo"] = {"id": "PRRC_0"}
+        broken.append(reply)
+        for node in broken:
+            with self.assertRaises(github.Unanswered, msg=node):
+                self.read(threads_answer("o/r", 26, [node]))
+
+    def test_threads_are_read_page_by_page_and_whole_only_when_every_one_was_read_once(self):
+        one, two = [thread_node("PRRT_1")], [thread_node("PRRT_2")]
+        first = threads_answer("o/r", 26, one, total=2, cursor="c1")
+        got, whole = self.read(first, threads_answer("o/r", 26, two, total=2, after="c1"))
+        self.assertEqual(([t["id"] for t in got], whole), (["PRRT_1", "PRRT_2"], True))
+        for second in (threads_answer("o/r", 26, one, total=2, after="c1"),            # a thread read twice
+                       threads_answer("o/r", 26, two, total=3, after="c1"),            # the count moved
+                       threads_answer("o/r", 26, [], total=2, after="c1")):            # one counted never read
+            self.assertIs(self.read(first, second)[1], False)
+        # A cursor that repeats, or a next page past the count, ends the read short rather than looping.
+        start = threads_answer("o/r", 26, one, total=5, cursor="c1")
+        looping = threads_answer("o/r", 26, two, total=5, after="c1", cursor="c1")
+        self.assertIs(self.read(start, looping)[1], False)
+        self.assertIs(self.read(threads_answer("o/r", 26, one + two, total=2, cursor="c1"))[1], False)
+        for change in ({"pageInfo": {"hasNextPage": None}}, {"nodes": None}, {"totalCount": None},
+                       {"totalCount": True}, {"pageInfo": {"hasNextPage": True, "endCursor": ""}}):
+            page = threads_answer("o/r", 26, one)
+            page["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"].update(change)
+            self.assertIs(self.read(page)[1], False, change)
+        bare = threads_answer("o/r", 26, one)
+        bare["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"] = None
+        self.assertEqual(self.read(bare), ([], False))
+        for status, answer_body in ((502, None), (200, {"errors": [{"message": "x"}]})):
+            failed = threads_answer("o/r", 26, one)
+            failed["response"].update(status=status, body=answer_body)
+            with self.assertRaises(github.Unanswered):
+                self.read(failed)
+
+    @pending
+    def test_a_thread_a_trial_recorded_is_read_as_the_port_reads_it(self):
+        # A thread's author, time and resolver, as GitHub's GraphQL gives them, are not yet recorded: the first trial
+        # that records one, asked as the port asks, is read here.
+        found = [e for name in sorted((ROOT / "trials").glob("P-*.json"))
+                 for e in json.loads(name.read_text()).get("exchanges", [])
+                 if (e.get("request") or {}).get("body", {}) and "FactsThreads" in json.dumps(e["request"]["body"])]
+        self.assertTrue(found)
+
+
 class Snapshot(unittest.TestCase):
     NOW = "2026-10-18T03:00:00Z"
 
@@ -1363,7 +1472,7 @@ class Snapshot(unittest.TestCase):
         found = exchanges("P-29.base")
         head = found[1]["response"]["body"]["head"]["sha"]
         return [found[1], found[9], exchanges("P-28")[3], found[2], p26_files(), exchanges("P-28")[4], p26_reviews(),
-                p26_checks(head), found[reread]]
+                p26_checks(head), threads_answer(canary(), 26, []), found[reread]]
 
     def read(self, reread: int):
         router = Router(github.Replay(self.sequence(reread)), {"don-petry": "admin"})
@@ -1424,13 +1533,35 @@ class Snapshot(unittest.TestCase):
             facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                            lambda: self.NOW)
 
-    def test_a_snapshot_of_a_pull_request_with_threads_is_not_read_whole_on_them(self):
+    def test_a_snapshot_holds_every_thread_read_and_says_whether_they_were_read_whole(self):
         seq = self.sequence(1)
-        seq[7]["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["totalCount"] = 2
+        seq[8] = threads_answer(canary(), 26, [thread_node("PRRT_1", PERSON), thread_node("PRRT_2", LENS)])
+        router = Router(github.Replay(copy.deepcopy(seq)), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, False, lambda: self.NOW)
+        self.assertEqual([(t["id"], t["category"]) for t in got["threads"]], [("PRRT_1", "human"), ("PRRT_2", None)])
+        self.assertEqual((got["complete"]["threads"], got["complete"]["runs"]), (True, False))
+        seq[8]["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["totalCount"] = 3
         router = Router(github.Replay(seq), {"don-petry": "admin"})
-        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}),
-                                False, lambda: self.NOW)
-        self.assertEqual((got["complete"]["threads"], got["complete"]["runs"], got["threads"]), (False, False, []))
+        accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW)
+        self.assertIs(got["complete"]["threads"], False)
+
+    def test_only_a_required_lenss_own_apps_open_thread_defers(self):
+        # A thread is a Lens thread only when its author is that Lens's own App, by account id and type. An outside
+        # reviewer's thread, CodeRabbit's or Codex's, is no required Lens's: with no category it does not defer.
+        # Only a required model Lens's own App's open thread with neither defers, until harness/ uploads its record.
+        from kernel import derive
+        config = json.loads((ROOT / "config" / "defaults.json").read_text())
+        role = ("combsmith-sf-pr-review", 99, "Bot")
+        seq = self.sequence(1)
+        seq[8] = threads_answer(canary(), 26, [thread_node("PRRT_1", LENS), thread_node("PRRT_2", role),
+                                               thread_node("PRRT_3", APP), thread_node("PRRT_4", PERSON)])
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit", role[1:]: "pr-review"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW)
+        self.assertEqual(config["required_lenses"]["model"], ["pr-review"])
+        self.assertEqual(derive.unreadable_threads(got, dict(config, approver=APPROVER)), ["PRRT_2"])
 
     def test_the_snapshots_time_is_taken_after_its_last_read(self):
         replay = github.Replay(self.sequence(1))
