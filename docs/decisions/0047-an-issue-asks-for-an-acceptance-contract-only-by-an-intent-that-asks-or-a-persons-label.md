@@ -1,4 +1,4 @@
-# 0046. An issue asks for an acceptance contract only by an Intent that asks, or a person's `factory:contract` label
+# 0047. An issue asks for an acceptance contract only by an Intent that asks, or a person's `factory:contract` label
 
 Status: accepted. The Maintainer's rule of 2026-10-21, adopted on "Facts port: one snapshot of a pull request from GitHub, with its completeness flags" (issue 191), and built for "Facts port: an issue asks for an acceptance contract only by its Intent or a person's factory:contract label; acceptance read whole when none asks" (issue 290). It adds to `docs/decisions/0025-acceptance-is-read-from-its-reporter-against-the-contract-a-person-approved.md`, whose contract is read from the issue a pull request closes, and says when that issue asks for one.
 

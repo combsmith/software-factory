@@ -1398,7 +1398,7 @@ class Acceptance(unittest.TestCase):
                          issue_timeline("o/r", 36, events))
 
     def test_an_issue_asks_for_a_contract_only_by_a_persons_label(self):
-        # The Maintainer's rule of 2026-10-21 (decision 0046): a pull request that closes no issue, or one whose issue
+        # The Maintainer's rule of 2026-10-21 (decision 0047): a pull request that closes no issue, or one whose issue
         # carries no factory:contract a person placed, asks for none, and acceptance is null and read whole.
         self.assertEqual(self.read(closing_answer("o/r", 26, [])), (None, True))
         self.assertEqual(self.asked([], listed=False), (None, True))
@@ -1482,7 +1482,7 @@ class Acceptance(unittest.TestCase):
             self.assertEqual(self.read(pull={"number": 26, "base": base}), (None, False), base)
 
     def test_every_intent_a_lifecycle_runs_is_ruled_on_whether_it_asks_for_a_contract(self):
-        # Decision 0046: an issue asks by its item's Intent only for `fix` or `implement`, which no Lifecycle runs.
+        # Decision 0047: an issue asks by its item's Intent only for `fix` or `implement`, which no Lifecycle runs.
         # Every Intent a Lifecycle runs is named here, none of them one that asks: a new one fails here until it is
         # ruled whether it asks, and the port reads it if it does.
         from kernel import issue

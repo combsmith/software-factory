@@ -1,5 +1,5 @@
 """Whether the issues a pull request closes ask for an acceptance contract, and the contract where one is asked
-(design sections 3.13 and 4.8; decision 0046, the Maintainer's rule of 2026-10-21).
+(design sections 3.13 and 4.8; decision 0047, the Maintainer's rule of 2026-10-21).
 
 An issue asks for a contract only when its item's Intent is one that asks, `fix` or `implement`, or when a person adds
 the `factory:contract` label to it. No Lifecycle runs an Intent that asks yet, so in slice 1 only the label asks. The
@@ -21,7 +21,7 @@ Where no issue asks, `acceptance` is null and read whole. Where one asks, the co
 `adapters/contract.py`, not built, holds: until then the read is not whole, and the Kernel defers.
 
 The known limit: the closing references are the pull request's own, which its author writes, so an author who removes
-"Closes" before a pass removes the ask (decision 0046).
+"Closes" before a pass removes the ask (decision 0047).
 """
 from __future__ import annotations
 
