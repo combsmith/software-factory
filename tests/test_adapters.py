@@ -865,6 +865,14 @@ class Timeline(unittest.TestCase):
         writer = Router(github.Replay([]), {"don-petry": "admin"})
         self.assertIsNone(timeline.since_writer([via], self.accounts(writer))["last_writer_action_at"])
 
+    @pending
+    def test_what_each_credential_is_shown_of_a_permission_is_recorded(self):
+        # L-57: what each credential is shown is recorded by a trial. The collaborator permission's trial, which the
+        # Maintainer's ruling on issue 222 plans, has not run: no fixture yet holds a read of the permission endpoint.
+        reads = [e for path in sorted((ROOT / "trials").glob("P-*.json"))
+                 for e in json.loads(path.read_text())["exchanges"] if "/collaborators/" in e["request"].get("call", "")]
+        self.assertTrue(reads)
+
     def test_a_timeline_or_a_list_of_reviews_that_is_not_a_list_is_not_whole(self):
         broken = copy.deepcopy(exchanges("P-7")[16])
         broken["response"]["body"] = {"message": "x"}
