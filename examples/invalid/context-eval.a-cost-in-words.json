@@ -1,0 +1,63 @@
+{
+  "schema": "context-eval/1",
+  "task": "An empty diff never converges, with the reason `empty_diff`.",
+  "held_out_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "runs": [
+    {
+      "commit": "9bfc81383b36f8613d9f4a25e9377046aff27a92",
+      "ran_at": "2026-10-21T09:00:00Z",
+      "cli_version": "2.1.302",
+      "cap_turns": 60,
+      "read": [
+        "AGENTS.md",
+        "kernel/AGENTS.md",
+        "tests/test_decide.py",
+        "kernel/derive.py",
+        "tools/mutants.py"
+      ],
+      "outside_reads": 0,
+      "ran": [
+        "python3 -m unittest tests.test_decide",
+        "make verify",
+        "python3 -m tools.mutants kernel/derive.py"
+      ],
+      "unread_commands": 0,
+      "changed": [
+        {
+          "path": "kernel/derive.py",
+          "added": 3,
+          "removed": 0
+        },
+        {
+          "path": "tests/test_decide.py",
+          "added": 9,
+          "removed": 0
+        },
+        {
+          "path": "tools/mutants.py",
+          "added": 2,
+          "removed": 0
+        }
+      ],
+      "restored": [],
+      "added": {
+        "test": "tests/test_decide.py::test_empty_diff_never_converges",
+        "mutant": "an empty diff converges",
+        "reason": "empty_diff"
+      },
+      "cost": {
+        "turns": 23,
+        "duration_ms": 412000,
+        "usd": "about two dollars",
+        "input_tokens": 310000,
+        "output_tokens": 9200
+      },
+      "verdicts": {
+        "held_out_test": "pass",
+        "verify": "pass",
+        "mutant": "killed"
+      },
+      "passed": true
+    }
+  ]
+}

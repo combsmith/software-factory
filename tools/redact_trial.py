@@ -8,8 +8,8 @@ line, headers, a blank line and a body. It applies the rules of `tools/check_tri
 it writes passes them. What it takes out it names on standard output by where it was, never by
 what it held.
 
-In JSON, a field named for a credential or holding a string shaped like one is deleted, and so is
-such an item of a list. In a fixture, every place a credential was deleted from is added to
+In JSON, a field named for a credential, or whose key or string is shaped like one, is deleted,
+and so is such an item of a list. In a fixture, every place a credential was deleted from is added to
 `removed`, and a header not on the list a fixture may keep is deleted too. In text, a header line
 not on that list and any line shaped like a credential are deleted, and a body that is JSON is
 treated as JSON.
@@ -20,7 +20,7 @@ import json
 import pathlib
 import sys
 
-from tools.check_trials import HEADERS, refused_key, shaped
+from tools.check_trials import HEADERS, KEY_SHAPED, refused_key, shaped
 
 
 def _clean(value, where: str, removed: list):
@@ -28,8 +28,9 @@ def _clean(value, where: str, removed: list):
     if isinstance(value, dict):
         out = {}
         for key, item in value.items():
-            here = "%s.%s" % (where, key) if where else key
-            if refused_key(key) or (isinstance(item, str) and shaped(item)):
+            shown = KEY_SHAPED if shaped(key) else key     # a place is never named by a credential
+            here = "%s.%s" % (where, shown) if where else shown
+            if refused_key(key) or shaped(key) or (isinstance(item, str) and shaped(item)):
                 removed.append(here)
             else:
                 out[key] = _clean(item, here, removed)
@@ -82,7 +83,8 @@ def redact_text(raw: str, said: list) -> str:
         name, colon, _ = line.partition(":")
         header = n > 1 and colon and " " not in name.strip()
         if shaped(line) or (header and name.strip().lower() not in HEADERS):
-            said.append("removed: line %d%s" % (n, ", the header " + name.strip() if header else ""))
+            shown = KEY_SHAPED if shaped(name.strip()) else name.strip()    # a place is never named by a credential
+            said.append("removed: line %d%s" % (n, ", the header " + shown if header else ""))
         else:
             kept.append(line)
     try:
