@@ -6,11 +6,13 @@ answer and on a recorded one.
 `Live` sends HTTPS to api.github.com alone: it follows no redirect, uses no proxy, takes its token from its caller and
 never from the environment, sets a timeout on every request, bounds every answer, and keeps no body anywhere but in the
 answer it returns. A body that is not JSON is text decoded without loss, so its bytes are what any hash is taken over. `Replay`
-answers from a fixture's exchanges, each at most once, matched by method, path, Accept and GraphQL query, and refuses
-anything the fixture does not hold: it never answers with an empty default (L-51).
+answers from a fixture's exchanges in the order they were recorded, each once, matched by method, path, Accept and the
+whole body, a GraphQL query's variables among it, and refuses anything else: it never answers with an empty default
+(L-51).
 """
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.parse
@@ -86,14 +88,16 @@ class Live:
         if data is not None:
             headers["Content-Type"] = "application/json"
         sent = urllib.request.Request(url, data=data, headers=headers, method=req["method"])
+        # A connection that fails, or an answer cut short while it is read, a body or an error's, is refused.
         try:
-            with self.opener.open(sent, timeout=self._timeout) as got:
-                return _answer(got.status, got.headers, _bounded(got))
-        except urllib.error.HTTPError as err:
-            with err:
-                return _answer(err.code, err.headers, _bounded(err))
-        except (urllib.error.URLError, OSError, ValueError) as err:
-            raise Unanswered("GitHub could not be reached: %s" % type(err).__name__) from None
+            try:
+                with self.opener.open(sent, timeout=self._timeout) as got:
+                    return _answer(got.status, got.headers, _bounded(got))
+            except urllib.error.HTTPError as err:
+                with err:
+                    return _answer(err.code, err.headers, _bounded(err))
+        except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as err:
+            raise Unanswered("GitHub could not be reached, or its answer was cut short: %s" % type(err).__name__) from None
 
 
 def _bounded(stream) -> bytes:
@@ -108,8 +112,12 @@ def _bounded(stream) -> bytes:
         parts.append(part)
 
 
+def _body(body) -> str:
+    return json.dumps(body, sort_keys=True)
+
+
 def _recorded(exchange: dict):
-    """The method, path, Accept and query a fixture's exchange was asked with, or None for one no transport sends."""
+    """The method, path, Accept and body a fixture's exchange was asked with, or None for one no transport sends."""
     asked = exchange.get("request") or {}
     if asked.get("via") not in ("rest", "graphql"):
         return None
@@ -118,23 +126,20 @@ def _recorded(exchange: dict):
         return None
     path = words[1].rstrip(",")
     headers = {str(k).lower(): v for k, v in (asked.get("headers") or {}).items()}
-    body = asked.get("body")
-    query = body.get("query") if isinstance(body, dict) else None
-    return words[0], path, headers.get("accept", JSON), query
+    return words[0], path, headers.get("accept", JSON), _body(asked.get("body"))
 
 
 class Replay:
-    """Answers from a fixture's exchanges, each once, in the order they were recorded."""
+    """Answers from a fixture's exchanges, each once, in the order they were recorded: a request asked out of that
+    order, or one the next exchange does not hold, is refused."""
 
     def __init__(self, exchanges: list):
         self._left = [(_recorded(e), e["response"]) for e in exchanges if _recorded(e) is not None]
 
     def send(self, req: dict) -> dict:
-        query = req["body"].get("query") if isinstance(req["body"], dict) else None
-        want = (req["method"], req["path"], req["accept"], query)
-        for i, (asked, answer) in enumerate(self._left):
-            if asked == want:
-                del self._left[i]
-                return {"status": answer["status"], "headers": dict(answer.get("headers") or {}),
-                        "body": answer.get("body")}
-        raise Unanswered("the fixture holds no answer to %s %s (%s)" % want[:3])
+        want = (req["method"], req["path"], req["accept"], _body(req["body"]))
+        if self._left and self._left[0][0] == want:
+            asked, answer = self._left.pop(0)
+            return {"status": answer["status"], "headers": dict(answer.get("headers") or {}),
+                    "body": answer.get("body")}
+        raise Unanswered("the fixture holds no answer, next, to %s %s (%s)" % want[:3])

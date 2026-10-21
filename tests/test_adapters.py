@@ -54,6 +54,17 @@ class Transport(unittest.TestCase):
         # The Accept is part of the request: the diff and the pull request are two answers on one path.
         with self.assertRaises(github.Unanswered):
             replay("P-29.base", 2).send(github.request("GET", "/repos/%s/pulls/26" % repo))
+        # A request asked out of the order recorded is refused, and so is one whose body differs in a variable.
+        with self.assertRaises(github.Unanswered):
+            replay("P-29.base", 1, 9).send(github.request("GET", "/repos/%s/branches/main" % repo))
+        asked = exchanges("P-7")[10]["request"]
+        path = asked["call"].split()[1]
+        accept = asked["headers"]["accept"]
+        self.assertEqual(replay("P-7", 10).send(github.request("POST", path, accept, asked["body"]))["status"], 200)
+        other = copy.deepcopy(asked["body"])
+        other["variables"]["n"] = 999
+        with self.assertRaises(github.Unanswered):
+            replay("P-7", 10).send(github.request("POST", path, accept, other))
         # A step taken by git or the command line is no request the transport sends, and is never an answer.
         self.assertEqual(github.Replay(exchanges("P-29.base")[:1])._left, [])
 
@@ -93,6 +104,24 @@ class Transport(unittest.TestCase):
             def open(self, *a, **k):
                 raise github.urllib.error.URLError("down")
         live.opener = Down()
+        with self.assertRaises(github.Unanswered):
+            live.send(github.request("GET", "/x"))
+        # An answer cut short while it is read, a body's or an error's, is refused, never another exception.
+        class Short:
+            def open(self, *a, **k):
+                raise github.http.client.IncompleteRead(b"")
+        live.opener = Short()
+        with self.assertRaises(github.Unanswered):
+            live.send(github.request("GET", "/x"))
+
+        class Broken(io.BytesIO):
+            def read(self, *a):
+                raise github.http.client.IncompleteRead(b"")
+
+        class Error:
+            def open(self, *a, **k):
+                raise github.urllib.error.HTTPError("https://api.github.com/x", 500, "x", {}, Broken())
+        live.opener = Error()
         with self.assertRaises(github.Unanswered):
             live.send(github.request("GET", "/x"))
         # A request built by hand is held to the same rules before anything is opened.
@@ -357,7 +386,8 @@ class ChangedPaths(unittest.TestCase):
 
     def test_a_list_with_a_name_twice_or_none_is_short(self):
         data = body("P-29.truncated", 12)
-        for change in ({"filename": "p29-many-lines.txt"}, {"filename": ""}, {"filename": None}):
+        for change in ({"filename": "p29-many-lines.txt"}, {"filename": ""}, {"filename": None}, {"status": "moved"},
+                       {"status": None}, {"previous_filename": "was.txt"}):
             rows = body("P-29.truncated", 13)
             rows[0].update(change)
             answer = dict(exchanges("P-29.truncated")[13], response=dict(exchanges("P-29.truncated")[13]["response"],

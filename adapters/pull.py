@@ -16,6 +16,9 @@ import urllib.parse
 from adapters.github import DIFF, Unanswered, raw, request
 
 PAGE = 100          # files on one page of a pull request's list of files
+# What GitHub says of a file. A rename and a copy carry the name the file had; no other status does.
+STATUSES = {"added", "removed", "modified", "renamed", "copied", "changed", "unchanged"}
+MOVED = {"renamed", "copied"}
 SHA = re.compile(r"^[0-9a-f]{40}$")
 HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
 # The account type each class needs: the Factory's Apps and a dependency bot are Bots, the Maintainer a person.
@@ -197,9 +200,13 @@ def changed_paths(transport, pull: dict) -> dict:
             name = row.get("filename") if isinstance(row, dict) else None
             if not isinstance(name, str) or not name:
                 return {"changed_paths": paths, "complete": False}
-            moved = row.get("status") in ("renamed", "copied")
+            status = row.get("status")
+            moved = status in MOVED
             before = row.get("previous_filename") if moved else None
-            if moved and not (isinstance(before, str) and before):
+            # A status GitHub does not give, a move without its old name, or an old name on anything but a move, is a
+            # row that cannot be read: the list is short, never read as an ordinary change.
+            if status not in STATUSES or (moved and not (isinstance(before, str) and before)) \
+                    or (not moved and row.get("previous_filename") is not None):
                 return {"changed_paths": paths, "complete": False}
             paths.append({"path": name, "previous": before})
         if len(rows) < PAGE or len(paths) >= want:

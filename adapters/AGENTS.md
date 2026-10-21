@@ -11,7 +11,7 @@ Not built yet, by the stories that hold their rules: records.py, timeline.py, ch
 | Only `github.py` imports what reaches the network | `tests/test_tools.py::test_only_the_transport_reaches_the_network` |
 | It sends HTTPS to GitHub's API alone, by a path from its root | `tests/test_adapters.py::test_a_request_stays_on_githubs_api` |
 | It follows no redirect, takes no proxy, bounds every answer, and uses the token its caller gives it | `tests/test_adapters.py::test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect` |
-| A test replays a trial's fixture, which answers each recorded request once and refuses any other | `tests/test_adapters.py::test_a_replay_answers_only_what_the_fixture_holds_and_each_once` |
+| A test replays a trial's fixture, which answers each recorded request once, in order and with its whole body, and refuses any other | `tests/test_adapters.py::test_a_replay_answers_only_what_the_fixture_holds_and_each_once` |
 | A read that is not whole says so in its `complete` flag | `tests/test_adapters.py::test_a_diff_that_disagrees_with_the_counts_is_a_short_read`, `tests/test_adapters.py::test_a_list_github_stops_short_of_the_count_is_never_the_whole` |
 | A fact that cannot be read is null or refused, never guessed | `tests/test_adapters.py::test_an_activity_that_has_not_caught_up_with_the_head_names_no_one` |
 | A head that moved while it was read is refused | `tests/test_adapters.py::test_a_head_that_moved_while_it_was_read_is_refused` |
