@@ -1073,6 +1073,11 @@ ISSUE_BASES = {
     "an outsider's admitted issue, investigated, one Run short": issue_item(
         OUTSIDERS_ISSUE, INVESTIGATED + issue_spent(issue_facts.JUDGE, ISSUE_RUNS - 2, "readiness")),
     "new, one act short": issue_item(issue_facts.facts(acts_since_writer=LIMITS["max_acts_per_item"] - 1)),
+    # The act ceiling from new (issue 202): a factory:ready the readiness App added with no Run that judged it does not
+    # count, and the Controller's removal of it is the last act.
+    "new, one act short, with a factory:ready no Run judged": issue_item(issue_facts.facts(
+        acts_since_writer=LIMITS["max_acts_per_item"] - 1,
+        label_events=[issue_facts.labelled(issue_facts.READY, issue_facts.READINESS, 2)])),
     # The Factory's pull request open and ready on an issue a person triaged and readied: a person who removes
     # factory:ready and closes it unmerged sends the issue back to triage.
     "in review, triaged and ready": issue_item(issue_facts.facts(
@@ -1119,18 +1124,69 @@ def writer_comments(item: dict) -> dict:
 
 
 def linked_pull_request(how: str):
-    """A person marks the linked draft ready, closes the linked pull request unmerged, or merges it."""
+    """A person marks the linked draft ready, converts the ready one back to a draft, closes the linked pull request
+    unmerged, merges it, or merges it with an empty diff."""
     def change(item):
         live = [p for p in item["facts"]["linked"] if p["open"]]
-        if not live or (how == "ready" and not live[0]["draft"]) or (how == "merge" and live[0]["draft"]):
+        if not live or (how == "ready" and not live[0]["draft"]) or (how == "draft" and live[0]["draft"]) \
+                or (how in ("merge", "empty") and live[0]["draft"]):
             return None
         p = live[0]
         if how == "ready":
             p["draft"] = False
+        elif how == "draft":
+            p["draft"] = True
         else:
-            p.update(open=False, closed_at=now(item), merged_at=now(item) if how == "merge" else None)
+            p.update(open=False, closed_at=now(item), merged_at=now(item) if how != "close" else None,
+                     empty=how == "empty")
         return item
     return a_writers(change)
+
+
+def opens_own(draft: bool):
+    """A person opens a pull request of their own that closes the issue, a draft or ready; one at a time."""
+    def change(item):
+        f = item["facts"]
+        if any(p["open"] and p["class"] == "maintainer" for p in f["linked"]):
+            return None
+        f["linked"].append(dict(issue_facts.pr(number=30 + len(f["linked"]), draft=draft), opened_at=now(item)))
+        return item
+    return a_writers(change)
+
+
+def closes_issue(item: dict):
+    """A person closes the issue."""
+    if item["facts"]["state"] != "open":
+        return None
+    item["facts"]["state"] = "closed"
+    return item
+
+
+def reopens_issue(item: dict):
+    """A person with write access reopens the issue: a new life begins, from now."""
+    if item["facts"]["state"] != "closed":
+        return None
+    item["facts"].update(state="open", life_started_at=now(item), reopened_last_by="writer")
+    return item
+
+
+def app_marks_ready(item: dict):
+    """The Factory's author App marks its own draft ready: no person acted, so no count is renewed."""
+    live = [p for p in item["facts"]["linked"] if p["open"] and p["class"] == "agent" and p["draft"]]
+    if not live:
+        return None
+    live[0]["draft"] = False
+    return item
+
+
+def queue_merges(item: dict):
+    """The merge queue merges the Factory's ready pull request, after the Factory's approval and enqueue: only while
+    the issue is in review, since the Controller dequeues on a person's hold or close (issue 227)."""
+    live = [p for p in item["facts"]["linked"] if p["open"] and p["class"] == "agent" and not p["draft"]]
+    if not live or issue_kernel(item)["state"] != "in_review":
+        return None
+    live[0].update(open=False, closed_at=now(item), merged_at=now(item))
+    return item
 
 
 def outsider_edits(item: dict):
@@ -1209,13 +1265,21 @@ def issue_run_ends(how: str):
 
 
 ISSUE_MOVES = [Move("a person adds %s" % name, "human", writer_labels(name, "labeled"))
-               for name in (issue.LABEL_READY, issue.LABEL_TRIAGE, t.LABEL_HOLD)] + \
+               for name in (issue.LABEL_READY, issue.LABEL_TRIAGE, t.LABEL_HOLD, t.LABEL_HANDS_OFF)] + \
               [Move("a person removes %s" % name, "human", writer_labels(name, "unlabeled"))
-               for name in (issue.LABEL_READY, issue.LABEL_TRIAGE, t.LABEL_HOLD)] + [
+               for name in (issue.LABEL_READY, issue.LABEL_TRIAGE, t.LABEL_HOLD, t.LABEL_HANDS_OFF)] + [
     Move("a person comments", "human", a_writers(writer_comments)),
+    Move("a person closes the issue", "human", a_writers(closes_issue)),
+    Move("a person reopens the issue", "human", a_writers(reopens_issue)),
     Move("a person marks the linked draft ready", "human", linked_pull_request("ready")),
+    Move("a person converts the linked pull request to a draft", "human", linked_pull_request("draft")),
     Move("a person closes the linked pull request", "human", linked_pull_request("close")),
     Move("a person merges the linked pull request", "human", linked_pull_request("merge")),
+    Move("a person merges the linked pull request with an empty diff", "human", linked_pull_request("empty")),
+    Move("a person opens a draft of their own", "human", opens_own(True)),
+    Move("a person opens a pull request of their own", "human", opens_own(False)),
+    Move("the author App marks its draft ready", "factory", app_marks_ready),
+    Move("the queue merges the Factory's pull request", "platform", queue_merges),
     Move("the outsider edits the issue", "stranger", outsider_edits),
     Move("another App adds factory:hold", "platform",
          lambda item: None if issue_stands(item, t.LABEL_HOLD) else issue_label(item, t.LABEL_HOLD,
