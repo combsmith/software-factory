@@ -149,7 +149,8 @@ for asked in sorted(p for p in out.iterdir() if p.name.endswith(".request.json")
                                    "headers": headers, "body": body}})
 json.dump({"exchanges": exchanges}, open(str(out / "exchanges.unchecked.json"), "w"), indent=2)' "$out"
     redact_json="$out/exchanges.unchecked.json"
-    (cd "$root" && python3 -m tools.redact_trial < "$redact_json" > "$out/exchanges.json") 2> /dev/null
+    (cd "$root" && python3 -m tools.redact_trial < "$redact_json" > "$out/exchanges.json") 2> /dev/null ||
+        { echo "trial_as_app: the redaction of the exchanges failed" >&2; exit 1; }
     rm -f "$redact_json"
     echo "Done, status $status. Give the session this directory; it reads only exchanges.json and the .clean files:"
     echo "  $out"

@@ -3903,6 +3903,25 @@ class Redaction(unittest.TestCase):
                              input="HTTP/2.0 200 OK\nAuthorization: x\nContent-Type: text/plain\n\nfine\n", timeout=60)
         self.assertEqual((ran.returncode, ran.stdout), (0, "HTTP/2.0 200 OK\nContent-Type: text/plain\n\nfine\n"))
         self.assertIn("the header Authorization", ran.stderr)
+        # A head with CR LF, as gh writes it, is read as a head: its headers and the body's fields are redacted.
+        crlf = 'HTTP/2.0 200 OK\r\nX-Foo: bar\r\nContent-Type: application/json\r\n\r\n{"password": "hunter2", "ok": 1}'
+        out, said = self.redact(crlf)
+        self.assertNotIn("X-Foo", out)
+        self.assertNotIn("hunter2", out)
+        self.assertIn('"ok": 1', out)
+        # Bytes that are not UTF-8 stop it, with nothing written; and what it writes is UTF-8 whatever the locale.
+        bad = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=ROOT, capture_output=True,
+                             input=b"\xff\xfe", timeout=60)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertEqual(bad.stdout, b"")
+        wide = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=ROOT, capture_output=True,
+                              input="HTTP/2.0 200 OK\n\nfine \u2713\n".encode(), timeout=60,
+                              env=dict(os.environ, LC_ALL="C", LANG="C", PYTHONIOENCODING="ascii"))
+        self.assertEqual((wide.returncode, wide.stdout), (0, "HTTP/2.0 200 OK\n\nfine \u2713\n".encode()))
+        # The App's script sends the report to its pipe and the clean text to its file: in that order, or the report
+        # would go to the file.
+        script = (ROOT / "tools" / "trial_as_app.sh").read_text()
+        self.assertIn('python3 -m tools.redact_trial < "$1" 2>&1 > "${1%.raw}.clean") | sed', script)
 
     def test_a_drafted_fixture_comes_out_with_no_credential(self):
         data = json.loads(fixture())
@@ -5141,7 +5160,8 @@ except OSError:
         bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
         (bin_ / "gh").write_text(self.STAND_IN)
         (bin_ / "gh").chmod(0o755)
-        head = "HTTP/2.0 200 OK\nContent-Type: application/json\nAuthorization: token ghs_%s\n\n" % ("x" * 36)
+        # As real gh writes them: each line of the head ends in CR LF.
+        head = "HTTP/2.0 200 OK\r\nContent-Type: application/json\r\nAuthorization: token ghs_%s\r\n\r\n" % ("x" * 36)
         listed = [{"id": r["id"], "name": n} for n, r in live.items()]
         (bin_ / "repos_combsmith_software-factory_rulesets_per_page=100").write_text(head + json.dumps(listed))
         for r in live.values():

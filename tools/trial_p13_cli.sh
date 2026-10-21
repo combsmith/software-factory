@@ -277,7 +277,8 @@ json.dump(parts, open(checked, "w"), indent=2)
 ' "$root" "$scratch/raw-3" "$scratch/kept-3" "$scratch/checked" "$SCHEMA" "$code3" "$PIN" "$version" "${after:-}" "$logged_in" "$KEPT_RESULT" "$code2" "$STRING_KEYS" "$scratch/raw-3.err" "$code_after")
 rm -f "$scratch/raw-3" "$scratch/raw-3.err"
 redact "$scratch/kept-3" 3
-(cd "$root" && python3 -m tools.redact_trial < "$scratch/checked" > "$out/checked.json") 2> /dev/null
+(cd "$root" && python3 -m tools.redact_trial < "$scratch/checked" > "$out/checked.json") 2> /dev/null ||
+    { echo "trial_p13_cli: the redaction of checked.json failed" >&2; exit 1; }
 
 # What was asked: the command lines, the Task and the schema. No credential, path or address is in it.
 python3 -I -c '

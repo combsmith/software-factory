@@ -108,13 +108,21 @@ def main(argv: list, stdin=None, stdout=None, stderr=None) -> int:
     if argv:
         print("usage: python3 -m tools.redact_trial < RAW > CLEAN 2> REPORT; it opens no path", file=stderr)
         return 2
-    raw, said = (sys.stdin.buffer if stdin is None else stdin).read().decode("utf-8"), []
+    # `gh api --include` ends its header lines with CR LF. Read as text from a file, they became LF; read as bytes they
+    # stay, and a capture with no blank line between its headers and its body would be redacted as one body.
+    raw = (sys.stdin.buffer if stdin is None else stdin).read().decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    said = []
     try:
         out = json.dumps(redact_json(json.loads(raw), said), indent=2) + "\n"
     except ValueError:
         out = redact_text(raw, said)
-    stdout.write(out)
-    stdout.flush()
+    # Written as UTF-8 whatever the locale, as it was to a file.
+    target = getattr(stdout, "buffer", None)
+    if target is not None:
+        target.write(out.encode("utf-8"))
+        target.flush()
+    else:
+        stdout.write(out)
     for line in said:
         print(line, file=stderr)
     print("redacted: %d removed. Read only the clean output" % len(said), file=stderr)
