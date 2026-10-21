@@ -7,7 +7,7 @@ this repo reaches the network. `pull.py` reads the facts of a pull request that 
 whether the issues it closes ask for a contract. A port decides nothing
 and hands the Kernel no text: what it cannot read whole it says is short, and the title travels beside the facts.
 
-Not built yet, by the stories that hold their rules: items.py, contract.py, issues.py, settings.py, effects.py, usage.py.
+Not built yet, by the stories that hold their rules: items.py, contract.py, binding.py, issues.py, settings.py, effects.py, usage.py.
 
 | Rule | Held by |
 |---|---|

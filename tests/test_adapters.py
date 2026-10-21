@@ -1457,8 +1457,22 @@ class Acceptance(unittest.TestCase):
             found = closing_answer("o/r", 26, [])
             found["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"] = refs
             self.assertEqual(self.read(found), (None, False), refs)
-        for status, answer_body in ((502, None), (502, {"data": {}}), (200, {"errors": [{"message": "x"}]})):
+        # A shape GitHub does not give is refused, never let through as another error.
+        for shape in ({"data": "x"}, {"data": {"repository": []}}, {"data": {"repository": {"pullRequest": "x"}}}):
+            odd = closing_answer("o/r", 26, [])
+            odd["response"]["body"] = shape
+            with self.assertRaises(github.Unanswered, msg=shape):
+                self.read(odd)
+        stringly = closing_answer("o/r", 26, [36])
+        stringly["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"][0][
+            "repository"] = "o/r"
+        self.assertEqual(self.read(stringly), (None, False))
+        whole_body = closing_answer("o/r", 26, [])["response"]["body"]
+        for status, answer_body in ((502, None), (502, whole_body), (200, {"errors": [{"message": "x"}]})):
             failed = closing_answer("o/r", 26, [])
+            failed["response"].update(status=status, body=answer_body)
+            with self.assertRaises(github.Unanswered, msg=status):
+                self.read(failed)
 
     def test_a_pull_request_to_another_base_than_the_default_is_not_read_whole_on_its_contract(self):
         # trials/P-33.json: a pull request to a base that is not the default branch carries no closing reference at

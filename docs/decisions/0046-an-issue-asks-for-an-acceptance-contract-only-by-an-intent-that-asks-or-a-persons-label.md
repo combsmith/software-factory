@@ -11,7 +11,7 @@ Status: accepted. The Maintainer's rule of 2026-10-21, adopted on "Facts port: o
 | A pull request that closes no issue, or whose issues none ask | `acceptance` is null, read whole | Nothing asked for a contract, so there is none to read |
 | An issue that asks | The contract is read; until the part of the port that reads it is built, the read is not whole, and the Kernel defers | A contract asked for and not read is never read as no contract |
 | What is not whole | A list of closing references longer than its page, one of another repo, one named twice, an issue whose labels are more than a page or disagree with its timeline, an issue's timeline read short, and a pull request to a base other than the default branch, which carries no closing reference (P-33) | A read that cannot say every issue was read cannot say none asked |
-| The known limit | The closing references are the pull request's own, which its author writes: an author who removes "Closes" before a pass removes the ask. Binding a pull request to its issue by its Run record or its branch, never its body, is a later story's | The rule says when an issue asks; which issue a pull request answers to is its author's to say until a Run opens the pull request itself |
+| The known limit | The closing references are the pull request's own, which its author writes: an author who removes "Closes" before a pass removes the ask. Binding a pull request to its issue by its Run record or its branch, never its body, is "Acceptance: a pull request is bound to the issue it serves by its Run or branch, not by its author's closing link" (issue 295) | The rule says when an issue asks; which issue a pull request answers to is its author's to say until a Run opens the pull request itself |
 
 ## Why
 
@@ -27,4 +27,5 @@ Design sections 3.13 and 4.8 make the acceptance contract the item's, read from 
 | A pull request to another base than the default is not whole on its contract | `tests/test_adapters.py::test_a_pull_request_to_another_base_than_the_default_is_not_read_whole_on_its_contract` |
 | Every Intent a Lifecycle runs is ruled on whether it asks | `tests/test_adapters.py::test_every_intent_a_lifecycle_runs_is_ruled_on_whether_it_asks_for_a_contract` |
 | A snapshot reads `complete.acceptance` true where no closing issue asks, and false where one does | `tests/test_adapters.py::test_a_snapshot_holds_every_part_of_the_facts_and_the_title_beside_them`, `tests/test_adapters.py::test_a_snapshot_whose_closing_issue_asks_for_a_contract_is_not_read_whole_on_it` |
+| A pull request is bound to the issue it serves by its Run or branch, not by its author's closing link | waiting on `adapters/binding.py` |
 | The contract asked for is read | waiting on `adapters/contract.py` |

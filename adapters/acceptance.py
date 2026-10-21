@@ -52,7 +52,11 @@ def closing(transport, pull: dict) -> tuple:
     answer = transport.send(request("POST", "/graphql", body={"query": QUERY, "variables": variables}))
     if answer["status"] != 200 or not isinstance(answer["body"], dict) or answer["body"].get("errors"):
         raise Unanswered("the closing references' read answered %d" % answer["status"])
-    pr = (((answer["body"].get("data") or {}).get("repository") or {}).get("pullRequest")) or {}
+    pr = answer["body"]
+    for key in ("data", "repository", "pullRequest"):
+        pr = pr.get(key) if isinstance(pr, dict) else None
+    if not isinstance(pr, dict):
+        raise Unanswered("the closing references' read gave no pull request")
     refs = pr.get("closingIssuesReferences")
     nodes = refs.get("nodes") if isinstance(refs, dict) else None
     total = refs.get("totalCount") if isinstance(refs, dict) else None
@@ -63,7 +67,7 @@ def closing(transport, pull: dict) -> tuple:
         number = node.get("number") if isinstance(node, dict) else None
         if not isinstance(number, int) or isinstance(number, bool) or number < 1:
             raise Unanswered("a closing reference names no issue GitHub gives")
-        owned = (node.get("repository") or {}).get("nameWithOwner")
+        owned = node["repository"].get("nameWithOwner") if isinstance(node.get("repository"), dict) else None
         labels = node.get("labels") if isinstance(node.get("labels"), dict) else {}
         names = labels.get("nodes") if isinstance(labels.get("nodes"), list) else None
         counted = labels.get("totalCount")
