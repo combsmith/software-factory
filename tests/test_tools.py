@@ -16,6 +16,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -2649,8 +2650,15 @@ PLAIN = ["6dcb09b5b57875f334f61aebed695e2e4193db5e", "a" * 40, "application/vnd.
          "highs and lows", "bearer", "factory-run-r1", "Resource not accessible by integration"]
 REFUSED_KEYS = ["Authorization", "AUTHORIZATION", "Authorization ", "Proxy-Authorization", "Set-Cookie", "cookie",
                 "x-github-otp", "x-access-token", "github_token", "GITHUB_TOKEN", "accessToken", "installation_token",
-                "encoded_jit_config", "x-jit-config", "jwt", "auth", "Auth ", "webhook_secret", "client_secret", "password", "credentials", "token"]
-PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", "value", "author", "external_id"]
+                "encoded_jit_config", "x-jit-config", "jwt", "auth", "Auth ", "webhook_secret", "client_secret", "password", "credentials", "token",
+                "api_key", "apiKey", "x-api-key", "private_key", "privateKey", "passphrase", "ssh_passphrase",
+                "authentication", "passwd", "passcode", "bearer", "access_key", "accessKey", "encryption_key", "signing_key", "master_key",
+                "auth_key", "x-auth-key", "authKey", "pwd", "encryptionKey", "signingKey", "masterKey"]
+PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", "value", "author", "external_id",
+              # The vendor CLI's counts (issue 178), as it spells them.
+              "inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens", "maxOutputTokens",
+              "thinkingTokens", "thinking_tokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens",
+              "output_tokens_details"]
 # Not caught, by design or as a known hole: a commit hash alone is no credential; a token split across two strings
 # and a one-time code alone have no shape. The field names a header or field must have are the guard there.
 
@@ -2674,6 +2682,29 @@ class Trials(unittest.TestCase):
             self.assertEqual(check_trials._credentials({"note": value}, ""), [], value)
         for key in REFUSED_KEYS:
             self.assertTrue(check_trials._credentials({"a": [[{key: "x"}]]}, ""), key)
+        for name, value in sorted(SHAPED.items()):      # a key shaped like a credential is one too, named never by itself
+            found = check_trials._credentials({"a": {value: 1}}, "")
+            self.assertEqual([p for p, _ in found], ["a." + check_trials.KEY_SHAPED], name)
+            found = check_trials._headers({"exchanges": [{"request": {"headers": {value: "x"}}}]})
+            self.assertEqual([p for p, _ in found], ["exchanges[0].request.headers." + check_trials.KEY_SHAPED], name)
+        split = "Bearer\x00Zx9Qw8Er7Ty6Ui5Op4As3Df5"            # a raw control character splits the shape
+        self.assertTrue(check_trials.shaped(SHAPED["runner registration"] + "\n"), "a registration token before a newline")
+        found = check_trials._headers({"exchanges": [{"request": {"headers": {split: "x"}}}]})
+        self.assertEqual([p for p, _ in found], ["exchanges[0].request.headers." + check_trials.KEY_SHAPED])
+        # Nor does a schema's error, or any message of the check, carry such a key.
+        data = json.loads(fixture())
+        data[SHAPED["ghs"]] = 1
+        data["Bearer Zx9Qw8Er7Ty6Ui5Op4"] = 1        # a shape that spans a space
+        data["exchanges"][0]["request"]["headers"][SHAPED["ghp"]] = "x"
+        data["exchanges"][0]["request"]["as"]["kind"] = "Bearer\nZx9Qw8Er7Ty6Ui5Op4As3Df5"   # a shape a repr escapes
+        data["exchanges"][0]["request"]["via"] = "Bearer\u000bZx9Qw8Er7Ty6Ui5Op4As3Df5"        # and one it writes as \x0b
+        data["repo"] = "Bearer\n Zx9Qw8Er7Ty6Ui5Op4As3Df5"     # an escape and a space: no one word holds the shape
+        twice = '{"%s": 1, "%s": 2}' % (SHAPED["gho"], SHAPED["gho"])                        # a fixture that cannot be read
+        said = "\n".join(check_trials.run(clone({"trials/P-12.json": json.dumps(data), "trials/P-11.json": twice})))
+        self.assertIn(check_trials.KEY_SHAPED, said)
+        self.assertIn("trials/P-11.json cannot be read", said)
+        for value in list(SHAPED.values()) + ["Zx9Qw8Er7Ty6Ui5Op4"]:
+            self.assertNotIn(value, said)
         for key in PLAIN_KEYS:
             self.assertEqual(check_trials._credentials({key: "x"}, ""), [], key)
         data = json.loads(fixture())
@@ -3191,6 +3222,255 @@ class Trials(unittest.TestCase):
         self.assertFalse(caught(problems, "trials/P-13.json"))
 
 
+class TrialScript(unittest.TestCase):
+    """`tools/trial_p13_cli.sh`, run against a stand-in CLI and never the real one (issue 178): the environment the CLI is
+    given, each refusal before anything is asked, the login that must say yes, and the answer kept by allowlist so that
+    no model text reaches OUT."""
+
+    SCRIPT = ROOT / "tools" / "trial_p13_cli.sh"
+    PIN = re.search(r"^PIN=(\S+)$", SCRIPT.read_text(), re.M).group(1)
+    STAND_IN = """#!/bin/sh
+here=$(cd "$(dirname "$0")" && pwd)
+case "$1" in
+  --version) env > "$here/env-version"; cat "$here/version"; exit "$(cat "$here/version.exit")" ;;
+  --after) cp "$here/version.after" "$here/version" ;;
+  auth) env > "$here/env-auth"; cat "$here/status"; exit "$(cat "$here/status.exit")" ;;
+  -p) env > "$here/env-task"; printf '%s\\n' "$@" > "$here/args"; cat "$here/stderr" >&2; cat "$here/answer"
+      [ -f "$here/version.after" ] && cp "$here/version.after" "$here/version"; exit "$(cat "$here/answer.exit")" ;;
+esac
+exit 9
+"""
+    VALID = {"schema": "result/1", "run": "r_p13", "status": "completed",
+             "dispositions": [{"finding": "f_9c1e", "decision": {"result": "accepted"}}]}
+    # What the script keeps of the Task's answer, pinned here on its own: widening KEPT_RESULT is a change to this test.
+    KEPT = ["type", "subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms", "total_cost_usd", "usage",
+            "modelUsage", "stop_reason", "permission_denials", "structured_output"]
+    # Words the model might say, planted where a careless script would let them through.
+    PROSE = {"result": "the model wrote THIS-PROSE-1 here", "added": "a field the CLI adds carries THIS-PROSE-2",
+             "nested": "THIS-PROSE-3 in a nested field", "denied": "THIS-PROSE-4 in a refused tool's input",
+             "invalid": "THIS-PROSE-5 in a structured output that does not validate",
+             "in_usage": "THIS-PROSE-6 in a string under the counts", "in_code": "THIS-PROSE-7 where a code should be",
+             "tabbed": "THIS-PROSE-8\tset\tapart\tby\ttabs", "as_key": "THIS-PROSE-9 as a key",
+             "long": "THIS-PROSE-10-" + "z" * 90, "stderr": "THIS-PROSE-11 the model said on standard error"}
+
+    def answer(self, output=None, **extra) -> dict:
+        said = {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1, "duration_ms": 5,
+                "total_cost_usd": 0.1, "usage": {"input_tokens": 1, "output_tokens": 2, "evil.provider": "LEAKED-DOTTED-KEY",
+                                                "provider": ["LEAKWORD1", "LEAKWORD2"]},
+                "modelUsage": {"m": {"inputTokens": 1, "note": self.PROSE["in_usage"], "fallback": None, "provider": "firstParty",
+                                     "note2": "LEAK-ONE-WORD", "canonicalModel": self.PROSE["long"]},
+                               "sk-" + "ant-" + "api03-NEVER-SEEN": {"inputTokens": 2}, self.PROSE["as_key"]: 3},
+                "stop_reason": self.PROSE["in_code"], "subtype": self.PROSE["tabbed"], "result": self.PROSE["result"],
+                "a_new_field": self.PROSE["added"], "stats": {"note": self.PROSE["nested"]},
+                "permission_denials": [{"tool_name": "Bash", "tool_input": {"command": self.PROSE["denied"]}}]}
+        if output is not None:
+            said["structured_output"] = output
+        said.update(extra)
+        return said
+
+    def stand_in(self, version=None, status=None, status_exit=0, answer=None, answer_exit=0, version_exit=0, after=None) -> pathlib.Path:
+        """A directory holding the stand-in `claude` and what it answers; it records the environment and arguments it is
+        given beside itself."""
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (folder / "version").write_text("%s (Claude Code)\n" % (version or self.PIN))
+        (folder / "version.exit").write_text("%d\n" % version_exit)
+        (folder / "stderr").write_text(self.PROSE["stderr"] + "\n")
+        if after is not None:                     # the version the CLI says after the Task, if it changed
+            (folder / "version.after").write_text("%s (Claude Code)\n" % after)
+        (folder / "status").write_text(json.dumps({"loggedIn": True, "authMethod": "claude.ai"} if status is None else status))
+        (folder / "status.exit").write_text("%d\n" % status_exit)
+        (folder / "answer").write_text(json.dumps(self.answer(self.VALID) if answer is None else answer))
+        (folder / "answer.exit").write_text("%d\n" % answer_exit)
+        cli = folder / "claude"
+        cli.write_text(self.STAND_IN)
+        cli.chmod(0o755)
+        return folder
+
+    def run_script(self, out, cfg, cli, home=None) -> subprocess.CompletedProcess:
+        """The script as the Maintainer runs it, from a shell that holds a key the CLI must never see."""
+        env = {"PATH": os.environ["PATH"], "HOME": str(home or self.home), "LANG": "C",
+               "ANTHROPIC_API_KEY": "sk-" + "ant-" + "api03-NEVER-SEEN", "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
+        return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg), str(cli)], cwd=SCRATCH.name,
+                              capture_output=True, text=True, env=env, timeout=120)
+
+    # OUT names the refusal cases give inside the repo. A broken script could make one, in a copy the mutation check
+    # lends to the next mutant, so each is removed after the test whether or not it was refused.
+    INSIDE = ("never-made-in-the-repo", "never-made-through-a-link")
+
+    def setUp(self):
+        self.home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        self.cfg = self.home.parent / (self.home.name + "-cfg")
+        self.cfg.mkdir()
+        self.out = self.home.parent / (self.home.name + "-out")
+
+    def tearDown(self):
+        for name in self.INSIDE:
+            shutil.rmtree(ROOT / name, ignore_errors=True)
+
+    def texts(self, out) -> dict:
+        return {p.name: p.read_text() for p in pathlib.Path(out).iterdir()}
+
+    def test_the_cli_is_given_only_the_named_environment_and_no_tool(self):
+        folder = self.stand_in()
+        ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        named = {"HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "LANG", "CLAUDE_CONFIG_DIR", "DISABLE_AUTOUPDATER"}
+        shell_adds = {"PWD", "OLDPWD", "SHLVL", "_"}
+        for call in ("version", "auth", "task"):
+            given = dict(line.split("=", 1) for line in (folder / ("env-" + call)).read_text().splitlines() if "=" in line)
+            self.assertEqual(set(given) - shell_adds, named, call)
+            self.assertEqual((given["CLAUDE_CONFIG_DIR"], given["DISABLE_AUTOUPDATER"]), (str(self.cfg), "1"), call)
+            self.assertNotIn("NEVER-SEEN", (folder / ("env-" + call)).read_text(), call)
+        args = (folder / "args").read_text().split("\n")
+        self.assertEqual(args[args.index("--tools") + 1], "", "the model is given no tool")
+        self.assertIn("--json-schema", args)
+        self.assertNotIn("NEVER-SEEN", "".join(self.texts(self.out).values()))
+
+    def test_each_refusal_stops_before_anything_is_asked(self):
+        folder = self.stand_in()
+        cli = folder / "claude"
+        existing = self.home.parent / (self.home.name + "-taken")
+        existing.mkdir()
+        under_home = self.home / "sub"
+        under_home.mkdir()
+        dot_claude = self.home / ".claude" / "deep"
+        dot_claude.mkdir(parents=True)
+        linked = self.home.parent / (self.home.name + "-link")
+        linked.symlink_to(self.home / ".claude")
+        try:                                      # on a file system that tells case, a directory of its own
+            (self.home / ".CLAUDE").mkdir()
+        except FileExistsError:                   # on one that does not, the Maintainer's own, under another name
+            pass
+        to_repo = self.home.parent / (self.home.name + "-repo-link")
+        to_repo.symlink_to(ROOT)
+        home_link = self.home.parent / (self.home.name + "-home-link")
+        home_link.symlink_to(self.home)
+        elsewhere = pathlib.Path(tempfile.mkdtemp()).resolve()       # a link to HOME from outside CONFIG_DIR
+        self.addCleanup(shutil.rmtree, elsewhere, True)
+        far_link = elsewhere / "home-link"
+        far_link.symlink_to(self.home)
+        other_home = self.home.parent / (self.home.name + "-other-home")     # whose ~/.claude is itself a link
+        other_home.mkdir()
+        real_claude = self.home.parent / (self.home.name + "-real-claude")
+        real_claude.mkdir()
+        (other_home / ".claude").symlink_to(real_claude)
+        cases = [("OUT exists", existing, self.cfg, None, "exists; name a new directory"),
+                 ("OUT inside the repo", ROOT / self.INSIDE[0], self.cfg, None, "OUT is inside the repo"),
+                 ("OUT inside the repo through a link", to_repo / self.INSIDE[1], self.cfg, None, "OUT is inside the repo"),
+                 ("OUT inside CONFIG_DIR", self.cfg / "out", self.cfg, None, "OUT is inside CONFIG_DIR"),
+                 ("CONFIG_DIR inside the repo", self.out, ROOT / "tools", None, "CONFIG_DIR is inside the repo"),
+                 ("CONFIG_DIR is HOME", self.out, self.home, None, "the home directory or holds it"),
+                 ("CONFIG_DIR holds HOME", self.out, self.home.parent, under_home, "the home directory or holds it"),
+                 ("CONFIG_DIR is /", self.out, pathlib.Path("/"), None, "the home directory or holds it"),
+                 ("CONFIG_DIR is ~/.claude", self.out, self.home / ".claude", None, "under ~/.claude"),
+                 ("CONFIG_DIR under ~/.claude", self.out, dot_claude, None, "under ~/.claude"),
+                 ("CONFIG_DIR linked to ~/.claude", self.out, linked, None, "under ~/.claude"),
+                 ("HOME through a link, CONFIG_DIR its ~/.claude", self.out, self.home / ".claude", home_link, "under ~/.claude"),
+                 ("HOME through a link from elsewhere, CONFIG_DIR holding the real home", self.out, self.home.parent, far_link,
+                  "the home directory or holds it"),
+                 ("~/.claude a link, CONFIG_DIR where it leads", self.out, real_claude, other_home, "under ~/.claude"),
+                 ("CONFIG_DIR is ~/.CLAUDE", self.out, self.home / ".CLAUDE", None, "under ~/.claude"),
+                 ("CONFIG_DIR missing", self.out, self.home / "none", None, "CONFIG_DIR is not a directory")]
+        for name, out, cfg, home, said in cases:
+            ran = self.run_script(out, cfg, cli, home=home)
+            self.assertEqual(ran.returncode, 2, (name, ran.stdout, ran.stderr))
+            self.assertIn(said, ran.stderr, (name, ran.stdout, ran.stderr))
+            self.assertFalse(out.exists() and out != existing, name)
+            self.assertFalse((folder / "env-version").exists(), name + ": nothing was asked")
+        # The wrong version, a login that says no, and one the script cannot read: each after asking, before the Task.
+        for name, folder, code, said in [
+                ("wrong version", self.stand_in(version="0.0.1"), 1, "is version '0.0.1', exit 0, not " + self.PIN),
+                ("version not given", self.stand_in(version_exit=3), 1, "is version '%s', exit 3, not " % self.PIN),
+                ("not logged in", self.stand_in(status={"loggedIn": False}), 1, "login under CONFIG_DIR is 'no', exit 0"),
+                ("unknown status", self.stand_in(status={"something": "else"}), 1, "is 'unknown', exit 0"),
+                ("status not json", self.stand_in(status="not json"), 1, "is 'unknown', exit 0"),
+                ("logged in as a number", self.stand_in(status={"loggedIn": 1, "authMethod": "someone@example.com via prose words"}), 1,
+                 "is 'unknown', exit 0"),
+                ("auth status failed", self.stand_in(status_exit=3), 1, "is 'yes', exit 3, not yes")]:
+            out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
+            ran = self.run_script(out, self.cfg, folder / "claude")
+            self.assertEqual(ran.returncode, code, (name, ran.stdout, ran.stderr))
+            self.assertIn(said, ran.stderr, (name, ran.stdout, ran.stderr))
+            self.assertFalse((folder / "args").exists(), name + ": the Task was not asked")
+            self.assertNotIn("NEVER-SEEN", "".join(self.texts(out).values()), name)
+            self.assertNotIn("example.com", "".join(self.texts(out).values()), name)
+        # A login that says yes with prose beside it: the prose is dropped, the run goes on.
+        folder = self.stand_in(status={"loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "max but said in words"})
+        out = self.home.parent / (self.home.name + "-prose-status")
+        self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 0)
+        self.assertEqual(json.loads((out / "clean-2").read_text()), {"loggedIn": True, "authMethod": "claude.ai"})
+
+    def test_the_logins_exit_code_is_recorded(self):
+        folder = self.stand_in()
+        self.assertEqual(self.run_script(self.out, self.cfg, folder / "claude").returncode, 0)
+        checked = json.loads((self.out / "checked.json").read_text())
+        self.assertEqual(checked["login"], {"exit": 0, "status": "yes"})
+        self.assertTrue(checked["every_part_holds"])
+        folder = self.stand_in(status_exit=3)
+        out = self.home.parent / (self.home.name + "-failed-login")
+        self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 1)
+        checked = json.loads((out / "checked.json").read_text())
+        self.assertEqual((checked["login"], checked["every_part_holds"]), ({"exit": 3, "status": "yes"}, False))
+        # The version asked after the Task must still be the pin: a CLI that changed under the run does not hold.
+        folder = self.stand_in(after="9.9.9")
+        out = self.home.parent / (self.home.name + "-moved-version")
+        self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 1)
+        checked = json.loads((out / "checked.json").read_text())
+        self.assertEqual((checked["version"]["after"], checked["version"]["held"], checked["every_part_holds"]), ("9.9.9", False, False))
+
+    def test_no_model_text_reaches_out_whether_or_not_the_output_validates(self):
+        invalid = dict(self.VALID, prose=self.PROSE["invalid"])
+        in_result = dict(self.answer(), result=json.dumps(self.VALID))
+        del in_result["permission_denials"]
+        for name, answer, code, validates, source in [("validates", self.answer(self.VALID), 0, True, "structured_output"),
+                                                      ("does not validate", self.answer(invalid), 1, False, "structured_output"),
+                                                      ("in result alone", in_result, 0, True, "result"),
+                                                      ("no output", self.answer(), 1, False, None),
+                                                      ("not json", "the model said THIS-PROSE-1 and nothing else", 1, False, None)]:
+            folder = self.stand_in(answer=answer)
+            out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
+            ran = self.run_script(out, self.cfg, folder / "claude")
+            self.assertEqual(ran.returncode, code, (name, ran.stderr))
+            texts = self.texts(out)
+            for word in self.PROSE.values():
+                self.assertNotIn(word, "".join(texts.values()) + ran.stdout + ran.stderr, name)
+            checked = json.loads(texts["checked.json"])
+            self.assertEqual((checked["structured_output"]["validates"], checked["structured_output"]["from"]),
+                             (validates, source), name)
+            self.assertEqual(checked["stderr"], {"lines": 1, "characters": len(self.PROSE["stderr"]) + 1}, name)
+            self.assertNotIn("clean-3.stderr", texts, name)
+            if isinstance(answer, dict):
+                kept = json.loads(texts["clean-3"])
+                self.assertEqual(re.search(r'^KEPT_RESULT="([^"]*)"$', self.SCRIPT.read_text(), re.M).group(1).split(), self.KEPT)
+                allowed = set(self.KEPT)
+                self.assertTrue(set(kept) <= allowed, (name, set(kept) - allowed))
+                self.assertNotIn("subtype", kept, name)
+                self.assertNotIn("a_new_field", kept, name)
+                self.assertEqual(kept["modelUsage"], {"m": {"inputTokens": 1, "fallback": None, "provider": "firstParty"}}, name)
+                self.assertNotIn("LEAK-ONE-WORD", "".join(texts.values()), name)
+                self.assertNotIn("LEAKED-DOTTED-KEY", "".join(texts.values()), name)
+                self.assertNotIn("LEAKWORD", "".join(texts.values()), name)
+                self.assertEqual(kept["usage"], {"input_tokens": 1, "output_tokens": 2, "provider": []}, name)
+                self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.modelUsage.m.note2", "$.modelUsage.m.canonicalModel", "$.stop_reason", "$.modelUsage.<key>")],
+                                 [{"field": "$.modelUsage.m.note", "characters": len(self.PROSE["in_usage"])},
+                                  {"field": "$.modelUsage.m.note2", "characters": len("LEAK-ONE-WORD")},
+                                  {"field": "$.modelUsage.m.canonicalModel", "characters": len(self.PROSE["long"])},
+                                  {"field": "$.modelUsage.<key>", "characters": len(self.PROSE["as_key"])},
+                                  {"field": "$.stop_reason", "characters": len(self.PROSE["in_code"])}], name)
+                self.assertNotIn("stop_reason", kept, name)
+                self.assertEqual(kept.get("permission_denials"), [{"tool_name": "Bash"}] if "permission_denials" in answer else None, name)
+                self.assertEqual("structured_output" in kept, validates, name)
+                self.assertTrue(any(t["field"].startswith("every field KEPT_RESULT") for t in checked["model_text_removed"]), name)
+                # The record names nothing that is kept: the Result's own strings, or the refused tools' names.
+                self.assertFalse([t for t in checked["model_text_removed"]
+                                  if t["field"].startswith(("$.structured_output", "$.permission_denials"))], name)
+        asked = json.loads((out / "requests.json").read_text())
+        self.assertEqual(asked[2]["kept"], self.KEPT)
+        self.assertIn('--tools ""', asked[2]["call"])
+        self.assertEqual(asked[2]["env"]["CLAUDE_CONFIG_DIR"],
+                         "a configuration directory of its own, logged in to the Maintainer's own subscription (decision 0033)")
+
+
 class Redaction(unittest.TestCase):
     """`tools/redact_trial.py` runs on the raw capture, outside the repo, before anyone reads it."""
 
@@ -3210,6 +3490,7 @@ class Redaction(unittest.TestCase):
         data["exchanges"][0]["response"]["body"]["clone"] = SHAPED["token in a url"]
         data["exchanges"][0]["response"]["body"]["blob"] = SHAPED["base64 of a runner's credentials"]
         data["exchanges"][0]["response"]["body"]["notes"] = [SHAPED[name] for name in sorted(SHAPED)]
+        data["exchanges"][0]["response"]["body"]["by_key"] = {SHAPED["ghs"]: 1, "Bearer\x00Zx9Qw8Er7Ty6Ui5Op4As3Df5": 2}
         out, said = self.redact(json.dumps(data))
         kept = json.loads(out)
         self.assertEqual(check_trials._credentials(kept, ""), [])
@@ -3219,12 +3500,21 @@ class Redaction(unittest.TestCase):
         self.assertEqual((body["expires_at"], body["external_id"]), ("2026-10-15T15:02:11Z", "factory-run-r1"))
         self.assertNotIn("token", body)
         self.assertNotIn("clone", body)
-        self.assertEqual(body["notes"], [])
+        self.assertEqual((body["notes"], body["by_key"]), ([], {}))
         self.assertIn("exchanges[0].request.headers.Authorization", kept["removed"])
         self.assertIn("exchanges[0].response.body.token", kept["removed"])
         self.assertIn("exchanges[0].response.body.clone", kept["removed"])
+        self.assertIn("exchanges[0].response.body.by_key." + check_trials.KEY_SHAPED, kept["removed"])
+        self.assertNotIn("Zx9Qw8", out + said)
         for value in SHAPED.values():
             self.assertNotIn(value, out + said)
+
+    def test_a_header_named_by_a_credential_is_reported_without_it(self):
+        raw = "HTTP/2.0 200 OK\n" + SHAPED["ghs"] + ": 1\nContent-Type: text/plain\n\nfine\n"
+        out, said = self.redact(raw)
+        self.assertEqual(out, "HTTP/2.0 200 OK\nContent-Type: text/plain\n\nfine\n")
+        self.assertIn("the header " + check_trials.KEY_SHAPED, said)
+        self.assertNotIn(SHAPED["ghs"], said)
 
     def test_a_raw_capture_comes_out_with_no_credential(self):
         raw = ("HTTP/2.0 201 Created\nAuthorization: tok" + "en " + SHAPED["ghp"] + "\nX-Ratelimit-Remaining: 4999\nX-GitHub-SSO: required\n"

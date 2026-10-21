@@ -45,10 +45,18 @@ CODE = re.compile(r"^[a-z_]+$")
 MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 
 # A key that names a credential, however it is spelt: compared after strip(), lower() and - to _.
-KEY_PARTS = ("token", "secret", "password", "credential", "jit_config", "otp", "cookie", "authorization")
+KEY_PARTS = ("token", "secret", "password", "credential", "jit_config", "otp", "cookie", "authorization",
+             "api_key", "apikey", "private_key", "privatekey", "passphrase",
+             "authentication", "passwd", "passcode", "bearer", "access_key", "accesskey", "encryption_key", "signing_key",
+             "master_key", "auth_key", "authkey", "pwd", "encryptionkey", "signingkey", "masterkey")
 KEY_WHOLE = {"auth", "jwt"}
 KEY_HARMLESS = {"token_type", "input_tokens", "output_tokens", "total_tokens", "cache_creation_input_tokens",
-                "cache_read_input_tokens"}
+                "cache_read_input_tokens",
+                # The vendor's CLI counts tokens in camelCase under modelUsage, and in nested fields under usage
+                # (issue 178); compared after lower(), so inputTokens is input_tokens here.
+                "inputtokens", "outputtokens", "cachereadinputtokens", "cachecreationinputtokens", "maxoutputtokens",
+                "thinkingtokens", "thinking_tokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens",
+                "output_tokens_details"}
 # The headers a fixture may keep, compared in lower case. Any other is left out: allow what is named.
 HEADERS = {"accept", "cache-control", "content-length", "content-type", "date", "etag", "last-modified", "link",
            "location", "retry-after", "server", "user-agent", "vary", "x-accepted-github-permissions",
@@ -73,6 +81,22 @@ REGISTRATION = re.compile(r"^[A-Z2-7]{29}$")
 ENCODED = re.compile(r"[A-Za-z0-9+/_-]{20,}={0,2}")
 
 
+# How a place is named when its key is shaped like a credential: by this, never by the key.
+KEY_SHAPED = "<a key shaped like a credential>"
+# What a repr writes for a character it does not print: each is read as a separator when a message is hidden.
+ESCAPED = re.compile(r"\\(?:x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|[ntrfvab0])")
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\xa0]")
+
+
+def hidden(text: str) -> str:
+    """`text` with each word shaped like a credential replaced by KEY_SHAPED, and hidden whole when a shape spans
+    words: a message never carries one. An escaped character, as a repr writes a newline, a vertical tab or a
+    non-breaking space, is read as a separator."""
+    plain = ESCAPED.sub(" ", text)
+    text = re.sub(r"\S+", lambda m: KEY_SHAPED if shaped(ESCAPED.sub(" ", m.group())) else m.group(), text)
+    return text if not shaped(plain) else "a message that holds something shaped like a credential, hidden whole"
+
+
 def refused_key(key: str) -> bool:
     name = key.strip().lower().replace("-", "_")
     return name not in KEY_HARMLESS and (name in KEY_WHOLE or any(part in name for part in KEY_PARTS))
@@ -94,8 +118,10 @@ def _decoded(text: str) -> list:
 
 
 def shaped(text: str, depth: int = 0) -> bool:
-    """Whether `text` holds something shaped like a credential, plainly or in base64."""
-    if SHAPES.search(text) or REGISTRATION.match(text):
+    """Whether `text` holds something shaped like a credential, plainly or in base64. A control character is read as a
+    separator, so a shape split by one is still seen."""
+    text = CONTROL.sub(" ", text)
+    if SHAPES.search(text) or REGISTRATION.match(text.strip()):    # the whole string, a newline after it or not
         return True
     if depth:
         return False
@@ -115,9 +141,12 @@ def _credentials(value, where: str) -> list:
     out = []
     if isinstance(value, dict):
         for key, item in value.items():
-            here = "%s.%s" % (where, key) if where else key
+            shown = KEY_SHAPED if shaped(key) else key     # a place is never named by a credential
+            here = "%s.%s" % (where, shown) if where else shown
             if refused_key(key):
                 out.append((here, "is a field for a credential; leave it out, and list where in removed"))
+            elif shaped(key):
+                out.append((here, "is a key shaped like a credential; leave it out, and list where in removed"))
             out += _credentials(item, here)
     elif isinstance(value, list):
         for i, item in enumerate(value):
@@ -197,7 +226,8 @@ def _headers(data) -> list:
             headers = part.get("headers") if isinstance(part, dict) else None
             for name in headers if isinstance(headers, dict) else []:
                 if name.strip().lower() not in HEADERS:
-                    out.append(("exchanges[%d].%s.headers.%s" % (i, side, name),
+                    shown = KEY_SHAPED if shaped(name) else name     # a place is never named by a credential
+                    out.append(("exchanges[%d].%s.headers.%s" % (i, side, shown),
                                 "is not a header a fixture may keep; leave it out, or add it to HEADERS in "
                                 "tools/check_trials.py if it can never carry a credential"))
     return out
@@ -240,9 +270,9 @@ def _fixtures(root: pathlib.Path, schema: dict, problems: list) -> dict:
         try:
             data = _load(path)
         except (OSError, ValueError) as err:
-            problems.append("%s cannot be read: %s" % (rel, err))
+            problems.append("%s cannot be read: %s" % (rel, hidden(str(err))))
             continue
-        wrong = ["%s: %s" % (rel, err) for err in validate(data, schema)]
+        wrong = ["%s: %s" % (rel, hidden(err)) for err in validate(data, schema)]
         if not wrong and data["trial"] != name.group(1):
             wrong.append("%s: records trial %s; a fixture is named for its trial" % (rel, data["trial"]))
         if not wrong:

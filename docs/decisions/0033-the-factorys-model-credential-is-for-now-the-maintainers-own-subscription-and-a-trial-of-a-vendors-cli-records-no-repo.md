@@ -48,5 +48,7 @@ a kind of its own.
 | A fixture's `repo` is the canary or null, never another repo | `examples/invalid/trial.run-outside-the-canary.json` |
 | Whoever asked is named in words, never by an address | `tests/test_tools.py::test_an_asker_named_by_an_address_is_caught` |
 | A fixture of a vendor's CLI holds no credential and no header a fixture may not keep | `tools/check_trials.py` |
+| P-13's script, `tools/trial_p13_cli.sh`, gives the CLI only the environment it names, and no tool; it refuses the default configuration (the home directory, any directory holding it, anything under `~/.claude`, the repo) and stops unless `auth status` exits 0 and says logged in, recording that exit code | `tests/test_tools.py::test_the_cli_is_given_only_the_named_environment_and_no_tool`, `tests/test_tools.py::test_each_refusal_stops_before_anything_is_asked`, `tests/test_tools.py::test_the_logins_exit_code_is_recorded` |
+| Of the Task's answer only the fields the script names reach OUT, so no model text does, whether or not the structured output validates | `tests/test_tools.py::test_no_model_text_reaches_out_whether_or_not_the_output_validates` |
 | The Factory's model credential is its own again, held by the `run` job as an environment secret | waiting on `harness/` |
 | The context's test runs the CLI at the same pin, on the same login, from a configuration directory of its own, and holds no credential in its record | `tests/test_tools.py::test_a_run_is_judged_and_recorded_with_no_model_text` |
