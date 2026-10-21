@@ -5,6 +5,7 @@ import copy
 import json
 import os
 import pathlib
+import time
 import unittest
 
 from tools.hooks import protected
@@ -32,6 +33,97 @@ OTHER_WORKFLOW = ".github/workflows/impostor.yml"
 PATHS = ("docs/notes.md", "docs/glossary.md")
 # The Maintainer: a person, which is an actor of kind human with write access, and nobody else is.
 MAINTAINER = {"kind": "human", "name": "don-petry", "can_write": True}
+
+
+class Spent:
+    """What a block of a test spent: `cpu`, the CPU time of this process and of every child it waited for, and `wall`,
+    the time by the clock (issue 253). A busy machine stretches `wall` and leaves `cpu` as the hook's own."""
+
+    def __enter__(self):
+        self._times, self._started = os.times(), time.monotonic()
+        return self
+
+    def __exit__(self, *exc):
+        now, then = os.times(), self._times
+        self.cpu = sum(getattr(now, f) - getattr(then, f) for f in ("user", "system", "children_user", "children_system"))
+        self.wall = time.monotonic() - self._started
+        return False
+
+
+def cores() -> int:
+    """The CPUs this process may run on: its affinity where the system says, as a container's or a quota's runner
+    does, else the machine's count; at least one (Codex on PR 257)."""
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return max(1, os.cpu_count() or 1)
+
+
+def slack() -> float:
+    """How many times its CPU budget a block may take by the clock on this machine now: twice, and more by as much as
+    the load is above the cores, so a loaded machine is not read as a slow hook (issue 253)."""
+    try:
+        load = os.getloadavg()[0]
+    except (AttributeError, OSError):
+        load = 0.0
+    return 2.0 * max(1.0, load / cores())
+
+
+def over(spent: Spent, budget: float) -> str:
+    """Why `spent` did not keep to `budget`, or "": its CPU time must be under the budget, so a hook that takes the time
+    itself fails on any machine, and its time by the clock under the budget times `slack()`, so a hook that waits fails
+    too."""
+    if spent.cpu >= budget:
+        return "spent %.2f s of CPU, past its budget of %s s" % (spent.cpu, budget)
+    if spent.wall >= budget * slack():
+        return "took %.2f s by the clock, past %s s times the slack %.1f" % (spent.wall, budget, slack())
+    return ""
+
+
+def faster_than_linear(quarter: Spent, half: Spent, whole: Spent) -> str:
+    """Why a reading grew faster than linearly over its `sizes`, or "": what the whole costs past the quarter may be four
+    and a half times what the half costs past it, and a tenth of a second over for the noise of a measure. Past the
+    quarter, linear growth gives three times, n to the 1.6 four, n to the 1.8 four and a half and quadratic five, and
+    what does not grow, such as the git the hook runs, falls away. The line is at n to the 1.8 because one reading the
+    hook has, escaped backticks in double quotes, grows as n to the 1.6 ("Identity hook: escaped backticks in double
+    quotes are read in more than linear time", issue 260); a quarter, not size 0, because a reading of nothing may take another path, as an arithmetic the hook refuses
+    does not at size 0. All three are measured in the same run, so a loaded machine slows them alike (issue 253)."""
+    if half.cpu < quarter.cpu:    # the measures disagree, as a warm-up the quarter paid makes them: no growth is told
+        return ""
+    grew, grew_half = whole.cpu - quarter.cpu, half.cpu - quarter.cpu
+    if grew >= 4.5 * grew_half + 0.1:
+        return "cost %.2f s of CPU at its size, against %.2f s at half and %.2f s at a quarter" % (whole.cpu, half.cpu,
+                                                                                                 quarter.cpu)
+    return ""
+
+
+def sizes(size: int) -> tuple:
+    """The sizes a reading is run at to tell how it grows: a quarter, half and whole."""
+    return size // 4, size // 2, size
+
+
+def within(test, spent: Spent, budget: float, what: str = "") -> None:
+    """Fail `test` unless `spent` kept to `budget`, as `over` reads it."""
+    test.assertEqual(over(spent, budget), "", what)
+
+
+def grows_linearly(test, quarter: Spent, half: Spent, whole: Spent, what: str = "") -> None:
+    """Fail `test` unless the reading grew linearly, as `faster_than_linear` reads it."""
+    test.assertEqual(faster_than_linear(quarter, half, whole), "", what)
+
+
+def linear(test, run, size: int, budget: float, what: str = ""):
+    """`run(size)`'s result, failing `test` unless it kept to `budget` and grew linearly from `run(size // 4)` and
+    `run(size // 2)`, the `sizes` of it."""
+    run(sizes(size)[0])    # once, untimed, so what the first run warms is not counted to it (Codex on PR 257)
+    spent = []
+    for n in sizes(size):
+        with Spent() as one:
+            result = run(n)
+        spent.append(one)
+    within(test, spent[-1], budget, what)
+    grows_linearly(test, *spent, what)
+    return result
 
 
 def wall_clock(test):

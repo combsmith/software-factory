@@ -21,7 +21,7 @@ import time
 import unittest
 from unittest import mock
 
-from tests.support import wall_clock
+from tests.support import Spent, cores, faster_than_linear, linear, over, sizes, slack, wall_clock, within
 from tools.hooks import after_edit, before_stop, identity, protected, rules_changed, shell
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -128,6 +128,87 @@ def a_project() -> pathlib.Path:
     (where / "kernel").mkdir()
     (where / ".claude" / "worktrees" / "w" / "kernel").mkdir(parents=True)
     return where
+
+
+class Budgets(unittest.TestCase):
+    """A test of the hook's budget measures the hook, not the machine (issue 253): its CPU time, its own and its
+    children's, against the budget, and its time by the clock against the budget times a slack that grows with load."""
+
+    def spent(self, cpu, wall):
+        spent = Spent()
+        spent.cpu, spent.wall = cpu, wall
+        return spent
+
+    def test_a_slow_hook_fails_and_a_loaded_machine_does_not(self):
+        # Spends written down, not measured, so the verdict is the same on any machine and under the mutation check.
+        with mock.patch("os.getloadavg", return_value=(0.0, 0.0, 0.0)), mock.patch("tests.support.cores", return_value=4):
+            self.assertEqual(slack(), 2.0)
+            self.assertEqual(over(self.spent(0.9, 1.9), 1), "")        # within its CPU, and within twice by the clock
+            self.assertIn("of CPU", over(self.spent(1.1, 1.1), 1))     # its own CPU past the budget: a slow hook
+            self.assertIn("by the clock", over(self.spent(0.1, 2.1), 1))   # a hook that waits, on an idle machine
+            self.assertIn("of CPU", over(self.spent(1.0, 0.5), 1))     # at the budget is past it: it must be under
+            self.assertIn("by the clock", over(self.spent(0.5, 2.0), 1))   # and so is the clock at its ceiling
+        with mock.patch("os.getloadavg", return_value=(80.0, 0.0, 0.0)), mock.patch("tests.support.cores", return_value=10):
+            self.assertEqual(slack(), 16.0)
+            self.assertEqual(over(self.spent(0.9, 15.0), 1), "")       # a machine at eight times its cores
+            self.assertIn("of CPU", over(self.spent(10.0, 10.0), 1))   # a slow hook still fails there
+        with mock.patch("os.getloadavg", side_effect=OSError):
+            self.assertEqual(slack(), 2.0)
+        # The CPUs the process may use, not the machine's, where the system says.
+        with mock.patch("os.sched_getaffinity", return_value={0, 1}, create=True), mock.patch("os.cpu_count", return_value=64):
+            self.assertEqual(cores(), 2)
+        with mock.patch("os.sched_getaffinity", side_effect=AttributeError, create=True), mock.patch("os.cpu_count", return_value=None):
+            self.assertEqual(cores(), 1)
+
+    def test_a_reading_that_grows_faster_than_its_size_fails(self):
+        # Spends at a quarter, half and whole of a size. Past the quarter, linear growth is three times the half's and
+        # passes, quadratic is five and fails, whatever the load; what does not grow falls away.
+        def three(*cpus):
+            return [self.spent(cpu, cpu) for cpu in cpus]
+        self.assertEqual(faster_than_linear(*three(1.0, 2.0, 4.0)), "")                  # linear
+        self.assertEqual(faster_than_linear(*three(0.1, 0.12, 0.15)), "")                # what does not grow
+        self.assertIn("at half", faster_than_linear(*three(0.25, 1.0, 4.0)))             # quadratic
+        self.assertIn("at half", faster_than_linear(*three(0.1, 0.4, 1.6)))              # quadratic, and small
+        self.assertEqual(faster_than_linear(*three(0.24, 0.63, 1.80)), "")              # n to the 1.6, as the hook has
+        # A second of what does not grow must not hide a quadratic past it, and a first run that costs more than the
+        # half, as warming what the others reuse does, is not growth.
+        self.assertIn("at half", faster_than_linear(*three(1.1, 1.4, 2.6)))
+        self.assertEqual(faster_than_linear(*three(0.3, 0.1, 0.15)), "")
+        self.assertEqual(faster_than_linear(*three(0.07, 0.03, 0.04)), "")
+        self.assertEqual(faster_than_linear(*three(1.3, 1.0, 1.5)), "")         # linear, after a warm-up the quarter paid
+        # At the edge: exactly four and a half times and the noise is past it.
+        self.assertIn("at half", faster_than_linear(*three(0.0, 1.0, 4.6)))
+        self.assertEqual(faster_than_linear(*three(0.0, 1.0, 4.59)), "")
+        # The sizes a reading is run at: a quarter, half and whole, so the three spends are of three sizes on one path.
+        self.assertEqual(sizes(16000), (4000, 8000, 16000))
+        self.assertEqual(sizes(901), (225, 450, 901))
+
+    def test_the_cpu_a_child_spends_is_counted(self):
+        # The hook runs git; what git spends is the hook's too. CPU time, so a busy machine does not change it.
+        with Spent() as spent:
+            subprocess.run([sys.executable, "-c", "import time\nend = time.process_time() + 0.3\nwhile time.process_time() < end: pass"],
+                           check=True)
+        self.assertGreater(spent.cpu, 0.2)
+
+    @wall_clock
+    def test_a_fast_hook_passes_beside_a_busy_sibling(self):
+        # Siblings that spin on every core stretch the clock; the hook's CPU and the slack keep the verdict the hook's.
+        # As many as the CPUs this process may use, and no more than four, so a quota-limited runner is not swamped.
+        siblings = []
+        self.addCleanup(lambda: [p.kill() or p.wait() for p in siblings])    # before any starts, so none is left
+        for _ in range(min(cores(), 4)):
+            siblings.append(subprocess.Popen([sys.executable, "-c", "while True: pass"]))
+        time.sleep(0.5)
+        with Spent() as fast:
+            identity._ident("x <" * 40000 + "y")
+            identity._without_credential("https://" + "a" * 100000)
+        within(self, fast, 1, "a fast reading beside busy siblings")
+        with Spent() as slow:
+            end = time.process_time() + 1.5
+            while time.process_time() < end:
+                pass
+        with self.assertRaises(AssertionError):
+            within(self, slow, 1, "a reading that spins past its budget")
 
 
 class Identity(unittest.TestCase):
@@ -1051,15 +1132,21 @@ class Identity(unittest.TestCase):
     @wall_clock
     def test_the_spellings_that_ran_long_are_read_in_linear_time(self):
         # Decision 0032: an alias read again and again, an unclosed [ again and again, and cd - again and again.
+        # Issue 253: each reading that grows is run at half its size and at its size, in this run; the second keeps to the
+        # hook's reading budget, READ_SECONDS of CPU, and costs at most three times the first. The two that do not grow
+        # keep to the budget.
         bomb = "alias a0=:\n" + "".join("alias a%d='a%d;a%d'\n" % (n, n - 1, n - 1) for n in range(1, 23)) + "a22; git push"
-        for command, code in ((bomb, "command_unreadable"), ("cp /tmp/x ." + "[a" * 8000 + "; git push", ""),
-                              ("mytool -" + "a" * 20000 + "; git push", ""),
-                              ("cd .git; " + "cd -;" * 16000 + " cd %s; git push" % self.here, ""),
+        for command, code in ((bomb, "command_unreadable"),
                               ("pushd a; " + "".join("popd; pushd d%d; " % n for n in range(40)) + "git push",
                                "more directories than the hook reads")):
-            started = time.monotonic()
-            said = self.codes(command)
-            self.assertLess(time.monotonic() - started, 5, command[:40])
+            with Spent() as spent:
+                said = self.codes(command)
+            within(self, spent, identity.READ_SECONDS, command[:40])
+            self.assertIn(code, said)
+        for make, size, code in ((lambda n: "cp /tmp/x ." + "[a" * n + "; git push", 8000, ""),
+                                 (lambda n: "mytool -" + "a" * n + "; git push", 20000, ""),
+                                 (lambda n: "cd .git; " + "cd -;" * n + " cd %s; git push" % self.here, 16000, "")):
+            said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
             self.assertIn(code, said)
 
     def test_a_substitution_a_quote_holds_and_a_comment_are_data(self):
@@ -1253,21 +1340,21 @@ class Identity(unittest.TestCase):
     @wall_clock
     def test_the_readings_issue_174_adds_run_in_linear_time(self):
         # Each new reading is one pass: a comment, a $'...' refused at its backslash, escaped backticks, ( and ${...}.
-        for command, code in (("# " + "x" * 200000 + "\ngit commit -m x", ""),
-                              ("git commit -m $'" + "\\x41\\'" * 20000 + "'", "command_unreadable"),
-                              ('git commit -m "' + "\\`x\\` " * 20000 + '"', ""),
-                              ("arr=(" + "a " * 20000 + "); f() { :; }; echo $((1)); git push", ""),
-                              ("for f in a; do cp /tmp/x " + "${f%}" * 5000 + "; done; git push",
-                               "git_directory_written"),
-                              ("alias x='cd .git;'\n" + "x ls\n" * 200 + "git push", ""),
-                              # A run of stars, or of expansions read as one, before a tail that does not match.
-                              ("x=a; cp /tmp/x " + "${x%}" * 320 + "Q/y; git push", ""),
-                              ("cp /tmp/x " + "*" * 320 + "Q/y; git push", ""),
-                              ("cp /tmp/x {1..100000}/" + "*" * 320 + "Q/y; git push", ""),
-                              ('echo "' + "$(( " * 900 + "1" + " ))" * 900 + '"; git push', "command_unreadable")):
-            started = time.monotonic()
-            said = self.codes(command)
-            self.assertLess(time.monotonic() - started, 5, command[:40])
+        # Issue 253: each at half its size and at its size, in this run, as test_the_spellings_that_ran_long_... is.
+        for make, size, code in ((lambda n: "# " + "x" * n + "\ngit commit -m x", 200000, ""),
+                                 (lambda n: "git commit -m $'" + "\\x41\\'" * n + "'", 20000, "command_unreadable"),
+                                 (lambda n: 'git commit -m "' + "\\`x\\` " * n + '"', 20000, ""),
+                                 (lambda n: "arr=(" + "a " * n + "); f() { :; }; echo $((1)); git push", 20000, ""),
+                                 (lambda n: "for f in a; do cp /tmp/x " + "${f%}" * n + "; done; git push", 5000,
+                                  "git_directory_written"),
+                                 (lambda n: "alias x='cd .git;'\n" + "x ls\n" * n + "git push", 200, ""),
+                                 # A run of stars, or of expansions read as one, before a tail that does not match.
+                                 (lambda n: "x=a; cp /tmp/x " + "${x%}" * n + "Q/y; git push", 320, ""),
+                                 (lambda n: "cp /tmp/x " + "*" * n + "Q/y; git push", 320, ""),
+                                 (lambda n: "cp /tmp/x {1..100000}/" + "*" * n + "Q/y; git push", 320, ""),
+                                 (lambda n: 'echo "' + "$(( " * n + "1" + " ))" * n + '"; git push', 900,
+                                  "command_unreadable")):
+            said = linear(self, lambda n: self.codes(make(n)), size, identity.READ_SECONDS, make(2)[:40])
             self.assertIn(code, said)
 
     @wall_clock
@@ -1276,14 +1363,15 @@ class Identity(unittest.TestCase):
         # with an @ in every other one took the old pattern ten seconds, and an identity of 40,000 " <" nineteen; each
         # reading is a pass now. The whole hook on a 20,000-character remote answers too; past that, Python's shlex and
         # the hook's passes over the command cost more than the readings, within the hook's own budget.
-        started = time.monotonic()
-        self.assertFalse(identity._urlish("a@" * 100000 + "b"))
-        self.assertIsNone(identity._ident("x <" * 40000 + "y"))
-        long = "https://" + "a" * 100000 + " " + "://@" * 50000
-        self.assertEqual(identity._without_credential(long), long)
-        self.assertLess(time.monotonic() - started, 1)
-        self.assertIn("account_unreadable", self.codes("git push " + "a@" * 10000 + "b HEAD"))
-        self.assertLess(time.monotonic() - started, 5)
+        with Spent() as readings:
+            self.assertFalse(identity._urlish("a@" * 100000 + "b"))
+            self.assertIsNone(identity._ident("x <" * 40000 + "y"))
+            long = "https://" + "a" * 100000 + " " + "://@" * 50000
+            self.assertEqual(identity._without_credential(long), long)
+        within(self, readings, 1, "the three readings")
+        with Spent() as hook:
+            self.assertIn("account_unreadable", self.codes("git push " + "a@" * 10000 + "b HEAD"))
+        within(self, hook, 5, "the hook on a long remote")
 
     def test_the_readings_sonarcloud_flagged_read_what_their_regexes_read(self):
         # Issue 239: the same answers as the regexes they replace, at every edge the regexes had.
