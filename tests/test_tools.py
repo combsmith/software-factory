@@ -1243,6 +1243,18 @@ class Repo(unittest.TestCase):
         self.assertFalse(caught(check_repo.run(tree({"docs/prd/requirements.md": "x", "a.py": "from . import b\n"})),
                                 "manifest"))
 
+    def test_only_the_transport_reaches_the_network(self):
+        # Issue 191, ruling 3: only adapters/github.py imports what reaches the network; elsewhere each way of naming
+        # it is refused, and urllib's parsing, which reaches nothing, is not.
+        refused = ("import urllib.request\n", "from urllib import request\n", "import http.client\n",
+                   "from http import client\n", "import socket\n", "import ssl\n", "from xmlrpc.client import X\n")
+        for text in refused:
+            self.assertTrue(caught(check_repo.run(tree({"tools/a.py": text})), "reaches the network"), text)
+            self.assertFalse(caught(check_repo.run(tree({"adapters/github.py": text})), "reaches the network"), text)
+        self.assertTrue(caught(check_repo.run(tree({"adapters/pull.py": "import urllib.request\n"})), "reaches the network"))
+        self.assertFalse(caught(check_repo.run(tree({"tools/a.py": "import urllib.parse\nfrom urllib import parse\n"})),
+                                "reaches the network"))
+
     def test_code_loaded_round_the_import_list_is_caught(self):
         root = tree({"a.py": "s = __import__('socket')\nexec('import requests')\n"})
         problems = check_repo.run(root)
@@ -2196,6 +2208,21 @@ class Context(unittest.TestCase):
         self.assertTrue(caught(held("waiting on `harness/never.py`", "rule", root, root), "exists now"))
         self.assertTrue(caught(held("waiting on `.github/CODEOWNERS`", "rule", root, root), "exists now"))
 
+    def test_a_wait_on_a_file_a_built_directory_plans_holds_until_the_file_exists(self):
+        # Issue 191, ruling 2: a directory built in parts names, in its AGENTS.md, the files not built yet; a wait on
+        # one of those holds until it exists, and a wait on any other file there has arrived, as a forgotten one would.
+        root = tree({"harness/apply.py": "", "harness/AGENTS.md": "Not built yet, by later stories: later.py, x/y.py, run.test.py.\n"})
+        held = check_context._held
+        self.assertEqual(held("waiting on `harness/later.py`", "rule", root, root), [])
+        self.assertEqual(held("waiting on `harness/x/y.py`", "rule", root, root), [])
+        self.assertEqual(held("waiting on `harness/run.test.py`", "rule", root, root), [])
+        self.assertTrue(caught(held("waiting on `harness/never.py`", "rule", root, root), "exists now"))
+        self.assertTrue(caught(held("waiting on `harness/`", "rule", root, root), "exists now"))
+        (root / "harness" / "later.py").write_text("")
+        self.assertTrue(caught(held("waiting on `harness/later.py`", "rule", root, root), "exists now"))
+        # Before the directory exists, the wait is on it, whatever file the rule names.
+        self.assertEqual(held("waiting on `roles/later.py`", "rule", root, root), [])
+
     def test_a_rule_that_cites_a_test_expected_to_fail_must_say_so(self):
         root = tree({"tests/t.py": "@pending\ndef test_later(self):\n    pass\n\ndef test_now(self):\n    pass\n"})
         held = check_context._held
@@ -3098,6 +3125,42 @@ class Trials(unittest.TestCase):
         self.assertEqual((renamed["actor"]["login"], reopened["actor"]["login"], issue["stateReason"]),
                          ("don-petry", "don-petry", "REOPENED"))
         self.assertEqual([n["editor"]["login"] for n in issue["userContentEdits"]["nodes"]], ["don-petry", "don-petry"])
+
+    def test_an_edit_after_the_merge_changes_the_closing_references(self):
+        # trials/P-46.json (issue 256): its verdict is computed here from the reads by the pass condition, so a fixture
+        # edited to pass, or to say what it did not see, fails. The rule it contradicts stays unverified (issue 267).
+        by_code = {rule[0]: rule for rule in check_trials.rules()}
+        rule = by_code["a_merged_pull_requests_closing_references_are_fixed"]
+        self.assertEqual((rule[2], rule[3]), (("P-46",), None))
+        p46 = json.loads((ROOT / "trials" / "P-46.json").read_text())
+        n = p46["exchanges"][0]["response"]["body"]["number"]           # the issue the trial opened
+        reads = [e["response"]["body"]["data"]["repository"] for e in p46["exchanges"] if e["request"]["via"] == "graphql"]
+        self.assertEqual({r["pullRequest"]["number"] for r in reads}, {38})
+        self.assertEqual({r["issue"]["number"] for r in reads}, {n})
+        self.assertEqual({r["pullRequest"]["state"] for r in reads}, {"MERGED"})
+        refs = [sorted(x["number"] for x in r["pullRequest"]["closingIssuesReferences"]["nodes"]) for r in reads]
+        # The pass condition: fail if an edit after the merge put N among the merged pull request's references.
+        self.assertEqual(p46["verdict"], "fail" if any(n in r for r in refs[1:]) else "pass")
+        self.assertEqual(refs, [[36], [36, n], [36, n], [36], [36]],
+                         "before, after the edit twice, after it was undone, and after the exact restore")
+        merged_at = reads[0]["pullRequest"]["mergedAt"]
+        # The edit came after the merge, and the issue it named stayed open until the trial closed it; its timeline
+        # holds a cross-reference timed after the merge that says it will not close the issue, and the trial's close.
+        self.assertGreater(reads[1]["pullRequest"]["lastEditedAt"], merged_at)
+        self.assertEqual([r["issue"]["state"] for r in reads], ["OPEN"] * 4 + ["CLOSED"])
+        events = reads[-1]["issue"]["timelineItems"]["nodes"]
+        self.assertEqual([(e["__typename"], e.get("willCloseTarget")) for e in events],
+                         [("CrossReferencedEvent", False), ("ClosedEvent", None)])
+        self.assertEqual((events[0]["source"]["number"], events[1]["closer"]), (38, None))
+        self.assertGreater(events[0]["createdAt"], merged_at)
+        # The edit added one line, the undo took it out, and the canary was left with the description it had.
+        bodies = [e["request"]["body"]["body"] for e in p46["exchanges"]
+                  if e["request"]["call"].startswith("PATCH /repos/") and "/pulls/" in e["request"]["call"]]
+        self.assertEqual(bodies[0].replace("Closes #%d\n" % n, "", 1), bodies[1])
+        self.assertEqual((bodies[2], reads[-1]["pullRequest"]["body"]), (reads[0]["pullRequest"]["body"],) * 2)
+        analysis = p46["exchanges"][-1]["response"]["body"]
+        self.assertEqual(list(analysis["closing_references"].values()), refs)
+        self.assertTrue(analysis["n_added_by_the_edit"] and analysis["n_removed_when_undone"] and analysis["restored_exactly"])
 
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
