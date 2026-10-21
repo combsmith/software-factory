@@ -213,6 +213,27 @@ class Transport(unittest.TestCase):
             live.send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
         self.assertNotIn("sig=", held(refused.exception))
 
+        # An error the storage answers, cut short or over the bound, raises a refusal chained to no error that holds
+        # the address: urllib names it as each error's filename.
+        class Cut(io.BytesIO):
+            def read(self, *a):
+                raise github.http.client.IncompleteRead(b"")
+
+        for answer in (lambda req: Cut(), lambda req: io.BytesIO(b"z" * (github.STORED + 1)),
+                       lambda req: (_ for _ in ()).throw(ValueError("unknown url type: %s" % req.full_url))):
+            class Failing(Opener):
+                def open(self, req, timeout=None, answer=answer):
+                    sent.append(req)
+                    if len(sent) % 2:
+                        raise github.Redirected(302, STORE)
+                    found = answer(req)
+                    raise github.urllib.error.HTTPError(req.full_url, 500, "x", {}, found)
+            sent.clear()
+            live.opener = Failing(1)
+            with self.assertRaises(github.Unanswered) as refused:
+                live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+            self.assertNotIn("sig=", held(refused.exception))
+
     def test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect(self):
         for token in ("", " ", "a b", None):
             with self.assertRaises(github.Unanswered, msg=repr(token)):

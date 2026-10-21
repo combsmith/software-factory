@@ -1942,6 +1942,12 @@ MUTANTS = ISSUE + [
     ('an outcome past its retention defers', 'adapters/artifacts.py',
      '    if found is None or (found and found.get("expired") is True):\n',
      '    if found is None:\n', ('tests.test_adapters',)),
+    ("a refusal over the bound is chained to the storage's error", 'adapters/github.py',
+     '        except Unanswered as err:\n            refused = str(err)\n',
+     '        except Unanswered as err:\n            raise\n', ('tests.test_adapters',)),
+    ("a refusal of a cut answer is chained to the storage's error", 'adapters/github.py',
+     '            refused = "GitHub could not be reached, or its answer was cut short: %s" % type(err).__name__\n',
+     '            raise Unanswered("GitHub could not be reached, or its answer was cut short") from None\n', ('tests.test_adapters',)),
     ('a request built by hand is sent unchecked', 'adapters/github.py',
      '        req = request(req["method"], req["path"], req["accept"], req["body"], req.get("headers"),\n'
      '                      req.get("follow", False))\n',

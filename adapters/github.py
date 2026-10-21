@@ -154,7 +154,8 @@ class Live:
     def _open(self, sent, largest: int) -> tuple:
         """`(answer, None)`, or `(None, the address redirected to)`; a connection that fails, or an answer cut short
         while it is read, a body or an error's, is refused. A 308, which Python before 3.11 hands on as an error, is a
-        redirect too, and its address is never kept in an answer."""
+        redirect too, and its address is never kept in an answer. A refusal is raised only once every handler has
+        ended, so that it is chained to no error of urllib's, whose `filename` is the address asked."""
         try:
             try:
                 with self.opener.open(sent, timeout=self._timeout) as got:
@@ -166,8 +167,11 @@ class Live:
                     return _answer(err.code, err.headers, _bounded(err, largest)), None
             except Redirected as err:
                 return None, err.location
+        except Unanswered as err:
+            refused = str(err)
         except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as err:
-            raise Unanswered("GitHub could not be reached, or its answer was cut short: %s" % type(err).__name__) from None
+            refused = "GitHub could not be reached, or its answer was cut short: %s" % type(err).__name__
+        raise Unanswered(refused)
 
 
 def _bounded(stream, largest=None) -> bytes:
