@@ -48,7 +48,7 @@ MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 KEY_PARTS = ("token", "secret", "password", "credential", "jit_config", "otp", "cookie", "authorization",
              "api_key", "apikey", "private_key", "privatekey", "passphrase",
              "authentication", "passwd", "passcode", "bearer", "access_key", "accesskey", "encryption_key", "signing_key",
-             "master_key", "auth_key", "authkey", "pwd")
+             "master_key", "auth_key", "authkey", "pwd", "encryptionkey", "signingkey", "masterkey")
 KEY_WHOLE = {"auth", "jwt"}
 KEY_HARMLESS = {"token_type", "input_tokens", "output_tokens", "total_tokens", "cache_creation_input_tokens",
                 "cache_read_input_tokens",
@@ -85,6 +85,7 @@ ENCODED = re.compile(r"[A-Za-z0-9+/_-]{20,}={0,2}")
 KEY_SHAPED = "<a key shaped like a credential>"
 # What a repr writes for a character it does not print: each is read as a separator when a message is hidden.
 ESCAPED = re.compile(r"\\(?:x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|[ntrfvab0])")
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\xa0]")
 
 
 def hidden(text: str) -> str:
@@ -117,7 +118,9 @@ def _decoded(text: str) -> list:
 
 
 def shaped(text: str, depth: int = 0) -> bool:
-    """Whether `text` holds something shaped like a credential, plainly or in base64."""
+    """Whether `text` holds something shaped like a credential, plainly or in base64. A control character is read as a
+    separator, so a shape split by one is still seen."""
+    text = CONTROL.sub(" ", text)
     if SHAPES.search(text) or REGISTRATION.match(text):
         return True
     if depth:

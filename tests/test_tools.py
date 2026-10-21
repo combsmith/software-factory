@@ -2669,7 +2669,7 @@ REFUSED_KEYS = ["Authorization", "AUTHORIZATION", "Authorization ", "Proxy-Autho
                 "encoded_jit_config", "x-jit-config", "jwt", "auth", "Auth ", "webhook_secret", "client_secret", "password", "credentials", "token",
                 "api_key", "apiKey", "x-api-key", "private_key", "privateKey", "passphrase", "ssh_passphrase",
                 "authentication", "passwd", "passcode", "bearer", "access_key", "accessKey", "encryption_key", "signing_key", "master_key",
-                "auth_key", "x-auth-key", "authKey", "pwd"]
+                "auth_key", "x-auth-key", "authKey", "pwd", "encryptionKey", "signingKey", "masterKey"]
 PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", "value", "author", "external_id",
               # The vendor CLI's counts (issue 178), as it spells them.
               "inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens", "maxOutputTokens",
@@ -2703,6 +2703,9 @@ class Trials(unittest.TestCase):
             self.assertEqual([p for p, _ in found], ["a." + check_trials.KEY_SHAPED], name)
             found = check_trials._headers({"exchanges": [{"request": {"headers": {value: "x"}}}]})
             self.assertEqual([p for p, _ in found], ["exchanges[0].request.headers." + check_trials.KEY_SHAPED], name)
+        split = "Bearer\x00Zx9Qw8Er7Ty6Ui5Op4As3Df5"            # a raw control character splits the shape
+        found = check_trials._headers({"exchanges": [{"request": {"headers": {split: "x"}}}]})
+        self.assertEqual([p for p, _ in found], ["exchanges[0].request.headers." + check_trials.KEY_SHAPED])
         # Nor does a schema's error, or any message of the check, carry such a key.
         data = json.loads(fixture())
         data[SHAPED["ghs"]] = 1
@@ -3386,7 +3389,7 @@ class Redaction(unittest.TestCase):
         data["exchanges"][0]["response"]["body"]["clone"] = SHAPED["token in a url"]
         data["exchanges"][0]["response"]["body"]["blob"] = SHAPED["base64 of a runner's credentials"]
         data["exchanges"][0]["response"]["body"]["notes"] = [SHAPED[name] for name in sorted(SHAPED)]
-        data["exchanges"][0]["response"]["body"]["by_key"] = {SHAPED["ghs"]: 1}
+        data["exchanges"][0]["response"]["body"]["by_key"] = {SHAPED["ghs"]: 1, "Bearer\x00Zx9Qw8Er7Ty6Ui5Op4As3Df5": 2}
         out, said = self.redact(json.dumps(data))
         kept = json.loads(out)
         self.assertEqual(check_trials._credentials(kept, ""), [])
@@ -3401,6 +3404,7 @@ class Redaction(unittest.TestCase):
         self.assertIn("exchanges[0].response.body.token", kept["removed"])
         self.assertIn("exchanges[0].response.body.clone", kept["removed"])
         self.assertIn("exchanges[0].response.body.by_key." + check_trials.KEY_SHAPED, kept["removed"])
+        self.assertNotIn("Zx9Qw8", out + said)
         for value in SHAPED.values():
             self.assertNotIn(value, out + said)
 

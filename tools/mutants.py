@@ -3152,7 +3152,7 @@ MUTANTS = ISSUE + [
      '    plain = ESCAPED.sub(" ", text)\n', "    plain = text\n", ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
     ("an authentication field is not a credential's", "tools/check_trials.py",
      '             "authentication", "passwd", "passcode", "bearer", "access_key", "accesskey", "encryption_key", "signing_key",\n'
-     '             "master_key", "auth_key", "authkey", "pwd")\n', "             )\n", ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
+     '             "master_key", "auth_key", "authkey", "pwd", "encryptionkey", "signingkey", "masterkey")\n', "             )\n", ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
     ("a version that moved under the run holds", P13, '"held": version == pin == after}', '"held": version == pin}',
      (P13_TESTS + "test_the_logins_exit_code_is_recorded",)),
     ("~/.claude is compared as written, not as the file system resolves it", P13,
@@ -3160,6 +3160,9 @@ MUTANTS = ISSUE + [
      (P13_TESTS + "test_each_refusal_stops_before_anything_is_asked",)),
     ("the record names the Result's strings as taken out", P13, '    said.pop("structured_output", None)\n    said = counts(said, "$")\n',
      '    said = counts(said, "$")\n    said.pop("structured_output", None)\n', (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
+    ("a control character hides a credential's shape", "tools/check_trials.py",
+     '    text = CONTROL.sub(" ", text)\n    if SHAPES.search(text)', '    if SHAPES.search(text)',
+     ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught", "tests.test_tools.Redaction.test_a_drafted_fixture_comes_out_with_no_credential")),
     ("the model's text is a kept field", P13, 'KEPT_RESULT="type subtype', 'KEPT_RESULT="result type subtype',
      (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
     ("a key shaped like a credential is kept", "tools/check_trials.py", "            elif shaped(key):\n", "            elif False:\n",
