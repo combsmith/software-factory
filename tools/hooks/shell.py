@@ -286,6 +286,15 @@ ENDS = ";&|()\n"
 WORD_ENDS = " \t\r" + ENDS
 # Reserved words after which the next word is a command again: a ( there opens a subshell or an arithmetic command.
 AGAIN = {"if", "then", "else", "elif", "while", "until", "do", "!", "{", "time", "for"}
+# What _held keeps of the word it is reading: it compares it only with AGAIN, "in" and "case", so the first
+# WORD_KEPT characters tell it all, and a longer word is never copied or hashed whole (issue 260; Muse on PR 262).
+WORD_KEPT = 64
+
+
+def grown(word: str, more: str) -> str:
+    """`word` with `more` after it, kept to WORD_KEPT characters and one more, so a longer word is still not empty and
+    equals no keyword."""
+    return word + more if len(word) <= WORD_KEPT else word
 # How a $'...' with a backslash is refused: the hook decodes none, so bash and zsh cannot read it differently from the
 # hook (issue 174, ruling R1). Its message says to write any message to a file.
 ANSI_REFUSED = "a $'...' holds a backslash, which the hook does not decode; write any message to a file and use -F"
@@ -359,7 +368,7 @@ def _held(text: str) -> str:
             elif after != "\n":     # a backslash before a newline is a line continuation: the two lines are one
                 out.append(c + HOLDS.get(after, after))
             starts, comments = starts and after == "\n", comments and after == "\n"
-            word += c       # a statement of its own, so CPython grows it in place: in a tuple it copies it (issue 260)
+            word = grown(word, c)
             i += 2
             continue
         if quote is None:
@@ -373,7 +382,7 @@ def _held(text: str) -> str:
                 # In a ${...} each is part of the word, zsh's ${(L)f} too, and a substitution in it runs: ${x:-`cmd`}.
                 out.append(LIVE[c] if c == "`" or c == "$" else HOLDS[c])
                 starts, comments = False, False
-                word += c
+                word = grown(word, c)
                 i += 1
                 continue
             if c == "$" and text.startswith("$'", i):
@@ -381,7 +390,7 @@ def _held(text: str) -> str:
                 end = ansi_end(text, i + 2)
                 out.append(_literal(text[i + 2:end - 1]))
                 starts, comments = False, False
-                word += "'"
+                word = grown(word, "'")
                 i = end
                 continue
             if c == "$" and text.startswith('$"', i):
@@ -399,7 +408,7 @@ def _held(text: str) -> str:
             elif c == ")" and opened:
                 kept = opened.pop()
             if kept is not None:
-                words, first, word = kept[0], kept[1], kept[2] + c
+                words, first, word = kept[0], kept[1], grown(kept[2], c)
             else:
                 if c in WORD_ENDS and word:
                     words += 1
@@ -410,7 +419,7 @@ def _held(text: str) -> str:
                 if c in ENDS:
                     words, first = 0, None
                 elif c not in " \t\r<>":
-                    word += c
+                    word = grown(word, c)
             quote = c if c in "'\"" else None
             out.append(c)
             starts = c in BREAKS and c != ")"       # a ) may end a substitution inside a word: $(x)#y is one word

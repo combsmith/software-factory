@@ -1351,8 +1351,9 @@ class Identity(unittest.TestCase):
                 with self.assertRaises(ValueError, msg=text):
                     list(ours)
                 continue
-            self.assertEqual(list(ours), expected, text)
-            self.assertTrue(all(type(word) is str for word in expected), text)
+            got = list(ours)
+            self.assertEqual(got, expected, text)
+            self.assertTrue(all(type(word) is str for word in got), text)     # the lexer's words, as strings
         grown = []
         real = shell._Token.__iadd__
         with mock.patch.object(shell._Token, "__iadd__", autospec=True,
@@ -1360,6 +1361,13 @@ class Identity(unittest.TestCase):
             read = shell.commands("echo " + "a" * 1000)
         self.assertIn("a" * 1000, str(read))
         self.assertGreaterEqual(len(grown), 999)
+        # The hook's own reading keeps the first WORD_KEPT characters of a word and one more, enough to tell a keyword,
+        # so a long word, or one dense with substitutions, is never copied whole (Muse on PR 262).
+        kept = "a" * shell.WORD_KEPT
+        self.assertEqual(shell.grown("ab", "c"), "abc")
+        self.assertEqual(shell.grown(kept, "b"), kept + "b")
+        self.assertEqual(shell.grown(kept + "b", "c"), kept + "b")
+        self.assertTrue(all(len(word) <= shell.WORD_KEPT for word in shell.AGAIN | {"in", "case"}))
 
     @wall_clock
     def test_the_readings_issue_174_adds_run_in_linear_time(self):
@@ -1372,6 +1380,8 @@ class Identity(unittest.TestCase):
                                  (lambda n: "for f in a; do cp /tmp/x " + "${f%}" * n + "; done; git push", 5000,
                                   "git_directory_written"),
                                  (lambda n: "alias x='cd .git;'\n" + "x ls\n" * n + "git push", 200, ""),
+                                 # A word dense with substitutions: each ) gave back the word before it (Muse on PR 262).
+                                 (lambda n: "echo " + "a$(x)" * n + "; git push", 2000, ""),
                                  # A run of stars, or of expansions read as one, before a tail that does not match.
                                  (lambda n: "x=a; cp /tmp/x " + "${x%}" * n + "Q/y; git push", 320, ""),
                                  (lambda n: "cp /tmp/x " + "*" * n + "Q/y; git push", 320, ""),
