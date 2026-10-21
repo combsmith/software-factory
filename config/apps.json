@@ -67,7 +67,7 @@
       "level": "read"
     },
     "read:facts.last_pusher": {
-      "permission": "pull_requests",
+      "permission": "metadata",
       "level": "read"
     },
     "read:facts.mergeable": {
@@ -172,7 +172,8 @@
           "level": "read",
           "needs": [
             "read:facts.item",
-            "read:facts.targets_protected"
+            "read:facts.targets_protected",
+            "read:facts.last_pusher"
           ]
         },
         "pull_requests": {
@@ -182,7 +183,6 @@
             "read:facts.state",
             "read:facts.is_draft",
             "read:facts.author",
-            "read:facts.last_pusher",
             "read:facts.mergeable",
             "read:facts.label_events",
             "read:facts.last_push_at",
@@ -274,7 +274,8 @@
           "needs": [
             "read:facts.item",
             "read:facts.targets_protected",
-            "read:facts.actor.can_write"
+            "read:facts.actor.can_write",
+            "read:facts.last_pusher"
           ]
         },
         "pull_requests": {
@@ -285,7 +286,6 @@
             "read:facts.state",
             "read:facts.is_draft",
             "read:facts.author",
-            "read:facts.last_pusher",
             "read:facts.mergeable",
             "read:facts.label_events",
             "read:facts.last_push_at",

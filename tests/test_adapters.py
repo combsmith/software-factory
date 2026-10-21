@@ -1156,17 +1156,32 @@ class Timeline(unittest.TestCase):
         writer = Router(github.Replay([]), {"don-petry": "admin"})
         self.assertIsNone(timeline.since_writer([via], self.accounts(writer))["last_writer_action_at"])
 
-    @pending
     def test_what_each_credential_is_shown_of_a_permission_is_recorded(self):
-        # L-57: what each credential is shown is recorded by a trial. The collaborator permission's trial, which the
-        # Maintainer's ruling on issue 222 plans, has not run: no fixture yet holds a read of the permission endpoint.
-        # P-27 reads one as the Maintainer; what L-57 asks is what the reader App, a credential of the Factory's, is
-        # shown, which no fixture holds yet.
-        reads = [e for path in sorted((ROOT / "trials").glob("P-*.json"))
-                 for e in json.loads(path.read_text())["exchanges"]
-                 if "/collaborators/" in e["request"].get("call", "") and "/permission" in e["request"].get("call", "")
-                 and (e["request"].get("as") or {}).get("kind") == "app"]
+        # L-57: what each credential is shown is recorded by a trial. trials/P-27.json reads the permission as the
+        # Maintainer; trials/P-47.json as the reader App, the credential the port reads it with, narrowed to
+        # metadata: read and to contents: read. Each answers the same: the owner admin, the machine user and a
+        # collaborator write, and an outsider read. GitHub's permission folds maintain into write, as role_name says,
+        # so write access is read the same whichever the role.
+        shown, reads = {}, []
+        for path in sorted((ROOT / "trials").glob("P-*.json")):
+            narrowed = None
+            for e in json.loads(path.read_text())["exchanges"]:
+                call = e["request"].get("call", "")
+                if call.endswith("/access_tokens") and isinstance(e["request"].get("body"), dict):
+                    # Each read is made with the token the mint before it narrowed, until it is revoked.
+                    narrowed = "%s: read" % next(iter(e["request"]["body"]["permissions"]))
+                if "/collaborators/" in call and "/permission" in call and (e["request"].get("as") or {}).get("kind") == "app":
+                    reads.append(e)
+                    login = call.split("/collaborators/")[1].split("/")[0]
+                    shown.setdefault(login, {})[narrowed] = (e["response"]["status"], e["response"]["body"]["permission"],
+                                                             e["response"]["body"]["role_name"])
         self.assertTrue(reads)
+        self.assertEqual({login: set(by.values()) for login, by in shown.items()},
+                         {"don-petry": {(200, "admin", "admin")}, "donpetry-bot": {(200, "write", "maintain")},
+                          "Joaolfelicio": {(200, "write", "write")}, "octocat": {(200, "read", "read")}})
+        self.assertTrue(all(set(by) == {"metadata: read", "contents: read"} for by in shown.values()))
+        for login, (_, permission, _) in ((l, next(iter(by.values()))) for l, by in shown.items()):
+            self.assertEqual(permission in timeline.WRITE, login != "octocat", login)
 
     def test_a_permission_is_read_as_github_answers_it(self):
         # trials/P-27.json: the permission endpoint, asked of a collaborator with read, answers read: no write access.
@@ -1495,13 +1510,19 @@ class Contract(unittest.TestCase):
             "a_forks_run_never_counts": bool(recorded) and all(r["event"] == "pull_request" for r in recorded)
             and all(records._record(r, r["repository"]["full_name"], r.get("head_branch"), {r.get("path")},
                                     (r["actor"]["id"], r["actor"]["type"])) == (None, None) for r in rows),
+            "a_logins_permission_is_read_from_the_collaborator_endpoint": all(
+                timeline.Accounts(github.Replay([e]), canary(), MACHINE, {}).actor(
+                    {"login": e["response"]["body"]["user"]["login"], "id": e["response"]["body"]["user"]["id"],
+                     "type": "User"})["can_write"] == (e["response"]["body"]["permission"] in ("admin", "maintain", "write"))
+                for e in exchanges("P-47") if "/permission" in e["request"]["call"]),
             "a_new_run_is_listed_unnamed": Records().read(listing("P-17", 9, total=1), listing("P-17", 10, total=1),
                                                           per_page=1)[0]["unidentified"] == ["39086879694"],
         }
         # Each is read from the fixture that grounds it, and no other.
         replayed = {"a_push_is_new_content": {"P-29.base"}, "the_pusher_is_the_last_pusher": {"P-28", "P-28.app"},
                     "a_short_diff_says_so": {"P-29.truncated"}, "a_path_list_can_leave_out_a_file": {"P-29.truncated"},
-                    "a_forks_run_never_counts": {"P-27"}, "a_new_run_is_listed_unnamed": {"P-17"}}
+                    "a_forks_run_never_counts": {"P-27"}, "a_new_run_is_listed_unnamed": {"P-17"},
+                    "a_logins_permission_is_read_from_the_collaborator_endpoint": {"P-47"}}
         # Every other rule a fixture grounds is named, with why this test does not read it yet: a rule added to the
         # fake's grounding fails here until it is read or named.
         not_read = {
