@@ -4,7 +4,7 @@ All of the Factory's I/O. `github.py` is the one transport: every request to Git
 this repo reaches the network. `pull.py` reads the facts of a pull request that its own reads give, and `records.py` the Factory's own run records. A port decides nothing
 and hands the Kernel no text: what it cannot read whole it says is short, and the title travels beside the facts.
 
-Not built yet, by the stories that hold their rules: timeline.py, checks.py, facts.py, acceptance.py, issues.py, settings.py, effects.py, artifacts.py.
+Not built yet, by the stories that hold their rules: timeline.py, checks.py, facts.py, acceptance.py, issues.py, settings.py, effects.py, artifacts.py, usage.py.
 
 | Rule | Held by |
 |---|---|

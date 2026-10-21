@@ -9,7 +9,8 @@ and for the one name of the status on the item,
 must look at, `apps.json` for each GitHub App's permissions and the repos it is installed on, which the
 Maintainer registers each App from, `hooks.json` for the Maintainer, whose name every commit and push here carries,
 and for what the session hooks ask the person about (the protected paths, merging, the repo's settings,
-a session started with no one asked) or list at a stop, and `feed.json` for who acts next and what is asked of a person, read from a Decision's codes.
+a session started with no one asked) or list at a stop, `feed.json` for who acts next and what is asked of a person, read from a Decision's codes,
+and `controller.json` for what the Controller's pass is told beside it: the accounts that tell what started a pass, the gaps, the automatic pause and the thresholds.
 Its protected paths and each Lens's inputs are also the Kernel's `protected_paths`: a change to one is reviewed by every model Lens.
 
 | Rule | Held by |

@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "health/1: what one pass knows of the Factory itself, written to view/health.json: whether Admission is paused and by what, when this pass and the one before it ran and when the relay last started a run, so that the page computes the not-run alert in the browser (decision 0043), the chain of passes, what started the passes of the window, the recent capacity and environment faults, each cause reported once, and decision 0011's three thresholds, each with its value, its limit and whether it is met, null where the figure was not read.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "pass",
+    "release",
+    "written_at",
+    "last_pass_at",
+    "previous_pass_at",
+    "relay_started_at",
+    "pause",
+    "chain",
+    "starts",
+    "faults",
+    "alerts",
+    "thresholds"
+  ],
+  "properties": {
+    "schema": {
+      "const": "health/1"
+    },
+    "pass": {
+      "type": "string",
+      "pattern": "^p_[0-9A-Z]{6,26}$"
+    },
+    "release": {
+      "type": "string",
+      "pattern": "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "written_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "last_pass_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "previous_pass_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "relay_started_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "pause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "by"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "none",
+            "paused",
+            "unreadable"
+          ]
+        },
+        "by": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "org",
+              "repo",
+              "environment"
+            ]
+          }
+        }
+      }
+    },
+    "chain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "since",
+        "started_by",
+        "successors"
+      ],
+      "properties": {
+        "since": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+        },
+        "started_by": {
+          "enum": [
+            "schedule",
+            "relay",
+            "public",
+            "own_repo",
+            "successor",
+            "dispatch"
+          ]
+        },
+        "successors": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "starts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schedule",
+        "relay",
+        "public",
+        "own_repo",
+        "successor",
+        "dispatch"
+      ],
+      "properties": {
+        "schedule": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "relay": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "public": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "own_repo": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "successor": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dispatch": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "faults": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "run",
+          "item",
+          "outcome",
+          "at"
+        ],
+        "properties": {
+          "run": {
+            "type": "string",
+            "pattern": "^r_[0-9A-Z]{6,26}$"
+          },
+          "item": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "repo",
+              "type",
+              "number"
+            ],
+            "properties": {
+              "repo": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+              },
+              "type": {
+                "enum": [
+                  "pull_request",
+                  "issue"
+                ]
+              },
+              "number": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "outcome": {
+            "enum": [
+              "capacity",
+              "environment"
+            ]
+          },
+          "at": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+          }
+        }
+      }
+    },
+    "alerts": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "paused",
+          "pause_unreadable",
+          "capacity",
+          "capacity_unreadable",
+          "concurrency",
+          "run_unidentified",
+          "environment",
+          "not_run"
+        ]
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "job_minutes_share",
+        "graphql_points_per_hour",
+        "decision_delay_p95_minutes"
+      ],
+      "properties": {
+        "job_minutes_share": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "limit",
+            "met"
+          ],
+          "description": "The share of the org's job-minutes that passes and nudges used over the window, at most 0.10.",
+          "properties": {
+            "value": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "limit": {
+              "type": "number",
+              "minimum": 0
+            },
+            "met": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "graphql_points_per_hour": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "limit",
+            "met"
+          ],
+          "description": "The GraphQL points the passes spent in the window's busiest hour, at most 3,000.",
+          "properties": {
+            "value": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "limit": {
+              "type": "number",
+              "minimum": 0
+            },
+            "met": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "decision_delay_p95_minutes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "limit",
+            "met"
+          ],
+          "description": "The 95th percentile of the minutes from a change to the first pass that decided on it, over the window, at most 15.",
+          "properties": {
+            "value": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "limit": {
+              "type": "number",
+              "minimum": 0
+            },
+            "met": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
