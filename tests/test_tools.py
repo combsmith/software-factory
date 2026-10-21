@@ -2946,13 +2946,21 @@ class Trials(unittest.TestCase):
             "a-read-by-repository-id": "names no repo of the org",
             "a-search-of-another-users-repos": "names no repo of the org",
             "a-command-line-read-of-another-repo": "names the owner outside",
-            "an-apps-traversal-beyond-its-reach": "names combsmith/another-repo, which the App's installation does not reach",
+            "an-apps-traversal-beyond-its-reach": "asks of the org by an App, whose installation reaches repos alone",
             "an-apps-read-beyond-its-reach": "asks of combsmith/another-repo, which the App's installation does not reach",
             "a-repo-named-only-by-a-url": "names the repo outside/x; an answer names the org's repos alone",
             "a-repo-named-by-a-resource-path": "names the repo outside/x",
             "a-fragment-on-query": "holds a fragment on Query",
             "an-answer-naming-another-owners-repo": "names the repo outside/x",
             "a-query-of-another-org": "names the owner outside",
+            "a-command-line-read-by-an-app": "is app; a command-line read is the Maintainer's own",
+            "a-command-line-read-of-another-repos-address": "names the owner outside",
+            "a-second-root-call-behind-a-comment": "names the owner outside",
+            "a-second-root-call-behind-a-block-string": "names the owner outside",
+            "a-read-that-climbs-out-of-the-canary": "climbs out of its repo",
+            "a-git-read-of-another-repo": "names the owner outside",
+            "an-unknown-apps-read-beyond-the-canary": "asks of combsmith/software-factory, which the App's installation does not reach",
+            "an-apps-answer-beyond-its-reach": "names combsmith/another-repo, which the App's installation does not reach",
         }
         for name, words in refused.items():
             data = json.loads((ROOT / "examples" / "invalid" / ("trial.%s.json" % name)).read_text())
@@ -2974,7 +2982,15 @@ class Trials(unittest.TestCase):
         self.assertEqual(([f for f, _ in roots], problem), (["repository"], None))
         owners, repos, wrong = check_trials._asked({"via": "cli", "call": "gh pr list --repo combsmith/x -R combsmith/y"})
         self.assertEqual((owners, repos, wrong), ({"combsmith"}, {"combsmith/x", "combsmith/y"}, []))
-        self.assertEqual(check_trials._installed(ROOT).get("nobody", {canary}), {canary})
+        self.assertEqual(check_trials._installed(ROOT).get("nobody"), None)
+        # The Apps' data that cannot be read is one problem, and every App is then held to the canary.
+        data = json.loads((ROOT / "examples" / "invalid" / "trial.an-unknown-apps-read-beyond-the-canary.json").read_text())
+        problems = check_trials._repos(data, None)
+        self.assertEqual([where for where, _ in problems], ["config/apps.json", "exchanges[0].request.call"])
+        self.assertIn("cannot be read", problems[0][1])
+        # A comment holding a brace is a comment, and the query before it is read whole.
+        roots, problem = check_trials._roots('query { repository(owner: "combsmith", name: "x") { id } } # }')
+        self.assertEqual(([f for f, _ in roots], problem), (["repository"], None))
 
     def test_the_cost_trials_estimate_is_marked_so_and_held_to_its_reads(self):
         # P-8's last exchange is the estimate (FR-35): its cost model is held to every read of the fixture that reports

@@ -34,9 +34,6 @@
                 "nodes": [
                   {
                     "nameWithOwner": "combsmith/software-factory-canary"
-                  },
-                  {
-                    "nameWithOwner": "combsmith/another-repo"
                   }
                 ]
               }
