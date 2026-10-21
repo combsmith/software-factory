@@ -1920,8 +1920,11 @@ it is long-lived, it can approve, and it can merge.
 If the subscription cannot be used, the fallback is a metered API credential under the monthly cap
 of PRD FR-73, held and stored the same way.
 
-Only the poller job can start or delete runs, with its own token. The readiness check (§3.12) asserts the settings
-these rules rest on: fork workflows need approval, the default workflow token is read-only, secret
+Only the poller job can start or delete runs, with its own token, which can dispatch the next pass (P-9,
+`trials/P-9.json`). A job with no permissions and no cache action cannot write the default branch's cache
+scope: its token is refused, and a `run:` step holds no cache-service token (P-14, `trials/P-14.json`).
+The readiness check (§3.12) asserts the settings these rules rest on: fork workflows need approval (a first-time
+contributor's run waits until a person approves it, P-27, `trials/P-27.json`), the default workflow token is read-only, secret
 scanning with push protection is on, and environments are restricted to the default branch. It
 also records what each third-party reviewer has been granted, since several can write to branches,
 and reports any change.
@@ -1951,8 +1954,10 @@ This table is generated from the manifests and the authority table, so it always
 state. The fourth column is the plan.
 
 - **Until a Consumer repo is served (slice 3), each App is installed on named repos only; from
-  then, as decided at that cutover, against UJ-6.** Tokens are minted for one repo, so a token
-  cannot reach a repo its Run is not about.
+  then, as decided at that cutover, against UJ-6.** Tokens are minted for one repo and narrowed to
+  the permissions their Effects need, and a token is held to those permissions. A repository subset
+  does not narrow a read of a public repo, which any token reads; whether it refuses a write to
+  another repo the installation reaches is not yet shown (P-4, `trials/P-4.json`).
 - **Reading is shared; writing is not.** Every `run` job reads GitHub through one App,
   `combsmith-sf-reader`, which can write nothing. A Role is given an App of its own when it first
   needs to write, and `apply` mints that App's token. A Role in shadow writes nothing, so it runs
@@ -2050,25 +2055,25 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-1 | Does a pull request authored by an App need an extra approval under the live ruleset's rule for unattributed changes? | One approval suffices |
 | P-2 | Can an App enable auto-merge and enter the merge queue, and take a pull request out of it before the queue merges it? And does the poller read a change before the queue merges it? Does a push take a queued pull request out, can the queue eject one without merging it, its approval staying, is a draft ever merged by a person or the queue, and does the queue run the required checks on the merge group? | Yes to the first three; each of the rest answered and recorded, and the fake changed to match where it differs (`sim/AGENTS.md`, "Known to differ") |
 | P-3 | Is an environment secret restricted to the default branch unreadable from a workflow on a work-item branch? | Unreadable |
-| P-4 | Can an installation token be minted with a subset of the App's permissions and repos? | Yes |
+| P-4 | Can an installation token be minted with a subset of the App's permissions and repos? | Yes. **Failed** on 2026-10-21 (`trials/P-4.json`): the token is minted with the subset and held to its permissions (a write beyond them is refused 403), but a repository subset does not narrow a read of a public repo, which any token reads (200); §5.1 now says so |
 | P-5 | Can one App resolve a review thread opened by another App or by a third-party reviewer? | Yes, with pull-request write |
 | P-6 | Does a job-level `if:` on the actor's prefix drop events authored by the Factory's Apps? | Dropped, with no step run |
 | P-7 | Does the machine user's approval satisfy code-owner review and the last-push rule when an App pushed last? | Yes |
 | P-8 | What does one pass over every open item in twelve repos cost in GraphQL points, and how often do scheduled ticks arrive in the new repo? | Within the budget of §7.3. **Passed** for the cost (`trials/P-8.json`). The ticks part **failed** on 2026-10-20 (`trials/P-8.ticks.json`): 19 of 335 due ticks over 28 hours, so the schedule is a backstop of hours and the relay carries W-2 (§7.3, decision 0043) |
-| P-9 | Can a pass start the next one with the default workflow token? | Yes |
+| P-9 | Can a pass start the next one with the default workflow token? | Yes. **Failed** on 2026-10-21 (`trials/P-9.json`) on its ruling's last clause alone: a job holding `actions: write` alone dispatched the next run (204), listed at once, but that run's actor is `github-actions[bot]`, not the first run's. §7.3 reads that actor: `started_by` tells a `successor` from a person's `dispatch` by the run's account, `github-actions[bot]` for a successor |
 | P-10 | Does a nudge count against the content-creation limit, and can its credential be dispatch-only? | Does not count; can |
 | P-11 | Can the Controller's App write the control-room repo, and publish its page, without starting a workflow in the hub? | Yes |
 | P-12 | Does a check run's `external_id` round-trip, so it can serve as a recovery key? | Yes |
 | P-13 | Does the vendor CLI return validated structured output and usage in headless mode on the subscription credential, at a pinned version? Run by `tools/trial_p13_cli.sh` at the Maintainer's terminal, on a configuration directory of its own logged in to the Maintainer's own subscription (decision 0033), with one fixed Task and the smallest Result of §3.5 as its schema | Yes: the structured output validates, the same answer carries input and output tokens, and it ran at the pinned version. Until the engine port in `adapters/` exists, the trial script pins the version. If not, the metered key is tried and recorded. **Passed** on 2026-10-18 against the script's pin, 2.1.302 (`trials/P-13.json`), on the Maintainer's own subscription under a configuration directory of its own, which departs from §1.1 and §4.9 for now (decision 0033) |
-| P-14 | Can a job with no permissions and no cache action write the default-branch cache scope? | Cannot |
+| P-14 | Can a job with no permissions and no cache action write the default-branch cache scope? | Cannot. **Passed** on 2026-10-21 (`trials/P-14.json`): the job's token is refused a cache write (403), a `run:` step holds no cache-service token, and no cache exists afterwards; listing a public repo's caches is open to any token |
 | P-15 | Do the retained Advisory reviewers review a pull request authored by an App? | Each one does, or is not counted as a Lens on such pull requests |
 | P-16 | How long are run records, logs and artifacts kept in a public repo? | 90 days |
 | P-17 | Is a run's name set when the run is created, and visible for a run whose job never started? Can recent runs of one workflow be listed and matched by name within the request budget? | Yes to both. **Failed** on 2026-10-18 (`trials/P-17.json`): listed at once, named within 3.7 s; decision 0036 covers the window |
 | P-18 | Does a final step still run, and upload partial usage, when a job times out or is cancelled? | Yes, or duration is the only estimate |
 | P-19 | Can a static page in a separate public repo be published from files the Controller writes? | Yes |
-| P-20 | Does an event that anyone may cause, such as starring a repo, still start a workflow, and how often may it? | Yes, often enough for a tick every minute or two |
+| P-20 | Does an event that anyone may cause, such as starring a repo, still start a workflow, and how often may it? | Yes, often enough for a tick every minute or two. **Passed** on 2026-10-21 (`trials/P-20.json`): ten stars a minute apart started ten runs, each within two seconds |
 | P-26 | Can the model CLI's sandbox stop a tool reading the parent process's environment, and limit where it connects? | Yes to both, or the first and third layers of §4.9 carry the weight |
-| P-27 | Does a fork's pull-request workflow run wait for approval, and can it never be a schedule or dispatch run? | Yes to both |
+| P-27 | Does a fork's pull-request workflow run wait for approval, and can it never be a schedule or dispatch run? | Yes to both. **Passed** on 2026-10-21 (`trials/P-27.json`): an outside first-time contributor's run waited (`action_required`) until a person approved it; a fork's workflow file ran only as the pull request's own run, a dispatch of it was refused and no schedule ran |
 | P-31 | Does the Controller App's webhook reach a hosted function for every repo it is installed on, and can that function cause a nudge with no credential over the Factory? | Yes to both |
 | P-28 | Can the actor who last pushed a pull request's head be read as a fact? | Yes, or I-26 has to be met another way |
 | P-29 | Is the hash of a pull request's own diff stable when only the base moves, and how does a truncated diff present? | Stable; truncation is detectable |
@@ -2196,7 +2201,8 @@ late or not at all.
 
 - Passes cannot overlap, and at most one waits behind the one running. A flood of events costs at
   most back-to-back passes: one runner slot, 5% of the pool.
-- A pass ends by starting its successor only if an item is due at its end. Anything due later
+- A pass ends by starting its successor, by a dispatch with its own job's token whose run is
+  listed at once (P-9, `trials/P-9.json`), only if an item is due at its end. Anything due later
   waits for a tick, a nudge or a Run's end, so a successor never stands in for a timer, and a chain
   ends when nothing is due.
 - Every pass, whatever started it, reads no sooner than three minutes after the last pass that
@@ -2233,7 +2239,8 @@ late or not at all.
   nothing. This is what replaces a nudge file in every Consumer repo: no file anywhere, and events
   heard everywhere.
 - A nudge carries nothing and passes coalesce, so the relay causes one through something anyone may
-  do: for example, starring a designated repo. There is then nothing on the relay worth stealing;
+  do: for example, starring a designated repo, which started a run within two seconds each of ten times (P-20,
+  `trials/P-20.json`). There is then nothing on the relay worth stealing;
   a credential able to start a workflow could also cancel runs and delete run records. Anyone can
   cause a pass this way, and the cost of that is already bounded at one runner slot.
 - The relay is the one permitted exception to "no always-on service". Correctness never depends on
