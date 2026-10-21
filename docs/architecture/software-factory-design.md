@@ -2092,7 +2092,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-43 | Does each list the facts are read from, reviews, threads, checks, timeline events, run records, acceptance results and the files a pull request changes, say when it was cut short, by a count, a last page or a next cursor that the same read gives; and can the list of run records stop short with the oldest Runs missing? Is every file a pull request changes listed once, by its path from the top of the repo, with the path a renamed or copied file had before? | Yes: each short read is told from the read itself, as P-29 showed for the diff and the list of files. If one is not, the port reads that list whole, or reads it as incomplete |
 | P-44 | With a concurrency group for each Work item on a Run's job, does GitHub keep one Run running and one pending, cancel the older pending Run, and never cancel the one running? | As GitHub documents it; the lane in `sim/world.py` then changes to match (`a_run_waits_its_turn`, "Known to differ" in `sim/AGENTS.md`) |
 | P-45 | When a dependency bot updates an Action's pin in a workflow file, does it open the pull request and push its head under its own `[bot]` identity, so that the port's class for it is `dependency`? | Yes, with the bot as author and last pusher. If a person's push follows, the class is read as any other change's (decision 0026) |
-| P-46 | Does a merged pull request's closing reference change when its description is edited after the merge, or when an issue is linked to it by hand? | No: the reference stands as it was at the merge. **Failed** on 2026-10-21 (`trials/P-46.json`): an edit after the merge added issue 47 to canary pull request 38's references, and undoing it took the issue out; a link by hand was not tried. So the issue Lifecycle reads the join as it stood at the merge, from the timeline's events and their times, never the live field (issue 267) |
+| P-46 | Does a merged pull request's closing reference change when its description is edited after the merge, or when an issue is linked to it by hand? | No: the reference stands as it was at the merge. **Failed** on 2026-10-21 (`trials/P-46.json`): an edit after the merge added issue 47 to canary pull request 38's references, and undoing it took the issue out; a link by hand was not tried. So the issue Lifecycle reads the join as it stood at the merge, never the live field; issue 267 chooses how, since the edit raised only the cross-reference a bare mention raises, and the undo left it standing |
 
 ### 6.1 The order to run them in
 
@@ -2105,7 +2105,7 @@ An assumption audit on 2026-10-10 ranked each trial by what breaks if its answer
 | **3. Before the control room** | P-11, P-19, P-21 (publishing the page); P-16, P-18 (retention and final steps) | The page is published another way, or history is shorter |
 | **4. As they come up** | P-6, P-10, P-12, P-15, P-44, P-45 (the lane's concurrency group; a dependency bot's pin) | A detail changes |
 
-P-32, P-33 and P-34 belong to the issue Lifecycle (§4.1). All three are run before the Factory's
+P-32, P-33, P-34 and P-46 belong to the issue Lifecycle (§4.1). All four are run before the Factory's
 own author is built, since the hand-over reads labels, their actors and the closing reference. P-8 now measures a pass that lists every open issue.
 
 Two assumptions are not trials. Whether a subscription used only by automation is within the

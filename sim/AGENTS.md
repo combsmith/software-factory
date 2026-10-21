@@ -26,15 +26,14 @@ On one seed in ten it is a dependency bot's update, on every other such seed to 
 may change the Factory's own rules or a Lens's input (`tests/test_simulator.py::test_the_seeds_change_the_list_by_a_role_the_dependency_bot_and_the_maintainer`).
 While the item is queued, the Maintainer may dismiss its approval, open a thread or add a Hold. The queue merges only after a pass has read the item whole and current,
 and found the same facts GitHub holds at the merge (`tests/test_simulator.py::test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause`).
-On three seeds in seven the item has an acceptance contract: a Lens gives each criterion's result, passing or now and then failing, on the content of the
-moment, results on earlier content stay behind, a second result can disagree with the first, the oldest can expire, and a pass can read
-the contract short or with a result on this content for a criterion it does not name. A person approves the contract, or on some seeds has not yet,
-and can withdraw it; a push can edit or delete it; another App or workflow can give a result, and a check one for a criterion only a person passes,
-which on an agent's pull request a person's approval of the content confirms (`tests/test_simulator.py::test_the_seeds_serve_items_with_an_acceptance_contract_and_without`).
+On three seeds in seven the item has an acceptance contract: a Lens gives each criterion's result, passing or now and then failing, on the content of the moment, results on earlier content stay behind, a second result can disagree with the first, the
+oldest can expire, and a pass can read the contract short or with a result on this content for a criterion it does not name. A person approves the contract, or on some seeds has not yet, and can withdraw it; a push can edit or delete it; another App or
+workflow can give a result, and a check one for a criterion only a person passes, which on an agent's pull request a person's approval of the content confirms (`tests/test_simulator.py::test_the_seeds_serve_items_with_an_acceptance_contract_and_without`).
 Under faults a result on the content expires as its approval falls due (`tests/test_simulator.py::test_the_evidence_expires_as_the_approval_falls_due`).
 On every seed a review's Result now and then leaves a criterion of its rubric uncovered: its Run fails by a fault of the item and opens no thread, and the review is admitted again until its attempts hold the item
 (`tests/test_simulator.py::test_the_seeds_serve_a_review_that_left_a_criterion_uncovered`). On one seed in eight a new Run is listed unnamed for a pass, which neither admits nor approves (`tests/test_simulator.py::test_the_seeds_list_a_new_run_unnamed`).
 A rule about anything else is not exercised here, so its boundary cases are all that hold it. An invariant is a call to `check()` with its name. When a seed finds a fault, the fix goes in the Kernel with a boundary case in `tests/test_decide.py`.
 
-Known to differ, unverified until a trial runs: the lane keeps one Run running and any number queued (`a_run_waits_its_turn`; GitHub keeps one pending and cancels the older, P-44); a push leaves an earlier approval in place (`an_approval_survives_a_push`;
-P-7 saw it dismissed); the queue merges without checking the merge group (`the_merge_group_is_not_checked`; this repo's does, P-2); a merged pull request's references are fixed (`a_merged_pull_requests_closing_references_are_fixed`; P-46 edited them).
+Known to differ, unverified until the fake changes or its trial runs: the lane keeps one Run running and any number queued (`a_run_waits_its_turn`; GitHub keeps one pending and cancels the older, P-44); a push leaves
+an earlier approval in place (`an_approval_survives_a_push`; `trials/P-7.json` saw it dismissed); the queue merges without checking the merge group (`the_merge_group_is_not_checked`; this repo's queue checks it, P-2);
+and a merged pull request's references are fixed (`a_merged_pull_requests_closing_references_are_fixed`; `trials/P-46.json` saw an edit change them).
