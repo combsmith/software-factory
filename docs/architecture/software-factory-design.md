@@ -879,9 +879,10 @@ cost is not known exactly; its duration is the estimate.
 | `superseded` | The item was held or changed before `apply`, or a newer Run in its group replaced it while it waited | No | The next pass decides afresh |
 
 A pass reads `outcome.json` only for Runs that did not succeed, which are few. A killed Run has no
-outcome file; it is treated as `item` unless other Runs are failing as `environment` at the same
-time. A Run cancelled before its job had a runner or a step has none either, and is no attempt: it
-is read as `superseded`. Its concurrency group cancels a Run that waits behind another as a newer
+outcome file; one that ran, its conclusion `failure` or `timed_out`, is read as `item`, an attempt,
+whatever other Runs are failing as (decision 0046, issue 286): the facts give no window to judge an
+outage by, and the automatic pause stops admission on the Runs that did write `environment`. A Run
+`cancelled`, or of any other conclusion, with no outcome is no attempt: it is read as `superseded`. Its concurrency group cancels a Run that waits behind another as a newer
 one queues (P-44); a person's cancel of a waiting Run reads the same, and then the Run ceiling, not
 the attempts, bounds it. GitHub lists a Run waiting for its group as `pending`, which the records
 port reads as `queued` (`adapters/records.py`). The simulator's lane holds this
