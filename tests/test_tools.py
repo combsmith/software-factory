@@ -3883,11 +3883,26 @@ class Redaction(unittest.TestCase):
     """`tools/redact_trial.py` runs on the raw capture, outside the repo, before anyone reads it."""
 
     def redact(self, raw: str) -> tuple:
+        out, said = io.StringIO(), io.StringIO()
+        self.assertEqual(redact_trial.main([], stdin=io.BytesIO(raw.encode()), stdout=out, stderr=said), 0)
+        return out.getvalue(), said.getvalue()
+
+    def test_it_opens_no_path_it_is_given(self):
+        # SonarCloud S2083 and S8707: the capture comes on standard input and goes out on standard output, so a path is
+        # never taken from the arguments. Any argument is refused before anything is read.
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
-        (folder / "raw").write_text(raw)
-        with contextlib.redirect_stdout(io.StringIO()) as said:
-            self.assertEqual(redact_trial.main([str(folder / "raw"), str(folder / "out")]), 0)
-        return (folder / "out").read_text(), said.getvalue()
+        (folder / "raw").write_text("HTTP/2.0 200 OK\n\n{}\n")
+        for argv in ([str(folder / "raw"), str(folder / "out")], [str(folder / "raw")], ["-"]):
+            said, read = io.StringIO(), io.BytesIO(b"{}")
+            self.assertEqual(redact_trial.main(argv, stdin=read, stdout=io.StringIO(), stderr=said), 2, argv)
+            self.assertEqual(read.tell(), 0, argv)
+            self.assertIn("opens no path", said.getvalue())
+        self.assertFalse((folder / "out").exists())
+        # As the scripts run it: in through a pipe, out through a pipe, and what it took out named on standard error.
+        ran = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=ROOT, capture_output=True, text=True,
+                             input="HTTP/2.0 200 OK\nAuthorization: x\nContent-Type: text/plain\n\nfine\n", timeout=60)
+        self.assertEqual((ran.returncode, ran.stdout), (0, "HTTP/2.0 200 OK\nContent-Type: text/plain\n\nfine\n"))
+        self.assertIn("the header Authorization", ran.stderr)
 
     def test_a_drafted_fixture_comes_out_with_no_credential(self):
         data = json.loads(fixture())

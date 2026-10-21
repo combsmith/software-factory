@@ -77,10 +77,11 @@ artifact. No `set -x`, and no verbose curl.
    record the request yourself: who made it (`as`: kind and name, never the credential), how
    (`via`), the call, every `-H` header you passed, and the body sent.
 3. **Do not read it yet.** A raw capture is never printed, opened or read in this session.
-4. **Redact it, then read only what comes out.** `python3 -m tools.redact_trial "$dir/raw-1"
-   "$dir/clean-1"`, in the scratch directory. It deletes every field named for a credential, every
-   header a fixture may not keep, and every string or line shaped like a credential, and says
-   where, never what. Read only the clean file. Build the fixture from clean files: several
+4. **Redact it, then read only what comes out.** `python3 -m tools.redact_trial < "$dir/raw-1" >
+   "$dir/clean-1"`, from the repo, the capture in the scratch directory. It reads the capture on
+   standard input and writes it clean on standard output, opening no path. It deletes every field
+   named for a credential, every header a fixture may not keep, and every string or line shaped like
+   a credential, and says where on standard error, never what. Read only the clean file. Build the fixture from clean files: several
    requests are several entries of `exchanges`, in order; `ran_at` is when the trial started, in
    UTC to the second. In `removed`, write where each credential was, from what the redaction
    reported, as `exchanges[0].request.headers.authorization` for the header `gh` sent. Then run

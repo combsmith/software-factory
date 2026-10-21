@@ -3566,6 +3566,8 @@ MUTANTS = ISSUE + [
     ("a schema's error may carry a credential", "tools/check_trials.py",
      '        wrong = ["%s: %s" % (rel, hidden(err)) for err in validate(data, schema)]\n',
      '        wrong = ["%s: %s" % (rel, err) for err in validate(data, schema)]\n', ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
+    ("the redaction reads the path it is given", "tools/redact_trial.py", "    if argv:\n        print(\"usage:",
+     "    if False:\n        print(\"usage:", ("tests.test_tools.Redaction.test_it_opens_no_path_it_is_given",)),
     ("the text redaction names a header by a credential", "tools/redact_trial.py",
      "            shown = KEY_SHAPED if shaped(name.strip()) else name.strip()    # a place is never named by a credential\n",
      "            shown = name.strip()\n", ("tests.test_tools.Redaction.test_a_header_named_by_a_credential_is_reported_without_it",)),

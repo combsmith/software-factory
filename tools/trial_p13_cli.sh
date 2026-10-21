@@ -130,7 +130,7 @@ run_cli() {
 
 # A capture in the scratch directory, redacted into OUT; only the redaction's report is kept beside it.
 redact() {   # RAW N
-    (cd "$root" && python3 -m tools.redact_trial "$1" "$out/clean-$2") > "$out/redacted-$2"
+    (cd "$root" && python3 -m tools.redact_trial < "$1" > "$out/clean-$2") 2> "$out/redacted-$2"
     rm -f "$1"
 }
 
@@ -277,7 +277,7 @@ json.dump(parts, open(checked, "w"), indent=2)
 ' "$root" "$scratch/raw-3" "$scratch/kept-3" "$scratch/checked" "$SCHEMA" "$code3" "$PIN" "$version" "${after:-}" "$logged_in" "$KEPT_RESULT" "$code2" "$STRING_KEYS" "$scratch/raw-3.err" "$code_after")
 rm -f "$scratch/raw-3" "$scratch/raw-3.err"
 redact "$scratch/kept-3" 3
-(cd "$root" && python3 -m tools.redact_trial "$scratch/checked" "$out/checked.json") > /dev/null
+(cd "$root" && python3 -m tools.redact_trial < "$scratch/checked" > "$out/checked.json") 2> /dev/null
 
 # What was asked: the command lines, the Task and the schema. No credential, path or address is in it.
 python3 -I -c '

@@ -85,7 +85,7 @@ json.dump({"as": {"kind": "app", "name": who}, "via": "rest", "call": call,
 
 # A raw capture, redacted beside it and then deleted. Only the redaction's report is printed.
 redact() {   # RAW
-    (cd "$root" && python3 -m tools.redact_trial "$1" "${1%.raw}.clean") | sed "s|^|$(basename "${1%.raw}"): |"
+    (cd "$root" && python3 -m tools.redact_trial < "$1" 2>&1 > "${1%.raw}.clean") | sed "s|^|$(basename "${1%.raw}"): |"
     rm -f "$1"
 }
 
@@ -149,7 +149,7 @@ for asked in sorted(p for p in out.iterdir() if p.name.endswith(".request.json")
                                    "headers": headers, "body": body}})
 json.dump({"exchanges": exchanges}, open(str(out / "exchanges.unchecked.json"), "w"), indent=2)' "$out"
     redact_json="$out/exchanges.unchecked.json"
-    (cd "$root" && python3 -m tools.redact_trial "$redact_json" "$out/exchanges.json") > /dev/null
+    (cd "$root" && python3 -m tools.redact_trial < "$redact_json" > "$out/exchanges.json") 2> /dev/null
     rm -f "$redact_json"
     echo "Done, status $status. Give the session this directory; it reads only exchanges.json and the .clean files:"
     echo "  $out"
