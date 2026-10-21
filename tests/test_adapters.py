@@ -1222,6 +1222,7 @@ class Contract(unittest.TestCase):
             "a_run_waits_its_turn", "a_tick_can_be_lost", "a_pass_starts_its_successor", "a_public_event_starts_a_pass",
             "a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read",
             "an_issues_content_time_is_read_apart", "a_reopening_names_its_actor", "an_issues_close_and_reopening_say_when",
+            "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing",
         }
         self.assertEqual(set(grounded), set(reads) | not_read)
         self.assertFalse(set(reads) & not_read)
