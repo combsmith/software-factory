@@ -38,6 +38,18 @@ def moved_after(rel: str, block: str, anchor: str) -> tuple:
     return block + middle, middle + block
 
 
+def moved_before(rel: str, block: str, anchor: str) -> tuple:
+    """(old, new) for a mutant that moves `block` up to just before the `anchor` that comes ahead of it in `rel`;
+    STALE, as `moved_after`, if either is not found."""
+    text = (ROOT / rel).read_text()
+    end = text.find(block)
+    start = text.rfind(anchor, 0, end) if end >= 0 else -1
+    if start < 0:
+        return anchor + block, block + anchor
+    middle = text[start:end]
+    return middle + block, block + middle
+
+
 REVIEW_GUARD = ("    if unreadable_reviews(facts, config):\n"
                 '        return {"state": None, "reason": "review_unreadable", "evidence": []}\n')
 LABEL_GUARD = ("    if unreadable_labels(facts, config):\n"
@@ -1614,8 +1626,20 @@ MUTANTS = ISSUE + [
      '            elif node.get("__typename") != "StatusContext":\n',
      '            elif False:\n', ('tests.test_adapters',)),
     ('a rollup of another commit is read', 'adapters/checks.py',
-     '        if not isinstance(commit, dict) or commit.get("oid") != pull["head"]["sha"] or pr.get("headRefOid") != commit.get("oid"):\n',
+     '        if not isinstance(commit, dict) or commit.get("oid") != pull["head"]["sha"]:\n',
      '        if not isinstance(commit, dict):\n', ('tests.test_adapters',)),
+    ('a head that moved while the checks were read is kept', 'adapters/checks.py',
+     '        if pr.get("headRefOid") != pull["head"]["sha"]:\n',
+     '        if False:\n', ('tests.test_adapters',)),
+    ("the rollup's count is not compared with what was read", 'adapters/checks.py',
+     '            whole = isinstance(total, int) and not isinstance(total, bool) and counted == total and seen == total\n',
+     '            whole = True\n', ('tests.test_adapters',)),
+    ('a count that changed between pages is not noticed', 'adapters/checks.py',
+     ' and counted == total and seen == total\n',
+     ' and seen == total\n', ('tests.test_adapters',)),
+    ('a counted context left unread is not noticed', 'adapters/checks.py',
+     ' and counted == total and seen == total\n',
+     ' and counted == total\n', ('tests.test_adapters',)),
     ('a next page of checks is not read', 'adapters/checks.py',
      '        after = page["endCursor"]\n',
      '        return {"checks": found, "complete": True, "queue": queue, "threads": threads}\n', ('tests.test_adapters',)),
@@ -1658,6 +1682,12 @@ MUTANTS = ISSUE + [
     ("an unseen push is the epoch's", 'adapters/facts.py',
      '        "last_push_at": pushed_at or now,\n',
      '        "last_push_at": pushed_at or "1970-01-01T00:00:00Z",\n', ('tests.test_adapters',)),
+    ("the snapshot's time is taken before its reads", 'adapters/facts.py',
+     *moved_before("adapters/facts.py", "    now = clock()\n", "    first = pull.read(transport, repo, number)\n"),
+     ('tests.test_adapters',)),
+    ('a snapshot outside facts/1 is kept', 'adapters/facts.py',
+     '    if problems:\n',
+     '    if False:\n', ('tests.test_adapters',)),
     ("the base's head may be anything", 'adapters/pull.py',
      '    if not SHA.match(str(head)):\n        raise Unanswered("the base branch\'s head commit cannot be read")\n',
      '    if False:\n        raise Unanswered("the base branch\'s head commit cannot be read")\n', ('tests.test_adapters',)),

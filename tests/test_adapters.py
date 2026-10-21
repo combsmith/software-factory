@@ -948,6 +948,11 @@ class Checks(unittest.TestCase):
         moved["head"]["sha"] = "0" * 40
         with self.assertRaises(github.Unanswered):
             checks.read(github.Replay([checks_answer(node)]), moved)
+        # The pull request names the head, but the rollup is another commit's.
+        other = p32_pull()
+        other["commits"]["nodes"][0]["commit"]["oid"] = "0" * 40
+        with self.assertRaises(github.Unanswered):
+            checks.read(github.Replay([checks_answer(other)]), as_pull(p32_pull()))
         short = p32_pull()
         short["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["pageInfo"] = {"hasNextPage": None}
         self.assertIs(checks.read(github.Replay([checks_answer(short)]), as_pull(short))["complete"], False)
@@ -955,6 +960,8 @@ class Checks(unittest.TestCase):
         first, second = p32_pull(), p32_pull()
         first["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["pageInfo"] = {"hasNextPage": True,
                                                                                             "endCursor": "c1"}
+        for page in (first, second):
+            page["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = 36
         got = checks.read(github.Replay([checks_answer(first), checks_answer(second, "c1")]), as_pull(first))
         runs = [n for n in second["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
                 if n["__typename"] == "CheckRun"]
@@ -971,6 +978,28 @@ class Checks(unittest.TestCase):
         uncounted["reviewThreads"] = {"totalCount": None}
         with self.assertRaises(github.Unanswered):
             checks.read(github.Replay([checks_answer(uncounted)]), as_pull(uncounted))
+
+    def test_a_rollup_whose_count_is_not_what_was_read_is_not_whole(self):
+        # GitHub counts the rollup's contexts: a last page that says no next one, but leaves counted contexts unread,
+        # or a count that changed between pages, is a short read.
+        for count in (19, None, True):
+            node = p32_pull()
+            node["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = count
+            self.assertIs(checks.read(github.Replay([checks_answer(node)]), as_pull(node))["complete"], False, count)
+        first, second = p32_pull(), p32_pull()
+        first["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"].update(
+            totalCount=36, pageInfo={"hasNextPage": True, "endCursor": "c1"})
+        second["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["totalCount"] = 37
+        got = checks.read(github.Replay([checks_answer(first), checks_answer(second, "c1")]), as_pull(first))
+        self.assertIs(got["complete"], False)
+
+    def test_a_rollup_read_while_the_head_moved_is_refused(self):
+        # The rollup is of the head the port asked about, but the pull request names another head by then.
+        node = p32_pull()
+        asked = as_pull(node)
+        node["headRefOid"] = "0" * 40
+        with self.assertRaises(github.Unanswered):
+            checks.read(github.Replay([checks_answer(node)]), asked)
 
 
 def p26_files() -> dict:
@@ -1013,7 +1042,7 @@ class Snapshot(unittest.TestCase):
     def read(self, reread: int):
         router = Router(github.Replay(self.sequence(reread)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, canary(), MACHINE, {})
-        return facts.snapshot(router, canary(), 26, person(), accounts, True, self.NOW)
+        return facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW)
 
     def test_a_snapshot_holds_every_part_of_the_facts_and_the_title_beside_them(self):
         got, title = self.read(6)
@@ -1051,18 +1080,36 @@ class Snapshot(unittest.TestCase):
         seq[7]["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["totalCount"] = 2
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}),
-                                False, self.NOW)
+                                False, lambda: self.NOW)
         self.assertEqual((got["complete"]["threads"], got["complete"]["runs"], got["threads"]), (False, False, []))
+
+    def test_the_snapshots_time_is_taken_after_its_last_read(self):
+        replay = github.Replay(self.sequence(6))
+        router = Router(replay, {"don-petry": "admin"})
+        left = []
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: left.append(len(replay._left)) or self.NOW)
+        self.assertEqual((left, got["read_at"]), ([0], self.NOW))
+
+    def test_a_snapshot_that_does_not_hold_to_the_schema_is_refused(self):
+        # A part the reads give that facts/1 does not take, here a time out of its range, refuses the whole.
+        router = Router(github.Replay(self.sequence(6)), {"don-petry": "admin"})
+        with self.assertRaises(github.Unanswered):
+            facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                           lambda: "2026-10-18T24:00:00Z")
 
 
 class ChecksAsked(unittest.TestCase):
     @pending
     def test_a_required_check_reports_on_every_head_and_a_rerun_replaces_only_its_own(self):
         # Decisions 0015 and 0018: a required check reports on every head and in the merge queue, and only a re-run of
-        # the same job in the same check suite replaces an earlier run. GitHub's behaviour, which P-42 (issue 250)
-        # records; until its fixture lands, this test is expected to fail.
-        found = exchanges("P-42")
-        self.assertTrue(found)
+        # the same job in the same check suite replaces an earlier run, so two suites' runs of one name both stand in
+        # the rollup the port reads. GitHub's behaviour, which P-42 (issue 250) records, its last exchange saying what
+        # was seen; until its fixture lands, this test is expected to fail.
+        seen = body("P-42", -1)
+        self.assertEqual((seen["reported on every head"], seen["reported in the merge queue"],
+                          seen["both suites' runs of one name listed"], seen["a re-run replaced only its own"]),
+                         (True, True, True, True))
 
     @pending
     def test_a_dynamic_workflows_path_is_read_as_github_gives_it(self):
@@ -1078,14 +1125,17 @@ class ChecksAsked(unittest.TestCase):
 class Contract(unittest.TestCase):
     def test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it(self):
         # L-51 and sim/AGENTS.md: each rule of the fake GitHub a fixture grounds, and the port reads, is read by the
-        # port from that same fixture as the fake assumes it. A rule the fake changes, or the port reads otherwise,
-        # fails here.
+        # port from that same fixture as the rule states it. The fake is not run here: a rule dropped from the fake's
+        # grounding, or a fixture the port reads otherwise, fails.
         from sim import grounding
         grounded = {code: fixture for code, _, _, fixture, _ in grounding.RULES if fixture}
         before = pull.diff(replay("P-29.base", 2), body("P-29.base", 1))["content_id"]
         after = pull.diff(replay("P-29.base", 13), body("P-29.base", 12))["content_id"]
         fork = [e for e in exchanges("P-27") if "/runs?" in e["request"].get("call", "") and e["response"]["status"] == 200]
-        rows = [r for e in fork for r in e["response"]["body"].get("workflow_runs", []) if r.get("event") == "pull_request"]
+        rows = [r for e in fork for r in e["response"]["body"].get("workflow_runs", [])
+                if r["head_repository"]["full_name"] != r["repository"]["full_name"]]
+        # A fork's run is a pull request's, and would not count even were it a dispatch of a Role's file.
+        recorded, rows = rows, rows + [dict(r, event="workflow_dispatch") for r in rows]
         reads = {
             "a_push_is_new_content": before != after,
             "the_pusher_is_the_last_pusher": pull.last_pusher(replay("P-28", 7), body("P-28", 10)) == "don-petry"
@@ -1093,10 +1143,9 @@ class Contract(unittest.TestCase):
             "a_short_diff_says_so": pull.diff(replay("P-29.truncated", 4), body("P-29.truncated", 2))["diff"]["truncated"],
             "a_path_list_can_leave_out_a_file": pull.changed_paths(github.Replay(files_pages(30, [])),
                                                                    body("P-29.truncated", 2))["complete"] is False,
-            "a_forks_run_never_counts": bool(rows) and all(records._record(r, r["repository"]["full_name"],
-                                                                           r.get("head_branch"), {r.get("path")},
-                                                                           (r["actor"]["id"], r["actor"]["type"]))
-                                                            == (None, None) for r in rows),
+            "a_forks_run_never_counts": bool(recorded) and all(r["event"] == "pull_request" for r in recorded)
+            and all(records._record(r, r["repository"]["full_name"], r.get("head_branch"), {r.get("path")},
+                                    (r["actor"]["id"], r["actor"]["type"])) == (None, None) for r in rows),
             "a_new_run_is_listed_unnamed": Records().read(listing("P-17", 9, total=1), listing("P-17", 10, total=1),
                                                           per_page=1)[0]["unidentified"] == ["39086879694"],
         }
