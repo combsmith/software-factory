@@ -3364,6 +3364,28 @@ class Trials(unittest.TestCase):
         self.assertEqual((past["body"]["total_count"], past["body"]["workflow_runs"], past["headers"].get("link")), (0, [], None))
         self.assertEqual(p43["ran_at"], call("for when the trial began")["response"]["body"]["commit"]["author"]["date"])
 
+    def test_the_sandbox_limits_connections_and_passes_the_environment(self):
+        # trials/P-26.json (issue 188): the fail is computed here from the script's own record of each configuration, and
+        # the Tasks' answers hold none of the model's text.
+        p26 = json.loads((ROOT / "trials" / "P-26.json").read_text())
+        checked = p26["exchanges"][-1]["response"]["body"]
+        parts = {p["configuration"]: p for p in checked["configurations"]}
+        self.assertEqual(sorted(parts), ["plain", "scrubbed"])
+        for name, part in parts.items():
+            self.assertTrue(part["probe_ran"] and part["exit"] == 0 and part["is_error"] is False, name)
+            fetches = part["fetches"]
+            self.assertEqual((fetches["allowed_through_proxy"]["exit"], fetches["allowed_through_proxy"]["http"]), (0, 200), name)
+            self.assertEqual(fetches["denied_through_proxy"]["connect"], 403, name)
+            self.assertTrue(all(fetches[k]["exit"] != 0 for k in ("allowed_around_proxy", "denied_around_proxy")), name)
+            self.assertEqual(part["write_outside_the_work_directory"]["landed"], False, name)
+            self.assertTrue(part["env"]["seen"]["parent"], name + ": the parent's environment reached the tool")
+            self.assertEqual(part["holds"]["environment_hidden"], False, name)
+        # The scrub took out the name on the CLI's credential list, and only that one.
+        self.assertEqual((parts["plain"]["env"]["seen"]["listed"], parts["scrubbed"]["env"]["seen"]["listed"]), (True, False))
+        self.assertEqual((checked["some_configuration_hides_and_limits"], p26["verdict"]), (False, "fail"))
+        for exchange in p26["exchanges"][2:4]:
+            self.assertNotIn("result", exchange["response"]["body"])
+
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
         problems = check_trials.run(clone({"sim/world.py": world + "\n# GitHub: a_rule_nobody_listed\n"}))
