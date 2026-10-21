@@ -118,7 +118,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
         minted=""
         echo "trial_p39_reach: $slug: no token was minted for installation $installation (status ${minted_status:-none});" \
             "nothing read. GitHub answered, redacted:" >&2
-        if (cd "$root" && python3 -m tools.redact_trial "$scratch/mint-$n" "$scratch/mint-$n.clean") >/dev/null 2>&1
+        if (cd "$root" && python3 -m tools.redact_trial < "$scratch/mint-$n" > "$scratch/mint-$n.clean") 2>/dev/null
         then
             cat "$scratch/mint-$n.clean" >&2
         else
@@ -148,7 +148,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
             "its token is revoked, and nothing of it is kept. Run the trial again." >&2
         exit 1
     fi
-    (cd "$root" && python3 -m tools.redact_trial "$scratch/raw-$n" "$out/clean-$n") > "$out/redacted-$n"
+    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
     rm -f "$scratch/raw-$n"
     asked="$asked{\"n\": $n, \"app\": \"$app\", \"as\": \"$slug\", \"app_id\": $app_id, \"installation\": $installation,"
     asked="$asked \"call\": \"GET /installation/repositories?per_page=100\", \"revoked\": \"$revoked\"},"
