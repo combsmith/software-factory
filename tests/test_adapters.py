@@ -437,6 +437,7 @@ class ChangedPaths(unittest.TestCase):
 
 
 WORKFLOW = "p17-p22-run-records.yml"     # the trial's workflow, standing in for a Role's in these tests
+DISPATCHER = (MAINTAINER, "User")        # who dispatched the trial's runs, standing in for the Controller's App
 
 
 class Recording:
@@ -450,8 +451,18 @@ class Recording:
         return self.replay.send(req)
 
 
-def listing(name: str, at: int, **change) -> dict:
-    """One list of runs from a fixture, with its rows changed as named: `rows` maps a field to a new value on each."""
+def asked(found: dict, page: int = 1) -> dict:
+    """A fixture's list of runs, asked as the port asks it: the default branch's dispatches, a page at a time."""
+    words = found["request"]["call"].split()
+    path, _, query = words[1].rstrip(",").partition("?")
+    per = query.split("per_page=")[1].split("&")[0]
+    call = "%s?branch=main&event=workflow_dispatch&per_page=%s%s" % (path, per, "" if page == 1 else "&page=%d" % page)
+    return dict(found, request=dict(found["request"], call=" ".join([words[0], call] + words[2:])))
+
+
+def listing(name: str, at: int, page: int = 1, **change) -> dict:
+    """One list of runs from a fixture, asked as the port asks it, with its rows changed as named: `rows` maps a field
+    to a new value on each row."""
     found = copy.deepcopy(exchanges(name)[at])
     body_ = found["response"]["body"]
     for key, value in change.get("rows", {}).items():
@@ -461,18 +472,17 @@ def listing(name: str, at: int, **change) -> dict:
         body_["total_count"] = change["total"]
     if "headers" in change:
         found["response"]["headers"].update(change["headers"])
-    return found
-
-
-def github_date(sent: str) -> str:
-    """An RFC 1123 date, as GitHub sends it, in the pass record's form."""
-    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    _, day, month, year, clock, _ = sent.split()
-    return "%s-%02d-%02dT%sZ" % (year, months.index(month) + 1, int(day), clock)
+    return asked(found, page)
 
 
 def canary() -> str:
     return json.loads((ROOT / "trials" / "P-17.json").read_text())["repo"]
+
+
+def http_date(sent: str) -> str:
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    _, day, month, year, clock, _ = sent.split()
+    return "%s-%02d-%02dT%sZ" % (year, months.index(month) + 1, int(day), clock)
 
 
 NAME = "sf combsmith/software-factory#264 review-change pr-review sha256:5d0c r_01JA6Z"
@@ -481,20 +491,21 @@ NAME = "sf combsmith/software-factory#264 review-change pr-review sha256:5d0c r_
 class Records(unittest.TestCase):
     def read(self, *found, **kw):
         slept = []
-        got = records.runs(github.Replay(list(found)), canary(), "main", [WORKFLOW], per_page=kw.get("per_page", 10),
-                           sleep=slept.append)
+        got = records.runs(github.Replay(list(found)), canary(), "main", [WORKFLOW], kw.get("dispatcher", DISPATCHER),
+                           per_page=kw.get("per_page", 10), sleep=slept.append)
         return got, slept
 
     def test_a_run_listed_under_its_workflows_name_is_unidentified_after_one_more_read(self):
-        # trials/P-17.json: the queued run is listed at once, under a name that is not a run-name, and still so at the
-        # read 5 s later: it is reported by its GitHub id, never dropped, and the port waited once (decision 0036).
-        got, slept = self.read(exchanges("P-17")[3], exchanges("P-17")[4])
-        self.assertEqual((got["runs"], got["unidentified"], got["complete"], slept), ([], ["39086651339"], True, [5]))
+        # trials/P-17.json: just after the dispatch the run is listed under its workflow's name, and at the read after
+        # it under the trial's own, neither a run-name: it is reported by its GitHub id, never dropped, and the port
+        # waited once (decision 0036).
+        got, slept = self.read(listing("P-17", 9, total=1), listing("P-17", 10, total=1), per_page=1)
+        self.assertEqual(exchanges("P-17")[9]["response"]["body"]["workflow_runs"][0]["name"], "p17-p22-run-records")
+        self.assertEqual((got["runs"], got["unidentified"], got["complete"], slept), ([], ["39086879694"], True, [5]))
 
     def test_a_run_named_by_the_second_read_is_a_record(self):
-        first = listing("P-17", 9, total=1)
         second = listing("P-17", 10, total=1, rows={"name": NAME})
-        got, slept = self.read(first, second, per_page=1)
+        got, slept = self.read(listing("P-17", 9, total=1), second, per_page=1)
         self.assertEqual((got["unidentified"], slept), ([], [5]))
         self.assertEqual(got["runs"], [{"run": "r_01JA6Z", "item": {"repo": "combsmith/software-factory",
                                         "type": "pull_request", "number": 264}, "intent": "review-change",
@@ -503,23 +514,27 @@ class Records(unittest.TestCase):
                                         "started_at": second["response"]["body"]["workflow_runs"][0]["run_started_at"]}])
 
     def test_only_a_dispatch_of_a_role_workflow_from_the_default_branch_in_this_repo_counts(self):
-        # Decision 0003 and I-34: another workflow, event, branch or repo, a fork's pull request among them, is never a
-        # Run, and never unidentified: it is not read at all, and no second read waits on it.
+        # Decision 0003 and I-34: another workflow, event, branch, ref, repo or dispatcher, a fork's pull request and a
+        # person's dispatch among them, is never a Run, and never unidentified: no second read waits on it.
         for change in ({"path": ".github/workflows/other.yml"}, {"event": "schedule"}, {"event": "pull_request"},
-                       {"head_branch": "trial/x"}, {"head_repository": {"full_name": "someone/fork"}}):
+                       {"head_branch": "trial/x"}, {"path": ".github/workflows/%s@refs/tags/main" % WORKFLOW},
+                       {"repository": {"full_name": "someone/fork"}}, {"head_repository": {"full_name": "someone/fork"}},
+                       {"actor": {"id": MAINTAINER, "type": "Bot"}}, {"actor": {"id": 1, "type": "User"}}, {"actor": None}):
             got, slept = self.read(listing("P-17", 3, rows=change))
             self.assertEqual((got["runs"], got["unidentified"], slept), ([], [], []), change)
+        got, _ = self.read(listing("P-17", 3, rows={"name": NAME, "path": ".github/workflows/%s@refs/heads/main" % WORKFLOW}))
+        self.assertEqual(len(got["runs"]), 1)
 
-    def test_every_read_is_uncached_and_its_date_and_age_are_kept(self):
+    def test_every_read_asks_for_the_default_branchs_dispatches_uncached_and_keeps_its_date_and_age(self):
         found = listing("P-17", 3, rows={"name": NAME}, headers={"age": "30"})
         transport = Recording(github.Replay([found]))
-        got = records.runs(transport, canary(), "main", [WORKFLOW], per_page=10, sleep=lambda s: None)
+        got = records.runs(transport, canary(), "main", [WORKFLOW], DISPATCHER, per_page=10, sleep=lambda s: None)
         self.assertEqual([r["headers"] for r in transport.sent], [{"Cache-Control": "no-cache"}])
-        # The answer's Date, as GitHub wrote it in RFC 1123, kept as the pass record's time.
-        sent = found["response"]["headers"]["date"]
-        when = github_date(sent)
-        self.assertEqual(got["reads"], [{"read": "runs", "date": when, "age": 30}])
-        for headers in ({"age": "-1"}, {"age": "x"}, {"date": "yesterday"}):
+        self.assertIn("?branch=main&event=workflow_dispatch&per_page=10", transport.sent[0]["path"])
+        self.assertEqual(got["reads"], [{"read": "runs", "date": http_date(found["response"]["headers"]["date"]),
+                                         "age": 30}])
+        for headers in ({"age": "-1"}, {"age": "x"}, {"age": "3_0"}, {"age": " 30"}, {"date": "yesterday"},
+                        {"date": "Sun, 18 Oct 2026 25:29:12 GMT"}, {"date": "Sun, 18 Okt 2026 01:29:12 GMT"}):
             with self.assertRaises(github.Unanswered, msg=headers):
                 self.read(listing("P-17", 3, rows={"name": NAME}, headers=headers))
 
@@ -533,45 +548,65 @@ class Records(unittest.TestCase):
         broken["response"]["body"]["workflow_runs"] = None
         self.assertIs(self.read(broken)[0]["complete"], False)
 
-    def test_a_status_or_a_conclusion_github_would_not_give_a_run_makes_the_list_short(self):
+    def test_a_list_whose_count_moved_or_that_repeats_a_run_across_pages_is_not_whole(self):
+        one = listing("P-17", 10, total=2, rows={"name": NAME})
+        two = listing("P-17", 10, page=2, total=2, rows={"name": NAME.replace("#264", "#265"), "id": 1})
+        got, _ = self.read(one, two, per_page=1)
+        self.assertEqual((len(got["runs"]), got["complete"]), (2, True))
+        moved = listing("P-17", 10, page=2, total=3, rows={"name": NAME.replace("#264", "#265"), "id": 1})
+        self.assertIs(self.read(one, moved, per_page=1)[0]["complete"], False)
+        again = listing("P-17", 10, page=2, total=2, rows={"name": NAME})
+        self.assertIs(self.read(one, again, per_page=1)[0]["complete"], False)
+
+    def test_a_run_that_did_not_succeed_leaves_the_list_not_whole_until_its_outcome_is_read(self):
+        # Decision 0029: a failed Run's outcome is read from its artifact, which waits on adapters/artifacts.py. Until
+        # then the list holding it is not whole, so that the Kernel defers and never reads it as no attempt.
         done = {"name": NAME, "status": "completed"}
-        for conclusion, read in (("success", "success"), ("startup_failure", "failure"), ("timed_out", "timed_out")):
+        got, _ = self.read(listing("P-17", 3, rows=dict(done, conclusion="success")))
+        self.assertEqual((got["runs"][0]["conclusion"], got["complete"]), ("success", True))
+        for conclusion, read in (("startup_failure", "failure"), ("timed_out", "timed_out"), ("cancelled", "cancelled")):
             got, _ = self.read(listing("P-17", 3, rows=dict(done, conclusion=conclusion)))
-            self.assertEqual((got["runs"][0]["conclusion"], got["complete"]), (read, True), conclusion)
+            self.assertEqual((got["runs"][0]["conclusion"], got["complete"]), (read, False), conclusion)
+
+    def test_a_status_or_a_conclusion_github_would_not_give_a_run_makes_the_list_short(self):
         self.assertEqual(self.read(listing("P-17", 3, rows={"name": NAME, "status": "waiting"}))[0]["runs"][0]["status"],
                          "queued")
+        done = {"name": NAME, "status": "completed"}
         for change in (dict(done, conclusion="neutral"), dict(done, conclusion=None), {"name": NAME, "status": "odd"},
                        {"name": NAME, "conclusion": "success"}, {"name": NAME, "run_started_at": "soon",
-                                                                 "created_at": None}):
+                                                                 "created_at": None}, {"id": True}):
             got, _ = self.read(listing("P-17", 3, rows=change))
             self.assertEqual((got["runs"], got["complete"]), ([], False), change)
 
     def test_a_run_name_is_read_whole_or_not_at_all(self):
         # run-name/1: the example is read into its parts, an issue's Intent runs on an issue, and no counter-example
-        # of the schema is a run-name.
+        # of the schema is a run-name; nor is an Intent no Lifecycle runs, a path of dots, or a number past nine digits.
         example = json.loads((ROOT / "examples" / "run-name.json").read_text())
-        self.assertEqual(records.named(example)["item"], {"repo": "combsmith/markets", "type": "pull_request",
-                                                          "number": 521})
+        self.assertEqual(records.named(example.replace("fix-review-findings", "fix-findings"))["item"],
+                         {"repo": "combsmith/markets", "type": "pull_request", "number": 521})
         self.assertEqual(records.named(NAME.replace("review-change", "judge-readiness"))["item"]["type"], "issue")
         for path in sorted((ROOT / "examples" / "invalid").glob("run-name.*.json")):
             self.assertIsNone(records.named(json.loads(path.read_text())), path.name)
-        for name in (None, NAME + " ", NAME.replace("sf ", "sf  "), NAME.replace("#264", "#0")):
+        for name in (None, NAME + " ", NAME + "\n", NAME.replace("sf ", "sf  "), NAME.replace("#264", "#0"),
+                     NAME.replace("#264", "#1234567890"), NAME.replace("review-change", "triage-issue"),
+                     NAME.replace("combsmith/software-factory", "combsmith/.."), example):
             self.assertIsNone(records.named(name), name)
 
     def test_every_listing_the_trials_recorded_is_read(self):
-        # trials/P-17.json and trials/P-22.json: every list of runs they hold is read, each row recognized, none of
-        # them a Role's in this repo, so nothing is a record and nothing waits.
+        # trials/P-17.json and trials/P-22.json: every list of runs they hold, asked as the port asks it, is read with
+        # each row recognized; the trial's runs are the Maintainer's dispatches of a Role-shaped workflow, so each is
+        # counted, unnamed under the trial's names, and so unidentified once the second read still shows it.
         for name in ("P-17", "P-22"):
             for at, found in enumerate(exchanges(name)):
                 if "/runs?" not in found["request"].get("call", "") or found["response"]["status"] != 200:
                     continue
+                listed = found["response"]["body"]
                 per = int(found["request"]["call"].split("per_page=")[1].split()[0].rstrip(","))
-                if found["response"]["body"]["total_count"] > per:
+                if listed["total_count"] > per:
                     continue
-                # Read as a Role's list on another default branch: every row is recognized and none counts.
-                got = records.runs(github.Replay([found]), canary(), "release", [WORKFLOW], per_page=per,
-                                   sleep=lambda s: None)
-                self.assertEqual((got["runs"], got["unidentified"], got["complete"]), ([], [], True), (name, at))
+                got, slept = self.read(asked(found), asked(found), per_page=per)
+                ids = [str(r["id"]) for r in listed["workflow_runs"]]
+                self.assertEqual((got["runs"], got["unidentified"], got["complete"]), ([], ids, True), (name, at))
 
     @pending
     def test_the_outcome_of_a_run_that_did_not_succeed_is_read(self):
