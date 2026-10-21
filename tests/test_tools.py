@@ -29,8 +29,8 @@ from kernel.decide import decide
 from sim import world
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle, context_eval,
-                   check_purity, check_repo, check_trials, check_workflows, mutants, needs_passed, redact_trial, verify,
-                   walk)
+                   check_purity, check_repo, check_rulesets, check_trials, check_workflows, mutants, needs_passed, redact_trial,
+                   rulesets_drift, verify, walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
 
@@ -3554,6 +3554,8 @@ FAILS = {
         dict(check_lifecycle.load("issue"), terminal=[]))})),
     "check_apps": lambda: check_apps.run(clone({"config/apps.json": (ROOT / "config" / "apps.json").read_text()
                                                 .replace('"level": "read"', '"level": "write"')})),
+    "check_rulesets": lambda: check_rulesets.run(clone({"config/rulesets.json": (ROOT / "config" / "rulesets.json")
+                                                        .read_text().replace("15368", "15369")})),
     "check_authority": lambda: check_authority.run(dict(json.loads((ROOT / "config" / "authority.json").read_text()),
                                                          author_role="pr-review")),
     "check_purity": lambda: check_purity.run(clone({"kernel/clock.py": "import time\n"})),
@@ -4575,3 +4577,133 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.assertEqual(ran.returncode, 1)
         self.assertIn("is version '0.0.1', exit 0, not " + self.PIN, ran.stderr)
         self.assertFalse((wrong / "args").exists(), "the agent was not asked")
+
+
+class Rulesets(unittest.TestCase):
+    """`config/rulesets.json` against `config/defaults.json` (issues 62 and 95): a value held in both agrees."""
+
+    def setUp(self):
+        self.rulesets = json.loads((ROOT / "config" / "rulesets.json").read_text())
+        self.defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
+        self.main = self.rulesets["rulesets"]["main"]["rules"]
+
+    def run_on(self) -> list:
+        return check_rulesets.run(tree({"config/rulesets.json": json.dumps(self.rulesets),
+                                        "config/defaults.json": json.dumps(self.defaults)}))
+
+    def test_this_repos_rulesets_agree_with_its_lenses(self):
+        self.assertEqual(self.run_on(), [])
+
+    def test_a_required_check_from_another_app_is_caught(self):
+        self.main["required_status_checks"]["required_status_checks"][0]["integration_id"] = 57789
+        self.assertTrue(caught(self.run_on(), "pins the check 'verify' to App 57789"))
+
+    def test_a_required_check_no_lens_reads_is_caught(self):
+        self.main["required_status_checks"]["required_status_checks"].append({"context": "lint", "integration_id": 15368})
+        self.assertTrue(caught(self.run_on(), "requires the check 'lint', which no deterministic Lens"))
+
+    def test_the_verification_check_must_be_required(self):
+        self.main["required_status_checks"]["required_status_checks"] = [{"context": "CodeQL", "integration_id": 57789}]
+        self.assertTrue(caught(self.run_on(), "does not require the verify Lens's check"))
+
+    def test_a_code_scanning_tool_no_lens_reads_is_caught(self):
+        self.main["code_scanning"]["code_scanning_tools"][0]["tool"] = "Semgrep"
+        self.assertTrue(caught(self.run_on(), "names the tool 'Semgrep'"))
+        self.main["code_scanning"]["code_scanning_tools"][0]["tool"] = "verify"    # a Lens a workflow runs
+        self.assertTrue(caught(self.run_on(), "names the tool 'verify'"))
+
+    def test_files_that_cannot_be_read_are_a_problem(self):
+        self.assertTrue(caught(check_rulesets.run(tree({"config/rulesets.json": "{}"})), "cannot be read"))
+
+
+def as_github(name: str, recorded: dict) -> dict:
+    """A ruleset of config/rulesets.json as GitHub answers it, sharing nothing with the record."""
+    recorded = copy.deepcopy(recorded)
+    return {"id": recorded["id"], "name": name, "target": recorded["target"], "source_type": "Repository",
+            "enforcement": recorded["enforcement"],
+            "conditions": {"ref_name": {"exclude": recorded["exclude"], "include": recorded["include"]}},
+            "rules": [dict({"type": t}, **({"parameters": p} if p else {})) for t, p in recorded["rules"].items()],
+            "bypass_actors": recorded["bypass_actors"], "node_id": "RRS_x", "current_user_can_bypass": "never"}
+
+
+class RulesetsDrift(unittest.TestCase):
+    """`tools/rulesets_drift.py` compares what GitHub answered with the record, whole; `tools/rulesets_drift.sh` reads
+    through a stand-in gh, never the real one, and only reads."""
+
+    SCRIPT = ROOT / "tools" / "rulesets_drift.sh"
+    # The stand-in gh: it records each call, and answers `api --include CALL` from the file named for the call.
+    STAND_IN = """#!/usr/bin/env python3
+import os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+open(os.path.join(here, "calls"), "a").write(" ".join(sys.argv[1:]) + "\\n")
+name = sys.argv[-1].replace("/", "_").replace("?", "_")
+try:
+    sys.stdout.write(open(os.path.join(here, name)).read())
+except OSError:
+    sys.stdout.write("HTTP/2.0 404 Not Found\\nContent-Type: application/json\\n\\n{}")
+    sys.exit(1)
+"""
+
+    def setUp(self):
+        self.recorded = json.loads((ROOT / "config" / "rulesets.json").read_text())["rulesets"]
+        self.live = {name: as_github(name, r) for name, r in self.recorded.items()}
+
+    def compare(self, listed=None, status=200) -> list:
+        listed = [{"id": r["id"], "name": n} for n, r in self.live.items()] if listed is None else listed
+        return rulesets_drift.compare(self.recorded, listed, {r["id"]: (status, r) for r in self.live.values()})
+
+    def test_the_live_rulesets_as_recorded_are_no_drift(self):
+        self.assertEqual(self.compare(), [])
+
+    def test_a_changed_rule_is_drift(self):
+        main = self.live["main"]["rules"]
+        [scan] = [r for r in main if r["type"] == "code_scanning"]
+        scan["parameters"]["code_scanning_tools"][0]["security_alerts_threshold"] = "high_or_higher"
+        self.assertTrue(caught(self.compare(), "ruleset 'main', rule code_scanning"))
+        main.remove(scan)
+        self.assertTrue(caught(self.compare(), "rule code_scanning: config/rulesets.json records"))
+        main.append({"type": "required_signatures"})
+        self.assertTrue(caught(self.compare(), "rule required_signatures"))
+
+    def test_a_changed_bypass_or_target_is_drift(self):
+        self.live["factory release tags"]["bypass_actors"].append({"actor_id": 4, "actor_type": "RepositoryRole",
+                                                                   "bypass_mode": "always"})
+        self.live["main"]["conditions"]["ref_name"]["include"] = ["refs/heads/next"]
+        problems = self.compare()
+        self.assertTrue(caught(problems, "ruleset 'factory release tags', bypass_actors"))
+        self.assertTrue(caught(problems, "ruleset 'main', include"))
+
+    def test_a_ruleset_added_or_taken_away_is_drift(self):
+        listed = [{"id": r["id"], "name": n} for n, r in self.live.items()]
+        self.assertTrue(caught(self.compare(listed + [{"id": 1, "name": "org-wide"}]), "'org-wide' is not in"))
+        self.assertTrue(caught(self.compare(listed[:1]), "records the ruleset 'factory release tags'"))
+
+    def test_an_answer_that_is_not_200_or_no_list_is_drift(self):
+        self.assertTrue(caught(self.compare(status=404), "answered 404, not 200"))
+        self.assertTrue(caught(rulesets_drift.compare(self.recorded, None, {}), "list of the repo's rulesets could not"))
+
+    def run_script(self, live: dict) -> tuple:
+        bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (bin_ / "gh").write_text(self.STAND_IN)
+        (bin_ / "gh").chmod(0o755)
+        head = "HTTP/2.0 200 OK\nContent-Type: application/json\nAuthorization: token ghs_%s\n\n" % ("x" * 36)
+        listed = [{"id": r["id"], "name": n} for n, r in live.items()]
+        (bin_ / "repos_combsmith_software-factory_rulesets_per_page=100").write_text(head + json.dumps(listed))
+        for r in live.values():
+            (bin_ / ("repos_combsmith_software-factory_rulesets_%d" % r["id"])).write_text(head + json.dumps(r))
+        env = dict(os.environ, PATH="%s:/usr/bin:/bin" % bin_, TMPDIR=str(pathlib.Path(SCRATCH.name).resolve()))
+        done = subprocess.run(["sh", str(self.SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
+        return done, (bin_ / "calls").read_text().splitlines()
+
+    def test_the_script_reads_each_ruleset_redacts_it_and_compares(self):
+        done, calls = self.run_script(self.live)
+        self.assertEqual((done.returncode, done.stdout.strip()), (0, "no drift"), done.stderr)
+        ids = sorted(r["id"] for r in self.live.values())
+        self.assertEqual(sorted(calls), sorted(["api --include repos/combsmith/software-factory/rulesets?per_page=100"]
+                                               + ["api --include repos/combsmith/software-factory/rulesets/%d" % i
+                                                  for i in ids]))
+        self.live["main"]["enforcement"] = "evaluate"
+        done, _ = self.run_script(self.live)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("ruleset 'main', enforcement", done.stdout)
+        self.assertNotIn("ghs_", done.stdout + done.stderr)
