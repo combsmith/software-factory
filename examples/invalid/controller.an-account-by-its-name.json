@@ -1,0 +1,21 @@
+{
+  "schema": "controller/1",
+  "accounts": {
+    "workflow_token": null,
+    "relay": "sf-relay[bot]"
+  },
+  "read_gap_seconds": 180,
+  "not_run_seconds": 21600,
+  "capacity_window_seconds": 18000,
+  "automatic_pause": {
+    "faults": 3,
+    "items": 2,
+    "window_seconds": 3600
+  },
+  "thresholds": {
+    "window_seconds": 1209600,
+    "job_minutes_share": 0.1,
+    "graphql_points_per_hour": 3000,
+    "decision_delay_p95_minutes": 15
+  }
+}
