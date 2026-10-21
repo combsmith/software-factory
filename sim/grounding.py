@@ -92,8 +92,14 @@ RULES = (
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an "
      "account type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any "
      "other App and the machine user apart, never from a name's spelling", ("P-41",), None, None),
-    ("a_run_waits_its_turn", "One Run on an item is in progress, and any number wait queued behind it",
-     ("P-44",), None, None),
+    # trials/P-44.json: four pushes under one concurrency group, cancel-in-progress false; the second and third runs
+    # were cancelled as a newer one queued, with no runner and no step, and the running one finished. GitHub lists a
+    # Run waiting for the group as pending, which the records port reads as queued. That the group's first Run holds it
+    # while it waits for a runner, so that only a Run behind it is cancelled, is GitHub's documented rule, which P-44
+    # did not need to show: its first run was in progress at once.
+    ("a_run_waits_its_turn", "One Run on an item is in progress and at most one waits: a newer Run in the item's "
+     "concurrency group cancels the one waiting, which never starts, and never the one running",
+     ("P-44",), "trials/P-44.json", None),
     ("a_queued_run_is_listed", "A Run is in the list of run records from when it is queued, before its job starts",
      ("P-17",), "trials/P-17.json", None),
     ("a_new_run_is_listed_unnamed", "A Run can be listed under its workflow's name, not its run-name, for its first "
@@ -103,7 +109,7 @@ RULES = (
     ("a_run_list_stops_short", "The list of run records can stop short, with the oldest Runs missing",
      ("P-43",), None, None),
     ("a_killed_job_times_out", "A job killed part way concludes timed_out", ("P-18",), None, None),
-    ("a_superseded_run_fails", "A Run whose apply refuses, or that never starts, concludes failure",
+    ("a_superseded_run_fails", "A Run whose apply refuses, or that the Kernel refuses as it starts, concludes failure",
      ("P-17",), None, None),
     ("a_short_diff_says_so", "A diff read short says so, and is not mistaken for the whole",
      ("P-29",), "trials/P-29.truncated.json", None),
@@ -183,4 +189,10 @@ RULES = (
      ("P-16",), None, None),
     ("a_draft_is_not_merged", "A draft pull request cannot be merged, by a person or by the queue",
      ("P-2",), None, None),
+    ("a_forks_run_never_counts", "A pull request from a fork runs its own workflow file, on pull_request, never on a "
+     "schedule or a dispatch, and I-34 counts none of it", ("P-27",), "trials/P-27.json", None),
+    ("a_pass_starts_its_successor", "A pass can dispatch the next with its own job's token", ("P-9",), "trials/P-9.json",
+     None),
+    ("a_public_event_starts_a_pass", "An event anyone may cause starts the poller's workflow, within a minute or two",
+     ("P-20",), "trials/P-20.json", None),
 )
