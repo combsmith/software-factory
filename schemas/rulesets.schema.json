@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "The Factory repo's rulesets, as GitHub answered the Maintainer's read of them, keyed by each ruleset's name, each rule by its type with its parameters. What a ruling fixed is held here as a const; the rest is recorded as read. tools/rulesets_drift.sh compares the live rulesets with this file, by hand.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "repo",
+    "read_on",
+    "rulesets"
+  ],
+  "properties": {
+    "schema": {
+      "const": "rulesets/1"
+    },
+    "repo": {
+      "const": "combsmith/software-factory"
+    },
+    "read_on": {
+      "title": "The day the rulesets were last read back and found to be this, in UTC.",
+      "type": "string",
+      "pattern": "^20[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
+    },
+    "rulesets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "main",
+        "factory release tags"
+      ],
+      "properties": {
+        "main": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "target",
+            "enforcement",
+            "include",
+            "exclude",
+            "bypass_actors",
+            "rules"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "target": {
+              "const": "branch"
+            },
+            "enforcement": {
+              "const": "active"
+            },
+            "include": {
+              "const": [
+                "~DEFAULT_BRANCH"
+              ]
+            },
+            "exclude": {
+              "const": []
+            },
+            "bypass_actors": {
+              "title": "Nobody bypasses the main ruleset: not the Maintainer, not an App.",
+              "const": []
+            },
+            "rules": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "deletion",
+                "non_fast_forward",
+                "pull_request",
+                "required_status_checks",
+                "merge_queue",
+                "code_scanning"
+              ],
+              "properties": {
+                "deletion": {
+                  "const": {}
+                },
+                "non_fast_forward": {
+                  "const": {}
+                },
+                "pull_request": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "required_approving_review_count",
+                    "dismiss_stale_reviews_on_push",
+                    "required_reviewers",
+                    "require_code_owner_review",
+                    "dismissal_restriction",
+                    "require_last_push_approval",
+                    "required_review_thread_resolution",
+                    "require_extra_approval_for_unattributed_changes",
+                    "allowed_merge_methods"
+                  ],
+                  "properties": {
+                    "required_approving_review_count": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "dismiss_stale_reviews_on_push": {
+                      "type": "boolean"
+                    },
+                    "required_reviewers": {
+                      "type": "array"
+                    },
+                    "require_code_owner_review": {
+                      "type": "boolean"
+                    },
+                    "dismissal_restriction": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "enabled",
+                        "allowed_actors"
+                      ],
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "allowed_actors": {
+                          "type": "array"
+                        }
+                      }
+                    },
+                    "require_last_push_approval": {
+                      "type": "boolean"
+                    },
+                    "required_review_thread_resolution": {
+                      "title": "A pull request with an unresolved review thread is neither queued nor merged, whoever asks (issue 62, 2026-10-18).",
+                      "const": true
+                    },
+                    "require_extra_approval_for_unattributed_changes": {
+                      "type": "boolean"
+                    },
+                    "allowed_merge_methods": {
+                      "const": [
+                        "squash"
+                      ]
+                    }
+                  }
+                },
+                "required_status_checks": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "strict_required_status_checks_policy",
+                    "do_not_enforce_on_create",
+                    "required_status_checks"
+                  ],
+                  "properties": {
+                    "strict_required_status_checks_policy": {
+                      "type": "boolean"
+                    },
+                    "do_not_enforce_on_create": {
+                      "type": "boolean"
+                    },
+                    "required_status_checks": {
+                      "title": "Each required check, pinned to the App that reports it. tools/check_rulesets.py holds each to a deterministic Lens of config/defaults.json.",
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "context",
+                          "integration_id"
+                        ],
+                        "properties": {
+                          "context": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "integration_id": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "merge_queue": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "merge_method",
+                    "max_entries_to_build",
+                    "min_entries_to_merge",
+                    "max_entries_to_merge",
+                    "min_entries_to_merge_wait_minutes",
+                    "grouping_strategy",
+                    "check_response_timeout_minutes"
+                  ],
+                  "properties": {
+                    "merge_method": {
+                      "enum": [
+                        "MERGE",
+                        "SQUASH",
+                        "REBASE"
+                      ]
+                    },
+                    "max_entries_to_build": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "min_entries_to_merge": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "max_entries_to_merge": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "min_entries_to_merge_wait_minutes": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "grouping_strategy": {
+                      "enum": [
+                        "ALLGREEN",
+                        "HEADGREEN"
+                      ]
+                    },
+                    "check_response_timeout_minutes": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                },
+                "code_scanning": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "code_scanning_tools"
+                  ],
+                  "properties": {
+                    "code_scanning_tools": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "tool",
+                          "security_alerts_threshold",
+                          "alerts_threshold"
+                        ],
+                        "properties": {
+                          "tool": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "security_alerts_threshold": {
+                            "title": "A security alert of any severity fails the check: a security Finding gates at any severity (issue 95).",
+                            "const": "all"
+                          },
+                          "alerts_threshold": {
+                            "enum": [
+                              "none",
+                              "errors",
+                              "errors_and_warnings",
+                              "all"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "factory release tags": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "target",
+            "enforcement",
+            "include",
+            "exclude",
+            "bypass_actors",
+            "rules"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "target": {
+              "const": "tag"
+            },
+            "enforcement": {
+              "const": "active"
+            },
+            "include": {
+              "const": [
+                "refs/tags/factory/*"
+              ]
+            },
+            "exclude": {
+              "const": []
+            },
+            "bypass_actors": {
+              "title": "Only the repository's admin role, which the Maintainer alone holds today (nothing here records who holds it), until trial P-30 names the release identity (issue 62).",
+              "const": [
+                {
+                  "actor_id": 5,
+                  "actor_type": "RepositoryRole",
+                  "bypass_mode": "always"
+                }
+              ]
+            },
+            "rules": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "creation",
+                "update",
+                "deletion",
+                "non_fast_forward"
+              ],
+              "properties": {
+                "creation": {
+                  "const": {}
+                },
+                "update": {
+                  "const": {}
+                },
+                "deletion": {
+                  "const": {}
+                },
+                "non_fast_forward": {
+                  "const": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

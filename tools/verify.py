@@ -10,7 +10,7 @@ import sys
 import unittest
 
 from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_lifecycle,
-                   check_purity, check_repo, check_trials, check_workflows)
+                   check_purity, check_repo, check_rulesets, check_trials, check_workflows)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHECKS = [
@@ -18,6 +18,7 @@ CHECKS = [
     ("lifecycle", check_lifecycle.run),
     ("authority", check_authority.run),
     ("apps", check_apps.run),
+    ("rulesets", check_rulesets.run),
     ("kernel purity", check_purity.run),
     ("trials", check_trials.run),
     ("repo", check_repo.run),

@@ -391,7 +391,15 @@ and the Kernel pins every required Lens to its own. The configuration names each
 run GitHub reports for it, and `app_id`, the id of its App: `verify` is the check `verify` and
 `secret-scan` the check `Secret scan (gitleaks)`, both from GitHub Actions, 15368, the integration id
 the `main` ruleset pins for `verify`; `code-scanning` is the check `CodeQL`, from GitHub Advanced
-Security, 57789, as the check runs of a merged pull request's head showed on 2026-10-15. The
+Security, 57789, as the check runs of a merged pull request's head showed on 2026-10-15. A
+deterministic Lens gates only through its check's conclusion, so code scanning's threshold is the
+`main` ruleset's: its `code_scanning` rule names CodeQL with `security_alerts_threshold: all`, so a
+security alert of any severity fails the check, as a `security` Finding gates at any severity
+(issue 95; `alerts_threshold` is `errors`). The rule holds the pull request and not the merge
+queue's group, as the oversight session saw on 2026-10-21: what enters the queue has passed it on
+its own head. The rulesets are recorded as data, `config/rulesets.json`, held by its schema where a
+ruling fixed them and by `tools/check_rulesets.py` to the Lenses here, and `tools/rulesets_drift.sh`
+compares the live rulesets with the file, by hand: CI reads nothing from GitHub. The
 schema refuses a Lens with no check or no App (`examples/invalid/config.a-required-lens-with-no-check.json`,
 `examples/invalid/config.a-required-lens-with-no-app.json`), and `tools/check_authority.py` a Lens
 or a check named twice, a model Lens among them. The port's contract: it gives every check run on
@@ -436,10 +444,12 @@ approves it (§4.2, I-45, decision 0020). What holds `.github/` today is GitHub
 refusing an App's push there without the `workflows` permission, which no Factory App holds
 (`config/apps.json`, held by `tools/check_apps.py`); a person's admission of a fork's pull request
 after its last push (I-36); a Role's `apply`, which waits on `harness/`; and the session hooks,
-locally. The `main` ruleset requires no review and pins only `verify` to its App; pinning each
-required check is the Maintainer's, in the repo's settings, with
-"The Factory repo's rulesets hold the Release tags and each required check's App" (issue 62), and
-the Kernel's pin does not wait on it. A Lens
+locally. The `main` ruleset requires no review and pins only `verify` to its App, as
+`config/rulesets.json` records it; pinning each other required check is the Maintainer's, in the
+repo's settings and then in that file, and the Kernel's pin does not wait on it. The tag ruleset
+`factory release tags` refuses the creation, update and deletion of a `factory/*` tag to all but the
+repository's admin role, which the Maintainer alone holds today, though nothing here records who
+holds it, until trial P-30 names the release identity, when it and its record change together. A Lens
 no workflow runs has a gap of its own: whether an upload to code scanning under CodeQL's tool and
 category, by an identity holding `security_events: write`, can replace the CodeQL verdict is
 unverified (trial P-36). Such an upload would be reported by the Lens's own App under its own
@@ -866,11 +876,17 @@ cost is not known exactly; its duration is the estimate.
 | `item` | The Engine produced an invalid Result; a reviewing Result left a criterion uncovered; the fix did not pass | Yes | The item's attempt ceiling applies |
 | `capacity` | The model window ran out mid-Run | No | Every model Run is deferred until the window is expected to reset |
 | `environment` | A token expired; an App was uninstalled; GitHub was unavailable | No | Several in a row pause Admission automatically, raise one alert, and clear when a probe Run succeeds |
-| `superseded` | The item was held or changed before `apply` | No | The next pass decides afresh |
+| `superseded` | The item was held or changed before `apply`, or a newer Run in its group replaced it while it waited | No | The next pass decides afresh |
 
 A pass reads `outcome.json` only for Runs that did not succeed, which are few. A killed Run has no
 outcome file; it is treated as `item` unless other Runs are failing as `environment` at the same
-time. The `capacity` outcome is the capacity signal the PRD has lacked (OQ-3): observed, not
+time. A Run cancelled before its job had a runner or a step has none either, and is no attempt: it
+is read as `superseded`. Its concurrency group cancels a Run that waits behind another as a newer
+one queues (P-44); a person's cancel of a waiting Run reads the same, and then the Run ceiling, not
+the attempts, bounds it. GitHub lists a Run waiting for its group as `pending`, which the records
+port reads as `queued` (`adapters/records.py`). The simulator's lane holds this
+(`tests/test_simulator.py::test_a_newer_run_cancels_the_one_waiting_in_each_world`); the outcome of
+a Run that did not succeed waits on `adapters/artifacts.py`. The `capacity` outcome is the capacity signal the PRD has lacked (OQ-3): observed, not
 estimated. One cause must never become fifty Holds.
 
 **The act Run.** An approval is a Run with no Engine, Intent `issue-approval`, because only `apply`
@@ -1920,8 +1936,11 @@ it is long-lived, it can approve, and it can merge.
 If the subscription cannot be used, the fallback is a metered API credential under the monthly cap
 of PRD FR-73, held and stored the same way.
 
-Only the poller job can start or delete runs, with its own token. The readiness check (§3.12) asserts the settings
-these rules rest on: fork workflows need approval, the default workflow token is read-only, secret
+Only the poller job can start or delete runs, with its own token, which can dispatch the next pass (P-9,
+`trials/P-9.json`). A job with no permissions and no cache action cannot write the default branch's cache
+scope: its token is refused, and a `run:` step holds no cache-service token (P-14, `trials/P-14.json`).
+The readiness check (§3.12) asserts the settings these rules rest on: fork workflows need approval (a first-time
+contributor's run waits until a person approves it, P-27, `trials/P-27.json`), the default workflow token is read-only, secret
 scanning with push protection is on, and environments are restricted to the default branch. It
 also records what each third-party reviewer has been granted, since several can write to branches,
 and reports any change.
@@ -1951,8 +1970,10 @@ This table is generated from the manifests and the authority table, so it always
 state. The fourth column is the plan.
 
 - **Until a Consumer repo is served (slice 3), each App is installed on named repos only; from
-  then, as decided at that cutover, against UJ-6.** Tokens are minted for one repo, so a token
-  cannot reach a repo its Run is not about.
+  then, as decided at that cutover, against UJ-6.** Tokens are minted for one repo and narrowed to
+  the permissions their Effects need, and a token is held to those permissions. A repository subset
+  does not narrow a read of a public repo, which any token reads; whether it refuses a write to
+  another repo the installation reaches is not yet shown (P-4, `trials/P-4.json`).
 - **Reading is shared; writing is not.** Every `run` job reads GitHub through one App,
   `combsmith-sf-reader`, which can write nothing. A Role is given an App of its own when it first
   needs to write, and `apply` mints that App's token. A Role in shadow writes nothing, so it runs
@@ -2050,25 +2071,25 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-1 | Does a pull request authored by an App need an extra approval under the live ruleset's rule for unattributed changes? | One approval suffices |
 | P-2 | Can an App enable auto-merge and enter the merge queue, and take a pull request out of it before the queue merges it? And does the poller read a change before the queue merges it? Does a push take a queued pull request out, can the queue eject one without merging it, its approval staying, is a draft ever merged by a person or the queue, and does the queue run the required checks on the merge group? | Yes to the first three; each of the rest answered and recorded, and the fake changed to match where it differs (`sim/AGENTS.md`, "Known to differ") |
 | P-3 | Is an environment secret restricted to the default branch unreadable from a workflow on a work-item branch? | Unreadable |
-| P-4 | Can an installation token be minted with a subset of the App's permissions and repos? | Yes |
+| P-4 | Can an installation token be minted with a subset of the App's permissions and repos? | Yes. **Failed** on 2026-10-21 (`trials/P-4.json`): the token is minted with the subset and held to its permissions (a write beyond them is refused 403), but a repository subset does not narrow a read of a public repo, which any token reads (200); §5.1 now says so |
 | P-5 | Can one App resolve a review thread opened by another App or by a third-party reviewer? | Yes, with pull-request write |
 | P-6 | Does a job-level `if:` on the actor's prefix drop events authored by the Factory's Apps? | Dropped, with no step run |
 | P-7 | Does the machine user's approval satisfy code-owner review and the last-push rule when an App pushed last? | Yes |
 | P-8 | What does one pass over every open item in twelve repos cost in GraphQL points, and how often do scheduled ticks arrive in the new repo? | Within the budget of §7.3. **Passed** for the cost (`trials/P-8.json`). The ticks part **failed** on 2026-10-20 (`trials/P-8.ticks.json`): 19 of 335 due ticks over 28 hours, so the schedule is a backstop of hours and the relay carries W-2 (§7.3, decision 0043) |
-| P-9 | Can a pass start the next one with the default workflow token? | Yes |
+| P-9 | Can a pass start the next one with the default workflow token? | Yes. **Failed** on 2026-10-21 (`trials/P-9.json`) on its ruling's last clause alone: a job holding `actions: write` alone dispatched the next run (204), listed at once, but that run's actor is `github-actions[bot]`, not the first run's. §7.3 reads that actor: `started_by` tells a `successor` from a person's `dispatch` by the run's account, `github-actions[bot]` for a successor |
 | P-10 | Does a nudge count against the content-creation limit, and can its credential be dispatch-only? | Does not count; can |
 | P-11 | Can the Controller's App write the control-room repo, and publish its page, without starting a workflow in the hub? | Yes |
 | P-12 | Does a check run's `external_id` round-trip, so it can serve as a recovery key? | Yes |
 | P-13 | Does the vendor CLI return validated structured output and usage in headless mode on the subscription credential, at a pinned version? Run by `tools/trial_p13_cli.sh` at the Maintainer's terminal, on a configuration directory of its own logged in to the Maintainer's own subscription (decision 0033), with one fixed Task and the smallest Result of §3.5 as its schema | Yes: the structured output validates, the same answer carries input and output tokens, and it ran at the pinned version. Until the engine port in `adapters/` exists, the trial script pins the version. If not, the metered key is tried and recorded. **Passed** on 2026-10-18 against the script's pin, 2.1.302 (`trials/P-13.json`), on the Maintainer's own subscription under a configuration directory of its own, which departs from §1.1 and §4.9 for now (decision 0033) |
-| P-14 | Can a job with no permissions and no cache action write the default-branch cache scope? | Cannot |
+| P-14 | Can a job with no permissions and no cache action write the default-branch cache scope? | Cannot. **Passed** on 2026-10-21 (`trials/P-14.json`): the job's token is refused a cache write (403), a `run:` step holds no cache-service token, and no cache exists afterwards; listing a public repo's caches is open to any token |
 | P-15 | Do the retained Advisory reviewers review a pull request authored by an App? | Each one does, or is not counted as a Lens on such pull requests |
 | P-16 | How long are run records, logs and artifacts kept in a public repo? | 90 days |
 | P-17 | Is a run's name set when the run is created, and visible for a run whose job never started? Can recent runs of one workflow be listed and matched by name within the request budget? | Yes to both. **Failed** on 2026-10-18 (`trials/P-17.json`): listed at once, named within 3.7 s; decision 0036 covers the window |
 | P-18 | Does a final step still run, and upload partial usage, when a job times out or is cancelled? | Yes, or duration is the only estimate |
 | P-19 | Can a static page in a separate public repo be published from files the Controller writes? | Yes |
-| P-20 | Does an event that anyone may cause, such as starring a repo, still start a workflow, and how often may it? | Yes, often enough for a tick every minute or two |
+| P-20 | Does an event that anyone may cause, such as starring a repo, still start a workflow, and how often may it? | Yes, often enough for a tick every minute or two. **Passed** on 2026-10-21 (`trials/P-20.json`): ten stars a minute apart started ten runs, each within two seconds |
 | P-26 | Can the model CLI's sandbox stop a tool reading the parent process's environment, and limit where it connects? | Yes to both, or the first and third layers of §4.9 carry the weight |
-| P-27 | Does a fork's pull-request workflow run wait for approval, and can it never be a schedule or dispatch run? | Yes to both |
+| P-27 | Does a fork's pull-request workflow run wait for approval, and can it never be a schedule or dispatch run? | Yes to both. **Passed** on 2026-10-21 (`trials/P-27.json`): an outside first-time contributor's run waited (`action_required`) until a person approved it; a fork's workflow file ran only as the pull request's own run, a dispatch of it was refused and no schedule ran |
 | P-31 | Does the Controller App's webhook reach a hosted function for every repo it is installed on, and can that function cause a nudge with no credential over the Factory? | Yes to both |
 | P-28 | Can the actor who last pushed a pull request's head be read as a fact? | Yes, or I-26 has to be met another way |
 | P-29 | Is the hash of a pull request's own diff stable when only the base moves, and how does a truncated diff present? | Stable; truncation is detectable |
@@ -2089,8 +2110,8 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-40 | When only the base branch moves, does GitHub work out `mergeable` and `merge_commit_sha` again, for a pull request that still merges cleanly and for one the move makes conflict, and how long after? | Each answered and recorded. Until it runs, the transitions explorer's move "the base moves" (`tests/test_transitions.py`) makes `mergeable` unknown, which explores more cases than GitHub may produce; the simulator's fake models no move of the base |
 | P-41 | Under the ruleset that dismisses stale approvals on a push: does a request for changes survive the push; can an App with `pull_requests: write` dismiss a person's review, and a person with write access the machine user's approval, the timeline naming who dismissed and the review's earlier state; and can the Controller's App add and remove a control label on a pull request, the event naming the App? Is every actor named on a review, a dismissal, a thread and a label event read with its account type, a User or a Bot? | Yes to each. If a request for changes does not survive a push, the Kernel reads it from the timeline's record of it; if an App cannot dismiss a review, decision 0025 reads the approval only at the commit it approved |
 | P-42 | On a pull request's head: after a push, is every required check pending again; does a required check conclude `timed_out`, `neutral`, `skipped`, `cancelled` or `stale` and keep that conclusion until the content changes or a person runs it again; is every check run read with its exact name and its App's id, two workflow runs on one commit both staying, since `filter=latest` is per check suite; and can any App with `checks: write`, or any Actions job, post a check run under a required Lens's check name, or a result for any criterion of a contract, one the contract does not name among them, which then stays on that head? | Yes to each, so the Kernel's reading of checks (§4.2) and of acceptance results (§4.8) holds. If a check run can be deleted or renamed on the head, the port reads check runs from each check suite's own list |
-| P-43 | Does each list the facts are read from, reviews, threads, checks, timeline events, run records, acceptance results and the files a pull request changes, say when it was cut short, by a count, a last page or a next cursor that the same read gives; and can the list of run records stop short with the oldest Runs missing? Is every file a pull request changes listed once, by its path from the top of the repo, with the path a renamed or copied file had before? | Yes: each short read is told from the read itself, as P-29 showed for the diff and the list of files. If one is not, the port reads that list whole, or reads it as incomplete |
-| P-44 | With a concurrency group for each Work item on a Run's job, does GitHub keep one Run running and one pending, cancel the older pending Run, and never cancel the one running? | As GitHub documents it; the lane in `sim/world.py` then changes to match (`a_run_waits_its_turn`, "Known to differ" in `sim/AGENTS.md`) |
+| P-43 | Does each list the facts are read from, reviews, threads, checks, timeline events, run records, acceptance results and the files a pull request changes, say when it was cut short, by a count, a last page or a next cursor that the same read gives; and can the list of run records stop short with the oldest Runs missing? Is every file a pull request changes listed once, by its path from the top of the repo, with the path a renamed or copied file had before? | Yes: each short read is told from the read itself, as P-29 showed for the diff and the list of files. If one is not, the port reads that list whole, or reads it as incomplete. **Passed** on 2026-10-21 (`trials/P-43.json`): on canary pull request 48, each list read one to a page said it was short, by a cursor in GraphQL and a Link or a count in REST; this repo's run list read whole unfiltered, all 1,873 runs, but with a filter, as the records port reads one, it stopped at 1,000 of the 1,879 it counted, page 1,001 empty and counting 0, so only the first page's count says the oldest are missing (L-53); a renamed file came with its old path in REST alone, and an unchanged copy was listed as an added file, with no source. Acceptance results wait for slice 2 |
+| P-44 | With a concurrency group for each Work item on a Run's job, does GitHub keep one Run running and one pending, cancel the older pending Run, and never cancel the one running? | As GitHub documents it; the lane in `sim/world.py` then changes to match (`a_run_waits_its_turn`, "Known to differ" in `sim/AGENTS.md`). **Passed** on 2026-10-21 (`trials/P-44.json`): four pushes ten seconds apart gave one run in progress and at most one waiting at every read; the second and third were cancelled as a newer one queued, never started, and the first and fourth succeeded |
 | P-45 | When a dependency bot updates an Action's pin in a workflow file, does it open the pull request and push its head under its own `[bot]` identity, so that the port's class for it is `dependency`? | Yes, with the bot as author and last pusher. If a person's push follows, the class is read as any other change's (decision 0026) |
 | P-46 | Does a merged pull request's closing reference change when its description is edited after the merge, or when an issue is linked to it by hand? | No: the reference stands as it was at the merge. **Failed** on 2026-10-21 (`trials/P-46.json`): an edit after the merge added issue 47 to canary pull request 38's references, and undoing it took the issue out; a link by hand was not tried. So the issue Lifecycle reads the join as it stood at the merge, never the live field; issue 267 chooses how, since the edit raised only the cross-reference a bare mention raises, and the undo left it standing |
 
@@ -2196,7 +2217,8 @@ late or not at all.
 
 - Passes cannot overlap, and at most one waits behind the one running. A flood of events costs at
   most back-to-back passes: one runner slot, 5% of the pool.
-- A pass ends by starting its successor only if an item is due at its end. Anything due later
+- A pass ends by starting its successor, by a dispatch with its own job's token whose run is
+  listed at once (P-9, `trials/P-9.json`), only if an item is due at its end. Anything due later
   waits for a tick, a nudge or a Run's end, so a successor never stands in for a timer, and a chain
   ends when nothing is due.
 - Every pass, whatever started it, reads no sooner than three minutes after the last pass that
@@ -2233,7 +2255,8 @@ late or not at all.
   nothing. This is what replaces a nudge file in every Consumer repo: no file anywhere, and events
   heard everywhere.
 - A nudge carries nothing and passes coalesce, so the relay causes one through something anyone may
-  do: for example, starring a designated repo. There is then nothing on the relay worth stealing;
+  do: for example, starring a designated repo, which started a run within two seconds each of ten times (P-20,
+  `trials/P-20.json`). There is then nothing on the relay worth stealing;
   a credential able to start a workflow could also cancel runs and delete run records. Anyone can
   cause a pass this way, and the cost of that is already bounded at one runner slot.
 - The relay is the one permitted exception to "no always-on service". Correctness never depends on
@@ -2773,7 +2796,7 @@ Found by explaining the design on one page and by comparing it with the PRD grou
 | FR-1, for issues | Designed in §4.1 on 2026-10-11. Not yet declared as data, nor checked for termination. The Kernel has no facts or derivation for an issue yet. Left open there: which Role's App opens the draft pull request; the Consumer entry's fields for issues; the promotion record of an Intent that owns no category; and the PRD's own text on triage and arming (§10) |
 | FR-6, resumable Runs | Not designed. A Run that times out pushes nothing and starts again |
 | FR-33 and I-15, for a Finding that does not gate | Designed in §4.2 and §4.3 on 2026-10-14, by the Maintainer's ruling. A required model Lens's `minor` or `info` Finding of any category but `security` is an annotation on its Lens's check run, has no Disposition, and closes when its Lens stops reporting it; a `security` Finding gates at any severity. The Kernel holds the gate. Refusing such a Finding when it is posted on a thread is waiting on `harness/` |
-| A `security` Finding from a deterministic Lens, at any severity | Not held. A deterministic Lens gates through its check's conclusion, and code scanning's default fails the check only on a security alert of `high` or higher. Its threshold must be set to fail on a security alert of any severity: issue #95 "Code scanning fails on a security alert of any severity" |
+| A `security` Finding from a deterministic Lens, at any severity | Set on the pull request: the `main` ruleset's `code_scanning` rule, set on 2026-10-20 (issue 95), has CodeQL's results block a merge on a security alert of any severity (`security_alerts_threshold: all`). The file records it and its schema refuses less (`examples/invalid/rulesets.a-security-alert-below-high-passes.json`); the live rule is compared with the file only by hand (`tools/rulesets_drift.sh`); and no trial has yet seen GitHub block a merge on an alert below `high`, nor said whether the rule changes the check's conclusion or only the merge. Not held in the merge queue's group, which the rule does not hold, where decision 0022 holds a required model Lens's `security` Finding: what two changes make together is not scanned before it merges. Open |
 | FR-12, the injection test suite | Required before promotion; not designed |
 | FR-14, shared-branch safety | The rule is stated; the push guard is to be carried over from the POC |
 | FR-21, FR-36, priority and graceful degradation | Backpressure and the capacity outcome exist. The stages between full service and Pause are not designed |

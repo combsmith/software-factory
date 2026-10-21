@@ -14,7 +14,7 @@ import os
 import pathlib
 import unittest
 
-from adapters import github, pull, records
+from adapters import github, pull, records, timeline
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -427,10 +427,8 @@ class ChangedPaths(unittest.TestCase):
                                                                          body=rows))
             self.assertIs(pull.changed_paths(github.Replay([answer]), data)["complete"], False, change)
 
-    @pending
     def test_a_renamed_file_is_read_with_its_old_name_from_a_fixture(self):
-        # No fixture yet holds a rename: P-43 (issue 250) records one. Until then the rename is held by the synthetic
-        # case above, and this test, which reads the fixture, is expected to fail.
+        # trials/P-43.json (issue 250) records a rename: REST names its old path, as the synthetic case above does.
         found = exchanges("P-43")
         self.assertTrue(any(row.get("previous_filename") for e in found if isinstance(e["response"]["body"], list)
                             for row in e["response"]["body"] if isinstance(row, dict)))
@@ -613,6 +611,292 @@ class Records(unittest.TestCase):
         # Decision 0029: outcome.json is read for a Run that did not succeed. The artifact is downloaded by a redirect
         # off GitHub's API, which the transport follows none of (decision 0044), so this waits on adapters/artifacts.py.
         self.assertTrue(callable(records.outcome))
+
+
+APPROVER = "donpetry-bot"        # the machine user, as config/defaults.json names the approver
+MACHINE = (281750570, "User")     # its account, as trials/P-7.json records it
+
+
+class Router:
+    """A transport that answers a permission or a compare from a table it is given, and anything else from a replay.
+    No fixture holds those two reads yet: the permission's trial is #222's, and P-7 recorded no compare."""
+
+    def __init__(self, replay, permissions=None, compares=None):
+        self.replay, self.permissions, self.compares, self.asked = replay, dict(permissions or {}), dict(compares or {}), []
+
+    def send(self, req):
+        path = req["path"]
+        if "/collaborators/" in path:
+            login = path.split("/collaborators/")[1].split("/")[0]
+            self.asked.append(login)
+            level = self.permissions.get(login, "none")
+            if level == "missing":
+                return {"status": 404, "headers": {}, "body": {"message": "Not Found"}}
+            return {"status": 200, "headers": {}, "body": {"permission": level}}
+        if "/compare/" in path:
+            commit = path.split("...")[1]
+            if commit not in self.compares:
+                return {"status": 404, "headers": {}, "body": {"message": "Not Found"}}
+            return {"status": 200, "headers": {}, "body": self.compares[commit]}
+        return self.replay.send(req)
+
+
+def p7_pull() -> dict:
+    """Pull request 34 of trials/P-7.json, as the facts port's first read would give it."""
+    found = exchanges("P-7")
+    return next(copy.deepcopy(e["response"]["body"]) for e in found
+                if e["request"].get("call", "").startswith("GET /repos/") and "/pulls/34" in e["request"]["call"]
+                and isinstance(e["response"]["body"], dict) and e["response"]["body"].get("number") == 34)
+
+
+BASE_HEAD = "a" * 40
+
+
+def reviews_read(at: int) -> github.Replay:
+    """P-7's read of pull request 34's reviews, asked as the port asks it, a full page at a time."""
+    found = copy.deepcopy(exchanges("P-7")[at])
+    words = found["request"]["call"].split()
+    found["request"]["call"] = " ".join([words[0], words[1] + "?per_page=100"] + words[2:])
+    return github.Replay([found])
+
+
+class Timeline(unittest.TestCase):
+    def accounts(self, transport, lenses=None, factory=()):
+        return timeline.Accounts(transport, canary(), MACHINE, lenses or {}, factory)
+
+    def test_an_actor_is_told_by_its_account_type_and_the_configuration(self):
+        # Decision 0005, L-57: the approver is the machine user and no other; a Bot is a Lens only as the caller names
+        # its App, read as the Lens's name; any other Bot is an App; any other User is a person, whose write access is
+        # the collaborator permission's, admin, maintain or write and never triage, read once a login.
+        router = Router(github.Replay([]), {"don-petry": "admin", "writer": "write", "triager": "triage",
+                                            APPROVER: "write"})
+        accounts = self.accounts(router, {(7, "Bot"): "pr-review"})
+        # The machine user is its account, by id: its approval stands only while it can write, so that is read too.
+        self.assertEqual(accounts.actor({"login": APPROVER, "id": MACHINE[0], "type": "User"}),
+                         {"kind": "machine_user", "name": APPROVER, "can_write": True})
+        self.assertEqual(accounts.actor({"login": APPROVER, "id": 1, "type": "User"})["kind"], "human")
+        # The machine user without write access is read so: its approval then stands for nothing.
+        lost = Router(github.Replay([]), {APPROVER: "read"})
+        self.assertIs(self.accounts(lost).actor({"login": APPROVER, "id": MACHINE[0], "type": "User"})["can_write"], False)
+        self.assertEqual(accounts.actor({"login": "combsmith-sf-pr-review[bot]", "id": 7, "type": "Bot"}),
+                         {"kind": "lens", "name": "pr-review", "can_write": False})
+        self.assertEqual(accounts.actor({"login": "coderabbitai[bot]", "id": 8, "type": "Bot"})["kind"], "app")
+        for login, write in (("don-petry", True), ("writer", True), ("triager", False), ("stranger", False)):
+            self.assertEqual(accounts.actor({"login": login, "id": 9, "type": "User"}),
+                             {"kind": "human", "name": login, "can_write": write}, login)
+        accounts.actor({"login": "don-petry", "id": 9, "type": "User"})
+        self.assertEqual(router.asked.count("don-petry"), 1)
+        for broken in (None, {"login": "x[bot]", "id": 1, "type": "User"}, {"login": "x", "id": "1", "type": "User"},
+                       {"login": "x", "id": 1, "type": "Organization"}, {"login": "", "id": 1, "type": "User"},
+                       {"login": "..", "id": 1, "type": "User"}, {"login": "a/b", "id": 1, "type": "User"}):
+            with self.assertRaises(github.Unanswered, msg=broken):
+                accounts.actor(broken)
+        # A permission GitHub does not give, and a login the endpoint cannot find, are refused, never read as none.
+        for level in ("owner", "missing"):
+            odd = Router(github.Replay([]), {"x": level})
+            with self.assertRaises(github.Unanswered, msg=level):
+                self.accounts(odd).actor({"login": "x", "id": 1, "type": "User"})
+
+    def test_reviews_are_read_with_their_commit_content_and_who_dismissed_them(self):
+        # trials/P-7.json: the reviewer App's and the machine user's approvals were dismissed, by the Maintainer and by
+        # the trial-author App, and the machine user approved again at the new head. The timeline says who dismissed
+        # each and what it was before; the content of each review's commit is its diff against the merge base.
+        events, whole = timeline.events(replay("P-7", 16), p7_pull())
+        self.assertIs(whole, True)
+        compares = {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "diff --git a/x b/x\n",
+                    "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "diff --git a/y b/y\n"}
+        router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, compares)
+        got, whole = timeline.reviews(router, p7_pull(), events, self.accounts(router), BASE_HEAD)
+        self.assertIs(whole, True)
+        content = {c: "sha256:" + hashlib.sha256(b.encode()).hexdigest() for c, b in compares.items()}
+        self.assertEqual([(r["by"]["kind"], r["by"]["name"], r["state"], r["content_id"]) for r in got],
+                         [("app", "coderabbitai[bot]", "dismissed", content["f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb"]),
+                          ("machine_user", APPROVER, "dismissed", content["f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb"]),
+                          ("machine_user", APPROVER, "approved", content["355cb4d9626f8f434dff093d76eb4535a6e7e93e"])])
+        self.assertEqual([(r["dismissed_by"] and r["dismissed_by"]["name"], r["dismissed_from"]) for r in got],
+                         [("don-petry", "approved"), ("combsmith-sf-trial-author[bot]", "approved"), (None, None)])
+        self.assertEqual(got[0]["dismissed_by"], {"kind": "human", "name": "don-petry", "can_write": True})
+        # No text of GitHub's is in the facts: the dismissal's message stays on GitHub.
+        message = next(e["dismissed_review"]["dismissal_message"] for e in events if e.get("event") == "review_dismissed"
+                       and e["dismissed_review"].get("dismissal_message"))
+        self.assertNotIn(message, json.dumps(got))
+        self.assertNotIn(message[:20], json.dumps(got))
+
+    def test_a_dismissed_review_the_timeline_does_not_explain_is_refused(self):
+        router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d",
+                                                                    "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
+        with self.assertRaises(github.Unanswered):
+            timeline.reviews(router, p7_pull(), [], self.accounts(router), BASE_HEAD)
+
+    def test_a_reviews_commit_too_large_to_diff_or_gone_is_its_own_id(self):
+        commit = "f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb"
+        own = "sha256:" + hashlib.sha256(commit.encode()).hexdigest()
+        self.assertEqual(timeline._content(Router(github.Replay([])), canary(), BASE_HEAD, commit), own)
+        too_large = copy.deepcopy(exchanges("P-29.truncated")[4])
+        too_large["request"]["call"] = "GET /repos/%s/compare/%s...%s" % (canary(), BASE_HEAD, commit)
+        self.assertEqual(timeline._content(github.Replay([too_large]), canary(), BASE_HEAD, commit), own)
+        other = copy.deepcopy(too_large)
+        other["response"]["body"]["errors"][0]["code"] = "not_acceptable"
+        with self.assertRaises(github.Unanswered):
+            timeline._content(github.Replay([other]), canary(), BASE_HEAD, commit)
+
+    def test_a_reviews_content_is_the_compare_of_its_commit_against_the_bases_head(self):
+        # trials/P-29.base.json: the first head compared against the moved main is the pull request's own content.
+        found = exchanges("P-29.base")
+        base, head = found[17]["request"]["call"].split()[1].split("/compare/")[1].split("...")
+        got = timeline._content(replay("P-29.base", 17), json.loads((ROOT / "trials" / "P-29.base.json").read_text())["repo"],
+                                base, head)
+        self.assertEqual(got, "sha256:" + body("P-29.base", 24)["compare, moved main...first head"])
+
+    def test_who_last_acted_with_write_access_and_the_factorys_acts_since(self):
+        # trials/P-7.json's timeline: the Maintainer, a person with write access, dismissed the App's approval; the
+        # machine user's approval after that is an act; a mention or a subscription is nobody's act.
+        # The machine user approved twice; the first approval was dismissed after it, and is still an act.
+        events, _ = timeline.events(replay("P-7", 16), p7_pull())
+        router = Router(github.Replay([]), {"don-petry": "admin", APPROVER: "write"})
+        got = timeline.since_writer(events, self.accounts(router))
+        dismissed = next(e["created_at"] for e in events if e.get("event") == "review_dismissed"
+                         and e["actor"]["login"] == "don-petry")
+        self.assertEqual(got, {"last_writer_action_at": dismissed, "acts_since_writer": 1})
+        nobody = Router(github.Replay([]), {APPROVER: "write"})
+        self.assertEqual(timeline.since_writer(events, self.accounts(nobody)),
+                         {"last_writer_action_at": None, "acts_since_writer": 2})
+        # A mention or a subscription names whom an act touched: nobody's action, and nobody's access is asked for it.
+        mentions = [e for e in events if e.get("event") in ("mentioned", "subscribed")]
+        quiet = Router(github.Replay([]))
+        self.assertEqual(timeline.since_writer(mentions, self.accounts(quiet)),
+                         {"last_writer_action_at": None, "acts_since_writer": 0})
+        self.assertEqual(quiet.asked, [])
+        # An act before the writer's last action is not counted; one after is.
+        labeled = {"event": "labeled", "label": {"name": "factory:admit"},
+                   "actor": {"login": "combsmith-sf-controller[bot]", "id": 5, "type": "Bot"}}
+        before, after = dict(labeled, created_at="2026-10-19T17:00:00Z"), dict(labeled, created_at="2026-10-19T20:00:00Z")
+        tie = dict(labeled, created_at=dismissed)
+        dequeued = {"event": "removed_from_merge_queue", "created_at": "2026-10-19T20:01:00Z",
+                    "actor": {"login": "combsmith-sf-controller[bot]", "id": 5, "type": "Bot"}}
+        factory = self.accounts(router, factory={(5, "Bot")})
+        self.assertEqual(timeline.since_writer([before] + events + [tie, after, dequeued], factory)["acts_since_writer"], 4)
+
+    def test_label_events_are_read_with_who_made_them_and_when(self):
+        # No fixture yet holds a label on a pull request's timeline (P-41, issue 250): an event in the timeline's shape.
+        at = "2026-10-19T18:00:00Z"
+        events = [{"event": "labeled", "label": {"name": "factory:hold"}, "created_at": at,
+                   "actor": {"login": "don-petry", "id": 9, "type": "User"}},
+                  {"event": "unlabeled", "label": {"name": "factory:hold"}, "created_at": at,
+                   "actor": {"login": "combsmith-sf-controller[bot]", "id": 5, "type": "Bot"}},
+                  {"event": "commented", "created_at": at, "actor": {"login": "don-petry", "id": 9, "type": "User"}}]
+        router = Router(github.Replay([]), {"don-petry": "write"})
+        got = timeline.label_events(events, self.accounts(router))
+        self.assertEqual(got, [{"label": "factory:hold", "action": "labeled", "at": at,
+                                "by": {"kind": "human", "name": "don-petry", "can_write": True}},
+                               {"label": "factory:hold", "action": "unlabeled", "at": at,
+                                "by": {"kind": "app", "name": "combsmith-sf-controller[bot]", "can_write": False}}])
+        for broken in ({"label": None}, {"label": {"name": ""}}, {"created_at": "soon"}, {"actor": None}):
+            event = dict(events[0], **broken)
+            with self.assertRaises(github.Unanswered, msg=broken):
+                timeline.label_events([event], self.accounts(router))
+
+    def test_a_timeline_is_read_page_by_page_to_a_page_short_of_a_full_one(self):
+        # A page is followed only as the link header names a next one, never by its length (section 3.3).
+        first = copy.deepcopy(exchanges("P-7")[16])
+        first["response"]["body"] = [{"event": "subscribed"}] * 3
+        first["response"]["headers"]["link"] = '<https://api.github.com/x?page=2>; rel="next", <https://api.github.com/x?page=2>; rel="last"' 
+        second = copy.deepcopy(exchanges("P-7")[16])
+        words = second["request"]["call"].split()
+        second["request"]["call"] = " ".join([words[0], words[1] + "&page=2"] + words[2:])
+        second["response"]["body"] = [{"event": "mentioned"}]
+        got, whole = timeline.events(github.Replay([first, second]), p7_pull())
+        self.assertEqual((len(got), whole), (4, True))
+        # A full page with no next named is the last one.
+        full = copy.deepcopy(exchanges("P-7")[16])
+        full["response"]["body"] = [{"event": "subscribed"}] * timeline.PAGE
+        self.assertEqual(len(timeline.events(github.Replay([full]), p7_pull())[0]), timeline.PAGE)
+
+    def test_a_review_github_would_not_give_is_refused_and_a_pending_one_is_not_read(self):
+        compares = {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d", "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"}
+        events, _ = timeline.events(replay("P-7", 16), p7_pull())
+        perms = {"don-petry": "admin", APPROVER: "write"}
+
+        def with_reviews(change, timeline_change=None):
+            read = reviews_read(22)
+            listed = read._left[0][1]["body"]
+            change(listed)
+            router = Router(read, perms, compares)
+            told = copy.deepcopy(events)
+            if timeline_change:
+                timeline_change(told)
+            return timeline.reviews(router, p7_pull(), told, self.accounts(router), BASE_HEAD)
+
+        got, _ = with_reviews(lambda listed: listed.append(dict(listed[-1], state="PENDING", id=1)))
+        self.assertEqual(len(got), 3)
+        with self.assertRaises(github.Unanswered):
+            with_reviews(lambda listed: listed[-1].update(state="WEIRD"))
+        with self.assertRaises(github.Unanswered):
+            with_reviews(lambda listed: None, lambda told: [e["dismissed_review"].update(state="odd") for e in told
+                                                            if e.get("event") == "review_dismissed"])
+        with self.assertRaises(github.Unanswered):
+            with_reviews(lambda listed: listed[-1].update(commit_id="short"))
+        with self.assertRaises(github.Unanswered):
+            with_reviews(lambda listed: listed.append("not a review"))
+        with self.assertRaises(github.Unanswered):
+            timeline._content(Router(github.Replay([]), compares=compares), canary(), "x", "f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb")
+
+    def test_only_the_factorys_identities_make_acts(self):
+        # An App's approval is no act of the Factory's, and nor is a label a person without write access placed.
+        at = "2026-10-19T20:00:00Z"
+        events = [{"event": "reviewed", "state": "approved", "submitted_at": at,
+                   "user": {"login": "coderabbitai[bot]", "id": 8, "type": "Bot"}},
+                  {"event": "labeled", "label": {"name": "x"}, "created_at": at,
+                   "actor": {"login": "stranger", "id": 3, "type": "User"}},
+                  {"event": "added_to_merge_queue", "created_at": at,
+                   "actor": {"login": "combsmith-sf-controller[bot]", "id": 5, "type": "Bot"}},
+                  {"event": "reviewed", "state": "approved", "submitted_at": at,
+                   "user": {"login": "combsmith-sf-controller[bot]", "id": 5, "type": "Bot"}}]
+        router = Router(github.Replay([]), {})
+        self.assertEqual(timeline.since_writer(events, self.accounts(router, factory={(5, "Bot")})),
+                         {"last_writer_action_at": None, "acts_since_writer": 1})
+        # An App that is not the Factory's labelling or queueing is no act of the Factory's.
+        self.assertEqual(timeline.since_writer(events, self.accounts(router))["acts_since_writer"], 0)
+        # An action an App took with a person's token is not that person's.
+        via = {"event": "commented", "created_at": at, "performed_via_github_app": {"id": 1},
+               "actor": {"login": "don-petry", "id": 9, "type": "User"}}
+        writer = Router(github.Replay([]), {"don-petry": "admin"})
+        self.assertIsNone(timeline.since_writer([via], self.accounts(writer))["last_writer_action_at"])
+
+    @pending
+    def test_what_each_credential_is_shown_of_a_permission_is_recorded(self):
+        # L-57: what each credential is shown is recorded by a trial. The collaborator permission's trial, which the
+        # Maintainer's ruling on issue 222 plans, has not run: no fixture yet holds a read of the permission endpoint.
+        # P-27 reads one as the Maintainer; what L-57 asks is what the reader App, a credential of the Factory's, is
+        # shown, which no fixture holds yet.
+        reads = [e for path in sorted((ROOT / "trials").glob("P-*.json"))
+                 for e in json.loads(path.read_text())["exchanges"]
+                 if "/collaborators/" in e["request"].get("call", "") and "/permission" in e["request"].get("call", "")
+                 and (e["request"].get("as") or {}).get("kind") == "app"]
+        self.assertTrue(reads)
+
+    def test_a_permission_is_read_as_github_answers_it(self):
+        # trials/P-27.json: the permission endpoint, asked of a collaborator with read, answers read: no write access.
+        found = next(e for e in exchanges("P-27") if "/permission" in e["request"].get("call", ""))
+        login = found["request"]["call"].split("/collaborators/")[1].split("/")[0]
+        accounts = timeline.Accounts(github.Replay([found]), canary(), MACHINE, {})
+        who = found["response"]["body"]["user"]
+        self.assertEqual(accounts.actor({"login": login, "id": who["id"], "type": who["type"]}),
+                         {"kind": "human", "name": login, "can_write": False})
+
+    def test_a_timeline_or_a_list_of_reviews_that_is_not_a_list_is_not_whole(self):
+        broken = copy.deepcopy(exchanges("P-7")[16])
+        broken["response"]["body"] = {"message": "x"}
+        self.assertEqual(timeline.events(github.Replay([broken]), p7_pull()), ([], False))
+        reviews = reviews_read(22)
+        reviews._left[0][1]["body"] = {"message": "x"}
+        router = Router(reviews)
+        self.assertEqual(timeline.reviews(router, p7_pull(), [], self.accounts(router), BASE_HEAD), ([], False))
+        # An item of the timeline that is not an object is refused, never skipped.
+        with self.assertRaises(github.Unanswered):
+            timeline.label_events(["labeled"], self.accounts(router))
+        with self.assertRaises(github.Unanswered):
+            timeline.since_writer([None], self.accounts(router))
 
 
 if __name__ == "__main__":
