@@ -82,16 +82,15 @@ def over(spent: Spent, budget: float) -> str:
 
 def faster_than_linear(quarter: Spent, half: Spent, whole: Spent) -> str:
     """Why a reading grew faster than linearly over its `sizes`, or "": what the whole costs past the quarter may be four
-    and a half times what the half costs past it, and a tenth of a second over for the noise of a measure. Past the
-    quarter, linear growth gives three times, n to the 1.6 four, n to the 1.8 four and a half and quadratic five, and
-    what does not grow, such as the git the hook runs, falls away. The line is at n to the 1.8 because one reading the
-    hook has, escaped backticks in double quotes, grows as n to the 1.6 ("Identity hook: escaped backticks in double
-    quotes are read in more than linear time", issue 260); a quarter, not size 0, because a reading of nothing may take another path, as an arithmetic the hook refuses
+    times what the half costs past it, and a tenth of a second over for the noise of a measure. Past the quarter, linear
+    growth gives three times and quadratic five, and what does not grow, such as the git the hook runs, falls away. The
+    line was at four and a half while the hook read escaped backticks in double quotes as n to the 1.6 ("Identity hook:
+    escaped backticks in double quotes are read in more than linear time", issue 260); a quarter, not size 0, because a reading of nothing may take another path, as an arithmetic the hook refuses
     does not at size 0. All three are measured in the same run, so a loaded machine slows them alike (issue 253)."""
     if half.cpu < quarter.cpu:    # the measures disagree, as a warm-up the quarter paid makes them: no growth is told
         return ""
     grew, grew_half = whole.cpu - quarter.cpu, half.cpu - quarter.cpu
-    if grew >= 4.5 * grew_half + 0.1:
+    if grew >= 4 * grew_half + 0.1:
         return "cost %.2f s of CPU at its size, against %.2f s at half and %.2f s at a quarter" % (whole.cpu, half.cpu,
                                                                                                  quarter.cpu)
     return ""

@@ -98,6 +98,48 @@ def simple_commands(text: str) -> list:
     return [(words, [target for _, target in redirections]) for words, redirections in commands(text)]
 
 
+class _Token:
+    """A word shlex grows a character at a time, held as its pieces so that it grows in linear time. shlex writes
+    `self.token += c`, which CPython copies whole for a string held in an attribute, so a word of n characters cost n
+    squared over two copies: a commit message of 120,000 took 1.8 s, past the reading budget near 80,000 pairs of
+    escaped backticks ("Identity hook: escaped backticks in double quotes are read in more than linear time", issue 260).
+    """
+    __slots__ = ("pieces",)
+    __hash__ = None
+
+    def __init__(self, text: str = ""):
+        self.pieces = [text] if text else []
+
+    def __iadd__(self, text: str):
+        self.pieces.append(text)
+        return self
+
+    def __bool__(self) -> bool:
+        return any(self.pieces)
+
+    def __eq__(self, other) -> bool:
+        return str(self) == other
+
+    def __str__(self) -> str:
+        return "".join(self.pieces)
+
+
+class Lexer(shlex.shlex):
+    """shlex, its words grown as `_Token`s and given back as strings, so that it reads in linear time what shlex reads."""
+
+    @property
+    def token(self):
+        return self._token
+
+    @token.setter
+    def token(self, value):
+        self._token = value if isinstance(value, _Token) else _Token(value)
+
+    def get_token(self):
+        word = super().get_token()
+        return str(word) if isinstance(word, _Token) else word
+
+
 def commands(text: str, spend=None, texts: list = None, scopes: bool = False, marked: bool = False) -> list:
     """Each simple command in `text`, as (words, [(operator, target)]), read as simple_commands reads it.
 
@@ -114,7 +156,7 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
     if texts is not None:
         texts.append(text)
     held = _held(without_heredocs(text))     # only an unquoted ; ) or > is punctuation
-    lex = shlex.shlex(held, posix=True, punctuation_chars=PUNCTUATION)
+    lex = Lexer(held, posix=True, punctuation_chars=PUNCTUATION)
     lex.whitespace, lex.whitespace_split, lex.commenters = " \t\r", True, ""
     found, words, targets, operator = [], [], [], None
     # A case's patterns are data, in every arm: from `in`, and from each ;; or ;&, to the ) that ends the pattern. Each is
@@ -244,6 +286,15 @@ ENDS = ";&|()\n"
 WORD_ENDS = " \t\r" + ENDS
 # Reserved words after which the next word is a command again: a ( there opens a subshell or an arithmetic command.
 AGAIN = {"if", "then", "else", "elif", "while", "until", "do", "!", "{", "time", "for"}
+# What _held keeps of the word it is reading: it compares it only with AGAIN, "in" and "case", so the first
+# WORD_KEPT characters tell it all, and a longer word is never copied or hashed whole (issue 260; Muse on PR 262).
+WORD_KEPT = 64
+
+
+def grown(word: str, more: str) -> str:
+    """`word` with `more` after it, kept to WORD_KEPT characters and one more, so a longer word is still not empty and
+    equals no keyword."""
+    return word + more if len(word) <= WORD_KEPT else word
 # How a $'...' with a backslash is refused: the hook decodes none, so bash and zsh cannot read it differently from the
 # hook (issue 174, ruling R1). Its message says to write any message to a file.
 ANSI_REFUSED = "a $'...' holds a backslash, which the hook does not decode; write any message to a file and use -F"
@@ -316,7 +367,8 @@ def _held(text: str) -> str:
                 out.append(ESCAPED[after])
             elif after != "\n":     # a backslash before a newline is a line continuation: the two lines are one
                 out.append(c + HOLDS.get(after, after))
-            starts, comments, word = starts and after == "\n", comments and after == "\n", word + c
+            starts, comments = starts and after == "\n", comments and after == "\n"
+            word = grown(word, c)
             i += 2
             continue
         if quote is None:
@@ -329,14 +381,16 @@ def _held(text: str) -> str:
             if i < braces and (c in PUNCTUATION or c == "`" or text.startswith("$(", i)):
                 # In a ${...} each is part of the word, zsh's ${(L)f} too, and a substitution in it runs: ${x:-`cmd`}.
                 out.append(LIVE[c] if c == "`" or c == "$" else HOLDS[c])
-                starts, comments, word = False, False, word + c
+                starts, comments = False, False
+                word = grown(word, c)
                 i += 1
                 continue
             if c == "$" and text.startswith("$'", i):
                 # $'...' with a backslash is refused (ansi_end, ruling R1); with none it is a single-quoted word.
                 end = ansi_end(text, i + 2)
                 out.append(_literal(text[i + 2:end - 1]))
-                starts, comments, word = False, False, word + "'"
+                starts, comments = False, False
+                word = grown(word, "'")
                 i = end
                 continue
             if c == "$" and text.startswith('$"', i):
@@ -354,7 +408,7 @@ def _held(text: str) -> str:
             elif c == ")" and opened:
                 kept = opened.pop()
             if kept is not None:
-                words, first, word = kept[0], kept[1], kept[2] + c
+                words, first, word = kept[0], kept[1], grown(kept[2], c)
             else:
                 if c in WORD_ENDS and word:
                     words += 1
@@ -365,7 +419,7 @@ def _held(text: str) -> str:
                 if c in ENDS:
                     words, first = 0, None
                 elif c not in " \t\r<>":
-                    word += c
+                    word = grown(word, c)
             quote = c if c in "'\"" else None
             out.append(c)
             starts = c in BREAKS and c != ")"       # a ) may end a substitution inside a word: $(x)#y is one word
