@@ -3127,7 +3127,6 @@ class Trials(unittest.TestCase):
             problems = check_trials.run(clone({"sim/grounding.py": GROUNDING.replace("RULES = (", head % ('"%s%s"' % (check_trials.ASSUMED, empty)), 1),
                                                "sim/world.py": world}))
             self.assertTrue(caught(problems, "a_rule_nobody_asks: no trial asks this"), repr(empty))
-        # A trial a rule names has a row in section 6: a P-number of the right shape is not enough.
         for other in ('"assumed: a race no trial can force"', '"Assumed, no trial can ask it: a race no trial can force"',
                       '"assumed, no trial can ask it a race no trial can force"'):
             problems = check_trials.run(clone({"sim/grounding.py": GROUNDING.replace("RULES = (", head % other, 1),
@@ -3137,6 +3136,7 @@ class Trials(unittest.TestCase):
         self.assertNotEqual(grounded_too, GROUNDING)
         self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": grounded_too})),
                                "a_push_is_new_content: a trial asks this, or a fixture grounds it, so it says nothing"))
+        # A trial a rule names has a row in section 6: a P-number of the right shape is not enough.
         nowhere = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_nobody_asks", "It is so", ("P-99",), None, None),', 1)
         self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": nowhere, "sim/world.py": world})),
                                "a_rule_nobody_asks: P-99 has no row in section 6; add the trial there first"))
@@ -3144,6 +3144,15 @@ class Trials(unittest.TestCase):
         rowless = design.replace("| P-41 |", "| P-41a |", 1)
         self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: rowless})),
                                "a_request_for_changes_survives_a_push: P-41 has no row in section 6"))
+        # Only section 6's own table counts: a row before it, or in a fenced block within it, is no trial.
+        p99 = GROUNDING.replace('("P-41",), None, None)', '("P-99",), None, None)', 1)
+        for elsewhere in ("| P-99 | x | y |\n" + design, design.replace("\n## 6. ", "\n```\n| P-99 | x | y |\n```\n## 6. ", 1),
+                          design.replace("| P-41 |", "```\n| P-99 | x | y |\n```\n| P-41 |", 1)):
+            self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: elsewhere, "sim/grounding.py": p99})),
+                                   "P-99 has no row in section 6"))
+        root = clone({})
+        (root / check_trials.DESIGN).write_bytes(b"\xff\xfe| P-41 |\n")
+        self.assertTrue(caught(check_trials.run(root), "%s cannot be read" % check_trials.DESIGN))
         asked = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_nobody_asks", "It is so", ("P-1",), None, "%sx"),' % check_trials.ASSUMED, 1)
         self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": asked, "sim/world.py": world})),
                                "a_rule_nobody_asks: a trial asks this, or a fixture grounds it, so it says nothing of why none can"))

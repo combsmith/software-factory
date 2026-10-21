@@ -91,7 +91,7 @@ RULES = (
      "and when", ("P-32",), "trials/P-32.json", None),
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an "
      "account type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any "
-     "other App and the machine user apart, never from a name's spelling", ("P-38", "P-41"), None, None),
+     "other App and the machine user apart, never from a name's spelling", ("P-41",), None, None),
     ("a_run_waits_its_turn", "One Run on an item is in progress, and any number wait queued behind it",
      ("P-44",), None, None),
     ("a_queued_run_is_listed", "A Run is in the list of run records from when it is queued, before its job starts",
@@ -133,7 +133,7 @@ RULES = (
      "ran its check on one content, and they can disagree", ("P-42",), None, None),
     ("an_acceptance_result_names_its_reporter", "Each result for a criterion is read with the check that reported it: "
      "the check run's name, the id of its App and the path of its workflow file, as a check is read",
-     ("P-42",), None, None),
+     ("P-35", "P-42"), None, None),
     ("any_app_gives_a_result_for_any_criterion", "Any App with checks: write, and any job GitHub Actions runs, can give "
      "a result for any criterion of the contract, one only a person passes among them", ("P-42",), None, None),
     ("a_contract_approval_stays_on_its_commit", "The contract a person approved is read at the commit of the newest "

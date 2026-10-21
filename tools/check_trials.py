@@ -75,6 +75,7 @@ DESIGN = "docs/architecture/software-factory-design.md"
 WORD = re.compile(r"[A-Za-z]{2,}")
 SECOND = re.compile(r"[.!?]\s+\S")       # a sentence that ends before the reason does
 ROW = re.compile(r"^\| (P-[1-9][0-9]*) \|", re.M)
+FENCED = re.compile(r"^```.*?^```", re.M | re.S)
 MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 
 # A key that names a credential, however it is spelt: compared after strip(), lower() and - to _.
@@ -555,11 +556,16 @@ def _examples(root: pathlib.Path) -> list:
 
 
 def section_6(root: pathlib.Path) -> set:
-    """The trials section 6 of the design has a row for, or None when the design cannot be read."""
+    """The trials section 6 of the design has a row for, outside any fenced block, or None when the design cannot be
+    read. A row anywhere else in the design is no trial."""
     try:
-        return set(ROW.findall((root / DESIGN).read_text()))
-    except OSError:
+        text = (root / DESIGN).read_text(encoding="utf-8")
+    except (OSError, ValueError):
         return None
+    start = text.find("\n## 6. ")
+    end = text.find("\n## ", start + 1) if start >= 0 else -1
+    section = text[start:end if end >= 0 else len(text)] if start >= 0 else ""
+    return set(ROW.findall(FENCED.sub("", section)))
 
 
 def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
@@ -571,7 +577,6 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
     rows = section_6(root)
     if rows is None:
         problems.append("%s cannot be read, so no trial a rule names can be found in section 6" % DESIGN)
-        rows = set()
     seen = set()
     for code, rule, trials, fixture, note in listed:
         if not isinstance(code, str) or not CODE.match(code):
@@ -585,7 +590,7 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
         if not isinstance(trials, tuple) or not all(isinstance(t, str) and TRIAL.match(t) for t in trials):
             problems.append("sim/grounding.py: %s: %r is not a tuple of trials of section 6" % (code, trials))
             continue
-        for trial in trials:
+        for trial in trials if rows is not None else ():
             if trial not in rows:
                 problems.append("sim/grounding.py: %s: %s has no row in section 6; add the trial there first"
                                 % (code, trial))
