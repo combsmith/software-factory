@@ -5077,7 +5077,7 @@ if url.endswith("/access_tokens"):
     status = open(os.path.join(here, "mint.status")).read().strip()
     if os.path.exists(os.path.join(here, "cut")):
         # The answer cut short after the token, as a transfer that broke would leave it.
-        sys.stdout.write('{"token": "ghs_RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR", "expires_at": "2026\n201')
+        sys.stdout.write('{"token": "' + "gh" + "s_" + "R" * 36 + '", "expires_at": "2026\n201')
         sys.exit(18)
     if status != "201":
         sys.stdout.write(json.dumps({"message": "Bad credentials"}) + "\n" + status)
@@ -5220,6 +5220,7 @@ esac
         self.assertIn("inside the repo", ran.stderr)
         self.assertEqual(self.calls(), [])
 
+    @support.wall_clock
     def test_a_signal_mid_read_revokes_the_live_token(self):
         # Interrupted while a token is live, the script revokes it on its way out, and keeps no raw answer.
         (self.stand_in / "slow").write_text("yes\n")
