@@ -2939,134 +2939,61 @@ class Trials(unittest.TestCase):
         self.assertEqual(sorted(check_workflows.EXEMPT), ["ci.yml"])
 
     def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
-        # Decision 0035: a trial of repos records the canary as its home, and a measurement's reads may span the org's
-        # repos. Held on what the reads say, for every fixture of the canary, and closed on what cannot be read: each
-        # read names its owner, in its REST path or in every repository and organization call of its query, each
-        # bound to a literal or to a declared variable, and a query with any other root field is refused; that owner
-        # is the org; every repo an answer names, by nameWithOwner, full_name, or a name beside its owner's login,
-        # is the org's; a read an App made names, and is answered with, only repos its installation reaches, the
-        # canary alone for an App the data does not know; and a command-line read is the Maintainer's own.
-        apps = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
-        installed = {app["name"]: set(app["installed_on"]) for app in apps.values()}
+        # Decision 0035, held in tools/check_trials.py since issue 226: a fixture of the canary reads the org's repos
+        # alone and is answered with them alone, and an App's read names, and is answered with, only repos its
+        # installation reaches. Each way round that rule has a counter-example under examples/invalid, refused by the
+        # check in exactly one way and named for it; the check finds nothing wrong with the fixtures on main.
+        refused = {
+            "a-second-root-call-behind-an-escaped-quote": "names the owner outside",
+            "a-read-of-a-users-repos": "names no repo of the org, nor the org, an App or an installation",
+            "a-read-by-repository-id": "names no repo of the org",
+            "a-search-of-another-users-repos": "names no repo of the org",
+            "a-command-line-read-of-another-repo": "names the owner outside",
+            "an-apps-traversal-beyond-its-reach": "asks of the org by an App, whose installation reaches repos alone",
+            "an-apps-read-beyond-its-reach": "asks of combsmith/another-repo, which the App's installation does not reach",
+            "a-repo-named-only-by-a-url": "names the repo outside/x; an answer names the org's repos alone",
+            "a-repo-named-by-a-resource-path": "names the repo outside/x",
+            "a-fragment-on-query": "holds a fragment on Query",
+            "an-answer-naming-another-owners-repo": "names the repo outside/x",
+            "a-query-of-another-org": "names the owner outside",
+            "a-command-line-read-by-an-app": "is app; a command-line read is the Maintainer's own",
+            "a-command-line-read-of-another-repos-address": "names the owner outside",
+            "a-second-root-call-behind-a-comment": "names the owner outside",
+            "a-second-root-call-behind-a-block-string": "names the owner outside",
+            "a-read-that-climbs-out-of-the-canary": "climbs out of its repo",
+            "a-git-read-of-another-repo": "names the owner outside",
+            "an-unknown-apps-read-beyond-the-canary": "asks of combsmith/software-factory, which the App's installation does not reach",
+            "an-apps-answer-beyond-its-reach": "names combsmith/another-repo, which the App's installation does not reach",
+        }
+        for name, words in refused.items():
+            data = json.loads((ROOT / "examples" / "invalid" / ("trial.%s.json" % name)).read_text())
+            problems = check_trials.fixture_problems(data)
+            self.assertEqual(len(problems), 1, (name, problems))
+            self.assertIn(words, problems[0], name)
+        # A counter-example the schema accepts is held to the check, and the check refuses each of these.
+        self.assertEqual([p for p in check_examples.run() if "invalid/trial." in p], [])
+        # The reads on main pass, and more than one fixture of the canary is held: the rule is not vacuous.
         canary = "combsmith/" + check_trials.CANARY
-        rest_path = re.compile(r"^[A-Z]+ /(?:repos/([^/?\s]+)/([^/?\s]+)|orgs/([^/?\s]+))")
-        any_repos = re.compile(r"\brepos/([^/?\s]+)/([^/?\s]+)")
-        root_field = re.compile(r"^(?:\w+\s*:\s*)?(\w+)\s*(?:\(([^)]*)\))?$")
-
-        def roots(query):
-            """Each root field of the one operation in `query`, as (field, its arguments): what stands at depth one
-            of its selection set, outside strings. A fragment on another type is skipped, since its fields hang off
-            a root field of the operation; a fragment on Query would carry root fields of its own, and fails, as a
-            second operation does."""
-            depth, found, text, quoted, skipping = 0, [], "", False, False
-            for ch in query:
-                if ch == '"':
-                    quoted = not quoted
-                if quoted:
-                    text += ch
-                    continue
-                if ch == "{":
-                    if depth == 0:
-                        opening = text.strip()
-                        skipping = opening.startswith("fragment ")
-                        self.assertFalse(skipping and re.search(r"\bon\s+Query\b", opening),
-                                         "a fragment on Query the test cannot read: %r" % opening)
-                        text = ""
-                    elif depth == 1 and not skipping:
-                        found.append(text.strip())
-                        text = ""
-                    depth += 1
-                elif ch == "}":
-                    depth -= 1
-                    if depth == 1:
-                        text = ""
-                elif depth == 0:
-                    text += ch
-                elif depth == 1 and not skipping:
-                    text += ch
-            out = []
-            for item in found:
-                found_field = root_field.match(item.strip())
-                self.assertTrue(found_field, "a root field the test cannot read: %r" % item)
-                out.append((found_field.group(1), found_field.group(2) or ""))
-            return out
-
-        argument = re.compile(r"\b(owner|name|login)\s*:\s*(?:\"([^\"]*)\"|\$(\w+))")
-
-        def bound(args, key, variables):
-            """The one value of `key` among `args`, a literal or a declared variable's; None if not exactly one."""
-            found = [m for m in argument.finditer(args) if m.group(1) == key]
-            if len(found) != 1:
-                return None
-            literal, var = found[0].group(2), found[0].group(3)
-            return literal if literal is not None else variables.get(var)
-
-        def names(value, under=None):
-            """Each repo an answer names: nameWithOwner, full_name, or a name beside its owner's login, which an App,
-            under the key app or with a slug, has as well and is not one."""
-            if isinstance(value, dict):
-                for key, item in value.items():
-                    if key in ("nameWithOwner", "full_name") and isinstance(item, str):
-                        yield item
-                    yield from names(item, key)
-                owner = value.get("owner")
-                if isinstance(value.get("name"), str) and isinstance(owner, dict) and isinstance(owner.get("login"), str) \
-                        and under != "app" and "slug" not in value:
-                    yield owner["login"] + "/" + value["name"]
-            elif isinstance(value, list):
-                for item in value:
-                    yield from names(item, under)
-
-        def asked(request, where):
-            """(owners, repos) a request names; a read that cannot be read fails the test here."""
-            owners, repos = set(), set()
-            if request["via"] == "graphql":
-                body = request["body"]
-                variables = body.get("variables") or {}
-                self.assertTrue(body["query"].lstrip().startswith(("query", "{")), where + ": not a query")
-                for field, args in roots(body["query"]):
-                    if field == "repository":
-                        owner, name = bound(args, "owner", variables), bound(args, "name", variables)
-                        self.assertTrue(owner and name, "%s: a repository call that cannot be read: %s" % (where, args))
-                        owners.add(owner)
-                        repos.add(owner + "/" + name)
-                    elif field == "organization":
-                        login = bound(args, "login", variables)
-                        self.assertTrue(login, "%s: an organization call that cannot be read: %s" % (where, args))
-                        owners.add(login)
-                    elif field != "rateLimit":
-                        self.fail("%s: a root field the test does not read: %s" % (where, field))
-                self.assertTrue(owners, where + ": a query that names no repo and no org")
-            else:
-                found = rest_path.match(request["call"])
-                for owner, name in any_repos.findall(request["call"]):
-                    owners.add(owner)
-                    repos.add(owner + "/" + name)
-                if found and found.group(3):
-                    owners.add(found.group(3))
-            return owners, repos
-
-        checked = 0
-        for path in sorted((ROOT / "trials").glob("P-*.json")):
-            data = json.loads(path.read_text())
-            if data["repo"] != canary:
-                continue
-            checked += 1
-            for i, e in enumerate(data["exchanges"]):
-                where = "%s exchange %d" % (path.name, i)
-                request, asker = e["request"], e["request"]["as"]
-                owners, repos = asked(request, where)
-                answered = set(names(e["response"]["body"]))
-                self.assertTrue(owners <= {"combsmith"}, "%s names %s" % (where, sorted(owners - {"combsmith"})))
-                self.assertTrue(all(repo.startswith("combsmith/") for repo in answered),
-                                "%s was answered %s" % (where, sorted(r for r in answered if not r.startswith("combsmith/"))))
-                if request["via"] == "cli":
-                    self.assertEqual(asker, {"kind": "person", "name": "don-petry"}, where)
-                if asker["kind"] == "app":
-                    reach = installed.get(asker["name"].split(",")[0].replace("[bot]", ""), {canary})
-                    self.assertTrue(repos <= reach, "%s asks %s, beyond %s" % (where, sorted(repos - reach), sorted(reach)))
-                    self.assertTrue(answered <= reach, "%s was answered %s, beyond the reach" % (where, sorted(answered - reach)))
-        self.assertGreaterEqual(checked, 2)
+        held = [p for p in (ROOT / "trials").glob("P-*.json") if json.loads(p.read_text())["repo"] == canary]
+        self.assertGreaterEqual(len(held), 2)
+        self.assertEqual(check_trials.run(), [])
+        # What the reader reads: a fragment on another type is skipped, a string's escaped quote is read as part of it,
+        # a command-line read of the canary is the org's, and an App the data does not know reaches the canary alone.
+        roots, problem = check_trials._roots('query { repository(owner: "combsmith", name: "x") { ...F } } fragment F on Repository { id }')
+        self.assertEqual((roots, problem), ([("repository", 'owner: "combsmith", name: "x"')], None))
+        roots, problem = check_trials._roots('query { repository(owner: "combsmith", name: "a\\"b") { id } }')
+        self.assertEqual(([f for f, _ in roots], problem), (["repository"], None))
+        owners, repos, wrong = check_trials._asked({"via": "cli", "call": "gh pr list --repo combsmith/x -R combsmith/y"})
+        self.assertEqual((owners, repos, wrong), ({"combsmith"}, {"combsmith/x", "combsmith/y"}, []))
+        self.assertEqual(check_trials._installed(ROOT).get("nobody"), None)
+        # The Apps' data that cannot be read is one problem, and every App is then held to the canary.
+        data = json.loads((ROOT / "examples" / "invalid" / "trial.an-unknown-apps-read-beyond-the-canary.json").read_text())
+        problems = check_trials._repos(data, None)
+        self.assertEqual([where for where, _ in problems], ["config/apps.json", "exchanges[0].request.call"])
+        self.assertIn("cannot be read", problems[0][1])
+        # A comment holding a brace is a comment, and the query before it is read whole.
+        roots, problem = check_trials._roots('query { repository(owner: "combsmith", name: "x") { id } } # }')
+        self.assertEqual(([f for f, _ in roots], problem), (["repository"], None))
 
     def test_the_cost_trials_estimate_is_marked_so_and_held_to_its_reads(self):
         # P-8's last exchange is the estimate (FR-35): its cost model is held to every read of the fixture that reports

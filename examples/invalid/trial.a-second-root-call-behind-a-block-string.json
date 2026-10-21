@@ -1,0 +1,44 @@
+{
+  "schema": "trial/1",
+  "trial": "P-12",
+  "question": "Does a check run's external_id round-trip, so it can serve as a recovery key?",
+  "pass": "Yes",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-15T14:02:11Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query { repository(owner: \"combsmith\", name: \"software-factory-canary\") { object(expression: \"\"\"a \" b\"\"\") { id } } repository(owner: \"outside\", name: \"y\") { id } }",
+          "variables": {}
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "object": null
+            }
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}

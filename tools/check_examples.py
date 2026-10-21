@@ -291,6 +291,10 @@ def run(root: pathlib.Path = ROOT) -> list:
         errors = validate(value, schemas[kind], schemas=schemas)
         if kind == "coverage" and not errors:
             errors = _uncovered(value, root)
+        if kind == "trial" and not errors:
+            # A fixture's rules beyond its schema are tools/check_trials.py's: a counter-example of one is refused there.
+            from tools import check_trials
+            errors = check_trials.fixture_problems(value, root)
         if not errors:
             problems.append("invalid/%s: was accepted, and must be rejected" % path.name)
         elif len(errors) > 1:
