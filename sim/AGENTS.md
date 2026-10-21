@@ -32,6 +32,7 @@ workflow can give a result, and a check one for a criterion only a person passes
 Under faults a result on the content expires as its approval falls due (`tests/test_simulator.py::test_the_evidence_expires_as_the_approval_falls_due`).
 On every seed a review's Result now and then leaves a criterion of its rubric uncovered: its Run fails by a fault of the item and opens no thread, and the review is admitted again until its attempts hold the item
 (`tests/test_simulator.py::test_the_seeds_serve_a_review_that_left_a_criterion_uncovered`). On one seed in eight a new Run is listed unnamed for a pass, which neither admits nor approves (`tests/test_simulator.py::test_the_seeds_list_a_new_run_unnamed`).
+On another seed in eight a run never takes its name: it defers admissions only inside `max_unnamed_run_seconds`, and is one alert past it (`tests/test_simulator.py::test_the_seeds_list_a_run_that_never_takes_its_name`).
 In each world one Run holds the item's lane and at most one waits behind it; a newer one cancels the one waiting (`tests/test_simulator.py::test_a_newer_run_cancels_the_one_waiting_in_each_world`).
 A rule about anything else is not exercised here, so its boundary cases are all that hold it. An invariant is a call to `check()` with its name. When a seed finds a fault, the fix goes in the Kernel with a boundary case in `tests/test_decide.py`.
 

@@ -104,6 +104,12 @@ RULES = (
      ("P-17",), "trials/P-17.json", None),
     ("a_new_run_is_listed_unnamed", "A Run can be listed under its workflow's name, not its run-name, for its first "
      "seconds", ("P-17",), "trials/P-17.json", None),
+    ("a_run_whose_name_never_resolves_stays_listed_unnamed", "A run whose run-name never resolves is listed under "
+     "its workflow's name for as long as its record is kept", (), None,
+     "assumed, no trial can ask it: a run-name that never resolves is a fault of a Factory workflow's name expression, "
+     "or of a dispatch by anyone with actions: write, not a behaviour of GitHub a trial could make happen on a sound "
+     "workflow; GitHub documents that a run-name that cannot be evaluated shows the workflow's name, as P-17 saw in "
+     "its first seconds"),
     ("a_new_run_is_listed_late", "The newest Run can be missing from the list of run records for one pass",
      ("P-22",), "trials/P-22.json", None),
     # trials/P-43.json: with a filter, as the records port reads one, this repo's run list stops at 1,000 of the 1,879 it

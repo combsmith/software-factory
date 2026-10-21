@@ -91,6 +91,8 @@ BOT_CLASSES = ("agent", "dependency")
 # The one text format of a time, YYYY-MM-DDTHH:MM:SSZ, with 9 for any digit. Times compare as text.
 TIME_SHAPE = "9999-99-99T99:99:99Z"
 DIGITS = "0123456789"
+# The alert of the whole scope for a Run unnamed past max_unnamed_run_seconds (issue 270).
+RUN_UNNAMED = "run_unnamed"
 # The calendar, which nobody chooses: the only numbers but 0 and 1 the Kernel writes. tools/check_purity.py pins each.
 SECONDS_PER_MINUTE = 60
 MINUTES_PER_HOUR = 60

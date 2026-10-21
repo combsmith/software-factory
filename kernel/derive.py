@@ -453,9 +453,40 @@ def run_deferral(_decision, facts: dict, state, evidence: list, context: dict, n
         return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
     if active >= limits["org_max_active_runs"]:
         return _decision(facts, state, "concurrency", evidence, t.DEFER)
-    if context.get("unidentified_runs") != []:
+    if unnamed_within(context, now, limits) != []:
         return _decision(facts, state, "run_unidentified", evidence, t.DEFER)
     return None
+
+
+def unnamed_runs(context: dict):
+    """The context's unidentified Runs, each a run id of digits and when its record was created, or None when the list
+    or one of them cannot be read (decision 0036, issue 270)."""
+    listed = context.get("unidentified_runs")
+    if not isinstance(listed, list):
+        return None
+    for entry in listed:
+        if not (isinstance(entry, dict) and isinstance(entry.get("run"), str) and entry["run"]
+                and all(c in t.DIGITS for c in entry["run"]) and is_time(entry.get("created_at"))):
+            return None
+    return listed
+
+
+def unnamed_age(entry: dict, now: str) -> int:
+    """How long ago the unidentified Run's record was created, in seconds; below zero where the clock reads it later."""
+    return seconds(now) - seconds(entry["created_at"])
+
+
+def unnamed_within(context: dict, now: str, limits: dict):
+    """The unidentified Runs still inside max_unnamed_run_seconds of their creation, which may yet be named as a Run in
+    flight, by run id; or None when the list, a Run of it, the window or `now` cannot be read. One older than the
+    window is no Run waiting for its name: P-17 saw a name listed within 3.7 s (issue 270)."""
+    listed = unnamed_runs(context)
+    if listed == []:
+        return []
+    window = limits.get("max_unnamed_run_seconds") if isinstance(limits, dict) else None
+    if listed is None or not (type(window) is int and window >= 1) or not is_time(now):
+        return None
+    return [entry["run"] for entry in listed if unnamed_age(entry, now) < window]
 
 
 def readable_actor(actor, facts: dict, config: dict) -> bool:

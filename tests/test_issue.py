@@ -1341,7 +1341,7 @@ class Investigation(unittest.TestCase):
 
 # A run record of the Factory's own workflow, not completed, still listed under the workflow's name: GitHub's run id,
 # from trials/P-17.json. Which item it is on cannot be read (decision 0036).
-UNNAMED = "39086879694"
+UNNAMED = {"run": "39086879694", "created_at": NOW}
 
 
 class UnidentifiedRuns(unittest.TestCase):
@@ -1350,6 +1350,11 @@ class UnidentifiedRuns(unittest.TestCase):
     def test_an_unidentified_run_defers_an_issues_run(self):  # I-46, I-13
         d = decide(TRIAGED, ctx=context(unidentified_runs=[UNNAMED]))
         self.assertEqual((d["state"], what(d)), ("triage", ("defer", "run_unidentified", None)))
+        # Past max_unnamed_run_seconds it is no Run waiting for its name, and defers the issue's Run no more (issue 270).
+        old = (datetime.datetime.strptime(NOW, "%Y-%m-%dT%H:%M:%SZ")
+               - datetime.timedelta(seconds=LIMITS["max_unnamed_run_seconds"])).strftime("%Y-%m-%dT%H:%M:%SZ")
+        d = decide(TRIAGED, ctx=context(unidentified_runs=[dict(UNNAMED, created_at=old)]))
+        self.assertEqual(what(d), ("admit", "triage", INVESTIGATE))
         self.assertEqual(what(decide(TRIAGED, ctx=context(unidentified_runs=[]))), ("admit", "triage", INVESTIGATE))
         # Nothing is defaulted: a list that is missing, or is not a list, defers as one with a Run would.
         missing = context()
@@ -1786,7 +1791,7 @@ class Stale(unittest.TestCase):
             ("capacity", "ready", TRIAGED, [], {"model_deferred_until": minutes_after(late, 1)}, config()),
             ("capacity_unreadable", "ready", TRIAGED, [], {"active_runs": None}, config()),
             ("concurrency", "ready", TRIAGED, [], {"active_runs": LIMITS["org_max_active_runs"]}, config()),
-            ("run_unidentified", "ready", TRIAGED, [], {"unidentified_runs": [UNNAMED]}, config()),
+            ("run_unidentified", "ready", TRIAGED, [], {"unidentified_runs": [dict(UNNAMED, created_at=late)]}, config()),
         ]
         for reason, attention, f, runs, over, cfg in cases:
             with self.subTest(reason):

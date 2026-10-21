@@ -179,7 +179,8 @@
         "org_max_active_runs",
         "max_diff_lines",
         "max_acts_per_item",
-        "max_path_length"
+        "max_path_length",
+        "max_unnamed_run_seconds"
       ],
       "properties": {
         "max_attempts": {
@@ -214,11 +215,16 @@
           "description": "The longest path of a workflow file a Decision's evidence shows. A longer one, or one not in the form a Lens's workflow takes, is shown as unreadable",
           "type": "integer",
           "minimum": 1
+        },
+        "max_unnamed_run_seconds": {
+          "description": "How long a counted Run may be listed without its run-name before it is no Run waiting for its name, in seconds: inside it an unidentified Run defers every admission (decision 0036); past it, it defers nothing and is one alert, by its run id (issue 270). P-17 saw a name listed within 3.7 s",
+          "type": "integer",
+          "minimum": 1
         }
       }
     },
     "issues": {
-      "description": "Which issues the Factory serves, and whose labels count on them (design \u00a74.1, the issue Lifecycle). Each null fails closed: with no date no issue is served, and with no App declared for a label only a person's counts. The Maintainer turns issues on",
+      "description": "Which issues the Factory serves, and whose labels count on them (design §4.1, the issue Lifecycle). Each null fails closed: with no date no issue is served, and with no App declared for a label only a person's counts. The Maintainer turns issues on",
       "type": "object",
       "additionalProperties": false,
       "required": [

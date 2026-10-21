@@ -13,7 +13,7 @@ import pathlib
 import random
 
 from kernel import terms as t
-from kernel.decide import decide
+from kernel.decide import decide, stuck_runs
 from tools import check_lifecycle
 from tools.hooks import protected
 from tools.jsonschema_lite import validate
@@ -98,6 +98,11 @@ UNCOVERED_SEEDS, UNCOVERED = 1, 0.5
 # count here; the boundary cases hold that the brakes come first.
 # Seeds 3, 11, 19, 27 and 35 are among the first 40; every other seed stays as it was.
 UNNAMED_EVERY, UNNAMED = 8, 3
+# On one other seed in eight a run that is no Run on the item, one whose run-name never resolves, is listed unnamed from
+# minute NEVER_FROM on, as long as GitHub keeps its record (issue 270). Inside max_unnamed_run_seconds of its creation it
+# defers every admission, as any unnamed Run does; past it, it defers nothing, and the pass names it as one alert.
+NEVER_NAMED_EVERY, NEVER_NAMED, NEVER_FROM = 8, 7, 10
+NEVER_RUN = "9000000001"
 # On one seed in nine the push that left the head is now and then missing from the branch's activity for a pass, and
 # the last pusher reads null (a_push_is_missing_from_the_activity).
 MISSING_PUSH_EVERY, MISSING_PUSH = 9, 5
@@ -179,6 +184,8 @@ class World:
         self.unnamed = None        # the Run the next pass lists unnamed, its GitHub id and, for an approval still in
                                    # flight, how it ends (UNNAMED); or None
         self.unnamed_passes = 0    # passes that listed a Run unnamed
+        self.never = None          # the run that never takes its name, once listed: its id and creation (NEVER_NAMED)
+        self.alerted = []          # the passes that named it as an alert, by minute
         # Whether this seed's activity can miss a push, drawn from its own generator, so every other seed stays as it was.
         self.activity = random.Random("activity %d" % seed) if seed % MISSING_PUSH_EVERY == MISSING_PUSH else None
         self.missing_passes = 0    # passes that read the last pusher null
@@ -510,12 +517,20 @@ class World:
         if unnamed is not None and unnamed[0]["status"] != "completed":
             # GitHub: a_new_run_is_listed_unnamed
             runs = [r for r in runs if r["run"] != unnamed[0]["run"]]
-            unidentified, exact = [unnamed[1]], False
+            # Its record was created seconds before this read, as the window P-17 measured is seconds long; the world
+            # lists it a pass later, but as the read GitHub would answer then.
+            unidentified, exact = [{"run": unnamed[1], "created_at": self.now()}], False
             self.unnamed_passes += 1
             self.note("run %s is listed unnamed, as %s" % (unnamed[0]["run"], unnamed[1]))
         if unnamed is not None and unnamed[2] is not None:
             unnamed[0].update(unnamed[2])
             self.note("run %s: the approval's run completed" % unnamed[0]["run"])
+        if self.faults and self.seed % NEVER_NAMED_EVERY == NEVER_NAMED and self.minute >= NEVER_FROM:
+            # GitHub: a_run_whose_name_never_resolves_stays_listed_unnamed
+            if self.never is None:
+                self.never = {"run": NEVER_RUN, "created_at": self.now()}
+                self.note("run %s is listed unnamed, and never takes its name" % NEVER_RUN)
+            unidentified = unidentified + [dict(self.never)]
         fault = self.rng.random() if self.faults else 1.0
         if fault < 0.08 and self.stale is not None:
             # GitHub: a_read_can_be_stale
@@ -581,10 +596,22 @@ class World:
         wrong = validate(d, DECISION_SCHEMA)
         self.check(not wrong, "every Decision is valid: %s" % "; ".join(wrong))
         self.note("pass: %s %s -> %s" % (d["state"], d["reason"], d["outcome"]))
-        # A Run listed before its run-name may be the Run in flight on this item: while one is, no Run is admitted and
-        # no approval issued (I-46).
-        self.check(not unidentified or not (d["outcome"] == t.ADMIT or d.get("action") == "issue_approval"),
+        # A Run listed before its run-name may be the Run in flight on this item: while one is listed inside
+        # max_unnamed_run_seconds of its creation, no Run is admitted and no approval issued (I-46). One past the window
+        # is no Run waiting for its name: it stalls nothing, and the pass names it as one alert (issue 270).
+        window = CONFIG["limits"]["max_unnamed_run_seconds"]
+        stamp = lambda at: datetime.datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ")
+        age = lambda u: (stamp(self.now()) - stamp(u["created_at"])).total_seconds()
+        within = [u for u in unidentified if age(u) < window]
+        self.check(not within or not (d["outcome"] == t.ADMIT or d.get("action") == "issue_approval"),
                    "I-46 %s %s while a Run is listed unnamed" % (d["outcome"], d["reason"]))
+        past = sorted({u["run"] for u in unidentified if age(u) >= window})
+        self.check(not (past and not within and d["reason"] == "run_unidentified"),
+                   "a Run unnamed past the window stalls the Factory")
+        self.check(sorted(a["run"] for a in stuck_runs(ctx, CONFIG, self.now())) == past,
+                   "the alerts are not the Runs unnamed past the window")
+        if past:
+            self.alerted.append(self.minute)
         if d["attention"] == t.STALE:
             # A wait past its limit changes what the Maintainer sees, never what happens, and only on a wait (I-1).
             calm = decide(facts, runs, dict(ctx, passes_since=self.now()), CONFIG, self.now())

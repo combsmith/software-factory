@@ -591,7 +591,8 @@ code, never a sentence; the sentence a person reads is rendered from it.
 
 Every pass uploads a **pass record**, `pass/1` (`schemas/pass.schema.json`): the time it gave the
 Kernel, the whole context (`paused`, `active_runs`, `model_deferred_until`, `passes_since` and
-`unidentified_runs`, every key always present, since a key left out reads differently from null),
+`unidentified_runs`, each a run id and its record's creation, every key always present, since a
+key left out reads differently from null),
 every run record it read, once for the pass, each read's `date` and `age` from GitHub, and, in one
 list for pull requests and one for issues, each item's facts, its Decision and the Run id the
 Controller minted for an admission or an approval, or null. The configuration is not copied: it is
@@ -842,8 +843,16 @@ characters. Status, conclusion, start and end times and the attempt number come 
 workflow file, from the default branch, started by a schedule or a dispatch, in the Factory repo.
 The name is a label for people and is never what identifies a Run. Nor does it ever make a record
 count: it is what says which item a counted Run is on. Until GitHub lists the name (P-17: up to
-3.7 s after the dispatch), the Run is unidentified: the records port reports its GitHub id apart
-from the Runs it can name, and it defers every admission (I-46, decision 0036). Only a record
+3.7 s after the dispatch), the Run is unidentified: the records port reports its GitHub id and
+when its record was created apart from the Runs it can name, and it defers every admission (I-46,
+decision 0036) while it is inside `max_unnamed_run_seconds` of its creation (60 s,
+`config/defaults.json`). One unnamed for that long is no Run waiting for its name: a dispatch
+whose run-name never resolves, by the Controller's App, a Factory bug or a broken name expression,
+would otherwise defer every admission for the 90 days GitHub keeps its record. It defers nothing,
+and is one alert of the whole scope instead, `run_unnamed` with its run id, which every pass writes
+to the view's `alerts` (`view-meta/1`, from `kernel.decide.stuck_runs`): one alert to a run, not
+one to a pass or an item, so a person sees it within one pass and sees it once. A person clears
+it, by deleting the run or by naming it; nothing in the Factory does (issue 270). Only a record
 started by a `workflow_dispatch` of a Role's workflow, with an item in its input, can be
 unidentified, and only while its name is not yet listed, whether or not it has completed: a
 completed record read as no one's would fall out of its item's attempts and Run ceiling. The name is
@@ -1675,7 +1684,7 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 | I-43 | After a linked pull request closes unmerged, at most `max_unmerged_closes` further linked pull requests are opened before a person with write access acts | FR-18 |
 | I-44 | An issue's State is given by exactly one row of its derivation, and no issue admits two Runs at once | FR-16 |
 | I-45 | Nothing that changes a protected path or a Lens's input is approved, enqueued, left in the merge queue or merged without every model Lens's review of that head, whatever its class | §4.2, §5.1 |
-| I-46 | No Run is admitted and no approval issued while a run record of a Role's workflow, dispatched for an item, completed or not, cannot be told whose it is; the poller's own runs, scheduled or dispatched with no item, never count as such | §3.10 |
+| I-46 | No Run is admitted and no approval issued while a run record of a Role's workflow, dispatched for an item, completed or not, cannot be told whose it is, inside `max_unnamed_run_seconds` of its creation; past it, it is one alert of the whole scope and holds nothing; the poller's own runs, scheduled or dispatched with no item, never count as such | §3.10 |
 
 ### 4.5 The simulator
 
@@ -1697,7 +1706,10 @@ decision logic against a fake world, quickly, thousands of times.
   A Result that fails validation. An Engine that times out. A required check that times out or
   gives no verdict. A human acting mid-Run. An App dismissing a person's request for changes. An approval
   that does not land, and a merge queue that ejects; each also as a world where it happens every
-  time, which must come to rest on its bound (I-8). On the issue, each on seeds a constant chooses: an
+  time, which must come to rest on its bound (I-8). A Run listed unnamed for a pass, and a run that
+  never takes its name: inside `max_unnamed_run_seconds` no Run is admitted on any item, and past it
+  the Factory admits as usual and the pass names the run as one alert, so it neither stalls past the
+  window nor admits inside it (issue 270). On the issue, each on seeds a constant chooses: an
   outsider's edit after admission, a stranger's pull request naming it, a reopening by someone without
   write access, a label removed while a Run is in flight, and run records that expire.
 - **Properties.** I-2 to I-17 are checked after every step, as are I-19 to I-38. On the issue, I-39 to I-44 are

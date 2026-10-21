@@ -108,8 +108,9 @@ def _list(transport, repo: str, workflow: str, branch: str, per_page: int) -> tu
 
 
 def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
-    """`(record, unidentified id)` for one listed run: a record for a counted run its name names, its id for a counted
-    run its name does not yet, and neither for a run that does not count. None for a row that cannot be read."""
+    """`(record, unidentified)` for one listed run: a record for a counted run its name names, its id and its record's
+    creation for a counted run its name does not yet, and neither for a run that does not count. None for a row that
+    cannot be read."""
     if not isinstance(row, dict) or not isinstance(row.get("id"), int) or isinstance(row.get("id"), bool):
         return None
     path, _, ref = str(row.get("path", "")).partition("@")
@@ -123,7 +124,13 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
         return (None, None)
     parts = named(row.get("name"))
     if parts is None:
-        return (None, row["id"])
+        # Its record's creation, from which the Kernel reads how long it has gone unnamed (issue 270).
+        created = row.get("created_at")
+        try:
+            datetime.datetime.strptime(str(created), "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return None
+        return (None, {"run": str(row["id"]), "created_at": created})
     status = row.get("status")
     status = "queued" if status in NOT_STARTED else status
     if status not in ("queued", "in_progress", "completed"):
@@ -178,4 +185,4 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
         sleep(WAIT)
         records, unnamed, again, whole = read()
         reads += again
-    return {"runs": records, "unidentified": [str(i) for i in unnamed], "complete": whole, "reads": reads}
+    return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads}
