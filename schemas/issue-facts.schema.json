@@ -147,7 +147,8 @@
           "merged_at",
           "closed_at",
           "empty",
-          "label_events"
+          "label_events",
+          "closed_issue_at"
         ],
         "properties": {
           "number": {
@@ -203,6 +204,14 @@
             "items": {
               "$ref": "#/$defs/label_event"
             }
+          },
+          "closed_issue_at": {
+            "description": "When the issue's timeline records this pull request closing the issue, as the closer of a ClosedEvent: written at the merge, and changed by no later edit of its description (trials/P-33.json, trials/P-46.json). Null if it never closed the issue: one whose closing reference an edit added after its merge, or one that merged while the issue was closed",
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
           }
         }
       }

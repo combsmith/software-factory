@@ -114,6 +114,14 @@
       ]
     },
     {
+      "reason": "merged_without_closing",
+      "question": "merged_without_closing",
+      "choices": [
+        "fix_the_source",
+        "close"
+      ]
+    },
+    {
       "reason": "outside_not_admitted",
       "question": "admit_outside_work",
       "choices": [

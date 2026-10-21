@@ -558,7 +558,7 @@ An issue has facts of its own (§4.1, the issue Lifecycle):
 | `closed_first_at`, `reopened_last_at` | When its present life was first closed, from its timeline, null while it has not been: a time while it is closed, and while it is open only where anyone but a writer reopened it last and so undid a close of this life; and when it was last reopened, by anyone, null if never: a writer's reopening is the start of the present life, anyone else's no earlier. Each is read whole or the issue defers; against them a merge is placed before or after the first close of this life, an outsider's reopening and a Hold (§4.1, row 1) |
 | `content_id`, `content_changed_at` | A hash of the title and body, computed by the port, and when either last changed. The body's last edit is the issue's `lastEditedAt`; the title's is the timeline's rename event; the content's time is the newer of the two, which the port computes, and the issue's creation while neither has moved. The port reads no list of the body's edits: the first edit of a body leaves an edit dated at the issue's creation beside it, for the original content (P-34, read on the Maintainer's own edits) |
 | `label_events` | Every `labeled` and `unlabeled` event on the timeline, as on a pull request: the label, who added or removed it (kind, name and write access), and when. The control labels are read from them alone; every other label is in `label_names` |
-| `linked` | Each pull request that closes it: number, `class` as the port gives it for a pull request, opening actor, open, draft, `opened_at` (decision 0034), `merged_at`, `closed_at`, whether its diff was empty, and its own `label_events`, from which its Hold, hands-off and whether a person once admitted it are read |
+| `linked` | Each pull request that closes it: number, `class` as the port gives it for a pull request, opening actor, open, draft, `opened_at` (decision 0034), `merged_at`, `closed_at`, whether its diff was empty, `closed_issue_at`, the time of the issue's close the timeline names it the closer of, null if none (issue 267), and its own `label_events`, from which its Hold, hands-off and whether a person once admitted it are read |
 | `role_comments` | For each Factory App that has commented: the time of its latest comment |
 | `last_writer_action_at`, `last_writer_comment_at` | The last action on the issue by a person with write access, and that person's last comment |
 | `acts_since_writer` | As for a pull request: the Factory's acts on the issue since a person with write access last acted, which the act ceiling bounds (decision 0031) |
@@ -1323,7 +1323,7 @@ write access.
 
 | # | If | State | Next actor |
 |---|---|---|---|
-| 1 | A linked pull request merged with a non-empty diff in its present life, whether or not GitHub has yet closed the issue (P-33: the issue closed a second after the merge, and its closed event two). Unless, when the first such merge landed, a person had closed the issue in this life, anyone but a writer had reopened it, or a Hold stood (whoever placed it, or hands-off a person did not place, on the issue or its linked draft) with no person's hands-off beside it: then the State a person put it in stays, `declined` or `held`, and the reason names the contradiction, `merged_while_declined` or `merged_while_held` (§4.5, issue 227) | `done` | None |
+| 1 | A linked pull request merged with a non-empty diff in its present life and closed the issue, as the issue's timeline names it the closer, or merged while a person had the issue closed; never by its references as they stand now, which an edit after the merge can change (P-46, issue 267). One the timeline names no close for, of an issue still open, defers for a person, `merged_without_closing`: GitHub closes the issue a second after the merge and records the close two (P-33), and an edit's reference closes nothing. Unless, when the first such merge landed, a person had closed the issue in this life, anyone but a writer had reopened it, or a Hold stood (whoever placed it, or hands-off a person did not place, on the issue or its linked draft) with no person's hands-off beside it: then the State a person put it in stays, `declined` or `held`, and the reason names the contradiction, `merged_while_declined` or `merged_while_held` (§4.5, issue 227) | `done` | None |
 | 2 | Closed in any other way, an empty merge and a commit's closing keyword among them. It stays so if anyone but a person with write access reopens it | `declined` | None |
 | 3 | The Consumer entry does not serve it; or it, or its linked draft, carries `factory:hands-off` | `not_served` | A person |
 | 4 | It carries `factory:hold`, whoever added it; or its linked draft pull request does; or more than one linked pull request is open; or its Run ceiling is reached while it wants a Run (decision 0003) | `held` | As the Hold states |
@@ -1442,10 +1442,20 @@ from each pull request's own closing references, never from the issue's cross-re
 events, which anyone may cause by naming the issue and which say a pull request will close it
 only while it is open, unmerged and to the default branch, and nothing once the issue is closed
 (P-33). A merged pull request's references are not fixed at the merge: an edit to its description
-afterwards adds the issue a new keyword names, and undoing the edit takes it out (P-46). Until
-issue 267 reads the join as it stood at the merge, anyone who can edit a merged pull request's
-description can make an open issue read as `done`. A pull request the Factory opens closes
-exactly one issue.
+afterwards adds the issue a new keyword names, and undoing the edit takes it out (P-46). So a
+merge is read as it stood at the merge, by the close it made: GitHub closes the open issue a
+merging pull request names, and the issue's timeline records that close with the pull request as
+its `closer` (P-33), which no later edit writes or takes away (P-46: the edit raised no close).
+Each linked pull request carries `closed_issue_at`, the time of the issue's close it is the closer
+of, or null. Row 1 counts a merge that closed the issue, and one that landed while a person had
+it closed, when it could close nothing; a merge the timeline names no close for, of an issue that
+is still open, defers for a person, `merged_without_closing`: either GitHub has not closed the
+issue yet, a second or two after the merge, or an edit added the reference, and neither is `done`
+nor nothing to read past (issue 267). The port reads the closer in the timeline read it already
+makes, beside `closed_first_at`, and lists as linked each pull request the issue's timeline names
+the closer of in the present life, whatever its references say now, so that an edit that takes a
+reference out cannot turn a `done` issue `declined`; both wait on `adapters/issues.py`. A pull
+request the Factory opens closes exactly one issue.
 
 While the linked pull request is a draft, the issue's Lifecycle governs and the pull request's
 does nothing. Runs are admitted on the issue, and the issue's facts carry the draft's own.
@@ -2113,7 +2123,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-43 | Does each list the facts are read from, reviews, threads, checks, timeline events, run records, acceptance results and the files a pull request changes, say when it was cut short, by a count, a last page or a next cursor that the same read gives; and can the list of run records stop short with the oldest Runs missing? Is every file a pull request changes listed once, by its path from the top of the repo, with the path a renamed or copied file had before? | Yes: each short read is told from the read itself, as P-29 showed for the diff and the list of files. If one is not, the port reads that list whole, or reads it as incomplete |
 | P-44 | With a concurrency group for each Work item on a Run's job, does GitHub keep one Run running and one pending, cancel the older pending Run, and never cancel the one running? | As GitHub documents it; the lane in `sim/world.py` then changes to match (`a_run_waits_its_turn`, "Known to differ" in `sim/AGENTS.md`). **Passed** on 2026-10-21 (`trials/P-44.json`): four pushes ten seconds apart gave one run in progress and at most one waiting at every read; the second and third were cancelled as a newer one queued, never started, and the first and fourth succeeded |
 | P-45 | When a dependency bot updates an Action's pin in a workflow file, does it open the pull request and push its head under its own `[bot]` identity, so that the port's class for it is `dependency`? | Yes, with the bot as author and last pusher. If a person's push follows, the class is read as any other change's (decision 0026) |
-| P-46 | Does a merged pull request's closing reference change when its description is edited after the merge, or when an issue is linked to it by hand? | No: the reference stands as it was at the merge. **Failed** on 2026-10-21 (`trials/P-46.json`): an edit after the merge added issue 47 to canary pull request 38's references, and undoing it took the issue out; a link by hand was not tried. So the issue Lifecycle reads the join as it stood at the merge, never the live field; issue 267 chooses how, since the edit raised only the cross-reference a bare mention raises, and the undo left it standing |
+| P-46 | Does a merged pull request's closing reference change when its description is edited after the merge, or when an issue is linked to it by hand? | No: the reference stands as it was at the merge. **Failed** on 2026-10-21 (`trials/P-46.json`): an edit after the merge added issue 47 to canary pull request 38's references, and undoing it took the issue out; a link by hand was not tried. So the issue Lifecycle reads the join as it stood at the merge, never the live field: by the issue's close the timeline names the merge the closer of (`trials/P-33.json`), which the edit did not write, since it raised only the cross-reference a bare mention raises, and the undo left that standing (issue 267) |
 
 ### 6.1 The order to run them in
 

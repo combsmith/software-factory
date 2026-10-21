@@ -76,6 +76,7 @@ NEEDS_YOU_REASONS = frozenset({
     "human_hold",
     "merged_while_held",
     "merged_while_declined",
+    "merged_without_closing",
     "linked_twice",
     "acceptance_lapsed",
     "attempts_exhausted",
@@ -173,6 +174,11 @@ def readable_link(entry, config: dict) -> bool:
     if closed_on is not None and closed_on < opened_on:
         return False
     if merged_on is not None and not (opened_on <= merged_on and merged_on <= closed_on):
+        return False
+    # The close of the issue the timeline names it the closer of: a pull request closes an issue only by merging, so
+    # there is one only with a merge, and no earlier than it (P-33, issue 267).
+    closer = entry.get("closed_issue_at", "")
+    if closer is not None and not (is_time(closer) and merged_on is not None and merged_on <= closer):
         return False
     return readable_events(entry.get("label_events"), config)
 
@@ -368,6 +374,15 @@ def readable_reopening(facts: dict) -> bool:
     return undone <= when
 
 
+def closed_at(facts: dict, when: str) -> bool:
+    """Whether the issue stood closed at `when`, so that a merge then could not close it: its present life was first
+    closed before that second, and no one but a writer had reopened it before that second, which would have left it
+    open. A reopening in that second leaves it read as closed, the reading that names the contradiction."""
+    if facts["closed_first_at"] is None or not facts["closed_first_at"] < when:
+        return False
+    return not (facts["reopened_last_by"] == "other" and facts["reopened_last_at"] < when)
+
+
 def as_of(item: dict, when: str) -> dict:
     """`item`, an issue or a linked pull request, with its control label events up to `when` alone: its labels as they
     stood then. An event of another label is not read, so its time is not either."""
@@ -467,8 +482,12 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     # since the merge's own close comes no earlier than the merge, and no later close or reopening by anyone moves it;
     # a reopening or a Hold in that second stops work, so it wins. A person's hands-off is no Hold: the Factory
     # leaves a queued item to merge under it, so that merge is done.
+    # A merge is read as it stood at the merge, never from the pull request's references as they stand now, which an
+    # edit after the merge can change (P-46, issue 267): it closed the issue, as the issue's timeline names it the
+    # closer, or it landed while a person had the issue closed, when it could close nothing.
     merged = [p for p in links
-              if p["merged_at"] is not None and not p["empty"] and p["merged_at"] >= facts["life_started_at"]]
+              if p["merged_at"] is not None and not p["empty"] and p["merged_at"] >= facts["life_started_at"]
+              and (p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"]))]
     merges = [str(p["number"]) for p in merged]
     if merged:
         first = min(p["merged_at"] for p in merged)
@@ -479,6 +498,16 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         if stopped_before(facts, links, first) and not a_persons_hands_off(labels, facts, drafts, links, first):
             return out(t.HELD, "merged_while_held", merges)
         return out(DONE, "merged", merges)
+    # Any other merge in this life, which the timeline does not name the closer of, landed while the issue stood open
+    # (one while it stood closed is read above). While the issue is still open, GitHub has not closed it yet, a
+    # second or two after the merge (P-33), or an edit after the merge added the reference and nothing will (P-46).
+    # Neither is a merge to read as done, nor nothing to read past, which could admit a second opening: the issue
+    # waits, and a person sees it (issue 267).
+    unclosed = [str(p["number"]) for p in links
+                if p["merged_at"] is not None and not p["empty"] and p["merged_at"] >= facts["life_started_at"]
+                and p["closed_issue_at"] is None]
+    if unclosed and facts["state"] == "open":
+        return out(None, "merged_without_closing", unclosed)
     # Row 2.
     if facts["state"] != "open":
         return out(DECLINED, "closed", [])

@@ -172,11 +172,14 @@ RULES = (
      "one to another base carries no reference", ("P-33",), "trials/P-33.json", None),
     ("who_changed_the_draft_flag_is_read", "The timeline says who last marked a pull request ready or converted it to a "
      "draft", ("P-33",), "trials/P-33.json", None),
-    # Contradicted by trials/P-46.json: an edit to a merged pull request's description after the merge adds the issue
-    # its new keyword names to closingIssuesReferences, and undoing the edit takes it out. Left unverified, as it is:
-    # the fake links an issue only when a pull request is opened, and changing the Kernel's read is issue 267.
-    ("a_merged_pull_requests_closing_references_are_fixed", "A merged pull request's closing references stay as they "
-     "stood at the merge; an edit to its description after the merge adds no issue to them", ("P-46",), None, None),
+    # trials/P-46.json: an edit to a merged pull request's description after the merge adds the issue its new keyword
+    # names to closingIssuesReferences, and closes nothing: the issue stays open and its timeline gains no close; undoing
+    # the edit takes it out again. trials/P-33.json: the merge's own close of the issue names the pull request as the
+    # closer. The Kernel reads a merge by that close, never by the references now (issue 267).
+    ("a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing", "A merge closes the open issue its "
+     "closing references name, and the issue's timeline names the pull request the closer; an edit to its description "
+     "after the merge can add an issue to its references, and closes nothing", ("P-33", "P-46"), "trials/P-46.json",
+     None),
     # trials/P-34.json: lastEditedAt moves for the body alone; the title's change is the timeline's RenamedTitleEvent,
     # so the content's time is the newer of the two, which the port computes; updatedAt moves for anything.
     ("an_issues_content_time_is_read_apart", "When an issue's title or body last changed is read apart from when "
