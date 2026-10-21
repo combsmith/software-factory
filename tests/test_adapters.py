@@ -1477,6 +1477,15 @@ class Snapshot(unittest.TestCase):
         self.assertIsNone(got["acceptance"])
         self.assertNotIn(title, json.dumps(got))
 
+    def test_a_snapshot_whose_closing_issue_asks_for_a_contract_is_not_read_whole_on_it(self):
+        seq = self.sequence(1)
+        at = len(seq) - 2
+        seq[at:at + 1] = [closing_answer(canary(), 26, [36]), issue_timeline(canary(), 36, [label_event("labeled")])]
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW)
+        self.assertEqual((got["acceptance"], got["complete"]["acceptance"]), (None, False))
+
     def test_the_bases_head_and_a_pushs_time_are_read_or_refused(self):
         self.assertEqual(pull.base(replay("P-29.base", 9), body("P-29.base", 1))["head"],
                          body("P-29.base", 9)["commit"]["sha"])
