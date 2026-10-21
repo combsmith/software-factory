@@ -14,7 +14,7 @@ import random
 
 from kernel import issue
 from kernel import terms as t
-from sim.world import COLLEAGUE, MAINTAINER, STRANGER, Broken, World
+from sim.world import COLLEAGUE, MAINTAINER, STRANGER, Broken, World, queue_in_lane
 from tools import check_lifecycle
 from tools.jsonschema_lite import validate
 
@@ -395,7 +395,7 @@ class IssueWorld:
                "content_id": d["admit"]["content_id"], "status": "queued", "conclusion": None, "outcome": None,
                "started_at": self.now(), "minute": self.minute, "head": d["admit"].get("branch_head")}
         # GitHub: a_queued_run_is_listed
-        self.runs.append(run)
+        self.enqueue(run)
         self.moves()
         self.note("run %s: admitted %s %s" % (run["run"], run["role"], intent))
         self.caused(FACTORY)
@@ -421,6 +421,11 @@ class IssueWorld:
         self.caused(FACTORY)
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
+    def enqueue(self, run: dict):
+        """Queue a Run in the issue's concurrency group, by the lane the pull request's world keeps (queue_in_lane)."""
+        # GitHub: a_run_waits_its_turn
+        queue_in_lane(self.runs, run, self.note)
+
     def start_next(self):
         if any(r["status"] == "in_progress" for r in self.runs):
             return
@@ -728,6 +733,9 @@ class IssueWorld:
 
     def invariants(self):
         self.check(len([r for r in self.runs if r["status"] == "in_progress"]) <= 1, "I-44 two Runs in flight")
+        # GitHub: a_run_waits_its_turn
+        self.check(len([r for r in self.runs if r["status"] in ("in_progress", "queued")]) <= 2,
+                   "the lane holds more than one Run waiting behind the one that holds it")
         # I-40: factory:ready is added by nobody but the readiness App inside its Run, or a person.
         for ev in self.events:
             if ev["label"] == issue.LABEL_READY and ev["action"] == "labeled":
