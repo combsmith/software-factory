@@ -1,10 +1,11 @@
 # adapters/
 
 All of the Factory's I/O. `github.py` is the one transport: every request to GitHub goes through it, and nothing else in
-this repo reaches the network. `pull.py` reads the facts of a pull request that its own reads give, `timeline.py` its reviews, label events and who acted, and `records.py` the Factory's own run records. A port decides nothing
+this repo reaches the network. `pull.py` reads the facts of a pull request that its own reads give, `timeline.py` its reviews, labels and who acted,
+`checks.py` its checks and its place in the queue, `facts.py` the one snapshot of it all, and `records.py` the Factory's own run records. A port decides nothing
 and hands the Kernel no text: what it cannot read whole it says is short, and the title travels beside the facts.
 
-Not built yet, by the stories that hold their rules: threads.py, checks.py, facts.py, acceptance.py, issues.py, settings.py, effects.py, artifacts.py.
+Not built yet, by the stories that hold their rules: threads.py, items.py, acceptance.py, issues.py, settings.py, effects.py, artifacts.py.
 
 | Rule | Held by |
 |---|---|
@@ -20,5 +21,7 @@ Not built yet, by the stories that hold their rules: threads.py, checks.py, fact
 | A counted run not yet named is reported by its id after one more read 5 s later, and every read of runs is uncached | `tests/test_adapters.py::test_a_run_listed_under_its_workflows_name_is_unidentified_after_one_more_read` |
 | Write access is a person's alone, read from the collaborator permission, admin, maintain or write, once a login | `tests/test_adapters.py::test_an_actor_is_told_by_its_account_type_and_the_configuration` |
 | A review's dismissal, its dismisser and its state before are read from the timeline; no text of GitHub's is kept | `tests/test_adapters.py::test_reviews_are_read_with_their_commit_content_and_who_dismissed_them` |
+| Every check run on the head is given with its exact name, its App and its workflow file, and none dropped | `tests/test_adapters.py::test_every_check_run_on_the_head_is_read_with_its_name_app_and_workflow` |
+| The snapshot is refused when the pull request moved while it was read, and is held to `facts/1` | `tests/test_adapters.py::test_a_snapshot_whose_head_moved_while_it_was_read_is_refused` |
 | The title is handed beside the facts, never in them | `tests/test_adapters.py::test_the_pull_requests_own_facts_and_the_title_beside_them` |
 | A rule of a part not built yet waits on the file named above, and the story that builds it re-points its rows | `tests/test_tools.py::test_a_wait_on_a_file_a_built_directory_plans_holds_until_the_file_exists` |

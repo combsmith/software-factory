@@ -281,7 +281,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-51 The tests passed against a fake that accepted anything
 **Failure.** The shared stub of the GitHub command returned empty for calls it did not know, so real flags and filters were never exercised.
 **Rule.** Every rule the fake GitHub applies cites a response recorded from the real one, and the required check prints the rules that do not.
-**Check.** `tests/test_tools.py::test_a_rule_of_the_fake_that_is_not_listed_is_caught`, `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate`, `tests/test_tools.py::test_verify_prints_every_rule_no_fixture_grounds`, `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can`; comparing the fake's answers with a fixture is waiting on `adapters/facts.py`
+**Check.** `tests/test_tools.py::test_a_rule_of_the_fake_that_is_not_listed_is_caught`, `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate`, `tests/test_tools.py::test_verify_prints_every_rule_no_fixture_grounds`, `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can`; comparing the fake's assumptions with the port's reading of each fixture that grounds them: `tests/test_adapters.py::test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it`
 
 ### L-52 The fleet and every session shared one API quota
 **Failure.** "The fleet and every session share one GitHub API quota" (issue 2197). It ran out on 2026-10-10 and failed a workflow.
@@ -291,7 +291,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-53 The list itself was cut off, and nothing said so
 **Failure.** The list of workflow runs stops at 1,000 for a query, however it is paged. A query over the resource limit came back as a success with no data, and a whole repo was read as having no pull requests.
 **Rule.** A list read short is unreadable. The list of Runs and the list of items each say whether they are whole, as the facts of one item do.
-**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `examples/invalid/facts.no-completeness-for-runs.json` for the list of Runs; `examples/invalid/facts.no-completeness-for-timeline.json` for the timeline the acts are counted from; the list of items is waiting on `adapters/facts.py`
+**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `examples/invalid/facts.no-completeness-for-runs.json` for the list of Runs; `examples/invalid/facts.no-completeness-for-timeline.json` for the timeline the acts are counted from; the list of items is waiting on `adapters/items.py`
 
 ### L-54 A wrong fix cleared a gate
 **Failure.** A fix added a new test and broke an existing one without editing it. Nobody ran the suite against the state before the fix, and an outside reviewer marked the thread addressed on the strength of the reply.
