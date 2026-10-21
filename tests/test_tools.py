@@ -509,9 +509,12 @@ class Examples(unittest.TestCase):
             for state, actor in (("verifying", "lens"), ("adjudicating", "lens"), ("queued", "platform"),
                                  ("converged", "factory"), ("triage", "factory")):
                 self.assertEqual(next_actor({"outcome": "defer", "attention": attention, "state": state}), actor)
-        # A fact the Factory cannot read, or a Pause, is mended at its source; every other question can be closed.
+        # A fact the Factory cannot read, or a Pause, is mended at its source, and a merge that landed while a person
+        # had stopped the issue is answered only by undoing the stop, since a close would not move the State the person
+        # put the issue in (issue 237); every other question can be closed.
         for row in feed["decision_required"]:
-            mended = row["question"] in ("fact_unreadable", "paused", "configuration_needs_you")
+            mended = row["question"] in ("fact_unreadable", "paused", "configuration_needs_you", "merged_while_held",
+                                         "merged_while_declined")
             self.assertEqual("close" in row["choices"], not mended, row["reason"])
 
     def test_each_effect_type_is_requested_by_its_own_list(self):  # decision 0038

@@ -497,6 +497,13 @@ class Done(unittest.TestCase):
                                                     labelled(HOLD, minute=7)], linked=merged))["reason"], "merged")
         self.assertEqual(derive(facts(label_events=[labelled(HOLD, minute=4), unlabelled(HOLD, minute=6),
                                                     labelled(HOLD, OTHER_APP, 7)], linked=merged))["reason"], "merged")
+        # A Hold a person placed and removed in the merge's own second stood at it: the reading that stops work wins;
+        # so did a draft opened in that second with its Hold.
+        self.assertEqual(derive(facts(label_events=[labelled(HOLD, minute=5), unlabelled(HOLD, minute=5)],
+                                      linked=merged))["reason"], "merged_while_held")
+        self.assertEqual(derive(facts(linked=merged + [agents(number=12, draft=True, opened=5,
+                                                              events=[labelled(HOLD, OTHER_APP, 5)])]))["reason"],
+                         "merged_while_held")
         # A label the Kernel does not read carries no time, and an event of it beside a Hold raises nothing.
         d = derive(facts(label_events=[{"label": "bug"}, labelled(HOLD, minute=4)], linked=merged))
         self.assertEqual((d["state"], d["reason"]), ("held", "merged_while_held"))
