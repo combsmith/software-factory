@@ -3204,9 +3204,9 @@ class NarrowedToken(unittest.TestCase):
         mint_body = mint_body if mint_body is not None else json.dumps(
             {"token": self.TOKEN, "expires_at": "2026-10-21T00:00:00Z", "permissions": {"contents": "read"},
              "repository_selection": "selected"})
-        answers = {"GET repos/x/canary/contents/README.md": ("200", '{"name":"README.md","content":"QQ=="}'),
+        answers = {"GET repos/x/canary/contents/": ("200", '[{"name":"trial-notes","type":"dir"}]'),
                    "PUT repos/x/canary/contents/p4/trial.md": ("403", '{"message":"Resource not accessible by integration"}'),
-                   "GET repos/x/other/contents/README.md": ("404", '{"message":"Not Found"}')}
+                   "GET repos/x/other/contents/": ("404", '{"message":"Not Found"}')}
         answers.update(statuses or {})
         (folder / "answers.json").write_text(json.dumps(answers))
         (folder / "bin" / "openssl").write_text("#!/bin/sh\ncase \"$1\" in base64) exec /usr/bin/openssl \"$@\" ;; dgst) printf 'sig' ;; *) exit 1 ;; esac\n")
@@ -3302,7 +3302,7 @@ exit 0
 
     def test_a_reads_status_is_the_answer_whatever_it_is(self):
         # A read of the other repo answered 200 is not refused by the script: the fixture's verdict judges it.
-        folder = self.stand_in(statuses={"GET repos/x/other/contents/README.md": ("200", '{"name":"README.md"}')})
+        folder = self.stand_in(statuses={"GET repos/x/other/contents/": ("200", '[{"name":"README.md","type":"file"}]')})
         done = self.run_script(folder, "x/canary", "x/other")
         self.assertEqual(done.returncode, 0, done.stderr)
         asked = json.loads((folder / "out" / "requests.json").read_text())

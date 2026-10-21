@@ -11,9 +11,10 @@
 #
 # It signs a JWT with the App's key, reads the installation of OWNER/REPO, mints a token for it narrowed to the
 # permission contents: read and to the one repository REPO, and with that token makes three reads, in order:
-#   1. GET /repos/OWNER/REPO/contents/README.md, which the subset permits;
+#   1. GET /repos/OWNER/REPO/contents/, the root listing, which the subset permits and every non-empty repo has;
 #   2. PUT /repos/OWNER/REPO/contents/p4/trial.md, a write the subset does not permit;
-#   3. GET /repos/OTHER_OWNER/OTHER_REPO/contents/README.md, of a repository the token does not name.
+#   3. GET /repos/OTHER_OWNER/OTHER_REPO/contents/, the root listing of a repository the token does not name. Where
+#      that repository is public, any token reads it, so its answer shows what a repository subset does to a read.
 # Then it revokes the token and records the revocation's status. The mint's answer is read by python, which keeps
 # everything but the token itself (the permissions and the repository selection are what the trial is about) and
 # hands the token to this shell alone. A token or a JWT is held in a shell variable only, reaches curl on its standard
@@ -185,11 +186,11 @@ fi
 echo "minted, narrowed, status 201"
 
 # The three reads.
-with_token GET "repos/$repo/contents/README.md"
+with_token GET "repos/$repo/contents/"
 printf '{"message":"Trial P-4: a write the token does not permit","content":"QSBwbGF0Zm9ybSB0cmlhbC4K"}' > "$scratch/put.json"
 with_token PUT "repos/$repo/contents/p4/trial.md" "$scratch/put.json"
 rm -f "$scratch/put.json"
-with_token GET "repos/$other/contents/README.md"
+with_token GET "repos/$other/contents/"
 
 revoked=$(revoke || true)
 if [ "$revoked" != 204 ]; then
