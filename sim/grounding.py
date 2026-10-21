@@ -100,6 +100,8 @@ RULES = (
      "seconds", ("P-17",), "trials/P-17.json", None),
     ("a_new_run_is_listed_late", "The newest Run can be missing from the list of run records for one pass",
      ("P-22",), "trials/P-22.json", None),
+    # trials/P-43.json read this repo's run list whole, all 1,873 runs, past the thousandth: it did not stop short there,
+    # so the rule is shown neither way. Runs past the retention leave the list (P-16).
     ("a_run_list_stops_short", "The list of run records can stop short, with the oldest Runs missing",
      ("P-43",), None, None),
     ("a_killed_job_times_out", "A job killed part way concludes timed_out", ("P-18",), None, None),
@@ -107,16 +109,20 @@ RULES = (
      ("P-17",), None, None),
     ("a_short_diff_says_so", "A diff read short says so, and is not mistaken for the whole",
      ("P-29",), "trials/P-29.truncated.json", None),
+    # trials/P-43.json: reviews, threads, labels, timeline events, files and a head's checks, each read one to a page,
+    # said so, by hasNextPage with an endCursor in GraphQL and a Link with rel=next, or a total_count, in REST.
     ("a_short_list_says_so", "A list of reviews, threads, checks or timeline events read short says so",
-     ("P-43",), None, None),
+     ("P-43",), "trials/P-43.json", None),
+    # trials/P-43.json: a rename, a copy and an edit are listed once each, by path; REST's previous_filename names the
+    # renamed file's old path, GraphQL's files give none, and an unchanged copy is listed as added, with no source.
     ("a_pull_request_lists_the_paths_it_changes", "Every file a pull request changes is read once, as many as the diff "
-     "counts, by its path from the top of the repo, with the path a renamed or copied file had before",
-     ("P-43",), None, None),
+     "counts, by its path from the top of the repo, with the path a renamed file had before; a copy is listed as an "
+     "added file", ("P-43",), "trials/P-43.json", None),
     ("a_path_list_can_leave_out_a_file", "A list of the files a pull request changes can leave one out while it says it "
      "was read in full; it then holds fewer records than the diff has files: GitHub's list stops at its cap with a 200 "
      "and an empty next page, and only changed_files shows it short", ("P-29",), "trials/P-29.truncated.json", None),
     ("a_short_path_list_says_so", "The list of paths a pull request changes, read short or cut off at its limit, says "
-     "so", ("P-43",), None, None),
+     "so", ("P-43",), "trials/P-43.json", None),
     ("a_dependency_bot_updates_a_workflow_pin", "A dependency bot's update can change the pin of an Action in a "
      "workflow file, a Lens's own among them; the bot opens it and pushes its head, and its class is dependency",
      ("P-45",), None, None),
