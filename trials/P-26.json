@@ -364,7 +364,7 @@
           "name": "the Maintainer's own subscription, logged in under ~/.config/sf-factory-claude (decision 0033)"
         },
         "via": "cli",
-        "call": "checked.json as the script wrote it at the Maintainer's terminal, its check of exchanges 3 and 4 and of what the probe left; and, added by the session from it, what it found",
+        "call": "checked.json as the script wrote it at the Maintainer's terminal, its check of exchanges 3 and 4 and of what the probe left; and, added by the session from it, the principle and what it found",
         "headers": {},
         "body": null
       },
@@ -531,8 +531,13 @@
           "principle": "The verdict follows the pass condition at the top of tools/trial_p26_sandbox.sh, committed before the run: some configuration must both hide the environment from the tool and limit its connections.",
           "found": {
             "connections_limited": "in both configurations: the allowed host answered through the sandbox's proxy; the denied host was refused at CONNECT (403); neither host was reached around the proxy, the name not resolving (curl exit 6); and a write outside the work directory was refused",
-            "environment_hidden": "in neither: the tool's shell held the marker under a name nothing reads in both, and the marker under a name on the CLI's credential list (ANTHROPIC_CUSTOM_HEADERS) without the scrub; with the scrub (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1) that name alone was gone",
-            "ancestors": "not read: ps exited 126 in the sandbox, so no process above the tool was read; on macOS, where it ran. /proc/PID/environ, a Linux runner's way, was not tried"
+            "environment_hidden": "in neither: the tool's shell held the marker under a name nothing reads in both, and the marker under a name on the CLI's credential list (ANTHROPIC_CUSTOM_HEADERS) without the scrub; with the scrub (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1) the listed marker was gone and the unlisted one stayed, the environment three lines shorter (57 to 54), the names not recorded",
+            "ancestors": "not read: the sandbox would not run ps (exit 126), so no process was read, not even the probe's own, and the walk up the tree never began. This was on macOS; /proc/PID/environ, a Linux runner's way, was not tried",
+            "not_tried": [
+              "the model credential's own name, CLAUDE_CODE_OAUTH_TOKEN, which would replace the login",
+              "a Linux runner's /proc",
+              "the files of the CLI's configuration directory"
+            ]
           }
         }
       }
