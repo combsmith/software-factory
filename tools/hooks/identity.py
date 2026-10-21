@@ -307,10 +307,7 @@ BRACE_MOST = 64
 LOOP_MOST = 256     # paths a loop variable is read as, at most
 WILDCARD = re.compile(r"[*?\[]")
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
-IDENT = re.compile(r"^(.*) <(.*)> \d+ [+-]\d{4}$")
 GITHUB = re.compile(r"^https://(?:([^@/]+)@)?github\.com/")
-CREDENTIAL = re.compile(r"(?<=://)[^/@\s]+@")
-URLISH = re.compile(r"://|^[^/]+@[^/]+:")
 HELPER = "gh auth git-credential"
 SHOWN = 3   # commits of another identity named in a refusal
 
@@ -1507,11 +1504,59 @@ def _people() -> tuple:
     return who, machine
 
 
+def _ident(text: str):
+    """(name, email) of an identity as `git var` gives it, NAME <EMAIL> TIMESTAMP ZONE, or None. Read in one pass with
+    string methods, not a regex that backtracks over every " <" (SonarCloud S8786, issue 239): git strips < and > from
+    a name and an email, so the last " <" and the last ">" bound the email."""
+    if "\n" in text:    # one line, as the regex read it
+        return None
+    head, _, zone = text.rpartition(" ")
+    head, _, stamp = head.rpartition(" ")
+    # isdecimal is the regex's \d, the decimal digits; isdigit would take a superscript too.
+    if not (stamp.isdecimal() and len(zone) == 5 and zone[0] in "+-" and zone[1:].isdecimal() and head.endswith(">")):
+        return None
+    name, found, email = head[:-1].rpartition(" <")
+    return (name, email) if found else None
+
+
+def _without_credential(text: str) -> str:
+    """`text` with every USER:PASSWORD@ that follows a :// taken out, so that no sentence shows one. One pass, not a
+    regex (SonarCloud S8786, issue 239): after each ://, the run of characters that are not /, @ or a space is dropped
+    with its @ when an @ ends it; when no @ ends it, the search goes on from just after that ://, so a :// nested in
+    the run, as in https://a://user:secret@host, is read too."""
+    out, i = [], 0
+    while True:
+        at = text.find("://", i)
+        if at < 0:
+            out.append(text[i:])
+            return "".join(out)
+        at += 3
+        j = at
+        while j < len(text) and text[j] not in "/@" and not text[j].isspace():
+            j += 1
+        if j > at and j < len(text) and text[j] == "@":
+            out.append(text[i:at])
+            i = j + 1
+        else:
+            out.append(text[i:at])
+            i = at
+
+
+def _urlish(remote: str) -> bool:
+    """Whether `remote`, as git reads a remote argument, is a URL or an scp-like USER@HOST:PATH rather than a remote's
+    name: one pass, not a regex that backtracks over every @ (SonarCloud S8786, issue 239)."""
+    if "://" in remote:
+        return True
+    head = remote.split("/", 1)[0]      # an @ and then a : before any /, each with a character before it
+    at = head.find("@", 1)
+    return at > 0 and head.find(":", at + 2) >= 0
+
+
 def _committer(reader: Reader, where, who: dict, machine: str) -> list:
     problems = []
     for kind in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"):
-        found = IDENT.match(reader.run("git", ["var", kind], where).strip())
-        name, email = found.groups() if found else ("?", "?")
+        found = _ident(reader.run("git", ["var", kind], where).strip())
+        name, email = found if found else ("?", "?")
         if (name, email) != (who["name"], who["email"]):
             code = "commit_as_machine_user" if machine.lower() in (name + email).lower() else "commit_identity_not_maintainer"
             problems.append((code, "in %s git would record the %s as %s <%s>, and a commit here is the Maintainer's, "
@@ -1569,7 +1614,7 @@ def _remotes(reader: Reader, where, remote, who: dict, machine: str) -> list:
     if not helper.endswith(HELPER):
         problems.append(("account_unreadable", "git in %s does not push to github.com through gh's account; run gh "
                                                "auth setup-git" % where))
-    if remote and URLISH.search(remote):
+    if remote and _urlish(remote):
         urls = [remote]
     elif remote:
         urls = reader.run("git", ["remote", "get-url", "--all", "--push", remote], where).split()
@@ -1577,7 +1622,7 @@ def _remotes(reader: Reader, where, remote, who: dict, machine: str) -> list:
         urls = [url for name in reader.run("git", ["remote"], where).split()
                 for url in reader.run("git", ["remote", "get-url", "--all", "--push", name], where).split()]
     for url in urls:
-        found, shown = GITHUB.match(url), CREDENTIAL.sub("", url)
+        found, shown = GITHUB.match(url), _without_credential(url)
         user = (found.group(1) or "").split(":")[0] if found else ""
         if not found:
             problems.append(("account_unreadable", "%s is not GitHub over HTTPS, so the account that would push cannot "
@@ -1762,7 +1807,7 @@ def check(payload: dict, env: dict, seconds: float = DEADLINE) -> list:
             if tool == "git" and any(w == "--author" or w.startswith("--author=") for w in words):
                 problems.append(("identity_set_in_command", "--author names someone other than the configured identity"))
         problems += _verify(writes, env, seconds)
-    return list(dict.fromkeys((code, CREDENTIAL.sub("", sentence)) for code, sentence in problems))
+    return list(dict.fromkeys((code, _without_credential(sentence)) for code, sentence in problems))
 
 
 def _verify(writes: list, env: dict, seconds: float) -> list:
@@ -1795,7 +1840,7 @@ def main() -> int:
         problems = check(json.loads(sys.stdin.read()), dict(os.environ))
     except Exception as err:    # what the hook cannot read, it refuses
         problems = [("hook_failed", "the identity hook could not finish (%s: %s), so it refuses"
-                     % (type(err).__name__, CREDENTIAL.sub("", str(err))))]
+                     % (type(err).__name__, _without_credential(str(err))))]
     if not problems:
         return 0
     print("Refused by tools/hooks/identity.py. A commit, a push or a write to GitHub here is the Maintainer's, who "

@@ -73,6 +73,7 @@ SESSION_TESTS = (HOOK_TESTS + "test_a_command_that_runs_claude_code_with_no_one_
 DATA_TESTS = (HOOK_TESTS + "test_a_word_given_to_any_other_program_is_data",)
 IDENTITY_TESTS = "tests.test_hooks.Identity."
 NO_REFSPEC_TESTS = (IDENTITY_TESTS + "test_a_push_with_no_refspec_reads_what_git_would_push",)
+READINGS_TESTS = (IDENTITY_TESTS + "test_the_readings_sonarcloud_flagged_read_what_their_regexes_read",)
 PUSH_SETTING_TESTS = (IDENTITY_TESTS + "test_push_settings_given_in_the_command_are_refused",)
 REDEFINE_TESTS = (IDENTITY_TESTS + "test_a_git_the_command_may_redefine_is_refused",)
 ALIAS_TESTS = (IDENTITY_TESTS + "test_an_alias_whose_value_runs_git_or_gh_is_refused",)
@@ -3302,6 +3303,23 @@ MUTANTS = ISSUE + [
      '                "thinkingtokens", "thinking_tokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens",\n'
      '                "output_tokens_details"}\n',
      "                }\n", ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
+    # Issue 239: the three readings SonarCloud flagged, as string readings.
+    ("an identity git gives is read as nothing", "tools/hooks/identity.py",
+     "    return (name, email) if found else None\n", "    return None\n",
+     READINGS_TESTS + (IDENTITY_TESTS + "test_ordinary_session_commands_pass",)),
+    ("an identity's name may hold the email", "tools/hooks/identity.py",
+     '    name, found, email = head[:-1].rpartition(" <")\n', '    name, found, email = head[:-1].partition(" <")\n', READINGS_TESTS),
+    ("a credential after :// is shown", "tools/hooks/identity.py",
+     '        if j > at and j < len(text) and text[j] == "@":\n', "        if False:\n",
+     READINGS_TESTS + (IDENTITY_TESTS + "test_a_credential_is_never_shown",)),
+    ("a :// nested in a run is skipped", "tools/hooks/identity.py",
+     "            out.append(text[i:at])\n            i = at\n", "            out.append(text[i:j])\n            i = j\n",
+     READINGS_TESTS + (IDENTITY_TESTS + "test_a_credential_is_never_shown",)),
+    ("a superscript is a digit", "tools/hooks/identity.py",
+     '    if not (stamp.isdecimal() and len(zone) == 5 and zone[0] in "+-" and zone[1:].isdecimal() and head.endswith(">")):\n',
+     '    if not (stamp.isdigit() and len(zone) == 5 and zone[0] in "+-" and zone[1:].isdigit() and head.endswith(">")):\n', READINGS_TESTS),
+    ("an scp-like remote is a remote's name", "tools/hooks/identity.py",
+     '    return at > 0 and head.find(":", at + 2) >= 0\n', "    return False\n", READINGS_TESTS),
 ]
 
 
