@@ -2,10 +2,14 @@
 who opened it and when, with its Finding's category and severity where the facts can give them (design section 3.3).
 
 One GraphQL read of the threads, page by page. Who opened a thread is its first comment's author, and when, that
-comment's time; who resolved it is GitHub's `resolvedBy`, always a User. Each actor is told by its account id and type,
+comment's time: a first comment that replies to another is not the opener's, and the thread is refused. Who resolved
+it is GitHub's `resolvedBy`, which is typed a User: a resolved thread GitHub names no resolver for, as it is taken to
+when an App resolved it or the account is gone, has `resolved_by` null, and the Kernel defers on that thread alone
+(`unreadable_thread`). No trial has recorded either yet. Each actor is told by its account id and type,
 never by a name's spelling (decision 0005, L-57), and its write access read once a login, as `adapters/timeline.py`
 does. No comment's text is read. A thread whose opener GitHub no longer names, a deleted account's, is refused with the
-snapshot, as an unreadable actor is anywhere: the known cost is that such a pull request is never read whole.
+snapshot, as an unreadable actor is anywhere: the known cost is that such a pull request is never read whole. A thread
+deleted and another made between two pages leaves the count the same and one unread, as the rollup can.
 
 A thread a person opened is `human`, with no severity (section 3.3). Any other thread, a Lens's among them, has neither:
 a required Lens's category and severity come from its own Finding record, in its Run's `applied/1`, joined by
@@ -36,6 +40,7 @@ QUERY = """query FactsThreads($owner: String!, $name: String!, $number: Int!, $a
           comments(first: 1) {
             nodes {
               createdAt
+              replyTo { id }
               author { __typename login ... on User { databaseId } ... on Bot { databaseId } }
             }
           }
@@ -62,13 +67,15 @@ def thread(node: dict, accounts: timeline.Accounts) -> dict:
     if not isinstance(ident, str) or not ident or type(resolved) is not bool or not first \
             or not isinstance(first[0], dict):
         raise Unanswered("a review thread's id, state or first comment cannot be read")
+    if first[0].get("replyTo") is not None:
+        raise Unanswered("a review thread's first comment replies to another: its opener cannot be read")
     opened_at = first[0].get("createdAt")
     if not (isinstance(opened_at, str) and TIME.fullmatch(opened_at)):
         raise Unanswered("a review thread's time cannot be read")
     opened_by = accounts.actor(_account(first[0].get("author")))
     by = node.get("resolvedBy")
-    if resolved != (by is not None):
-        raise Unanswered("a review thread resolved by no one, or open and resolved by someone")
+    if not resolved and by is not None:
+        raise Unanswered("an open review thread that names who resolved it")
     resolved_by = accounts.actor(_account(by, "User")) if by is not None else None
     human = opened_by["kind"] == "human"
     return {"id": ident, "resolved": resolved, "opened_by": opened_by, "category": "human" if human else None,

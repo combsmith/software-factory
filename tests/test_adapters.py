@@ -1094,7 +1094,8 @@ class Threads(unittest.TestCase):
     def test_each_thread_is_read_with_who_opened_and_resolved_it_and_a_persons_is_human(self):
         got, whole = self.read(threads_answer("o/r", 26, [
             thread_node("PRRT_1"), thread_node("PRRT_2", LENS, resolved_by=("don-petry", MAINTAINER)),
-            thread_node("PRRT_3", APP), thread_node("PRRT_4", ("outsider", 7, "User"))]))
+            thread_node("PRRT_3", APP), thread_node("PRRT_4", ("outsider", 7, "User")),
+            thread_node("PRRT_5", (APPROVER,) + MACHINE)]))
         self.assertTrue(whole)
         self.assertEqual(got[0], {"id": "PRRT_1", "resolved": False, "category": "human", "severity": None,
                                   "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
@@ -1106,17 +1107,26 @@ class Threads(unittest.TestCase):
         self.assertEqual((got[2]["opened_by"]["kind"], got[2]["category"]), ("app", None))
         self.assertEqual((got[3]["opened_by"], got[3]["category"]),
                          ({"kind": "human", "name": "outsider", "can_write": False}, "human"))
+        # The machine user is no person: its thread, as an App's, has no category.
+        self.assertEqual((got[4]["opened_by"]["kind"], got[4]["category"]), ("machine_user", None))
+        # A resolved thread GitHub names no resolver for, as when an App resolved it, is read with none: the Kernel
+        # defers on that thread alone, never on the whole pull request.
+        resolved, _ = self.read(threads_answer("o/r", 26, [dict(thread_node("PRRT_6", LENS), isResolved=True)]))
+        self.assertEqual((resolved[0]["resolved"], resolved[0]["resolved_by"]), (True, None))
 
     def test_a_thread_that_cannot_be_read_is_refused(self):
         good = thread_node("PRRT_1")
         broken = [dict(good, id=""), dict(good, id=None), dict(good, isResolved=None), dict(good, comments={"nodes": []}),
                   dict(good, comments=None), dict(good, resolvedBy={"login": "don-petry", "databaseId": MAINTAINER}),
-                  dict(good, isResolved=True), dict(good, isResolved=0),
+                  dict(good, isResolved=0),
                   dict(good, isResolved=1, resolvedBy={"login": "don-petry", "databaseId": MAINTAINER}),
                   thread_node("PRRT_1", at="yesterday"),
                   thread_node("PRRT_1", ("ghost", 1, "Mannequin")), thread_node("PRRT_1", ("don-petry", None, "User")),
                   thread_node("PRRT_1", ("x[bot]", 9, "User")), "PRRT_1", thread_node("PRRT_1")]
         broken[-1]["comments"]["nodes"][0]["author"] = None    # a deleted account, which GraphQL gives as null
+        reply = thread_node("PRRT_1")
+        reply["comments"]["nodes"][0]["replyTo"] = {"id": "PRRC_0"}
+        broken.append(reply)
         for node in broken:
             with self.assertRaises(github.Unanswered, msg=node):
                 self.read(threads_answer("o/r", 26, [node]))
