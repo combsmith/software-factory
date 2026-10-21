@@ -4074,6 +4074,15 @@ class Mutants(unittest.TestCase):
         # tests/support.py's assertions that judge a measured spend by the clock and the load (issue 253). Spent alone
         # measures CPU, which load does not change, and its pure judgments, over and faster_than_linear, read no clock.
         judging = {"within", "linear", "grows_linearly"}
+
+        def dotted(node) -> str:
+            """The dotted name an expression is, such as tests.support, or "" for anything else."""
+            if isinstance(node, ast.Name):
+                return node.id
+            if isinstance(node, ast.Attribute):
+                head = dotted(node.value)
+                return head + "." + node.attr if head else ""
+            return ""
         marked, reads = set(), set()
         for path in sorted((ROOT / "tests").glob("test_*.py")):
             module = ast.parse(path.read_text())
@@ -4087,8 +4096,8 @@ class Mutants(unittest.TestCase):
             # The module itself, however imported, so support.within(...) is read as within(...) is (Muse on PR 257).
             supports = ({a.asname or a.name for n in ast.walk(module) if isinstance(n, ast.ImportFrom)
                          and n.module == "tests" for a in n.names if a.name == "support"}
-                        | {a.asname for n in ast.walk(module) if isinstance(n, ast.Import) for a in n.names
-                           if a.name == "tests.support" and a.asname})
+                        | {a.asname or a.name for n in ast.walk(module) if isinstance(n, ast.Import) for a in n.names
+                           if a.name == "tests.support"})     # `import tests.support` is read as tests.support (Codex)
             for owner in [n for n in ast.walk(module) if isinstance(n, ast.ClassDef)]:
                 for node in owner.body:
                     if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
@@ -4100,7 +4109,7 @@ class Mutants(unittest.TestCase):
                             and n.attr in clock) or (isinstance(n, ast.Name) and n.id in bare)
                            or (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in judges)
                            or (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in judging
-                               and isinstance(n.func.value, ast.Name) and n.func.value.id in supports)
+                               and dotted(n.func.value) in supports)
                            for n in ast.walk(node)):
                         reads.add(where)
         # The order of the runs is told by a stand-in that sleeps: that test reads no clock of its own.
