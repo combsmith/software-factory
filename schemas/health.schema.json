@@ -216,6 +216,7 @@
           "concurrency",
           "run_unidentified",
           "environment",
+          "facts_unreadable",
           "not_run"
         ]
       }

@@ -266,7 +266,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-48 Nobody noticed
 **Failure.** "Engine-token liveness monitoring: a 7-day fleet-wide dev-lead outage went unalerted, and pr-review fails open" (issue 1587). The daily failure report appears to have stopped as well; the review could not confirm it.
 **Rule.** One cause raises one alert, a pass that did not run is itself reported, and an item that needs a person is assigned to one.
-**Check.** `tests/test_controller.py::test_one_cause_raises_one_alert`, `tests/test_controller.py::test_a_pass_after_six_hours_with_none_clears_the_not_run_alert_once`; assigning an item to a person is waiting on `adapters/effects.py`
+**Check.** `tests/test_controller.py::test_one_cause_raises_one_alert`, `tests/test_controller.py::test_the_first_pass_after_six_hours_with_none_raises_the_not_run_alert_and_the_next_clears_it`; assigning an item to a person is waiting on `adapters/effects.py`
 
 ### L-49 The Maintainer's attention was the real limit
 **Failure.** Runs rose about fivefold while merges stayed at 14 to 36 a week. The owner account cleared holds 64 times across 150 merged pull requests.
