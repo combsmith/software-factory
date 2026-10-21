@@ -2974,6 +2974,9 @@ class Trials(unittest.TestCase):
         self.assertTrue(all(r["event"] == "pull_request" for r in forks))
         self.assertIn(calls(p27, "p27-fork.yml/dispatches")[0]["response"]["status"], (404, 422))
         self.assertEqual(calls(p27, "actions/runs?event=schedule&per_page=100")[0]["response"]["body"]["total_count"], 0)
+        dispatched = calls(p27, "actions/runs?event=workflow_dispatch&per_page=100")[0]["response"]["body"]["workflow_runs"]
+        self.assertTrue(dispatched)
+        self.assertFalse([r for r in dispatched if r["path"].endswith("p27-fork.yml") or (r.get("head_repository") or {}).get("fork")])
         heads = {r["path"]: r["head_branch"] for r in forks if r["head_repository"]["full_name"].startswith("don-petry/")}
         self.assertEqual(heads.get(".github/workflows/p27-fork.yml"), "p27-fork")
         self.assertEqual(waiting["head_branch"], "p27-outside")
@@ -3073,6 +3076,12 @@ class Trials(unittest.TestCase):
             "a-trial-of-forks-reading-another-owners-repo": "names the owner someone",
             "a-trial-of-reach-reading-another-org": "names the owner outside",
             "a-star-of-another-owners-repo": "names the owner outside",
+            # A trial of reach is spared the App's reach and nothing else; a fork licenses no owner a read names at an
+            # org's level; a star goes through the same reading as any path.
+            "a-trial-of-reach-traversing-the-org": "asks of the org by an App",
+            "a-trial-of-forks-reading-an-outside-org": "names the owner outside",
+            "a-star-beside-another-read": "names the owner outside",
+            "a-star-that-climbs": "climbs out of its repo",
         }
         for name, words in refused.items():
             data = json.loads((ROOT / "examples" / "invalid" / ("trial.%s.json" % name)).read_text())
