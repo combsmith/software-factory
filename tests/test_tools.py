@@ -5134,6 +5134,14 @@ esac
         self.key.write_text("not a key\n")
         self.out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
 
+    # OUT names the refusal cases give inside the repo. A broken script could make one, in a copy the mutation check
+    # lends to the next mutant, so each is removed after the test whether or not it was refused.
+    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link")
+
+    def tearDown(self):
+        for name in self.INSIDE:
+            shutil.rmtree(ROOT / name, ignore_errors=True)
+
     def run_script(self, *args, out=None) -> subprocess.CompletedProcess:
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
                "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
@@ -5183,7 +5191,7 @@ esac
     def test_each_refusal_comes_before_anything_is_minted(self):
         self.out.parent.mkdir(parents=True, exist_ok=True)
         cases = [((self.CANARY, "main", "don-petry"), self.out.parent, "exists"),
-                 ((self.CANARY, "main", "don-petry"), ROOT / "never-made", "inside the repo"),
+                 ((self.CANARY, "main", "don-petry"), ROOT / self.INSIDE[0], "inside the repo"),
                  (("combsmith/software-factory", "main", "don-petry"), None, "is not the canary the reader is installed on"),
                  (("combsmith/elsewhere", "main", "don-petry"), None, "is not the canary the reader is installed on"),
                  (("combsmith", "main", "don-petry"), None, "is not owner/name"),
@@ -5215,7 +5223,7 @@ esac
         # OUT is resolved as the file system resolves it: a folder whose parent is a link into the repo is inside it.
         link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "into-the-repo"
         link.symlink_to(ROOT)
-        ran = self.run_script(out=link / "never-made")
+        ran = self.run_script(out=link / self.INSIDE[1])
         self.assertNotEqual(ran.returncode, 0)
         self.assertIn("inside the repo", ran.stderr)
         self.assertEqual(self.calls(), [])
