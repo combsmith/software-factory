@@ -677,12 +677,16 @@ class IssueWorld:
             self.edit(STRANGER)
             self.reached.append(1)
             return STRANGER_BY
-        if self.faults and self.seed % LATE_EVERY == LATE and roll >= 0.8 and not self.late:
+        lag = LIMITS["max_close_lag_seconds"] // 60 + 1
+        if self.faults and self.seed % LATE_EVERY == LATE and roll >= 0.8 and not self.late \
+                and self.minute - self.life_started > lag:
             # GitHub: a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing
-            number = 400 + len(self.linked)
+            # A pull request of the Factory's that merged at the start of this life, closing nothing here, whose
+            # description an edit now makes name the issue, long after the merge, as P-46's edit came a day after.
+            number, merged = 400 + len(self.linked), World.at(self.life_started)
             self.linked.append({"number": number, "class": "agent", "opener": dict(AUTHOR_APP), "open": False,
-                                "draft": False, "opened_at": self.now(), "merged_at": self.now(),
-                                "closed_at": self.now(), "empty": False, "label_events": [], "closed_issue_at": None})
+                                "draft": False, "opened_at": merged, "merged_at": merged,
+                                "closed_at": merged, "empty": False, "label_events": [], "closed_issue_at": None})
             self.late.append(number)
             self.reached.append(6)
             self.note("an edit after its merge made #%d name the issue" % number)
