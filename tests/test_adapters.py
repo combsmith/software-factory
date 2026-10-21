@@ -13,8 +13,9 @@ import json
 import os
 import pathlib
 import unittest
+import zipfile
 
-from adapters import checks, facts, github, pull, records, timeline
+from adapters import artifacts, checks, facts, github, pull, records, timeline
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -82,6 +83,156 @@ class Transport(unittest.TestCase):
                         {"If-None-Match": None}):
             with self.assertRaises(github.Unanswered, msg=headers):
                 github.request("GET", "/x", headers=headers)
+
+    def test_only_an_artifacts_download_follows_its_redirect_and_only_to_githubs_storage(self):
+        # Decision 0045, the Maintainer's ruling on #192: the one redirect is an artifact's download, to GitHub's
+        # artifact storage alone, over HTTPS on its own port.
+        self.assertTrue(github.download("/repos/o/r/actions/artifacts/9/zip")["follow"])
+        for path in ("/repos/o/r/actions/artifacts/9", "/repos/o/r/actions/runs/9/logs", "/repos/o/r/zipball/main",
+                     "/repos/o/r/actions/artifacts/09/zip", "/repos/o/r/actions/artifacts/9/zip?x=1"):
+            with self.assertRaises(github.Unanswered, msg=path):
+                github.download(path)
+        for asked in ({"method": "POST"}, {"body": {}}, {"headers": {"Cache-Control": "no-cache"}}, {"follow": 1}):
+            with self.assertRaises(github.Unanswered, msg=asked):
+                github.request(**dict({"method": "GET", "path": "/repos/o/r/actions/artifacts/9/zip", "follow": True},
+                                      **asked))
+        self.assertNotIn("follow", github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        self.assertEqual(github.storage(STORE), STORE)
+        for url in ("http://productionresultssa7.blob.core.windows.net/x", "https://evil.blob.core.windows.net/x",
+                    "https://productionresultssa7.blob.core.windows.net:8443/x",
+                    "https://u@productionresultssa7.blob.core.windows.net/x",
+                    "https://productionresultssa7.blob.core.windows.net.evil.com/x",
+                    "https://PRODUCTIONRESULTSSA7.blob.core.windows.net/x", "https://pipelines.actions.githubusercontent.com/x",
+                    "https://productionresultssa7.blob.core.windows.net/x\r\nHost: e", "https://api.github.com/x",
+                    "https://productionresultssa7.blob.core.windows.net\\@evil.com/x", None, 7,
+                    "https://productionresultssa20.blob.core.windows.net/x", "https://productionresultssa07.blob.core.windows.net/x"):
+            with self.assertRaises(github.Unanswered, msg=url):
+                github.storage(url)
+        # The replay does as the live transport does: a redirect is refused to any other request, and followed for
+        # the download only to the storage exchange recorded next, at the address redirected to.
+        zipped = outcome_zip("{}")
+        found = stored("o/r", 7, zipped)
+        with self.assertRaises(github.Unanswered):
+            github.Replay(found[1:]).send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        self.assertEqual(github.raw(github.Replay(found[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+                                    ["body"]), zipped)
+        elsewhere = stored("o/r", 7, zipped, store="https://evil.example/x")
+        with self.assertRaises(github.Unanswered):
+            github.Replay(elsewhere[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        other = stored("o/r", 7, zipped)
+        other[2]["request"]["call"] = "GET " + STORE.replace("0a1b", "ffff")
+        with self.assertRaises(github.Unanswered):
+            github.Replay(other[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        # The storage's answer is bounded, and a redirect off it refused, as the live transport does.
+        for answer in ({"status": 302, "headers": {"location": STORE}, "body": None},
+                       {"status": 200, "headers": {}, "body": "z" * (github.STORED + 1)}):
+            off = stored("o/r", 7, zipped)
+            off[2]["response"] = answer
+            with self.assertRaises(github.Unanswered):
+                github.Replay(off[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        # No error the replay raises holds the signed address.
+        try:
+            github.Replay(found[1:]).send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        except github.Unanswered as err:
+            self.assertNotIn("sig=", held(err))
+
+    def test_the_live_transport_sends_no_token_to_the_storage_and_bounds_what_it_holds(self):
+        sent = []
+
+        class Zip(io.BytesIO):
+            status, headers = 200, {"Content-Type": "application/zip"}
+
+        class Opener:
+            def __init__(self, size):
+                self.size = size
+
+            def open(self, req, timeout=None):
+                sent.append(req)
+                if len(sent) % 2:
+                    raise github.Redirected(302, STORE)
+                return Zip(b"z" * self.size)
+        live = github.Live("t")
+        live.opener = Opener(github.STORED)
+        got = live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        self.assertEqual((got["status"], len(github.raw(got["body"]))), (200, github.STORED))
+        first, second = sent
+        self.assertEqual((first.full_url, first.get_header("Authorization")),
+                         ("https://api.github.com/repos/o/r/actions/artifacts/9/zip", "Bearer t"))
+        self.assertEqual((second.full_url, second.get_method()), (STORE, "GET"))
+        self.assertEqual({k.lower() for k, _ in second.header_items()}, {"user-agent"})
+        live.opener = Opener(github.STORED + 1)
+        with self.assertRaises(github.Unanswered):
+            live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        # Any other request that GitHub redirects is refused; and so is a redirect off the storage.
+        sent.clear()
+        live.opener = Opener(1)
+        with self.assertRaises(github.Unanswered):
+            live.send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        self.assertEqual(len(sent), 1)
+
+        # A 308, which Python before 3.11 hands on as an error, is followed the same way, and refused the same way.
+        class Permanent(Opener):
+            def open(self, req, timeout=None):
+                sent.append(req)
+                if len(sent) % 2:
+                    raise github.urllib.error.HTTPError(req.full_url, 308, "Permanent", {"Location": STORE}, io.BytesIO())
+                return Zip(b"z")
+        sent.clear()
+        live.opener = Permanent(1)
+        self.assertEqual(live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))["status"], 200)
+        self.assertEqual(sent[1].full_url, STORE)
+        with self.assertRaises(github.Unanswered) as refused:
+            live.send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        self.assertNotIn("sig=", held(refused.exception))
+
+        class Elsewhere(Opener):
+            def open(self, req, timeout=None):
+                sent.append(req)
+                if len(sent) % 2:
+                    raise github.Redirected(302, "https://evil.example/x")
+                return Zip(b"z")
+        sent.clear()
+        live.opener = Elsewhere(1)
+        with self.assertRaises(github.Unanswered) as refused:
+            live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        self.assertEqual(len(sent), 1)
+        self.assertNotIn("evil", held(refused.exception))
+
+        # A redirect off the storage is refused, and no error raised holds the signed address, nor is chained to one.
+        class Again(Opener):
+            def open(self, req, timeout=None):
+                sent.append(req)
+                raise github.Redirected(302, STORE)
+        sent.clear()
+        live.opener = Again(1)
+        with self.assertRaises(github.Unanswered) as refused:
+            live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        self.assertEqual(len(sent), 2)
+        self.assertNotIn("sig=", held(refused.exception))
+        with self.assertRaises(github.Unanswered) as refused:
+            live.send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
+        self.assertNotIn("sig=", held(refused.exception))
+
+        # An error the storage answers, cut short or over the bound, raises a refusal chained to no error that holds
+        # the address: urllib names it as each error's filename.
+        class Cut(io.BytesIO):
+            def read(self, *a):
+                raise github.http.client.IncompleteRead(b"")
+
+        for answer in (lambda req: Cut(), lambda req: io.BytesIO(b"z" * (github.STORED + 1)),
+                       lambda req: (_ for _ in ()).throw(ValueError("unknown url type: %s" % req.full_url))):
+            class Failing(Opener):
+                def open(self, req, timeout=None, answer=answer):
+                    sent.append(req)
+                    if len(sent) % 2:
+                        raise github.Redirected(302, STORE)
+                    found = answer(req)
+                    raise github.urllib.error.HTTPError(req.full_url, 500, "x", {}, found)
+            sent.clear()
+            live.opener = Failing(1)
+            with self.assertRaises(github.Unanswered) as refused:
+                live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+            self.assertNotIn("sig=", held(refused.exception))
 
     def test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect(self):
         for token in ("", " ", "a b", None):
@@ -486,6 +637,56 @@ def http_date(sent: str) -> str:
 NAME = "sf combsmith/software-factory#264 review-change pr-review sha256:5d0c r_01JA6Z"
 
 
+def outcome_of(run: str, fault, reason="engine_failed") -> dict:
+    """An `outcome/1` as a Run's final step writes it, of the shape examples/outcome.json gives."""
+    found = json.loads((ROOT / "examples" / "outcome.json").read_text())
+    return dict(found, run=run, outcome=fault, reason=reason)
+
+
+def outcome_zip(record, member: str = artifacts.MEMBER, more: tuple = ()) -> bytes:
+    """A zip as GitHub serves an artifact: the one file, or the files named."""
+    held = io.BytesIO()
+    with zipfile.ZipFile(held, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(member, record if isinstance(record, (bytes, str)) else json.dumps(record))
+        for name in more:
+            archive.writestr(name, "{}")
+    return held.getvalue()
+
+
+def held(err: BaseException) -> str:
+    """Every text an error holds, and every error it is chained to: its message and each attribute's value."""
+    found = []
+    while err is not None:
+        found += [str(err)] + [repr(v) for v in vars(err).values()]
+        err = err.__cause__ or err.__context__
+    return " ".join(found)
+
+
+STORE = "https://productionresultssa7.blob.core.windows.net/actions-results/0a1b/outcome.zip?sig=redacted"
+
+
+def stored(repo: str, github_id: int, zipped, ident: int = 9, store: str = STORE, **listed) -> list:
+    """A run's artifacts listed, its outcome's download redirected, and the storage's answer, in the shapes GitHub's
+    REST reference gives: no trial has recorded an artifact read yet (the pending test below says when one does).
+    `zipped` None lists none."""
+    artifact = {"id": ident, "name": artifacts.NAME, "expired": False}
+    if zipped is not None:
+        artifact.update(size_in_bytes=len(zipped), digest="sha256:" + hashlib.sha256(zipped).hexdigest())
+    artifact.update(listed)
+    listing_ = [artifact] if zipped is not None else []
+    found = [{"request": {"via": "rest", "call": "GET /repos/%s/actions/runs/%d/artifacts?name=outcome&per_page=100"
+                          % (repo, github_id), "headers": {}},
+              "response": {"status": 200, "headers": {}, "body": {"total_count": len(listing_), "artifacts": listing_}}}]
+    if zipped is not None:
+        found.append({"request": {"via": "rest", "call": "GET /repos/%s/actions/artifacts/%d/zip" % (repo, ident),
+                                  "headers": {}},
+                      "response": {"status": 302, "headers": {"location": store}, "body": None}})
+        found.append({"request": {"via": "storage", "call": "GET %s" % store, "headers": {}},
+                      "response": {"status": 200, "headers": {"content-type": "application/zip"},
+                                   "body": zipped.decode("utf-8", errors="surrogateescape")}})
+    return found
+
+
 class Records(unittest.TestCase):
     def read(self, *found, **kw):
         slept = []
@@ -556,15 +757,27 @@ class Records(unittest.TestCase):
         again = listing("P-17", 10, page=2, total=2, rows={"name": NAME})
         self.assertIs(self.read(one, again, per_page=1)[0]["complete"], False)
 
-    def test_a_run_that_did_not_succeed_leaves_the_list_not_whole_until_its_outcome_is_read(self):
-        # Decision 0029: a failed Run's outcome is read from its artifact, which waits on adapters/artifacts.py. Until
-        # then the list holding it is not whole, so that the Kernel defers and never reads it as no attempt.
+    def test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other(self):
+        # Decisions 0029 and 0039: a failed Run's outcome is read from its artifact; a Run that succeeded has none
+        # read, and one whose outcome cannot be read leaves the list not whole, never read as no attempt.
         done = {"name": NAME, "status": "completed"}
-        got, _ = self.read(listing("P-17", 3, rows=dict(done, conclusion="success")))
-        self.assertEqual((got["runs"][0]["conclusion"], got["complete"]), ("success", True))
+        row = listing("P-17", 3, rows=dict(done, conclusion="success"))
+        github_id = row["response"]["body"]["workflow_runs"][0]["id"]
+        got, _ = self.read(row)
+        self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"], got["complete"]), ("success", None, True))
         for conclusion, read in (("startup_failure", "failure"), ("timed_out", "timed_out"), ("cancelled", "cancelled")):
-            got, _ = self.read(listing("P-17", 3, rows=dict(done, conclusion=conclusion)))
-            self.assertEqual((got["runs"][0]["conclusion"], got["complete"]), (read, False), conclusion)
+            failed = listing("P-17", 3, rows=dict(done, conclusion=conclusion))
+            got, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item"))))
+            self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"], got["complete"]),
+                             (read, "item", True), conclusion)
+            got, _ = self.read(failed, stored(canary(), github_id, None)[0])
+            self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, True), conclusion)
+            got, _ = self.read(failed, stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item")),
+                                              expired=True)[0])
+            self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, True), conclusion)
+            got, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item")),
+                                               expired=None))
+            self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, False), conclusion)
 
     def test_a_status_or_a_conclusion_github_would_not_give_a_run_makes_the_list_short(self):
         self.assertEqual(self.read(listing("P-17", 3, rows={"name": NAME, "status": "waiting"}))[0]["runs"][0]["status"],
@@ -607,10 +820,90 @@ class Records(unittest.TestCase):
                 self.assertEqual((got["runs"], got["unidentified"], got["complete"]), ([], ids, True), (name, at))
 
     @pending
-    def test_the_outcome_of_a_run_that_did_not_succeed_is_read(self):
-        # Decision 0029: outcome.json is read for a Run that did not succeed. The artifact is downloaded by a redirect
-        # off GitHub's API, which the transport follows none of (decision 0044), so this waits on adapters/artifacts.py.
-        self.assertTrue(callable(records.outcome))
+    def test_an_artifact_download_a_trial_recorded_is_read_as_the_port_reads_it(self):
+        # The Maintainer's ruling on #192: the download's one redirect goes to GitHub's artifact storage. No trial has
+        # recorded one yet, so the host the transport allows is GitHub's documented one, not yet seen; the first trial
+        # whose Run uploads an outcome records it, and this test then reads it.
+        found = [(name.stem, at) for name in sorted((ROOT / "trials").glob("P-*.json"))
+                 for at, e in enumerate(json.loads(name.read_text()).get("exchanges", []))
+                 if (e.get("request") or {}).get("via") == "storage"]
+        self.assertTrue(found)
+        for name, at in found:
+            moved = exchanges(name)[at - 1]["response"]["headers"]["location"]
+            self.assertEqual(github.storage(moved), moved)
+
+
+class Artifacts(unittest.TestCase):
+    RUN = "r_01JA6Z"
+
+    def read(self, zipped, **listed):
+        return artifacts.outcome(github.Replay(stored("o/r", 7, zipped, **listed)), "o/r", 7, self.RUN)
+
+    def test_a_runs_outcome_is_read_from_its_one_file_and_held_to_outcome_1(self):
+        for fault in ("item", "capacity", "environment", "superseded"):
+            self.assertEqual(self.read(outcome_zip(outcome_of(self.RUN, fault))), (fault, True), fault)
+        # A listing that gives no digest is read by its size alone.
+        zipped = outcome_zip(outcome_of(self.RUN, "item"))
+        self.assertEqual(self.read(zipped, digest=None), ("item", True))
+        # A Run that left no outcome, as a killed one does, is read whole with none, and so is one past its retention,
+        # which is never downloaded.
+        self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, None)), "o/r", 7, self.RUN), (None, True))
+        expired = stored("o/r", 7, zipped, expired=True)[:1]
+        self.assertEqual(artifacts.outcome(github.Replay(expired), "o/r", 7, self.RUN), (None, True))
+
+    def test_an_outcome_that_cannot_be_read_whole_is_not_whole(self):
+        good = outcome_of(self.RUN, "item")
+        zipped = outcome_zip(good)
+        for listed in ({"expired": None}, {"expired": "false"}, {"size_in_bytes": 0}, {"size_in_bytes": True}, {"size_in_bytes": len(zipped) + 1},
+                       {"digest": "sha256:" + "0" * 64}, {"digest": "md5:x"}, {"id": True}, {"id": 0}):
+            transport = github.Replay(stored("o/r", 7, zipped, **listed))
+            self.assertEqual(artifacts.outcome(transport, "o/r", 7, self.RUN), (None, False), listed)
+        for record in (outcome_zip(good, member="result.json"), outcome_zip(good, more=("other.json",)),
+                       outcome_zip(" " * (artifacts.HELD + 1)), outcome_zip(b"\xff\xfe"), outcome_zip("[]"),
+                       outcome_zip(dict(good, run="r_OTHER1")), outcome_zip(dict(good, outcome=None)),
+                       outcome_zip(dict(good, reason="A sentence.")), b"PK\x03\x04 not a zip"):
+            self.assertEqual(self.read(record), (None, False), record[:40])
+        # A zip over the bound is not read, though it holds an outcome that could be.
+        wide = io.BytesIO()
+        with zipfile.ZipFile(wide, "w") as archive:
+            archive.writestr(artifacts.MEMBER, json.dumps(good))
+            archive.comment = b" " * 65535
+        self.assertGreater(len(wide.getvalue()), artifacts.ZIPPED)
+        self.assertEqual(self.read(wide.getvalue()), (None, False))
+        # A list that is not what its count says, or holds an artifact of another name, is not whole.
+        miscounted = stored("o/r", 7, zipped)
+        miscounted[0]["response"]["body"]["total_count"] = 2
+        self.assertEqual(artifacts.outcome(github.Replay(miscounted), "o/r", 7, self.RUN), (None, False))
+        for body in ({"total_count": 1, "artifacts": [{"name": "result"}]},
+                     {"total_count": None, "artifacts": []}, {"artifacts": None, "total_count": 0}):
+            listing_ = stored("o/r", 7, None)
+            listing_[0]["response"]["body"] = body
+            self.assertEqual(artifacts.outcome(github.Replay(listing_), "o/r", 7, self.RUN), (None, False), body)
+        # Two artifacts of the name, each one that could be read, are not read as one.
+        twice = stored("o/r", 7, zipped)
+        listed = twice[0]["response"]["body"]
+        listed.update(total_count=2, artifacts=listed["artifacts"] * 2)
+        self.assertEqual(artifacts.outcome(github.Replay(twice), "o/r", 7, self.RUN), (None, False))
+        # An answer that is no answer is refused: the list's, the download's and the storage's.
+        for at, status in ((0, 404), (2, 403)):
+            found = stored("o/r", 7, zipped)
+            found[at]["response"]["status"] = status
+            with self.assertRaises(github.Unanswered, msg=at):
+                artifacts.outcome(github.Replay(found), "o/r", 7, self.RUN)
+
+    def test_an_outcome_is_held_in_the_bounds_before_it_is_read_out(self):
+        # A file the zip says is over the bound is never read.
+        wide = io.BytesIO()
+        with zipfile.ZipFile(wide, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(artifacts.MEMBER, "{" + " " * (10 * artifacts.HELD) + "}")
+        self.assertIsNone(artifacts._member(wide.getvalue()))
+        self.assertEqual(artifacts._member(outcome_zip("{}")), b"{}")
+        # Only a file stored or deflated is read: bzip2 and LZMA decompress a whole chunk past any bound Python sets.
+        for method in (zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA, zipfile.ZIP_STORED):
+            packed = io.BytesIO()
+            with zipfile.ZipFile(packed, "w", method) as archive:
+                archive.writestr(artifacts.MEMBER, "{}")
+            self.assertEqual(artifacts._member(packed.getvalue()), b"{}" if method == zipfile.ZIP_STORED else None, method)
 
 
 APPROVER = "donpetry-bot"        # the machine user, as config/defaults.json names the approver

@@ -30,12 +30,17 @@ STDLIB = STDLIB | {"difflib"}
 STDLIB = STDLIB | {"importlib"}
 # http: adapters/github.py, the one transport, refuses an answer http.client cut short. NETWORK refuses it anywhere else.
 STDLIB = STDLIB | {"http"}
+# zipfile and zlib: adapters/artifacts.py opens a Run's artifact, a zip GitHub serves, of one file and bounded.
+STDLIB = STDLIB | {"zipfile", "zlib"}
 # The network. Only the one transport reaches it, so a request to GitHub is made in one file a review can read whole;
 # everywhere else these are refused, the required check fetches nothing, and a test replays what a trial recorded.
 # A net, as the search for secrets is: a subprocess or importlib can still reach out, and review is the real guard.
 NETWORK = {"urllib.request", "http", "socket", "ssl", "ftplib", "smtplib", "imaplib", "poplib", "nntplib",
            "telnetlib", "xmlrpc", "socketserver", "asyncio", "webbrowser"}
 TRANSPORT = pathlib.PurePosixPath("adapters/github.py")
+# The one host off GitHub's API the transport reaches, an artifact's storage (the Maintainer's ruling on #192): no other
+# code names it, so no other code builds an address there; a test may, to answer for it.
+STORAGE = re.compile(r"blob\.core\.windows\.net|githubusercontent\.com", re.IGNORECASE)
 MANIFESTS = {"pyproject.toml", "setup.py", "setup.cfg", "Pipfile", "Pipfile.lock", "poetry.lock", "uv.lock",
              "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "environment.yml", "go.mod",
              "Cargo.toml", "Gemfile"}
@@ -96,8 +101,12 @@ def _python(rel: pathlib.PurePath, text: str) -> list:
     for line, name in _twice(tree.body):
         problems.append("%s:%d defines %s a second time" % (rel, line, name))
     seeded = rel.parts[0] in ("sim", "tests")
+    transport = pathlib.PurePosixPath(*rel.parts) == TRANSPORT
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 0)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and STORAGE.search(node.value) \
+                and not transport and rel.parts[0] != "tests":
+            problems.append("%s:%d names GitHub's artifact storage, which only %s reaches" % (rel, line, TRANSPORT))
         mods = []
         if isinstance(node, ast.Import):
             mods = [alias.name for alias in node.names]

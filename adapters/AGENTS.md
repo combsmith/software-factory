@@ -2,16 +2,22 @@
 
 All of the Factory's I/O. `github.py` is the one transport: every request to GitHub goes through it, and nothing else in
 this repo reaches the network. `pull.py` reads the facts of a pull request that its own reads give, `timeline.py` its reviews, labels and who acted,
-`checks.py` its checks and its place in the queue, `facts.py` the one snapshot of it all, and `records.py` the Factory's own run records. A port decides nothing
+`checks.py` its checks and its place in the queue, `facts.py` the one snapshot of it all, `records.py` the Factory's own run records,
+and `artifacts.py` a failed Run's outcome from its artifact. A port decides nothing
 and hands the Kernel no text: what it cannot read whole it says is short, and the title travels beside the facts.
 
-Not built yet, by the stories that hold their rules: threads.py, items.py, acceptance.py, issues.py, settings.py, effects.py, artifacts.py, usage.py.
+Not built yet, by the stories that hold their rules: threads.py, items.py, acceptance.py, issues.py, settings.py, effects.py, usage.py.
 
 | Rule | Held by |
 |---|---|
 | Only `github.py` imports what reaches the network | `tests/test_tools.py::test_only_the_transport_reaches_the_network` |
 | It sends HTTPS to GitHub's API alone, by a path from its root | `tests/test_adapters.py::test_a_request_stays_on_githubs_api` |
-| It follows no redirect, takes no proxy, bounds every answer, and uses the token its caller gives it | `tests/test_adapters.py::test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect` |
+| It follows no redirect but an artifact's download, takes no proxy, bounds every answer, and uses the token its caller gives it | `tests/test_adapters.py::test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect` |
+| An artifact's download alone follows its redirect, to GitHub's artifact storage alone, over HTTPS | `tests/test_adapters.py::test_only_an_artifacts_download_follows_its_redirect_and_only_to_githubs_storage` |
+| No token is sent to the storage, and what it answers is bounded | `tests/test_adapters.py::test_the_live_transport_sends_no_token_to_the_storage_and_bounds_what_it_holds` |
+| Only `github.py` names the storage | `tests/test_tools.py::test_only_the_transport_names_githubs_artifact_storage` |
+| A failed Run's outcome, and no other, is read from its artifact's one file | `tests/test_adapters.py::test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other` |
+| An outcome is bounded and held to `outcome/1` and its Run; what cannot be read is not whole | `tests/test_adapters.py::test_an_outcome_that_cannot_be_read_whole_is_not_whole` |
 | A test replays a trial's fixture, which answers each recorded request once, in order and with its whole body, and refuses any other | `tests/test_adapters.py::test_a_replay_answers_only_what_the_fixture_holds_and_each_once` |
 | A read that is not whole says so in its `complete` flag | `tests/test_adapters.py::test_a_diff_that_disagrees_with_the_counts_is_a_short_read`, `tests/test_adapters.py::test_a_list_github_stops_short_of_the_count_is_never_the_whole` |
 | A fact that cannot be read is null or refused, never guessed | `tests/test_adapters.py::test_an_activity_that_has_not_caught_up_with_the_head_names_no_one` |
