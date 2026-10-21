@@ -3365,7 +3365,7 @@ MUTANTS = ISSUE + [
      "    return 2.0 * max(1.0, load / cores())\n", "    return 2.0\n",
      ("tests.test_hooks.Budgets.test_a_slow_hook_fails_and_a_loaded_machine_does_not",)),
     ("a reading may grow faster than linearly", "tests/support.py",
-     "    if grew >= 4.5 * grew_half + 0.1:\n", "    if False:\n",
+     "    if grew >= 4 * grew_half + 0.1:\n", "    if False:\n",
      ("tests.test_hooks.Budgets.test_a_reading_that_grows_faster_than_its_size_fails",)),
     ("the machine's cores stand for the process's", "tests/support.py",
      "        return max(1, len(os.sched_getaffinity(0)))\n", "        return max(1, os.cpu_count() or 1)\n",
@@ -3386,6 +3386,14 @@ MUTANTS = ISSUE + [
     ("a child's CPU is not the hook's", "tests/support.py",
      '("user", "system", "children_user", "children_system")', '("user", "system")',
      ("tests.test_hooks.Budgets.test_the_cpu_a_child_spends_is_counted",)),
+    # Issue 260: the hook's lexer grows a word in pieces.
+    ("the hook reads with shlex's own lexer, copying a word at each character", "tools/hooks/shell.py",
+     "    lex = Lexer(held, posix=True, punctuation_chars=PUNCTUATION)\n",
+     "    lex = shlex.shlex(held, posix=True, punctuation_chars=PUNCTUATION)\n",
+     (IDENTITY_TESTS + "test_the_lexer_reads_what_shlex_reads_and_grows_a_word_in_pieces",)),
+    ("a lexer's word is given back in pieces", "tools/hooks/shell.py",
+     "        return str(word) if isinstance(word, _Token) else word\n", "        return word\n",
+     (IDENTITY_TESTS + "test_the_lexer_reads_what_shlex_reads_and_grows_a_word_in_pieces",)),
 ]
 
 

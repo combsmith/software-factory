@@ -169,16 +169,15 @@ class Budgets(unittest.TestCase):
         self.assertEqual(faster_than_linear(*three(0.1, 0.12, 0.15)), "")                # what does not grow
         self.assertIn("at half", faster_than_linear(*three(0.25, 1.0, 4.0)))             # quadratic
         self.assertIn("at half", faster_than_linear(*three(0.1, 0.4, 1.6)))              # quadratic, and small
-        self.assertEqual(faster_than_linear(*three(0.24, 0.63, 1.80)), "")              # n to the 1.6, as the hook has
         # A second of what does not grow must not hide a quadratic past it, and a first run that costs more than the
         # half, as warming what the others reuse does, is not growth.
         self.assertIn("at half", faster_than_linear(*three(1.1, 1.4, 2.6)))
         self.assertEqual(faster_than_linear(*three(0.3, 0.1, 0.15)), "")
         self.assertEqual(faster_than_linear(*three(0.07, 0.03, 0.04)), "")
         self.assertEqual(faster_than_linear(*three(1.3, 1.0, 1.5)), "")         # linear, after a warm-up the quarter paid
-        # At the edge: exactly four and a half times and the noise is past it.
-        self.assertIn("at half", faster_than_linear(*three(0.0, 1.0, 4.6)))
-        self.assertEqual(faster_than_linear(*three(0.0, 1.0, 4.59)), "")
+        # At the edge: exactly four times and the noise is past it.
+        self.assertIn("at half", faster_than_linear(*three(0.0, 1.0, 4.1)))
+        self.assertEqual(faster_than_linear(*three(0.0, 1.0, 4.09)), "")
         # The sizes a reading is run at: a quarter, half and whole, so the three spends are of three sizes on one path.
         self.assertEqual(sizes(16000), (4000, 8000, 16000))
         self.assertEqual(sizes(901), (225, 450, 901))
@@ -1336,6 +1335,31 @@ class Identity(unittest.TestCase):
                 "cd %s && git status && git commit -m x" % self.here,
                 "# commit the change, then git push it\ngit commit -m x"):
             self.assertEqual(self.codes(command), "", command)
+
+    def test_the_lexer_reads_what_shlex_reads_and_grows_a_word_in_pieces(self):
+        # Issue 260: the hook's lexer gives every word shlex gives, in the same order, with the same settings; and it
+        # grows a word by appending its pieces, so a long word is read in linear time and not copied whole at each one.
+        settings = dict(posix=True, punctuation_chars=shell.PUNCTUATION)
+        for text in ('git commit -m "' + "\\`x\\` " * 50 + '"', "a 'b c' \"d\\\"e\" f\\ g; h|i>j", "x=(1 2); y=$((3))",
+                     "''", '""', "a\\", "a#b c", "  ", "", "é ü", "a;;b&&c||d", "'\n'", '"\\$x"'):
+            ours, theirs = shell.Lexer(text, **settings), shlex.shlex(text, **settings)
+            for lex in (ours, theirs):
+                lex.whitespace, lex.whitespace_split, lex.commenters = " \t\r", True, ""
+            try:
+                expected = list(theirs)
+            except ValueError:
+                with self.assertRaises(ValueError, msg=text):
+                    list(ours)
+                continue
+            self.assertEqual(list(ours), expected, text)
+            self.assertTrue(all(type(word) is str for word in expected), text)
+        grown = []
+        real = shell._Token.__iadd__
+        with mock.patch.object(shell._Token, "__iadd__", autospec=True,
+                               side_effect=lambda token, text: grown.append(text) or real(token, text)):
+            read = shell.commands("echo " + "a" * 1000)
+        self.assertIn("a" * 1000, str(read))
+        self.assertGreaterEqual(len(grown), 999)
 
     @wall_clock
     def test_the_readings_issue_174_adds_run_in_linear_time(self):

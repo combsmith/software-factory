@@ -98,6 +98,48 @@ def simple_commands(text: str) -> list:
     return [(words, [target for _, target in redirections]) for words, redirections in commands(text)]
 
 
+class _Token:
+    """A word shlex grows a character at a time, held as its pieces so that it grows in linear time. shlex writes
+    `self.token += c`, which CPython copies whole for a string held in an attribute, so a word of n characters cost n
+    squared over two copies: a commit message of 120,000 took 1.8 s, past the reading budget near 80,000 pairs of
+    escaped backticks ("Identity hook: escaped backticks in double quotes are read in more than linear time", issue 260).
+    """
+    __slots__ = ("pieces",)
+    __hash__ = None
+
+    def __init__(self, text: str = ""):
+        self.pieces = [text] if text else []
+
+    def __iadd__(self, text: str):
+        self.pieces.append(text)
+        return self
+
+    def __bool__(self) -> bool:
+        return any(self.pieces)
+
+    def __eq__(self, other) -> bool:
+        return str(self) == other
+
+    def __str__(self) -> str:
+        return "".join(self.pieces)
+
+
+class Lexer(shlex.shlex):
+    """shlex, its words grown as `_Token`s and given back as strings, so that it reads in linear time what shlex reads."""
+
+    @property
+    def token(self):
+        return self._token
+
+    @token.setter
+    def token(self, value):
+        self._token = value if isinstance(value, _Token) else _Token(value)
+
+    def get_token(self):
+        word = super().get_token()
+        return str(word) if isinstance(word, _Token) else word
+
+
 def commands(text: str, spend=None, texts: list = None, scopes: bool = False, marked: bool = False) -> list:
     """Each simple command in `text`, as (words, [(operator, target)]), read as simple_commands reads it.
 
@@ -114,7 +156,7 @@ def commands(text: str, spend=None, texts: list = None, scopes: bool = False, ma
     if texts is not None:
         texts.append(text)
     held = _held(without_heredocs(text))     # only an unquoted ; ) or > is punctuation
-    lex = shlex.shlex(held, posix=True, punctuation_chars=PUNCTUATION)
+    lex = Lexer(held, posix=True, punctuation_chars=PUNCTUATION)
     lex.whitespace, lex.whitespace_split, lex.commenters = " \t\r", True, ""
     found, words, targets, operator = [], [], [], None
     # A case's patterns are data, in every arm: from `in`, and from each ;; or ;&, to the ) that ends the pattern. Each is
@@ -316,7 +358,8 @@ def _held(text: str) -> str:
                 out.append(ESCAPED[after])
             elif after != "\n":     # a backslash before a newline is a line continuation: the two lines are one
                 out.append(c + HOLDS.get(after, after))
-            starts, comments, word = starts and after == "\n", comments and after == "\n", word + c
+            starts, comments = starts and after == "\n", comments and after == "\n"
+            word += c       # a statement of its own, so CPython grows it in place: in a tuple it copies it (issue 260)
             i += 2
             continue
         if quote is None:
@@ -329,14 +372,16 @@ def _held(text: str) -> str:
             if i < braces and (c in PUNCTUATION or c == "`" or text.startswith("$(", i)):
                 # In a ${...} each is part of the word, zsh's ${(L)f} too, and a substitution in it runs: ${x:-`cmd`}.
                 out.append(LIVE[c] if c == "`" or c == "$" else HOLDS[c])
-                starts, comments, word = False, False, word + c
+                starts, comments = False, False
+                word += c
                 i += 1
                 continue
             if c == "$" and text.startswith("$'", i):
                 # $'...' with a backslash is refused (ansi_end, ruling R1); with none it is a single-quoted word.
                 end = ansi_end(text, i + 2)
                 out.append(_literal(text[i + 2:end - 1]))
-                starts, comments, word = False, False, word + "'"
+                starts, comments = False, False
+                word += "'"
                 i = end
                 continue
             if c == "$" and text.startswith('$"', i):
