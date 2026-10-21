@@ -2,15 +2,17 @@
 event, every review with who dismissed it and what it was before, when a person with write access last acted, and how
 many acts the Factory has made since (design section 3.3, decision 0003).
 
-An actor's kind comes from GitHub's account type and the configuration the caller gives, never from a name's spelling
-(decision 0005, L-57): `machine_user` is the User named as the approver and no other; `lens` is a Bot the caller names
-as a Lens's App, read as that Lens's name; any other Bot is `app`; any other User is `human`. Write access is a
-person's alone, read from the repository's collaborator permission, `admin`, `maintain` or `write`, never `triage`,
-once a login for the snapshot and never from an association (the Maintainer's ruling on #222). A User whose login ends
-`[bot]`, or a kind that contradicts the configuration, is refused: the read was wrong.
+An actor's kind comes from GitHub's account type and the configuration the caller gives, by account id, never from a
+name's spelling (decision 0005, L-57): `machine_user` is the User the caller names as the approver and no other;
+`lens` is a Bot the caller names as a Lens's App, read as that Lens's name; any other Bot is `app`; any other User is
+`human`. A User's write access is read from the repository's collaborator permission, `admin`, `maintain` or `write`,
+never `triage`, once a login for the snapshot and never from an association (the Maintainer's ruling on #222); the
+machine user's too, since its approval stands only while it can write. An App's is never asked. A User whose login
+ends `[bot]`, or is no login GitHub gives, is refused: the read was wrong.
 
-The timeline and the reviews are read page by page, and each says whether it was read whole. No text of GitHub's
-reaches a part: a review's body, a dismissal's message and a comment are never read into one.
+The timeline and the reviews are read page by page, following the `link` header's next page, and are whole only when
+the last page names no next one, never by a page's length (section 3.3). An item that is not an object is refused,
+never skipped. No text of GitHub's reaches a part: a review's body, a dismissal's message and a comment are never read.
 """
 from __future__ import annotations
 
@@ -28,6 +30,8 @@ STATES = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes_requested", "COM
           "DISMISSED": "dismissed"}
 BEFORE = {"approved", "changes_requested", "commented"}
 SHA = re.compile(r"^[0-9a-f]{40}$")
+LOGIN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
+NEXT = re.compile(r'<[^>]*>;\s*rel="next"')
 # The acts that move work on, which the act ceiling counts when a Factory identity made them (decision 0003).
 QUEUE = {"added_to_merge_queue", "removed_from_merge_queue"}
 LABELS = {"labeled", "unlabeled"}
@@ -46,49 +50,67 @@ def _time(value) -> str:
     return value
 
 
-class Accounts:
-    """Who an actor is, read once a login for one snapshot: its kind, its name and whether it can write."""
+def _object(item, what: str) -> dict:
+    if not isinstance(item, dict):
+        raise Unanswered("an item of %s is not one GitHub gives" % what)
+    return item
 
-    def __init__(self, transport, repo: str, approver: str, lenses: dict):
-        self.transport, self.repo, self.approver, self.lenses = transport, repo, approver, dict(lenses)
-        self.access = {}
+
+class Accounts:
+    """Who an actor is, read once a login for one snapshot: its kind, its name and whether it can write.
+
+    `approver` is the machine user, `(id, "User")`; `lenses` maps each Lens's App, `(id, "Bot")`, to the Lens's name;
+    `factory` is every App account of the Factory's, `(id, "Bot")`, whose acts the act ceiling counts."""
+
+    def __init__(self, transport, repo: str, approver: tuple, lenses: dict, factory=()):
+        self.transport, self.repo, self.approver = transport, repo, tuple(approver)
+        self.lenses, self.factory, self.access = dict(lenses), set(factory), {}
 
     def _can_write(self, login: str) -> bool:
         if login not in self.access:
             path = "/repos/%s/collaborators/%s/permission" % (self.repo, urllib.parse.quote(login, safe=""))
             answer = self.transport.send(request("GET", path))
-            if answer["status"] == 404:
-                level = "none"
-            elif answer["status"] == 200 and isinstance(answer["body"], dict):
-                level = answer["body"].get("permission")
-            else:
+            if answer["status"] != 200 or not isinstance(answer["body"], dict):
                 raise Unanswered("the permission of %s answered %d" % (login, answer["status"]))
+            level = answer["body"].get("permission")
             if level not in PERMISSIONS:
                 raise Unanswered("a permission GitHub does not give: %r" % (level,))
             self.access[login] = level in WRITE
         return self.access[login]
 
-    def actor(self, raw_actor) -> dict:
-        """`{kind, name, can_write}` for a GitHub user object; refused when it cannot be read or contradicts itself."""
+    @staticmethod
+    def account(raw_actor) -> tuple:
+        """`(login, id, type)` of a GitHub user object; refused when it cannot be read."""
         if not isinstance(raw_actor, dict):
             raise Unanswered("an actor cannot be read")
         login, ident, kind = raw_actor.get("login"), raw_actor.get("id"), raw_actor.get("type")
         if not isinstance(login, str) or not login or not isinstance(ident, int) or isinstance(ident, bool) \
                 or kind not in ("User", "Bot"):
             raise Unanswered("an actor cannot be read")
+        return login, ident, kind
+
+    def actor(self, raw_actor) -> dict:
+        """`{kind, name, can_write}` for a GitHub user object; refused when it cannot be read or contradicts itself."""
+        login, ident, kind = self.account(raw_actor)
         if kind == "Bot":
             if (ident, kind) in self.lenses:
                 return {"kind": "lens", "name": self.lenses[(ident, kind)], "can_write": False}
             return {"kind": "app", "name": login, "can_write": False}
-        if login.endswith("[bot]"):
-            raise Unanswered("a User whose login ends [bot]: GitHub gives no User a bracket, so the read was wrong")
-        if login == self.approver:
-            return {"kind": "machine_user", "name": login, "can_write": False}
+        if login.endswith("[bot]") or not LOGIN.match(login):
+            raise Unanswered("a User whose login is none GitHub gives: the read was wrong")
+        if (ident, kind) == self.approver:
+            return {"kind": "machine_user", "name": login, "can_write": self._can_write(login)}
         return {"kind": "human", "name": login, "can_write": self._can_write(login)}
+
+    def factory_made(self, raw_actor) -> bool:
+        """Whether an act was the Factory's: the machine user's, or one of the Factory's Apps'."""
+        _, ident, kind = self.account(raw_actor)
+        return (ident, kind) == self.approver or (ident, kind) in self.factory
 
 
 def _pages(transport, path: str) -> tuple:
-    """Every item of a list read page by page; whole only when a page came back short of a full one."""
+    """Every item of a list, page by page, each page the one the last named as next; whole only when the last page
+    names no next one."""
     items, page = [], 1
     while True:
         answer = transport.send(request("GET", path if page == 1 else "%s&page=%d" % (path, page)))
@@ -97,7 +119,7 @@ def _pages(transport, path: str) -> tuple:
         if not isinstance(answer["body"], list):
             return items, False
         items += answer["body"]
-        if len(answer["body"]) < PAGE:
+        if not NEXT.search(str((answer.get("headers") or {}).get("link", ""))):
             return items, True
         page += 1
 
@@ -112,7 +134,8 @@ def label_events(timeline: list, accounts: Accounts) -> list:
     """Every labeled and unlabeled event, with its label, who made it and when, as the timeline lists them."""
     found = []
     for event in timeline:
-        if not isinstance(event, dict) or event.get("event") not in LABELS:
+        event = _object(event, "the timeline")
+        if event.get("event") not in LABELS:
             continue
         name = (event.get("label") or {}).get("name") if isinstance(event.get("label"), dict) else None
         if not isinstance(name, str) or not name:
@@ -123,13 +146,29 @@ def label_events(timeline: list, accounts: Accounts) -> list:
 
 
 def _content(transport, repo: str, base_head: str, commit: str) -> str:
-    """The content id of a commit, as the pull request's own is: the sha256 of the diff against its merge base."""
+    """The content id of a commit, as the pull request's own is: the sha256 of the bytes of its diff against its merge
+    base. A diff GitHub will not serve, `too_large`, or one of a commit no longer there, is the commit's own id hashed,
+    as `adapters/pull.py` does for the head: never the same as a served diff's, so never read as unchanged."""
     if not SHA.match(str(commit)) or not SHA.match(str(base_head)):
         raise Unanswered("a review's commit or the base's head cannot be read")
     answer = transport.send(request("GET", "/repos/%s/compare/%s...%s" % (repo, base_head, commit), accept=DIFF))
+    if answer["status"] == 404 or (answer["status"] == 406 and isinstance(answer["body"], dict) and any(
+            isinstance(e, dict) and e.get("code") == "too_large" for e in answer["body"].get("errors") or ())):
+        return "sha256:" + hashlib.sha256(commit.encode()).hexdigest()
     if answer["status"] != 200 or not isinstance(answer["body"], str):
         raise Unanswered("the content of %s answered %d" % (commit, answer["status"]))
     return "sha256:" + hashlib.sha256(raw(answer["body"])).hexdigest()
+
+
+def _dismissals(timeline: list) -> dict:
+    """Each dismissed review's id, with who dismissed it and what it was before, from the timeline."""
+    found = {}
+    for event in timeline:
+        event = _object(event, "the timeline")
+        if event.get("event") == "review_dismissed":
+            what = event.get("dismissed_review") if isinstance(event.get("dismissed_review"), dict) else {}
+            found[what.get("review_id")] = (event.get("actor"), what.get("state"))
+    return found
 
 
 def reviews(transport, pull: dict, timeline: list, accounts: Accounts, base_head: str) -> tuple:
@@ -137,14 +176,11 @@ def reviews(transport, pull: dict, timeline: list, accounts: Accounts, base_head
     content id, and, from the timeline, who dismissed it and what it was before. Whether the list was read whole."""
     repo = pull["base"]["repo"]["full_name"]
     listed, whole = _pages(transport, "/repos/%s/pulls/%d/reviews?per_page=%d" % (repo, pull["number"], PAGE))
-    dismissals = {}
-    for event in timeline:
-        if isinstance(event, dict) and event.get("event") == "review_dismissed":
-            what = event.get("dismissed_review") if isinstance(event.get("dismissed_review"), dict) else {}
-            dismissals[what.get("review_id")] = (event.get("actor"), what.get("state"))
+    dismissals = _dismissals(timeline)
     contents, found = {}, []
     for review in listed:
-        if not isinstance(review, dict) or review.get("state") == "PENDING":
+        review = _object(review, "the reviews")
+        if review.get("state") == "PENDING":
             continue
         state = STATES.get(review.get("state"))
         if state is None:
@@ -166,27 +202,30 @@ def reviews(transport, pull: dict, timeline: list, accounts: Accounts, base_head
     return found, whole
 
 
-def _when(event: dict):
-    return event.get("created_at") or event.get("submitted_at")
-
-
 def since_writer(timeline: list, accounts: Accounts) -> dict:
     """When a person with write access last acted on the timeline, and how many acts the Factory made since: each
-    approval by the machine user, each label an App or the machine user added or removed, and each entry to or exit
-    from the merge queue none of them a person made (decision 0003)."""
+    approval by the machine user, a dismissed one among them, since a dismissal takes nothing back of the act; each
+    label and each entry to or exit from the merge queue the machine user or a Factory App made (decision 0003). An
+    act in the same second as a writer's action is counted, the reading that stops work. An action an App took with a
+    person's token is no action of that person's."""
+    dismissals = _dismissals(timeline)
     last, acts = None, []
     for event in timeline:
-        if not isinstance(event, dict) or event.get("event") not in ACTIONS:
+        event = _object(event, "the timeline")
+        kind = event.get("event")
+        if kind not in ACTIONS:
             continue
         who = event.get("actor") or event.get("user")
-        at = _time(_when(event))
+        at = _time(event.get("created_at") or event.get("submitted_at"))
         actor = accounts.actor(who)
-        if actor["kind"] == "human" and actor["can_write"]:
+        if actor["kind"] == "human" and actor["can_write"] and not event.get("performed_via_github_app"):
             last = at if last is None or at > last else last
             continue
-        approval = event.get("event") == "reviewed" and str(event.get("state")).lower() == "approved" \
-            and actor["kind"] == "machine_user"
-        moved = event.get("event") in LABELS | QUEUE and actor["kind"] != "human"
-        if approval or moved:
+        if not accounts.factory_made(who):
+            continue
+        state = str(event.get("state")).lower()
+        approval = kind == "reviewed" and actor["kind"] == "machine_user" and (
+            state == "approved" or (state == "dismissed" and (dismissals.get(event.get("id")) or (None, None))[1] == "approved"))
+        if approval or kind in LABELS | QUEUE:
             acts.append(at)
-    return {"last_writer_action_at": last, "acts_since_writer": sum(1 for at in acts if last is None or at > last)}
+    return {"last_writer_action_at": last, "acts_since_writer": sum(1 for at in acts if last is None or at >= last)}

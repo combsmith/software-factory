@@ -616,6 +616,7 @@ class Records(unittest.TestCase):
 
 
 APPROVER = "donpetry-bot"        # the machine user, as config/defaults.json names the approver
+MACHINE = (281750570, "User")     # its account, as trials/P-7.json records it
 
 
 class Router:
@@ -630,11 +631,14 @@ class Router:
         if "/collaborators/" in path:
             login = path.split("/collaborators/")[1].split("/")[0]
             self.asked.append(login)
-            if login not in self.permissions:
+            level = self.permissions.get(login, "none")
+            if level == "missing":
                 return {"status": 404, "headers": {}, "body": {"message": "Not Found"}}
-            return {"status": 200, "headers": {}, "body": {"permission": self.permissions[login]}}
+            return {"status": 200, "headers": {}, "body": {"permission": level}}
         if "/compare/" in path:
             commit = path.split("...")[1]
+            if commit not in self.compares:
+                return {"status": 404, "headers": {}, "body": {"message": "Not Found"}}
             return {"status": 200, "headers": {}, "body": self.compares[commit]}
         return self.replay.send(req)
 
@@ -659,17 +663,23 @@ def reviews_read(at: int) -> github.Replay:
 
 
 class Timeline(unittest.TestCase):
-    def accounts(self, transport, lenses=None):
-        return timeline.Accounts(transport, canary(), APPROVER, lenses or {})
+    def accounts(self, transport, lenses=None, factory=()):
+        return timeline.Accounts(transport, canary(), MACHINE, lenses or {}, factory)
 
     def test_an_actor_is_told_by_its_account_type_and_the_configuration(self):
         # Decision 0005, L-57: the approver is the machine user and no other; a Bot is a Lens only as the caller names
         # its App, read as the Lens's name; any other Bot is an App; any other User is a person, whose write access is
         # the collaborator permission's, admin, maintain or write and never triage, read once a login.
-        router = Router(github.Replay([]), {"don-petry": "admin", "writer": "write", "triager": "triage"})
+        router = Router(github.Replay([]), {"don-petry": "admin", "writer": "write", "triager": "triage",
+                                            APPROVER: "write"})
         accounts = self.accounts(router, {(7, "Bot"): "pr-review"})
-        self.assertEqual(accounts.actor({"login": APPROVER, "id": 1, "type": "User"}),
-                         {"kind": "machine_user", "name": APPROVER, "can_write": False})
+        # The machine user is its account, by id: its approval stands only while it can write, so that is read too.
+        self.assertEqual(accounts.actor({"login": APPROVER, "id": MACHINE[0], "type": "User"}),
+                         {"kind": "machine_user", "name": APPROVER, "can_write": True})
+        self.assertEqual(accounts.actor({"login": APPROVER, "id": 1, "type": "User"})["kind"], "human")
+        # The machine user without write access is read so: its approval then stands for nothing.
+        lost = Router(github.Replay([]), {APPROVER: "read"})
+        self.assertIs(self.accounts(lost).actor({"login": APPROVER, "id": MACHINE[0], "type": "User"})["can_write"], False)
         self.assertEqual(accounts.actor({"login": "combsmith-sf-pr-review[bot]", "id": 7, "type": "Bot"}),
                          {"kind": "lens", "name": "pr-review", "can_write": False})
         self.assertEqual(accounts.actor({"login": "coderabbitai[bot]", "id": 8, "type": "Bot"})["kind"], "app")
@@ -679,12 +689,15 @@ class Timeline(unittest.TestCase):
         accounts.actor({"login": "don-petry", "id": 9, "type": "User"})
         self.assertEqual(router.asked.count("don-petry"), 1)
         for broken in (None, {"login": "x[bot]", "id": 1, "type": "User"}, {"login": "x", "id": "1", "type": "User"},
-                       {"login": "x", "id": 1, "type": "Organization"}, {"login": "", "id": 1, "type": "User"}):
+                       {"login": "x", "id": 1, "type": "Organization"}, {"login": "", "id": 1, "type": "User"},
+                       {"login": "..", "id": 1, "type": "User"}, {"login": "a/b", "id": 1, "type": "User"}):
             with self.assertRaises(github.Unanswered, msg=broken):
                 accounts.actor(broken)
-        odd = Router(github.Replay([]), {"x": "owner"})
-        with self.assertRaises(github.Unanswered):
-            self.accounts(odd).actor({"login": "x", "id": 1, "type": "User"})
+        # A permission GitHub does not give, and a login the endpoint cannot find, are refused, never read as none.
+        for level in ("owner", "missing"):
+            odd = Router(github.Replay([]), {"x": level})
+            with self.assertRaises(github.Unanswered, msg=level):
+                self.accounts(odd).actor({"login": "x", "id": 1, "type": "User"})
 
     def test_reviews_are_read_with_their_commit_content_and_who_dismissed_them(self):
         # trials/P-7.json: the reviewer App's and the machine user's approvals were dismissed, by the Maintainer and by
@@ -694,7 +707,7 @@ class Timeline(unittest.TestCase):
         self.assertIs(whole, True)
         compares = {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "diff --git a/x b/x\n",
                     "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "diff --git a/y b/y\n"}
-        router = Router(reviews_read(22), {"don-petry": "admin"}, compares)
+        router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, compares)
         got, whole = timeline.reviews(router, p7_pull(), events, self.accounts(router), BASE_HEAD)
         self.assertIs(whole, True)
         content = {c: "sha256:" + hashlib.sha256(b.encode()).hexdigest() for c, b in compares.items()}
@@ -706,13 +719,28 @@ class Timeline(unittest.TestCase):
                          [("don-petry", "approved"), ("combsmith-sf-trial-author[bot]", "approved"), (None, None)])
         self.assertEqual(got[0]["dismissed_by"], {"kind": "human", "name": "don-petry", "can_write": True})
         # No text of GitHub's is in the facts: the dismissal's message stays on GitHub.
-        self.assertNotIn("dismissal", json.dumps(got).replace("dismissed", ""))
+        message = next(e["dismissed_review"]["dismissal_message"] for e in events if e.get("event") == "review_dismissed"
+                       and e["dismissed_review"].get("dismissal_message"))
+        self.assertNotIn(message, json.dumps(got))
+        self.assertNotIn(message[:20], json.dumps(got))
 
     def test_a_dismissed_review_the_timeline_does_not_explain_is_refused(self):
-        router = Router(reviews_read(22), {"don-petry": "admin"}, {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d",
+        router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d",
                                                                     "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"})
         with self.assertRaises(github.Unanswered):
             timeline.reviews(router, p7_pull(), [], self.accounts(router), BASE_HEAD)
+
+    def test_a_reviews_commit_too_large_to_diff_or_gone_is_its_own_id(self):
+        commit = "f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb"
+        own = "sha256:" + hashlib.sha256(commit.encode()).hexdigest()
+        self.assertEqual(timeline._content(Router(github.Replay([])), canary(), BASE_HEAD, commit), own)
+        too_large = copy.deepcopy(exchanges("P-29.truncated")[4])
+        too_large["request"]["call"] = "GET /repos/%s/compare/%s...%s" % (canary(), BASE_HEAD, commit)
+        self.assertEqual(timeline._content(github.Replay([too_large]), canary(), BASE_HEAD, commit), own)
+        other = copy.deepcopy(too_large)
+        other["response"]["body"]["errors"][0]["code"] = "not_acceptable"
+        with self.assertRaises(github.Unanswered):
+            timeline._content(github.Replay([other]), canary(), BASE_HEAD, commit)
 
     def test_a_reviews_content_is_the_compare_of_its_commit_against_the_bases_head(self):
         # trials/P-29.base.json: the first head compared against the moved main is the pull request's own content.
@@ -725,22 +753,31 @@ class Timeline(unittest.TestCase):
     def test_who_last_acted_with_write_access_and_the_factorys_acts_since(self):
         # trials/P-7.json's timeline: the Maintainer, a person with write access, dismissed the App's approval; the
         # machine user's approval after that is an act; a mention or a subscription is nobody's act.
+        # The machine user approved twice; the first approval was dismissed after it, and is still an act.
         events, _ = timeline.events(replay("P-7", 16), p7_pull())
-        router = Router(github.Replay([]), {"don-petry": "admin"})
+        router = Router(github.Replay([]), {"don-petry": "admin", APPROVER: "write"})
         got = timeline.since_writer(events, self.accounts(router))
         dismissed = next(e["created_at"] for e in events if e.get("event") == "review_dismissed"
                          and e["actor"]["login"] == "don-petry")
         self.assertEqual(got, {"last_writer_action_at": dismissed, "acts_since_writer": 1})
-        self.assertNotIn("codex", router.asked)
-        # Read with no person able to write, every act the Factory made counts: the one approval; a dismissal is none.
-        nobody = Router(github.Replay([]), {})
+        nobody = Router(github.Replay([]), {APPROVER: "write"})
         self.assertEqual(timeline.since_writer(events, self.accounts(nobody)),
-                         {"last_writer_action_at": None, "acts_since_writer": 1})
+                         {"last_writer_action_at": None, "acts_since_writer": 2})
+        # A mention or a subscription names whom an act touched: nobody's action, and nobody's access is asked for it.
+        mentions = [e for e in events if e.get("event") in ("mentioned", "subscribed")]
+        quiet = Router(github.Replay([]))
+        self.assertEqual(timeline.since_writer(mentions, self.accounts(quiet)),
+                         {"last_writer_action_at": None, "acts_since_writer": 0})
+        self.assertEqual(quiet.asked, [])
         # An act before the writer's last action is not counted; one after is.
         labeled = {"event": "labeled", "label": {"name": "factory:admit"},
                    "actor": {"login": "combsmith-sf-controller[bot]", "id": 5, "type": "Bot"}}
         before, after = dict(labeled, created_at="2026-10-19T17:00:00Z"), dict(labeled, created_at="2026-10-19T20:00:00Z")
-        self.assertEqual(timeline.since_writer([before] + events + [after], self.accounts(router))["acts_since_writer"], 2)
+        tie = dict(labeled, created_at=dismissed)
+        dequeued = {"event": "removed_from_merge_queue", "created_at": "2026-10-19T20:01:00Z",
+                    "actor": {"login": "combsmith-sf-controller[bot]", "id": 5, "type": "Bot"}}
+        factory = self.accounts(router, factory={(5, "Bot")})
+        self.assertEqual(timeline.since_writer([before] + events + [tie, after, dequeued], factory)["acts_since_writer"], 4)
 
     def test_label_events_are_read_with_who_made_them_and_when(self):
         # No fixture yet holds a label on a pull request's timeline (P-41, issue 250): an event in the timeline's shape.
@@ -762,24 +799,31 @@ class Timeline(unittest.TestCase):
                 timeline.label_events([event], self.accounts(router))
 
     def test_a_timeline_is_read_page_by_page_to_a_page_short_of_a_full_one(self):
+        # A page is followed only as the link header names a next one, never by its length (section 3.3).
         first = copy.deepcopy(exchanges("P-7")[16])
-        first["response"]["body"] = [{"event": "subscribed"}] * timeline.PAGE
+        first["response"]["body"] = [{"event": "subscribed"}] * 3
+        first["response"]["headers"]["link"] = '<https://api.github.com/x?page=2>; rel="next", <https://api.github.com/x?page=2>; rel="last"' 
         second = copy.deepcopy(exchanges("P-7")[16])
         words = second["request"]["call"].split()
         second["request"]["call"] = " ".join([words[0], words[1] + "&page=2"] + words[2:])
         second["response"]["body"] = [{"event": "mentioned"}]
         got, whole = timeline.events(github.Replay([first, second]), p7_pull())
-        self.assertEqual((len(got), whole), (timeline.PAGE + 1, True))
+        self.assertEqual((len(got), whole), (4, True))
+        # A full page with no next named is the last one.
+        full = copy.deepcopy(exchanges("P-7")[16])
+        full["response"]["body"] = [{"event": "subscribed"}] * timeline.PAGE
+        self.assertEqual(len(timeline.events(github.Replay([full]), p7_pull())[0]), timeline.PAGE)
 
     def test_a_review_github_would_not_give_is_refused_and_a_pending_one_is_not_read(self):
         compares = {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "d", "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "e"}
         events, _ = timeline.events(replay("P-7", 16), p7_pull())
+        perms = {"don-petry": "admin", APPROVER: "write"}
 
         def with_reviews(change, timeline_change=None):
             read = reviews_read(22)
             listed = read._left[0][1]["body"]
             change(listed)
-            router = Router(read, {"don-petry": "admin"}, compares)
+            router = Router(read, perms, compares)
             told = copy.deepcopy(events)
             if timeline_change:
                 timeline_change(told)
@@ -795,6 +839,8 @@ class Timeline(unittest.TestCase):
         with self.assertRaises(github.Unanswered):
             with_reviews(lambda listed: listed[-1].update(commit_id="short"))
         with self.assertRaises(github.Unanswered):
+            with_reviews(lambda listed: listed.append("not a review"))
+        with self.assertRaises(github.Unanswered):
             timeline._content(Router(github.Replay([]), compares=compares), canary(), "x", "f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb")
 
     def test_only_the_factorys_identities_make_acts(self):
@@ -805,15 +851,33 @@ class Timeline(unittest.TestCase):
                   {"event": "labeled", "label": {"name": "x"}, "created_at": at,
                    "actor": {"login": "stranger", "id": 3, "type": "User"}},
                   {"event": "added_to_merge_queue", "created_at": at,
-                   "actor": {"login": "combsmith-sf-controller[bot]", "id": 5, "type": "Bot"}}]
+                   "actor": {"login": "combsmith-sf-controller[bot]", "id": 5, "type": "Bot"}},
+                  {"event": "reviewed", "state": "approved", "submitted_at": at,
+                   "user": {"login": "combsmith-sf-controller[bot]", "id": 5, "type": "Bot"}}]
         router = Router(github.Replay([]), {})
-        self.assertEqual(timeline.since_writer(events, self.accounts(router)),
+        self.assertEqual(timeline.since_writer(events, self.accounts(router, factory={(5, "Bot")})),
                          {"last_writer_action_at": None, "acts_since_writer": 1})
+        # An App that is not the Factory's labelling or queueing is no act of the Factory's.
+        self.assertEqual(timeline.since_writer(events, self.accounts(router))["acts_since_writer"], 0)
+        # An action an App took with a person's token is not that person's.
+        via = {"event": "commented", "created_at": at, "performed_via_github_app": {"id": 1},
+               "actor": {"login": "don-petry", "id": 9, "type": "User"}}
+        writer = Router(github.Replay([]), {"don-petry": "admin"})
+        self.assertIsNone(timeline.since_writer([via], self.accounts(writer))["last_writer_action_at"])
 
     def test_a_timeline_or_a_list_of_reviews_that_is_not_a_list_is_not_whole(self):
         broken = copy.deepcopy(exchanges("P-7")[16])
         broken["response"]["body"] = {"message": "x"}
         self.assertEqual(timeline.events(github.Replay([broken]), p7_pull()), ([], False))
+        reviews = reviews_read(22)
+        reviews._left[0][1]["body"] = {"message": "x"}
+        router = Router(reviews)
+        self.assertEqual(timeline.reviews(router, p7_pull(), [], self.accounts(router), BASE_HEAD), ([], False))
+        # An item of the timeline that is not an object is refused, never skipped.
+        with self.assertRaises(github.Unanswered):
+            timeline.label_events(["labeled"], self.accounts(router))
+        with self.assertRaises(github.Unanswered):
+            timeline.since_writer([None], self.accounts(router))
 
 
 if __name__ == "__main__":
