@@ -239,7 +239,12 @@ STILL = {
     "capacity": dict(base(), context={"model_deferred_until": "2099-01-01T00:00:00Z"}),
     "capacity_unreadable": dict(base(), context={"active_runs": None}),
     "concurrency": dict(base(), context={"active_runs": CONFIG["limits"]["org_max_active_runs"]}),
-    "run_unidentified": dict(base(), context={"unidentified_runs": ["39086879694"]}),
+    "run_unidentified": dict(base(), context={"unidentified_runs": [{"run": "39086879694", "created_at": at(0),
+                                                                     "status": "in_progress"}]}),
+    # Past max_unnamed_runs completed Runs unnamed long past the window, every Run waits for a person (issue 270).
+    "runs_unnamed": dict(base(), context={"unidentified_runs": [
+        {"run": str(7 + i), "created_at": "2026-10-01T00:00:00Z", "status": "completed"}
+        for i in range(CONFIG["limits"]["max_unnamed_runs"] + 1)]}),
     "last_pusher_unreadable": base([reviewed()], last_pusher=None),
     # A count the facts schema refuses, which the Kernel still reads as unreadable.
     "acts_unreadable": base([reviewed()], acts_since_writer=None),

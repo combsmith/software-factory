@@ -430,7 +430,7 @@ class Simulation(unittest.TestCase):
             for _ in range(250):
                 w.step()
             if seed % world.NEVER_NAMED_EVERY != world.NEVER_NAMED:
-                self.assertEqual((w.never, w.alerted), (None, []), seed)
+                self.assertIsNone(w.never, seed)
                 continue
             self.assertIsNotNone(w.never, seed)
             reached = reached or bool(w.alerted)

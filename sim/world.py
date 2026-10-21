@@ -517,9 +517,10 @@ class World:
         if unnamed is not None and unnamed[0]["status"] != "completed":
             # GitHub: a_new_run_is_listed_unnamed
             runs = [r for r in runs if r["run"] != unnamed[0]["run"]]
-            # Its record was created seconds before this read, as the window P-17 measured is seconds long; the world
-            # lists it a pass later, but as the read GitHub would answer then.
-            unidentified, exact = [{"run": unnamed[1], "created_at": self.now()}], False
+            # GitHub lists a Run unnamed only in its first seconds (P-17), so the world lists it as created this second,
+            # though it admitted it a pass ago; and it has not completed, so it may be running on the item, and defers
+            # whatever its age, as a stale read of it later does (issue 270).
+            unidentified, exact = [{"run": unnamed[1], "created_at": self.now(), "status": unnamed[0]["status"]}], False
             self.unnamed_passes += 1
             self.note("run %s is listed unnamed, as %s" % (unnamed[0]["run"], unnamed[1]))
         if unnamed is not None and unnamed[2] is not None:
@@ -528,7 +529,7 @@ class World:
         if self.faults and self.seed % NEVER_NAMED_EVERY == NEVER_NAMED and self.minute >= NEVER_FROM:
             # GitHub: a_run_whose_name_never_resolves_stays_listed_unnamed
             if self.never is None:
-                self.never = {"run": NEVER_RUN, "created_at": self.now()}
+                self.never = {"run": NEVER_RUN, "created_at": self.now(), "status": "completed"}
                 self.note("run %s is listed unnamed, and never takes its name" % NEVER_RUN)
             unidentified = unidentified + [dict(self.never)]
         fault = self.rng.random() if self.faults else 1.0
@@ -602,12 +603,15 @@ class World:
         window = CONFIG["limits"]["max_unnamed_run_seconds"]
         stamp = lambda at: datetime.datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ")
         age = lambda u: (stamp(self.now()) - stamp(u["created_at"])).total_seconds()
-        within = [u for u in unidentified if age(u) < window]
+        within = [u for u in unidentified if age(u) < window or u["status"] != "completed"]
         self.check(not within or not (d["outcome"] == t.ADMIT or d.get("action") == "issue_approval"),
                    "I-46 %s %s while a Run is listed unnamed" % (d["outcome"], d["reason"]))
         past = sorted({u["run"] for u in unidentified if age(u) >= window})
         self.check(not (past and not within and d["reason"] == "run_unidentified"),
                    "a Run unnamed past the window stalls the Factory")
+        self.check(len(past) <= CONFIG["limits"]["max_unnamed_runs"]
+                   or not (d["outcome"] == t.ADMIT or d.get("action") == "issue_approval"),
+                   "a Run admitted past max_unnamed_runs Runs unnamed past the window")
         self.check(sorted(a["run"] for a in stuck_runs(ctx, CONFIG, self.now())) == past,
                    "the alerts are not the Runs unnamed past the window")
         if past:

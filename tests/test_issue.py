@@ -1341,7 +1341,7 @@ class Investigation(unittest.TestCase):
 
 # A run record of the Factory's own workflow, not completed, still listed under the workflow's name: GitHub's run id,
 # from trials/P-17.json. Which item it is on cannot be read (decision 0036).
-UNNAMED = {"run": "39086879694", "created_at": NOW}
+UNNAMED = {"run": "39086879694", "created_at": NOW, "status": "in_progress"}
 
 
 class UnidentifiedRuns(unittest.TestCase):
@@ -1353,7 +1353,7 @@ class UnidentifiedRuns(unittest.TestCase):
         # Past max_unnamed_run_seconds it is no Run waiting for its name, and defers the issue's Run no more (issue 270).
         old = (datetime.datetime.strptime(NOW, "%Y-%m-%dT%H:%M:%SZ")
                - datetime.timedelta(seconds=LIMITS["max_unnamed_run_seconds"])).strftime("%Y-%m-%dT%H:%M:%SZ")
-        d = decide(TRIAGED, ctx=context(unidentified_runs=[dict(UNNAMED, created_at=old)]))
+        d = decide(TRIAGED, ctx=context(unidentified_runs=[dict(UNNAMED, created_at=old, status="completed")]))
         self.assertEqual(what(d), ("admit", "triage", INVESTIGATE))
         self.assertEqual(what(decide(TRIAGED, ctx=context(unidentified_runs=[]))), ("admit", "triage", INVESTIGATE))
         # Nothing is defaulted: a list that is missing, or is not a list, defers as one with a Run would.

@@ -843,16 +843,25 @@ characters. Status, conclusion, start and end times and the attempt number come 
 workflow file, from the default branch, started by a schedule or a dispatch, in the Factory repo.
 The name is a label for people and is never what identifies a Run. Nor does it ever make a record
 count: it is what says which item a counted Run is on. Until GitHub lists the name (P-17: up to
-3.7 s after the dispatch), the Run is unidentified: the records port reports its GitHub id and
-when its record was created apart from the Runs it can name, and it defers every admission (I-46,
-decision 0036) while it is inside `max_unnamed_run_seconds` of its creation (60 s,
-`config/defaults.json`). One unnamed for that long is no Run waiting for its name: a dispatch
-whose run-name never resolves, by the Controller's App, a Factory bug or a broken name expression,
-would otherwise defer every admission for the 90 days GitHub keeps its record. It defers nothing,
-and is one alert of the whole scope instead, `run_unnamed` with its run id, which every pass writes
-to the view's `alerts` (`view-meta/1`, from `kernel.decide.stuck_runs`): one alert to a run, not
-one to a pass or an item, so a person sees it within one pass and sees it once. A person clears
-it, by deleting the run or by naming it; nothing in the Factory does (issue 270). Only a record
+3.7 s after the dispatch), the Run is unidentified: the records port reports its GitHub id, when
+its record was created and whether it is queued, in progress or completed, apart from the Runs it
+can name, and it defers every admission (I-46, decision 0036) while it is inside
+`max_unnamed_run_seconds` of its creation (60 s, `config/defaults.json`), or has not completed,
+since it may be running on an item now. One completed and unnamed for that long is no Run waiting
+for its name: a dispatch of the Controller's App whose run-name never resolves, a Factory bug or a
+broken name expression, would otherwise defer every admission for the 90 days GitHub keeps its
+record. It defers nothing, and every Run unnamed past the window is one alert of the whole scope,
+`run_unnamed` with its run id, which every pass writes to the view's `alerts` (`view-meta/1`, from
+`kernel.decide.stuck_runs`): one alert to a run, not one to a pass or an item, so a person sees it
+within one pass and sees it once. A Run on an item among them is missing from that item's attempts
+and Run ceiling, so past `max_unnamed_runs` of them (1) every Run and approval defers,
+`runs_unnamed`, as a deferral of the whole scope: a name the port cannot read admits at most that
+many Runs more before a person must act. A person clears an alert by deleting the run, since a
+run-name is fixed at the dispatch; it also leaves the view once the run falls from the newest runs
+the port reads. Nothing in the Factory clears one (issue 270). The window is measured from the
+pass's `now`, not from the list's own `date` and `age`: a read served stale, or a pass whose clock
+runs ahead of GitHub's, can read a completed Run as past it a little early, which the Run's
+re-checks at its start and in `apply` and its item's lane bound. Only a record
 started by a `workflow_dispatch` of a Role's workflow, with an item in its input, can be
 unidentified, and only while its name is not yet listed, whether or not it has completed: a
 completed record read as no one's would fall out of its item's attempts and Run ceiling. The name is
@@ -1684,7 +1693,7 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 | I-43 | After a linked pull request closes unmerged, at most `max_unmerged_closes` further linked pull requests are opened before a person with write access acts | FR-18 |
 | I-44 | An issue's State is given by exactly one row of its derivation, and no issue admits two Runs at once | FR-16 |
 | I-45 | Nothing that changes a protected path or a Lens's input is approved, enqueued, left in the merge queue or merged without every model Lens's review of that head, whatever its class | §4.2, §5.1 |
-| I-46 | No Run is admitted and no approval issued while a run record of a Role's workflow, dispatched for an item, completed or not, cannot be told whose it is, inside `max_unnamed_run_seconds` of its creation; past it, it is one alert of the whole scope and holds nothing; the poller's own runs, scheduled or dispatched with no item, never count as such | §3.10 |
+| I-46 | No Run is admitted and no approval issued while a run record of a Role's workflow, dispatched for an item, cannot be told whose it is, inside `max_unnamed_run_seconds` of its creation or until it has completed; past it, it is one alert of the whole scope, and past `max_unnamed_runs` such records every Run waits for a person; the poller's own runs, scheduled or dispatched with no item, never count as such | §3.10 |
 
 ### 4.5 The simulator
 
@@ -1707,9 +1716,9 @@ decision logic against a fake world, quickly, thousands of times.
   gives no verdict. A human acting mid-Run. An App dismissing a person's request for changes. An approval
   that does not land, and a merge queue that ejects; each also as a world where it happens every
   time, which must come to rest on its bound (I-8). A Run listed unnamed for a pass, and a run that
-  never takes its name: inside `max_unnamed_run_seconds` no Run is admitted on any item, and past it
-  the Factory admits as usual and the pass names the run as one alert, so it neither stalls past the
-  window nor admits inside it (issue 270). On the issue, each on seeds a constant chooses: an
+  never takes its name: inside `max_unnamed_run_seconds`, or while it has not completed, no Run is
+  admitted on any item, and past it the Factory admits as usual and the pass names the run as one
+  alert, so it neither stalls past the window nor admits inside it (issue 270). On the issue, each on seeds a constant chooses: an
   outsider's edit after admission, a stranger's pull request naming it, a reopening by someone without
   write access, a label removed while a Run is in flight, and run records that expire.
 - **Properties.** I-2 to I-17 are checked after every step, as are I-19 to I-38. On the issue, I-39 to I-44 are
@@ -2503,7 +2512,9 @@ board. It is also not where a chat session's output is made terser; that is a se
 
 `view/meta.json` is `view-meta/1` and `view/items.json` is `view-items/1`, each a document
 carrying the pass that wrote it, so the page can tell a matched pair from two files written by
-different passes. An item is a part, `view-item` (`schemas/view-item.schema.json`), with no
+different passes. `view-meta/1` also carries the pass's `alerts` of the whole scope, one to a cause
+however many items it touches: a Run unnamed past `max_unnamed_run_seconds`, by its run id
+(§3.10). An item is a part, `view-item` (`schemas/view-item.schema.json`), with no
 `schema` of its own. The page reads these files directly and is rebuilt only when its own code
 changes.
 

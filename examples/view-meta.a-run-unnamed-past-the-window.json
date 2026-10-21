@@ -6,7 +6,7 @@
   "reaches_back_to": "2026-07-13T13:00:00Z",
   "alerts": [
     {
-      "reason": "run_unnamed",
+      "alert": "run_unnamed",
       "run": "39086879694"
     }
   ]

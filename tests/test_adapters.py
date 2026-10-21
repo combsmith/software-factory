@@ -501,7 +501,8 @@ class Records(unittest.TestCase):
         self.assertEqual(exchanges("P-17")[9]["response"]["body"]["workflow_runs"][0]["name"], "p17-p22-run-records")
         created = exchanges("P-17")[10]["response"]["body"]["workflow_runs"][0]["created_at"]
         self.assertEqual((got["runs"], got["unidentified"], got["complete"], slept),
-                         ([], [{"run": "39086879694", "created_at": created}], True, [5]))
+                         ([], [{"run": "39086879694", "created_at": created,
+                                "status": "in_progress" if exchanges("P-17")[10]["response"]["body"]["workflow_runs"][0]["status"] == "in_progress" else "queued"}], True, [5]))
         # A record whose creation cannot be read is a row that cannot be read: the list is not whole (issue 270).
         got, _ = self.read(listing("P-17", 9, total=1), listing("P-17", 10, total=1, rows={"created_at": "soon"}),
                            per_page=1)
@@ -609,7 +610,9 @@ class Records(unittest.TestCase):
                 if listed["total_count"] > per:
                     continue
                 got, slept = self.read(asked(found), asked(found), per_page=per)
-                ids = [{"run": str(r["id"]), "created_at": r["created_at"]} for r in listed["workflow_runs"]]
+                ids = [{"run": str(r["id"]), "created_at": r["created_at"],
+                        "status": "queued" if r["status"] in records.NOT_STARTED else r["status"]}
+                       for r in listed["workflow_runs"]]
                 self.assertEqual((got["runs"], got["unidentified"], got["complete"]), ([], ids, True), (name, at))
 
     @pending

@@ -2704,7 +2704,7 @@ class Queue(unittest.TestCase):
 
 # A run record of the Factory's own workflow, not completed, still listed under the workflow's name: GitHub's run id,
 # from trials/P-17.json, and when its record was created, this second. Which item it is on cannot be read (decision 0036).
-UNNAMED = {"run": "39086879694", "created_at": NOW}
+UNNAMED = {"run": "39086879694", "created_at": NOW, "status": "in_progress"}
 
 
 def seconds_before(time: str, seconds: int) -> str:
@@ -2771,12 +2771,12 @@ class UnidentifiedRuns(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "attempts_exhausted", "hold"))
 
     def test_an_unidentified_run_past_the_window_admits_and_is_one_alert(self):  # issue 270, trials/P-17.json
-        # P-17 saw a Run's name listed within 3.7 s of its dispatch. A Run unnamed for max_unnamed_run_seconds is no
-        # Run waiting for its name: it stops deferring admissions, and is one alert, named by its run id, which the view
-        # shows until a person deletes the run or it is named. One second inside the window it still defers.
+        # P-17 saw a Run's name listed within 3.7 s of its dispatch. A completed Run unnamed for max_unnamed_run_seconds
+        # is no Run waiting for its name: it stops deferring admissions, and is one alert, named by its run id, which
+        # the view shows until a person deletes the run. One second inside the window it still defers.
         limit = LIMITS["max_unnamed_run_seconds"]
-        def unnamed(age: int, run: str = UNNAMED["run"]) -> dict:
-            return {"run": run, "created_at": seconds_before(NOW, age)}
+        def unnamed(age: int, run: str = UNNAMED["run"], status: str = "completed") -> dict:
+            return {"run": run, "created_at": seconds_before(NOW, age), "status": status}
         for age in (0, 1, limit - 1, -5):     # a record the clock reads as later than now waits too
             ctx = context(unidentified_runs=[unnamed(age)])
             d = go(facts(), ctx=ctx)
@@ -2788,38 +2788,81 @@ class UnidentifiedRuns(unittest.TestCase):
             self.assertEqual(go(facts(), ctx=ctx)["outcome"], "admit", age)
             d = go(facts(), REVIEWED, ctx=ctx)
             self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"), age)
-            self.assertEqual(stuck_runs(ctx, CONFIG, NOW), [{"reason": "run_unnamed", "run": UNNAMED["run"]}], age)
+            self.assertEqual(stuck_runs(ctx, CONFIG, NOW), [{"alert": "run_unnamed", "run": UNNAMED["run"]}], age)
+        # One not yet completed may be a Run running on an item now: it defers whatever its age, and past the window it
+        # is an alert all the same.
+        for status in ("queued", "in_progress"):
+            ctx = context(unidentified_runs=[unnamed(limit + 1, status=status)])
+            self.assertEqual(go(facts(), ctx=ctx)["reason"], "run_unidentified", status)
+            self.assertEqual(go(facts(), REVIEWED, ctx=ctx)["reason"], "run_unidentified", status)
+            self.assertEqual(stuck_runs(ctx, CONFIG, NOW), [{"alert": "run_unnamed", "run": UNNAMED["run"]}], status)
         # One alert to a run, however many passes or items read it; one inside the window beside it still defers.
-        ctx = context(unidentified_runs=[unnamed(limit, "7"), unnamed(limit + 9, "7"), unnamed(limit + 1, "8")])
-        self.assertEqual(stuck_runs(ctx, CONFIG, NOW), [{"reason": "run_unnamed", "run": "7"},
-                                                        {"reason": "run_unnamed", "run": "8"}])
+        ctx = context(unidentified_runs=[unnamed(limit, "7"), unnamed(limit + 9, "7")])
+        self.assertEqual(stuck_runs(ctx, CONFIG, NOW), [{"alert": "run_unnamed", "run": "7"}])
         self.assertEqual(go(facts(), ctx=ctx)["outcome"], "admit")
         ctx = context(unidentified_runs=[unnamed(limit, "7"), unnamed(limit - 1, "8")])
         self.assertEqual((go(facts(), ctx=ctx)["reason"], stuck_runs(ctx, CONFIG, NOW)),
-                         ("run_unidentified", [{"reason": "run_unnamed", "run": "7"}]))
+                         ("run_unidentified", [{"alert": "run_unnamed", "run": "7"}]))
+        # A window of one second: a Run created this second still waits, one a second old does not.
+        cfg = json.loads(json.dumps(CONFIG))
+        cfg["limits"]["max_unnamed_run_seconds"] = 1
+        self.assertEqual(go(facts(), ctx=context(unidentified_runs=[unnamed(0)]), cfg=cfg)["reason"], "run_unidentified")
+        self.assertEqual(go(facts(), ctx=context(unidentified_runs=[unnamed(1)]), cfg=cfg)["outcome"], "admit")
+
+    def test_past_max_unnamed_runs_every_run_defers(self):  # issue 270, decision 0036
+        # A Run on an item, unnamed past the window, is missing from that item's attempts and Run ceiling: a name the
+        # port cannot read, from a Factory bug or a broken name expression, would admit on the item without bound. So
+        # past max_unnamed_runs such Runs every Run and approval defers, runs_unnamed, until a person deletes them; an
+        # act that admits no Run goes ahead.
+        limit, most = LIMITS["max_unnamed_run_seconds"], LIMITS["max_unnamed_runs"]
+        def past(n: int) -> list:
+            return [{"run": str(7 + i), "created_at": seconds_before(NOW, limit + i), "status": "completed"}
+                    for i in range(n)]
+        self.assertEqual(go(facts(), ctx=context(unidentified_runs=past(most)))["outcome"], "admit")
+        for n in (most + 1, most + 5):
+            ctx = context(unidentified_runs=past(n))
+            d = go(facts(), ctx=ctx)
+            self.assertEqual((d["reason"], d["outcome"], d["attention"]), ("runs_unnamed", "defer", "review"), n)
+            self.assertEqual(go(facts(), REVIEWED, ctx=ctx)["reason"], "runs_unnamed", n)
+            self.assertEqual(len(stuck_runs(ctx, CONFIG, NOW)), n)
+            d = go(facts(reviews=APPROVED), REVIEWED, ctx=ctx)
+            self.assertEqual((d["outcome"], d.get("action")), ("act", "enqueue"), n)
+        # The same run listed twice is one.
+        twice = past(most) + past(most)
+        self.assertEqual(go(facts(), ctx=context(unidentified_runs=twice))["outcome"], "admit")
 
     def test_an_unidentified_run_that_cannot_be_read_defers_and_raises_no_alert(self):  # issue 270, I-13
-        # A run id, a creation time or the window that cannot be read is a list that cannot be read: every Run defers,
+        # A run id, a creation, a status or a limit that cannot be read is a list that cannot be read: every Run defers,
         # an approval too, and no alert names what cannot be read.
         limit = LIMITS["max_unnamed_run_seconds"]
         old = seconds_before(NOW, limit + 1)
-        for entry in ("39086879694", {"run": "39086879694"}, {"created_at": old}, {"run": 39086879694, "created_at": old},
-                      {"run": "run-7", "created_at": old}, {"run": "", "created_at": old},
-                      {"run": "7", "created_at": "yesterday"}, {"run": "7", "created_at": None}, None):
+        for entry in ("39086879694", {"run": "39086879694", "status": "completed"},
+                      {"created_at": old, "status": "completed"}, {"run": "7", "created_at": old},
+                      {"run": "7", "created_at": old, "status": "done"}, {"run": "7", "created_at": old, "status": None},
+                      {"run": 39086879694, "created_at": old, "status": "completed"},
+                      {"run": "run-7", "created_at": old, "status": "completed"},
+                      {"run": "", "created_at": old, "status": "completed"},
+                      {"run": "7", "created_at": "yesterday", "status": "completed"},
+                      {"run": "7", "created_at": None, "status": "completed"}, None):
             ctx = context(unidentified_runs=[entry])
             self.assertEqual(go(facts(), ctx=ctx)["reason"], "run_unidentified", entry)
             self.assertEqual(go(facts(), REVIEWED, ctx=ctx)["reason"], "run_unidentified", entry)
             self.assertEqual(stuck_runs(ctx, CONFIG, NOW), [], entry)
-        ctx = context(unidentified_runs=[{"run": "7", "created_at": old}])
-        for bad in (None, 0, -1, True, 60.0, "60"):
-            cfg = json.loads(json.dumps(CONFIG))
-            if bad is None:
-                del cfg["limits"]["max_unnamed_run_seconds"]
-            else:
-                cfg["limits"]["max_unnamed_run_seconds"] = bad
-            self.assertEqual(go(facts(), ctx=ctx, cfg=cfg)["reason"], "run_unidentified", bad)
-            self.assertEqual(stuck_runs(ctx, cfg, NOW), [], bad)
+        ctx = context(unidentified_runs=[{"run": "7", "created_at": old, "status": "completed"}])
+        for name in ("max_unnamed_run_seconds", "max_unnamed_runs"):
+            for bad in (None, 0, -1, True, 60.0, "60"):
+                cfg = json.loads(json.dumps(CONFIG))
+                if bad is None:
+                    del cfg["limits"][name]
+                else:
+                    cfg["limits"][name] = bad
+                self.assertEqual(go(facts(), ctx=ctx, cfg=cfg)["reason"], "run_unidentified", (name, bad))
+                self.assertEqual(stuck_runs(ctx, cfg, NOW), [], (name, bad))
         self.assertEqual(stuck_runs(ctx, CONFIG, "now"), [])
+        # A context or a configuration that is no object names nothing, and raises nothing.
+        for bad in (None, [], "context"):
+            self.assertEqual((stuck_runs(bad, CONFIG, NOW), stuck_runs(ctx, bad, NOW)), ([], []), bad)
+        self.assertEqual(stuck_runs(ctx, dict(CONFIG, limits=None), NOW), [])
         self.assertEqual(go(facts(), ctx=context(unidentified_runs=[]))["outcome"], "admit")
 
     def test_an_unidentified_run_stops_no_enqueue_and_no_dequeue(self):  # I-46, FR-23
@@ -3031,7 +3074,9 @@ class Staleness(unittest.TestCase):
                      ({"active_runs": None}, (), "capacity_unreadable", "review"),
                      ({"active_runs": LIMITS["org_max_active_runs"]}, (), "concurrency", "review"),
                      ({"unidentified_runs": [dict(UNNAMED, created_at=day_on)]}, (), "run_unidentified", "review"),
-                     ({"unidentified_runs": [dict(UNNAMED, created_at=day_on)]}, (), "run_unidentified", "ready")]
+                     ({"unidentified_runs": [dict(UNNAMED, created_at=day_on)]}, (), "run_unidentified", "ready"),
+                     ({"unidentified_runs": [{"run": str(7 + i), "created_at": NOW, "status": "completed"}
+                                             for i in range(LIMITS["max_unnamed_runs"] + 1)]}, (), "runs_unnamed", "review")]
         for over, _, reason, attention in deferrals:
             runs = REVIEWED if attention == "ready" else ()
             ctx = dict(waiting, **over)
