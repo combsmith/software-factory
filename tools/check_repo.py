@@ -28,6 +28,8 @@ STDLIB = STDLIB | {"marshal"}
 STDLIB = STDLIB | {"difflib"}
 # importlib: tests/test_tools.py reads the import system's own suffixes, so that a Lens's inputs keep up with Python's.
 STDLIB = STDLIB | {"importlib"}
+# http: adapters/github.py, the one transport, refuses an answer http.client cut short. NETWORK refuses it anywhere else.
+STDLIB = STDLIB | {"http"}
 # The network. Only the one transport reaches it, so a request to GitHub is made in one file a review can read whole;
 # everywhere else these are refused, the required check fetches nothing, and a test replays what a trial recorded.
 # A net, as the search for secrets is: a subprocess or importlib can still reach out, and review is the real guard.
