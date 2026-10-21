@@ -439,7 +439,9 @@ def fixture_problems(data: dict, root: pathlib.Path = ROOT) -> list:
     out = ["%s %s" % (where, what) for where, what in _askers(data)]
     if not out and data.get("repo") == "%s/%s" % (ORG, CANARY):
         out += ["%s %s" % (where, what) for where, what in _repos(data, _installed(root))]
-    return out + ["%s %s" % (where, what) for where, what in _credentials(data, "") + _headers(data)]
+    out += ["%s %s" % (where, what) for where, what in _credentials(data, "") + _headers(data)]
+    # A message names what the data holds, a repo or a kind among them, so none carries a credential (issue 247).
+    return [hidden(message) for message in out]
 
 
 def _of_org(request) -> bool:

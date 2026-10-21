@@ -2694,6 +2694,13 @@ class Trials(unittest.TestCase):
         self.assertTrue(check_trials.shaped(SHAPED["runner registration"] + "\n"), "a registration token before a newline")
         found = check_trials._headers({"exchanges": [{"request": {"headers": {split: "x"}}}]})
         self.assertEqual([p for p, _ in found], ["exchanges[0].request.headers." + check_trials.KEY_SHAPED])
+        # Nor does a message of the check about who asked, read before the schema in an example (issue 247).
+        example = json.loads(fixture())
+        example["repo"] = "Bearer Zx9Qw8Er7Ty6Ui5Op4As3Df5"
+        example["exchanges"][0]["request"]["as"] = {"kind": "subscription", "name": "the Maintainer's own subscription"}
+        said = "\n".join(check_trials.fixture_problems(example))
+        self.assertIn("hidden whole", said)                     # the message that named the repo, hidden whole
+        self.assertNotIn("Zx9Qw8", said)
         # Nor does a schema's error, or any message of the check, carry such a key.
         data = json.loads(fixture())
         data[SHAPED["ghs"]] = 1
@@ -3222,7 +3229,8 @@ case "$1" in
   --after) cp "$here/version.after" "$here/version" ;;
   auth) env > "$here/env-auth"; cat "$here/status"; exit "$(cat "$here/status.exit")" ;;
   -p) env > "$here/env-task"; printf '%s\\n' "$@" > "$here/args"; cat "$here/stderr" >&2; cat "$here/answer"
-      [ -f "$here/version.after" ] && cp "$here/version.after" "$here/version"; exit "$(cat "$here/answer.exit")" ;;
+      [ -f "$here/version.after" ] && cp "$here/version.after" "$here/version"
+      [ -f "$here/version.after.exit" ] && cp "$here/version.after.exit" "$here/version.exit"; exit "$(cat "$here/answer.exit")" ;;
 esac
 exit 9
 """
@@ -3254,7 +3262,8 @@ exit 9
         said.update(extra)
         return said
 
-    def stand_in(self, version=None, status=None, status_exit=0, answer=None, answer_exit=0, version_exit=0, after=None) -> pathlib.Path:
+    def stand_in(self, version=None, status=None, status_exit=0, answer=None, answer_exit=0, version_exit=0, after=None,
+                 after_exit=None) -> pathlib.Path:
         """A directory holding the stand-in `claude` and what it answers; it records the environment and arguments it is
         given beside itself."""
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
@@ -3263,6 +3272,8 @@ exit 9
         (folder / "stderr").write_text(self.PROSE["stderr"] + "\n")
         if after is not None:                     # the version the CLI says after the Task, if it changed
             (folder / "version.after").write_text("%s (Claude Code)\n" % after)
+        if after_exit is not None:                # how the CLI's --version exits after the Task
+            (folder / "version.after.exit").write_text("%d\n" % after_exit)
         (folder / "status").write_text(json.dumps({"loggedIn": True, "authMethod": "claude.ai"} if status is None else status))
         (folder / "status.exit").write_text("%d\n" % status_exit)
         (folder / "answer").write_text(json.dumps(self.answer(self.VALID) if answer is None else answer))
@@ -3386,6 +3397,16 @@ exit 9
         self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 0)
         self.assertEqual(json.loads((out / "clean-2").read_text()), {"loggedIn": True, "authMethod": "claude.ai"})
 
+    def test_a_reason_is_the_one_code_the_task_names(self):
+        # Issue 247: a reason in the structured output is fix_incomplete, the code the Task names, and no other word, so
+        # an output that validates cannot carry a word of the model's as a reason.
+        schema = json.loads(re.search(r"^SCHEMA=\$\(cat <<'EOF'\n(.*?)\nEOF$", self.SCRIPT.read_text(), re.M | re.S).group(1))
+        rejected = dict(self.VALID, dispositions=[{"finding": "f_22ab", "decision": {"result": "rejected", "reason": "fix_incomplete"}}])
+        self.assertEqual(validate(rejected, schema), [])
+        for word in ("this_is_model_text", "accepted", "fix_incomplete_"):
+            told = dict(self.VALID, dispositions=[{"finding": "f_22ab", "decision": {"result": "rejected", "reason": word}}])
+            self.assertNotEqual(validate(told, schema), [], word)
+
     def test_the_logins_exit_code_is_recorded(self):
         folder = self.stand_in()
         self.assertEqual(self.run_script(self.out, self.cfg, folder / "claude").returncode, 0)
@@ -3403,6 +3424,12 @@ exit 9
         self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 1)
         checked = json.loads((out / "checked.json").read_text())
         self.assertEqual((checked["version"]["after"], checked["version"]["held"], checked["every_part_holds"]), ("9.9.9", False, False))
+        # Nor does one whose --version, after the Task, says the pin and exits otherwise: its exit is read (issue 247).
+        folder = self.stand_in(after_exit=3)
+        out = self.home.parent / (self.home.name + "-after-exit")
+        self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 1)
+        version = json.loads((out / "checked.json").read_text())["version"]
+        self.assertEqual((version["after"], version["after_exit"], version["held"]), (self.PIN, 3, False))
 
     def test_no_model_text_reaches_out_whether_or_not_the_output_validates(self):
         invalid = dict(self.VALID, prose=self.PROSE["invalid"])
