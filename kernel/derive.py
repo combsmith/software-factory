@@ -5,7 +5,7 @@ State is never stored. This function is the only definition of it.
 from __future__ import annotations
 
 from kernel import terms as t
-from kernel.gate import closed, gates, is_person
+from kernel.gate import closed, gates, is_person, verdict_order
 
 
 def incomplete(facts: dict) -> list:
@@ -293,13 +293,21 @@ def lens_inputs_touched(facts: dict, config: dict) -> list:
 
 def judged_by_a_person(facts: dict) -> bool:
     """Whether a person has judged this head, so that no model Lens is the only judge of a change to its own inputs: a
-    person with write access, neither its author nor its last pusher, approved this content and the approval stands; or
-    the Maintainer wrote it, opening it and pushing its head, since GitHub counts no author's approval of their own
-    change (issue 140)."""
-    if facts["class"] == "maintainer" and facts["last_pusher"] == facts["author"]:
-        return True
-    return any(is_person(rv["by"]) and rv["state"] == "approved" and rv["content_id"] == facts["content_id"]
-               and rv["by"]["name"] not in (facts["author"], facts["last_pusher"]) for rv in facts["reviews"])
+    person with write access, neither its author nor its last pusher, approved this content in a review that stands
+    (issue 140). That person's latest verdict counts, as for a request for changes (gate): an approval a later request
+    supersedes is none, whoever dismissed the request. Only a person's dismissal ends an approval: an App's, a Lens's
+    among them, ends nothing a person did (L-17). An author's own change is no judgment of a head, whoever pushed it: a
+    session may push as the Maintainer (L-44)."""
+    latest = {}
+    for rv in sorted(facts["reviews"], key=verdict_order):
+        if is_person(rv["by"]) and rv["state"] != "commented" and rv["dismissed_from"] != "commented":
+            latest[rv["by"]["name"]] = rv
+    for rv in latest.values():
+        another = rv["by"]["name"] != facts["author"] and rv["by"]["name"] != facts["last_pusher"]
+        standing = rv["state"] == "approved" or (rv["dismissed_from"] == "approved" and not is_person(rv["dismissed_by"]))
+        if another and standing and rv["content_id"] == facts["content_id"]:
+            return True
+    return False
 
 
 def required_model_lenses(facts: dict, config: dict) -> list:
