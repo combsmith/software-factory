@@ -3126,6 +3126,34 @@ class Trials(unittest.TestCase):
                          ("don-petry", "don-petry", "REOPENED"))
         self.assertEqual([n["editor"]["login"] for n in issue["userContentEdits"]["nodes"]], ["don-petry", "don-petry"])
 
+    def test_an_edit_after_the_merge_changes_the_closing_references(self):
+        # trials/P-46.json (issue 256): its fail is read from the reads themselves, so a fixture edited to pass, or to
+        # say what it did not see, fails here. The rule it contradicts stays unverified (issue 267).
+        by_code = {rule[0]: rule for rule in check_trials.rules()}
+        rule = by_code["a_merged_pull_requests_closing_references_are_fixed"]
+        self.assertEqual((rule[2], rule[3]), (("P-46",), None))
+        p46 = json.loads((ROOT / "trials" / "P-46.json").read_text())
+        self.assertEqual(p46["verdict"], "fail")
+        reads = [e["response"]["body"]["data"]["repository"] for e in p46["exchanges"] if e["request"]["via"] == "graphql"]
+        refs = [sorted(n["number"] for n in r["pullRequest"]["closingIssuesReferences"]["nodes"]) for r in reads]
+        n = reads[0]["issue"]["number"]
+        self.assertEqual(refs, [[36], [36, n], [36, n], [36]], "before, after the edit twice, and after it was undone")
+        self.assertEqual({r["pullRequest"]["state"] for r in reads}, {"MERGED"})
+        merged_at = reads[0]["pullRequest"]["mergedAt"]
+        # The edit came after the merge, the issue it named stayed open, and its one event is a cross-reference timed
+        # after the merge that says it will not close the issue.
+        self.assertGreater(reads[1]["pullRequest"]["lastEditedAt"], merged_at)
+        self.assertEqual([r["issue"]["state"] for r in reads], ["OPEN"] * 4)
+        events = reads[-1]["issue"]["timelineItems"]["nodes"]
+        self.assertEqual([(e["__typename"], e["willCloseTarget"], e["source"]["number"]) for e in events],
+                         [("CrossReferencedEvent", False, 38)])
+        self.assertGreater(events[0]["createdAt"], merged_at)
+        edits = [e["request"]["body"]["body"] for e in p46["exchanges"] if e["request"]["call"].startswith("PATCH /repos/") and "/pulls/" in e["request"]["call"]]
+        self.assertEqual(edits[0].replace("Closes #%d\n" % n, "", 1), edits[1], "the edit added one line and was undone")
+        analysis = p46["exchanges"][-1]["response"]["body"]
+        self.assertEqual(list(analysis["closing_references"].values()), refs)
+        self.assertTrue(analysis["n_added_by_the_edit"] and analysis["n_removed_when_undone"])
+
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
         problems = check_trials.run(clone({"sim/world.py": world + "\n# GitHub: a_rule_nobody_listed\n"}))

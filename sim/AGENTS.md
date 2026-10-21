@@ -36,5 +36,5 @@ On every seed a review's Result now and then leaves a criterion of its rubric un
 (`tests/test_simulator.py::test_the_seeds_serve_a_review_that_left_a_criterion_uncovered`). On one seed in eight a new Run is listed unnamed for a pass, which neither admits nor approves (`tests/test_simulator.py::test_the_seeds_list_a_new_run_unnamed`).
 A rule about anything else is not exercised here, so its boundary cases are all that hold it. An invariant is a call to `check()` with its name. When a seed finds a fault, the fix goes in the Kernel with a boundary case in `tests/test_decide.py`.
 
-Known to differ, each unverified until its trial runs: the lane keeps one Run running and any number queued (`a_run_waits_its_turn`; GitHub keeps one pending and cancels the older, P-44); a push leaves an
-earlier approval in place (`an_approval_survives_a_push`; P-7 saw it dismissed, `trials/P-7.json`); and the queue merges without checking the merge group (`the_merge_group_is_not_checked`; this repo's queue checks it, P-2).
+Known to differ, unverified until a trial runs: the lane keeps one Run running and any number queued (`a_run_waits_its_turn`; GitHub keeps one pending and cancels the older, P-44); a push leaves an earlier approval in place (`an_approval_survives_a_push`;
+P-7 saw it dismissed); the queue merges without checking the merge group (`the_merge_group_is_not_checked`; this repo's does, P-2); a merged pull request's references are fixed (`a_merged_pull_requests_closing_references_are_fixed`; P-46 edited them).
