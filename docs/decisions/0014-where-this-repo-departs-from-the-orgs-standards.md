@@ -51,3 +51,4 @@ That issue has not been filed.
 | The org's secret scan runs as written, exempt from one rule by name and held word for word | `tests/test_tools.py::test_an_exempt_workflow_is_held_word_for_word` |
 | Nothing is installed, which is what rules out the org's linters and test runner | `tests/test_tools.py::test_third_party_code_is_caught` |
 | The code owners file is the org's, word for word | `tests/test_tools.py::test_code_owners_are_the_orgs_word_for_word` |
+| CodeQL's default setup runs as the org asks, and its check fails on a security alert of any severity, stricter than the org's threshold, so it needs no exception | `examples/invalid/rulesets.a-security-alert-below-high-passes.json`, `examples/invalid/rulesets.no-code-scanning.json` |

@@ -22,4 +22,4 @@ trusted with a real one. A repo that reads nothing from another can be verified 
 | Nothing here is installed: no dependency manifest, and every import is the standard library or this repo | `tools/check_repo.py` |
 | No code or data file names the proof-of-concept repo; nothing is fetched from it | `tools/check_repo.py` |
 | A `run:` block in a workflow is at most ten lines and holds no decision | `tools/check_workflows.py` |
-| The repo's settings are what the design rests on: the check is required, secrets are scoped to an environment, the default token only reads | waiting on `adapters/` |
+| The repo's settings are what the design rests on: the check is required, secrets are scoped to an environment, the default token only reads | waiting on `adapters/settings.py` |

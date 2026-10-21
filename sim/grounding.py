@@ -92,31 +92,47 @@ RULES = (
     ("an_actor_has_a_kind", "Every actor GitHub names on a review, a dismissal, a thread or a label event has an "
      "account type, a User or a Bot, from which, with the configuration, the port tells a person, a Lens's App, any "
      "other App and the machine user apart, never from a name's spelling", ("P-41",), None, None),
-    ("a_run_waits_its_turn", "One Run on an item is in progress, and any number wait queued behind it",
-     ("P-44",), None, None),
+    # trials/P-44.json: four pushes under one concurrency group, cancel-in-progress false; the second and third runs
+    # were cancelled as a newer one queued, with no runner and no step, and the running one finished. GitHub lists a
+    # Run waiting for the group as pending, which the records port reads as queued. That the group's first Run holds it
+    # while it waits for a runner, so that only a Run behind it is cancelled, is GitHub's documented rule, which P-44
+    # did not need to show: its first run was in progress at once.
+    ("a_run_waits_its_turn", "One Run on an item is in progress and at most one waits: a newer Run in the item's "
+     "concurrency group cancels the one waiting, which never starts, and never the one running",
+     ("P-44",), "trials/P-44.json", None),
     ("a_queued_run_is_listed", "A Run is in the list of run records from when it is queued, before its job starts",
      ("P-17",), "trials/P-17.json", None),
     ("a_new_run_is_listed_unnamed", "A Run can be listed under its workflow's name, not its run-name, for its first "
      "seconds", ("P-17",), "trials/P-17.json", None),
     ("a_new_run_is_listed_late", "The newest Run can be missing from the list of run records for one pass",
      ("P-22",), "trials/P-22.json", None),
+    # trials/P-43.json: with a filter, as the records port reads one, this repo's run list stops at 1,000 of the 1,879 it
+    # counts; page 1,001 is empty and counts 0, so only the first page's count says the oldest are missing. Unfiltered,
+    # the list read whole, all 1,873 runs.
     ("a_run_list_stops_short", "The list of run records can stop short, with the oldest Runs missing",
-     ("P-43",), None, None),
+     ("P-43",), "trials/P-43.json", None),
     ("a_killed_job_times_out", "A job killed part way concludes timed_out", ("P-18",), None, None),
-    ("a_superseded_run_fails", "A Run whose apply refuses, or that never starts, concludes failure",
+    ("a_superseded_run_fails", "A Run whose apply refuses, or that the Kernel refuses as it starts, concludes failure",
      ("P-17",), None, None),
     ("a_short_diff_says_so", "A diff read short says so, and is not mistaken for the whole",
      ("P-29",), "trials/P-29.truncated.json", None),
+    # trials/P-43.json: reviews, threads, labels, timeline events, files and a head's checks, each read one to a page,
+    # said so, by hasNextPage with an endCursor in GraphQL and a Link with rel=next, or a total_count, in REST.
     ("a_short_list_says_so", "A list of reviews, threads, checks or timeline events read short says so",
-     ("P-43",), None, None),
+     ("P-43",), "trials/P-43.json", None),
+    # trials/P-43.json: a rename, a copy and an edit are listed once each, by path; REST's previous_filename names the
+    # renamed file's old path, GraphQL's files give none, so the port reads them by REST; an unchanged copy was listed as
+    # added, with no source.
     ("a_pull_request_lists_the_paths_it_changes", "Every file a pull request changes is read once, as many as the diff "
-     "counts, by its path from the top of the repo, with the path a renamed or copied file had before",
-     ("P-43",), None, None),
+     "counts, by its path from the top of the repo, with the path a renamed file had before; an unchanged copy is "
+     "listed as an added file", ("P-43",), "trials/P-43.json", None),
     ("a_path_list_can_leave_out_a_file", "A list of the files a pull request changes can leave one out while it says it "
      "was read in full; it then holds fewer records than the diff has files: GitHub's list stops at its cap with a 200 "
      "and an empty next page, and only changed_files shows it short", ("P-29",), "trials/P-29.truncated.json", None),
+    # trials/P-43.json grounds the half read short, page by page; the half cut off at its limit says so only by the
+    # pull request's count of files, as trials/P-29.truncated.json shows (a_path_list_can_leave_out_a_file).
     ("a_short_path_list_says_so", "The list of paths a pull request changes, read short or cut off at its limit, says "
-     "so", ("P-43",), None, None),
+     "so", ("P-43",), "trials/P-43.json", None),
     ("a_dependency_bot_updates_a_workflow_pin", "A dependency bot's update can change the pin of an Action in a "
      "workflow file, a Lens's own among them; the bot opens it and pushes its head, and its class is dependency",
      ("P-45",), None, None),
@@ -154,7 +170,7 @@ RULES = (
      "use the canary token); GitHub documents that anyone may review a public repo"),
     # The issue world's rules (sim/issues.py, issue 43). trials/P-32.json showed the listing's authorAssociation tells
     # an App nothing of write access (CONTRIBUTOR for the org's owner), so write access is read from the repository's
-    # collaborator permission instead (issue 222, decision 0043).
+    # collaborator permission instead (issue 222, decision 0045).
     ("a_logins_permission_is_read_from_the_collaborator_endpoint", "A person's write access is read from the "
      "repository's collaborator permission: admin, maintain and write are write access, and triage, read and none are "
      "not", ("P-47",), None, None),
@@ -167,6 +183,14 @@ RULES = (
      "one to another base carries no reference", ("P-33",), "trials/P-33.json", None),
     ("who_changed_the_draft_flag_is_read", "The timeline says who last marked a pull request ready or converted it to a "
      "draft", ("P-33",), "trials/P-33.json", None),
+    # trials/P-46.json: an edit to a merged pull request's description after the merge adds the issue its new keyword
+    # names to closingIssuesReferences, and closes nothing: the issue stays open and its timeline gains no close; undoing
+    # the edit takes it out again. trials/P-33.json: the merge's own close of the issue names the pull request as the
+    # closer. The Kernel reads a merge by that close, never by the references now (issue 267).
+    ("a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing", "A merge closes the open issue its "
+     "closing references name, and the issue's timeline names the pull request the closer; an edit to its description "
+     "after the merge can add an issue to its references, and closes nothing", ("P-33", "P-46"), "trials/P-46.json",
+     None),
     # trials/P-34.json: lastEditedAt moves for the body alone; the title's change is the timeline's RenamedTitleEvent,
     # so the content's time is the newer of the two, which the port computes; updatedAt moves for anything.
     ("an_issues_content_time_is_read_apart", "When an issue's title or body last changed is read apart from when "
@@ -179,4 +203,10 @@ RULES = (
      ("P-16",), None, None),
     ("a_draft_is_not_merged", "A draft pull request cannot be merged, by a person or by the queue",
      ("P-2",), None, None),
+    ("a_forks_run_never_counts", "A pull request from a fork runs its own workflow file, on pull_request, never on a "
+     "schedule or a dispatch, and I-34 counts none of it", ("P-27",), "trials/P-27.json", None),
+    ("a_pass_starts_its_successor", "A pass can dispatch the next with its own job's token", ("P-9",), "trials/P-9.json",
+     None),
+    ("a_public_event_starts_a_pass", "An event anyone may cause starts the poller's workflow, within a minute or two",
+     ("P-20",), "trials/P-20.json", None),
 )

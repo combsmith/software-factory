@@ -134,7 +134,7 @@ read_one() {   # NARROWED PATH
         echo "trial_reader_reads: GET /$2 with a token narrowed to $1: curl failed; nothing of it is kept" >&2
         exit 1
     fi
-    (cd "$root" && python3 -m tools.redact_trial "$scratch/raw-$n" "$out/clean-$n") > "$out/redacted-$n"
+    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
     rm -f "$scratch/raw-$n"
     asked="$asked{\"n\": $n, \"as\": \"${slug}[bot]\", \"narrowed_to\": \"$1: read\", \"call\": \"GET /$2\","
     asked="$asked \"status\": $status},"
@@ -165,7 +165,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
         minted=""
         echo "trial_reader_reads: $slug: no token narrowed to $1 was minted (status ${minted_status:-none});" \
             "GitHub answered, redacted:" >&2
-        if (cd "$root" && python3 -m tools.redact_trial "$scratch/mint" "$scratch/mint.clean") >/dev/null 2>&1; then
+        if (cd "$root" && python3 -m tools.redact_trial < "$scratch/mint" > "$scratch/mint.clean") 2>/dev/null; then
             cat "$scratch/mint.clean" >&2
         else
             echo "(an answer the redaction could not read, so it is not shown)" >&2

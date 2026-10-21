@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "controller/1: what the Controller's pass is told beside the Kernel's configuration: the accounts that tell what started a pass, by type and id and never by a name's spelling, each null until a trial records it (decision 0043); how long a pass waits after the last pass's read began, and how long with no pass is the not-run alert's second reading; how long a capacity fault defers model Runs; how many environment faults, on how many items, in what window, pause Admission automatically (L-59); and decision 0011's thresholds and their window.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "accounts",
+    "read_gap_seconds",
+    "not_run_seconds",
+    "capacity_window_seconds",
+    "automatic_pause",
+    "thresholds"
+  ],
+  "properties": {
+    "schema": {
+      "const": "controller/1"
+    },
+    "accounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workflow_token",
+        "relay"
+      ],
+      "properties": {
+        "workflow_token": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "type": {
+              "enum": [
+                "Bot",
+                "User"
+              ]
+            }
+          }
+        },
+        "relay": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "type": {
+              "enum": [
+                "Bot",
+                "User"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "read_gap_seconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "not_run_seconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "capacity_window_seconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "automatic_pause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "faults",
+        "items",
+        "window_seconds"
+      ],
+      "properties": {
+        "faults": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "items": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "window_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "window_seconds",
+        "job_minutes_share",
+        "graphql_points_per_hour",
+        "decision_delay_p95_minutes"
+      ],
+      "properties": {
+        "window_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "job_minutes_share": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "graphql_points_per_hour": {
+          "type": "number",
+          "minimum": 0
+        },
+        "decision_delay_p95_minutes": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

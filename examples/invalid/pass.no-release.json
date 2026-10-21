@@ -2,6 +2,7 @@
   "schema": "pass/1",
   "pass": "p_01JA7P",
   "now": "2026-10-11T13:00:00Z",
+  "started_by": "schedule",
   "context": {
     "paused": false,
     "active_runs": 0,
@@ -293,7 +294,8 @@
             "merged_at": null,
             "closed_at": null,
             "empty": false,
-            "label_events": []
+            "label_events": [],
+            "closed_issue_at": null
           },
           {
             "number": 140,
@@ -320,7 +322,8 @@
                 },
                 "at": "2026-10-11T09:45:00Z"
               }
-            ]
+            ],
+            "closed_issue_at": null
           }
         ],
         "role_comments": [

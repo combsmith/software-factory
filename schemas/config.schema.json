@@ -179,7 +179,8 @@
         "org_max_active_runs",
         "max_diff_lines",
         "max_acts_per_item",
-        "max_path_length"
+        "max_path_length",
+        "max_close_lag_seconds"
       ],
       "properties": {
         "max_attempts": {
@@ -214,11 +215,16 @@
           "description": "The longest path of a workflow file a Decision's evidence shows. A longer one, or one not in the form a Lens's workflow takes, is shown as unreadable",
           "type": "integer",
           "minimum": 1
+        },
+        "max_close_lag_seconds": {
+          "description": "How long after a linked pull request's merge GitHub may take to close the issue, in seconds: an open issue read within it waits for the close; read after it, a merge that closed nothing is no merge of the issue (P-33 saw the close a second after the merge and its event two; issue 267)",
+          "type": "integer",
+          "minimum": 1
         }
       }
     },
     "issues": {
-      "description": "Which issues the Factory serves, and whose labels count on them (design \u00a74.1, the issue Lifecycle). Each null fails closed: with no date no issue is served, and with no App declared for a label only a person's counts. The Maintainer turns issues on",
+      "description": "Which issues the Factory serves, and whose labels count on them (design §4.1, the issue Lifecycle). Each null fails closed: with no date no issue is served, and with no App declared for a label only a person's counts. The Maintainer turns issues on",
       "type": "object",
       "additionalProperties": false,
       "required": [

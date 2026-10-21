@@ -1,4 +1,4 @@
-# 0043. A person's write access is read from the collaborator permission, never from an association
+# 0045. A person's write access is read from the collaborator permission, never from an association
 
 Status: accepted. Taken as the working rulings on 2026-10-20, with the Maintainer's answer of 2026-10-21 that triage is
 not write access, for this issue:
@@ -43,4 +43,4 @@ W-4 allows, 820.
 | The Apps data names the permission read, `read:facts.actor.can_write`, under the reader's `metadata: read`; a fact need names a field of facts/1, or a property of one of its definitions | `tools/check_apps.py`, `tests/test_tools.py::test_a_read_of_a_fact_that_does_not_exist_is_caught` |
 | The reader's grants are what P-39 recorded: re-read on 2026-10-21 through the Maintainer's login, each App's permissions and events and the org's installations equal `trials/P-39.grants.json`, so no new fixture | `tools/check_apps.py` |
 | The trial's script mints only tokens narrowed to one grant on the canary alone, revokes each, refuses before minting anything it cannot hold, and leaves no token in what it hands over | `tests/test_tools.py::test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept`, `tests/test_tools.py::test_each_refusal_comes_before_anything_is_minted`, `tests/test_tools.py::test_a_refused_mint_or_revocation_stops_the_run_and_says_so` |
-| The port reads the permission once per distinct login per pass, never from an association, and never of an App | waiting on `adapters/` |
+| The port reads the permission once per distinct login per pass, never from an association, and never of an App | `tests/test_adapters.py::test_an_actor_is_told_by_its_account_type_and_the_configuration` |

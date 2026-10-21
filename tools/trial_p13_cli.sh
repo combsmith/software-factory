@@ -104,7 +104,7 @@ EOF
 # Every string is a code or an id, so a valid answer holds no prose. Written in the subset tools/jsonschema_lite.py
 # enforces, and with no $ref, so that the CLI and this repo read it alike.
 SCHEMA=$(cat <<'EOF'
-{"type": "object", "additionalProperties": false, "required": ["schema", "run", "status", "dispositions"], "properties": {"schema": {"const": "result/1"}, "run": {"type": "string", "pattern": "^r_[a-z0-9]+$"}, "status": {"enum": ["completed", "incomplete", "failed", "refused", "superseded"]}, "dispositions": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["finding", "decision"], "properties": {"finding": {"type": "string", "pattern": "^f_[0-9a-f]{4}$"}, "decision": {"type": "object", "additionalProperties": false, "required": ["result"], "properties": {"result": {"enum": ["accepted", "rejected"]}, "reason": {"type": "string", "pattern": "^[a-z_]+$"}}}}}}}}
+{"type": "object", "additionalProperties": false, "required": ["schema", "run", "status", "dispositions"], "properties": {"schema": {"const": "result/1"}, "run": {"type": "string", "pattern": "^r_[a-z0-9]+$"}, "status": {"enum": ["completed", "incomplete", "failed", "refused", "superseded"]}, "dispositions": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["finding", "decision"], "properties": {"finding": {"type": "string", "pattern": "^f_[0-9a-f]{4}$"}, "decision": {"type": "object", "additionalProperties": false, "required": ["result"], "properties": {"result": {"enum": ["accepted", "rejected"]}, "reason": {"enum": ["fix_incomplete"]}}}}}}}}
 EOF
 )
 OPTIONS="--output-format json --no-session-persistence --strict-mcp-config --disable-slash-commands --permission-prompts none"
@@ -130,7 +130,7 @@ run_cli() {
 
 # A capture in the scratch directory, redacted into OUT; only the redaction's report is kept beside it.
 redact() {   # RAW N
-    (cd "$root" && python3 -m tools.redact_trial "$1" "$out/clean-$2") > "$out/redacted-$2"
+    (cd "$root" && python3 -m tools.redact_trial < "$1" > "$out/clean-$2") 2> "$out/redacted-$2"
     rm -f "$1"
 }
 
@@ -179,7 +179,9 @@ fi
 code3=0
 # shellcheck disable=SC2086  # OPTIONS is split into its words on purpose
 run_cli -p "$TASK" --json-schema "$SCHEMA" $OPTIONS --tools "$TOOLS" > "$scratch/raw-3" 2> "$scratch/raw-3.err" || code3=$?
-after=$(run_cli --version 2>/dev/null | sed -n 1p | cut -d' ' -f1 || true)
+code_after=0
+said_after=$(run_cli --version 2>/dev/null) || code_after=$?    # its exit is read, as the first --version's is
+after=$(printf '%s\n' "$said_after" | sed -n 1p | cut -d' ' -f1)
 
 # The answer, kept by allowlist: only the fields KEPT_RESULT names, the model's text and every other field dropped
 # and counted; its structured output validated, and kept only if it validates.
@@ -258,7 +260,8 @@ err = open(sys.argv[14]).read()
 parts = {
     "exit": code,
     "stderr": {"lines": err.count("\n"), "characters": len(err)},
-    "version": {"pinned": pin, "before": version, "after": after, "held": version == pin == after},
+    "version": {"pinned": pin, "before": version, "after": after, "after_exit": int(sys.argv[15]),
+                "held": version == pin == after and int(sys.argv[15]) == 0},
     "logged_in": logged_in,
     "login": {"exit": int(sys.argv[12]), "status": logged_in},
     "is_error": said.get("is_error") if isinstance(said, dict) else None,
@@ -271,10 +274,11 @@ parts = {
 parts["every_part_holds"] = (code == 0 and parts["version"]["held"] and logged_in == "yes" and errors == []
                              and counts and parts["is_error"] is False)
 json.dump(parts, open(checked, "w"), indent=2)
-' "$root" "$scratch/raw-3" "$scratch/kept-3" "$scratch/checked" "$SCHEMA" "$code3" "$PIN" "$version" "${after:-}" "$logged_in" "$KEPT_RESULT" "$code2" "$STRING_KEYS" "$scratch/raw-3.err")
+' "$root" "$scratch/raw-3" "$scratch/kept-3" "$scratch/checked" "$SCHEMA" "$code3" "$PIN" "$version" "${after:-}" "$logged_in" "$KEPT_RESULT" "$code2" "$STRING_KEYS" "$scratch/raw-3.err" "$code_after")
 rm -f "$scratch/raw-3" "$scratch/raw-3.err"
 redact "$scratch/kept-3" 3
-(cd "$root" && python3 -m tools.redact_trial "$scratch/checked" "$out/checked.json") > /dev/null
+(cd "$root" && python3 -m tools.redact_trial < "$scratch/checked" > "$out/checked.json") 2> /dev/null ||
+    { echo "trial_p13_cli: the redaction of checked.json failed" >&2; exit 1; }
 
 # What was asked: the command lines, the Task and the schema. No credential, path or address is in it.
 python3 -I -c '

@@ -14,7 +14,7 @@ import random
 
 from kernel import issue
 from kernel import terms as t
-from sim.world import COLLEAGUE, MAINTAINER, STRANGER, Broken, World
+from sim.world import COLLEAGUE, MAINTAINER, STRANGER, Broken, World, queue_in_lane
 from tools import check_lifecycle
 from tools.jsonschema_lite import validate
 
@@ -42,7 +42,7 @@ SERVED = {"served_from": "2026-01-01T00:00:00Z", "left_out_labels": ["epic", "id
 CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), lifecycle=LIFECYCLE, issues=SERVED)
 LIMITS = CONFIG["limits"]
 # Each person's permission on the repo, as the collaborator permission endpoint answers it, and the permissions that
-# are write access (issue 222, decision 0043): the port reads the one and gives the facts the other.
+# are write access (issue 222, decision 0045): the port reads the one and gives the facts the other.
 PERMISSIONS = {MAINTAINER["name"]: "admin", COLLEAGUE["name"]: "write", STRANGER["name"]: "read"}
 WRITE_ACCESS = ("admin", "maintain", "write")
 # The invariants the Kernel does not hold yet, each the name of a test marked @pending in tests/test_issue.py.
@@ -54,7 +54,7 @@ ADMITTED = 1
 # Pause cannot be read for that span.
 PAUSES = {0: True, 3: None}
 PAUSE_FOR = 80
-# The five faults, each on seeds chosen by a constant, so that every other seed stays as it was, and each is reached
+# The six faults, each on seeds chosen by a constant, so that every other seed stays as it was, and each is reached
 # within the first 40 seeds (tests/test_issue_simulator.py holds that).
 # 1. An outsider edits the issue after the Maintainer admitted it: the admission stops counting (I-42).
 EDITS_EVERY, EDITS = 7, 1
@@ -68,6 +68,9 @@ REMOVES_EVERY, REMOVES = 5, 0
 # comment, or the readiness App's label or comment, stands in (decision 0031).
 EXPIRES_EVERY, EXPIRES = 9, 3
 RETENTION = 60      # minutes, the world's own; GitHub keeps a run record 90 days (P-16)
+# 6. An edit to a once-merged pull request's description names the issue after the merge (P-46, issue 267): it is in
+# `linked`, merged, and closed nothing, and the State with it is the State without it.
+LATE_EVERY, LATE = 10, 5     # odd: the outsider's seeds
 # The three Runs: who runs each, and how one ends.
 ROLES = {issue.INVESTIGATE: "business-analyst", issue.JUDGE_READINESS: "readiness", issue.OPENING: "dev-lead"}
 MOVE_LABELS = (t.LABEL_HOLD, t.LABEL_HANDS_OFF, t.LABEL_ADMIT, issue.LABEL_TRIAGE, issue.LABEL_READY)
@@ -112,6 +115,7 @@ class IssueWorld:
         self.read = None
         self.made = set()
         self.reached = []              # the faults this seed reached, by number
+        self.late = []                 # the pull requests an edit after their merge made name the issue (fault 6)
         self.unheld = []
         self.began = set()             # the States each life began in: the opening's, and a writer's reopenings'
         self.removal_in_flight = None  # the Run a label was taken from under (fault 4), which no kill then hides
@@ -194,6 +198,7 @@ class IssueWorld:
             "label_events": copy.deepcopy(self.events),
             # GitHub: a_closing_reference_is_read_from_any_pull_request
             # GitHub: who_changed_the_draft_flag_is_read
+            # GitHub: a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing
             "linked": copy.deepcopy(self.linked),
             "role_comments": copy.deepcopy(self.comments),
             "last_writer_action_at": self.last_writer, "last_writer_comment_at": self.last_writer_comment,
@@ -399,7 +404,7 @@ class IssueWorld:
                "content_id": d["admit"]["content_id"], "status": "queued", "conclusion": None, "outcome": None,
                "started_at": self.now(), "minute": self.minute, "head": d["admit"].get("branch_head")}
         # GitHub: a_queued_run_is_listed
-        self.runs.append(run)
+        self.enqueue(run)
         self.moves()
         self.note("run %s: admitted %s %s" % (run["run"], run["role"], intent))
         self.caused(FACTORY)
@@ -425,6 +430,11 @@ class IssueWorld:
         self.caused(FACTORY)
 
     # ---- the lane: one Run at a time, and each asks the Kernel again as it starts
+    def enqueue(self, run: dict):
+        """Queue a Run in the issue's concurrency group, by the lane the pull request's world keeps (queue_in_lane)."""
+        # GitHub: a_run_waits_its_turn
+        queue_in_lane(self.runs, run, self.note)
+
     def start_next(self):
         if any(r["status"] == "in_progress" for r in self.runs):
             return
@@ -498,7 +508,7 @@ class IssueWorld:
             # GitHub: a_closing_reference_is_read_from_any_pull_request
             self.linked.append({"number": number, "class": "agent", "opener": dict(AUTHOR_APP), "open": True,
                                 "draft": True, "opened_at": self.now(), "merged_at": None, "closed_at": None,
-                                "empty": False, "label_events": []})
+                                "empty": False, "label_events": [], "closed_issue_at": None})
             self.branch_head = "%040x" % (0xabc0 + number)
             self.moves()
             self.note("run %s: opened the draft #%d" % (run["run"], number))
@@ -527,7 +537,8 @@ class IssueWorld:
                 # while the issue is in review: the Controller dequeues the pull request of an issue a person held or
                 # closed (the Maintainer's ruling on issue 227), so no merge lands while the issue is held or
                 # declined, nor from new. Were one to land, the Kernel would read it as never done (issue 237).
-                p.update(open=False, merged_at=self.now(), closed_at=self.now(), empty=False)
+                p.update(open=False, merged_at=self.now(), closed_at=self.now(), empty=False,
+                         closed_issue_at=self.closes_the_issue())
                 self.moves()
                 self.note("#%d merged by the queue" % p["number"])
                 self.caused(PLATFORM)
@@ -536,7 +547,7 @@ class IssueWorld:
                 and not any(p["class"] == "outside" for p in self.linked):
             self.linked.append({"number": 200 + len(self.linked), "class": "outside", "opener": dict(STRANGER),
                                 "open": True, "draft": self.rng.random() < 0.5, "opened_at": self.now(),
-                                "merged_at": None, "closed_at": None, "empty": False, "label_events": []})
+                                "merged_at": None, "closed_at": None, "empty": False, "label_events": [], "closed_issue_at": None})
             self.reached.append(2)
             self.note("a stranger's pull request names the issue")
             self.caused(STRANGER_BY)
@@ -563,6 +574,12 @@ class IssueWorld:
         if outsider and roll < 0.25:
             return self.outsider_acts()
         who = MAINTAINER if self.rng.random() < 0.7 else COLLEAGUE
+        edited = [p for p in self.linked if p["number"] in self.late]
+        if edited and roll < 0.5:
+            # GitHub: a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing
+            self.linked.remove(edited[0])
+            self.note("%s undid the edit, and #%d names the issue no more" % (who["name"], edited[0]["number"]))
+            return HUMAN
         if self.state == "closed":
             if roll < 0.5:
                 self.reopen(who)
@@ -665,8 +682,28 @@ class IssueWorld:
             self.edit(STRANGER)
             self.reached.append(1)
             return STRANGER_BY
+        lag = LIMITS["max_close_lag_seconds"] // 60 + 1
+        if self.faults and self.seed % LATE_EVERY == LATE and roll >= 0.8 and not self.late \
+                and self.minute - self.life_started > lag:
+            # GitHub: a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing
+            # A pull request of the Factory's that merged at the start of this life, closing nothing here, whose
+            # description an edit now makes name the issue, long after the merge, as P-46's edit came a day after.
+            number, merged = 400 + len(self.linked), World.at(self.life_started)
+            self.linked.append({"number": number, "class": "agent", "opener": dict(AUTHOR_APP), "open": False,
+                                "draft": False, "opened_at": merged, "merged_at": merged,
+                                "closed_at": merged, "empty": False, "label_events": [], "closed_issue_at": None})
+            self.late.append(number)
+            self.reached.append(6)
+            self.note("an edit after its merge made #%d name the issue" % number)
+            return STRANGER_BY
         self.note("the outsider commented")
         return STRANGER_BY
+
+    def closes_the_issue(self):
+        """The close a merge makes now: GitHub closes the open issue its references name, and the issue's timeline
+        names the pull request the closer (P-33); an issue already closed it cannot close."""
+        # GitHub: a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing
+        return self.now() if self.state == "open" else None
 
     def on_the_pull_request(self, who: dict):
         """A person acts on the linked pull request: marks the draft ready, converts it back, merges it or closes
@@ -676,7 +713,7 @@ class IssueWorld:
             # A person merges or closes the stranger's pull request: it moves the issue no more than it did open.
             p = theirs[0]
             if self.rng.random() < 0.5:
-                p.update(open=False, merged_at=self.now(), closed_at=self.now())
+                p.update(open=False, merged_at=self.now(), closed_at=self.now(), closed_issue_at=self.closes_the_issue())
                 self.note("%s merged the stranger's #%d" % (who["name"], p["number"]))
             else:
                 p.update(open=False, closed_at=self.now())
@@ -688,7 +725,7 @@ class IssueWorld:
             if self.rng.random() < 0.3:
                 self.linked.append({"number": 300 + len(self.linked), "class": "maintainer", "opener": dict(who),
                                     "open": True, "draft": self.rng.random() < 0.5, "opened_at": self.now(),
-                                    "merged_at": None, "closed_at": None, "empty": False, "label_events": []})
+                                    "merged_at": None, "closed_at": None, "empty": False, "label_events": [], "closed_issue_at": None})
                 self.writer_acted()
                 self.note("%s opened a pull request of their own" % who["name"])
             return
@@ -701,7 +738,8 @@ class IssueWorld:
             # Not while the issue is declined, closed or reopened by an outsider: the Lifecycle lets nothing out of
             # declined, and the Kernel would read the merge as done (issue 237 builds the Hold for it). A person's
             # merge while the issue is held stands: the Lifecycle declares held -> done by a person.
-            p.update(open=False, merged_at=self.now(), closed_at=self.now(), empty=self.rng.random() < 0.1)
+            p.update(open=False, merged_at=self.now(), closed_at=self.now(), empty=self.rng.random() < 0.1,
+                     closed_issue_at=self.closes_the_issue())
             self.note("%s merged #%d" % (who["name"], p["number"]))
         else:
             p.update(open=False, closed_at=self.now())
@@ -732,6 +770,9 @@ class IssueWorld:
 
     def invariants(self):
         self.check(len([r for r in self.runs if r["status"] == "in_progress"]) <= 1, "I-44 two Runs in flight")
+        # GitHub: a_run_waits_its_turn
+        self.check(len([r for r in self.runs if r["status"] in ("in_progress", "queued")]) <= 2,
+                   "the lane holds more than one Run waiting behind the one that holds it")
         # I-40: factory:ready is added by nobody but the readiness App inside its Run, or a person.
         for ev in self.events:
             if ev["label"] == issue.LABEL_READY and ev["action"] == "labeled":
@@ -764,6 +805,15 @@ class IssueWorld:
             self.check(issue.derive(without, self.records(), CONFIG)["state"]
                        == issue.derive(facts, self.records(), CONFIG)["state"],
                        "I-39 a stranger's pull request moved the issue")
+        # Issue 267: a pull request an edit after its merge made name the issue closed nothing: with it read out the
+        # State is the same, or, within max_close_lag_seconds of its merge, the Kernel waits; never done, after every
+        # step.
+        if [p for p in self.linked if p["number"] in self.late]:
+            facts = self.facts()
+            without = dict(facts, linked=[p for p in facts["linked"] if p["number"] not in self.late])
+            read, past = issue.derive(facts, self.records(), CONFIG), issue.derive(without, self.records(), CONFIG)
+            self.check(read["state"] == past["state"] or (read["state"], read["reason"]) == (None, "merge_closing"),
+                       "a reference an edit added after a merge moved the issue")
         # I-8: every act since a writer acted is under the ceiling, but the Hold that stops work, by one.
         ceiling = LIMITS["max_acts_per_item"]
         self.check(self.acts <= ceiling or (self.acts == ceiling + 1 and self.last_act == issue.PLACE_HOLD),
