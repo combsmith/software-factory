@@ -92,7 +92,8 @@ KEY_HARMLESS = {"token_type", "input_tokens", "output_tokens", "total_tokens", "
                 "thinkingtokens", "thinking_tokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens",
                 "output_tokens_details"}
 # The headers a fixture may keep, compared in lower case. Any other is left out: allow what is named.
-HEADERS = {"accept", "cache-control", "content-length", "content-type", "date", "etag", "last-modified", "link",
+# age and if-none-match: the records port keeps a read's age, and may ask by its etag (decision 0036, ruling 4).
+HEADERS = {"accept", "age", "cache-control", "content-length", "if-none-match", "content-type", "date", "etag", "last-modified", "link",
            "location", "retry-after", "server", "user-agent", "vary", "x-accepted-github-permissions",
            "x-accepted-oauth-scopes", "x-github-api-version", "x-github-media-type", "x-github-request-id",
            "x-oauth-scopes", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset",

@@ -189,6 +189,7 @@ class IssueWorld:
             "label_events": copy.deepcopy(self.events),
             # GitHub: a_closing_reference_is_read_from_any_pull_request
             # GitHub: who_changed_the_draft_flag_is_read
+            # GitHub: a_merged_pull_requests_closing_references_are_fixed
             "linked": copy.deepcopy(self.linked),
             "role_comments": copy.deepcopy(self.comments),
             "last_writer_action_at": self.last_writer, "last_writer_comment_at": self.last_writer_comment,
