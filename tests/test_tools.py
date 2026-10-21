@@ -3702,6 +3702,17 @@ exit 9
     def texts(self, out) -> dict:
         return {p.name: p.read_text() for p in pathlib.Path(out).iterdir()}
 
+    def test_every_script_pins_the_cli_at_one_version(self):
+        # Decision 0033: the engine port is pinned to one version of the CLI, and every script that runs it runs that one,
+        # so a pin moved in one script and left in another is caught here.
+        pins = {}
+        for path in sorted((ROOT / "tools").glob("*.sh")):
+            found = re.search(r"^PIN=(\S+)$", path.read_text(), re.M)
+            if found:
+                pins[path.name] = found.group(1)
+        self.assertLessEqual({"trial_p13_cli.sh", "context_eval.sh"}, set(pins))
+        self.assertEqual(set(pins.values()), {self.PIN}, pins)
+
     def test_the_cli_is_given_only_the_named_environment_and_no_tool(self):
         folder = self.stand_in()
         ran = self.run_script(self.out, self.cfg, folder / "claude")

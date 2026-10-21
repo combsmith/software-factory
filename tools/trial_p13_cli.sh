@@ -37,9 +37,10 @@ export LC_ALL=C
 shopt -s nocasematch    # a path is compared without case: the file system may not tell .claude from .CLAUDE
 
 # The version of the CLI this trial runs at. The design names the CLI (section 3.5, engine claude-cli) and
-# asks for a pinned version (P-13), but leaves the version open: this is the one installed when the trial
-# was prepared, and the fixture records it as the one the engine port is pinned to.
-PIN=2.1.302
+# asks for a pinned version (P-13), but leaves the version open. P-13 first ran at 2.1.302, the one installed
+# then; the installer pruned that build, so the pin moved to 2.1.306 by a second run of this script at it
+# (decision 0033's row), and each fixture records the version the engine port was pinned to when it ran.
+PIN=2.1.306
 # The fields of `auth status --json` kept, by name. Any other, an address or an org among them, is dropped.
 KEPT_STATUS="loggedIn authMethod apiProvider subscriptionType"
 # The fields of the Task's answer kept, by name: what the CLI says of the run and its counts, never the model's
