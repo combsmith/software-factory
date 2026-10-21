@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "pass/1: what one pass of the Controller read and decided, enough to replay every Decision it made: the time it gave the Kernel, the whole context, every run record, each read's date and age, and for each item its facts, its Decision and the Run id minted for an admission or an approval. The configuration is the data at release. There is no title anywhere in it: the facts have no field for one, so a replay, like the Kernel, never sees one.",
+  "title": "pass/1: what one pass of the Controller read and decided, enough to replay every Decision it made: the time it gave the Kernel, what started it, the whole context, every run record, each read's date and age, and for each item its facts, its Decision and the Run id minted for an admission or an approval. The configuration is the data at release. There is no title anywhere in it: the facts have no field for one, so a replay, like the Kernel, never sees one.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -8,6 +8,7 @@
     "pass",
     "release",
     "now",
+    "started_by",
     "context",
     "runs",
     "reads",
@@ -29,6 +30,16 @@
     "now": {
       "type": "string",
       "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "started_by": {
+      "enum": [
+        "schedule",
+        "relay",
+        "public",
+        "own_repo",
+        "successor",
+        "dispatch"
+      ]
     },
     "context": {
       "$ref": "#/$defs/context"

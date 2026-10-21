@@ -16,7 +16,7 @@ LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lif
         "config/authority.json": "authority",
         "config/defaults.json": "config", "config/rubric-pr-review.json": "rubric", "config/apps.json": "apps",
         "config/hooks.json": "hooks", "config/feed.json": "feed",
-        "evals/pr-review/cases.json": "eval-set"}
+        "evals/pr-review/cases.json": "eval-set", "evals/context/task.json": "context-eval"}
 # What a coverage example is judged against beyond its schema (decision 0029): the review's rubric, the Finding of
 # examples/finding.json, and the paths examples/facts.json changes. No schema can say every criterion that applies is
 # reported on; kernel/coverage.py does.
@@ -34,7 +34,7 @@ ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied
             "view-item": "part",
             "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data",
             "acceptance": "data", "trial": "data", "role": "data", "feed": "data", "eval-case": "data",
-            "eval-set": "data"}
+            "eval-set": "data", "context-eval": "data"}
 RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # What one Run carries, and what is written from it, holds codes, never text: a string in these schemas is held by an
 # enum, a const or a pattern anchored at both ends, unless it is a property named `body`, or sits under one named
@@ -291,6 +291,10 @@ def run(root: pathlib.Path = ROOT) -> list:
         errors = validate(value, schemas[kind], schemas=schemas)
         if kind == "coverage" and not errors:
             errors = _uncovered(value, root)
+        if kind == "trial" and not errors:
+            # A fixture's rules beyond its schema are tools/check_trials.py's: a counter-example of one is refused there.
+            from tools import check_trials
+            errors = check_trials.fixture_problems(value, root)
         if not errors:
             problems.append("invalid/%s: was accepted, and must be rejected" % path.name)
         elif len(errors) > 1:

@@ -16,6 +16,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,7 @@ from kernel import decide as decide_module, derive, issue, terms
 from kernel.decide import decide
 from sim import world
 from tests import support
-from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle,
+from tools import (check_apps, check_authority, commits_are_the_maintainers, check_context, check_decisions, check_examples, check_lifecycle, context_eval,
                    check_purity, check_repo, check_trials, check_workflows, mutants, needs_passed, redact_trial, verify,
                    walk)
 from tools.hooks import protected
@@ -509,9 +510,12 @@ class Examples(unittest.TestCase):
             for state, actor in (("verifying", "lens"), ("adjudicating", "lens"), ("queued", "platform"),
                                  ("converged", "factory"), ("triage", "factory")):
                 self.assertEqual(next_actor({"outcome": "defer", "attention": attention, "state": state}), actor)
-        # A fact the Factory cannot read, or a Pause, is mended at its source; every other question can be closed.
+        # A fact the Factory cannot read, or a Pause, is mended at its source, and a merge that landed while a person
+        # had stopped the issue is answered only by undoing the stop, since a close would not move the State the person
+        # put the issue in (issue 237); every other question can be closed.
         for row in feed["decision_required"]:
-            mended = row["question"] in ("fact_unreadable", "paused", "configuration_needs_you")
+            mended = row["question"] in ("fact_unreadable", "paused", "configuration_needs_you", "merged_while_held",
+                                         "merged_while_declined")
             self.assertEqual("close" in row["choices"], not mended, row["reason"])
 
     def test_each_effect_type_is_requested_by_its_own_list(self):  # decision 0038
@@ -2612,10 +2616,10 @@ GROUNDING = (ROOT / "sim" / "grounding.py").read_text()
 def grounded(fixture_path: str, trials: str = '("P-18",)') -> str:
     """sim/grounding.py with the rule P-18 asks grounded by `fixture_path`, a path or a tuple of them written as a
     literal, and asked by `trials`."""
-    rule = '("P-18",), None)'
+    rule = '("P-18",), None, None)'
     assert GROUNDING.count(rule) == 1
     literal = fixture_path if fixture_path.startswith("(") else '"%s"' % fixture_path
-    return GROUNDING.replace(rule, '%s, %s)' % (trials, literal))
+    return GROUNDING.replace(rule, '%s, %s, None)' % (trials, literal))
 
 
 TAIL = "A" * 36
@@ -2649,8 +2653,15 @@ PLAIN = ["6dcb09b5b57875f334f61aebed695e2e4193db5e", "a" * 40, "application/vnd.
          "highs and lows", "bearer", "factory-run-r1", "Resource not accessible by integration"]
 REFUSED_KEYS = ["Authorization", "AUTHORIZATION", "Authorization ", "Proxy-Authorization", "Set-Cookie", "cookie",
                 "x-github-otp", "x-access-token", "github_token", "GITHUB_TOKEN", "accessToken", "installation_token",
-                "encoded_jit_config", "x-jit-config", "jwt", "auth", "Auth ", "webhook_secret", "client_secret", "password", "credentials", "token"]
-PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", "value", "author", "external_id"]
+                "encoded_jit_config", "x-jit-config", "jwt", "auth", "Auth ", "webhook_secret", "client_secret", "password", "credentials", "token",
+                "api_key", "apiKey", "x-api-key", "private_key", "privateKey", "passphrase", "ssh_passphrase",
+                "authentication", "passwd", "passcode", "bearer", "access_key", "accessKey", "encryption_key", "signing_key", "master_key",
+                "auth_key", "x-auth-key", "authKey", "pwd", "encryptionKey", "signingKey", "masterKey"]
+PLAIN_KEYS = ["token_type", "input_tokens", "output_tokens", "location", "key", "value", "author", "external_id",
+              # The vendor CLI's counts (issue 178), as it spells them.
+              "inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens", "maxOutputTokens",
+              "thinkingTokens", "thinking_tokens", "ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens",
+              "output_tokens_details"]
 # Not caught, by design or as a known hole: a commit hash alone is no credential; a token split across two strings
 # and a one-time code alone have no shape. The field names a header or field must have are the guard there.
 
@@ -2674,6 +2685,36 @@ class Trials(unittest.TestCase):
             self.assertEqual(check_trials._credentials({"note": value}, ""), [], value)
         for key in REFUSED_KEYS:
             self.assertTrue(check_trials._credentials({"a": [[{key: "x"}]]}, ""), key)
+        for name, value in sorted(SHAPED.items()):      # a key shaped like a credential is one too, named never by itself
+            found = check_trials._credentials({"a": {value: 1}}, "")
+            self.assertEqual([p for p, _ in found], ["a." + check_trials.KEY_SHAPED], name)
+            found = check_trials._headers({"exchanges": [{"request": {"headers": {value: "x"}}}]})
+            self.assertEqual([p for p, _ in found], ["exchanges[0].request.headers." + check_trials.KEY_SHAPED], name)
+        split = "Bearer\x00Zx9Qw8Er7Ty6Ui5Op4As3Df5"            # a raw control character splits the shape
+        self.assertTrue(check_trials.shaped(SHAPED["runner registration"] + "\n"), "a registration token before a newline")
+        found = check_trials._headers({"exchanges": [{"request": {"headers": {split: "x"}}}]})
+        self.assertEqual([p for p, _ in found], ["exchanges[0].request.headers." + check_trials.KEY_SHAPED])
+        # Nor does a message of the check about who asked, read before the schema in an example (issue 247).
+        example = json.loads(fixture())
+        example["repo"] = "Bearer Zx9Qw8Er7Ty6Ui5Op4As3Df5"
+        example["exchanges"][0]["request"]["as"] = {"kind": "subscription", "name": "the Maintainer's own subscription"}
+        said = "\n".join(check_trials.fixture_problems(example))
+        self.assertIn("hidden whole", said)                     # the message that named the repo, hidden whole
+        self.assertNotIn("Zx9Qw8", said)
+        # Nor does a schema's error, or any message of the check, carry such a key.
+        data = json.loads(fixture())
+        data[SHAPED["ghs"]] = 1
+        data["Bearer Zx9Qw8Er7Ty6Ui5Op4"] = 1        # a shape that spans a space
+        data["exchanges"][0]["request"]["headers"][SHAPED["ghp"]] = "x"
+        data["exchanges"][0]["request"]["as"]["kind"] = "Bearer\nZx9Qw8Er7Ty6Ui5Op4As3Df5"   # a shape a repr escapes
+        data["exchanges"][0]["request"]["via"] = "Bearer\u000bZx9Qw8Er7Ty6Ui5Op4As3Df5"        # and one it writes as \x0b
+        data["repo"] = "Bearer\n Zx9Qw8Er7Ty6Ui5Op4As3Df5"     # an escape and a space: no one word holds the shape
+        twice = '{"%s": 1, "%s": 2}' % (SHAPED["gho"], SHAPED["gho"])                        # a fixture that cannot be read
+        said = "\n".join(check_trials.run(clone({"trials/P-12.json": json.dumps(data), "trials/P-11.json": twice})))
+        self.assertIn(check_trials.KEY_SHAPED, said)
+        self.assertIn("trials/P-11.json cannot be read", said)
+        for value in list(SHAPED.values()) + ["Zx9Qw8Er7Ty6Ui5Op4"]:
+            self.assertNotIn(value, said)
         for key in PLAIN_KEYS:
             self.assertEqual(check_trials._credentials({key: "x"}, ""), [], key)
         data = json.loads(fixture())
@@ -2839,7 +2880,7 @@ class Trials(unittest.TestCase):
     def test_the_approval_trials_ground_the_rules_they_asked(self):
         # The sitting of 2026-10-19: P-7 passed with the App's push and the machine user's approval of it, and P-28
         # read the App's push; the rule P-7 contradicts stays unverified (sim/AGENTS.md, "Known to differ").
-        by_code = {code: (trials, fixture) for code, _, trials, fixture in check_trials.rules()}
+        by_code = {code: (trials, fixture) for code, _, trials, fixture, _ in check_trials.rules()}
         self.assertEqual(by_code["an_app_pushes_to_the_head"], (("P-7",), "trials/P-7.json"))
         self.assertEqual(by_code["the_machine_users_approval_counts"], (("P-7",), "trials/P-7.json"))
         self.assertEqual(by_code["the_pusher_is_the_last_pusher"], (("P-28",), ("trials/P-28.json", "trials/P-28.app.json")))
@@ -2857,7 +2898,7 @@ class Trials(unittest.TestCase):
         # rule the fake applies, a_tick_can_be_lost, is grounded by it.
         from datetime import datetime, timedelta, timezone
         data = json.loads((ROOT / "trials" / "P-8.ticks.json").read_text())
-        by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
+        by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         self.assertEqual(by_code["a_tick_can_be_lost"], "trials/P-8.ticks.json")
         early, final, computed = data["exchanges"]
         self.assertIn("by mistake", early["request"]["call"])
@@ -3001,143 +3042,67 @@ class Trials(unittest.TestCase):
             self.assertIn(cited, design)
 
     def test_a_cost_measurements_exchanges_name_each_repo_they_span(self):
-        # Decision 0035: a trial of repos records the canary as its home, and a measurement's reads may span the org's
-        # repos. Held on what the reads say, for every fixture of the canary, and closed on what cannot be read: each
-        # read names its owner, in its REST path or in every repository and organization call of its query, each
-        # bound to a literal or to a declared variable, and a query with any other root field is refused; that owner
-        # is the org; every repo an answer names, by nameWithOwner, full_name, or a name beside its owner's login,
-        # is the org's; a read an App made names, and is answered with, only repos its installation reaches, the
-        # canary alone for an App the data does not know; and a command-line read is the Maintainer's own.
-        apps = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
-        installed = {app["name"]: set(app["installed_on"]) for app in apps.values()}
+        # Decision 0035, held in tools/check_trials.py since issue 226: a fixture of the canary reads the org's repos
+        # alone and is answered with them alone, and an App's read names, and is answered with, only repos its
+        # installation reaches. Each way round that rule has a counter-example under examples/invalid, refused by the
+        # check in exactly one way and named for it; the check finds nothing wrong with the fixtures on main.
+        refused = {
+            "a-second-root-call-behind-an-escaped-quote": "names the owner outside",
+            "a-read-of-a-users-repos": "names no repo of the org, nor the org, an App or an installation",
+            "a-read-by-repository-id": "names no repo of the org",
+            "a-search-of-another-users-repos": "names no repo of the org",
+            "a-command-line-read-of-another-repo": "names the owner outside",
+            "an-apps-traversal-beyond-its-reach": "asks of the org by an App, whose installation reaches repos alone",
+            "an-apps-read-beyond-its-reach": "asks of combsmith/another-repo, which the App's installation does not reach",
+            "a-repo-named-only-by-a-url": "names the repo outside/x; an answer names the org's repos alone",
+            "a-repo-named-by-a-resource-path": "names the repo outside/x",
+            "a-fragment-on-query": "holds a fragment on Query",
+            "an-answer-naming-another-owners-repo": "names the repo outside/x",
+            "a-query-of-another-org": "names the owner outside",
+            "a-command-line-read-by-an-app": "is app; a command-line read is the Maintainer's own",
+            "a-command-line-read-of-another-repos-address": "names the owner outside",
+            "a-second-root-call-behind-a-comment": "names the owner outside",
+            "a-second-root-call-behind-a-block-string": "names the owner outside",
+            "a-read-that-climbs-out-of-the-canary": "climbs out of its repo",
+            "a-git-read-of-another-repo": "names the owner outside",
+            "an-unknown-apps-read-beyond-the-canary": "asks of combsmith/software-factory, which the App's installation does not reach",
+            "an-apps-answer-beyond-its-reach": "names combsmith/another-repo, which the App's installation does not reach",
+            # A trial of forks (P-27) may read a fork of the canary, and a trial of reach (P-4) a repo of the org beyond
+            # its App's install; neither another owner's repo, and no other trial a fork. A star names its repo.
+            "a-fork-of-the-canary-read-outside-a-trial-of-forks": "names the owner someone",
+            "a-trial-of-forks-reading-another-owners-repo": "names the owner someone",
+            "a-trial-of-reach-reading-another-org": "names the owner outside",
+            "a-star-of-another-owners-repo": "names the owner outside",
+        }
+        for name, words in refused.items():
+            data = json.loads((ROOT / "examples" / "invalid" / ("trial.%s.json" % name)).read_text())
+            problems = check_trials.fixture_problems(data)
+            self.assertEqual(len(problems), 1, (name, problems))
+            self.assertIn(words, problems[0], name)
+        # A counter-example the schema accepts is held to the check, and the check refuses each of these.
+        self.assertEqual([p for p in check_examples.run() if "invalid/trial." in p], [])
+        # The reads on main pass, and more than one fixture of the canary is held: the rule is not vacuous.
         canary = "combsmith/" + check_trials.CANARY
-        rest_path = re.compile(r"^[A-Z]+ /(?:repos/([^/?\s]+)/([^/?\s]+)|orgs/([^/?\s]+))")
-        any_repos = re.compile(r"\brepos/([^/?\s]+)/([^/?\s]+)")
-        root_field = re.compile(r"^(?:\w+\s*:\s*)?(\w+)\s*(?:\(([^)]*)\))?$")
-
-        def roots(query):
-            """Each root field of the one operation in `query`, as (field, its arguments): what stands at depth one
-            of its selection set, outside strings. A fragment on another type is skipped, since its fields hang off
-            a root field of the operation; a fragment on Query would carry root fields of its own, and fails, as a
-            second operation does."""
-            depth, found, text, quoted, skipping = 0, [], "", False, False
-            for ch in query:
-                if ch == '"':
-                    quoted = not quoted
-                if quoted:
-                    text += ch
-                    continue
-                if ch == "{":
-                    if depth == 0:
-                        opening = text.strip()
-                        skipping = opening.startswith("fragment ")
-                        self.assertFalse(skipping and re.search(r"\bon\s+Query\b", opening),
-                                         "a fragment on Query the test cannot read: %r" % opening)
-                        text = ""
-                    elif depth == 1 and not skipping:
-                        found.append(text.strip())
-                        text = ""
-                    depth += 1
-                elif ch == "}":
-                    depth -= 1
-                    if depth == 1:
-                        text = ""
-                elif depth == 0:
-                    text += ch
-                elif depth == 1 and not skipping:
-                    text += ch
-            out = []
-            for item in found:
-                found_field = root_field.match(item.strip())
-                self.assertTrue(found_field, "a root field the test cannot read: %r" % item)
-                out.append((found_field.group(1), found_field.group(2) or ""))
-            return out
-
-        argument = re.compile(r"\b(owner|name|login)\s*:\s*(?:\"([^\"]*)\"|\$(\w+))")
-
-        def bound(args, key, variables):
-            """The one value of `key` among `args`, a literal or a declared variable's; None if not exactly one."""
-            found = [m for m in argument.finditer(args) if m.group(1) == key]
-            if len(found) != 1:
-                return None
-            literal, var = found[0].group(2), found[0].group(3)
-            return literal if literal is not None else variables.get(var)
-
-        def names(value, under=None):
-            """Each repo an answer names: nameWithOwner, full_name, or a name beside its owner's login, which an App,
-            under the key app or with a slug, has as well and is not one."""
-            if isinstance(value, dict):
-                for key, item in value.items():
-                    if key in ("nameWithOwner", "full_name") and isinstance(item, str):
-                        yield item
-                    yield from names(item, key)
-                owner = value.get("owner")
-                if isinstance(value.get("name"), str) and isinstance(owner, dict) and isinstance(owner.get("login"), str) \
-                        and under != "app" and "slug" not in value:
-                    yield owner["login"] + "/" + value["name"]
-            elif isinstance(value, list):
-                for item in value:
-                    yield from names(item, under)
-
-        def asked(request, where):
-            """(owners, repos) a request names; a read that cannot be read fails the test here."""
-            owners, repos = set(), set()
-            if request["via"] == "graphql":
-                body = request["body"]
-                variables = body.get("variables") or {}
-                self.assertTrue(body["query"].lstrip().startswith(("query", "{")), where + ": not a query")
-                for field, args in roots(body["query"]):
-                    if field == "repository":
-                        owner, name = bound(args, "owner", variables), bound(args, "name", variables)
-                        self.assertTrue(owner and name, "%s: a repository call that cannot be read: %s" % (where, args))
-                        owners.add(owner)
-                        repos.add(owner + "/" + name)
-                    elif field == "organization":
-                        login = bound(args, "login", variables)
-                        self.assertTrue(login, "%s: an organization call that cannot be read: %s" % (where, args))
-                        owners.add(login)
-                    elif field != "rateLimit":
-                        self.fail("%s: a root field the test does not read: %s" % (where, field))
-                self.assertTrue(owners, where + ": a query that names no repo and no org")
-            else:
-                found = rest_path.match(request["call"])
-                for owner, name in any_repos.findall(request["call"]):
-                    owners.add(owner)
-                    repos.add(owner + "/" + name)
-                if found and found.group(3):
-                    owners.add(found.group(3))
-            return owners, repos
-
-        # A trial whose question is a read beyond those, P-4's repository subset and P-27's forks, is held only to the
-        # org's repos and the forks of the canary, which keep the canary's name; its own verdict judges the rest.
-        beyond = {"P-4", "P-27"}
-        fork_of_the_canary = lambda repo: repo.count("/") == 1 and repo.split("/")[1] == check_trials.CANARY
-        checked = 0
-        for path in sorted((ROOT / "trials").glob("P-*.json")):
-            data = json.loads(path.read_text())
-            if data["repo"] != canary:
-                continue
-            checked += 1
-            reach_trial = data["trial"] in beyond
-            fork_owners = {r.split("/")[0] for e in data["exchanges"] for r in names(e["response"]["body"])
-                           if reach_trial and fork_of_the_canary(r)}
-            for i, e in enumerate(data["exchanges"]):
-                where = "%s exchange %d" % (path.name, i)
-                request, asker = e["request"], e["request"]["as"]
-                owners, repos = asked(request, where)
-                answered = set(names(e["response"]["body"]))
-                allowed_repo = lambda r: r.startswith("combsmith/") or (reach_trial and fork_of_the_canary(r))
-                self.assertTrue(owners <= {"combsmith"} | fork_owners, "%s names %s" % (where, sorted(owners - {"combsmith"} - fork_owners)))
-                self.assertTrue(all(allowed_repo(r) for r in repos | answered),
-                                "%s names or was answered %s" % (where, sorted(r for r in repos | answered if not allowed_repo(r))))
-                if request["via"] == "cli":
-                    self.assertEqual(asker["kind"], "person", where)
-                    self.assertTrue(asker["name"] == "don-petry" or asker["name"] in fork_owners, where)
-                if asker["kind"] == "app" and not reach_trial:
-                    reach = installed.get(asker["name"].split(",")[0].replace("[bot]", ""), {canary})
-                    self.assertTrue(repos <= reach, "%s asks %s, beyond %s" % (where, sorted(repos - reach), sorted(reach)))
-                    self.assertTrue(answered <= reach, "%s was answered %s, beyond the reach" % (where, sorted(answered - reach)))
-        self.assertGreaterEqual(checked, 2)
+        held = [p for p in (ROOT / "trials").glob("P-*.json") if json.loads(p.read_text())["repo"] == canary]
+        self.assertGreaterEqual(len(held), 2)
+        self.assertEqual(check_trials.run(), [])
+        # What the reader reads: a fragment on another type is skipped, a string's escaped quote is read as part of it,
+        # a command-line read of the canary is the org's, and an App the data does not know reaches the canary alone.
+        roots, problem = check_trials._roots('query { repository(owner: "combsmith", name: "x") { ...F } } fragment F on Repository { id }')
+        self.assertEqual((roots, problem), ([("repository", 'owner: "combsmith", name: "x"')], None))
+        roots, problem = check_trials._roots('query { repository(owner: "combsmith", name: "a\\"b") { id } }')
+        self.assertEqual(([f for f, _ in roots], problem), (["repository"], None))
+        owners, repos, wrong = check_trials._asked({"via": "cli", "call": "gh pr list --repo combsmith/x -R combsmith/y"})
+        self.assertEqual((owners, repos, wrong), ({"combsmith"}, {"combsmith/x", "combsmith/y"}, []))
+        self.assertEqual(check_trials._installed(ROOT).get("nobody"), None)
+        # The Apps' data that cannot be read is one problem, and every App is then held to the canary.
+        data = json.loads((ROOT / "examples" / "invalid" / "trial.an-unknown-apps-read-beyond-the-canary.json").read_text())
+        problems = check_trials._repos(data, None)
+        self.assertEqual([where for where, _ in problems], ["config/apps.json", "exchanges[0].request.call"])
+        self.assertIn("cannot be read", problems[0][1])
+        # A comment holding a brace is a comment, and the query before it is read whole.
+        roots, problem = check_trials._roots('query { repository(owner: "combsmith", name: "x") { id } } # }')
+        self.assertEqual(([f for f, _ in roots], problem), (["repository"], None))
 
     def test_the_cost_trials_estimate_is_marked_so_and_held_to_its_reads(self):
         # P-8's last exchange is the estimate (FR-35): its cost model is held to every read of the fixture that reports
@@ -3179,7 +3144,7 @@ class Trials(unittest.TestCase):
         events = [e for i in by_app for e in i["timelineItems"]["nodes"]]
         self.assertTrue(events)
         self.assertTrue(all(e["actor"]["login"] and e["actor"]["__typename"] and e["createdAt"] for e in events))
-        by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
+        by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         # The events ground the rule about them; the association, which an App reads wrong, stays unverified.
         self.assertEqual(by_code["a_label_event_names_its_actor"], "trials/P-32.json")
         self.assertIsNone(by_code["an_issues_author_has_an_association"])
@@ -3187,7 +3152,7 @@ class Trials(unittest.TestCase):
     def test_the_issue_fixtures_hold_what_grounds_the_four_rules(self):
         # trials/P-33.json and trials/P-34.json (issue 184) ground four rules of the issue world: each is held to the
         # content that grounds it, so a fixture emptied or inverted ungrounds its rule.
-        by_code = {code: fixture for code, _, _, fixture in check_trials.rules()}
+        by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         for code in ("a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read"):
             self.assertEqual(by_code[code], "trials/P-33.json", code)
         for code in ("an_issues_content_time_is_read_apart", "a_reopening_names_its_actor"):
@@ -3240,22 +3205,78 @@ class Trials(unittest.TestCase):
         world = (ROOT / "sim" / "world.py").read_text()
         problems = check_trials.run(clone({"sim/world.py": world + "\n# GitHub: a_rule_nobody_listed\n"}))
         self.assertTrue(caught(problems, "sim/world.py applies a_rule_nobody_listed, which sim/grounding.py does not list"))
-        listed = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_never_applied", "It is so", (), None),', 1)
+        listed = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_never_applied", "It is so", ("P-1",), None, None),', 1)
         problems = check_trials.run(clone({"sim/grounding.py": listed}))
         self.assertTrue(caught(problems, "a_rule_never_applied is listed in sim/grounding.py and applied nowhere under sim/"))
         issues = (ROOT / "sim" / "issues.py").read_text()
         problems = check_trials.run(clone({"sim/issues.py": issues + "\n# GitHub: a_rule_nobody_listed\n"}))
         self.assertTrue(caught(problems, "sim/issues.py applies a_rule_nobody_listed, which sim/grounding.py does not list"))
-        twice = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_tick_can_be_lost", "It is so", ("P-8",), None),', 1)
+        twice = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_tick_can_be_lost", "It is so", ("P-8",), None, None),', 1)
         self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": twice})), "a_tick_can_be_lost is listed twice"))
-        for broken in ("RULES = rules()\n", "RULES = (('Not a code', 'x', ('P-1',), None),)\n", "RULES = (('x', 'x'),)\n",
-                       "x = 1\n", "RULES = (('a_tick_can_be_lost', 'x', 'P-8', None),)\n"):
+        for broken in ("RULES = rules()\n", "RULES = (('Not a code', 'x', ('P-1',), None, None),)\n", "RULES = (('x', 'x'),)\n",
+                       "x = 1\n", "RULES = (('a_tick_can_be_lost', 'x', 'P-8', None, None),)\n",
+                       "RULES = (('a_tick_can_be_lost', 'x', ('P-8',), None),)\n"):
             self.assertTrue(check_trials.run(clone({"sim/grounding.py": broken})), broken)
+
+    def test_a_rule_no_trial_asks_names_one_or_says_why_none_can(self):  # issue 190
+        # A rule with no trial and no fixture says, in one sentence, why no trial can ask it; one a trial asks says
+        # nothing of the kind; and the printed list says which it is.
+        head = 'RULES = (\n    ("a_rule_nobody_asks", "It is so", (), None, %s),'
+        for note in ("None", '""', '"no trial asks it"', '"%s"' % check_trials.ASSUMED, '"%s  "' % check_trials.ASSUMED, "5"):
+            problems = check_trials.run(clone({"sim/grounding.py": GROUNDING.replace("RULES = (", head % note, 1),
+                                               "sim/world.py": (ROOT / "sim" / "world.py").read_text() + "\n# GitHub: a_rule_nobody_asks\n"}))
+            self.assertTrue(caught(problems, "a_rule_nobody_asks: no trial asks this; name the trial of section 6 that will, or "
+                                             "say in one sentence why none can"), note)
+        said = GROUNDING.replace("RULES = (", head % '"%sa race no trial can force"' % check_trials.ASSUMED, 1)
+        world = (ROOT / "sim" / "world.py").read_text() + "\n# GitHub: a_rule_nobody_asks\n"
+        self.assertEqual(check_trials.run(clone({"sim/grounding.py": said, "sim/world.py": world})), [])
+        # The reason says something, in one sentence, after the whole of its opening: a full stop or a character that
+        # does not print is no sentence, nor are two, nor a reason with another opening.
+        for empty in (".", "\u200b", " - ", "a race. And a second one", "a race! Then more"):
+            problems = check_trials.run(clone({"sim/grounding.py": GROUNDING.replace("RULES = (", head % ('"%s%s"' % (check_trials.ASSUMED, empty)), 1),
+                                               "sim/world.py": world}))
+            self.assertTrue(caught(problems, "a_rule_nobody_asks: no trial asks this"), repr(empty))
+        for other in ('"assumed: a race no trial can force"', '"Assumed, no trial can ask it: a race no trial can force"',
+                      '"assumed, no trial can ask it a race no trial can force"'):
+            problems = check_trials.run(clone({"sim/grounding.py": GROUNDING.replace("RULES = (", head % other, 1),
+                                               "sim/world.py": world}))
+            self.assertTrue(caught(problems, "a_rule_nobody_asks: no trial asks this"), other)
+        grounded_too = GROUNDING.replace('"trials/P-29.base.json", None)', '"trials/P-29.base.json", "%sa race")' % check_trials.ASSUMED, 1)
+        self.assertNotEqual(grounded_too, GROUNDING)
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": grounded_too})),
+                               "a_push_is_new_content: a trial asks this, or a fixture grounds it, so it says nothing"))
+        # A trial a rule names has a row in section 6: a P-number of the right shape is not enough.
+        nowhere = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_nobody_asks", "It is so", ("P-99",), None, None),', 1)
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": nowhere, "sim/world.py": world})),
+                               "a_rule_nobody_asks: P-99 has no row in section 6; add the trial there first"))
+        design = (ROOT / check_trials.DESIGN).read_text()
+        rowless = design.replace("| P-41 |", "| P-41a |", 1)
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: rowless})),
+                               "a_request_for_changes_survives_a_push: P-41 has no row in section 6"))
+        # Only section 6's own table counts: a row before it, or in a fenced block within it, is no trial.
+        p99 = GROUNDING.replace('("P-41",), None, None)', '("P-99",), None, None)', 1)
+        for elsewhere in ("| P-99 | x | y |\n" + design, design.replace("\n## 6. ", "\n```\n| P-99 | x | y |\n```\n## 6. ", 1),
+                          design.replace("| P-41 |", "```\n| P-99 | x | y |\n```\n| P-41 |", 1)):
+            self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: elsewhere, "sim/grounding.py": p99})),
+                                   "P-99 has no row in section 6"))
+        root = clone({})
+        (root / check_trials.DESIGN).write_bytes(b"\xff\xfe| P-41 |\n")
+        self.assertTrue(caught(check_trials.run(root), "%s cannot be read" % check_trials.DESIGN))
+        asked = GROUNDING.replace("RULES = (", 'RULES = (\n    ("a_rule_nobody_asks", "It is so", ("P-1",), None, "%sx"),' % check_trials.ASSUMED, 1)
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": asked, "sim/world.py": world})),
+                               "a_rule_nobody_asks: a trial asks this, or a fixture grounds it, so it says nothing of why none can"))
+        # The list verify prints says, for each rule no fixture grounds, the trials that ask it or why none can.
+        lines = {line.split(":", 1)[0]: line for line in check_trials.unverified(clone({"sim/grounding.py": said, "sim/world.py": world}))}
+        self.assertIn("(%sa race no trial can force)" % check_trials.ASSUMED, lines["a_rule_nobody_asks"])
+        self.assertIn("(asked by P-7, P-29, no fixture yet)", lines["an_approval_survives_a_push"])
+        for code, _, trials, fixture, note in check_trials.rules():
+            self.assertTrue(trials or fixture is not None or (isinstance(note, str) and note.startswith(check_trials.ASSUMED)), code)
+            self.assertTrue(not trials or note is None, code)
 
     def test_verify_prints_every_rule_no_fixture_grounds(self):
         listed = check_trials.rules()
-        codes = [code for code, _, _, fixture in listed if fixture is None]
-        grounded = [code for code, _, _, fixture in listed if fixture is not None]
+        codes = [code for code, _, _, fixture, _ in listed if fixture is None]
+        grounded = [code for code, _, _, fixture, _ in listed if fixture is not None]
         self.assertTrue(codes)
         self.assertEqual(len(check_trials.unverified()), len(codes))
         ran = {}
@@ -3426,6 +3447,274 @@ exit 0
         asked = json.loads((folder / "out" / "requests.json").read_text())
         self.assertEqual([r["status"] for r in asked["reads"]][-1], "200")
 
+class TrialScript(unittest.TestCase):
+    """`tools/trial_p13_cli.sh`, run against a stand-in CLI and never the real one (issue 178): the environment the CLI is
+    given, each refusal before anything is asked, the login that must say yes, and the answer kept by allowlist so that
+    no model text reaches OUT."""
+
+    SCRIPT = ROOT / "tools" / "trial_p13_cli.sh"
+    PIN = re.search(r"^PIN=(\S+)$", SCRIPT.read_text(), re.M).group(1)
+    STAND_IN = """#!/bin/sh
+here=$(cd "$(dirname "$0")" && pwd)
+case "$1" in
+  --version) env > "$here/env-version"; cat "$here/version"; exit "$(cat "$here/version.exit")" ;;
+  --after) cp "$here/version.after" "$here/version" ;;
+  auth) env > "$here/env-auth"; cat "$here/status"; exit "$(cat "$here/status.exit")" ;;
+  -p) env > "$here/env-task"; printf '%s\\n' "$@" > "$here/args"; cat "$here/stderr" >&2; cat "$here/answer"
+      [ -f "$here/version.after" ] && cp "$here/version.after" "$here/version"
+      [ -f "$here/version.after.exit" ] && cp "$here/version.after.exit" "$here/version.exit"; exit "$(cat "$here/answer.exit")" ;;
+esac
+exit 9
+"""
+    VALID = {"schema": "result/1", "run": "r_p13", "status": "completed",
+             "dispositions": [{"finding": "f_9c1e", "decision": {"result": "accepted"}}]}
+    # What the script keeps of the Task's answer, pinned here on its own: widening KEPT_RESULT is a change to this test.
+    KEPT = ["type", "subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms", "total_cost_usd", "usage",
+            "modelUsage", "stop_reason", "permission_denials", "structured_output"]
+    # Words the model might say, planted where a careless script would let them through.
+    PROSE = {"result": "the model wrote THIS-PROSE-1 here", "added": "a field the CLI adds carries THIS-PROSE-2",
+             "nested": "THIS-PROSE-3 in a nested field", "denied": "THIS-PROSE-4 in a refused tool's input",
+             "invalid": "THIS-PROSE-5 in a structured output that does not validate",
+             "in_usage": "THIS-PROSE-6 in a string under the counts", "in_code": "THIS-PROSE-7 where a code should be",
+             "tabbed": "THIS-PROSE-8\tset\tapart\tby\ttabs", "as_key": "THIS-PROSE-9 as a key",
+             "long": "THIS-PROSE-10-" + "z" * 90, "stderr": "THIS-PROSE-11 the model said on standard error"}
+
+    def answer(self, output=None, **extra) -> dict:
+        said = {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1, "duration_ms": 5,
+                "total_cost_usd": 0.1, "usage": {"input_tokens": 1, "output_tokens": 2, "evil.provider": "LEAKED-DOTTED-KEY",
+                                                "provider": ["LEAKWORD1", "LEAKWORD2"]},
+                "modelUsage": {"m": {"inputTokens": 1, "note": self.PROSE["in_usage"], "fallback": None, "provider": "firstParty",
+                                     "note2": "LEAK-ONE-WORD", "canonicalModel": self.PROSE["long"]},
+                               "sk-" + "ant-" + "api03-NEVER-SEEN": {"inputTokens": 2}, self.PROSE["as_key"]: 3},
+                "stop_reason": self.PROSE["in_code"], "subtype": self.PROSE["tabbed"], "result": self.PROSE["result"],
+                "a_new_field": self.PROSE["added"], "stats": {"note": self.PROSE["nested"]},
+                "permission_denials": [{"tool_name": "Bash", "tool_input": {"command": self.PROSE["denied"]}}]}
+        if output is not None:
+            said["structured_output"] = output
+        said.update(extra)
+        return said
+
+    def stand_in(self, version=None, status=None, status_exit=0, answer=None, answer_exit=0, version_exit=0, after=None,
+                 after_exit=None) -> pathlib.Path:
+        """A directory holding the stand-in `claude` and what it answers; it records the environment and arguments it is
+        given beside itself."""
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (folder / "version").write_text("%s (Claude Code)\n" % (version or self.PIN))
+        (folder / "version.exit").write_text("%d\n" % version_exit)
+        (folder / "stderr").write_text(self.PROSE["stderr"] + "\n")
+        if after is not None:                     # the version the CLI says after the Task, if it changed
+            (folder / "version.after").write_text("%s (Claude Code)\n" % after)
+        if after_exit is not None:                # how the CLI's --version exits after the Task
+            (folder / "version.after.exit").write_text("%d\n" % after_exit)
+        (folder / "status").write_text(json.dumps({"loggedIn": True, "authMethod": "claude.ai"} if status is None else status))
+        (folder / "status.exit").write_text("%d\n" % status_exit)
+        (folder / "answer").write_text(json.dumps(self.answer(self.VALID) if answer is None else answer))
+        (folder / "answer.exit").write_text("%d\n" % answer_exit)
+        cli = folder / "claude"
+        cli.write_text(self.STAND_IN)
+        cli.chmod(0o755)
+        return folder
+
+    def run_script(self, out, cfg, cli, home=None) -> subprocess.CompletedProcess:
+        """The script as the Maintainer runs it, from a shell that holds a key the CLI must never see."""
+        env = {"PATH": os.environ["PATH"], "HOME": str(home or self.home), "LANG": "C",
+               "ANTHROPIC_API_KEY": "sk-" + "ant-" + "api03-NEVER-SEEN", "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
+        return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg), str(cli)], cwd=SCRATCH.name,
+                              capture_output=True, text=True, env=env, timeout=120)
+
+    # OUT names the refusal cases give inside the repo. A broken script could make one, in a copy the mutation check
+    # lends to the next mutant, so each is removed after the test whether or not it was refused.
+    INSIDE = ("never-made-in-the-repo", "never-made-through-a-link")
+
+    def setUp(self):
+        self.home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        self.cfg = self.home.parent / (self.home.name + "-cfg")
+        self.cfg.mkdir()
+        self.out = self.home.parent / (self.home.name + "-out")
+
+    def tearDown(self):
+        for name in self.INSIDE:
+            shutil.rmtree(ROOT / name, ignore_errors=True)
+
+    def texts(self, out) -> dict:
+        return {p.name: p.read_text() for p in pathlib.Path(out).iterdir()}
+
+    def test_the_cli_is_given_only_the_named_environment_and_no_tool(self):
+        folder = self.stand_in()
+        ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        named = {"HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "LANG", "CLAUDE_CONFIG_DIR", "DISABLE_AUTOUPDATER"}
+        shell_adds = {"PWD", "OLDPWD", "SHLVL", "_"}
+        for call in ("version", "auth", "task"):
+            given = dict(line.split("=", 1) for line in (folder / ("env-" + call)).read_text().splitlines() if "=" in line)
+            self.assertEqual(set(given) - shell_adds, named, call)
+            self.assertEqual((given["CLAUDE_CONFIG_DIR"], given["DISABLE_AUTOUPDATER"]), (str(self.cfg), "1"), call)
+            self.assertNotIn("NEVER-SEEN", (folder / ("env-" + call)).read_text(), call)
+        args = (folder / "args").read_text().split("\n")
+        self.assertEqual(args[args.index("--tools") + 1], "", "the model is given no tool")
+        self.assertIn("--json-schema", args)
+        self.assertNotIn("NEVER-SEEN", "".join(self.texts(self.out).values()))
+
+    def test_each_refusal_stops_before_anything_is_asked(self):
+        folder = self.stand_in()
+        cli = folder / "claude"
+        existing = self.home.parent / (self.home.name + "-taken")
+        existing.mkdir()
+        under_home = self.home / "sub"
+        under_home.mkdir()
+        dot_claude = self.home / ".claude" / "deep"
+        dot_claude.mkdir(parents=True)
+        linked = self.home.parent / (self.home.name + "-link")
+        linked.symlink_to(self.home / ".claude")
+        try:                                      # on a file system that tells case, a directory of its own
+            (self.home / ".CLAUDE").mkdir()
+        except FileExistsError:                   # on one that does not, the Maintainer's own, under another name
+            pass
+        to_repo = self.home.parent / (self.home.name + "-repo-link")
+        to_repo.symlink_to(ROOT)
+        home_link = self.home.parent / (self.home.name + "-home-link")
+        home_link.symlink_to(self.home)
+        elsewhere = pathlib.Path(tempfile.mkdtemp()).resolve()       # a link to HOME from outside CONFIG_DIR
+        self.addCleanup(shutil.rmtree, elsewhere, True)
+        far_link = elsewhere / "home-link"
+        far_link.symlink_to(self.home)
+        other_home = self.home.parent / (self.home.name + "-other-home")     # whose ~/.claude is itself a link
+        other_home.mkdir()
+        real_claude = self.home.parent / (self.home.name + "-real-claude")
+        real_claude.mkdir()
+        (other_home / ".claude").symlink_to(real_claude)
+        cases = [("OUT exists", existing, self.cfg, None, "exists; name a new directory"),
+                 ("OUT inside the repo", ROOT / self.INSIDE[0], self.cfg, None, "OUT is inside the repo"),
+                 ("OUT inside the repo through a link", to_repo / self.INSIDE[1], self.cfg, None, "OUT is inside the repo"),
+                 ("OUT inside CONFIG_DIR", self.cfg / "out", self.cfg, None, "OUT is inside CONFIG_DIR"),
+                 ("CONFIG_DIR inside the repo", self.out, ROOT / "tools", None, "CONFIG_DIR is inside the repo"),
+                 ("CONFIG_DIR is HOME", self.out, self.home, None, "the home directory or holds it"),
+                 ("CONFIG_DIR holds HOME", self.out, self.home.parent, under_home, "the home directory or holds it"),
+                 ("CONFIG_DIR is /", self.out, pathlib.Path("/"), None, "the home directory or holds it"),
+                 ("CONFIG_DIR is ~/.claude", self.out, self.home / ".claude", None, "under ~/.claude"),
+                 ("CONFIG_DIR under ~/.claude", self.out, dot_claude, None, "under ~/.claude"),
+                 ("CONFIG_DIR linked to ~/.claude", self.out, linked, None, "under ~/.claude"),
+                 ("HOME through a link, CONFIG_DIR its ~/.claude", self.out, self.home / ".claude", home_link, "under ~/.claude"),
+                 ("HOME through a link from elsewhere, CONFIG_DIR holding the real home", self.out, self.home.parent, far_link,
+                  "the home directory or holds it"),
+                 ("~/.claude a link, CONFIG_DIR where it leads", self.out, real_claude, other_home, "under ~/.claude"),
+                 ("CONFIG_DIR is ~/.CLAUDE", self.out, self.home / ".CLAUDE", None, "under ~/.claude"),
+                 ("CONFIG_DIR missing", self.out, self.home / "none", None, "CONFIG_DIR is not a directory")]
+        for name, out, cfg, home, said in cases:
+            ran = self.run_script(out, cfg, cli, home=home)
+            self.assertEqual(ran.returncode, 2, (name, ran.stdout, ran.stderr))
+            self.assertIn(said, ran.stderr, (name, ran.stdout, ran.stderr))
+            self.assertFalse(out.exists() and out != existing, name)
+            self.assertFalse((folder / "env-version").exists(), name + ": nothing was asked")
+        # The wrong version, a login that says no, and one the script cannot read: each after asking, before the Task.
+        for name, folder, code, said in [
+                ("wrong version", self.stand_in(version="0.0.1"), 1, "is version '0.0.1', exit 0, not " + self.PIN),
+                ("version not given", self.stand_in(version_exit=3), 1, "is version '%s', exit 3, not " % self.PIN),
+                ("not logged in", self.stand_in(status={"loggedIn": False}), 1, "login under CONFIG_DIR is 'no', exit 0"),
+                ("unknown status", self.stand_in(status={"something": "else"}), 1, "is 'unknown', exit 0"),
+                ("status not json", self.stand_in(status="not json"), 1, "is 'unknown', exit 0"),
+                ("logged in as a number", self.stand_in(status={"loggedIn": 1, "authMethod": "someone@example.com via prose words"}), 1,
+                 "is 'unknown', exit 0"),
+                ("auth status failed", self.stand_in(status_exit=3), 1, "is 'yes', exit 3, not yes")]:
+            out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
+            ran = self.run_script(out, self.cfg, folder / "claude")
+            self.assertEqual(ran.returncode, code, (name, ran.stdout, ran.stderr))
+            self.assertIn(said, ran.stderr, (name, ran.stdout, ran.stderr))
+            self.assertFalse((folder / "args").exists(), name + ": the Task was not asked")
+            self.assertNotIn("NEVER-SEEN", "".join(self.texts(out).values()), name)
+            self.assertNotIn("example.com", "".join(self.texts(out).values()), name)
+        # A login that says yes with prose beside it: the prose is dropped, the run goes on.
+        folder = self.stand_in(status={"loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "max but said in words"})
+        out = self.home.parent / (self.home.name + "-prose-status")
+        self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 0)
+        self.assertEqual(json.loads((out / "clean-2").read_text()), {"loggedIn": True, "authMethod": "claude.ai"})
+
+    def test_a_reason_is_the_one_code_the_task_names(self):
+        # Issue 247: a reason in the structured output is fix_incomplete, the code the Task names, and no other word, so
+        # an output that validates cannot carry a word of the model's as a reason.
+        schema = json.loads(re.search(r"^SCHEMA=\$\(cat <<'EOF'\n(.*?)\nEOF$", self.SCRIPT.read_text(), re.M | re.S).group(1))
+        rejected = dict(self.VALID, dispositions=[{"finding": "f_22ab", "decision": {"result": "rejected", "reason": "fix_incomplete"}}])
+        self.assertEqual(validate(rejected, schema), [])
+        for word in ("this_is_model_text", "accepted", "fix_incomplete_"):
+            told = dict(self.VALID, dispositions=[{"finding": "f_22ab", "decision": {"result": "rejected", "reason": word}}])
+            self.assertNotEqual(validate(told, schema), [], word)
+
+    def test_the_logins_exit_code_is_recorded(self):
+        folder = self.stand_in()
+        self.assertEqual(self.run_script(self.out, self.cfg, folder / "claude").returncode, 0)
+        checked = json.loads((self.out / "checked.json").read_text())
+        self.assertEqual(checked["login"], {"exit": 0, "status": "yes"})
+        self.assertTrue(checked["every_part_holds"])
+        folder = self.stand_in(status_exit=3)
+        out = self.home.parent / (self.home.name + "-failed-login")
+        self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 1)
+        checked = json.loads((out / "checked.json").read_text())
+        self.assertEqual((checked["login"], checked["every_part_holds"]), ({"exit": 3, "status": "yes"}, False))
+        # The version asked after the Task must still be the pin: a CLI that changed under the run does not hold.
+        folder = self.stand_in(after="9.9.9")
+        out = self.home.parent / (self.home.name + "-moved-version")
+        self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 1)
+        checked = json.loads((out / "checked.json").read_text())
+        self.assertEqual((checked["version"]["after"], checked["version"]["held"], checked["every_part_holds"]), ("9.9.9", False, False))
+        # Nor does one whose --version, after the Task, says the pin and exits otherwise: its exit is read (issue 247).
+        folder = self.stand_in(after_exit=3)
+        out = self.home.parent / (self.home.name + "-after-exit")
+        self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 1)
+        version = json.loads((out / "checked.json").read_text())["version"]
+        self.assertEqual((version["after"], version["after_exit"], version["held"]), (self.PIN, 3, False))
+
+    def test_no_model_text_reaches_out_whether_or_not_the_output_validates(self):
+        invalid = dict(self.VALID, prose=self.PROSE["invalid"])
+        in_result = dict(self.answer(), result=json.dumps(self.VALID))
+        del in_result["permission_denials"]
+        for name, answer, code, validates, source in [("validates", self.answer(self.VALID), 0, True, "structured_output"),
+                                                      ("does not validate", self.answer(invalid), 1, False, "structured_output"),
+                                                      ("in result alone", in_result, 0, True, "result"),
+                                                      ("no output", self.answer(), 1, False, None),
+                                                      ("not json", "the model said THIS-PROSE-1 and nothing else", 1, False, None)]:
+            folder = self.stand_in(answer=answer)
+            out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
+            ran = self.run_script(out, self.cfg, folder / "claude")
+            self.assertEqual(ran.returncode, code, (name, ran.stderr))
+            texts = self.texts(out)
+            for word in self.PROSE.values():
+                self.assertNotIn(word, "".join(texts.values()) + ran.stdout + ran.stderr, name)
+            checked = json.loads(texts["checked.json"])
+            self.assertEqual((checked["structured_output"]["validates"], checked["structured_output"]["from"]),
+                             (validates, source), name)
+            self.assertEqual(checked["stderr"], {"lines": 1, "characters": len(self.PROSE["stderr"]) + 1}, name)
+            self.assertNotIn("clean-3.stderr", texts, name)
+            if isinstance(answer, dict):
+                kept = json.loads(texts["clean-3"])
+                self.assertEqual(re.search(r'^KEPT_RESULT="([^"]*)"$', self.SCRIPT.read_text(), re.M).group(1).split(), self.KEPT)
+                allowed = set(self.KEPT)
+                self.assertTrue(set(kept) <= allowed, (name, set(kept) - allowed))
+                self.assertNotIn("subtype", kept, name)
+                self.assertNotIn("a_new_field", kept, name)
+                self.assertEqual(kept["modelUsage"], {"m": {"inputTokens": 1, "fallback": None, "provider": "firstParty"}}, name)
+                self.assertNotIn("LEAK-ONE-WORD", "".join(texts.values()), name)
+                self.assertNotIn("LEAKED-DOTTED-KEY", "".join(texts.values()), name)
+                self.assertNotIn("LEAKWORD", "".join(texts.values()), name)
+                self.assertEqual(kept["usage"], {"input_tokens": 1, "output_tokens": 2, "provider": []}, name)
+                self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.modelUsage.m.note2", "$.modelUsage.m.canonicalModel", "$.stop_reason", "$.modelUsage.<key>")],
+                                 [{"field": "$.modelUsage.m.note", "characters": len(self.PROSE["in_usage"])},
+                                  {"field": "$.modelUsage.m.note2", "characters": len("LEAK-ONE-WORD")},
+                                  {"field": "$.modelUsage.m.canonicalModel", "characters": len(self.PROSE["long"])},
+                                  {"field": "$.modelUsage.<key>", "characters": len(self.PROSE["as_key"])},
+                                  {"field": "$.stop_reason", "characters": len(self.PROSE["in_code"])}], name)
+                self.assertNotIn("stop_reason", kept, name)
+                self.assertEqual(kept.get("permission_denials"), [{"tool_name": "Bash"}] if "permission_denials" in answer else None, name)
+                self.assertEqual("structured_output" in kept, validates, name)
+                self.assertTrue(any(t["field"].startswith("every field KEPT_RESULT") for t in checked["model_text_removed"]), name)
+                # The record names nothing that is kept: the Result's own strings, or the refused tools' names.
+                self.assertFalse([t for t in checked["model_text_removed"]
+                                  if t["field"].startswith(("$.structured_output", "$.permission_denials"))], name)
+        asked = json.loads((out / "requests.json").read_text())
+        self.assertEqual(asked[2]["kept"], self.KEPT)
+        self.assertIn('--tools ""', asked[2]["call"])
+        self.assertEqual(asked[2]["env"]["CLAUDE_CONFIG_DIR"],
+                         "a configuration directory of its own, logged in to the Maintainer's own subscription (decision 0033)")
+
 
 class Redaction(unittest.TestCase):
     """`tools/redact_trial.py` runs on the raw capture, outside the repo, before anyone reads it."""
@@ -3446,6 +3735,7 @@ class Redaction(unittest.TestCase):
         data["exchanges"][0]["response"]["body"]["clone"] = SHAPED["token in a url"]
         data["exchanges"][0]["response"]["body"]["blob"] = SHAPED["base64 of a runner's credentials"]
         data["exchanges"][0]["response"]["body"]["notes"] = [SHAPED[name] for name in sorted(SHAPED)]
+        data["exchanges"][0]["response"]["body"]["by_key"] = {SHAPED["ghs"]: 1, "Bearer\x00Zx9Qw8Er7Ty6Ui5Op4As3Df5": 2}
         out, said = self.redact(json.dumps(data))
         kept = json.loads(out)
         self.assertEqual(check_trials._credentials(kept, ""), [])
@@ -3455,12 +3745,21 @@ class Redaction(unittest.TestCase):
         self.assertEqual((body["expires_at"], body["external_id"]), ("2026-10-15T15:02:11Z", "factory-run-r1"))
         self.assertNotIn("token", body)
         self.assertNotIn("clone", body)
-        self.assertEqual(body["notes"], [])
+        self.assertEqual((body["notes"], body["by_key"]), ([], {}))
         self.assertIn("exchanges[0].request.headers.Authorization", kept["removed"])
         self.assertIn("exchanges[0].response.body.token", kept["removed"])
         self.assertIn("exchanges[0].response.body.clone", kept["removed"])
+        self.assertIn("exchanges[0].response.body.by_key." + check_trials.KEY_SHAPED, kept["removed"])
+        self.assertNotIn("Zx9Qw8", out + said)
         for value in SHAPED.values():
             self.assertNotIn(value, out + said)
+
+    def test_a_header_named_by_a_credential_is_reported_without_it(self):
+        raw = "HTTP/2.0 200 OK\n" + SHAPED["ghs"] + ": 1\nContent-Type: text/plain\n\nfine\n"
+        out, said = self.redact(raw)
+        self.assertEqual(out, "HTTP/2.0 200 OK\nContent-Type: text/plain\n\nfine\n")
+        self.assertIn("the header " + check_trials.KEY_SHAPED, said)
+        self.assertNotIn(SHAPED["ghs"], said)
 
     def test_a_raw_capture_comes_out_with_no_credential(self):
         raw = ("HTTP/2.0 201 Created\nAuthorization: tok" + "en " + SHAPED["ghp"] + "\nX-Ratelimit-Remaining: 4999\nX-GitHub-SSO: required\n"
@@ -4087,6 +4386,18 @@ class Mutants(unittest.TestCase):
     def test_every_test_timed_by_the_wall_clock_is_marked_and_skipped_when_mutating(self):
         # A test that reads the clock, or sleeps, can fail under load for its own reasons, and must not kill a mutant.
         clock = {"monotonic", "monotonic_ns", "perf_counter", "perf_counter_ns", "time", "time_ns", "sleep"}
+        # tests/support.py's assertions that judge a measured spend by the clock and the load (issue 253). Spent alone
+        # measures CPU, which load does not change, and its pure judgments, over and faster_than_linear, read no clock.
+        judging = {"within", "linear", "grows_linearly"}
+
+        def dotted(node) -> str:
+            """The dotted name an expression is, such as tests.support, or "" for anything else."""
+            if isinstance(node, ast.Name):
+                return node.id
+            if isinstance(node, ast.Attribute):
+                head = dotted(node.value)
+                return head + "." + node.attr if head else ""
+            return ""
         marked, reads = set(), set()
         for path in sorted((ROOT / "tests").glob("test_*.py")):
             module = ast.parse(path.read_text())
@@ -4095,6 +4406,13 @@ class Mutants(unittest.TestCase):
                        if a.name == "time"}
             bare = {name for n in ast.walk(module) if isinstance(n, ast.ImportFrom) and n.module == "time"
                     for a in n.names for name in (clock if a.name == "*" else [a.asname or a.name] if a.name in clock else [])}
+            judges = {a.asname or a.name for n in ast.walk(module) if isinstance(n, ast.ImportFrom)
+                      and n.module == "tests.support" for a in n.names if a.name in judging}
+            # The module itself, however imported, so support.within(...) is read as within(...) is (Muse on PR 257).
+            supports = ({a.asname or a.name for n in ast.walk(module) if isinstance(n, ast.ImportFrom)
+                         and n.module == "tests" for a in n.names if a.name == "support"}
+                        | {a.asname or a.name for n in ast.walk(module) if isinstance(n, ast.Import) for a in n.names
+                           if a.name == "tests.support"})     # `import tests.support` is read as tests.support (Codex)
             for owner in [n for n in ast.walk(module) if isinstance(n, ast.ClassDef)]:
                 for node in owner.body:
                     if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
@@ -4103,7 +4421,11 @@ class Mutants(unittest.TestCase):
                     if any("wall_clock" in ast.dump(d) for d in node.decorator_list):
                         marked.add(where)
                     if any((isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in modules
-                            and n.attr in clock) or (isinstance(n, ast.Name) and n.id in bare) for n in ast.walk(node)):
+                            and n.attr in clock) or (isinstance(n, ast.Name) and n.id in bare)
+                           or (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in judges)
+                           or (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in judging
+                               and dotted(n.func.value) in supports)
+                           for n in ast.walk(node)):
                         reads.add(where)
         # The order of the runs is told by a stand-in that sleeps: that test reads no clock of its own.
         timed = reads | {("test_tools.py", "Mutants", "test_mutants_are_reported_in_their_order_however_their_runs_finish")}
@@ -4117,3 +4439,371 @@ class Mutants(unittest.TestCase):
             self.assertTrue(getattr(support.wall_clock(test_x), "__unittest_skip__", False))
         with mock.patch.dict(os.environ, {"MUTATING": ""}):
             self.assertIs(support.wall_clock(test_x), test_x, "in make verify it runs as it is")
+
+
+class ContextEval(unittest.TestCase):
+    """`tools/context_eval.py`, the record of one run of the context's test (issue 8): what it takes from the CLI's
+    transcript and the export, and that no word of the model's reaches it."""
+
+    PROSE = {"said": "the model wrote THIS-PROSE-1 in a text block", "result": "THIS-PROSE-2 in a tool's result",
+             "answer": "THIS-PROSE-3 as the answer", "command": "THIS-PROSE-4 inside a command",
+             "stderr": "THIS-PROSE-5 on standard error"}
+
+    def export(self, changed=True) -> tuple:
+        """A pristine export and the agent's copy of it, with the rule, its test and its mutant added to the copy."""
+        pristine = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        work = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        files = {"AGENTS.md": "# a repo\n", "kernel/AGENTS.md": "# kernel\n", "kernel/derive.py": "def derive(f):\n    return f\n",
+                 "tests/test_decide.py": "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_one(self):\n        pass\n",
+                 "tools/mutants.py": 'DERIVE = "kernel/derive.py"\nMUTANTS = [\n    ("a rule", DERIVE, "a", "b", ("t",)),\n]\n'}
+        for folder in (pristine, work):
+            for rel, text in files.items():
+                (folder / rel).parent.mkdir(parents=True, exist_ok=True)
+                (folder / rel).write_text(text)
+        if changed:
+            (work / "kernel/derive.py").write_text('def derive(f):\n    if not f:\n        return "empty_diff"\n    return f\n')
+            (work / "tests/test_decide.py").write_text((work / "tests/test_decide.py").read_text()
+                                                       + "\n    def test_empty_diff_never_converges(self):\n        pass\n")
+            (work / "tools/mutants.py").write_text('DERIVE = "kernel/derive.py"\nMUTANTS = [\n    ("a rule", DERIVE, "a", "b", ("t",)),\n'
+                                                   '    ("an empty diff converges", DERIVE, "c", "d", ("t",)),\n]\n')
+        return pristine, work
+
+    def transcript(self, work) -> str:
+        def assistant(*blocks):
+            return json.dumps({"type": "assistant", "message": {"role": "assistant", "content": list(blocks)}})
+        lines = [
+            json.dumps({"type": "system", "subtype": "init", "cwd": str(work), "tools": ["Read", "Bash"]}),
+            assistant({"type": "text", "text": self.PROSE["said"]},
+                      {"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": str(work / "AGENTS.md")}}),
+            json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": self.PROSE["result"]}]}}),
+            assistant({"type": "tool_use", "id": "t2", "name": "Read", "input": {"file_path": "kernel/AGENTS.md"}},
+                      {"type": "tool_use", "id": "t3", "name": "Read", "input": {"file_path": "/etc/hosts"}},
+                      {"type": "tool_use", "id": "t4", "name": "Bash", "input": {"command": "python3 -m unittest tests.test_decide"}},
+                      {"type": "tool_use", "id": "t5", "name": "Bash", "input": {"command": 'echo "%s"' % self.PROSE["command"]}},
+                      {"type": "tool_use", "id": "t8", "name": "Read", "input": {"file_path": "kernel/../../etc/hosts"}},
+                      {"type": "tool_use", "id": "t9", "name": "Bash", "input": {"command": "python3 run.py lowercase-token-0123456789abcdef then"}},
+                      {"type": "tool_use", "id": "t10", "name": "Bash", "input": {"command": "gh" + "p_0123456789abcdefghijklmnopqrstuvwxyz"}},
+                      {"type": "tool_use", "id": "t6", "name": "Edit", "input": {"file_path": str(work / "kernel" / "derive.py"), "old_string": "x", "new_string": self.PROSE["said"]}},
+                      {"type": "tool_use", "id": "t7", "name": "Read", "input": {"file_path": str(work / "AGENTS.md")}}),
+            json.dumps({"type": "result", "subtype": "success", "is_error": False, "num_turns": 7, "duration_ms": 1234,
+                        "total_cost_usd": 0.25, "usage": {"input_tokens": 100, "output_tokens": 20}, "result": self.PROSE["answer"]}),
+        ]
+        return "\n".join(lines) + "\n"
+
+    META = {"commit": "9bfc81383b36f8613d9f4a25e9377046aff27a92", "ran_at": "2026-10-21T09:00:00Z", "cli_version": "2.1.302",
+            "cap_turns": 80, "code": "empty_diff"}
+    PASSED = {"held_out_test": "pass", "verify": "pass", "mutant": "killed"}
+
+    def test_the_record_holds_paths_counts_and_verdicts_and_no_model_text(self):
+        pristine, work = self.export()
+        run = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
+        self.assertIsNotNone(run)
+        self.assertEqual(validate(run, context_eval.RUN_SCHEMA), [])
+        # A path is read once, relative to the export; one outside it, by its root or by `..`, is dropped and counted; a
+        # command keeps its first words, and stops at a word that is not one or that is shaped like a token; one with
+        # no such word is unreadable, and counted; the result's counts are the cost.
+        self.assertEqual(run["read"], ["AGENTS.md", "kernel/AGENTS.md", "kernel/derive.py"])
+        self.assertEqual(run["outside_reads"], 2)
+        self.assertEqual(run["ran"], ["python3 -m unittest tests.test_decide", "echo", "python3 run.py", "unreadable"])
+        self.assertEqual(run["unread_commands"], 1)
+        self.assertEqual(run["restored"], [])
+        self.assertEqual(run["cost"], {"turns": 7, "duration_ms": 1234, "usd": 0.25, "input_tokens": 100, "output_tokens": 20})
+        self.assertEqual(run["changed"], [{"path": "kernel/derive.py", "added": 2, "removed": 0},
+                                          {"path": "tests/test_decide.py", "added": 3, "removed": 0},
+                                          {"path": "tools/mutants.py", "added": 1, "removed": 0}])
+        self.assertEqual(run["added"], {"test": "tests/test_decide.py::test_empty_diff_never_converges",
+                                        "mutant": "an empty diff converges", "reason": "empty_diff"})
+        self.assertEqual((run["verdicts"], run["passed"]), (self.PASSED, True))
+        for word in self.PROSE.values():
+            self.assertNotIn(word, json.dumps(run))
+        # A verdict that fails, fails the run; the code that is not in the Kernel's change is not the reason added.
+        failed = context_eval.record(self.transcript(work), pristine, work, dict(self.PASSED, mutant="survived"), self.META)
+        self.assertEqual((failed["verdicts"]["mutant"], failed["passed"]), ("survived", False))
+        unchanged = context_eval.record(self.transcript(work), *self.export(changed=False), self.PASSED, self.META)
+        self.assertEqual((unchanged["changed"], unchanged["added"]), ([], {"test": None, "mutant": None, "reason": None}))
+        # The code is the reason added only on a line the agent added to the Kernel, as a whole word.
+        (work / "kernel/derive.py").write_text('def derive(f):\n    if not f:\n        return "empty_diff_x"\n    return f\n')
+        self.assertIsNone(context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)["added"]["reason"])
+        # A mutant dropped from the list cannot have been killed: the judge's verdict is overridden. A mutant named
+        # like a token is not recorded. What the judge put back is carried.
+        (work / "tools/mutants.py").write_text('DERIVE = "kernel/derive.py"\nMUTANTS = [\n    ("an empty diff converges", DERIVE, "c", "d", ("t",)),\n]\n')
+        dropped = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
+        self.assertEqual((dropped["verdicts"]["mutant"], dropped["passed"]), ("survived", False))
+        (work / "tools/mutants.py").write_text('DERIVE = "kernel/derive.py"\nMUTANTS = [\n    ("a rule", DERIVE, "a", "b", ("t",)),\n'
+                                               '    ("gh' + 'p_0123456789abcdefghijklmnopqrstuvwxyz", DERIVE, "c", "d", ("t",)),\n]\n')
+        self.assertIsNone(context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)["added"]["mutant"])
+        # A name in the house style, with a Hold's capital, a comma and a parenthesis, is recorded; one too long is not.
+        (work / "tools/mutants.py").write_text('DERIVE = "kernel/derive.py"\nMUTANTS = [\n    ("a rule", DERIVE, "a", "b", ("t",)),\n'
+                                               '    ("a Hold under a merge is done, not held (issue 237)", DERIVE, "c", "d", ("t",)),\n]\n')
+        self.assertEqual(context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)["added"]["mutant"],
+                         "a Hold under a merge is done, not held (issue 237)")
+        # A change under a dot-directory is seen, and a transcript with no result is recorded with its cost unknown.
+        (work / ".github").mkdir()
+        (work / ".github" / "x.yml").write_text("on: push\n")
+        seen = context_eval.record(self.transcript(work), pristine, work, self.PASSED, self.META)
+        self.assertIn({"path": ".github/x.yml", "added": 1, "removed": 0}, seen["changed"])
+        no_result = "\n".join(self.transcript(work).splitlines()[:-1])
+        unknown = context_eval.record(no_result, pristine, work, self.PASSED, self.META)
+        self.assertEqual(unknown["cost"], {"turns": None, "duration_ms": None, "usd": None, "input_tokens": None, "output_tokens": None})
+        put_back = context_eval.record(self.transcript(work), pristine, work, self.PASSED, dict(self.META, restored=["Makefile"]))
+        self.assertEqual(put_back["restored"], ["Makefile"])
+
+    def test_what_cannot_be_read_makes_no_record(self):
+        pristine, work = self.export()
+        text = self.transcript(work)
+        self.assertIsNone(context_eval.record(text, pristine, work, "pass", self.META))
+        self.assertIsNone(context_eval.record(text, pristine, work, self.PASSED, dict(self.META, commit="short")))
+        self.assertIsNone(context_eval.record(text, pristine, work, {"held_out_test": "pass"}, self.META))
+        # A transcript with no JSON reads nothing.
+        read, ran, counts, outside = context_eval.reads_and_commands("the model said " + self.PROSE["said"], work)
+        self.assertEqual((read, ran, counts, outside), ([], [], {}, 0))
+        # The CLI's json form, one list, is read as the stream is.
+        as_list = json.dumps([json.loads(line) for line in text.splitlines()])
+        self.assertEqual(context_eval.record(as_list, pristine, work, self.PASSED, self.META)["read"],
+                         ["AGENTS.md", "kernel/AGENTS.md", "kernel/derive.py"])
+
+    def test_the_front_door_refuses_a_transcript_inside_the_repo_and_writes_the_record(self):
+        pristine, work = self.export()
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (folder / "raw").write_text(self.transcript(work))
+        (folder / "verdicts.json").write_text(json.dumps(self.PASSED))
+        (folder / "meta.json").write_text(json.dumps(self.META))
+        out = folder / "record.json"
+        # The scratch directory the recorder is told is its own: everything it reads and writes lies under it, and the
+        # repo does not, wherever the repo is (under the mutation check it is a copy under the system's own scratch).
+        scratch = pathlib.Path(SCRATCH.name).resolve()
+        args = ["record", str(folder / "raw"), str(pristine), str(work), str(folder / "verdicts.json"), str(folder / "meta.json"), str(out)]
+        with mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(context_eval.main(args, base=scratch), 0)
+        self.assertTrue(json.loads(out.read_text())["passed"])
+        with mock.patch("sys.stderr", io.StringIO()) as said:
+            self.assertEqual(context_eval.main(["record", str(ROOT / "AGENTS.md")] + args[2:], base=scratch), 2)
+            self.assertEqual(context_eval.main(args[:-1] + [str(ROOT / "never.json")], base=scratch), 2)
+            self.assertEqual(context_eval.main(args, base=folder), 2, "the exports are outside the base given")
+            self.assertEqual(context_eval.main(["record", str(folder / "none")] + args[2:], base=scratch), 2)
+            self.assertEqual(context_eval.main(["record"], base=scratch), 2)
+            self.assertEqual(context_eval.main(["mutants", str(ROOT / "tools"), str(work)], base=scratch), 2)
+        self.assertFalse((ROOT / "never.json").exists())
+        self.assertIn("outside the repo", said.getvalue())
+        self.assertNotIn(str(ROOT), said.getvalue(), "the refusal names no path")
+        with mock.patch("sys.stdout", io.StringIO()) as said:
+            self.assertEqual(context_eval.main(["mutants", str(pristine), str(work)], base=scratch), 0)
+        self.assertEqual(json.loads(said.getvalue()), {"names": ["an empty diff converges"], "targets": ["kernel/derive.py"]})
+
+
+class ContextEvalScript(unittest.TestCase):
+    """`tools/context_eval.sh`, run against a stand-in CLI and a stand-in repo, never the real ones: the environment
+    the CLI is given, each refusal before anything is asked, the judge's three verdicts, and the record with no word
+    of the model's in it."""
+
+    SCRIPT = ROOT / "tools" / "context_eval.sh"
+    PIN = re.search(r"^PIN=(\S+)$", SCRIPT.read_text(), re.M).group(1)
+    PROSE = ContextEval.PROSE
+    SENTENCE = "An empty diff never converges, with the reason `empty_diff`."
+    # The stand-in CLI: it answers its version, and on a prompt it edits the export as an agent would, records the
+    # environment and arguments it was given beside itself, and prints a transcript holding the model's words.
+    STAND_IN = """#!/bin/sh
+here=$(cd "$(dirname "$0")" && pwd)
+case "$1" in
+  --version) env > "$here/env-version"; cat "$here/version"; exit 0 ;;
+  -p) env > "$here/env-task"; printf '%s\\n' "$@" > "$here/args"; pwd > "$here/cwd"
+      [ -f "$here/tamper" ] && printf 'verify:\\n\\t@echo tampered\\n' > Makefile
+      [ -f "$here/survive" ] && cp "$here/survive" tools/survive
+      printf 'def rule(f):\\n    return "empty_diff"\\n' >> kernel/derive.py
+      printf '\\n    def test_empty_diff_never_converges(self):\\n        pass\\n' >> tests/test_decide.py
+      python3 - <<'PY'
+p = "tools/mutants.py"; s = open(p).read()
+open(p, "w").write(s.replace("]\\n", '    ("an empty diff converges", DERIVE, "c", "d", ("t",)),\\n]\\n', 1))
+PY
+      cat "$here/transcript"; cat "$here/stderr" >&2; exit 0 ;;
+esac
+exit 9
+"""
+    # The stand-in repo's mutation check: it kills every mutant its list holds, but one named in tools/survive, and
+    # says so as the real one does, with the real one's exit.
+    MUTANTS_PY = '''import os, sys
+DERIVE = "kernel/derive.py"
+MUTANTS = [
+    ("a rule", DERIVE, "a", "b", ("t",)),
+'''
+    MUTANTS_MAIN = '''
+survive = open("tools/survive").read().split("\\n") if os.path.exists("tools/survive") else []
+killed = 0
+for name, *_ in MUTANTS:
+    outcome = "SURVIVED" if name in survive else "killed"
+    killed += outcome == "killed"
+    print("%-9s %s" % (outcome, name))
+print("%d of %d mutants killed" % (killed, len(MUTANTS)))
+sys.exit(0 if killed == len(MUTANTS) else 1)
+'''
+
+    def setUp(self):
+        self.home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        self.cfg = self.home.parent / (self.home.name + "-cfg")
+        self.cfg.mkdir()
+        self.out = self.home.parent / (self.home.name + "-out")
+        self.aside = self.home.parent / (self.home.name + "-aside")
+        self.aside.mkdir()
+        (self.aside / "sentence").write_text(self.SENTENCE + "\n")
+        (self.aside / "test_held_out.py").write_text("import unittest\nfrom kernel import derive\n\n\nclass HeldOut(unittest.TestCase):\n"
+                                                    "    def test_the_rule_holds(self):\n        self.assertEqual(derive.rule({}), 'empty_diff')\n")
+
+    # The stand-in repo's verify passes only once the held-out test has been taken out again.
+    def repo(self, verify="verify:\n\t@test ! -f tests/test_held_out.py\n") -> tuple:
+        """A stand-in repo with one commit: an AGENTS.md, a Kernel, a test, a mutation check and a Makefile."""
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        files = {"AGENTS.md": "# a repo\n", "Makefile": verify, "kernel/__init__.py": "", "kernel/derive.py": "def derive(f):\n    return f\n",
+                 "tests/__init__.py": "", "tests/test_decide.py": "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_one(self):\n        pass\n",
+                 "tools/__init__.py": "", "tools/mutants.py": self.MUTANTS_PY + "]\n" + self.MUTANTS_MAIN}
+        for rel, text in files.items():
+            (folder / rel).parent.mkdir(parents=True, exist_ok=True)
+            (folder / rel).write_text(text)
+        env = {"PATH": os.environ["PATH"], "HOME": str(self.home), "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_NOSYSTEM": "1"}
+        for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "one"]):
+            subprocess.run(["git", "-C", str(folder), *args], env=env, check=True, capture_output=True)
+        commit = subprocess.run(["git", "-C", str(folder), "rev-parse", "HEAD"], env=env, check=True, capture_output=True, text=True).stdout.strip()
+        return folder, commit
+
+    def stand_in(self, version=None, tamper=False, survive=None) -> pathlib.Path:
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (folder / "version").write_text("%s (Claude Code)\n" % (version or self.PIN))
+        if tamper:
+            (folder / "tamper").write_text("")
+        if survive:
+            (folder / "survive").write_text(survive + "\n")
+        (folder / "stderr").write_text(self.PROSE["stderr"] + "\n")
+        (folder / "transcript").write_text(ContextEval().transcript(pathlib.Path("/nowhere")).replace("/nowhere/", ""))
+        cli = folder / "claude"
+        cli.write_text(self.STAND_IN)
+        cli.chmod(0o755)
+        return folder
+
+    def run_script(self, out, cfg, repo, commit, sentence, held_out, cli) -> subprocess.CompletedProcess:
+        env = {"PATH": os.environ["PATH"], "HOME": str(self.home), "LANG": "C",
+               "ANTHROPIC_API_KEY": "sk-" + "ant-" + "api03-NEVER-SEEN", "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
+        return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg), str(repo), commit, str(sentence), str(held_out), str(cli)],
+                              cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=300)
+
+    def texts(self, out) -> dict:
+        return {p.name: p.read_text() for p in pathlib.Path(out).iterdir()}
+
+    def test_a_run_is_judged_and_recorded_with_no_model_text(self):
+        folder, commit = self.repo()
+        cli = self.stand_in()
+        ran = self.run_script(self.out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", cli / "claude")
+        self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+        named = {"HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "LANG", "CLAUDE_CONFIG_DIR", "DISABLE_AUTOUPDATER"}
+        for call in ("version", "task"):
+            given = dict(line.split("=", 1) for line in (cli / ("env-" + call)).read_text().splitlines() if "=" in line)
+            self.assertEqual(set(given) - {"PWD", "OLDPWD", "SHLVL", "_"}, named, call)
+            self.assertNotIn("NEVER-SEEN", (cli / ("env-" + call)).read_text(), call)
+            # A scratch HOME, not the Maintainer's; the login in CONFIG_DIR alone.
+            self.assertNotEqual(given["HOME"], str(self.home), call)
+            self.assertEqual(given["CLAUDE_CONFIG_DIR"], str(self.cfg), call)
+        args = (cli / "args").read_text().split("\n")
+        self.assertEqual(args[args.index("-p") + 1], self.SENTENCE)
+        self.assertEqual(args[args.index("--disallowedTools") + 1], "WebFetch,WebSearch,Task,Agent")
+        self.assertIn("--max-turns", args)
+        # The agent worked in the export, not in the repo, which is left as it was.
+        self.assertNotEqual(pathlib.Path((cli / "cwd").read_text().strip()), folder)
+        self.assertEqual((folder / "kernel" / "derive.py").read_text(), "def derive(f):\n    return f\n")
+        texts = self.texts(self.out)
+        self.assertEqual(sorted(texts), ["checked.json", "ran_at", "record.json", "requests.json"])
+        record = json.loads(texts["record.json"])
+        self.assertEqual(validate(record, context_eval.RUN_SCHEMA), [])
+        self.assertEqual((record["verdicts"], record["passed"], record["commit"], record["cli_version"]),
+                         ({"held_out_test": "pass", "verify": "pass", "mutant": "killed"}, True, commit, self.PIN))
+        self.assertEqual(record["added"], {"test": "tests/test_decide.py::test_empty_diff_never_converges",
+                                           "mutant": "an empty diff converges", "reason": "empty_diff"})
+        self.assertEqual([c["path"] for c in record["changed"]], ["kernel/derive.py", "tests/test_decide.py", "tools/mutants.py"])
+        self.assertEqual(record["read"], ["AGENTS.md", "kernel/AGENTS.md", "kernel/derive.py"])
+        self.assertEqual((record["outside_reads"], record["restored"]), (2, []))
+        checked = json.loads(texts["checked.json"])
+        self.assertEqual((checked["agent"]["exit"], checked["agent"]["stderr"]["lines"], checked["mutants"]["added"]),
+                         (0, 1, ["an empty diff converges"]))
+        self.assertIn("none", checked["sandbox"])
+        everything = "".join(texts.values()) + ran.stdout + ran.stderr
+        for word in self.PROSE.values():
+            self.assertNotIn(word, everything)
+        self.assertNotIn("NEVER-SEEN", everything)
+        self.assertNotIn("test_the_rule_holds", everything, "the held-out test is never recorded")
+
+    def test_a_verdict_that_fails_is_recorded_and_fails_the_run(self):
+        folder, commit = self.repo(verify="verify:\n\t@exit 1\n")
+        cli = self.stand_in()
+        ran = self.run_script(self.out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", cli / "claude")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        record = json.loads((self.out / "record.json").read_text())
+        self.assertEqual((record["verdicts"]["verify"], record["passed"]), ("fail", False))
+        # The held-out test that fails: the rule the agent wrote is not the one the answer expects.
+        (self.aside / "test_held_out.py").write_text("import unittest\n\n\nclass HeldOut(unittest.TestCase):\n"
+                                                    "    def test_the_rule_holds(self):\n        self.fail('not the rule')\n")
+        folder, commit = self.repo()
+        out = self.home.parent / (self.home.name + "-held-out-fails")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", self.stand_in() / "claude")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["verdicts"]["held_out_test"], record["verdicts"]["verify"], record["passed"]), ("fail", "pass", False))
+        self.assertNotIn("not the rule", "".join(self.texts(out).values()) + ran.stdout + ran.stderr)
+        # The agent's mutant that survives, by the whole check's exit and its line, fails the run.
+        (self.aside / "test_held_out.py").write_text("import unittest\nfrom kernel import derive\n\n\nclass HeldOut(unittest.TestCase):\n"
+                                                    "    def test_the_rule_holds(self):\n        self.assertEqual(derive.rule({}), 'empty_diff')\n")
+        folder, commit = self.repo()
+        out = self.home.parent / (self.home.name + "-survives")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in(survive="an empty diff converges") / "claude")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["verdicts"]["mutant"], record["passed"]), ("survived", False))
+        # The agent that rewrites the judge's Makefile: it is put back as made, recorded, and the judge is the export's own.
+        folder, commit = self.repo()
+        out = self.home.parent / (self.home.name + "-tampered")
+        ran = self.run_script(out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py",
+                              self.stand_in(tamper=True) / "claude")
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        record = json.loads((out / "record.json").read_text())
+        self.assertEqual((record["restored"], record["verdicts"]["verify"], record["passed"]), (["Makefile"], "pass", True))
+        self.assertNotIn("Makefile", [c["path"] for c in record["changed"]], "put back before the changes are counted")
+
+    def test_each_refusal_stops_before_anything_is_asked(self):
+        folder, commit = self.repo()
+        cli = self.stand_in()
+        existing = self.home.parent / (self.home.name + "-taken")
+        existing.mkdir()
+        two = self.aside / "two"
+        two.write_text("One rule here. And `another_one` there.\n")
+        no_code = self.aside / "no-code"
+        no_code.write_text("An empty diff never converges, with no code named.\n")
+        inside = folder / "test_inside.py"
+        inside.write_text("")
+        linked = self.aside / "test_linked.py"
+        linked.symlink_to(inside)
+        good = [self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", cli / "claude"]
+        cases = [("OUT exists", [existing] + good, "exists; name a new directory"),
+                 ("OUT inside the repo", [ROOT / "never-made"] + good, "OUT is inside the repo"),
+                 ("OUT inside REPO", [folder / "never-made"] + good, "OUT is inside REPO"),
+                 ("CONFIG_DIR is HOME", [self.out, self.home] + good[1:], "the home directory or holds it"),
+                 ("CONFIG_DIR under ~/.claude", [self.out, self.home / ".claude" / "x"] + good[1:], "under ~/.claude"),
+                 ("REPO not a checkout", [self.out, self.cfg, self.aside] + good[2:], "REPO is not a git checkout"),
+                 ("COMMIT unknown", [self.out, self.cfg, folder, "0" * 40] + good[3:], "COMMIT is not a commit in REPO"),
+                 ("two sentences", good[:3] and [self.out] + good[:3] + [two] + good[4:], "not one sentence"),
+                 ("no code", [self.out] + good[:3] + [no_code] + good[4:], "names no reason code"),
+                 ("HELD_OUT inside REPO", [self.out] + good[:4] + [inside, cli / "claude"], "stay outside the repo"),
+                 ("HELD_OUT linked into REPO", [self.out] + good[:4] + [linked, cli / "claude"], "stay outside the repo"),
+                 ("CONFIG_DIR inside REPO", [self.out, folder / "kernel"] + good[1:], "CONFIG_DIR is inside REPO"),
+                 ("HELD_OUT not a test", [self.out] + good[:4] + [self.aside / "sentence", cli / "claude"], "is named test_")]
+        (self.home / ".claude" / "x").mkdir(parents=True)
+        for name, args, said in cases:
+            ran = subprocess.run(["bash", str(self.SCRIPT), *map(str, args)], cwd=SCRATCH.name, capture_output=True, text=True,
+                                 env={"PATH": os.environ["PATH"], "HOME": str(self.home), "LANG": "C"}, timeout=120)
+            self.assertEqual(ran.returncode, 2, (name, ran.stderr))
+            self.assertIn(said, ran.stderr, name)
+            self.assertFalse((cli / "env-version").exists(), name + ": nothing was asked")
+        self.assertFalse((ROOT / "never-made").exists())
+        # The wrong version, after asking it and before the agent.
+        wrong = self.stand_in(version="0.0.1")
+        ran = self.run_script(self.out, self.cfg, folder, commit, self.aside / "sentence", self.aside / "test_held_out.py", wrong / "claude")
+        self.assertEqual(ran.returncode, 1)
+        self.assertIn("is version '0.0.1', exit 0, not " + self.PIN, ran.stderr)
+        self.assertFalse((wrong / "args").exists(), "the agent was not asked")

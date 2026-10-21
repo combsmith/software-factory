@@ -5,7 +5,7 @@ design: what was sent to GitHub in the canary repo, combsmith/software-factory-c
 org itself for a trial about the org and its Apps (decision 0035), or, for a trial of a vendor's
 CLI, in no repo (decision 0033), and what came back, with every credential removed. The fake
 GitHub in `sim/` is held to these (`sim/grounding.py`). How a trial is run is the skill
-`.claude/skills/run-a-platform-trial/SKILL.md`.
+`.claude/skills/run-a-platform-trial/SKILL.md`; P-13's script, `tools/trial_p13_cli.sh`, has its runbook beside it, `tools/trial_p13_runbook.md`.
 `python3 -m tools.check_trials` checks this folder alone, before a fixture is added to git.
 
 | Rule | Held by |
@@ -22,3 +22,8 @@ GitHub in `sim/` is held to these (`sim/grounding.py`). How a trial is run is th
 | `repo` is null exactly when every request asks as `subscription`, as a trial of a vendor's CLI does (decision 0033) | `tests/test_tools.py::test_a_null_repo_goes_with_a_subscription_and_nothing_else` |
 | `repo` is the org exactly when every call is a REST call of an App, the org or an installation, climbing nowhere (decision 0035) | `tests/test_tools.py::test_the_org_is_the_repo_exactly_when_every_call_is_of_the_org_or_its_apps` |
 | Whoever asked is named in words, never by an address | `tests/test_tools.py::test_an_asker_named_by_an_address_is_caught` |
+| A fixture of the canary reads the org's repos alone and is answered with them alone, a repo named by a URL among them; an App's read stays within its installation's reach | `tests/test_tools.py::test_a_cost_measurements_exchanges_name_each_repo_they_span` |
+| P-13's script gives the CLI only the environment it names, and no tool | `tests/test_tools.py::test_the_cli_is_given_only_the_named_environment_and_no_tool` |
+| It refuses the default configuration: the home directory, any directory holding it, anything under `~/.claude`, the repo | `tests/test_tools.py::test_each_refusal_stops_before_anything_is_asked` |
+| It stops unless `auth status` exits 0 and says logged in, and records that exit code | `tests/test_tools.py::test_the_logins_exit_code_is_recorded` |
+| Of the Task's answer only the fields the script names reach OUT, so no model text does, whether or not the structured output validates | `tests/test_tools.py::test_no_model_text_reaches_out_whether_or_not_the_output_validates` |

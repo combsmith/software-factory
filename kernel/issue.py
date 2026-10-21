@@ -74,6 +74,8 @@ KEPT = frozenset({NEW, TRIAGE, READY})
 # places for unmerged closes calls a person whatever its reason, the Pause's deferral of it too, and is not listed.
 NEEDS_YOU_REASONS = frozenset({
     "human_hold",
+    "merged_while_held",
+    "merged_while_declined",
     "linked_twice",
     "acceptance_lapsed",
     "attempts_exhausted",
@@ -338,6 +340,89 @@ def out(state, reason: str, evidence: list) -> dict:
     return {"state": state, "reason": reason, "evidence": evidence}
 
 
+def readable_close(facts: dict) -> bool:
+    """Whether the first close of the issue's present life can be read whole: a time no earlier than the life began
+    while the issue is closed; while it is open, null unless anyone but a writer reopened it last, which undid a close
+    of this life, no earlier than the life began and no later than that reopening. A writer's reopening began the life,
+    so the close it undid is the earlier life's."""
+    when, began = facts.get("closed_first_at", ""), facts.get("life_started_at")
+    if facts["state"] == "open" and facts.get("reopened_last_by") != "other":
+        return when is None
+    # The life's start is the life's to read; where it reads, the close came no earlier.
+    return is_time(when) and (not is_time(began) or began <= when)
+
+
+def readable_reopening(facts: dict) -> bool:
+    """Whether when the issue was last reopened can be read whole: null when it never was; the start of the present
+    life when a person with write access reopened it last, since that reopening began the life; and a time no earlier
+    than that start when anyone else did, since a writer's later reopening would have begun a life of its own."""
+    who, when, undone = facts["reopened_last_by"], facts.get("reopened_last_at", ""), facts.get("closed_first_at")
+    if who == "never":
+        return when is None
+    if not is_time(when):
+        return False
+    if who == "writer":
+        return when == facts["life_started_at"]
+    # Anyone else's reopening undid the first close of this life, which came no later than it; that close is a time
+    # no earlier than the life began, since the state was read first (readable_close), so the reopening is in the life.
+    return undone <= when
+
+
+def as_of(item: dict, when: str) -> dict:
+    """`item`, an issue or a linked pull request, with its control label events up to `when` alone: its labels as they
+    stood then. An event of another label is not read, so its time is not either."""
+    return dict(item, label_events=[ev for ev in item["label_events"]
+                                    if ev["label"] in t.CONTROL_LABELS and ev["at"] <= when])
+
+
+def drafts_at(links: list, when: str) -> list:
+    """The linked pull requests that were open drafts at `when`: opened by then and not closed before it, one closed
+    in that second among them, since the reading that stops work wins a tie. Whether one was a draft then is read
+    from its flag now, the one the facts carry."""
+    return [p for p in links if p["draft"] and p["opened_at"] <= when and (p["open"] or p["closed_at"] >= when)]
+
+
+def released_since(item: dict, name: str, when: str) -> bool:
+    """Whether a person removed the label `name` from `item` after `when`: only a person ends what a label holds,
+    and a removal in the second of `when` is read as before it."""
+    return any(ev["label"] == name and ev["action"] == "unlabeled" and ev["at"] > when and is_person(ev["by"])
+               for ev in item["label_events"])
+
+
+def stopped_before(facts: dict, links: list, when: str) -> list:
+    """The labels that held the issue when the merge at `when` landed and that no person has released since: a Hold,
+    whoever placed it, and hands-off anyone but a person placed, standing then on the issue or on a draft linked then.
+    Placed later, a label does not touch what the merge did; placed in the merge's second, the reading that stops work
+    wins; released by a person since, it was answered, and placed again after that it is a Hold of its own; an App's
+    removal, and a draft closed since, release nothing."""
+    out = []
+    for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF):
+        for item in [facts] + drafts_at(links, when):
+            if name in standing_labels(as_of(item, when)) and not released_since(item, name, when):
+                out.append(name)
+                break
+    return out
+
+
+def a_persons_hands_off(labels: dict, facts: dict, drafts: list, links: list = (), by: str = None) -> bool:
+    """Whether a person's hands-off stands on the issue or on its linked draft, or stood there at the time `by` where
+    one is given, on a draft linked then, lifted since or not: the Factory never acts on it, and leaves a queued item
+    to merge under it."""
+    items = [facts] + list(drafts)
+    if by is not None:
+        items = [as_of(item, by) for item in [facts] + drafts_at(links, by)]
+        labels = standing_labels(items[0])
+    return any(placed_by_a_person(each, item)
+               for each, item in [(labels, items[0])] + [(standing_labels(p), p) for p in items[1:]])
+
+
+def held_by(labels: dict, drafts: list) -> list:
+    """The labels that hold the issue: a Hold, whoever placed it, and hands-off anyone but a person placed, on the issue
+    or on its linked draft."""
+    on_drafts = [standing_labels(p) for p in drafts]
+    return [name for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF) if name in labels or any(name in d for d in on_drafts)]
+
+
 def derive(facts: dict, runs: list, config: dict) -> dict:
     """Return {'state', 'reason', 'evidence'} for one issue. `state` is None when a fact cannot be read.
 
@@ -347,7 +432,7 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     gaps = unread_lists(facts)
     if gaps:
         return out(None, "facts_incomplete", gaps)
-    if facts.get("state") not in ISSUE_STATES:
+    if facts.get("state") not in ISSUE_STATES or not readable_close(facts):
         return out(None, "state_unreadable", [])
     # Who opened the issue, of what kind: only a person who opened it accepts it by authorship.
     if not whole_actor(facts.get("author"), config):
@@ -358,7 +443,8 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
         return out(None, "label_unreadable", [])
     if not (isinstance(facts.get("linked"), list) and all(readable_link(p, config) for p in facts["linked"])):
         return out(None, "linked_unreadable", [])
-    if not (is_time(facts.get("life_started_at")) and facts.get("reopened_last_by") in REOPENED_BY):
+    if not (is_time(facts.get("life_started_at")) and facts.get("reopened_last_by") in REOPENED_BY
+            and readable_reopening(facts)):
         return out(None, "life_unreadable", [])
     if not readable_content(facts):
         return out(None, "content_unreadable", [])
@@ -371,10 +457,27 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     links = [p for p in facts["linked"] if is_linked(p)]
     open_links = [p for p in links if p["open"]]
     drafts = [p for p in open_links if p["draft"]]
-    # Row 1. A merge at the start of a life is in it: the reading that stops work wins.
-    merges = [str(p["number"]) for p in links
+    labels = standing_labels(facts)
+    # Row 1. A merge at the start of a life is in it: the reading that stops work wins. A merge that landed after a
+    # person had closed the issue, after anyone but a person with write access had reopened it, which begins no life
+    # (I-41), or while a Hold stood, is the platform doing what the Controller should have prevented, a dequeue on
+    # that close or hold (issue 227, the Maintainer's ruling): it is never done. The State the person put the issue in
+    # stays, and the reason names the contradiction, so that a person sees it. Each is read against the first such
+    # merge, by the times the facts carry: the first close of this life before the merge's second is a person's,
+    # since the merge's own close comes no earlier than the merge, and no later close or reopening by anyone moves it;
+    # a reopening or a Hold in that second stops work, so it wins. A person's hands-off is no Hold: the Factory
+    # leaves a queued item to merge under it, so that merge is done.
+    merged = [p for p in links
               if p["merged_at"] is not None and not p["empty"] and p["merged_at"] >= facts["life_started_at"]]
-    if merges:
+    merges = [str(p["number"]) for p in merged]
+    if merged:
+        first = min(p["merged_at"] for p in merged)
+        if facts["closed_first_at"] is not None and facts["closed_first_at"] < first:
+            return out(DECLINED, "merged_while_declined", merges)
+        if facts["reopened_last_by"] == "other" and facts["reopened_last_at"] <= first:
+            return out(DECLINED, "merged_while_declined", merges)
+        if stopped_before(facts, links, first) and not a_persons_hands_off(labels, facts, drafts, links, first):
+            return out(t.HELD, "merged_while_held", merges)
         return out(DONE, "merged", merges)
     # Row 2.
     if facts["state"] != "open":
@@ -384,12 +487,10 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     # Row 3.
     if not served(facts, config):
         return out(t.NOT_SERVED, "left_out", [])
-    labels = standing_labels(facts)
-    if placed_by_a_person(labels, facts) or any(placed_by_a_person(standing_labels(p), p) for p in drafts):
+    if a_persons_hands_off(labels, facts, drafts):
         return out(t.NOT_SERVED, "hands_off", [t.LABEL_HANDS_OFF])
     # Row 4. A Hold, whoever placed it, and hands-off anyone but a person placed, on the issue or its linked draft.
-    on_drafts = [standing_labels(p) for p in drafts]
-    stops = [name for name in (t.LABEL_HOLD, t.LABEL_HANDS_OFF) if name in labels or any(name in d for d in on_drafts)]
+    stops = held_by(labels, drafts)
     if stops:
         return out(t.HELD, "human_hold", stops)
     if len(open_links) > 1:

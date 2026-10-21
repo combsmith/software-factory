@@ -183,6 +183,7 @@
     "choice": {
       "enum": [
         "end_hold",
+        "reopen",
         "admit",
         "renew_allowance",
         "approve",

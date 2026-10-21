@@ -355,6 +355,9 @@ see. An act that stops work, a Hold label or a dequeue, is counted and never ref
 is missing, negative or not a whole number is unreadable: the Kernel defers and makes no act
 (I-13). The count comes from the timeline, which is paged like any list, and `complete.timeline`
 says whether it was read in full: a timeline read short undercounts, and the item defers (I-20).
+A timeline's `totalCount` counts every item whatever types were asked, so a timeline read whole
+is told by its last page's `hasNextPage` being false, never by that count nor by a page
+shorter than was asked (P-33).
 The count bounds acts only; a Run is bounded by the Run ceiling.
 
 A check's `conclusion` is GitHub's own word, or the check's status while it has not concluded.
@@ -542,7 +545,8 @@ An issue has facts of its own (§4.1, the issue Lifecycle):
 | `item`, `state`, `author` | Identity, open or closed, and the opening actor: its kind, name and write access, as any actor in the facts. Only a person who opened it accepts it by authorship |
 | `type`, `label_names`, `assignees` | The issue's type, every label's name, and who it is assigned to |
 | `life_started_at`, `reopened_last_by` | When it was opened, or last reopened by a person with write access; and whether its latest reopening was by such a person, by someone else, or never happened |
-| `content_id`, `content_changed_at` | A hash of the title and body, computed by the port, and when either last changed |
+| `closed_first_at`, `reopened_last_at` | When its present life was first closed, from its timeline, null while it has not been: a time while it is closed, and while it is open only where anyone but a writer reopened it last and so undid a close of this life; and when it was last reopened, by anyone, null if never: a writer's reopening is the start of the present life, anyone else's no earlier. Each is read whole or the issue defers; against them a merge is placed before or after the first close of this life, an outsider's reopening and a Hold (§4.1, row 1) |
+| `content_id`, `content_changed_at` | A hash of the title and body, computed by the port, and when either last changed. The body's last edit is the issue's `lastEditedAt`; the title's is the timeline's rename event; the content's time is the newer of the two, which the port computes, and the issue's creation while neither has moved. The port reads no list of the body's edits: the first edit of a body leaves an edit dated at the issue's creation beside it, for the original content (P-34, read on the Maintainer's own edits) |
 | `label_events` | Every `labeled` and `unlabeled` event on the timeline, as on a pull request: the label, who added or removed it (kind, name and write access), and when. The control labels are read from them alone; every other label is in `label_names` |
 | `linked` | Each pull request that closes it: number, `class` as the port gives it for a pull request, opening actor, open, draft, `opened_at` (decision 0034), `merged_at`, `closed_at`, whether its diff was empty, and its own `label_events`, from which its Hold, hands-off and whether a person once admitted it are read |
 | `role_comments` | For each Factory App that has commented: the time of its latest comment |
@@ -1185,7 +1189,11 @@ condition of the content, `empty_diff` or `too_large`, ends when the diff change
 verifying` is declared by `human` and by `platform`. `not_served` is not terminal:
 GitHub serves a stacked pull request when it retargets it at the default branch, which takes it
 to `verifying` or `draft` by `platform`, and a person may close it. Every way into `not_served`
-is a person's, so no cycle passes through it without one. Re-running a check on unchanged content
+is a person's, so no cycle passes through it without one. A pull request to a base that is not
+the default branch carries no closing reference from the keywords in its description, which
+GitHub enforces (P-33). A link a person makes by hand was not tried, and GitHub may list it, so
+the port reads a pull request as `linked` only while its base is the default branch.
+Re-running a check on unchanged content
 is a person's act too. A Lens reports once for each run on a `content_id`, unchanged content admits no
 second model review (I-11), and no Effect re-runs a check (§3.6). Nor can a Factory workflow: a
 re-run needs a write, and under "Nothing is granted that is not named" in
@@ -1299,7 +1307,7 @@ write access.
 
 | # | If | State | Next actor |
 |---|---|---|---|
-| 1 | A linked pull request merged with a non-empty diff in its present life, whether or not GitHub has yet closed the issue | `done` | None |
+| 1 | A linked pull request merged with a non-empty diff in its present life, whether or not GitHub has yet closed the issue (P-33: the issue closed a second after the merge, and its closed event two). Unless, when the first such merge landed, a person had closed the issue in this life, anyone but a writer had reopened it, or a Hold stood (whoever placed it, or hands-off a person did not place, on the issue or its linked draft) with no person's hands-off beside it: then the State a person put it in stays, `declined` or `held`, and the reason names the contradiction, `merged_while_declined` or `merged_while_held` (§4.5, issue 227) | `done` | None |
 | 2 | Closed in any other way, an empty merge and a commit's closing keyword among them. It stays so if anyone but a person with write access reopens it | `declined` | None |
 | 3 | The Consumer entry does not serve it; or it, or its linked draft, carries `factory:hands-off` | `not_served` | A person |
 | 4 | It carries `factory:hold`, whoever added it; or its linked draft pull request does; or more than one linked pull request is open; or its Run ceiling is reached while it wants a Run (decision 0003) | `held` | As the Hold states |
@@ -1413,8 +1421,12 @@ close opens a second pull request and never finds the first. The first push is o
 an opening Run dies after pushing, the branch holds all of it; the next opening Run finds the
 branch, pushes nothing, and opens the pull request from what is there. From the fix and implement Intents onward the first commit is
 `qa-lead`'s contract and its failing tests (§4.8). The closing reference GitHub holds is the only
-join between the two items; it is read at every pass and written nowhere else. A pull request the
-Factory opens closes exactly one issue.
+join between the two items; it is read at every pass and written nowhere else. The join is read
+from each pull request's own closing references, never from the issue's cross-reference
+events, which anyone may cause by naming the issue and which say a pull request will close it
+only while it is open, unmerged and to the default branch, and nothing once the issue is closed
+(P-33). A pull request the Factory opens closes
+exactly one issue.
 
 While the linked pull request is a draft, the issue's Lifecycle governs and the pull request's
 does nothing. Runs are admitted on the issue, and the issue's facts carry the draft's own.
@@ -1689,9 +1701,11 @@ own after an outsider had reopened it (seed 99). The Lifecycle now declares `in_
 platform, the queue's merge. The queue makes no merge in the world while the issue is held or declined,
 and a person none while it is declined: the Controller dequeues the Factory's pull request when a person
 closes or holds its issue, as the Maintainer ruled (issue 227, "Design: does a merge end a held or a
-declined issue?"). The Kernel still reads such a merge as `done`; that it becomes a Hold naming the
-contradiction is a Kernel story not built yet, with its boundary case and mutant (issue 237, "Kernel: a
-merge read while an issue is held or declined is a Hold, not done"). The Hold the brakes place for unmerged closes (I-43) is placed on a `new` issue too,
+declined issue?"). The Kernel reads such a merge as the platform doing what the Controller should have prevented:
+never `done`; the State a person put the issue in stays, and the reason names the contradiction, `merged_while_declined`
+or `merged_while_held`, placed by time against the first merge in the life from the first close of the issue's present life, its last
+reopening and the label's own time (§4.1, row 1; issue 237, "Kernel: a merge read while an issue is held or declined
+is a Hold, not done"). The Hold the brakes place for unmerged closes (I-43) is placed on a `new` issue too,
 an outsider's whose colleague closed their own pull requests (seed 137); the Lifecycle now declares
 `new → held` by the Factory. Past the fixed seeds, an outsider's edit lapsed acceptance from `in_review`
 (seed 617), and a Run admitted on a stale read showed a `new` issue in progress until it superseded
@@ -1705,8 +1719,10 @@ issue world makes that tests/test_transitions.py does not find").
 
 - **Grounding.** The fake GitHub is only as good as what it assumes. Each rule it applies cites a
   response recorded from the real platform in a trial of §6. A rule with no recording is listed as
-  unverified, and `factory / verify` prints that list. The POC's tests passed against a stub that
-  accepted calls the real interface rejects; this is the guard against repeating it.
+  unverified, and `factory / verify` prints that list, saying for each which trial of §6 asks it and
+  waits to run, or, where no trial can ask it, why not, in one sentence beside the rule (issue 190).
+  The POC's tests passed against a stub that accepted calls the real interface rejects; this is the
+  guard against repeating it.
 
 Two things are checked exhaustively rather than sampled, because they are small and finite: the
 Lifecycle graph (every state reaches a terminal one, every non-terminal state has a timer, and,
@@ -2034,13 +2050,13 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | # | Question | Pass |
 |---|---|---|
 | P-1 | Does a pull request authored by an App need an extra approval under the live ruleset's rule for unattributed changes? | One approval suffices |
-| P-2 | Can an App enable auto-merge and enter the merge queue, and take a pull request out of it before the queue merges it? And does the poller read a change before the queue merges it? | Yes to all three |
+| P-2 | Can an App enable auto-merge and enter the merge queue, and take a pull request out of it before the queue merges it? And does the poller read a change before the queue merges it? Does a push take a queued pull request out, can the queue eject one without merging it, its approval staying, is a draft ever merged by a person or the queue, and does the queue run the required checks on the merge group? | Yes to the first three; each of the rest answered and recorded, and the fake changed to match where it differs (`sim/AGENTS.md`, "Known to differ") |
 | P-3 | Is an environment secret restricted to the default branch unreadable from a workflow on a work-item branch? | Unreadable |
 | P-4 | Can an installation token be minted with a subset of the App's permissions and repos? | Yes. **Failed** on 2026-10-21 (`trials/P-4.json`): the token is minted with the subset and held to its permissions (a write beyond them is refused 403), but a repository subset does not narrow a read of a public repo, which any token reads (200); §5.1 now says so |
 | P-5 | Can one App resolve a review thread opened by another App or by a third-party reviewer? | Yes, with pull-request write |
 | P-6 | Does a job-level `if:` on the actor's prefix drop events authored by the Factory's Apps? | Dropped, with no step run |
 | P-7 | Does the machine user's approval satisfy code-owner review and the last-push rule when an App pushed last? | Yes |
-| P-8 | What does one pass over every open item in twelve repos cost in GraphQL points, and how often do scheduled ticks arrive in the new repo? | Within the budget of §7.3 |
+| P-8 | What does one pass over every open item in twelve repos cost in GraphQL points, and how often do scheduled ticks arrive in the new repo? | Within the budget of §7.3. **Passed** for the cost (`trials/P-8.json`). The ticks part **failed** on 2026-10-20 (`trials/P-8.ticks.json`): 19 of 335 due ticks over 28 hours, so the schedule is a backstop of hours and the relay carries W-2 (§7.3, decision 0043) |
 | P-9 | Can a pass start the next one with the default workflow token? | Yes. **Failed** on 2026-10-21 (`trials/P-9.json`) on its ruling's last clause alone: a job holding `actions: write` alone dispatched the next run (204), listed at once, but that run's actor is `github-actions[bot]`, not the first run's. Nothing here reads a pass's actor |
 | P-10 | Does a nudge count against the content-creation limit, and can its credential be dispatch-only? | Does not count; can |
 | P-11 | Can the Controller's App write the control-room repo, and publish its page, without starting a workflow in the hub? | Yes |
@@ -2073,6 +2089,11 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-38 | When GitHub dismisses an approving review as stale on a push, does the review stay on the commit it approved, readable with that commit and its reviewer; and who does the timeline record as dismissing it? | It stays, with its commit, and the dismissal names its actor: the contract a person approved is read at that commit (decision 0025). If it does not stay, the port reads the approval from somewhere that does, before any contract is in force |
 | P-39 | Does what GitHub granted each Factory App, its permissions, its events and the repos it reaches, agree with `config/apps.json`? Registered and installed alike, read through the Maintainer's login; the repos each installation reaches read with an installation token at his terminal, minted once and revoked (decision 0035) | They agree exactly, and a difference fails. A failing App's key is not stored; its registration is corrected and the trial runs again. **Passed** for all three Apps: the registrations and installations on 2026-10-18 (`trials/P-39.grants.json`), each with exactly the data's permissions and levels and no events, and the repos each installation reaches on 2026-10-19 (`trials/P-39.reach.json`), `selected` and exactly `installed_on`. Each App's key is stored in its job's environment |
 | P-40 | When only the base branch moves, does GitHub work out `mergeable` and `merge_commit_sha` again, for a pull request that still merges cleanly and for one the move makes conflict, and how long after? | Each answered and recorded. Until it runs, the transitions explorer's move "the base moves" (`tests/test_transitions.py`) makes `mergeable` unknown, which explores more cases than GitHub may produce; the simulator's fake models no move of the base |
+| P-41 | Under the ruleset that dismisses stale approvals on a push: does a request for changes survive the push; can an App with `pull_requests: write` dismiss a person's review, and a person with write access the machine user's approval, the timeline naming who dismissed and the review's earlier state; and can the Controller's App add and remove a control label on a pull request, the event naming the App? Is every actor named on a review, a dismissal, a thread and a label event read with its account type, a User or a Bot? | Yes to each. If a request for changes does not survive a push, the Kernel reads it from the timeline's record of it; if an App cannot dismiss a review, decision 0025 reads the approval only at the commit it approved |
+| P-42 | On a pull request's head: after a push, is every required check pending again; does a required check conclude `timed_out`, `neutral`, `skipped`, `cancelled` or `stale` and keep that conclusion until the content changes or a person runs it again; is every check run read with its exact name and its App's id, two workflow runs on one commit both staying, since `filter=latest` is per check suite; and can any App with `checks: write`, or any Actions job, post a check run under a required Lens's check name, or a result for any criterion of a contract, one the contract does not name among them, which then stays on that head? | Yes to each, so the Kernel's reading of checks (§4.2) and of acceptance results (§4.8) holds. If a check run can be deleted or renamed on the head, the port reads check runs from each check suite's own list |
+| P-43 | Does each list the facts are read from, reviews, threads, checks, timeline events, run records, acceptance results and the files a pull request changes, say when it was cut short, by a count, a last page or a next cursor that the same read gives; and can the list of run records stop short with the oldest Runs missing? Is every file a pull request changes listed once, by its path from the top of the repo, with the path a renamed or copied file had before? | Yes: each short read is told from the read itself, as P-29 showed for the diff and the list of files. If one is not, the port reads that list whole, or reads it as incomplete |
+| P-44 | With a concurrency group for each Work item on a Run's job, does GitHub keep one Run running and one pending, cancel the older pending Run, and never cancel the one running? | As GitHub documents it; the lane in `sim/world.py` then changes to match (`a_run_waits_its_turn`, "Known to differ" in `sim/AGENTS.md`) |
+| P-45 | When a dependency bot updates an Action's pin in a workflow file, does it open the pull request and push its head under its own `[bot]` identity, so that the port's class for it is `dependency`? | Yes, with the bot as author and last pusher. If a person's push follows, the class is read as any other change's (decision 0026) |
 
 ### 6.1 The order to run them in
 
@@ -2081,9 +2102,9 @@ An assumption audit on 2026-10-10 ranked each trial by what breaks if its answer
 | Batch | Trials | If the answer is no |
 |---|---|---|
 | **1. Before any code** | P-13 (the model CLI returns structured output on a subscription); P-1, P-7, P-24 (the approval mechanics); P-17, P-22 (run records can be identified); P-3 (secrets are isolated by environment); P-28, P-29 (last pusher and content identity are readable); P-8 (a pass fits its budget); P-39 (each App was granted what the data says) | The design does not work as written. Each of these is a foundation: no Run, no approval, no derived State, no credential boundary, or no poller |
-| **2. Before the first approval** | P-9, P-20 (chaining and the outside tick); P-5, P-23, P-25 (resolving others' threads); P-2 (an App in the merge queue); P-30 (cutting a Release); P-27, P-14, P-4 (forks, caches, narrowed tokens); P-26 (the sandbox); P-35, P-36 (what a Lens's check is read from); P-37 (what a Lens reads from the base in the queue); P-38 (the commit an approved contract is read at); P-40 (whether a base move alone makes GitHub work `mergeable` out again) | One mechanism is replaced and the design stands. If threads cannot be resolved by an App, required thread resolution is dropped in repos the Factory serves |
+| **2. Before the first approval** | P-9, P-20, P-31 (chaining, the outside tick and the relay's host, on which W-2 rests: decision 0043); P-5, P-23, P-25 (resolving others' threads); P-2 (an App in the merge queue); P-30 (cutting a Release); P-27, P-14, P-4 (forks, caches, narrowed tokens); P-26 (the sandbox); P-35, P-36 (what a Lens's check is read from); P-37 (what a Lens reads from the base in the queue); P-38 (the commit an approved contract is read at); P-40 (whether a base move alone makes GitHub work `mergeable` out again); P-41, P-42, P-43 (reviews, labels, actors and check runs on a pull request, and the lists read short) | One mechanism is replaced and the design stands. If threads cannot be resolved by an App, required thread resolution is dropped in repos the Factory serves |
 | **3. Before the control room** | P-11, P-19, P-21 (publishing the page); P-16, P-18 (retention and final steps) | The page is published another way, or history is shorter |
-| **4. As they come up** | P-6, P-10, P-12, P-15 | A detail changes |
+| **4. As they come up** | P-6, P-10, P-12, P-15, P-44, P-45 (the lane's concurrency group; a dependency bot's pin) | A detail changes |
 
 P-32, P-33 and P-34 belong to the issue Lifecycle (§4.1). All three are run before the Factory's
 own author is built, since the hand-over reads labels, their actors and the closing reference. P-8 now measures a pass that lists every open issue.
@@ -2168,27 +2189,45 @@ late or not at all.
 | Option | How it works | Meets | Fails or strains |
 |---|---|---|---|
 | 1. A wake per event | A file in each Consumer forwards every subscribed event to the hub, which starts one Controller run for that item | W-2 at its best, W-5, W-9 | W-3: about three jobs per event, and at least 12,500 events a week from the busiest repo. W-1 still needs a sweep. W-7: the Factory's own writes are events. W-8: a `workflow_run` trigger must name each workflow |
-| 2. A scheduled poller | One job on a timer lists every open item in every repo in a few queries and evaluates them all in one process | W-1, W-3 to W-9. Nothing at all in any Consumer | W-2: a schedule cannot be finer than five minutes, about 60% of ticks are dropped here, and gaps of hours have been observed |
+| 2. A scheduled poller | One job on a timer lists every open item in every repo in a few queries and evaluates them all in one process | W-1, W-3 to W-9. Nothing at all in any Consumer | W-2: a schedule cannot be finer than five minutes, and in this repo, over 28 hours, 19 of 335 due ticks arrived, the gap between runs was 287 minutes at the 95th percentile, and the first run came 231 minutes after the workflow landed (`trials/P-8.ticks.json`) |
 | 3. A looping job | One job ticks every 30 seconds for some hours, then starts its successor | W-1 to W-8 | W-9 in spirit. One of 20 slots, permanently. GitHub's terms do not say whether this is allowed |
-| **4. A poller with nudges** | Option 2 is the base. An event carries no work: it only asks for a pass now. The poller holds one concurrency group, so any number of nudges during a pass collapse into exactly one more pass | W-1, W-3 to W-9, and W-2 while the relay is up | W-2 when the relay is down, when only the schedule remains |
+| **4. A poller with nudges** | Option 2 is the base. An event carries no work: it only asks for a pass now. The poller holds one concurrency group, so any number of nudges during a pass collapse into exactly one more pass | W-1, W-3 to W-9, and W-2 while the relay is up | W-2 when the relay is down, when only the schedule remains: accepted, and the outage is reported (decision 0043) |
 
 **Decided: option 4, built as option 2 first.**
 
 - Passes cannot overlap, and at most one waits behind the one running. A flood of events costs at
   most back-to-back passes: one runner slot, 5% of the pool.
-- A pass ends by starting its successor if anything is due sooner than the next tick, by a dispatch
-  with its own job's token, whose run is listed at once (P-9, `trials/P-9.json`). Scheduled
-  ticks then only restart a broken chain. An item deferred because a Run is unidentified (§3.10) is
-  not due sooner: the records port has already read the list again 5 s later, so a record still
+- A pass ends by starting its successor, by a dispatch with its own job's token whose run is
+  listed at once (P-9, `trials/P-9.json`), only if an item is due at its end. Anything due later
+  waits for a tick, a nudge or a Run's end, so a successor never stands in for a timer, and a chain
+  ends when nothing is due.
+- Every pass, whatever started it, reads no sooner than three minutes after the last pass that
+  read began, since W-4 allows twenty passes an hour at the cost `trials/P-8.json` estimated with
+  every page read. A pass started sooner waits out the rest before it reads, and as at most one
+  waits, the nudges that arrive meanwhile collapse into it. So the relay's nudges a minute or two
+  apart, a successor and a Run's end alike are held to W-4, and three minutes is within W-2's
+  fifteen (decision 0043). An item deferred because a Run is unidentified (§3.10) is
+  not due: the records port has already read the list again 5 s later, so a record still
   unnamed is not the normal lag, and passes chained on it would feed themselves without bound (W-7).
   The next pass comes at the next tick or nudge (decision 0036).
+- A chain breaks when a successor is evicted. It restarts on a tick, on a nudge from the relay,
+  and, from the first day and with the relay down too, at the end of any Run: the poller listens
+  to the completion of the Factory's Run workflows (`workflow_run`), named in its file, never to
+  its own. So while any Run is in flight a broken chain restarts at that Run's end, and only one
+  broken with no Run in flight waits for the schedule. The trigger reads nothing from the run that
+  ended and the poller takes no inputs, so a run of that name in a fork's pull request can cause
+  one pass and direct nothing. `workflow_run` is not among the triggers
+  `docs/standards/workflows.md` allows: the workflows story adds it for the poller alone, on these
+  conditions, before the poller is built (decision 0043).
 - The Factory's own writes cannot run away. A nudge asks for a pass; whether a Run is admitted is
   still Admission's decision, under the brakes.
 - One pass is the only decider, so an org-wide limit is a decision inside one process. No lease and
   no race.
 - A Run is still its own workflow run, holding its item's lane from `run` to `apply`.
-- Several staggered schedule lines on the poller restart a broken chain. A second scheduled
-  workflow was considered as a watchdog and dropped: it is the same unreliable scheduler twice.
+- Several staggered schedule lines on the poller are a backstop of hours, not minutes: more lines
+  are the same scheduler more times, and three lines five minutes apart got 19 of 335 due runs
+  over 28 hours (`trials/P-8.ticks.json`). A second scheduled workflow was considered as a watchdog and dropped:
+  it is the same unreliable scheduler twice.
 - **A hosted relay supplies the low latency, and holds no credential over the Factory.** One small
   stateless function outside GitHub does two things. It receives the Controller App's webhooks,
   which GitHub sends for every repo the App is installed on, and it runs a timer. Each webhook and
@@ -2201,13 +2240,45 @@ late or not at all.
   a credential able to start a workflow could also cancel runs and delete run records. Anyone can
   cause a pass this way, and the cost of that is already bounded at one runner slot.
 - The relay is the one permitted exception to "no always-on service". Correctness never depends on
-  it: if it is down, the Factory falls back to GitHub's schedule and only latency suffers. Which
-  host, and which public event, are settled by trial (P-20, P-31).
-- The Factory's own repo nudges the poller directly, from a workflow of its own, from the first
-  day.
+  it (W-1). While it is down W-2 is not met, and that is accepted (the Maintainer, 2026-10-21,
+  decision 0043): a change that produces no event then waits for a tick, which came 287 minutes
+  after the last at the 95th percentile, and the outage is itself shown within fifteen minutes, on
+  a page that computes it in the browser, so those hours are hours a person knows about. Which host, and which public event, are settled by
+  trial (P-20, P-31).
+- The Factory's own repo nudges the poller directly from the first day, by the `workflow_run`
+  trigger above.
+- **A pass records what started it**, as `started_by` in `pass/1`, a code read from the run that
+  started it, never from anything a dispatch carries: `schedule` for a scheduled run; `own_repo`
+  for `workflow_run`; `successor` for a dispatch by the workflow's own token; `dispatch` for a
+  dispatch by a person, the Maintainer's hand, and for any re-run, whatever event it keeps;
+  `relay` for the relay's public event sent by the relay's own account; and `public` for that
+  event sent by anyone else. An account is told by its type and id, held in configuration, never
+  by a name's spelling, and a scheduled run's actor is never read. So the relay acts through an
+  account of its own, which can do nothing anyone may not; which account is settled with P-20
+  and P-31. From the records come the relay's health, a chain's length (successors in a row) and
+  the schedule's share (decision 0043).
+- **The not-run alert is set from the relay's cadence, not the schedule's** (L-48). With the relay
+  up its nudges come every minute or two (P-20's pass condition). Its health is read from the
+  poller's run records, which keep a run the concurrency group cancelled with the event and the
+  account that started it, as well as from the passes, since a nudge queued behind a pass can be
+  replaced by that pass's successor. When nothing the relay sent has started a run for fifteen
+  minutes, W-2's figure, one alert is raised for one cause, the relay down or its account unable to
+  act, and it holds until the relay starts a run again. A threshold set from the schedule's
+  measured 287 minutes would let an outage go unseen for hours, and one from its nominal five would
+  fire all day. No pass at all for six hours, above the longest gap the schedule left, is the same
+  alert with a second cause named, the whole poller's, and it clears at the next pass. Until the
+  relay runs, in slice 3, only the second reading is read. A chain that ended with nothing due
+  breaks nothing: `passes_since` starts again only after a gap of the second reading (§4.1). The
+  alert needs no pass to be raised: `view/health.json` carries when the last pass ran and when the
+  relay last started a run, and the page computes both readings in the browser, as it does the
+  view's age (CR-3), so a silent relay or a stalled poller shows with nothing having to run. Until
+  the page exists, in slice 4, the alert is raised by the first pass after the gap, and the fifteen
+  minutes holds only while some pass runs. Both readings wait on `controller/`.
 - Only the poller can be started from outside the Factory, and it takes no inputs. A Run starts
   from a recorded Decision (§3.5), so a credential that can start workflows cannot direct one.
-- Option 3 is held until GitHub's terms are answered. Option 1 is held unless a requirement appears
+- Option 3 is not pursued (the Maintainer, 2026-10-21, decision 0043): it would hold one of 20
+  slots for the length of every outage, on terms GitHub has not answered, for an outage the relay's
+  host makes rare. Option 1 is held unless a requirement appears
   for a response in seconds; none is in the PRD.
 
 ### 7.4 What was set aside
@@ -2371,7 +2442,7 @@ board. It is also not where a chat session's output is made terser; that is a se
 | `view/scorecard.json` | The success metrics of PRD §9 and the adoption and use measures of §9.2 |
 | `view/comparison.json` | The weekly comparison of the POC and the Factory (§9.2) |
 | `view/capacity.json` | Usage per window, the estimate of what is left, and the degradation stage |
-| `view/health.json` | Whether Admission is paused and why, when the last pass ran, and recent capacity and environment faults |
+| `view/health.json` | Whether Admission is paused and why, when the last pass ran, when the relay last started a run (decision 0043), and recent capacity and environment faults |
 | `view/consumers.json` | Each Consumer repo's ring, and what its readiness check finds missing |
 
 ```json
@@ -2510,7 +2581,8 @@ block said why at each step.
 5. The review Intent has a prompt, a result schema and **an eval set**. A gate-deciding Intent may
    not serve without one (FR-55), so the eval set is on the critical path. Its cheapest source is
    the POC's own history: merged pull requests later reverted or fixed are known answers.
-6. The poller started the Run: the Controller's App exists, and a pass recorded the Decision.
+6. The poller started the Run: the Controller's App exists, and a pass recorded the Decision and
+   what started it.
 7. The Kernel reached that Decision: the pull-request Lifecycle, Convergence and the gate, with the
    deterministic Lenses already reported. Those Lenses are the required checks GitHub reports on the
    pull request: `factory / verify`, the org's secret scan, and code scanning. There is no separate
@@ -2590,7 +2662,7 @@ ranked, and each changed this document.
 | Domain owners make it slower and no better | Owners start in shadow and are promoted on evidence (§5.2) |
 | Third-party threads become the new comment gate | Only required Lenses gate; other Findings gate only when the reviewer adopts them (§4.2) |
 | The simulator passes and GitHub disagrees | The fake GitHub is grounded in recorded responses (§4.5, §6) |
-| The poller goes quiet | Staggered schedule lines, an optional external timer, and staleness computed in the browser (§7.3, §8.2) |
+| The poller goes quiet | A Run's end and the relay restart the chain, the schedule is a backstop of hours, the not-run alert is set from the relay's cadence, and staleness is computed in the browser (§7.3, §8.2, decision 0043) |
 | Two systems run forever | Decision points keyed to events (§9.2) |
 | The model window runs out | Shadow Roles run on a sample; Runs per merge shown on every item (§3.12, §8.4) |
 
@@ -2604,7 +2676,7 @@ A second pass on 2026-10-10 asked of each part what requirement would fail witho
 | A separate intake Role typing third-party prose | Adoption by `pr-review`, whose own Finding carries the fields (§3.7) |
 | Dispositions as standing records | The thread, resolved by the owner's App; the two halves travel in Results (§3.8) |
 | An App for every Role from the first day | One shared reader App; a Role's own App when it first writes (§5.1) |
-| A watchdog workflow | Staggered schedule lines, and an optional external timer (§7.3) |
+| A watchdog workflow | The relay's timer and a Run's end, with staggered schedule lines as a backstop of hours (§7.3) |
 | The Wake contract and a next-evaluation time on every Decision | A nudge that carries nothing; a staleness limit per state (§3.2, §4.1) |
 
 Kept after the same question: the three-job split, content identity, the four brakes, the

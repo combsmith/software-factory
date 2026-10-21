@@ -3,6 +3,7 @@
   "pass": "p_01JA7P",
   "release": "factory/v0.3.1",
   "now": "2026-10-11T13:00:00Z",
+  "started_by": "schedule",
   "context": {
     "paused": false,
     "active_runs": 0,
@@ -248,6 +249,7 @@
           "number": 41
         },
         "state": "open",
+        "closed_first_at": null,
         "author": {
           "kind": "human",
           "name": "don-petry",
@@ -263,6 +265,7 @@
         ],
         "life_started_at": "2026-10-11T09:00:00Z",
         "reopened_last_by": "never",
+        "reopened_last_at": null,
         "content_id": "sha256:41c1",
         "content_changed_at": "2026-10-11T09:30:00Z",
         "label_events": [

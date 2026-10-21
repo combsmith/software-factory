@@ -10,10 +10,11 @@ the issue is held or declined, and a person none while it is declined: the Contr
 | Draw only with `random()`, through `pick()`; other draws differ between Python versions | `tools/check_repo.py` |
 | Every set of facts made here is valid, so a new fact is added here with its schema | `tests/test_simulator.py::test_invariants_hold_under_faults` |
 | Every change of State made here is declared in `lifecycle/pull_request.json`, with who made it | `tests/test_simulator.py::test_every_change_of_state_is_checked_with_who_made_it` |
-| Every change of State the issue's world makes is declared in `lifecycle/issue.json`, with who made it | `tests/test_issue_simulator.py::test_every_change_of_state_is_checked_with_who_made_it` |
+| Every change of State the issue's world makes is declared, with who made it, and the exploration of every change finds it | `tests/test_issue_simulator.py::test_invariants_hold_under_faults` |
 | A failure names its seed, and the seed replays | `tests/test_simulator.py::test_a_seed_replays_exactly`, `tests/test_issue_simulator.py::test_a_seed_replays_exactly` |
 | A rule the fake applies about GitHub is marked `# GitHub: <code>` where it is applied, and listed once in `grounding.py` with its trials and its fixture in `trials/`, one or a tuple, or none. Verify prints each with none | `tools/check_trials.py` |
 | A rule no trial asks is grounded only once a trial for it is added to section 6 of the design | `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate` |
+| Until then it names that trial, or says in one sentence why none can; `make verify` prints which | `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can` |
 | The fake answers in GitHub's own shapes, so that its answers can be compared with a fixture | waiting on `adapters/` |
 
 The world is one pull request, paused for a span on some seeds, or with a Pause that cannot be read, and on some with no writer's action yet.
@@ -35,6 +36,5 @@ On every seed a review's Result now and then leaves a criterion of its rubric un
 (`tests/test_simulator.py::test_the_seeds_serve_a_review_that_left_a_criterion_uncovered`). On one seed in eight a new Run is listed unnamed for a pass, which neither admits nor approves (`tests/test_simulator.py::test_the_seeds_list_a_new_run_unnamed`).
 A rule about anything else is not exercised here, so its boundary cases are all that hold it. An invariant is a call to `check()` with its name. When a seed finds a fault, the fix goes in the Kernel with a boundary case in `tests/test_decide.py`.
 
-Known to differ from the design, each listed as unverified and left as it is, since changing the fake is a story of its own: the lane keeps one Run in progress and any number queued (`a_run_waits_its_turn`), where GitHub's
-concurrency group keeps one running and one pending and cancels the older pending Run; and a push leaves an earlier approval in place (`an_approval_survives_a_push`), where GitHub, under a ruleset that dismisses stale reviews
-on push, dismissed the machine user's approval when the trial-author App pushed, naming the pusher as the dismisser (`trials/P-7.json`, the reads after the push and the timeline). 
+Known to differ, each unverified until its trial runs: the lane keeps one Run running and any number queued (`a_run_waits_its_turn`; GitHub keeps one pending and cancels the older, P-44); a push leaves an
+earlier approval in place (`an_approval_survives_a_push`; P-7 saw it dismissed, `trials/P-7.json`); and the queue merges without checking the merge group (`the_merge_group_is_not_checked`; this repo's queue checks it, P-2).
