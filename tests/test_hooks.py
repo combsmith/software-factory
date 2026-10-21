@@ -167,6 +167,10 @@ class Budgets(unittest.TestCase):
         self.assertEqual(faster_than_linear(none, self.spent(1.1, 9.0), self.spent(2.1, 30.0)), "")
         self.assertEqual(faster_than_linear(none, self.spent(0.12, 0.12), self.spent(0.15, 0.15)), "")
         self.assertEqual(faster_than_linear(self.spent(0.07, 0.07), self.spent(0.03, 0.03), self.spent(0.04, 0.04)), "")
+        # The first run warms what the others reuse: size 0 at 0.3 s, half at 0.1 s and whole at 0.15 s is linear.
+        self.assertEqual(faster_than_linear(self.spent(0.3, 0.3), self.spent(0.1, 0.1), self.spent(0.15, 0.15)), "")
+        # A second of what does not grow must not hide a quadratic past it: 0.2 s at half, 0.8 s at its size.
+        self.assertIn("at half", faster_than_linear(self.spent(1.0, 1.0), self.spent(1.2, 1.2), self.spent(1.8, 1.8)))
         self.assertIn("at half", faster_than_linear(none, self.spent(1.1, 1.1), self.spent(4.1, 4.1)))
         self.assertIn("at half", faster_than_linear(self.spent(0.0, 0.0), self.spent(0.2, 0.2), self.spent(0.8, 0.8)))
         # At the edge: exactly three times and the noise is past it.
