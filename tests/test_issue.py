@@ -435,50 +435,85 @@ class Done(unittest.TestCase):
     def test_a_merge_counts_only_where_the_issues_timeline_names_it_the_closer(self):  # issue 267, trials/P-46.json
         # P-46: an edit to a merged pull request's description after the merge added an open issue to its closing
         # references, and GitHub closed nothing; the issue's timeline records no close by it. A merge that closed the
-        # issue is recorded at the merge as the closer of the issue's close (P-33), which no later edit changes.
+        # issue is recorded at the merge as the closer of the issue's close (P-33), which that edit did not write.
         late = pr(is_open=False, merged=5, closed_issue=None)
-        # An open issue a merged pull request names, which its timeline does not name the closer of: not done, and not
-        # read past either. GitHub has not closed it yet (P-33), or an edit added the reference (P-46): it waits for a
-        # person, and nothing is admitted on it; an outsider's reopening before the merge, which left it open, too.
-        for f in (facts(linked=[late]), facts(linked=[late], reopened_last_by="other", reopened_last_at=at(3)),
-                  facts(linked=[late, agents(number=12, draft=True)])):
-            d = derive(f)
-            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "merged_without_closing", ["11"]), f)
-            d = decide(f)
-            self.assertEqual((what(d), d["attention"]), (("defer", "merged_without_closing", None), "needs_you"))
-        # An empty merge, or one before the present life, is no merge of this issue, as before.
-        self.assertEqual(derive(facts(linked=[dict(late, empty=True)]))["reason"], derive(facts())["reason"])
-        self.assertEqual(derive(facts(life_started_at=at(6), reopened_last_by="writer", linked=[late]))["reason"],
-                         derive(facts(life_started_at=at(6), reopened_last_by="writer"))["reason"])
+        # Read long after the merge, an open issue a merged pull request names that closed nothing is read as if it
+        # named nothing: not done, and no wait either; an outsider's reopening before it reads as before.
+        self.assertEqual(derive(facts(linked=[late])), derive(facts()))
+        self.assertEqual(derive(facts(linked=[late], reopened_last_by="other", reopened_last_at=at(3)))["reason"],
+                         "reopened_by_other")
+        d = derive(facts(label_events=[labelled(HOLD, minute=4)], linked=[late]))
+        self.assertEqual((d["state"], d["reason"]), ("held", "human_hold"))
         # The merge that closed it, in its second or after: done.
         for closer in (5, 6):
             d = derive(facts(state="closed", closed_first_at=at(closer), linked=[pr(is_open=False, merged=5,
                                                                                    closed_issue=closer)]))
             self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["11"]))
-        # A person's close after a merge that did not close the issue: declined, whatever the references say now; and
-        # in the merge's own second, which is no close before the merge.
-        for close in (5, 8):
-            d = derive(facts(state="closed", closed_first_at=at(close), linked=[late]))
-            self.assertEqual((d["state"], d["reason"]), ("declined", "closed"))
-        # A merge that landed while a person had the issue closed closed nothing, and is the contradiction it was.
-        d = derive(facts(state="closed", closed_first_at=at(4), linked=[late]))
-        self.assertEqual((d["state"], d["reason"], d["evidence"]), ("declined", "merged_while_declined", ["11"]))
-        # An outsider's reopening before the merge left the issue open, so a merge then that closed nothing is read as
-        # nothing; one in the merge's second leaves the issue read as closed at it, the reading that names it.
+        # A person's close after a merge that did not close the issue: declined, whatever the references say now.
+        d = derive(facts(state="closed", closed_first_at=at(8), linked=[late]))
+        self.assertEqual((d["state"], d["reason"]), ("declined", "closed"))
+        # A merge that landed while the issue stood closed, its first close before the merge or in its second, closed
+        # nothing, and is the contradiction it was (issue 227); so in a life a writer's reopening began.
+        for f in (facts(state="closed", closed_first_at=at(4), linked=[late]),
+                  facts(state="closed", closed_first_at=at(5), linked=[late]),
+                  facts(state="closed", life_started_at=at(2), reopened_last_by="writer", closed_first_at=at(4),
+                        linked=[late])):
+            d = derive(f)
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), ("declined", "merged_while_declined", ["11"]), f)
+        # An outsider's reopening before the merge left the issue open, so a merge then that closed nothing is read
+        # as nothing; one in the merge's second leaves the issue read as closed at it, the reading that names it.
         d = derive(facts(state="closed", closed_first_at=at(2), reopened_last_by="other", reopened_last_at=at(4),
                          linked=[late]))
         self.assertEqual((d["state"], d["reason"]), ("declined", "closed"))
-        d = derive(facts(closed_first_at=at(2), reopened_last_by="other", reopened_last_at=at(4), linked=[late]))
-        self.assertEqual((d["state"], d["reason"]), (None, "merged_without_closing"))
         d = derive(facts(state="closed", closed_first_at=at(2), reopened_last_by="other", reopened_last_at=at(5),
                          linked=[late]))
         self.assertEqual((d["state"], d["reason"]), ("declined", "merged_while_declined"))
         # Of two merges, only the one that closed the issue is done's evidence.
         d = derive(facts(state="closed", closed_first_at=at(6), linked=[late, pr(number=12, is_open=False, merged=6)]))
         self.assertEqual((d["state"], d["reason"], d["evidence"]), ("done", "merged", ["12"]))
-        # A Hold beside a merge that closed nothing is never a merge while held: the issue waits for a person.
-        d = derive(facts(label_events=[labelled(HOLD, minute=4)], linked=[late]))
-        self.assertEqual((d["state"], d["reason"]), (None, "merged_without_closing"))
+
+    def test_an_open_issue_waits_quietly_for_the_close_a_merge_makes(self):  # issue 267, trials/P-33.json
+        # GitHub closes the issue a second after the merge, and records the close two (P-33). An open issue read within
+        # max_close_lag_seconds of a merge that has not closed it yet waits, admits nothing, and asks nobody; read at
+        # the limit or after it, the merge closed nothing, as an edit's reference never will (P-46), and is read past.
+        lag = LIMITS["max_close_lag_seconds"]
+        merged = at(5)
+        def read(after: int) -> str:
+            return "2026-10-11T12:%02d:%02dZ" % divmod(5 * 60 + after, 60)
+        late = pr(is_open=False, merged=5, closed_issue=None)
+        ready = dict(facts(label_events=[labelled(READY)], linked=[late]))
+        for f in (ready, facts(linked=[late, agents(number=12, draft=True)]),
+                  facts(label_events=[labelled(HOLD, minute=4)], linked=[late])):
+            d = derive(dict(f, read_at=read(lag - 1)))
+            self.assertEqual((d["state"], d["reason"], d["evidence"]), (None, "merge_closing", ["11"]), f)
+            d = decide(dict(f, read_at=read(lag - 1)))
+            self.assertEqual((what(d), d["attention"]), (("defer", "merge_closing", None), "none"))
+        self.assertEqual(derive(dict(ready, read_at=read(lag))), derive(dict(ready, read_at=read(lag), linked=[])))
+        self.assertEqual(derive(dict(ready, read_at=read(0)))["reason"], "merge_closing")
+        self.assertEqual(merged, read(0))
+        # A stranger's merge moves nothing, in the lag as after it (I-39); nor an empty merge, nor one before the life.
+        for link in (strangers(is_open=False, merged=5, closed_issue=None), dict(late, empty=True)):
+            f = dict(ready, linked=[link], read_at=read(1))
+            self.assertEqual(derive(f), derive(dict(f, linked=[])))
+        f = dict(ready, life_started_at=at(6), reopened_last_by="writer", reopened_last_at=at(6), read_at=read(1))
+        self.assertEqual(derive(f), derive(dict(f, linked=[])))
+        # A closed issue does not wait: its close is in the facts, and was not this merge's.
+        d = derive(facts(state="closed", closed_first_at=at(8), linked=[late], read_at=read(1)))
+        self.assertEqual((d["state"], d["reason"]), ("declined", "closed"))
+        # A limit or a read time that cannot be read defers, and only where the wait is asked.
+        for bad in (None, 0, -1, True, 300.0, "300"):
+            cfg = config()
+            if bad is None:
+                del cfg["limits"]["max_close_lag_seconds"]
+            else:
+                cfg["limits"]["max_close_lag_seconds"] = bad
+            d = derive(dict(ready, read_at=read(1)), cfg=cfg)
+            self.assertEqual((d["state"], d["reason"]), (None, "limits_unreadable"), bad)
+            self.assertEqual(decide(dict(ready, read_at=read(1)), cfg=cfg)["attention"], "needs_you")
+            self.assertEqual(derive(dict(ready, linked=[]), cfg=cfg)["reason"], derive(dict(ready, linked=[]))["reason"])
+        for bad in ("now", None, "2026-10-11T12:09"):
+            d = derive(dict(ready, read_at=bad))
+            self.assertEqual((d["state"], d["reason"]), (None, "linked_unreadable"), bad)
 
     def test_a_close_of_the_issue_that_cannot_be_read_defers(self):  # issue 267
         # The close a link made is read whole: a time, and only of a merge, no earlier than it. A pull request closes
@@ -493,6 +528,9 @@ class Done(unittest.TestCase):
         self.assertEqual(derive(facts(linked=[gone]))["reason"], "linked_unreadable")
         open_one = dict(pr(), closed_issue_at=at(5))
         self.assertEqual(derive(facts(linked=[open_one]))["reason"], "linked_unreadable")
+        # A close in an earlier life, before a writer's reopening began this one, is no merge of this life.
+        earlier = facts(life_started_at=at(7), reopened_last_by="writer", reopened_last_at=at(7), linked=[merged])
+        self.assertEqual(derive(earlier)["reason"], derive(dict(earlier, linked=[]))["reason"])
 
     def test_a_merge_read_while_a_person_closed_or_held_the_issue_is_never_done(self):  # issue 227, the ruling
         # The Controller dequeues the Factory's pull request on a person's close or hold, so a merge that landed after

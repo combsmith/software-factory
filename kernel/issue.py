@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import in_progress, is_time, run_deferral, runs_on, since_writer, stale, standing_labels
+from kernel.derive import in_progress, is_time, run_deferral, runs_on, seconds, since_writer, stale, standing_labels
 from kernel.gate import is_person
 
 # The States of lifecycle/issue.json that a pull request's do not share. `held` and `not_served` are terms.py's.
@@ -76,7 +76,6 @@ NEEDS_YOU_REASONS = frozenset({
     "human_hold",
     "merged_while_held",
     "merged_while_declined",
-    "merged_without_closing",
     "linked_twice",
     "acceptance_lapsed",
     "attempts_exhausted",
@@ -89,6 +88,7 @@ NEEDS_YOU_REASONS = frozenset({
     "intent_undeclared",
     "label_unreadable",
     "issues_unreadable",
+    "limits_unreadable",
     "intents_unreadable",
     "intents_share_a_role",
     "intents_share_an_app",
@@ -376,9 +376,10 @@ def readable_reopening(facts: dict) -> bool:
 
 def closed_at(facts: dict, when: str) -> bool:
     """Whether the issue stood closed at `when`, so that a merge then could not close it: its present life was first
-    closed before that second, and no one but a writer had reopened it before that second, which would have left it
-    open. A reopening in that second leaves it read as closed, the reading that names the contradiction."""
-    if facts["closed_first_at"] is None or not facts["closed_first_at"] < when:
+    closed no later than that second, and no one but a writer had reopened it before that second, which would have
+    left it open. A close or a reopening in that second leaves it read as closed, the reading that names the
+    contradiction."""
+    if facts["closed_first_at"] is None or not facts["closed_first_at"] <= when:
         return False
     return not (facts["reopened_last_by"] == "other" and facts["reopened_last_at"] < when)
 
@@ -484,30 +485,37 @@ def derive(facts: dict, runs: list, config: dict) -> dict:
     # leaves a queued item to merge under it, so that merge is done.
     # A merge is read as it stood at the merge, never from the pull request's references as they stand now, which an
     # edit after the merge can change (P-46, issue 267): it closed the issue, as the issue's timeline names it the
-    # closer, or it landed while a person had the issue closed, when it could close nothing.
-    merged = [p for p in links
-              if p["merged_at"] is not None and not p["empty"] and p["merged_at"] >= facts["life_started_at"]
-              and (p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"]))]
+    # closer, or it landed while the issue stood closed, when it could close nothing.
+    in_life = [p for p in links
+               if p["merged_at"] is not None and not p["empty"] and p["merged_at"] >= facts["life_started_at"]]
+    merged = [p for p in in_life if p["closed_issue_at"] is not None or closed_at(facts, p["merged_at"])]
     merges = [str(p["number"]) for p in merged]
     if merged:
         first = min(p["merged_at"] for p in merged)
         if facts["closed_first_at"] is not None and facts["closed_first_at"] < first:
+            return out(DECLINED, "merged_while_declined", merges)
+        # The first merge closed nothing: it is here because the issue stood closed at it, in its second (issue 267).
+        if all(p["closed_issue_at"] is None for p in merged if p["merged_at"] == first):
             return out(DECLINED, "merged_while_declined", merges)
         if facts["reopened_last_by"] == "other" and facts["reopened_last_at"] <= first:
             return out(DECLINED, "merged_while_declined", merges)
         if stopped_before(facts, links, first) and not a_persons_hands_off(labels, facts, drafts, links, first):
             return out(t.HELD, "merged_while_held", merges)
         return out(DONE, "merged", merges)
-    # Any other merge in this life, which the timeline does not name the closer of, landed while the issue stood open
-    # (one while it stood closed is read above). While the issue is still open, GitHub has not closed it yet, a
-    # second or two after the merge (P-33), or an edit after the merge added the reference and nothing will (P-46).
-    # Neither is a merge to read as done, nor nothing to read past, which could admit a second opening: the issue
-    # waits, and a person sees it (issue 267).
-    unclosed = [str(p["number"]) for p in links
-                if p["merged_at"] is not None and not p["empty"] and p["merged_at"] >= facts["life_started_at"]
-                and p["closed_issue_at"] is None]
-    if unclosed and facts["state"] == "open":
-        return out(None, "merged_without_closing", unclosed)
+    # Any other merge in this life closed nothing and landed while the issue stood open. While the issue is still
+    # open and the merge was read within max_close_lag_seconds of it, GitHub may not have closed the issue yet, a
+    # second or two after the merge (P-33): the issue waits, quietly, for a read after the close, and admits nothing,
+    # which could open a second pull request. Read later, the merge closed nothing and never will, as an edit after
+    # the merge that added the reference (P-46): it is no merge of this issue, and the rows below read the issue.
+    if in_life and facts["state"] == "open":
+        lag = config.get("limits", {}).get("max_close_lag_seconds") if isinstance(config.get("limits"), dict) else None
+        if not (type(lag) is int and lag >= 1):
+            return out(None, "limits_unreadable", [])
+        if not is_time(facts.get("read_at")):
+            return out(None, "linked_unreadable", [])
+        closing = [str(p["number"]) for p in in_life if seconds(facts["read_at"]) - seconds(p["merged_at"]) < lag]
+        if closing:
+            return out(None, "merge_closing", closing)
     # Row 2.
     if facts["state"] != "open":
         return out(DECLINED, "closed", [])

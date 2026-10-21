@@ -114,11 +114,10 @@
       ]
     },
     {
-      "reason": "merged_without_closing",
-      "question": "merged_without_closing",
+      "reason": "limits_unreadable",
+      "question": "fact_unreadable",
       "choices": [
-        "fix_the_source",
-        "close"
+        "fix_the_source"
       ]
     },
     {

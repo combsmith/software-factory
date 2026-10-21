@@ -149,12 +149,12 @@ class IssueSimulation(unittest.TestCase):
             self.assertTrue(after(w.trace, "while a Run was in flight", "apply refused, the issue changed"),
                             "\n".join(w.trace))
         # 6. An edit after a merge makes a merged pull request name the issue (P-46): it closed nothing, so the issue is
-        # never done by it; while it stays open the Kernel waits for a person, checked after every step (issue 267).
+        # never done by it; within max_close_lag_seconds of the merge the Kernel waits, quietly, and after it reads
+        # the issue as if the reference were not there, checked after every step (issue 267).
         for seed in on[6]:
             w = worlds[seed]
             self.assertTrue(w.late and all(p["closed_issue_at"] is None for p in w.linked if p["number"] in w.late))
-            self.assertTrue(after(w.trace, "an edit after its merge made", "pass: None / merged_without_closing"),
-                            "\n".join(w.trace))
+            self.assertTrue(after(w.trace, "an edit after its merge made", "pass: "), "\n".join(w.trace))
         # 5. Run records expire: a pass read fewer records than Runs, and what the Apps wrote stood in (decision 0031).
         for seed in on[5]:
             w = worlds[seed]

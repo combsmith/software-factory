@@ -1323,7 +1323,7 @@ write access.
 
 | # | If | State | Next actor |
 |---|---|---|---|
-| 1 | A linked pull request merged with a non-empty diff in its present life and closed the issue, as the issue's timeline names it the closer, or merged while a person had the issue closed; never by its references as they stand now, which an edit after the merge can change (P-46, issue 267). One the timeline names no close for, of an issue still open, defers for a person, `merged_without_closing`: GitHub closes the issue a second after the merge and records the close two (P-33), and an edit's reference closes nothing. Unless, when the first such merge landed, a person had closed the issue in this life, anyone but a writer had reopened it, or a Hold stood (whoever placed it, or hands-off a person did not place, on the issue or its linked draft) with no person's hands-off beside it: then the State a person put it in stays, `declined` or `held`, and the reason names the contradiction, `merged_while_declined` or `merged_while_held` (§4.5, issue 227) | `done` | None |
+| 1 | A linked pull request merged with a non-empty diff in its present life and closed the issue, as the issue's timeline names it the closer, or merged while the issue stood closed; never by its references as they stand now, which an edit after the merge can change (P-46, issue 267). One that closed nothing, of an issue still open, waits quietly within `max_close_lag_seconds` of the merge, `merge_closing`, since GitHub closes the issue a second after the merge and records the close two (P-33), and is read past after it. Unless, when the first such merge landed, a person had closed the issue in this life, anyone but a writer had reopened it, or a Hold stood (whoever placed it, or hands-off a person did not place, on the issue or its linked draft) with no person's hands-off beside it: then the State a person put it in stays, `declined` or `held`, and the reason names the contradiction, `merged_while_declined` or `merged_while_held` (§4.5, issue 227) | `done` | None |
 | 2 | Closed in any other way, an empty merge and a commit's closing keyword among them. It stays so if anyone but a person with write access reopens it | `declined` | None |
 | 3 | The Consumer entry does not serve it; or it, or its linked draft, carries `factory:hands-off` | `not_served` | A person |
 | 4 | It carries `factory:hold`, whoever added it; or its linked draft pull request does; or more than one linked pull request is open; or its Run ceiling is reached while it wants a Run (decision 0003) | `held` | As the Hold states |
@@ -1445,17 +1445,25 @@ only while it is open, unmerged and to the default branch, and nothing once the 
 afterwards adds the issue a new keyword names, and undoing the edit takes it out (P-46). So a
 merge is read as it stood at the merge, by the close it made: GitHub closes the open issue a
 merging pull request names, and the issue's timeline records that close with the pull request as
-its `closer` (P-33), which no later edit writes or takes away (P-46: the edit raised no close).
-Each linked pull request carries `closed_issue_at`, the time of the issue's close it is the closer
-of, or null. Row 1 counts a merge that closed the issue, and one that landed while a person had
-it closed, when it could close nothing; a merge the timeline names no close for, of an issue that
-is still open, defers for a person, `merged_without_closing`: either GitHub has not closed the
-issue yet, a second or two after the merge, or an edit added the reference, and neither is `done`
-nor nothing to read past (issue 267). The port reads the closer in the timeline read it already
-makes, beside `closed_first_at`, and lists as linked each pull request the issue's timeline names
-the closer of in the present life, whatever its references say now, so that an edit that takes a
-reference out cannot turn a `done` issue `declined`; both wait on `adapters/issues.py`. A pull
-request the Factory opens closes exactly one issue.
+its `closer` (P-33); the edit P-46 made raised no close. Each linked pull request carries
+`closed_issue_at`, the time of the issue's close it is the closer of, or null. Row 1 counts a
+merge that closed the issue, and one that landed while the issue stood closed, its first close of
+the life no later than the merge's second, by anyone, when the merge could close nothing (issue
+227's contradiction). Any other merge closed nothing and landed while the issue stood open. Read
+within `max_close_lag_seconds` of it (`config/defaults.json`), an open issue waits, quietly, with
+`merge_closing`: GitHub closes the issue a second after the merge and records the close two
+(P-33), and nothing is admitted meanwhile. Read later, the merge closed nothing and never will, as
+an edit's reference never does: it is no merge of this issue, and the rows below read the issue
+(issue 267). Untried, and owed by a trial before the port relies on it: P-33's closer came from a
+merge commit a person made with the ruleset off, and the Factory merges through the queue by
+squash, which may name the commit the closer rather than the pull request; and whether an edit
+that takes out a reference that stood at the merge changes the close already recorded. The port
+reads each close in the timeline read it makes for `closed_first_at`, and names a pull request
+its closer where the closer is that pull request, by repository and number, or that pull
+request's merge commit; it lists as linked each pull request the timeline names the closer of in
+the present life, whatever its references say now, so that an edit that takes a reference out
+cannot turn a `done` issue `declined`. Both wait on `adapters/issues.py`. A pull request the
+Factory opens closes exactly one issue.
 
 While the linked pull request is a draft, the issue's Lifecycle governs and the pull request's
 does nothing. Runs are admitted on the issue, and the issue's facts carry the draft's own.

@@ -797,12 +797,13 @@ class IssueWorld:
                        == issue.derive(facts, self.records(), CONFIG)["state"],
                        "I-39 a stranger's pull request moved the issue")
         # Issue 267: a pull request an edit after its merge made name the issue closed nothing: with it read out the
-        # State is the same, or, while the issue is open, the Kernel waits for a person; never done, after every step.
+        # State is the same, or, within max_close_lag_seconds of its merge, the Kernel waits; never done, after every
+        # step.
         if [p for p in self.linked if p["number"] in self.late]:
             facts = self.facts()
             without = dict(facts, linked=[p for p in facts["linked"] if p["number"] not in self.late])
             read, past = issue.derive(facts, self.records(), CONFIG), issue.derive(without, self.records(), CONFIG)
-            self.check(read["state"] == past["state"] or (read["state"], read["reason"]) == (None, "merged_without_closing"),
+            self.check(read["state"] == past["state"] or (read["state"], read["reason"]) == (None, "merge_closing"),
                        "a reference an edit added after a merge moved the issue")
         # I-8: every act since a writer acted is under the ceiling, but the Hold that stops work, by one.
         ceiling = LIMITS["max_acts_per_item"]

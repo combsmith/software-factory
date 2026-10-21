@@ -206,7 +206,7 @@
             }
           },
           "closed_issue_at": {
-            "description": "When the issue's timeline records this pull request closing the issue, as the closer of a ClosedEvent: written at the merge, and changed by no later edit of its description (trials/P-33.json, trials/P-46.json). Null if it never closed the issue: one whose closing reference an edit added after its merge, or one that merged while the issue was closed",
+            "description": "When the issue's timeline records this pull request closing the issue, as the closer of a ClosedEvent, which GitHub writes at the merge (trials/P-33.json) and an edit of its description after the merge did not write (trials/P-46.json); the closer is this pull request, by repository and number, or its merge commit. Null if it never closed the issue: one whose closing reference an edit added after its merge, or one that merged while the issue was closed",
             "type": [
               "string",
               "null"

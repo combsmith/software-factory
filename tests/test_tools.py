@@ -3284,10 +3284,17 @@ class Trials(unittest.TestCase):
         self.assertEqual(p44["verdict"], "pass")
     def test_an_edit_after_the_merge_changes_the_closing_references(self):
         # trials/P-46.json (issue 256): its verdict is computed here from the reads by the pass condition, so a fixture
-        # edited to pass, or to say what it did not see, fails. The rule it contradicts stays unverified (issue 267).
+        # edited to pass, or to say what it did not see, fails. It grounds the rule the fake now applies (issue 267):
+        # the edit closed nothing, and the merge's own close, in trials/P-33.json, names the pull request the closer.
         by_code = {rule[0]: rule for rule in check_trials.rules()}
-        rule = by_code["a_merged_pull_requests_closing_references_are_fixed"]
-        self.assertEqual((rule[2], rule[3]), (("P-46",), None))
+        self.assertNotIn("a_merged_pull_requests_closing_references_are_fixed", by_code)
+        rule = by_code["a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing"]
+        self.assertEqual((rule[2], rule[3]), (("P-33", "P-46"), "trials/P-46.json"))
+        p33 = json.loads((ROOT / "trials" / "P-33.json").read_text())
+        closes = [node for e in p33["exchanges"] if isinstance(e["response"].get("body"), dict)
+                  for node in (((e["response"]["body"].get("data") or {}).get("repository") or {}).get("issue") or {})
+                  .get("timelineItems", {}).get("nodes", []) if node.get("__typename") == "ClosedEvent"]
+        self.assertEqual([c["closer"] for c in closes], [{"__typename": "PullRequest", "number": 38}])
         p46 = json.loads((ROOT / "trials" / "P-46.json").read_text())
         n = p46["exchanges"][0]["response"]["body"]["number"]           # the issue the trial opened
         reads = [e["response"]["body"]["data"]["repository"] for e in p46["exchanges"] if e["request"]["via"] == "graphql"]
