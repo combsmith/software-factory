@@ -1190,8 +1190,9 @@ verifying` is declared by `human` and by `platform`. `not_served` is not termina
 GitHub serves a stacked pull request when it retargets it at the default branch, which takes it
 to `verifying` or `draft` by `platform`, and a person may close it. Every way into `not_served`
 is a person's, so no cycle passes through it without one. A pull request to a base that is not
-the default branch carries no closing reference, whatever its description says, so it is not
-`linked` while its base is not the default branch; GitHub enforces this, not the port (P-33).
+the default branch carries no closing reference from the keywords in its description, which
+GitHub enforces (P-33). A link a person makes by hand was not tried, and GitHub may list it, so
+the port reads a pull request as `linked` only while its base is the default branch.
 Re-running a check on unchanged content
 is a person's act too. A Lens reports once for each run on a `content_id`, unchanged content admits no
 second model review (I-11), and no Effect re-runs a check (§3.6). Nor can a Factory workflow: a
