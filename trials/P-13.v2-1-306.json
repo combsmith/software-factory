@@ -1,0 +1,388 @@
+{
+  "schema": "trial/1",
+  "trial": "P-13",
+  "question": "Does the vendor CLI return validated structured output and usage in headless mode on the subscription credential, at a pinned version?",
+  "pass": "Yes: the CLI at version 2.1.306 is logged in under a configuration directory of its own (~/.config/sf-factory-claude), apart from the Maintainer's interactive one but on the Maintainer's own subscription (decision 0033; this departs from design section 4.9). Run with -p, --output-format json and --json-schema, it exits 0 with is_error false. Its structured_output validates against the schema it was given (the smallest Result of section 3.5, recorded in exchange 3) under tools/jsonschema_lite.py. The same answer's usage carries integer input_tokens and output_tokens. The version asked before and after the Task is 2.1.306, and the login's status says it is logged in. If not, the metered key is tried and recorded (step 4), after the Maintainer agrees to its cost. Run again on 2026-10-21 to move the pin, since the installer pruned 2.1.302 (decision 0033's row); the Task gives the model no tool (--tools \"\"), as issue 178 hardened the script.",
+  "repo": null,
+  "ran_at": "2026-10-21T21:57:52Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the Maintainer's own subscription, logged in under ~/.config/sf-factory-claude (decision 0033)"
+        },
+        "via": "cli",
+        "call": "claude --version",
+        "headers": {},
+        "body": {
+          "env": {
+            "CLAUDE_CONFIG_DIR": "a configuration directory of its own, logged in to the Maintainer's own subscription (decision 0033)",
+            "DISABLE_AUTOUPDATER": "1",
+            "passed_on": [
+              "HOME",
+              "USER",
+              "LOGNAME",
+              "PATH",
+              "TMPDIR",
+              "LANG"
+            ],
+            "SHELL": "/bin/bash",
+            "nothing_else": true
+          },
+          "cwd": "an empty scratch directory outside the repo"
+        }
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "2.1.306 (Claude Code)"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the Maintainer's own subscription, logged in under ~/.config/sf-factory-claude (decision 0033)"
+        },
+        "via": "cli",
+        "call": "claude auth status --json",
+        "headers": {},
+        "body": {
+          "env": {
+            "CLAUDE_CONFIG_DIR": "a configuration directory of its own, logged in to the Maintainer's own subscription (decision 0033)",
+            "DISABLE_AUTOUPDATER": "1",
+            "passed_on": [
+              "HOME",
+              "USER",
+              "LOGNAME",
+              "PATH",
+              "TMPDIR",
+              "LANG"
+            ],
+            "SHELL": "/bin/bash",
+            "nothing_else": true
+          },
+          "cwd": "an empty scratch directory outside the repo",
+          "kept": [
+            "loggedIn",
+            "authMethod",
+            "apiProvider",
+            "subscriptionType"
+          ]
+        }
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": {
+          "loggedIn": true,
+          "authMethod": "claude.ai",
+          "apiProvider": "firstParty",
+          "subscriptionType": "max"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the Maintainer's own subscription, logged in under ~/.config/sf-factory-claude (decision 0033)"
+        },
+        "via": "cli",
+        "call": "claude -p TASK --json-schema SCHEMA --output-format json --no-session-persistence --strict-mcp-config --disable-slash-commands --permission-prompts none --tools \"\"",
+        "headers": {},
+        "body": {
+          "env": {
+            "CLAUDE_CONFIG_DIR": "a configuration directory of its own, logged in to the Maintainer's own subscription (decision 0033)",
+            "DISABLE_AUTOUPDATER": "1",
+            "passed_on": [
+              "HOME",
+              "USER",
+              "LOGNAME",
+              "PATH",
+              "TMPDIR",
+              "LANG"
+            ],
+            "SHELL": "/bin/bash",
+            "nothing_else": true
+          },
+          "cwd": "an empty scratch directory outside the repo",
+          "pinned": "2.1.306",
+          "prompt": "You are given one Task, as JSON, and return its Result as the structured output. Write no prose.\nTask: {\"schema\": \"task/1\", \"run\": \"r_p13\", \"role\": \"pr-review\", \"intent\": \"adjudicate-findings\", \"findings\": [{\"id\": \"f_9c1e\", \"asked\": \"Return early from parse() when its list is empty, before it reads the first item.\", \"change\": \"parse() now returns an empty result when the list is empty, before reading any item.\"}, {\"id\": \"f_22ab\", \"asked\": \"Add a test of parse() on an empty list.\", \"change\": \"No test was added or changed.\"}], \"result_schema\": \"result/1\"}\nGive each finding one disposition. A finding the change fully answers is accepted. A finding the change does not fully answer is rejected, with the reason code fix_incomplete. The status is completed. The run is the run of the Task.",
+          "json_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schema",
+              "run",
+              "status",
+              "dispositions"
+            ],
+            "properties": {
+              "schema": {
+                "const": "result/1"
+              },
+              "run": {
+                "type": "string",
+                "pattern": "^r_[a-z0-9]+$"
+              },
+              "status": {
+                "enum": [
+                  "completed",
+                  "incomplete",
+                  "failed",
+                  "refused",
+                  "superseded"
+                ]
+              },
+              "dispositions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "finding",
+                    "decision"
+                  ],
+                  "properties": {
+                    "finding": {
+                      "type": "string",
+                      "pattern": "^f_[0-9a-f]{4}$"
+                    },
+                    "decision": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "result"
+                      ],
+                      "properties": {
+                        "result": {
+                          "enum": [
+                            "accepted",
+                            "rejected"
+                          ]
+                        },
+                        "reason": {
+                          "enum": [
+                            "fix_incomplete"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "kept": [
+            "type",
+            "subtype",
+            "is_error",
+            "num_turns",
+            "duration_ms",
+            "duration_api_ms",
+            "total_cost_usd",
+            "usage",
+            "modelUsage",
+            "stop_reason",
+            "permission_denials",
+            "structured_output"
+          ]
+        }
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": {
+          "type": "result",
+          "subtype": "success",
+          "is_error": false,
+          "num_turns": 2,
+          "duration_ms": 3709,
+          "duration_api_ms": 2128,
+          "total_cost_usd": 0.034784,
+          "usage": {
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 3872,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 190,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "server_tool_use": {
+              "web_search_requests": 0,
+              "web_fetch_requests": 0
+            },
+            "service_tier": "standard",
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 3872,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "inference_geo": "global",
+            "iterations": [
+              {
+                "input_tokens": 2,
+                "output_tokens": 190,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 3872,
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 0,
+                  "ephemeral_1h_input_tokens": 3872
+                },
+                "type": "message"
+              }
+            ],
+            "speed": "standard",
+            "fallback_credit": null
+          },
+          "modelUsage": {
+            "claude-opus-5-5": {
+              "inputTokens": 2,
+              "outputTokens": 190,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 3872,
+              "webSearchRequests": 0,
+              "costUSD": 0.034784,
+              "contextWindow": 1000000,
+              "maxOutputTokens": 128000,
+              "thinkingTokens": 0,
+              "canonicalModel": "claude-opus-5-5",
+              "provider": "firstParty",
+              "costBasis": "list"
+            }
+          },
+          "stop_reason": "tool_use",
+          "permission_denials": [],
+          "structured_output": {
+            "schema": "result/1",
+            "run": "r_p13",
+            "status": "completed",
+            "dispositions": [
+              {
+                "finding": "f_9c1e",
+                "decision": {
+                  "result": "accepted"
+                }
+              },
+              {
+                "finding": "f_22ab",
+                "decision": {
+                  "result": "rejected",
+                  "reason": "fix_incomplete"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "subscription",
+          "name": "the Maintainer's own subscription, logged in under ~/.config/sf-factory-claude (decision 0033)"
+        },
+        "via": "cli",
+        "call": "the script's own check of exchanges 1 to 3 and of claude --version asked after the Task (checked.json), at the Maintainer's terminal, with what this run answers for issues 194 and 247",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": {
+          "exit": 0,
+          "stderr": {
+            "lines": 0,
+            "characters": 0
+          },
+          "version": {
+            "pinned": "2.1.306",
+            "before": "2.1.306",
+            "after": "2.1.306",
+            "after_exit": 0,
+            "held": true
+          },
+          "logged_in": "yes",
+          "login": {
+            "exit": 0,
+            "status": "yes"
+          },
+          "is_error": false,
+          "subtype": "success",
+          "structured_output": {
+            "from": "structured_output",
+            "validates": true,
+            "failing_paths": []
+          },
+          "usage": {
+            "counts": true,
+            "fields": [
+              "cache_creation",
+              "cache_creation_input_tokens",
+              "cache_read_input_tokens",
+              "fallback_credit",
+              "inference_geo",
+              "input_tokens",
+              "iterations",
+              "output_tokens",
+              "output_tokens_details",
+              "server_tool_use",
+              "service_tier",
+              "speed"
+            ],
+            "total_cost_usd": true
+          },
+          "model_text_removed": [
+            {
+              "field": "result",
+              "characters": 207
+            },
+            {
+              "field": "every field KEPT_RESULT does not name",
+              "fields": 14
+            }
+          ],
+          "every_part_holds": true,
+          "principle": "The pass condition is trials/P-13.json's, fixed before that first run, with the pin moved from 2.1.302 to 2.1.306; nothing else in it changed, and the verdict follows it.",
+          "tools_none_with_json_schema": {
+            "asked": "issue 194: does --tools \"\" leave --json-schema working?",
+            "answer": "yes: with no tool given, the structured output validated, permission_denials is empty and stop_reason is tool_use, so the CLI delivers the structured output by a tool of its own that --tools \"\" does not take away"
+          },
+          "string_keys": {
+            "asked": "issue 247, its fourth item: whether STRING_KEYS should name fewer keys",
+            "keys_that_held_a_string": [
+              "canonicalModel",
+              "costBasis",
+              "inference_geo",
+              "provider",
+              "service_tier",
+              "speed",
+              "stop_reason",
+              "subtype",
+              "type"
+            ],
+            "named_and_unused": [
+              "model",
+              "tool_name"
+            ],
+            "dropped_strings": [
+              {
+                "field": "result",
+                "characters": 207
+              },
+              {
+                "field": "every field KEPT_RESULT does not name",
+                "fields": 14
+              }
+            ],
+            "note": "tool_name is reached only when a tool is refused, which this run had none of; model appeared nowhere, the model's name being a key of modelUsage and the value of canonicalModel"
+          }
+        }
+      }
+    }
+  ],
+  "removed": [],
+  "verdict": "pass"
+}

@@ -3712,6 +3712,13 @@ exit 9
                 pins[path.name] = found.group(1)
         self.assertLessEqual({"trial_p13_cli.sh", "context_eval.sh"}, set(pins))
         self.assertEqual(set(pins.values()), {self.PIN}, pins)
+        # The pin moves only by a run of P-13 at the new version: it is the version the newest P-13 fixture ran at, before
+        # and after its Task, and that run passed.
+        runs = [json.loads(p.read_text()) for p in sorted((ROOT / "trials").glob("P-13*.json"))]
+        newest = max(runs, key=lambda f: f["ran_at"])
+        task = next(e for e in newest["exchanges"] if e["request"]["call"].startswith("claude -p"))
+        self.assertEqual((newest["verdict"], task["request"]["body"]["pinned"], newest["exchanges"][0]["response"]["body"]),
+                         ("pass", self.PIN, self.PIN + " (Claude Code)"))
 
     def test_the_cli_is_given_only_the_named_environment_and_no_tool(self):
         folder = self.stand_in()
