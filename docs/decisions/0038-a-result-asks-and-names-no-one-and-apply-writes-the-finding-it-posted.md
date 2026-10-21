@@ -85,4 +85,4 @@ unverified: about 160 characters at the longest, and P-17's were shorter.
 | The Harness refuses a `completed` Result with a reason, and one of any other status without; it gives a text its trust class from the facts' actor, never from the text | waiting on `harness/` |
 | `apply` submits a Role's review as a comment on the admitted commit, never an approval | waiting on `harness/` |
 | `apply` writes each posted Finding's `finding/1` into the applied artifact, its source from the Task | waiting on `harness/` |
-| The facts port joins a thread's category and severity from the applied artifact; the Controller names a Run by `run-name/1`, and the records port parses it | waiting on `adapters/` |
+| The facts port joins a thread's category and severity from the applied artifact; the Controller names a Run by `run-name/1`, and the records port parses it | waiting on `adapters/timeline.py`, `adapters/records.py` |

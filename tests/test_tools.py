@@ -1243,6 +1243,18 @@ class Repo(unittest.TestCase):
         self.assertFalse(caught(check_repo.run(tree({"docs/prd/requirements.md": "x", "a.py": "from . import b\n"})),
                                 "manifest"))
 
+    def test_only_the_transport_reaches_the_network(self):
+        # Issue 191, ruling 3: only adapters/github.py imports what reaches the network; elsewhere each way of naming
+        # it is refused, and urllib's parsing, which reaches nothing, is not.
+        refused = ("import urllib.request\n", "from urllib import request\n", "import http.client\n",
+                   "from http import client\n", "import socket\n", "import ssl\n", "from xmlrpc.client import X\n")
+        for text in refused:
+            self.assertTrue(caught(check_repo.run(tree({"tools/a.py": text})), "reaches the network"), text)
+            self.assertFalse(caught(check_repo.run(tree({"adapters/github.py": text})), "reaches the network"), text)
+        self.assertTrue(caught(check_repo.run(tree({"adapters/pull.py": "import urllib.request\n"})), "reaches the network"))
+        self.assertFalse(caught(check_repo.run(tree({"tools/a.py": "import urllib.parse\nfrom urllib import parse\n"})),
+                                "reaches the network"))
+
     def test_code_loaded_round_the_import_list_is_caught(self):
         root = tree({"a.py": "s = __import__('socket')\nexec('import requests')\n"})
         problems = check_repo.run(root)
@@ -2195,6 +2207,20 @@ class Context(unittest.TestCase):
         self.assertTrue(caught(held("waiting on `harness/`", "rule", root, root), "exists now"))
         self.assertTrue(caught(held("waiting on `harness/never.py`", "rule", root, root), "exists now"))
         self.assertTrue(caught(held("waiting on `.github/CODEOWNERS`", "rule", root, root), "exists now"))
+
+    def test_a_wait_on_a_file_a_built_directory_plans_holds_until_the_file_exists(self):
+        # Issue 191, ruling 2: a directory built in parts names, in its AGENTS.md, the files not built yet; a wait on
+        # one of those holds until it exists, and a wait on any other file there has arrived, as a forgotten one would.
+        root = tree({"harness/apply.py": "", "harness/AGENTS.md": "Not built yet, by later stories: later.py, x/y.py.\n"})
+        held = check_context._held
+        self.assertEqual(held("waiting on `harness/later.py`", "rule", root, root), [])
+        self.assertEqual(held("waiting on `harness/x/y.py`", "rule", root, root), [])
+        self.assertTrue(caught(held("waiting on `harness/never.py`", "rule", root, root), "exists now"))
+        self.assertTrue(caught(held("waiting on `harness/`", "rule", root, root), "exists now"))
+        (root / "harness" / "later.py").write_text("")
+        self.assertTrue(caught(held("waiting on `harness/later.py`", "rule", root, root), "exists now"))
+        # Before the directory exists, the wait is on it, whatever file the rule names.
+        self.assertEqual(held("waiting on `roles/later.py`", "rule", root, root), [])
 
     def test_a_rule_that_cites_a_test_expected_to_fail_must_say_so(self):
         root = tree({"tests/t.py": "@pending\ndef test_later(self):\n    pass\n\ndef test_now(self):\n    pass\n"})

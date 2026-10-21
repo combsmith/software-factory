@@ -94,13 +94,30 @@ def _named(text: str, root: pathlib.Path, here: pathlib.Path) -> list:
     return out
 
 
+# A directory that is built in parts lists, in its own AGENTS.md, the files not built yet, in one line of plain words.
+PLANNED_FILES = re.compile(r"^Not built yet[^:\n]*:([^\n]*)$", re.M)
+FILE_NAME = re.compile(r"[\w-]+(?:/[\w-]+)*\.\w+")
+
+
+def _planned_files(root: pathlib.Path, top: str) -> set:
+    path = root / top / "AGENTS.md"
+    found = PLANNED_FILES.search(_text(path)) if path.is_file() else None
+    return set(FILE_NAME.findall(found.group(1))) if found else set()
+
+
 def _arrived(root: pathlib.Path, path: str) -> bool:
-    """Has the part a rule is waiting on been built? The first directory of the path decides."""
+    """Has the part a rule is waiting on been built? The first directory of the path decides, unless that directory's
+    own AGENTS.md lists the file the wait names as not built yet: then the file decides. So one story can build a part
+    of a directory while every rule another story holds still names the file it waits on, and a wait on any other file
+    there has arrived, as a forgotten wait would."""
     if path.rstrip("/").endswith("CODEOWNERS"):
         return any((root / where / "CODEOWNERS").exists() for where in (".", "docs", ".github"))
     if path.startswith(".github/"):
         return (root / path).exists()
-    return (root / path.split("/")[0]).exists()
+    top, _, rest = path.rstrip("/").partition("/")
+    if rest and (root / top).is_dir() and rest in _planned_files(root, top):
+        return (root / path).exists()
+    return (root / top).exists()
 
 
 def _held(cell: str, where: str, root: pathlib.Path, here: pathlib.Path) -> list:
