@@ -4071,6 +4071,9 @@ class Mutants(unittest.TestCase):
     def test_every_test_timed_by_the_wall_clock_is_marked_and_skipped_when_mutating(self):
         # A test that reads the clock, or sleeps, can fail under load for its own reasons, and must not kill a mutant.
         clock = {"monotonic", "monotonic_ns", "perf_counter", "perf_counter_ns", "time", "time_ns", "sleep"}
+        # tests/support.py's assertions that judge a measured spend by the clock and the load (issue 253). Spent alone
+        # measures CPU, which load does not change, and its pure judgments, over and faster_than_linear, read no clock.
+        judging = {"within", "linear", "grows_linearly"}
         marked, reads = set(), set()
         for path in sorted((ROOT / "tests").glob("test_*.py")):
             module = ast.parse(path.read_text())
@@ -4079,6 +4082,8 @@ class Mutants(unittest.TestCase):
                        if a.name == "time"}
             bare = {name for n in ast.walk(module) if isinstance(n, ast.ImportFrom) and n.module == "time"
                     for a in n.names for name in (clock if a.name == "*" else [a.asname or a.name] if a.name in clock else [])}
+            judges = {a.asname or a.name for n in ast.walk(module) if isinstance(n, ast.ImportFrom)
+                      and n.module == "tests.support" for a in n.names if a.name in judging}
             for owner in [n for n in ast.walk(module) if isinstance(n, ast.ClassDef)]:
                 for node in owner.body:
                     if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
@@ -4087,7 +4092,9 @@ class Mutants(unittest.TestCase):
                     if any("wall_clock" in ast.dump(d) for d in node.decorator_list):
                         marked.add(where)
                     if any((isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in modules
-                            and n.attr in clock) or (isinstance(n, ast.Name) and n.id in bare) for n in ast.walk(node)):
+                            and n.attr in clock) or (isinstance(n, ast.Name) and n.id in bare)
+                           or (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in judges)
+                           for n in ast.walk(node)):
                         reads.add(where)
         # The order of the runs is told by a stand-in that sleeps: that test reads no clock of its own.
         timed = reads | {("test_tools.py", "Mutants", "test_mutants_are_reported_in_their_order_however_their_runs_finish")}

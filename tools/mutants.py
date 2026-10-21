@@ -3320,6 +3320,22 @@ MUTANTS = ISSUE + [
      '    if not (stamp.isdigit() and len(zone) == 5 and zone[0] in "+-" and zone[1:].isdigit() and head.endswith(">")):\n', READINGS_TESTS),
     ("an scp-like remote is a remote's name", "tools/hooks/identity.py",
      '    return at > 0 and head.find(":", at + 2) >= 0\n', "    return False\n", READINGS_TESTS),
+    # Issue 253: a test of the hook's budget measures the hook, not the machine.
+    ("a budget is read by the clock alone", "tests/support.py",
+     "    if spent.cpu >= budget:\n", "    if spent.wall >= budget:\n",
+     ("tests.test_hooks.Budgets.test_a_slow_hook_fails_and_a_loaded_machine_does_not",)),
+    ("a hook that waits passes", "tests/support.py",
+     "    if spent.wall >= budget * slack():\n", "    if False:\n",
+     ("tests.test_hooks.Budgets.test_a_slow_hook_fails_and_a_loaded_machine_does_not",)),
+    ("the slack does not grow with load", "tests/support.py",
+     "    return 2.0 * max(1.0, load / (os.cpu_count() or 1))\n", "    return 2.0\n",
+     ("tests.test_hooks.Budgets.test_a_slow_hook_fails_and_a_loaded_machine_does_not",)),
+    ("a reading may grow faster than linearly", "tests/support.py",
+     "    if whole.cpu >= 3 * half.cpu + 0.25:\n", "    if False:\n",
+     ("tests.test_hooks.Budgets.test_a_reading_that_grows_faster_than_its_size_fails",)),
+    ("a child's CPU is not the hook's", "tests/support.py",
+     '("user", "system", "children_user", "children_system")', '("user", "system")',
+     ("tests.test_hooks.Budgets.test_the_cpu_a_child_spends_is_counted",)),
 ]
 
 
