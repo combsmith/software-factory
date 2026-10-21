@@ -2,6 +2,7 @@
   "schema": "pass/1",
   "pass": "p_01JA7P",
   "now": "2026-10-11T13:00:00Z",
+  "started_by": "schedule",
   "context": {
     "paused": false,
     "active_runs": 0,
