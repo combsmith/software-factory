@@ -15,6 +15,7 @@
 #   bash tools/trial_window2.sh controller queue KEY REPO PR PERMISSIONS       # the queue read, and the pull request's
 #                                                                               # issue and review comments (#306), narrowed
 #   bash tools/trial_window2.sh controller label KEY REPO PR LABEL             # a label added, then removed
+#   bash tools/trial_window2.sh controller issue-comments KEY REPO N PERMISSIONS # an issue's comments since a time (#306)
 #
 # PERMISSIONS narrows the token to exactly those, as name=level separated by commas (pull_requests=write,metadata=read),
 # so that a trial names the least permission a call needs. KEY is the path of that App's private key: only openssl
@@ -40,7 +41,7 @@ who=$1 action=$2 key=$3 repo=$4 target=$5
 shift 5
 case "$who/$action/$#" in
     trial-author/comments/2|pr-review/enqueue/0|pr-review/automerge/0|pr-review/dequeue/1|pr-review/resolve/0) ;;
-    pr-review/burst/0|pr-review/dismiss/1|pr-review/check/1|controller/queue/1|controller/label/1) ;;
+    pr-review/burst/0|pr-review/dismiss/1|pr-review/check/1|controller/queue/1|controller/label/1|controller/issue-comments/1) ;;
     *) usage ;;
 esac
 case "$repo" in */*/*|/*|*/) usage ;; */*) ;; *) usage ;; esac
@@ -57,7 +58,7 @@ case "$action" in
         case "$file" in ""|/*|*..*|*" "*) echo "FILE is a path in the pull request's head" >&2; exit 2 ;; esac
         case "$count" in ""|*[!0-9]*) usage ;; esac
         [ "$count" -ge 1 ] && [ "$count" -le 50 ] || { echo "COUNT is 1 to 50" >&2; exit 2; } ;;
-    dequeue|queue) narrow=$1
+    dequeue|queue|issue-comments) narrow=$1
         case "$narrow" in ""|*[!a-z_=,]*) usage ;; esac ;;
     dismiss) review=$1
         case "$review" in ""|*[!0-9]*) usage ;; esac ;;
@@ -262,6 +263,8 @@ jwt=""
 [ -n "$token" ] || { echo "no installation token was minted: GitHub's answer is in OUT" >&2; exit 1; }
 
 owner=${repo%%/*} name=${repo#*/}
+# The time #306's reconciliation reads comments since: before the canary existed, so every comment is listed.
+SINCE=2026-01-01T00:00:00Z
 
 # A pull request's node id, read by REST and held to GitHub's shape, so that nothing else is sent as one.
 node_of() {   # PR
@@ -331,7 +334,7 @@ queue)
         "owner=$owner" "name=$name" "pr=$target"
     echo "pull request $target: queue read answered $(answered)"
     # Issue 306's reads, under the same narrowed token: the pull request's issue comments and its review comments.
-    as_installation GET "repos/$repo/issues/$target/comments?per_page=100"
+    as_installation GET "repos/$repo/issues/$target/comments?since=$SINCE&per_page=100"
     echo "pull request $target: issue comments answered $(answered)"
     as_installation GET "repos/$repo/pulls/$target/comments?per_page=100"
     echo "pull request $target: review comments answered $(answered)" ;;
@@ -361,6 +364,9 @@ import json, sys
 print(json.dumps({"name": sys.argv[1], "head_sha": sys.argv[2], "status": "completed", "conclusion": "success",
                   "output": {"title": "A platform trial", "summary": "Posted by the pr-review App under this name."}}))' "$name" "$target")"
     echo "check run $name on $target: answered $(answered)" ;;
+issue-comments)
+    as_installation GET "repos/$repo/issues/$target/comments?since=$SINCE&per_page=100"
+    echo "issue $target: its comments since $SINCE answered $(answered)" ;;
 label)
     as_installation POST "repos/$repo/issues/$target/labels" "$(python3 -I -c 'import json, sys; print(json.dumps({"labels": [sys.argv[1]]}))' "$label")"
     echo "label $label on $target: added, answered $(answered)"

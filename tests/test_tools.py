@@ -5111,8 +5111,9 @@ esac
             (("pr-review", "burst", "7"), ["read", "resolveReviewThread", "resolveReviewThread", "read"]),
             (("pr-review", "dismiss", "7", "99"), ["PUT repos/%s/pulls/7/reviews/99/dismissals", "GET repos/%s/pulls/7/reviews/99"]),
             (("pr-review", "check", "a" * 40, "factory / review"), ["POST repos/%s/check-runs"]),
-            (("controller", "queue", "7", "metadata=read"), ["read", "GET repos/%s/issues/7/comments?per_page=100",
+            (("controller", "queue", "7", "metadata=read"), ["read", "GET repos/%s/issues/7/comments?since=2026-01-01T00:00:00Z&per_page=100",
                                                              "GET repos/%s/pulls/7/comments?per_page=100"]),
+            (("controller", "issue-comments", "7", "metadata=read,pull_requests=read"), ["GET repos/%s/issues/7/comments?since=2026-01-01T00:00:00Z&per_page=100"]),
             (("controller", "label", "7", "factory:hold"), ["POST repos/%s/issues/7/labels", "DELETE repos/%s/issues/7/labels/factory:hold"]),
         ]
         for args, asked in cases:
@@ -5122,7 +5123,7 @@ esac
             # One token, minted for the one repo and narrowed where the action narrows it, reaching gh by its environment.
             body = json.loads(minted[1]["sent"])
             self.assertEqual(body["repositories"], [check_trials.CANARY], args)
-            self.assertEqual(body.get("permissions"), dict(p.split("=") for p in args[3].split(",")) if args[1] in ("dequeue", "queue") else None, args)
+            self.assertEqual(body.get("permissions"), dict(p.split("=") for p in args[3].split(",")) if args[1] in ("dequeue", "queue", "issue-comments") else None, args)
             self.assertEqual({c["token"] for c in calls}, {self.TOKEN}, args)
             self.assertTrue(all(self.TOKEN not in " ".join(c["argv"]) for c in calls + minted), args)
             self.assertNotIn(self.TOKEN, (out / "exchanges.json").read_text() + ran.stdout + ran.stderr, args)

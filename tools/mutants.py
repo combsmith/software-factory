@@ -4651,7 +4651,7 @@ MUTANTS = ISSUE + [
      '    if node["isResolved"] or mine != (sys.argv[3] == "is"):', '    if node["isResolved"]:',
      ('tests.test_tools.WindowTwoApps.test_resolve_leaves_the_apps_own_threads_and_burst_resolves_the_trial_authors_alone',)),
     ("an App runs another's action in the window", 'tools/trial_window2.sh',
-     '    pr-review/burst/0|pr-review/dismiss/1|pr-review/check/1|controller/queue/1|controller/label/1) ;;\n    *) usage ;;', '    pr-review/burst/0|pr-review/dismiss/1|pr-review/check/1|controller/queue/1|controller/label/1) ;;\n    */*/*) ;;',
+     '    pr-review/burst/0|pr-review/dismiss/1|pr-review/check/1|controller/queue/1|controller/label/1|controller/issue-comments/1) ;;\n    *) usage ;;', '    pr-review/burst/0|pr-review/dismiss/1|pr-review/check/1|controller/queue/1|controller/label/1|controller/issue-comments/1) ;;\n    */*/*) ;;',
      ('tests.test_tools.WindowTwoApps.test_an_app_runs_only_its_own_actions_and_nothing_unshaped_is_sent',)),
     ('the window sends a node id of any shape', 'tools/trial_window2.sh',
      'if not re.fullmatch(r"PR_[A-Za-z0-9_-]{1,100}", said):', 'if False:',
