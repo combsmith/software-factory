@@ -6119,6 +6119,25 @@ MUTANTS = ISSUE + [
     ('the team is not checked', 'tools/check_authority.py',
      '    problems += team(manifests() if roles is None else roles, a,\n',
      '    problems += [] if True else team(manifests() if roles is None else roles, a,\n', ('tests.test_tools.Authority.test_the_repos_roles_hold_to_the_team_checks',)),
+    # The Role's instructions and rubric told to the CLI before the Task (issue 194, PR 3).
+    ('the job tells the CLI no Role instructions', 'harness/run.py',
+     '                        session or str(uuid.uuid4()), instructions(ROOT, the_task))',
+     '                        session or str(uuid.uuid4()), "")', ('tests.test_harness.Job.test_the_job_writes_the_result_and_its_digest_and_nothing_else',)),
+    ('a Role with no instructions in the Release is told none', 'harness/run.py',
+     '    if not prompt.is_file():\n        raise task.Refused("the Role has no instructions in the Release")\n',
+     '    if not prompt.is_file():\n        return ""\n', ('tests.test_harness.Engine.test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task',)),
+    ("another Intent's rubric is told", 'harness/run.py',
+     ' and held.get("intent") == the_task["intent"]:\n',
+     ':\n', ('tests.test_harness.Engine.test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task',)),
+    ('the rubric is not told', 'harness/run.py',
+     '            told += engine.RUBRIC + json.dumps(held, sort_keys=True)\n',
+     '            pass\n', ('tests.test_harness.Engine.test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task',)),
+    ('the CLI is told the Task alone', 'harness/engine.py',
+     '    return ([cli, "-p", PROMPT + instructions + TASK + json.dumps(task, sort_keys=True), "--json-schema",',
+     '    return ([cli, "-p", PROMPT + TASK + json.dumps(task, sort_keys=True), "--json-schema",', ('tests.test_harness.Engine.test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task',)),
+    ('the Engine drops what it is told', 'harness/engine.py',
+     '    args = argv(cli, task, engine["model"], session, instructions)\n',
+     '    args = argv(cli, task, engine["model"], session)\n', ('tests.test_harness.Engine.test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task',)),
 ]
 
 

@@ -18,6 +18,7 @@ Not built yet, by the stories that hold their rules: verify.py, push.py, eval/ru
 | The CLI is given no tool, the Task as data after a fixed instruction, and the Task's limits | `tests/test_harness.py::test_the_cli_is_given_no_tool` |
 | A Task too long for one argument is refused before the CLI starts | `tests/test_harness.py::test_a_task_too_long_for_one_argument_is_refused_before_the_cli_starts` |
 | An issue's Run is found among the issues | `tests/test_harness.py::test_an_issues_run_is_found_among_the_issues` |
+| The CLI is told the Role's instructions and rubric from the Release, then the Task | `tests/test_harness.py::test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task` |
 | The CLI is handed `result/1` resolved, with the Harness's fields removed and status and Effects narrowed | `tests/test_harness.py::test_the_cli_is_handed_result_1_resolved_and_narrowed` |
 | The CLI's version is held to the pin before and after the call | `tests/test_harness.py::test_the_version_is_held_before_and_after_the_call` |
 | The Harness fills `release` and `usage` from the CLI's own answer, and keeps none of the model's prose | `tests/test_harness.py::test_a_result_the_engine_wrote_is_filled_and_kept` |
