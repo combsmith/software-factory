@@ -322,9 +322,13 @@ def approve(transport, item: dict, head: str, login: str) -> dict:
             return {"state": "failed", "key": None, "fault": "environment", "reason": "not_read_back"}
         # Any other refusal is the item's, while the pull request is open at the commit; a head that moved or a close
         # is a change under the act.
-        now = _answered(_asked(transport, request("GET", pull)), 200)
-        if not isinstance(now, dict) or not isinstance(now.get("head"), dict):
-            return {"state": "failed", "key": None, "fault": "environment", "reason": "github_unavailable"}
+        again = _asked(transport, request("GET", pull))
+        now = _answered(again, 200)
+        if not isinstance(now, dict) or now.get("state") not in ("open", "closed") or not isinstance(now.get("head"), dict) \
+                or not isinstance(now["head"].get("sha"), str):
+            # The pull request read again cannot be read: whose fault, by its status alone (Codex on PR 321).
+            fault, reason = _trouble(again, "github_unavailable")
+            return {"state": "failed", "key": None, "fault": fault, "reason": reason}
         if now.get("state") != "open" or now["head"].get("sha") != head:
             return {"state": "failed", "key": None, "fault": "superseded", "reason": "head_moved"}
         return {"state": "failed", "key": None, "fault": "item", "reason": "approval_refused"}
