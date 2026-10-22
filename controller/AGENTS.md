@@ -5,10 +5,10 @@ it and a mint for ids: it builds the context, asks the Kernel about every item t
 `kernel.issue.decide`, and returns the pass record, the Runs to dispatch by their run-names, the acts, the view's
 three files, the alerts and whether a successor starts. It reads no clock, writes nothing and decides nothing itself.
 `reads.py` holds what it reads to the schemas, `feed.py` and `health.py` write the view, and `shared.py` holds
-the schemas and the time format. The writes are the effects port's, and the workflows run it.
+the schemas and the time format. `reconcile.py` matches every write a Factory identity made to an Effect the Factory recorded (I-33, decision 0061).
+The writes are the effects port's, and the workflows run it.
 
-Not built yet, by the stories that hold their rules: reconcile.py, relay.py, backpressure.py, notify.py.
-
+Not built yet, by the stories that hold their rules: relay.py, backpressure.py, notify.py.
 | Rule | Held by |
 |---|---|
 | The pass asks the Kernel through its entry points alone, each Lifecycle's `decide` and `unnamed_scope`, and imports no clock and nothing that reaches out | `tests/test_controller.py::test_the_pass_asks_the_kernel_through_its_entry_points_alone` |

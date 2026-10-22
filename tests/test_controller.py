@@ -26,12 +26,16 @@ OTHER_REPO = "combsmith/markets"
 CONTROLLER = json.loads((ROOT / "config" / "controller.json").read_text())
 TOKEN = {"id": 41898282, "type": "Bot"}       # the workflow's own token's account, as a configuration would hold it
 RELAY = {"id": 900001, "type": "User"}        # a relay's account, as one would be held once the relay exists
+APP_ACCOUNT = {"id": 5000001, "type": "Bot", "login": "combsmith-sf-controller[bot]"}  # the Controller App's, as a trial would record it
+ROLE_ACCOUNT = {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[bot]"}   # a Role App's
 
 
 def config(**controller) -> dict:
     """What a pass is given: the Kernel's configuration, with issues served, each Work item's Lifecycle, the feed's
     table, the Controller's own, here with both accounts known, and the Release."""
-    c = dict(copy.deepcopy(CONTROLLER), accounts=dict(CONTROLLER["accounts"], workflow_token=dict(TOKEN), relay=dict(RELAY)))
+    c = dict(copy.deepcopy(CONTROLLER), accounts=dict(CONTROLLER["accounts"], workflow_token=dict(TOKEN), relay=dict(RELAY),
+                                                      controller=dict(APP_ACCOUNT),
+                                                      roles={name: dict(ROLE_ACCOUNT) for name in CONTROLLER["accounts"]["roles"]}))
     c.update(controller)
     kernel = {k: v for k, v in copy.deepcopy(support.CONFIG).items() if k != "lifecycle"}
     kernel["issues"] = test_issue.config()["issues"]
@@ -82,16 +86,24 @@ def an_issue(number=7, repo=REPO, title="An issue", **over) -> dict:
     return {"facts": test_issue.facts(item=dict(test_issue.ITEM, number=number, repo=repo), **over), "title": title}
 
 
+# Every Factory identity's writes since the pass, read whole, and the Effects recorded, read whole: a reconciliation
+# with nothing to match and nothing short (decision 0061).
+# Its window opens after every run these tests list, so none is read as a dispatch no pass recorded.
+SEEN = {"schema": "seen/1", "since": "2026-10-12T00:00:00Z", "whole": True, "writes": [], "merged": []}
+RECORDED = {"applied": [], "written": [], "whole": True}
+
+
 def reads(pulls=None, runs=(), unidentified=(), complete=True, pause=None, event="schedule", actor=None,
-          attempt=1, issues=None, usage=None, records_=True) -> dict:
+          attempt=1, issues=None, usage=None, records_=True, seen=SEEN, effects=RECORDED) -> dict:
     """What one pass read. By default: a scheduled run, no Pause anywhere, one pull request waiting for its review,
-    and the records port's list read whole."""
+    the records port's list read whole, and a reconciliation that found nothing."""
     out = {"started": {"event": event, "actor": actor, "attempt": attempt},
            "pause": {"org": None, "repos": {REPO: None, OTHER_REPO: None}} if pause is None else pause,
            "records": listed(runs, unidentified, complete) if records_ else None,
            "pull_requests": [pr()] if pulls is None else pulls,
            "issues": [] if issues is None else issues,
-           "facts_reads": [{"date": "2026-10-11T12:59:59Z", "age": 0}]}
+           "facts_reads": [{"date": "2026-10-11T12:59:59Z", "age": 0}],
+           "seen": copy.deepcopy(seen), "effects": copy.deepcopy(effects)}
     if usage is not None:
         out["usage"] = usage
     return out
@@ -486,7 +498,9 @@ class Chain(unittest.TestCase):
         self.assertEqual(start("watch", RELAY, cfg=held), "public")
         self.assertEqual(start("workflow_dispatch", TOKEN, cfg=held), "dispatch")
         self.assertEqual(CONTROLLER["accounts"], {"workflow_token": None, "relay": None, "controller": None,
-                                                  "maintainer": {"login": "don-petry", "id": 36422719}})
+                                                  "maintainer": {"login": "don-petry", "id": 36422719},
+                                                  "approver": {"id": 281750570, "type": "User", "login": "donpetry-bot"},
+                                                  "roles": {"pr-review": None}})
         self.assertEqual(passed(dict(reads(), started=None))["record"]["started_by"], "dispatch")
 
 
@@ -508,8 +522,33 @@ class Feed(unittest.TestCase):
                              (reads(pulls=[], runs=[fault]), ["capacity"]),
                              (reads(pulls=[], unidentified=["1"]), ["run_unidentified"]),
                              (reads(pulls=[], complete=False), ["capacity_unreadable"]),
-                             (reads(pulls=[], records_=False), ["capacity_unreadable", "run_unidentified"])):
+                             (reads(pulls=[], records_=False), ["capacity_unreadable", "reconciliation_unreadable",
+                                                                 "run_unidentified"])):
             self.assertEqual(passed(read)["alerts"], raised, raised)
+
+    def test_a_write_no_effect_recorded_raises_one_alert_and_is_named_in_the_view(self):  # I-33, decision 0061
+        # The pass reconciles what each Factory identity wrote with what the Factory recorded: one alert however many
+        # writes, each named in the view by ids and codes, kept in the pass record so a rebuilt view says the same.
+        approvals = [{"by": "approver", "kind": "approval", "item": support.ITEM, "key": "PRR_%d" % i,
+                      "at": "2026-10-11T12:30:00Z"} for i in range(3)]
+        out = passed(reads(seen=dict(SEEN, writes=approvals)))
+        self.assertEqual((out["alerts"], out["record"]["alerts"], out["view"]["health"]["alerts"]),
+                         (["write_unmatched"], ["write_unmatched"], ["write_unmatched"]))
+        named = [a for a in out["view"]["meta"]["alerts"] if a["alert"] == "write_unmatched"]
+        self.assertEqual([a["key"] for a in named], ["PRR_0", "PRR_1", "PRR_2"])
+        self.assertEqual(out["record"]["reconciled"], out["view"]["meta"]["alerts"])
+        rebuilt = pass_.rebuild([out["record"]], {}, config())
+        self.assertEqual(rebuilt[0]["meta"]["alerts"], out["view"]["meta"]["alerts"])
+        # Matched, nothing is raised; what was seen or recorded that cannot be read raises the one alert that says so.
+        done = {"schema": "applied/1", "run": "r_01JA7Q", "release": "factory/v0.3.1", "findings": [],
+                "effects": [{"id": "e1", "type": "approve", "state": "applied", "key": "PRR_0", "reason": None}]}
+        self.assertEqual(passed(reads(seen=dict(SEEN, writes=approvals[:1]),
+                                      effects=dict(RECORDED, applied=[done])))["alerts"], [])
+        for read in (reads(seen=None), reads(effects=None), reads(seen=dict(SEEN, whole=False))):
+            self.assertEqual(passed(read)["alerts"], ["reconciliation_unreadable"])
+        # Until every Factory identity's account is known, reconciliation cannot tell their writes: it is short.
+        unknown = config(accounts=dict(config()["controller"]["accounts"], controller=None))
+        self.assertEqual(passed(cfg=unknown)["alerts"], ["reconciliation_unreadable"])
 
     def test_next_actor_and_the_decision_required_are_read_from_the_feed_table_alone(self):  # decision 0039
         held = pr(1, acts_since_writer=support.CONFIG["limits"]["max_acts_per_item"], reviews=[support.review()])

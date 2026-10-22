@@ -3,7 +3,7 @@
 All of the Factory's I/O. `github.py` is the one transport: every request goes through it, and nothing else in this repo
 reaches the network. `pull.py` reads a pull request, `timeline.py` its reviews, labels and who acted, `checks.py` its
 checks and queue, `threads.py` its review threads, `facts.py` its snapshot, `records.py` the run records, `artifacts.py`
-a failed Run's outcome, `acceptance.py` whether its issues ask for a contract, and `heldout.py` the held-out cases;
+a failed Run's outcome and a Run's `applied/1`, `seen.py` each Factory identity's writes (decision 0061), `acceptance.py` whether its issues ask for a contract, and `heldout.py` the held-out cases;
 `effects.py` sends the Controller's writes and a Role's, each through its one credential, `pause.py` reads the Pause
 they wait on, and `identity.py` mints a Role App's token. A port decides nothing and hands the Kernel no text.
 Not built yet, by the stories that hold their rules: items.py, contract.py, binding.py, issues.py, settings.py, usage.py, texts.py, applied.py.

@@ -218,7 +218,9 @@
           "runs_unnamed",
           "environment",
           "facts_unreadable",
-          "not_run"
+          "not_run",
+          "write_unmatched",
+          "reconciliation_unreadable"
         ]
       }
     },

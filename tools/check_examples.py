@@ -32,7 +32,7 @@ ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied
             "written": ("document", "pass"), "view-meta": ("document", "pass"),
             "view-items": ("document", "pass"), "health": ("document", "pass"),
             "eval-report": ("document", "commit"),
-            "facts": "record", "issue-facts": "record", "decision": "record", "issue-decision": "record", "finding": "record",
+            "facts": "record", "issue-facts": "record", "seen": "record", "decision": "record", "issue-decision": "record", "finding": "record",
             "effect": "part", "disposition": "part", "coverage": "part", "run-name": "part", "run-record": "part",
             "view-item": "part",
             "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data",

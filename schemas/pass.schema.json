@@ -152,8 +152,17 @@
           "runs_unnamed",
           "environment",
           "facts_unreadable",
-          "not_run"
+          "not_run",
+          "write_unmatched",
+          "reconciliation_unreadable"
         ]
+      }
+    },
+    "reconciled": {
+      "description": "What reconciliation found, as the view says it: each write a Factory identity made that no Effect recorded, and each merge read as an Override, ids and codes alone (decision 0061). Absent in a record written before reconciliation",
+      "type": "array",
+      "items": {
+        "$ref": "view-meta.schema.json#/$defs/alert"
       }
     }
   },

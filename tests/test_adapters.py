@@ -1081,6 +1081,28 @@ class Records(unittest.TestCase):
 
 
 class Artifacts(unittest.TestCase):
+    def test_a_runs_applied_record_is_read_whole_or_not_at_all(self):  # decision 0061
+        # What a Run recorded of its writes, read as its outcome is: whole for one that uploaded none, and never matched
+        # to a write when it cannot be read, is not applied/1 or names another Run.
+        def as_applied(found):
+            found[0]["request"]["call"] = found[0]["request"]["call"].replace("name=outcome", "name=applied")
+            for a in found[0]["response"]["body"]["artifacts"]:
+                a["name"] = artifacts.APPLIED
+            return found
+        done = json.loads((ROOT / "examples" / "applied.approval.json").read_text())
+        repo, github_id = canary(), 39100000001
+
+        def read(record, member="applied.json"):
+            zipped = outcome_zip(record, member) if record is not None else None
+            return artifacts.applied(github.Replay(as_applied(stored(repo, github_id, zipped))), repo, github_id,
+                                     done["run"])
+        self.assertEqual(read(done), (done, True))
+        self.assertEqual(read(None), (None, True))
+        for record, member in ((dict(done, run="r_01JA7R"), "applied.json"), (dict(done, effects="none"), "applied.json"),
+                               (done, "outcome.json"), ([done], "applied.json")):
+            self.assertEqual(read(record, member), (None, False), (member, record if isinstance(record, list) else
+                                                                    record.get("run")))
+
     RUN = "r_01JA6Z"
 
     def read(self, zipped, **listed):

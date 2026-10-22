@@ -1,0 +1,47 @@
+{
+  "schema": "seen/1",
+  "since": "2026-10-11T00:00:00Z",
+  "whole": true,
+  "writes": [
+    {
+      "by": "approver",
+      "kind": "approval",
+      "item": {
+        "repo": "combsmith/software-factory",
+        "type": "pull_request",
+        "number": 42
+      },
+      "key": "PRR_kwDOapproval",
+      "at": "2026-10-11T12:00:00Z",
+      "body": "LGTM"
+    },
+    {
+      "by": "approver",
+      "kind": "push",
+      "item": null,
+      "key": "7",
+      "at": "2026-10-11T12:05:00Z"
+    },
+    {
+      "by": "unattributed",
+      "kind": "resolution",
+      "item": {
+        "repo": "combsmith/software-factory",
+        "type": "pull_request",
+        "number": 42
+      },
+      "key": "PRRT_kw1",
+      "at": null
+    }
+  ],
+  "merged": [
+    {
+      "item": {
+        "repo": "combsmith/software-factory",
+        "type": "pull_request",
+        "number": 42
+      },
+      "at": "2026-10-11T12:30:00Z"
+    }
+  ]
+}

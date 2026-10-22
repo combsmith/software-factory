@@ -25,7 +25,9 @@
         "workflow_token",
         "relay",
         "controller",
-        "maintainer"
+        "maintainer",
+        "approver",
+        "roles"
       ],
       "properties": {
         "workflow_token": {
@@ -119,6 +121,61 @@
             "id": {
               "type": "integer",
               "minimum": 1
+            }
+          }
+        },
+        "approver": {
+          "description": "The machine user, by id, type and login, as trials/P-7.json records it: its writes are reconciled against the approving act's Effects (decision 0061)",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "login"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "type": {
+              "const": "User"
+            },
+            "login": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"
+            }
+          }
+        },
+        "roles": {
+          "description": "Each Role App's bot account, by id, type and login, keyed by its name in config/apps.json; null until a trial records it, and while one is, reconciliation is short (decision 0061)",
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "type",
+              "login"
+            ],
+            "properties": {
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "type": {
+                "const": "Bot"
+              },
+              "login": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*\\[bot\\]$"
+              }
             }
           }
         }
