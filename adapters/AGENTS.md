@@ -1,12 +1,9 @@
 # adapters/
 
-All of the Factory's I/O. `github.py` is the one transport: every request goes through it, and nothing else in this repo
-reaches the network. `pull.py` reads a pull request, `timeline.py` its reviews, labels and who acted, `checks.py` its
-checks and queue, `threads.py` its review threads, `facts.py` its snapshot, `records.py` the run records, `artifacts.py`
-a failed Run's outcome, `acceptance.py` whether its issues ask for a contract, and `heldout.py` the held-out cases;
-`effects.py` sends the Controller's writes and a Role's, each through its one credential, `pause.py` reads the Pause
-they wait on, and `identity.py` mints a Role App's token. A port decides nothing and hands the Kernel no text.
-Not built yet, by the stories that hold their rules: items.py, contract.py, binding.py, issues.py, settings.py, usage.py, texts.py, applied.py.
+All of the Factory's I/O. `github.py` is the one transport: every request goes through it, and nothing else in this repo reaches the network. `items.py` lists the open pull requests, `pull.py` reads one, `timeline.py` its reviews, labels and who acted,
+`checks.py` its checks and queue, `threads.py` its review threads, `facts.py` its snapshot, `records.py` the run records, `artifacts.py` a failed Run's outcome, `passes.py` the pass records before a pass and its own run, `acceptance.py` whether
+an item's issues ask for a contract, and `heldout.py` the held-out cases; `effects.py` sends the Controller's writes and a Role's, `pause.py` reads the Pause, and `identity.py` mints a token. A port decides nothing and hands the Kernel no text.
+Not built yet, by the stories that hold their rules: contract.py, binding.py, issues.py, settings.py, usage.py, texts.py, applied.py.
 
 | Rule | Held by |
 |---|---|
@@ -15,6 +12,9 @@ Not built yet, by the stories that hold their rules: items.py, contract.py, bind
 | It follows no redirect but an artifact's download, takes no proxy, bounds every answer, and uses the token its caller gives it | `tests/test_adapters.py::test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect` |
 | An artifact's download alone follows its redirect, to GitHub's artifact storage alone, over HTTPS | `tests/test_adapters.py::test_only_an_artifacts_download_follows_its_redirect_and_only_to_githubs_storage` |
 | No token is sent to the storage, and what it answers is bounded | `tests/test_adapters.py::test_the_live_transport_sends_no_token_to_the_storage_and_bounds_what_it_holds` |
+| A download is bounded at 64 KiB, or 1 MiB for a pass record alone, and read out to 8 MiB (decision 0061) | `tests/test_adapters.py::test_a_pass_record_alone_is_downloaded_under_a_wider_bound` |
+| The last two passes' records are read, this pass's run passed over; what cannot be read is none, never fewer | `tests/test_adapters.py::test_the_last_two_pass_records_are_read`, `tests/test_adapters.py::test_unreadable_pass_records_are_none` |
+| What started a pass is read from its run; open pull requests are whole only if each counted was read once | `tests/test_adapters.py::test_a_pass_is_started_by_its_own_run`, `tests/test_adapters.py::test_open_pull_requests_are_whole_only_if_each_was_read` |
 | A failed Run's outcome alone is read, once for each attempt | `tests/test_adapters.py::test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other`, `tests/test_adapters.py::test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt` |
 | An outcome is bounded and held to `outcome/1` and its Run; what cannot be read is not whole | `tests/test_adapters.py::test_an_outcome_that_cannot_be_read_whole_is_not_whole` |
 | A test replays a trial's fixture, which answers each recorded request once, in order and with its whole body, and refuses any other | `tests/test_adapters.py::test_a_replay_answers_only_what_the_fixture_holds_and_each_once` |

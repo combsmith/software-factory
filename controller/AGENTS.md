@@ -1,12 +1,8 @@
 # controller/
 
-The Controller. `pass_.py` is one pass as a function of what it read, the configuration, `now`, the pass records before
-it and a mint for ids: it builds the context, asks the Kernel about every item through `kernel.decide` and
-`kernel.issue.decide`, and returns the pass record, the Runs to dispatch by their run-names, the acts, the view's
-three files, the alerts and whether a successor starts. It reads no clock, writes nothing and decides nothing itself.
-`reads.py` holds what it reads to the schemas, `feed.py` and `health.py` write the view, and `shared.py` holds
-the schemas and the time format. The writes are the effects port's, and the workflows run it.
-
+The Controller. `pass_.py` is one pass as a function of what it read, the configuration, `now`, the pass records before it and a mint for ids: it builds the context, asks the Kernel about every item through `kernel.decide` and
+`kernel.issue.decide`, and returns the pass record, the Runs to dispatch by their run-names, the acts, the view's three files, the alerts and whether a successor starts. It reads no clock, writes nothing and decides nothing itself.
+`reads.py` holds what it reads to the schemas, `feed.py` and `health.py` write the view, `writes.py` plans the writes, and `shared.py` holds the schemas and the time format. `__main__.py` is the entry the pass job runs (decision 0061).
 Not built yet, by the stories that hold their rules: reconcile.py, relay.py, backpressure.py, notify.py.
 
 | Rule | Held by |
@@ -25,6 +21,9 @@ Not built yet, by the stories that hold their rules: reconcile.py, relay.py, bac
 | An automatic pause needs environment faults since a Run last succeeded, on different items, recently; it defers Runs, never an act | `tests/test_controller.py::test_an_automatic_pause_needs_agreeing_faults_from_runs_on_different_items_in_a_recent_window` |
 | `passes_since` restarts only after six hours with no pass | `tests/test_controller.py::test_passes_since_restarts_only_after_a_gap_of_the_second_reading` |
 | The first pass after six hours with none raises the not-run alert, and the next clears it | `tests/test_controller.py::test_the_first_pass_after_six_hours_with_none_raises_the_not_run_alert_and_the_next_clears_it` |
+| The entry reads through the ports with a token of reads alone, revoked whatever happens | `tests/test_controller.py::test_the_entry_reads_through_the_ports_and_hands_the_pass_nothing_else` |
+| Only the entry reads the clock and the environment | `tests/test_controller.py::test_only_the_entry_reads_the_clock_or_the_environment` |
+| What the entry cannot read writes nothing, and it says one code | `tests/test_controller.py::test_what_the_entry_cannot_read_writes_nothing` |
 | A pass reads no sooner than three minutes after the last began to read | `tests/test_controller.py::test_a_pass_reads_no_sooner_than_three_minutes_after_the_last_pass_began_to_read` |
 | A successor starts only for an act due at the end, not one the pass before made, and never while a Run is unidentified | `tests/test_controller.py::test_a_successor_starts_only_for_an_item_due_at_the_end` |
 | `started_by` is read from the run, an account by its type and id; one held as null is no one's | `tests/test_controller.py::test_started_by_is_read_from_the_run_and_an_account_by_its_type_and_id` |

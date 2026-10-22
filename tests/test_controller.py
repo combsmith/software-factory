@@ -7,17 +7,22 @@ them, and a fake mint, and holds what comes back. Nothing here reaches the netwo
 from __future__ import annotations
 
 import ast
+import contextlib
 import copy
+import io
 import json
+import os
 import pathlib
+import tempfile
 import unittest
 
 from adapters import github, records
+import controller.__main__ as entry
 from controller import pass_, shared
 from kernel.decide import decide
 from tests import support
-from tests import test_issue
-from tests.test_adapters import DISPATCHER, NAME, WORKFLOW, canary, listing, outcome_of, outcome_zip, stored
+from tests import test_apply, test_issue
+from tests.test_adapters import DISPATCHER, NAME, WORKFLOW, canary, exchanges, listing, outcome_of, outcome_zip, stored
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 NOW = support.NOW                       # 2026-10-11T13:00:00Z
@@ -224,7 +229,8 @@ class Record(unittest.TestCase):
         self.assertEqual(twice["left_out"], [dict(support.ITEM, number=42)] * 2 + [dict(test_issue.ITEM, number=7)] * 2)
 
     def test_the_pass_asks_the_kernel_through_its_entry_points_alone(self):  # issue 193, ruling 8, amended for 270
-        for module in sorted((ROOT / "controller").glob("*.py")):
+        # The entry, `__main__.py`, is the one place that reads the clock and the environment (Entry, below).
+        for module in sorted(m for m in (ROOT / "controller").glob("*.py") if m.name != "__main__.py"):
             tree = ast.parse(module.read_text())
             kernel = {a.asname or a.name: node.module + "." + a.name for node in ast.walk(tree)
                       if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "kernel"
@@ -485,8 +491,9 @@ class Chain(unittest.TestCase):
         held = config(accounts=dict(CONTROLLER["accounts"], workflow_token=None, relay=None))
         self.assertEqual(start("watch", RELAY, cfg=held), "public")
         self.assertEqual(start("workflow_dispatch", TOKEN, cfg=held), "dispatch")
-        self.assertEqual(CONTROLLER["accounts"], {"workflow_token": None, "relay": None, "controller": None,
-                                                  "maintainer": {"login": "don-petry", "id": 36422719}})
+        self.assertEqual({k: CONTROLLER["accounts"][k] for k in ("workflow_token", "relay", "controller", "maintainer")},
+                         {"workflow_token": None, "relay": None, "controller": None,
+                          "maintainer": {"login": "don-petry", "id": 36422719}})
         self.assertEqual(passed(dict(reads(), started=None))["record"]["started_by"], "dispatch")
 
 
@@ -675,6 +682,156 @@ class Ports(unittest.TestCase):
         out = passed(dict(reads(pulls=[pr(264)]), records=got))
         self.assertEqual(([r["outcome"] for r in out["record"]["runs"]], [r["read"] for r in out["record"]["reads"]]),
                          (["item"], ["runs", "outcome", "facts"]))
+
+
+class Hub:
+    """GitHub as the entry meets it: each request answered by its method and path from the table given, any number of
+    times, each recorded with the credential that sent it. A request the table does not hold is refused."""
+
+    def __init__(self, table: dict):
+        self.table, self.sent = dict(table), []
+
+    def connect(self, credential: str):
+        hub = self
+
+        class Sent:
+            def send(self, req):
+                hub.sent.append((credential, req))
+                key = (req["method"], req["path"])
+                if key not in hub.table:
+                    raise github.Unanswered("asked %s %s" % key)
+                return copy.deepcopy(hub.table[key])
+        return Sent()
+
+
+class Entry(unittest.TestCase):
+    HOME = CONTROLLER["home"]["repo"]
+    RUN = "777"
+    TOKEN = "ghs_entrytoken"
+    CLOCK = 1_791_806_400     # 2026-10-12T12:00:00Z
+
+    @classmethod
+    def setUpClass(cls):
+        cls.key = test_apply.throwaway_key().decode()
+
+    def table(self, numbers=(), total=None, pause=404, minted=201, repo_pause=None):
+        from tests.test_adapters import open_page, passes_listed
+        config = entry.configuration(ROOT, "factory/v0.3.1")
+        runs = copy.deepcopy(exchanges("P-17")[4]["response"])
+        runs["body"] = {"total_count": 0, "workflow_runs": []}
+        started = copy.deepcopy(exchanges("P-9")[10]["response"])
+        started["body"].update(id=int(self.RUN), event="schedule", repository={"full_name": self.HOME})
+        listed_runs = "/repos/%s/actions/workflows/%%s/runs?branch=main&event=workflow_dispatch&per_page=100" % self.HOME
+        return {
+            ("GET", "/repos/%s/installation" % self.HOME):
+                {"status": 200, "headers": {}, "body": {"id": 172571064, "app_id": config["app"]["app_id"]}},
+            ("POST", "/app/installations/172571064/access_tokens"):
+                {"status": minted, "headers": {}, "body": {
+                    "token": self.TOKEN, "permissions": dict(entry.wanted(config), metadata="read"),
+                    "repository_selection": "selected", "repositories": [{"full_name": self.HOME}]}},
+            ("GET", passes_listed([])["request"]["call"].split()[1]): passes_listed([])["response"],
+            ("GET", listed_runs % "run.yml"): runs,
+            ("GET", listed_runs % "approve.yml"): runs,
+            ("POST", "/graphql"): open_page(list(numbers), total)["response"],
+            ("GET", "/repos/%s/actions/runs/%s" % (self.HOME, self.RUN)): started,
+            ("GET", "/orgs/combsmith/actions/variables/FACTORY_PAUSED"): {"status": pause, "headers": {}, "body": None},
+            ("GET", "/repos/%s/actions/variables/FACTORY_PAUSED" % self.HOME):
+                {"status": pause if repo_pause is None else repo_pause, "headers": {}, "body": None},
+            ("GET", "/repos/%s/pulls/7" % self.HOME): {"status": 502, "headers": {}, "body": None},
+            ("DELETE", "/installation/token"): {"status": 204, "headers": {}, "body": None},
+        }
+
+    def run_entry(self, hub, **environ):
+        env = {"RELEASE": "factory/v0.3.1", "GITHUB_RUN_ID": self.RUN, entry.KEY: self.key}
+        env.update(environ)
+        slept, printed = [], io.StringIO()
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(printed):
+            code = entry.main(["out"] if os.makedirs(os.path.join(d, "out")) is None else [], {k: v for k, v in env.items()
+                                                                                              if v is not None},
+                              base=d, clock=lambda: self.CLOCK, sleep=slept.append, connect=hub.connect)
+            files = {str(f.relative_to(os.path.join(d, "out"))): json.loads(f.read_text())
+                     for f in pathlib.Path(d, "out").rglob("*.json")}
+        return code, printed.getvalue(), files, slept
+
+    def test_the_entry_reads_through_the_ports_and_hands_the_pass_nothing_else(self):  # #193 ruling 10, #196 PR 2
+        hub = Hub(self.table(numbers=[7]))
+        code, printed, files, slept = self.run_entry(hub)
+        self.assertEqual((code, printed), (0, "passed\n"))
+        self.assertEqual(sorted(files), ["pass.json", "view/health.json", "view/items.json", "view/meta.json",
+                                         "writes.json"])
+        record = files["pass.json"]
+        self.assertEqual(shared.errors(record, "pass"), [])
+        self.assertEqual(shared.errors(files["writes.json"], "writes"), [])
+        self.assertEqual((record["now"], record["release"], record["started_by"]),
+                         ("2026-10-12T12:00:00Z", "factory/v0.3.1", "schedule"))
+        # The pull request whose snapshot could not be read is left out, as one alert; no pass record before this one
+        # is no wait.
+        self.assertEqual((record["pull_requests"], record["issues"]), ([], []))
+        self.assertIn("facts_unreadable", record["alerts"])
+        self.assertEqual(slept, [0])
+        # The App's JWT asks for the token alone, with every read its grant allows and no write; every read after goes
+        # through that token, and the last request revokes it.
+        through = [(c == self.TOKEN, r["method"], r["path"]) for c, r in hub.sent]
+        self.assertEqual([t for t, _, _ in through[:2]], [False, False])
+        self.assertTrue(all(t for t, _, _ in through[2:]))
+        self.assertEqual(through[-1], (True, "DELETE", "/installation/token"))
+        asked = hub.sent[1][1]["body"]["permissions"]
+        self.assertEqual(asked, {"actions": "read", "checks": "read", "contents": "read", "metadata": "read",
+                                 "pull_requests": "read"})
+        self.assertEqual({m for _, m, p in through[2:] if m != "GET"}, {"POST", "DELETE"})
+        self.assertEqual({p for _, m, p in through[2:] if m == "POST"}, {"/graphql"})
+        # Nothing it prints is a key, a token or GitHub's.
+        self.assertNotIn(self.TOKEN, printed)
+        # A Pause that cannot be read is unreadable; one GitHub holds as none is no Pause.
+        self.assertIs(record["context"]["paused"], False)
+        for org, repo in ((403, 404), (404, 403)):
+            _, _, files, _ = self.run_entry(Hub(self.table(pause=org, repo_pause=repo)))
+            self.assertIsNone(files["pass.json"]["context"]["paused"], (org, repo))
+
+    def test_what_the_entry_cannot_read_writes_nothing(self):
+        for environ, want in (({"RELEASE": None}, "release_unreadable"), ({"RELEASE": "v1"}, "release_unreadable"),
+                              ({"GITHUB_RUN_ID": "1/2"}, "run_unreadable"), ({"GITHUB_RUN_ID": None}, "run_unreadable"),
+                              ({entry.KEY: None}, "key_unreadable"), ({entry.KEY: ""}, "key_unreadable")):
+            hub = Hub(self.table())
+            code, printed, files, _ = self.run_entry(hub, **environ)
+            self.assertEqual((code, printed, files, hub.sent), (1, want + "\n", {}, []), environ)
+        # A token GitHub would not give: nothing read, nothing to revoke.
+        hub = Hub(self.table(minted=403))
+        self.assertEqual(self.run_entry(hub)[:3], (1, "token_refused\n", {}))
+        self.assertEqual(len(hub.sent), 2)
+        # A list of open pull requests read short: nothing written, and the token revoked.
+        hub = Hub(self.table(numbers=[7], total=2))
+        self.assertEqual(self.run_entry(hub)[:3], (1, "pull_requests_unreadable\n", {}))
+        self.assertEqual((hub.sent[-1][0], hub.sent[-1][1]["path"]), (self.TOKEN, "/installation/token"))
+        # A folder outside the directory it runs in is refused before anything is read.
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()):
+            os.makedirs(os.path.join(d, "inside"))
+            os.makedirs(os.path.join(d, "elsewhere"))
+            hub = Hub(self.table())
+            env = {"RELEASE": "factory/v0.3.1", "GITHUB_RUN_ID": self.RUN, entry.KEY: self.key}
+            self.assertEqual(entry.main(["../elsewhere"], env, base=os.path.join(d, "inside"), connect=hub.connect), 2)
+            self.assertEqual(entry.main([], env, base=d, connect=hub.connect), 2)
+            self.assertEqual(hub.sent, [])
+
+    def test_only_the_entry_reads_the_clock_or_the_environment(self):
+        # Every other module of controller/ is a function of what it is given (the test above it); the entry takes the
+        # clock, the environment, the sleep and the transport as arguments, so that a test gives each.
+        reaching = {"os", "time", "secrets", "random", "sys"}
+        for module in sorted(m for m in (ROOT / "controller").glob("*.py") if m.name != "__main__.py"):
+            tree = ast.parse(module.read_text())
+            imported = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names} | \
+                {(n.module or "").split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+            self.assertFalse(imported & reaching, module.name)
+            self.assertFalse([n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr in ("now", "utcnow")],
+                             module.name)
+        main = ast.parse((ROOT / "controller" / "__main__.py").read_text())
+        self.assertLessEqual({"os", "time", "secrets"}, {a.name for n in ast.walk(main) if isinstance(n, ast.Import)
+                                                         for a in n.names})
+        hub = Hub(self.table())
+        _, _, files, _ = self.run_entry(hub)
+        self.assertEqual(files["pass.json"]["now"], "2026-10-12T12:00:00Z")
+        self.assertRegex(files["pass.json"]["pass"], r"^p_[0-9A-Z]{20}$")
+        self.assertNotEqual(entry.mint_id("p"), entry.mint_id("p"))
 
 
 if __name__ == "__main__":
