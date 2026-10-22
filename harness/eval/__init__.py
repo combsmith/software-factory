@@ -3,8 +3,8 @@ it judges and scored against its rubric, so that what is measured is what runs. 
 each a `run:` line of `.github/workflows/eval.yml`, in this order:
 
 - `plan` reads the set's manifest at the commit and the Release the dispatch names; a set of no case ends the run here,
-  `eval_set_empty`, before any credential is minted (ruling 8);
-- `fetch` reads each case from the private home through `adapters/heldout.py`, with the token the job minted for it, into
+  `eval_set_empty`, before any credential is used (ruling 8);
+- `fetch` reads each case from the private home through `adapters/heldout.py`, with the Maintainer's read-only token, into
   a scratch directory outside the workspace, on a runner thrown away when the job ends;
 - `run` gives each case to the review Intent and scores its Result with `tools/eval_result.py` (the ruling's PR 2);
 - `judge` fails the run unless the report passes `verdict`, the gate's own test, which the Release's gate reads too.
@@ -86,7 +86,7 @@ def _write(path: pathlib.Path, document) -> None:
 
 def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     """What the run judges, kept for the steps after it: the Release the dispatch names, the commit checked out, and
-    the set by its count and hash. A set of no case is `eval_set_empty`, and the run ends before anything is minted."""
+    the set by its count and hash. A set of no case is `eval_set_empty`, and the run ends before anything is read."""
     release, commit = env.get("RELEASE"), env.get("GITHUB_SHA")
     if not (isinstance(release, str) and RELEASE.fullmatch(release)):
         raise Stop("release_unreadable")

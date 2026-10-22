@@ -104,7 +104,9 @@ SCAN = "ci.yml"
 EVAL_JOB, EVAL_WORKFLOW = "eval", "eval.yml"
 EVAL_ENVIRONMENT = "factory-eval"
 EVAL_STEP = "python3 -m harness.eval.%s"
-UPLOAD = "actions/upload-artifact@"
+# The one upload the eval job may run, by its commit, as CHECKOUT is the one checkout: an action in the one job that
+# holds both credentials can read them both (decision 0053), so a bump of it edits this too.
+UPLOAD = ("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9", "# v7.0.2")
 EVAL_ORDER = ("checkout", "plan", "fetch", "run", "upload", "judge")
 EVAL_JOB_KEYS = {"runs-on", "timeout-minutes", "permissions", "environment", "steps"}
 # What each step may be given, under with: or env:, exactly: a step's own keys beside these are refused.
@@ -125,7 +127,9 @@ EVAL_STEP_KEYS = {"uses", "run", "with", "env"}
 EVAL_TOP = {"name": "factory", "on": "", "permissions": "{}", "jobs": ""}
 EVAL_ACTIONS = {"checkout", "upload"}
 # The model's credential, an organisation secret no branch policy narrows (decision 0053): named in eval.yml's run step
-# and in the run job's workflow, and in no other workflow.
+# and in the run job's workflow, run.yml, and in no other workflow. Within run.yml, that only its run job names it is
+# that workflow's own check, "Harness: run and apply for the review Intent, and the model holds no credential that can
+# write" (issue 194), its PR 3.
 MODEL_SECRET = re.compile(r"CLAUDE_CODE_OAUTH_TOKEN", re.I)
 MODEL_WORKFLOWS = {EVAL_WORKFLOW, "run.yml"}
 # What names the held-out home or the eval job's environment, in a workflow that is not eval.yml.
@@ -551,7 +555,7 @@ def _kind(step: dict) -> str:
     if uses is not None and "run" not in step:
         if (uses, step["uses"]["comment"]) == CHECKOUT:
             return "checkout"
-        return "upload" if uses.startswith(UPLOAD) else None
+        return "upload" if (uses, step["uses"]["comment"]) == UPLOAD else None
     command = _lines(step.get("run"))
     for name in EVAL_ORDER:
         if name not in EVAL_ACTIONS and command == [EVAL_STEP % name] and "uses" not in step:

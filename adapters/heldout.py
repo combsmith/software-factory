@@ -1,6 +1,6 @@
 """The held-out home's cases, read for the eval job alone (design §3.13 and §4.9, issue 309): each case a manifest names,
-`GET /repos/{owner}/{repo}/contents/{role}/{id}.json`, through the one transport, with the token the job minted for the
-home and nothing else. A case is handed back as the bytes its manifest hashed, or not at all, with a code that says why.
+`GET /repos/{owner}/{repo}/contents/{role}/{id}.json`, through the one transport, with the Maintainer's read-only token for the
+home and nothing else (decision 0053). A case is handed back as the bytes its manifest hashed, or not at all, with a code that says why.
 
 The home's owner and name are the job's environment's, never this repo's, and no refusal, code or message here names
 them, a case's path or a byte of a case: what the job prints is counts and codes. A case is read from GitHub's JSON

@@ -104,8 +104,8 @@ commit the pull request carries, which must be the Maintainer, read from `config
 
 The eval job is a reserved name, `factory / eval`, in eval.yml: the one job that holds the held-out home's credential
 (design §4.9). No other workflow takes the name, by id or by `name:`, or names `factory-eval`, the home or its steps.
-Its shape, each credential named by one step alone, is `EVAL_GIVEN` in `tools/check_workflows.py`, by issue 309,
-"Workflows: eval.yml runs the review Intent's held-out cases and writes eval-report/1".
+Its shape, each credential named by one step alone and its upload the one `UPLOAD`, is `EVAL_GIVEN` in
+`tools/check_workflows.py`, by issue 309, "Workflows: eval.yml runs the review Intent's held-out cases and writes eval-report/1".
 
 Org standard: ci-standards.md, "Permissions Policy", "Action Pinning Policy" and "CI Job Naming Convention". Its name, triggers and stages depart from "1. CI Pipeline (ci.yml)": `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md`.
 Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`, `tests/test_tools.py::test_a_lens_job_that_would_never_report_under_its_name_is_caught`, `tests/test_tools.py::test_the_required_check_fails_unless_every_job_it_needs_passed`, `tests/test_tools.py::test_a_lens_job_that_judges_its_needs_runs_from_the_base`, `tests/test_tools.py::test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape`, `tests/test_tools.py::test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix`, `tests/test_evals.py::test_the_eval_jobs_name_is_reserved`, `tests/test_evals.py::test_the_eval_workflow_names_each_credential_in_one_step_alone`

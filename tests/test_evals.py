@@ -233,7 +233,7 @@ class TheSet(unittest.TestCase):
 
     def test_the_eval_workflow_names_each_credential_in_one_step_alone(self):
         # Issue 309, ruling 10: dispatched alone with the Release it judges; one job on factory-eval, granted
-        # contents: read; its steps in order; the held-out App's key named by the mint alone, the token it mints by
+        # contents: read; its steps in order; the Maintainer's token for the held-out home named by
         # fetch alone and the model's credential by run alone, so no step holds both; the upload takes the report alone.
         from tests.test_tools import clone, caught, GOOD
         from tools import check_workflows
@@ -288,6 +288,8 @@ class TheSet(unittest.TestCase):
                                              "its upload step is given under with"),
             "a credential left on disk": (EVAL_WORKFLOW.replace("persist-credentials: false", "persist-credentials: true"),
                                           "its checkout step is given under with"),
+            "an upload of another commit": (EVAL_WORKFLOW.replace("upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+                                                                  "upload-artifact@" + "0" * 40), "in that order"),
             "an upload of its own": (EVAL_WORKFLOW.replace("uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
                                                            " # v7.0.2", "run: python3 -m harness.eval.upload"), "in that order"),
             "the home as a variable": (EVAL_WORKFLOW.replace("${{ secrets.HELDOUT_OWNER }}", "${{ vars.HELDOUT_OWNER }}"),
@@ -409,7 +411,7 @@ class EvalJob(unittest.TestCase):
         from tests.test_adapters import home_file
         return github.Replay([home_file(i, d) for i, d in cases.items()])
 
-    def test_a_set_of_no_case_ends_the_run_before_anything_is_minted(self):
+    def test_a_set_of_no_case_ends_the_run_before_anything_is_read(self):
         # Ruling 8: the set this repo holds today has no case; the run says so and makes nothing, not even the scratch.
         from harness import eval as job
         self.assertEqual(self.step_root(job.plan), "eval_set_empty")
@@ -563,6 +565,10 @@ class EvalJob(unittest.TestCase):
                                (changed(cases=[first, dict(good["cases"][1], verdict="fail", reasons=["schema"])]),
                                 "case_failed"),
                                (changed(cases=[first, dict(good["cases"][1], reasons=["schema"])]), "case_failed"),
+                               (changed(cases=[first, dict(good["cases"][1], verdict="fail")]), "case_failed"),
+                               (changed(cases=[first, dict(good["cases"][1], verdict="unreadable")]), "case_failed"),
+                               (changed(role="devops-lead"), "another_set"),
+                               (changed(passed="2"), "report_unreadable"),
                                (changed(passed=1), "count_differs")):
             self.assertEqual(job.verdict(document, found, digest, "a" * 40, "factory/v0.1.0"), code, code)
         empty = dict(found, count=0, cases=[])
