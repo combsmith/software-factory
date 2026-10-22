@@ -7,7 +7,9 @@ CLI, in no repo (decision 0033), and what came back, with every credential remov
 GitHub in `sim/` is held to these (`sim/grounding.py`). How a trial is run is the skill
 `.claude/skills/run-a-platform-trial/SKILL.md`; P-13's script, `tools/trial_p13_cli.sh`, has its runbook beside it, `tools/trial_p13_runbook.md`.
 P-26's script, `tools/trial_p26_sandbox.sh`, holds its runbook and its pass condition at its top.
-P-50's script, `tools/trial_p50_linux_sandbox.sh`, and its stub, `tools/trial_p50_stub.py`, hold their pass condition and how they run at their top. A trial runs them only in the canary's workflow; this repo's tests run them against a stand-in CLI, the stub on 127.0.0.1.
+P-50's script, `tools/trial_p50_linux_sandbox.sh`, and its stub, `tools/trial_p50_stub.py`, hold their pass condition and
+how they run at their top. A trial runs them only in the canary's workflow; this repo's tests run them against a
+stand-in CLI, the stub on 127.0.0.1.
 `python3 -m tools.check_trials` checks this folder alone, before a fixture is added to git.
 
 | Rule | Held by |
