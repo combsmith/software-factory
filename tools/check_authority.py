@@ -57,7 +57,7 @@ def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = RO
         name = m.get("name")
         if name != stem:
             problems.append("roles/%s.json names the Role %r; a manifest is named as its file" % (stem, name))
-        if "roles/%s.json" % stem not in live:
+        if live.get("roles/%s.json" % stem) != "role" or m.get("schema") != "role/1":
             problems.append("roles/%s.json is held to no schema; add it to LIVE in tools/check_examples.py" % stem)
         owns = set(m.get("owns", ()))
         named = {c for c, entry in cats.items() if entry.get("owner") == name}
@@ -92,7 +92,9 @@ def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = RO
             grant = apps["needs"].get(need, {})
             grants = app.get("permissions") if isinstance(app.get("permissions"), dict) else {}
             held = grants.get(grant.get("permission"), {}) if "permission" in grant else {}
-            if need not in held.get("needs", ()):
+            levels = ("read", "write")
+            if (need not in held.get("needs", ()) or held.get("level") not in levels
+                    or levels.index(held["level"]) < levels.index(grant.get("level", "write"))):
                 problems.append("%s permits %s, beyond the ceiling of its App %s; grant it, or permit it no more"
                                 % (name, effect, m.get("app")))
         for i in intents:

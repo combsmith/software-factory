@@ -6235,7 +6235,7 @@ MUTANTS = ISSUE + [
      '        if name != stem:\n',
      '        if False:\n', ('tests.test_tools.Authority.test_a_manifest_is_named_as_its_file_and_held_to_role_1',)),
     ('a manifest held to no schema is read', 'tools/check_authority.py',
-     '        if "roles/%s.json" % stem not in live:\n',
+     '        if live.get("roles/%s.json" % stem) != "role" or m.get("schema") != "role/1":\n',
      '        if False:\n', ('tests.test_tools.Authority.test_a_manifest_is_named_as_its_file_and_held_to_role_1',)),
     ('an owner owns other than the table names', 'tools/check_authority.py',
      '        if (m.get("kind") == "owner" or named) and owns != named:\n',
@@ -6256,7 +6256,7 @@ MUTANTS = ISSUE + [
      '        if (effects or "app" in m) and app is None:\n',
      '        if False:\n', ('tests.test_tools.Authority.test_each_permitted_effect_is_within_the_ceiling_of_its_roles_own_app',)),
     ("a permitted Effect beyond the App's ceiling is let be", 'tools/check_authority.py',
-     '            if need not in held.get("needs", ()):\n',
+     '            if (need not in held.get("needs", ()) or held.get("level") not in levels\n                    or levels.index(held["level"]) < levels.index(grant.get("level", "write"))):\n',
      '            if False:\n', ('tests.test_tools.Authority.test_each_permitted_effect_is_within_the_ceiling_of_its_roles_own_app',)),
     ('a gate Intent needs no eval set', 'tools/check_authority.py',
      '            if not isinstance(found, dict) or (found.get("role"), found.get("intent")) != (name, i.get("name")):\n',
@@ -6321,6 +6321,16 @@ MUTANTS = ISSUE + [
     ("a Role may write through a non-Role's App", 'tools/check_authority.py',
      '        if m.get("app") in no_role:\n',
      '        if False:\n', ('tests.test_tools.Authority.test_a_writer_spends_from_gate_and_no_role_is_named_for_no_one',)),
+    # Muse's read of #194's PR 3.
+    ("a grant below its need's level is the ceiling", 'tools/check_authority.py',
+     '\n                    or levels.index(held["level"]) < levels.index(grant.get("level", "write"))):\n',
+     '):\n', ('tests.test_tools.Authority.test_each_permitted_effect_is_within_the_ceiling_of_its_roles_own_app',)),
+    ('a manifest held to another schema is read', 'tools/check_authority.py',
+     '        if live.get("roles/%s.json" % stem) != "role" or m.get("schema") != "role/1":\n',
+     '        if "roles/%s.json" % stem not in live or m.get("schema") != "role/1":\n', ('tests.test_tools.Authority.test_a_manifest_is_named_as_its_file_and_held_to_role_1',)),
+    ('a manifest of another schema version is read', 'tools/check_authority.py',
+     ' or m.get("schema") != "role/1":\n',
+     ':\n', ('tests.test_tools.Authority.test_a_manifest_is_named_as_its_file_and_held_to_role_1',)),
 ]
 
 

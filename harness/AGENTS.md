@@ -1,10 +1,10 @@
 # harness/
 
-The Harness: the jobs that carry one Run. `task.py` builds the Task from the Decision that admitted the Run, `engine.py` runs the vendor's CLI on it and takes the Result from its answer, and `run.py` is the `run` job, which writes the
-Result and its digest and nothing else of the model. `apply.py` is what the `apply` job does with that Result: it reads the item again, refuses what may not be written, writes the Effects with a token narrowed to them, and records only what
-it read back. The model is given no tool, and the CLI no secret but the one under its own name. Every test drives a stand-in for the CLI: the first live Run is the workflows' and the Release's. `eval/` is the eval job's steps, `factory /
-eval`: the held-out set run on the commit it judges, each case read into a scratch outside the workspace, scored, and reported by hashes, verdicts and codes alone (decision 0053; its rules are `evals/AGENTS.md`'s).
-`approve.py` is the approving act, a Run with no Engine: through the machine user's token alone it approves the commit it read, only if the Kernel asked again still wants it (decision 0055).
+The Harness: the jobs that carry one Run. `task.py` builds the Task from the Decision that admitted the Run, `engine.py` runs the vendor's CLI on it and takes the Result from its answer, and `run.py` is the `run` job, which writes the Result and its
+digest and nothing else of the model. `apply.py` is what the `apply` job does with that Result: it reads the item again, refuses what may not be written, writes the Effects with a token narrowed to them, and records only what it read back. The model
+is given no tool, and the CLI no secret but the one under its own name. Every test drives a stand-in for the CLI: the first live Run is the workflows' and the Release's. `eval/` is the eval job's steps, `factory / eval`: the held-out set run on the
+commit it judges, each case read into a scratch outside the workspace, scored, and reported by hashes, verdicts and codes alone (decision 0053; its rules are `evals/AGENTS.md`'s). `approve.py` is the approving act, a Run with no Engine: through the
+machine user's token alone it approves the commit it read, only if the Kernel asked again still wants it (decision 0055).
 
 Not built yet, by the stories that hold their rules: verify.py, push.py, eval/run.py.
 
@@ -19,7 +19,6 @@ Not built yet, by the stories that hold their rules: verify.py, push.py, eval/ru
 | The CLI is given no tool, the Task as data after a fixed instruction, and the Task's limits | `tests/test_harness.py::test_the_cli_is_given_no_tool` |
 | A Task too long for one argument is refused before the CLI starts | `tests/test_harness.py::test_a_task_too_long_for_one_argument_is_refused_before_the_cli_starts` |
 | An issue's Run is found among the issues | `tests/test_harness.py::test_an_issues_run_is_found_among_the_issues` |
-| The CLI is told the Role's instructions and rubric from the Release, then the Task | `tests/test_harness.py::test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task` |
 | The CLI is handed `result/1` resolved, with the Harness's fields removed and status and Effects narrowed | `tests/test_harness.py::test_the_cli_is_handed_result_1_resolved_and_narrowed` |
 | The CLI's version is held to the pin before and after the call | `tests/test_harness.py::test_the_version_is_held_before_and_after_the_call` |
 | The Harness fills `release` and `usage` from the CLI's own answer, and keeps none of the model's prose | `tests/test_harness.py::test_a_result_the_engine_wrote_is_filled_and_kept` |
