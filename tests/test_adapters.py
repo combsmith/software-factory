@@ -15,7 +15,7 @@ import pathlib
 import unittest
 import zipfile
 
-from adapters import acceptance, artifacts, checks, facts, github, pull, records, threads, timeline
+from adapters import acceptance, artifacts, checks, effects, facts, github, pull, records, threads, timeline
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -2251,7 +2251,7 @@ class Contract(unittest.TestCase):
         found = sending.dispatches()
         found[0]["response"] = copy.deepcopy(exchanges("P-27")[15]["response"])
         written, _ = sending.send(*found)
-        self.assertEqual([(w["state"], w["reason"]) for w in written["writes"][1:]],
+        self.assertEqual([(w["state"], w["reason"]) for w in written["writes"] if w["type"] in effects.DISPATCHES],
                          [("failed", "dispatch_refused"), ("sent", None), ("sent", None)])
         # A GraphQL read GitHub answers 200 with errors, as P-8 recorded over its resource limits, is no answer to any
         # port that reads GraphQL, even where the data it gave beside them would read: the checks, the threads and the

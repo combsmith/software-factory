@@ -6,7 +6,8 @@ reviews, labels and who acted, `checks.py` its checks and its place in the queue
 `facts.py` the one snapshot of it all, `records.py` the Factory's own run records, `artifacts.py` a failed Run's outcome
 from its artifact, and `acceptance.py` whether the issues it closes ask for a contract. A port decides nothing and hands
 the Kernel no text: what it cannot read whole it says is short, and the title travels beside the facts. `effects.py`
-sends the Controller's writes, each through the one credential its type names.
+sends the Controller's writes, each through the one credential its type names, and `pause.py` reads the Pause they wait
+on.
 Not built yet, by the stories that hold their rules: items.py, contract.py, binding.py, issues.py, settings.py, usage.py, texts.py, identity.py.
 
 | Rule | Held by |
