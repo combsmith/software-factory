@@ -791,7 +791,7 @@ class Entry(unittest.TestCase):
             _, _, files, _ = self.run_entry(Hub(self.table(pause=org, repo_pause=repo)))
             self.assertIsNone(files["pass.json"]["context"]["paused"], (org, repo))
 
-    def test_each_snapshot_is_read_with_the_configured_accounts_and_kept(self):  # decisions 0005, 0061
+    def test_each_snapshot_is_read_with_the_configured_accounts_and_kept(self):  # decisions 0005, 0060
         handed = []
 
         def snapshot(transport, repo, number, identities, who, runs_whole, clock):
