@@ -80,8 +80,8 @@ the deterministic Lenses alone, they are its only judge.
 | The contract is read after the other three conditions of Convergence and before the approval | `tests/test_decide.py::test_acceptance_is_read_after_every_other_condition_of_convergence` |
 | A queued item whose evidence is gone, is for other content, fails or cannot be read leaves the merge queue | `tests/test_decide.py::test_a_queued_item_whose_evidence_goes_missing_or_unreadable_leaves_the_queue`, `tests/test_simulator.py::test_a_queued_item_whose_evidence_is_gone_is_taken_out_before_it_merges` |
 | A wait for evidence is a wait in `verifying`, and goes stale past its limit | `tests/test_decide.py::test_a_wait_for_acceptance_evidence_goes_stale` |
-| The port reads the contract at the head, and each result for a criterion with the content it ran on, from the check that gave it | waiting on `adapters/acceptance.py` |
-| The port reports the latest result per criterion per check suite | waiting on `adapters/acceptance.py` |
-| A result counts only from the App the configuration allows for its criterion's kind; never from the author's Role. Issue 108, "Kernel: acceptance evidence from the right reporter, against the approved contract" | waiting on `adapters/acceptance.py` |
+| The port reads the contract at the head, and each result for a criterion with the content it ran on, from the check that gave it | waiting on `adapters/contract.py` |
+| The port reports the latest result per criterion per check suite | waiting on `adapters/contract.py` |
+| A result counts only from the App the configuration allows for its criterion's kind; never from the author's Role. Issue 108, "Kernel: acceptance evidence from the right reporter, against the approved contract" | waiting on `adapters/contract.py` |
 | The contract read is the one the Maintainer approved, unchanged since; no fix Run on a contract not yet approved (I-29), in the same story | waiting on `harness/apply.py` |
 | No manifest names another Role's output as a trigger | waiting on `roles/` |
