@@ -202,15 +202,19 @@ def main(argv=None, environ=None, base=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     environ = os.environ if environ is None else environ
     inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
-    real = [os.path.realpath(os.path.join(inside, p)) for p in argv]
-    if len(argv) != 3 or not all(path.startswith(inside + os.sep) or path == inside for path in real[2:]) \
-            or not all(path.startswith(inside + os.sep) for path in real[:2]):
+    if len(argv) != 3:
+        print("usage: python3 -m adapters.effects PASS WRITES OUT; nothing was sent")
+        return 2
+    passed, planned, out = (os.path.realpath(os.path.join(inside, p)) for p in argv)
+    if not passed.startswith(inside + os.sep) or not planned.startswith(inside + os.sep) \
+            or not (out == inside or out.startswith(inside + os.sep)):
         print("usage: python3 -m adapters.effects PASS WRITES OUT, each inside the directory it runs in; nothing was sent")
         return 2
-    if not pathlib.Path(real[2]).is_dir() or not os.access(real[2], os.W_OK):
+    if not os.path.isdir(out) or not os.access(out, os.W_OK):
         print("usage: python3 -m adapters.effects PASS WRITES OUT, OUT a folder it can write; nothing was sent")
         return 2
-    record, writes = (json.loads(pathlib.Path(p).read_text()) for p in real[:2])
+    with open(passed, encoding="utf-8") as one, open(planned, encoding="utf-8") as two:
+        record, writes = json.load(one), json.load(two)
     config = json.loads((ROOT / "config" / "controller.json").read_text())
     owner_role = json.loads((ROOT / "config" / "defaults.json").read_text())["owner_role"]
     token = environ.get("WORKFLOW_TOKEN")
@@ -222,7 +226,8 @@ def main(argv=None, environ=None, base=None) -> int:
         written, sent = refused_all(writes, record, "token_unreadable"), False
     except Refused:
         written, sent = refused_all(writes, record, "plan_refused"), False
-    pathlib.Path(real[2], "written.json").write_text(json.dumps(written, indent=2) + "\n")
+    with open(os.path.join(out, "written.json"), "w", encoding="utf-8") as kept:
+        kept.write(json.dumps(written, indent=2) + "\n")
     return 0 if sent and not failed(written) else 1
 
 
