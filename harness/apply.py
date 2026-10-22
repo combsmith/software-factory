@@ -40,6 +40,13 @@ PROPOSES = "author"
 DECIDES = "owner"
 # Proposals a security Finding's thread is never resolved on (section 3.8).
 NOT_ON_SECURITY = ("declined", "deferred")
+# What `apply` reads again with the Role App's own token (the Maintainer, 2026-10-22): every fact the Kernel is asked
+# on, and the run records with each failed Run's outcome. Its grants for them wait on the App's registration.
+READS = ("read:facts.item", "read:facts.state", "read:facts.is_draft", "read:facts.class", "read:facts.author",
+         "read:facts.mergeable", "read:facts.targets_protected", "read:facts.actor.can_write", "read:facts.content_id",
+         "read:facts.diff", "read:facts.last_pusher", "read:facts.label_events", "read:facts.last_push_at",
+         "read:facts.last_writer_action_at", "read:facts.reviews", "read:facts.threads", "read:facts.checks",
+         "read:facts.acceptance", "read:records.runs", "read:records.artifacts")
 # How a Result that did not complete ends, by its reason: the Role's fault, or the Factory's.
 THE_ROLES = ("result_invalid", "task_too_large")
 

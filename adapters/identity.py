@@ -94,16 +94,21 @@ def permissions(app: dict, needs: dict, effects) -> dict:
     """The permissions a token needs to write these Effect types: for each, the permission and level its need names in
     `config/apps.json`, and only where the App was granted that permission, at that level or above, for that need. An
     Effect whose need waits, or that the App was not granted, is refused: the token is never wider than the Effects."""
+    return granted(app, needs, ["effect:" + effect for effect in effects], "effect")
+
+
+def granted(app: dict, needs: dict, names, kind: str) -> dict:
+    """The permissions the needs `names` take, each within the App's grant for that need, as `permissions` reads an
+    Effect's; refused, `<kind>_not_grantable` or `<kind>_not_granted`, for any one it may not have."""
     wanted = {}
-    for effect in sorted(set(effects)):
-        name = "effect:" + effect
+    for name in sorted(set(names)):
         need = needs.get(name) if isinstance(needs, dict) else None
         if not isinstance(need, dict) or "permission" not in need or need.get("level") not in LEVELS:
-            raise Refused("effect_not_grantable")
+            raise Refused("%s_not_grantable" % kind)
         grant = app["permissions"].get(need["permission"])
         if (not isinstance(grant, dict) or name not in grant.get("needs", ())
                 or LEVELS.index(grant.get("level")) < LEVELS.index(need["level"])):
-            raise Refused("effect_not_granted")
+            raise Refused("%s_not_granted" % kind)
         level = wanted.get(need["permission"], "read")
         wanted[need["permission"]] = max(level, need["level"], key=LEVELS.index)
     return wanted

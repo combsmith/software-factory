@@ -600,6 +600,33 @@ class RoleWrites(unittest.TestCase):
         self.assertEqual(hub.sent[1]["body"]["output"]["annotations"][0]["annotation_level"], "notice")
 
     @support.pending
+    def test_the_role_app_is_granted_what_apply_reads_again(self):  # the Maintainer, 2026-10-22
+        # Waits on combsmith-sf-pr-review's registration of checks, actions and issues, and trial P-39 run again:
+        # apply reads the item and the run records again with the Role App's own token, read-only.
+        self.assertEqual(identity.granted(APPS["apps"]["pr-review"], APPS["needs"], apply.READS, "read"),
+                         {"actions": "read", "checks": "read", "contents": "read", "issues": "read",
+                          "metadata": "read", "pull_requests": "read"})
+
+    def test_what_apply_reads_again_is_read_only_and_within_the_apps_grant(self):  # the Maintainer, 2026-10-22
+        # As the App will be granted it: each read need served by its permission, and a read token is never a writer's.
+        needs = dict(APPS["needs"], **{"read:facts.acceptance": {"permission": "issues", "level": "read"}})
+        grants = {}
+        for name in apply.READS:
+            need = needs[name]
+            level = "write" if need["permission"] in ("pull_requests", "checks") else "read"
+            grants.setdefault(need["permission"], {"level": level, "needs": []})["needs"].append(name)
+        app = dict(APPS["apps"]["pr-review"], permissions=grants)
+        self.assertEqual(set(identity.granted(app, needs, apply.READS, "read").values()), {"read"})
+        self.assertNotIn("read:facts.queue", apply.READS)       # its need waits, and the Kernel reads it as unknown
+        for missing in ("read:records.runs", "read:facts.checks"):
+            short = dict(app, permissions={p: dict(g, needs=[n for n in g["needs"] if n != missing])
+                                           for p, g in grants.items()})
+            with self.assertRaisesRegex(identity.Refused, "^read_not_granted$"):
+                identity.granted(short, needs, apply.READS, "read")
+        with self.assertRaisesRegex(identity.Refused, "^read_not_grantable$"):
+            identity.granted(app, APPS["needs"], apply.READS, "read")
+
+    @support.pending
     def test_the_role_app_is_granted_checks_to_write_its_check_run(self):  # the Maintainer, 2026-10-22
         # Waits on the registration of checks: write for combsmith-sf-pr-review and trial P-39 run again.
         self.assertEqual(identity.permissions(APPS["apps"]["pr-review"], APPS["needs"], ["create_check_run"]),
