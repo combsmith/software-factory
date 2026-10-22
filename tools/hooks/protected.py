@@ -242,6 +242,15 @@ def protected_paths(path: pathlib.Path = ROOT / "config" / "hooks.json") -> list
     return [p for p, _ in data["protected"]] + [p for _, p, _ in data["lens_inputs"]]
 
 
+def model_lens_inputs(models: list, path: pathlib.Path = ROOT / "config" / "hooks.json") -> list:
+    """What the Kernel is given as `model_lens_inputs`: each Lens's input whose Lens is one of `models`, the model
+    Lenses config/defaults.json names, as a pattern in the one syntax of config/hooks.json. The same list as
+    protected_paths, read by the same load(), so the two never drift: a change to one of these converges only once a
+    person has approved its head as well (issue 140). Raises Unreadable as load() does."""
+    data = load(path)
+    return [p for lens, p, _ in data["lens_inputs"] if lens in models]
+
+
 def entries(listing: list) -> list:
     """Each (path, what) of a list from config/hooks.json, with its parts and a pattern for a whole relative path."""
     out = []

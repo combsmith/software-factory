@@ -23,6 +23,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # inputs from config/hooks.json.
 CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), lifecycle=check_lifecycle.load(),
               protected_paths=protected.protected_paths())
+CONFIG["model_lens_inputs"] = protected.model_lens_inputs(CONFIG["required_lenses"]["model"])
 DECISION_SCHEMA = json.loads((ROOT / "schemas" / "decision.schema.json").read_text())
 FACTS_SCHEMA = json.loads((ROOT / "schemas" / "facts.schema.json").read_text())
 DECLARED = check_lifecycle.declared(check_lifecycle.load())
@@ -79,9 +80,10 @@ DEPENDENCY_SEED = 4
 DEPENDABOT = "dependabot[bot]"
 # What each who changes the item may touch, in the world's own words: a path on the list, a protected path or a Lens's
 # input, or one on neither. A Role's fix Run touches the tests, the dependency bot a workflow's pin, the Maintainer the
-# brakes' limits. What a change touches draws from its own generator, so that the rest of each world stays as it was.
+# feed's table. None is a model Lens's own input, which waits for a person's approval no world gives (issue 140). What
+# a change touches draws from its own generator, so that the rest of each world stays as it was.
 ON_THE_LIST = {"role": "tests/test_decide.py", "dependency": ".github/workflows/verify.yml",
-               "maintainer": "config/defaults.json"}
+               "maintainer": "config/feed.json"}
 OFF_THE_LIST = {"role": "docs/lessons.md", "dependency": "docs/requirements.txt", "maintainer": "docs/glossary.md"}
 # On every seed, under faults, a review's Result leaves a criterion of its rubric uncovered half the time, which `apply`
 # refuses before any Effect: the Run fails by a fault of the item (decision 0029). The Factory's own behaviour, not
@@ -143,6 +145,7 @@ class World:
         self.listed_by = set()
         if seed % 10 == DEPENDENCY_SEED:
             # GitHub: a_dependency_bot_updates_a_workflow_pin
+            # GitHub: a_dependency_bot_updates_a_lens_pin
             self.cls, self.author = "dependency", DEPENDABOT
             self.last_pusher = self.author
             self.changed = {self.touched_by("dependency", on=seed // 10 % 2 == 0)}

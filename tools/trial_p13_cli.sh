@@ -37,9 +37,10 @@ export LC_ALL=C
 shopt -s nocasematch    # a path is compared without case: the file system may not tell .claude from .CLAUDE
 
 # The version of the CLI this trial runs at. The design names the CLI (section 3.5, engine claude-cli) and
-# asks for a pinned version (P-13), but leaves the version open: this is the one installed when the trial
-# was prepared, and the fixture records it as the one the engine port is pinned to.
-PIN=2.1.302
+# asks for a pinned version (P-13), but leaves the version open. P-13 first ran at 2.1.302, the one installed
+# then; the installer pruned that build, so the pin moved to 2.1.306 by a second run of this script at it
+# (decision 0033's row), and each fixture records the version the engine port was pinned to when it ran.
+PIN=2.1.306
 # The fields of `auth status --json` kept, by name. Any other, an address or an org among them, is dropped.
 KEPT_STATUS="loggedIn authMethod apiProvider subscriptionType"
 # The fields of the Task's answer kept, by name: what the CLI says of the run and its counts, never the model's
@@ -47,7 +48,10 @@ KEPT_STATUS="loggedIn authMethod apiProvider subscriptionType"
 KEPT_RESULT="type subtype is_error num_turns duration_ms duration_api_ms total_cost_usd usage modelUsage stop_reason permission_denials structured_output"
 # Under a kept field a string is kept only under one of these keys, and only in a code's shape: letters, digits, _ . : -
 # and no more than 64 of them. The CLI's counts are numbers; its words are codes under known keys; anything else is dropped.
-STRING_KEYS="type subtype stop_reason tool_name service_tier inference_geo speed canonicalModel provider costBasis model"
+# These are the keys the run at 2.1.306 (trials/P-13.v2-1-306.json) found holding a string, at the top or under a kept
+# key, and tool_name, which holds one only when a tool is refused (issue 247). One list serves every kept field: it is
+# usage's and modelUsage's few words and the answer's own codes, and nothing else.
+STRING_KEYS="type subtype stop_reason tool_name service_tier inference_geo speed canonicalModel provider costBasis"
 
 usage() {
     echo "usage: bash tools/trial_p13_cli.sh OUT CONFIG_DIR [CLI]" >&2
