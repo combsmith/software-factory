@@ -28,7 +28,9 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import sys
+import urllib.parse
 
 from adapters.github import Live, Unanswered, request
 from kernel import terms as t
@@ -47,13 +49,18 @@ class Refused(ValueError):
 
 class Allowed:
     """A transport that sends only the requests one credential may make, each by its method and path and the shape of
-    its body; any other is refused before it leaves."""
+    its body; any other is refused before it leaves. `patterns` are `(method, compiled path, shape)` for a path that
+    carries an id read back, matched whole."""
 
-    def __init__(self, transport, permits: dict):
-        self._transport, self._permits = transport, dict(permits)
+    def __init__(self, transport, permits: dict, patterns=()):
+        self._transport, self._permits, self._patterns = transport, dict(permits), list(patterns)
 
     def send(self, req: dict) -> dict:
         shape = self._permits.get((req.get("method"), req.get("path")))
+        if shape is None:
+            shape = next((s for method, path, s in self._patterns
+                          if method == req.get("method") and isinstance(req.get("path"), str)
+                          and path.fullmatch(req["path"])), None)
         if shape is None or not shape(req.get("body")):
             raise Unanswered("a write this credential may not send")
         return self._transport.send(req)
@@ -194,6 +201,297 @@ def refused_all(writes, record, reason: str) -> dict:
     return {"schema": "written/1", "pass": ident.get("pass"), "release": ident.get("release"),
             "writes": [{"id": w["id"], "type": w["type"], "item": w["item"], "run": w["run"], "state": "refused",
                         "key": None, "reason": reason} for w in rows]}
+
+
+# A Role's writes, `apply`'s: each on one item, through the Role App's own token, narrowed to them (issue 194, PR 2).
+# A check run is written once the Role App is granted `checks`; until then its need waits, and no token is minted for it.
+ROLE_WRITES = ("submit_review", "create_check_run", "resolve_thread", "comment")
+# GitHub takes at most fifty annotations in one request: more would need a second write, which nothing sends yet.
+ANNOTATIONS = 50
+LEVEL = {"minor": "warning", "info": "notice"}
+SHA = re.compile(r"[0-9a-f]{40}")
+# A check run's key: the Run's id and the Effect's.
+EXTERNAL = re.compile(r"r_[0-9A-Z]{6,26}:e[0-9]{1,3}")
+THREADS = """query AppliedThreads($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        totalCount
+        nodes { id comments(first: 1) { nodes { databaseId pullRequestReview { databaseId } } } }
+      }
+    }
+  }
+}"""
+THREAD = """query AppliedThread($id: ID!) {
+  node(id: $id) {
+    ... on PullRequestReviewThread { id isResolved pullRequest { number repository { nameWithOwner } } }
+  }
+}"""
+RESOLVE = """mutation AppliedResolve($id: ID!) {
+  resolveReviewThread(input: {threadId: $id}) { thread { id isResolved } }
+}"""
+THREAD_ID = re.compile(r"PRRT_[A-Za-z0-9_-]+")
+SINCE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+
+
+def role_permits(item: dict, head: str, name: str, threads) -> tuple:
+    """`(permits, patterns)`: what a Role App's token may send on one item, for `Allowed`. A review on it, a comment
+    on it, its check run, named `name`, on its head, `head`, the resolution of one of its threads, `threads`, and the
+    reads that recover and read each back; nothing else, on no other item."""
+    threads = frozenset(threads)
+    repo, number = item["repo"], item["number"]
+    pull, issue = "/repos/%s/pulls/%d" % (repo, number), "/repos/%s/issues/%d" % (repo, number)
+    owner, repo_name = repo.split("/")
+
+    def nothing(body) -> bool:
+        return body is None
+
+    def review(body) -> bool:
+        return (isinstance(body, dict) and set(body) == {"commit_id", "event", "body", "comments"}
+                and body["event"] == "COMMENT" and body["commit_id"] == head and isinstance(body["comments"], list))
+
+    def comment(body) -> bool:
+        return isinstance(body, dict) and set(body) == {"body"} and isinstance(body["body"], str)
+
+    def graphql(body) -> bool:
+        if not isinstance(body, dict) or set(body) != {"query", "variables"}:
+            return False
+        if body["query"] == THREADS:
+            return body["variables"] == {"owner": owner, "name": repo_name, "number": number}
+        return (body["query"] in (THREAD, RESOLVE) and set(body["variables"]) == {"id"}
+                and isinstance(body["variables"]["id"], str) and THREAD_ID.fullmatch(body["variables"]["id"]) is not None
+                and body["variables"]["id"] in threads)
+    def check(body) -> bool:
+        return (isinstance(body, dict) and set(body) == {"name", "head_sha", "external_id", "status", "conclusion",
+                                                          "output"}
+                and body["status"] == "completed" and body["name"] == name and body["head_sha"] == head
+                and body["conclusion"] == "success" and isinstance(body["external_id"], str)
+                and EXTERNAL.fullmatch(body["external_id"]) is not None
+                and isinstance(body["head_sha"], str) and SHA.fullmatch(body["head_sha"]) is not None)
+    permits = {("GET", pull + "/reviews?per_page=100"): nothing, ("POST", pull + "/reviews"): review,
+               ("POST", issue + "/comments"): comment, ("POST", "/graphql"): graphql,
+               ("POST", "/repos/%s/check-runs" % repo): check}
+    patterns = [("GET", re.compile(re.escape(pull) + r"/reviews/[1-9][0-9]{0,18}"), nothing),
+                ("GET", re.compile(r"/repos/%s/check-runs/[1-9][0-9]{0,18}" % re.escape(repo)), nothing),
+                ("GET", re.compile(r"/repos/%s/commits/[0-9a-f]{40}/check-runs\?check_name=[A-Za-z0-9%%._-]+&filter=all&per_page=100"
+                                   % re.escape(repo)), nothing),
+                ("GET", re.compile(r"/repos/%s/issues/comments/[1-9][0-9]{0,18}" % re.escape(repo)), nothing),
+                ("GET", re.compile(re.escape(issue) + r"/comments\?since=%s&per_page=100" % SINCE.pattern), nothing)]
+    return permits, patterns
+
+
+class _TokenRefused(Exception):
+    """GitHub would not take the credential, on a read or a write: the write ends refused, and so does every later one."""
+
+
+def _sent(transport, req: dict):
+    """GitHub's answer, or None where it gave none. Nothing is sent twice. A 401 or 403, to a read as to a write, ends
+    the write: the credential is refused."""
+    try:
+        answer = transport.send(req)
+    except Unanswered:
+        return None
+    if isinstance(answer, dict) and answer.get("status") in REFUSED:
+        raise _TokenRefused()
+    return answer
+
+
+def _fault(answer) -> dict:
+    """A write GitHub did not take: failed for no answer or one it did not take. A credential it would not take never
+    reaches here: `_sent` ends the write refused."""
+    if answer is None or answer.get("status", 500) >= 500:
+        return _back("failed", None, reason="write_unanswered")
+    return _back("failed", None, reason="write_refused")
+
+
+def _back(state: str, key, surfaces=None, reason=None) -> dict:
+    return {"state": state, "key": key, "surfaces": dict(surfaces or {}), "reason": reason}
+
+
+def _body(answer, status: int):
+    return answer.get("body") if isinstance(answer, dict) and answer.get("status") == status else None
+
+
+def _data(answer):
+    body = _body(answer, 200)
+    return body.get("data") if isinstance(body, dict) and not body.get("errors") else None
+
+
+def role_write(transport, item: dict, kind: str, req: dict, login: str) -> dict:
+    """What one of a Role's writes did, read back: `{state, key, surfaces, reason}`. `applied` or `already_applied`
+    only with the key it was read back by, and for a review each comment's thread; `sent` for one GitHub took whose
+    read-back failed, so that nothing is claimed for it."""
+    try:
+        if kind == "submit_review":
+            return _review(transport, item, req, login)
+        if kind == "create_check_run":
+            return _check(transport, item, req, login)
+        if kind == "resolve_thread":
+            return _resolve(transport, item, req)
+        if kind == "comment" and req["on"] == "item":
+            return _comment(transport, item, req, login)
+    except _TokenRefused:
+        return _back("refused", None, reason="token_refused")
+    return _back("failed", None, reason="not_built")
+
+
+def _place(comment: dict) -> dict:
+    out = {"path": comment["path"], "line": comment["end_line"], "side": "RIGHT", "body": comment["body"]}
+    if comment["start_line"] < comment["end_line"]:
+        out.update(start_line=comment["start_line"], start_side="RIGHT")
+    return out
+
+
+def _review(transport, item: dict, req: dict, login: str) -> dict:
+    """A review: recovered as one by this App on this commit (section 3.6), else submitted as a comment; read back by
+    its id, on the commit, by this App, and each of its comments' threads in the order they were asked."""
+    pull = "/repos/%s/pulls/%d" % (item["repo"], item["number"])
+    listed = _body(_sent(transport, request("GET", pull + "/reviews?per_page=100")), 200)
+    if not isinstance(listed, list) or len(listed) >= 100:
+        return _back("failed", None, reason="reviews_unreadable")
+    mine = [r for r in listed if isinstance(r, dict) and isinstance(r.get("user"), dict)
+            and r["user"].get("login") == login and r.get("commit_id") == req["commit"]]
+    if len(mine) > 1:
+        return _back("failed", None, reason="reviewed_twice")
+    state, review = ("already_applied", mine[0]) if mine else ("applied", None)
+    if review is None:
+        answer = _sent(transport, request("POST", pull + "/reviews", body={
+            "commit_id": req["commit"], "event": "COMMENT", "body": req["body"],
+            "comments": [_place(c) for c in req["comments"]]}))
+        review = _body(answer, 200)
+        if not isinstance(review, dict):
+            return _fault(answer)
+    rid = review.get("id")
+    back = _body(_sent(transport, request("GET", pull + "/reviews/%d" % rid)), 200) if type(rid) is int else None
+    if not (isinstance(back, dict) and back.get("id") == rid and back.get("commit_id") == req["commit"]
+            and back.get("state") == "COMMENTED" and isinstance(back.get("user"), dict)
+            and back["user"].get("login") == login and isinstance(back.get("node_id"), str) and back["node_id"]):
+        return _back("sent", None)
+    threads = _threads(transport, item, rid)
+    if threads is None or len(threads) != len(req["comments"]):
+        return _back("sent", None)
+    return _back(state, back["node_id"], {c["finding"]: th for c, th in zip(req["comments"], threads)})
+
+
+def _check(transport, item: dict, req: dict, login: str) -> dict:
+    """A check run: recovered by its `external_id`, the Effect's own, on the commit (section 3.6), else made once,
+    complete, with its annotations; read back by its id, by this App, on the commit, with as many annotations as were
+    asked. Each annotation's surface is the check run's key and the Finding's ref."""
+    if len(req["annotations"]) > ANNOTATIONS:
+        return _back("failed", None, reason="too_many_annotations")
+    repo, app = item["repo"], login[: -len("[bot]")] if login.endswith("[bot]") else login
+    listed = _body(_sent(transport, request("GET", "/repos/%s/commits/%s/check-runs?check_name=%s&filter=all&per_page=100" % (
+        repo, req["commit"], urllib.parse.quote(req["name"], safe="")))), 200)
+    runs = listed.get("check_runs") if isinstance(listed, dict) else None
+    if not isinstance(runs, list) or listed.get("total_count") != len(runs) or len(runs) >= 100:
+        return _back("failed", None, reason="checks_unreadable")
+    mine = [r for r in runs if isinstance(r, dict) and r.get("external_id") == req["external_id"]
+            and isinstance(r.get("app"), dict) and r["app"].get("slug") == app]
+    if len(mine) > 1:
+        return _back("failed", None, reason="checked_twice")
+    state, made = ("already_applied", mine[0]) if mine else ("applied", None)
+    if made is None:
+        answer = _sent(transport, request("POST", "/repos/%s/check-runs" % repo, body={
+            "name": req["name"], "head_sha": req["commit"], "external_id": req["external_id"], "status": "completed",
+            "conclusion": req["conclusion"], "output": {
+                "title": req["name"], "summary": "%d finding(s) that do not gate" % len(req["annotations"]),
+                "annotations": [{"path": a["path"], "start_line": a["start_line"], "end_line": a["end_line"],
+                                 "annotation_level": LEVEL.get(a["severity"], "notice"), "message": a["body"]}
+                                for a in req["annotations"]]}}))
+        made = _body(answer, 201)
+        if not isinstance(made, dict):
+            return _fault(answer)
+    cid = made.get("id")
+    back = _body(_sent(transport, request("GET", "/repos/%s/check-runs/%d" % (repo, cid))), 200) \
+        if type(cid) is int else None
+    if not (isinstance(back, dict) and back.get("id") == cid and back.get("external_id") == req["external_id"]
+            and back.get("name") == req["name"] and back.get("status") == "completed"
+            and back.get("conclusion") == req["conclusion"]
+            and back.get("head_sha") == req["commit"] and isinstance(back.get("app"), dict)
+            and back["app"].get("slug") == app and isinstance(back.get("output"), dict)
+            and back["output"].get("annotations_count") == len(req["annotations"])
+            and isinstance(back.get("node_id"), str) and back["node_id"]):
+        return _back("sent", None)
+    key = back["node_id"]
+    return _back(state, key, {a["finding"]: "%s:%s" % (key, a["finding"]) for a in req["annotations"]})
+
+
+def _threads(transport, item: dict, review: int):
+    """The threads review `review` opened, in the order its comments were made, or None where they cannot be read."""
+    owner, name = item["repo"].split("/")
+    data = _data(_sent(transport, request("POST", "/graphql", body={
+        "query": THREADS, "variables": {"owner": owner, "name": name, "number": item["number"]}})))
+    try:
+        threads = data["repository"]["pullRequest"]["reviewThreads"]
+        if threads["totalCount"] > 100 or threads["totalCount"] != len(threads["nodes"]):
+            return None
+        opened = []
+        for node in threads["nodes"]:
+            first = node["comments"]["nodes"][0]
+            if (first["pullRequestReview"] or {}).get("databaseId") == review:
+                if type(first["databaseId"]) is not int:
+                    return None
+                opened.append((first["databaseId"], node["id"]))
+    except (KeyError, TypeError, IndexError):
+        return None
+    if any(not isinstance(th, str) or not THREAD_ID.fullmatch(th) for _, th in opened):
+        return None
+    return [th for _, th in sorted(opened)]
+
+
+def _thread(transport, item: dict, thread: str):
+    """A thread as read: True or False for whether it is resolved, `elsewhere` for one not on the item, None unread."""
+    data = _data(_sent(transport, request("POST", "/graphql", body={"query": THREAD, "variables": {"id": thread}})))
+    node = data.get("node") if isinstance(data, dict) else None
+    if not isinstance(node, dict) or node.get("id") != thread or not isinstance(node.get("isResolved"), bool):
+        return None
+    pr = node.get("pullRequest") if isinstance(node.get("pullRequest"), dict) else {}
+    if pr.get("number") != item["number"] or (pr.get("repository") or {}).get("nameWithOwner") != item["repo"]:
+        return "elsewhere"
+    return node["isResolved"]
+
+
+def _resolve(transport, item: dict, req: dict) -> dict:
+    """A thread's resolution: recovered by its resolved flag, else resolved, and read back resolved."""
+    before = _thread(transport, item, req["thread"])
+    if before is None:
+        return _back("failed", None, reason="thread_unreadable")
+    if before == "elsewhere":
+        return _back("refused", None, reason="thread_not_on_item")
+    if before is True:
+        return _back("already_applied", req["thread"])
+    answer = _sent(transport, request("POST", "/graphql", body={"query": RESOLVE, "variables": {"id": req["thread"]}}))
+    if _data(answer) is None:
+        return _fault(answer if answer is None or answer.get("status") != 200 else dict(answer, status=422))
+    return _back("applied", req["thread"]) if _thread(transport, item, req["thread"]) is True else _back("sent", None)
+
+
+def _comment(transport, item: dict, req: dict, login: str) -> dict:
+    """A comment on the item. A comment has no key (section 3.6): the Result is its intent record, and one already
+    made is recovered by listing this App's comments since the Run began, never by its text, the `index`-th of them
+    this Run's `index`-th comment."""
+    issue = "/repos/%s/issues/%d/comments" % (item["repo"], item["number"])
+    listed = _body(_sent(transport, request("GET", issue + "?since=%s&per_page=100" % req["since"])), 200)
+    if not isinstance(listed, list) or len(listed) >= 100:
+        return _back("failed", None, reason="comments_unreadable")
+    # `since` lists comments updated since then: one made before the Run and edited since is not this Run's.
+    mine = sorted((c for c in listed if isinstance(c, dict) and isinstance(c.get("user"), dict)
+                   and c["user"].get("login") == login and type(c.get("id")) is int
+                   and isinstance(c.get("created_at"), str) and c["created_at"] >= req["since"]), key=lambda c: c["id"])
+    state = "already_applied" if len(mine) > req["index"] else "applied"
+    if state == "applied":
+        answer = _sent(transport, request("POST", issue, body={"body": req["body"]}))
+        made = _body(answer, 201)
+        if not isinstance(made, dict) or type(made.get("id")) is not int:
+            return _fault(answer)
+        cid = made["id"]
+    else:
+        cid = mine[req["index"]]["id"]
+    back = _body(_sent(transport, request("GET", "/repos/%s/issues/comments/%d" % (item["repo"], cid))), 200)
+    if not (isinstance(back, dict) and back.get("id") == cid and isinstance(back.get("user"), dict)
+            and back["user"].get("login") == login and isinstance(back.get("node_id"), str) and back["node_id"]):
+        return _back("sent", None)
+    return _back(state, back["node_id"])
 
 
 def main(argv=None, environ=None, base=None) -> int:
