@@ -5819,8 +5819,8 @@ MUTANTS = ISSUE + [
      '    finally:\n        revoked = True\n', ('tests.test_apply.Job.test_nothing_is_minted_for_a_refused_result_and_the_token_is_revoked_whatever_happens',)),
     # A Role's writes in the effects port (issue 194, PR 2).
     ("a Role's token sends a review that approves", 'adapters/effects.py',
-     '                and body["event"] == "COMMENT" and isinstance(body["comments"], list))',
-     '                and isinstance(body["comments"], list))', ('tests.test_apply.RoleWrites.test_a_role_token_sends_only_its_writes_on_its_one_item',)),
+     '                and body["event"] == "COMMENT" and body["commit_id"] == head',
+     '                and body["commit_id"] == head', ('tests.test_apply.RoleWrites.test_a_role_token_sends_only_its_writes_on_its_one_item',)),
     ("a Role's token reads another item's threads", 'adapters/effects.py',
      '            return body["variables"] == {"owner": owner, "name": repo_name, "number": number}',
      '            return True', ('tests.test_apply.RoleWrites.test_a_role_token_sends_only_its_writes_on_its_one_item',)),
