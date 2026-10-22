@@ -145,6 +145,7 @@ class World:
         self.listed_by = set()
         if seed % 10 == DEPENDENCY_SEED:
             # GitHub: a_dependency_bot_updates_a_workflow_pin
+            # GitHub: a_dependency_bot_updates_a_lens_pin
             self.cls, self.author = "dependency", DEPENDABOT
             self.last_pusher = self.author
             self.changed = {self.touched_by("dependency", on=seed // 10 % 2 == 0)}

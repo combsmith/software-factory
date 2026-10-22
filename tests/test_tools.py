@@ -3383,6 +3383,26 @@ class Trials(unittest.TestCase):
         self.assertEqual((past["body"]["total_count"], past["body"]["workflow_runs"], past["headers"].get("link")), (0, [], None))
         self.assertEqual(p43["ran_at"], call("for when the trial began")["response"]["body"]["commit"]["author"]["date"])
 
+    def test_a_dependency_bot_opens_and_pushes_its_update(self):
+        # trials/P-45.json (issue 251) grounds a_dependency_bot_updates_a_workflow_pin: the pass is computed here from the
+        # reads, so a fixture edited to pass, or to say what it did not see, fails.
+        by_code = {rule[0]: rule[3] for rule in check_trials.rules()}
+        self.assertEqual(by_code["a_dependency_bot_updates_a_workflow_pin"], "trials/P-45.json")
+        p45 = json.loads((ROOT / "trials" / "P-45.json").read_text())
+        call = lambda fragment: next(e for e in p45["exchanges"] if fragment in e["request"]["call"])
+        pr = call("Dependabot's pull request")["response"]["body"]
+        author = call("author with its type")["response"]["body"]["data"]["repository"]["pullRequest"]["author"]
+        pushes = call("as P-28 reads")["response"]["body"]
+        bot = (pr["user"]["id"], pr["user"]["type"])
+        self.assertEqual((pr["user"]["login"], bot), ("dependabot[bot]", (49699333, "Bot")))
+        self.assertEqual((author["databaseId"], author["__typename"]), bot, "GraphQL names it otherwise, with the same id")
+        self.assertTrue(pushes)
+        self.assertEqual({(a["actor"]["id"], a["actor"]["type"]) for a in pushes}, {bot}, "every push is the bot's")
+        files = call("what the update changes")["response"]["body"]
+        self.assertEqual([(f["filename"], f["status"]) for f in files], [(".github/workflows/p45-pinned.yml", "modified")])
+        self.assertIn("+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", files[0]["patch"])
+        self.assertEqual(p45["verdict"], "pass")
+
     def test_a_rule_of_the_fake_that_is_not_listed_is_caught(self):
         world = (ROOT / "sim" / "world.py").read_text()
         problems = check_trials.run(clone({"sim/world.py": world + "\n# GitHub: a_rule_nobody_listed\n"}))
