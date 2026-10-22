@@ -281,6 +281,42 @@ class Effects(unittest.TestCase):
         with self.assertRaises(effects.Refused):
             self.apply(plan, o["record"], github.Replay(self.dispatches()), cfg=odd)
 
+    def test_a_plan_not_its_records_is_refused_before_anything_is_read(self):
+        # The step holds the plan to its record before it reads the Pause or the open issues with the Controller's
+        # token: a plan that is not the record's names no scope to read, and asks nothing of GitHub.
+        sent = []
+
+        class Recorded:
+            def __init__(self, token, timeout=None):
+                self.token = token
+
+            def send(self, req):
+                sent.append((self.token, req["method"], req["path"]))
+                return {"status": 404, "headers": {}, "body": {"message": "Not Found"}}
+        o = out()
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = pathlib.Path(tmp)
+            (folder / "pass.json").write_text(json.dumps(o["record"]))
+            plan = writes_.plan(o)
+            plan["pass"] = "p_000099A"
+            (folder / "writes.json").write_text(json.dumps(plan))
+            argv = ["pass.json", "writes.json", "."]
+            original = effects.Live
+            effects.Live = Recorded
+            try:
+                self.assertEqual(effects.main(argv, environ={"CONTROLLER_TOKEN": "c", "WORKFLOW_TOKEN": "w"}, base=tmp), 1)
+                refused = json.loads((folder / "written.json").read_text())
+                self.assertEqual(sent, [])
+                # The record's own plan reads the Pause and the open issues, with the Controller's token alone.
+                (folder / "writes.json").write_text(json.dumps(writes_.plan(o)))
+                self.assertEqual(effects.main(argv, environ={"CONTROLLER_TOKEN": "c", "WORKFLOW_TOKEN": "w"}, base=tmp), 1)
+            finally:
+                effects.Live = original
+        self.assertEqual({(w["state"], w["reason"]) for w in refused["writes"]}, {("refused", "plan_refused")})
+        self.assertEqual({token for token, _, _ in sent}, {"c"})
+        self.assertEqual(sorted(path for _, method, path in sent if method == "GET"),
+                         sorted([pause.path("combsmith"), pause.path("combsmith/software-factory")]))
+
     def test_a_failed_write_is_recorded_and_fails_the_step(self):
         o = out()
         with tempfile.TemporaryDirectory() as tmp:
@@ -362,6 +398,7 @@ class Pause(unittest.TestCase):
         org, repos = effects.scopes(plan, controller())
         self.assertEqual((org, repos), ("combsmith", ["combsmith/software-factory"]))
         clear_ = clear(plan, controller())
+        quiet = dict(o["record"], alerts=[])
         for change, reason in ((dict(clear_, org="true"), "paused"),
                                (dict(clear_, repos={repos[0]: "true"}), "paused"),
                                (dict(clear_, org="true", repos={repos[0]: None}), "paused"),
@@ -371,18 +408,25 @@ class Pause(unittest.TestCase):
                                (dict(clear_, org=pause.UNREADABLE), "pause_unreadable"),
                                ({}, "pause_unreadable"), ("false", "pause_unreadable")):
             replay = github.Replay(sending.dispatches())
-            got = sending.apply(plan, o["record"], effects.Allowed(replay, effects.workflow_permits(controller())),
+            got = sending.apply(plan, quiet, effects.Allowed(replay, effects.workflow_permits(controller())),
                                 pause=change)
             self.assertEqual({(w["state"], w["reason"]) for w in got["writes"] if w["type"] in effects.DISPATCHES},
                              {("refused", reason)}, change)
             self.assertEqual(len(replay._left), 3, change)
-            self.assertIs(effects.failed(got), reason != "paused" or got["writes"][3]["state"] == "failed", change)
+            # A pass with no alert, held by a person's Pause, fails nothing; a Pause unread fails the step.
+            self.assertIs(effects.failed(got), reason != "paused", change)
         # The Pause's values are the pass's own.
         self.assertEqual((pause.PAUSED, pause.NOT_PAUSED), (pass_.PAUSED, pass_.NOT_PAUSED))
         # A pass that acts in another repo reads that repo's Pause too.
         far = copy.deepcopy(plan)
         far["writes"][1]["item"] = dict(far["writes"][1]["item"], repo="combsmith/markets")
         self.assertEqual(effects.scopes(far, controller())[1], ["combsmith/markets", "combsmith/software-factory"])
+        # And one in another org is stopped: its org's Pause is no one's read.
+        away = copy.deepcopy(plan)
+        away["writes"][1]["item"] = dict(away["writes"][1]["item"], repo="elsewhere/markets")
+        org, repos = effects.scopes(away, controller())
+        self.assertEqual(effects.brake({"org": "false", "repos": {r: "false" for r in repos}}, org, repos),
+                         "pause_unreadable")
 
     def test_a_pause_not_answered_as_a_variable_is_unreadable(self):
         # What the port can say before the trial: a scope that could name another path is not asked; no transport, no
@@ -471,8 +515,12 @@ class Tracking(unittest.TestCase):
         elsewhere = issued(0, "PATCH /repos/%s/issues/52" % self.HOME, {"body": edited_body}, body=edited_body, number=53)
         got, _ = self.track(["not_run"], [{"number": 52, "causes": ["not_run", "write_failed"]}], elsewhere)
         self.assertEqual(got[0], "sent")
-        # A body lists its causes, sorted codes, and nothing from outside: one this port did not write lists none.
-        self.assertEqual(effects.causes_of("anything\n- `not_run`"), None)
+        # A body lists its causes, sorted codes, and nothing from outside: one this port did not write, or one anyone
+        # edited by a line, lists none, and is no tracking issue.
+        for other in ("anything\n- `not_run`", None, body[:-1], body.replace("\n\n", "\ninjected text\n\n"),
+                      body + "more\n", body.replace("- `not_run`", "- `Not run`"), body.replace("Written by pass", "By")):
+            self.assertIsNone(effects.causes_of(other), other)
+        self.assertEqual(effects.causes_of(effects.rendered(record, [])), [])
         self.assertEqual(body.split("\n")[0], effects.FIRST_LINE)
         self.assertIn(record["pass"], body)
 
@@ -500,9 +548,14 @@ class Tracking(unittest.TestCase):
         self.assertEqual(self.track(["not_run"], None)[0], ("failed", None, "issues_unreadable"))
         self.assertEqual(self.track(["not_run"], [], cfg=controller(controller=None))[0], ("refused", None, "uncounted"))
         self.assertEqual(self.track(["not_run"], [], cfg=controller(maintainer=None))[0], ("refused", None, "uncounted"))
+        # With nothing to report, an App unnamed is no fault: a quiet pass under the shipped configuration fails nothing.
+        self.assertEqual(self.track([], [], cfg=controller(controller=None))[0], ("refused", None, "no_account"))
+        self.assertFalse(effects.failed({"writes": [{"state": "refused", "reason": "no_account"}]}))
         self.assertEqual(effects.tracking(None, controller(), out()["record"], ["not_run"], []),
                          ("refused", None, "no_credential"))
-        for status, want in ((401, ("refused", None, "token_refused")), (502, ("failed", None, "write_unanswered"))):
+        for status, want in ((401, ("refused", None, "token_refused")), (502, ("failed", None, "write_unanswered")),
+                             (422, ("failed", None, "write_refused")), (404, ("failed", None, "write_refused")),
+                             (410, ("failed", None, "write_refused"))):
             refused = issued(0, "POST /repos/%s/issues" % self.HOME,
                              {"title": effects.TITLE, "body": effects.rendered(out()["record"], ["not_run"]),
                               "assignees": ["don-petry"]})
@@ -537,15 +590,26 @@ class Tracking(unittest.TestCase):
                github.request("PATCH", "/repos/%s/issues/52/x" % self.HOME, body={"body": "b"}),
                github.request("PATCH", "/repos/combsmith/other/issues/52", body={"body": "b"}),
                github.request("POST", "/repos/%s/issues/52/comments" % self.HOME, body={"body": "b"}),
-               github.request("POST", effects.dispatch_path(cfg, "run"), body={"ref": "main"})]
+               github.request("POST", effects.dispatch_path(cfg, "run"), body={"ref": "main"}),
+               github.request("GET", pause.path("combsmith"), body={}),
+               github.request("POST", "/repos/%s/issues" % self.HOME,
+                              body={"title": effects.TITLE, "body": 7, "assignees": ["don-petry"]}),
+               github.request("PATCH", "/repos/%s/issues/52" % self.HOME, body={"body": 7})]
         for req in bad:
             with self.assertRaises(github.Unanswered, msg=req):
                 allowed.send(req)
+        # With no Maintainer named, no issue may be opened at all.
+        unnamed = effects.Allowed(Anything(), *effects.controller_permits(controller(maintainer=None), "combsmith",
+                                                                          [self.HOME]))
+        with self.assertRaises(github.Unanswered):
+            unnamed.send(github.request("POST", "/repos/%s/issues" % self.HOME,
+                                        body={"title": effects.TITLE, "body": "b", "assignees": [None]}))
 
     def test_the_open_issues_are_the_apps_own_told_by_its_account(self):
         # The list is one page of open issues by the App's bot login, each an issue as P-46's answer gives one. Kept are
-        # those whose author is the App's account by id and type, never by a title or a login anyone can take; a pull
-        # request among them is no issue; a list that names a next page, or that is no list, cannot all be read.
+        # those whose author is the App's account by id and type, never by a title or a login anyone can take, and whose
+        # body this port wrote; a pull request among them is no issue; a list that names a next page, or that is no
+        # list, cannot all be read.
         cfg = controller()
         recorded = json.loads((ROOT / "trials" / "P-46.json").read_text())["exchanges"][0]["response"]["body"]
         mine = dict(copy.deepcopy(recorded), number=52, body=effects.rendered(out()["record"], ["not_run"]),
@@ -553,11 +617,12 @@ class Tracking(unittest.TestCase):
         theirs = dict(copy.deepcopy(recorded), number=53)
         named = dict(copy.deepcopy(mine), number=54, user=dict(mine["user"], id=999))
         pulled = dict(copy.deepcopy(mine), number=55, pull_request={"url": "x"})
+        other = dict(copy.deepcopy(mine), number=56, body="An issue the App opened for something else.")
 
         def listing(rows, status=200, link=""):
             return {"request": {"via": "rest", "call": "GET " + effects.listed(self.HOME, BOT), "headers": {}},
                     "response": {"status": status, "headers": {"link": link}, "body": rows}}
-        self.assertEqual(effects.open_issues(github.Replay([listing([mine, theirs, named, pulled])]), cfg),
+        self.assertEqual(effects.open_issues(github.Replay([listing([mine, theirs, named, pulled, other])]), cfg),
                          [{"number": 52, "causes": ["not_run"]}])
         for found in (listing([mine], link='<https://x>; rel="next"'), listing({"message": "x"}), listing([mine], 403),
                       listing([dict(mine, number="52")]), listing(["x"])):

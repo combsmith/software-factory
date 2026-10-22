@@ -48,7 +48,7 @@ CAUSE = re.compile(r"- `([a-z_]{1,60})`")
 # no act, and are written under a Pause, so that a person sees why nothing moves.
 STOPPED = set(DISPATCHES)
 # A write refused for one of these is no fault of the pass's: an act no write serves yet, and a Pause a person set.
-NO_FAULT = {"not_built", "paused"}
+NO_FAULT = {"not_built", "paused", "no_account"}
 
 
 class Refused(ValueError):
@@ -181,9 +181,11 @@ def controller_permits(config: dict, org: str, repos: list) -> tuple:
     def none(body) -> bool:
         return body is None
 
+    maintainer = (config["accounts"]["maintainer"] or {}).get("login")
+
     def opened(body) -> bool:
         return isinstance(body, dict) and set(body) == {"title", "body", "assignees"} and body["title"] == TITLE \
-            and isinstance(body["body"], str) and body["assignees"] == [(config["accounts"]["maintainer"] or {}).get("login")]
+            and isinstance(body["body"], str) and isinstance(maintainer, str) and body["assignees"] == [maintainer]
 
     def edited(body) -> bool:
         return isinstance(body, dict) and (set(body) == {"body"} and isinstance(body["body"], str)
@@ -218,20 +220,29 @@ def open_issues(transport, config: dict):
         user = row.get("user") if isinstance(row, dict) else None
         if not isinstance(user, dict) or type(row.get("number")) is not int:
             return None
-        if "pull_request" in row or (user.get("id"), user.get("type")) != (account["id"], account["type"]):
+        causes = causes_of(row.get("body"))
+        # The App's own, by its account; and of those, the one this port wrote, by its first line: an issue the App
+        # opened for anything else is not the tracking issue, and is never edited or closed as one.
+        if "pull_request" in row or (user.get("id"), user.get("type")) != (account["id"], account["type"]) \
+                or causes is None:
             continue
-        found.append({"number": row["number"], "causes": causes_of(row.get("body"))})
+        found.append({"number": row["number"], "causes": causes})
     return found
 
 
+WRITTEN = re.compile(r"Written by pass p_[0-9A-Z]{6,26} at [0-9TZ:-]{20}, factory/v[0-9]+\.[0-9]+\.[0-9]+\.")
+
+
 def causes_of(body):
-    """The cause codes an issue's body lists, in its order; None for a body this port did not write."""
-    if not isinstance(body, str):
+    """The cause codes an issue's body lists, in its order; None for a body this port did not write, line for line as
+    `rendered` writes one, so that a body anyone edited is no tracking issue's."""
+    if not isinstance(body, str) or not body.endswith("\n"):
         return None
-    lines = body.split("\n")
-    if not lines or lines[0] != FIRST_LINE:
+    lines = body[:-1].split("\n")
+    if len(lines) < 3 or lines[0] != FIRST_LINE or lines[-2] != "" or not WRITTEN.fullmatch(lines[-1]):
         return None
-    return [m.group(1) for m in (CAUSE.fullmatch(line) for line in lines[1:]) if m]
+    causes = [CAUSE.fullmatch(line) for line in lines[1:-2]]
+    return [m.group(1) for m in causes] if all(causes) else None
 
 
 def rendered(record: dict, causes: list) -> str:
@@ -246,7 +257,9 @@ def tracking(transport, config: dict, record: dict, causes: list, found) -> tupl
     none is open, edited in place when its causes change, and closed when none stands. Two open is written to by no
     one. Each is sent once, and applied only on what GitHub's answer reads back."""
     if config["accounts"]["controller"] is None or config["accounts"]["maintainer"] is None:
-        return "refused", None, "uncounted"
+        # Nothing can be written while the App or the Maintainer is unnamed: a cause unreported is a fault, so that
+        # the step fails where he sees it; a pass with none fails nothing.
+        return "refused", None, "uncounted" if causes else "no_account"
     if transport is None:
         return "refused", None, "no_credential"
     if found is None:
@@ -279,9 +292,11 @@ def tracking(transport, config: dict, record: dict, causes: list, found) -> tupl
         return "refused", None, "token_refused"
     if answer["status"] >= 500:
         return "failed", None, "write_unanswered"
+    if answer["status"] not in (200, 201):
+        return "failed", None, "write_refused"
     got = answer["body"] if isinstance(answer["body"], dict) else {}
     state, number, body = want
-    if answer["status"] not in (200, 201) or got.get("state") != state or type(got.get("number")) is not int \
+    if got.get("state") != state or type(got.get("number")) is not int \
             or (number is not None and got["number"] != number) or (body is not None and got.get("body") != body):
         return "sent", None, None
     return "applied", str(got["number"]), None
@@ -294,6 +309,8 @@ def brake(pause: dict, org: str, repos: list):
     pause = pause if isinstance(pause, dict) else {}
     held = pause.get("repos") if isinstance(pause.get("repos"), dict) else {}
     values = [pause.get("org", pause_.UNREADABLE)] + [held.get(repo, pause_.UNREADABLE) for repo in repos]
+    # The org read is the home repo's; a repo of another org has an org's Pause no one read.
+    values += [pause_.UNREADABLE for repo in repos if repo.split("/")[0] != org]
     if any(v == pause_.PAUSED for v in values):
         return "paused"
     if not all(v == pause_.NOT_PAUSED for v in values):
@@ -321,12 +338,7 @@ def apply(writes: dict, record: dict, transports: dict, config: dict, owner_role
             faults = any(o["state"] == "failed" or (o["state"] == "refused" and o["reason"] not in NO_FAULT)
                          for o in out)
             causes = sorted({a for a in record.get("alerts", []) if a != "paused"} | ({"write_failed"} if faults else set()))
-            if "controller" in ended:
-                reason = "token_refused"
-            else:
-                state, key, reason = tracking(transports.get("controller"), config, record, causes, issues)
-                if reason == "token_refused":
-                    ended.add("controller")
+            state, key, reason = tracking(transports.get("controller"), config, record, causes, issues)
         elif w["type"] in DISPATCHES:
             if stopped is not None and w["type"] in STOPPED:
                 reason = stopped
@@ -388,9 +400,14 @@ def main(argv=None, environ=None, base=None) -> int:
     token, own = environ.get("WORKFLOW_TOKEN"), environ.get("CONTROLLER_TOKEN")
     sent = True
     try:
+        # The plan is held to its record before anything is read with a token: a plan that is not the record's
+        # names no scope to read and asks nothing.
+        if validate(config, SCHEMAS["controller"], schemas=SCHEMAS):
+            raise Refused("the Controller's configuration does not validate")
+        _held(writes, record, owner_role)
         transports = {"workflow": Allowed(Live(token), workflow_permits(config)) if token else None,
                       "controller": None}
-        if own and isinstance(writes, dict) and not validate(writes, SCHEMAS["writes"], schemas=SCHEMAS):
+        if own:
             org, repos = scopes(writes, config)
             transports["controller"] = Allowed(Live(own), *controller_permits(config, org, repos))
         org, repos = scopes(writes, config) if transports["controller"] else ("", [])
