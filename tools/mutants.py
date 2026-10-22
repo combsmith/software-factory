@@ -4739,6 +4739,21 @@ MUTANTS = ISSUE + [
     ('a case GitHub did not answer stops the fetch', 'harness/eval/__init__.py',
      '        except Exception:\n            data, code = None, "unanswered"\n',
      "        except KeyError:\n            data, code = None, 'unanswered'\n", ('tests.test_evals.EvalJob.test_a_case_the_home_does_not_answer_is_unanswered_and_the_rest_are_fetched',)),
+    ('a case that is no eval-case is reviewed', 'harness/eval/__init__.py',
+     '        if _errors(case, "eval-case") or case["id"]',
+     '        if case["id"]', ('tests.test_evals.EvalJob.test_a_case_that_is_no_case_of_this_set_is_unreadable',)),
+    ('a case of another Role is reviewed', 'harness/eval/__init__.py',
+     '(case["role"], case["intent"]) != (found["role"], found["intent"])',
+     'case["intent"] != found["intent"]', ('tests.test_evals.EvalJob.test_a_case_that_is_no_case_of_this_set_is_unreadable',)),
+    ('a workspace inside the scratch is allowed', 'harness/eval/__init__.py',
+     ' or inside.startswith(place + os.sep):',
+     ':', ('tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_minted',)),
+    ('a workspace that is the scratch is allowed', 'harness/eval/__init__.py',
+     '    if place == inside or place.startswith',
+     '    if place.startswith', ('tests.test_evals.EvalJob.test_a_set_of_no_case_ends_the_run_before_anything_is_minted',)),
+    ('a token that cannot be read is sent', 'harness/eval/fetch.py',
+     '    try:\n        return github.Live(env.get("HELDOUT_TOKEN"))\n    except github.Unanswered:\n        raise Stop("token_unreadable") from None\n',
+     '    return github.Live(env.get("HELDOUT_TOKEN") or "x")\n', ('tests.test_evals.EvalJob.test_the_fetch_step_takes_its_token_from_its_environment_alone',)),
 ]
 
 

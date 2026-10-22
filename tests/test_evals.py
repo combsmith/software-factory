@@ -416,6 +416,9 @@ class EvalJob(unittest.TestCase):
                           ({"RUNNER_TEMP": str(self.work)}, "scratch_in_workspace"),
                           ({"RUNNER_TEMP": str(self.work / "deeper")}, "scratch_in_workspace")):
             self.assertEqual(self.step(job.plan, env=env), code, env)
+        # And a workspace that is the scratch, or inside it.
+        for work in (self.temp / "heldout", self.temp / "heldout" / "sub"):
+            self.assertEqual(self.step_at(job.plan, work), "scratch_in_workspace", work)
         # A manifest that is no eval-set/1, or miscounts its cases, or names one id twice, is no set.
         manifest = json.loads((self.root / "evals" / "pr-review" / "cases.json").read_text())
         for broken in ({"schema": "eval-set/1", "count": 3}, dict(manifest, count=3),
@@ -423,6 +426,13 @@ class EvalJob(unittest.TestCase):
             (self.root / "evals" / "pr-review" / "cases.json").write_text(json.dumps(broken))
             self.assertEqual(self.step(job.plan), "eval_set_unreadable", broken)
         self.assertEqual(list(self.temp.iterdir()), [])
+
+    def step_at(self, step, work):
+        from harness import eval as job
+        try:
+            return step(dict(self.env), self.root, work)
+        except job.Stop as stop:
+            return stop.code
 
     def step_root(self, step):
         from harness import eval as job
@@ -491,14 +501,28 @@ class EvalJob(unittest.TestCase):
         from harness import eval as job
         other = dict(json.loads(next(iter(self.cases.values()))), intent="fix-findings")
         stray = dict(json.loads(next(iter(self.cases.values()))), id="poc-three")
+        bare = {"id": "poc-five", "role": "pr-review", "intent": "review-change"}
         cases = {next(iter(self.cases)): (json.dumps(other) + "\n").encode(), "poc-two": b"not json",
-                 "poc-three": (json.dumps(dict(stray, id="poc-four")) + "\n").encode()}
+                 "poc-three": (json.dumps(dict(stray, id="poc-four")) + "\n").encode(),
+                 "poc-five": (json.dumps(bare) + "\n").encode(),
+                 "poc-six": (json.dumps(dict(stray, id="poc-six", role="devops-lead")) + "\n").encode()}
         self.set(cases)
         self.step(job.plan)
         self.step(job.fetch, self.home(cases))
         self.step(job.score, lambda case: self.fail("no case of this set is reviewed"))
         written = json.loads((self.work / job.REPORT).read_text())
-        self.assertEqual([c["reasons"] for c in written["cases"]], [["not_this_set"], ["schema"], ["not_this_set"]])
+        self.assertEqual([c["reasons"] for c in written["cases"]],
+                         [["not_this_set"], ["schema"], ["not_this_set"], ["not_this_set"], ["not_this_set"]])
+
+    def test_the_fetch_step_takes_its_token_from_its_environment_alone(self):
+        from harness import eval as job
+        import importlib
+        step = importlib.import_module("harness.eval.fetch")     # the module, not the function it calls
+        for token in ("", None, "two words"):
+            with self.assertRaises(job.Stop) as stopped:
+                step.transport({"HELDOUT_TOKEN": token})
+            self.assertEqual(stopped.exception.code, "token_unreadable")
+        self.assertIsNotNone(step.transport({"HELDOUT_TOKEN": "t0ken"}))
 
     def test_the_gate_passes_only_this_sets_report_on_this_commit_for_this_release(self):
         from harness import eval as job
