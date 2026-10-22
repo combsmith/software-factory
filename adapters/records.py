@@ -12,7 +12,7 @@ Every read of the list asks GitHub for the default branch's dispatches alone and
 keeps the answer's `date` and `age` for the pass record, which never reach the Kernel (ruling 4). The list is whole
 only when every page was read, each run once, as many as the count GitHub gives, with every row readable and every
 counted run's outcome read (L-53). A Run that did not succeed has its outcome read from its artifact by
-`adapters/artifacts.py`, once the list is final, and for no other Run (decisions 0029 and 0039): one it cannot read
+`adapters/artifacts.py`, once the list is final, and for no other Run (decisions 0039 and 0049): one it cannot read
 leaves the list not whole, so that no failed Run is ever read as no attempt.
 """
 from __future__ import annotations
@@ -34,9 +34,11 @@ NAME = re.compile(r"sf ([A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100})#([1-9][0-9]
 # The Intents a pull request's Runs carry, as kernel/decide.py admits them, and an issue's, as kernel/issue.py does.
 # A name with any other Intent cannot be placed on an item: its row cannot be read.
 ON_PULL_REQUEST = {"review-change", "fix-findings", "adjudicate-findings", terms.ISSUE_APPROVAL}
-# GitHub's words for a run that has not started, and how each ends, as the run record holds them.
+# GitHub's words for a run that has not started, and how each ends, as the run record holds them. A Run whose job never
+# started, `startup_failure`, ran no Role and left no outcome: it is read as `cancelled`, no attempt, and the Run ceiling
+# bounds it (decision 0049, issue 286), never as `failure`, which with no outcome is an attempt.
 NOT_STARTED = {"queued", "waiting", "requested", "pending"}
-CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "failure", "cancelled": "cancelled",
+CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "cancelled", "cancelled": "cancelled",
                "timed_out": "timed_out"}
 FRESH = {"Cache-Control": "no-cache"}
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -109,8 +111,9 @@ def _list(transport, repo: str, workflow: str, branch: str, per_page: int) -> tu
 
 
 def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
-    """`(record, unidentified id)` for one listed run: a record for a counted run its name names, its id for a counted
-    run its name does not yet, and neither for a run that does not count. None for a row that cannot be read."""
+    """`(record, unidentified)` for one listed run: a record for a counted run its name names, its id, its record's
+    creation and its status for a counted run its name does not yet, and neither for a run that does not count. None
+    for a row that cannot be read."""
     if not isinstance(row, dict) or not isinstance(row.get("id"), int) or isinstance(row.get("id"), bool):
         return None
     path, _, ref = str(row.get("path", "")).partition("@")
@@ -122,13 +125,20 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
                and (actor.get("id"), actor.get("type")) == dispatcher)
     if not counted:
         return (None, None)
-    parts = named(row.get("name"))
-    if parts is None:
-        return (None, row["id"])
     status = row.get("status")
     status = "queued" if status in NOT_STARTED else status
     if status not in ("queued", "in_progress", "completed"):
         return None
+    parts = named(row.get("name"))
+    if parts is None:
+        # Its record's creation and its status, from which the Kernel reads how long it has gone unnamed and whether
+        # it may be running on an item now (issue 270).
+        created = row.get("created_at")
+        try:
+            datetime.datetime.strptime(str(created), "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return None
+        return (None, {"run": str(row["id"]), "created_at": created, "status": status})
     conclusion = row.get("conclusion")
     if status == "completed":
         if conclusion not in CONCLUSIONS:
@@ -182,4 +192,4 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     for record, github_id in failed:
         record["outcome"], read_whole = artifacts.outcome(transport, repo, github_id, record["run"])
         whole = whole and read_whole
-    return {"runs": records, "unidentified": [str(i) for i in unnamed], "complete": whole, "reads": reads}
+    return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads}
