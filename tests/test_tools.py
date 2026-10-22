@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import concurrent.futures
 import contextlib
 import copy
 import hashlib
@@ -22,6 +23,8 @@ import sys
 import tempfile
 import time
 import unittest
+import urllib.error
+import urllib.request
 from unittest import mock
 
 from kernel import decide as decide_module, derive, issue, terms
@@ -3383,6 +3386,42 @@ class Trials(unittest.TestCase):
         self.assertEqual((past["body"]["total_count"], past["body"]["workflow_runs"], past["headers"].get("link")), (0, [], None))
         self.assertEqual(p43["ran_at"], call("for when the trial began")["response"]["body"]["commit"]["author"]["date"])
 
+    def test_a_sandboxed_tool_on_a_linux_runner_reads_the_parents_environment(self):
+        # trials/P-50.json (issue 287): each part of the pass is computed here from what the probe left, as the script
+        # computes it, and must equal the job's record; the fail follows, in both attempts of the same commit.
+        p50 = json.loads((ROOT / "trials" / "P-50.json").read_text())
+        analysis = p50["exchanges"][-1]["response"]["body"]
+        for name, copied in analysis["copied_whole"].items():
+            self.assertEqual(len(set(copied.values())), 1, name + " ran as it is in tools/")
+        for attempt in ("attempt_1", "attempt_2"):
+            phases = analysis[attempt]
+            self.assertEqual(sorted(phases), ["as-is", "userns"], attempt)
+            for phase, checked in phases.items():
+                self.assertEqual(checked["version"], {"pinned": "2.1.306", "before": "2.1.306", "after": "2.1.306"})
+                for part in checked["configurations"]:
+                    where = (attempt, phase, part["configuration"])
+                    ran = part["probe_ran"] and (part["env"]["lines"] or 0) > 0
+                    hidden = ran and not any(part["env"]["seen"].values()) and not any(part["ancestors"]["seen"].values())
+                    held = ran and part["write_outside_the_work_directory"]["landed"] is False
+                    self.assertEqual((part["holds"]["environment_hidden"], part["holds"]["sandbox_held_the_write"]), (hidden, held), where)
+                    self.assertEqual(part["stub"]["requests"], {"/v1/messages tool_use": 1, "/v1/messages text": 1}, where)
+                    self.assertEqual((part["exit"], part["answer"]["is_error"]), (0, False), where)
+                    if phase == "as-is":
+                        # As the runner stands the probe never ran, though the CLI answered and the stub was sent a result.
+                        self.assertEqual(part["probe_ran"], False, where)
+                    else:
+                        # With user namespaces the tool is in a PID namespace of its own, the CLI out of its sight, and
+                        # holds the parent marker itself, and in the processes above it that it can read.
+                        self.assertEqual((part["pid_namespace"]["own"], part["env"]["seen"]["parent"],
+                                          part["ancestors"]["seen"]["parent"], hidden), (True, True, True, False), where)
+                        self.assertEqual(part["env"]["seen"]["listed"], part["configuration"] == "plain", where)
+                self.assertEqual(checked["some_configuration_passes"], False, (attempt, phase))
+            # The write outside the work directory was held in the plain Task and landed in the scrubbed one, which
+            # ran second, both times.
+            self.assertEqual([p["write_outside_the_work_directory"]["landed"] for p in phases["userns"]["configurations"]],
+                             [False, True], attempt)
+        self.assertEqual(p50["verdict"], "fail")
+
     def test_a_dependency_bot_opens_and_pushes_its_update(self):
         # trials/P-45.json (issue 251) grounds a_dependency_bot_updates_a_workflow_pin: the pass is computed here from the
         # reads, so a fixture edited to pass, or to say what it did not see, fails.
@@ -3948,6 +3987,232 @@ exit 9
         self.assertIn('--tools ""', asked[2]["call"])
         self.assertEqual(asked[2]["env"]["CLAUDE_CONFIG_DIR"],
                          "a configuration directory of its own, logged in to the Maintainer's own subscription (decision 0033)")
+
+
+class LinuxSandboxTrial(unittest.TestCase):
+    """`tools/trial_p50_linux_sandbox.sh` and its stub, `tools/trial_p50_stub.py` (issue 287), run against a stand-in CLI
+    that asks the real stub over HTTP, as the pinned CLI would, and runs the probe it is told to against a /proc of the
+    test's making: the verdict each configuration earns, that the stub answers one tool call and keeps no header, and
+    that no marker reaches OUT."""
+
+    SCRIPT = ROOT / "tools" / "trial_p50_linux_sandbox.sh"
+    STUB = ROOT / "tools" / "trial_p50_stub.py"
+    PIN = re.search(r"^PIN=(\S+)$", SCRIPT.read_text(), re.M).group(1)
+    # The stand-in CLI. A Task asks the stub for a message without tools, as the CLI asks for a title, then with the
+    # shell tool, streamed; it runs the command the stub names, with /proc pointed at the test's own, and sends its
+    # result back. It hides from the probe what `hides` says the sandbox hides: "markers", "listed", "everything" or
+    # "none". The process above the probe, the top of its namespace, holds what the probe was given; where the file
+    # `above-leaks` is, the CLI's own process, with its markers, is above it too, and above that the script itself.
+    CLI = r'''#!/usr/bin/env python3
+import json, os, pathlib, re, subprocess, sys, urllib.request
+here = pathlib.Path(__file__).resolve().parent
+args = sys.argv[1:]
+if args[:1] == ["--version"]:
+    name = "version.after" if (here / "asked").exists() and (here / "version.after").exists() else "version"
+    print((here / name).read_text().strip() + " (Claude Code)")
+    sys.exit(0)
+(here / "asked").write_text("")
+scrub = os.environ.get("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "x")
+if (here / "fails").exists():
+    sys.stderr.write("it failed, holding %s and %s\n" % (os.environ["P50_PARENT_MARKER"], os.environ["ANTHROPIC_CUSTOM_HEADERS"]))
+    sys.exit(3)
+base = os.environ["ANTHROPIC_BASE_URL"]
+def post(body):
+    request = urllib.request.Request(base + "/v1/messages?beta=true", data=json.dumps(body).encode(), headers={
+        "content-type": "application/json", "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+        "x-p50-marker": os.environ.get("ANTHROPIC_CUSTOM_HEADERS", "").split(": ", 1)[-1]})
+    with urllib.request.urlopen(request, timeout=20) as answer:
+        return answer.read().decode()
+post({"model": "m", "max_tokens": 8, "messages": [{"role": "user", "content": "a title"}]})
+said = post({"model": "m", "max_tokens": 8, "stream": True, "tools": [{"name": "Bash", "input_schema": {}}],
+             "messages": [{"role": "user", "content": "the task"}]})
+events = [json.loads(line[6:]) for line in said.splitlines() if line.startswith("data: ")]
+start = next(e for e in events if e["type"] == "content_block_start")["content_block"]
+command = json.loads("".join(e["delta"].get("partial_json", "") for e in events if e["type"] == "content_block_delta"))["command"]
+assert start["type"] == "tool_use" and start["name"] == "Bash" and command == "sh ./probe.sh", (start, command)
+assert [e["type"] for e in events][-1] == "message_stop"
+if not (here / "no-tool").exists():
+    probe = open("probe.sh").read().replace("/proc/", str(here / "proc") + "/")
+    if (here / "confined").exists():
+        probe = re.sub(r"(?m)^outside=.*$", "outside=/nonexistent-p50/x", probe)
+    open("probe.run", "w").write(probe)
+    hides = (here / ("hides-" + scrub)).read_text()
+    env = dict(os.environ)
+    if hides in ("markers", "listed"):
+        env.pop("ANTHROPIC_CUSTOM_HEADERS", None)
+    if hides == "markers":
+        env.pop("P50_PARENT_MARKER", None)
+    if hides == "everything":
+        env = {"PATH": "/usr/bin:/bin"}
+    proc = here / "proc"
+    leaks = (here / "above-leaks").exists()
+    above = re.search(r"(?m)^above=([0-9]+)$", probe).group(1)
+    chain = (("self", "100", env), ("100", "1", env), ("1", "50" if leaks else "0", env))
+    chain += (("50", above, dict(os.environ)), (above, "0", {"THE_SCRIPT": "1"})) if leaks else ()
+    for pid, parent, given in chain:
+        (proc / pid).mkdir(parents=True, exist_ok=True)
+        (proc / pid / "status").write_text("Name:\tx\nPPid:\t%s\n" % parent)
+        (proc / pid / "environ").write_bytes(b"".join(("%s=%s" % kv).encode() + b"\0" for kv in given.items()))
+    (proc / "self" / "ns").mkdir(exist_ok=True)
+    if not (proc / "self" / "ns" / "pid").is_symlink():
+        os.symlink("pid:[4026599999]", proc / "self" / "ns" / "pid")
+    subprocess.run(["sh", "./probe.run"], env=env, timeout=30, check=False)
+post({"model": "m", "max_tokens": 8, "stream": True, "tools": [{"name": "Bash", "input_schema": {}}],
+      "messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": start["id"], "content": "ran"}]}]})
+print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "is-error").exists(), "num_turns": 2,
+                  "result": "done", "usage": {"input_tokens": 1}}))
+'''
+
+    def stand_in(self, hides=("none", "none"), flags=("confined",), after=None) -> pathlib.Path:
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (folder / "version").write_text(self.PIN + "\n")
+        if after:
+            (folder / "version.after").write_text(after + "\n")
+        for scrub, hidden in zip("01", hides):
+            (folder / ("hides-" + scrub)).write_text(hidden)
+        for flag in flags:
+            (folder / flag).write_text("")
+        # The CLI itself is a shell script that keeps the environment it was given and hands on to the Python, so that
+        # what an interpreter adds to its own environment is not counted.
+        (folder / "claude").write_text('#!/bin/sh\nhere=$(cd "$(dirname "$0")" && pwd)\n'
+                                       '[ "$1" = --version ] || env > "$here/env-$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"\n'
+                                       'exec python3 "$here/cli.py" "$@"\n')
+        (folder / "cli.py").write_text(self.CLI)
+        (folder / "claude").chmod(0o755)
+        return folder
+
+    def run_script(self, out, folder, phase="as-is", home=None) -> subprocess.CompletedProcess:
+        home = home or pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        env = {"PATH": os.environ["PATH"], "HOME": str(home), "LANG": "C", "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
+        return subprocess.run(["bash", str(self.SCRIPT), str(out), phase, str(folder / "claude"), str(self.STUB)],
+                              cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
+
+    def run_each(self, runs: dict) -> dict:
+        """The script once for each stand-in, four at a time, each with an OUT of its own: {name: (folder, OUT, run)}."""
+        def one(name):
+            folder = self.stand_in(**runs[name])
+            out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
+            return name, (folder, out, self.run_script(out, folder))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            return dict(pool.map(one, runs))
+
+    def test_each_configuration_is_judged_by_the_condition(self):
+        cases = [
+            ("the scrub hides both and the sandbox holds the write", dict(hides=("none", "markers")), True,
+             [(False, False, True), (True, True, True)]),
+            ("the scrub hides the listed name alone", dict(hides=("none", "listed")), False,
+             [(False, False, True), (False, True, True)]),
+            ("the sandbox hides everything", dict(hides=("everything", "everything")), True,
+             [(True, True, True), (True, True, True)]),
+            ("the CLI's own process is above the probe", dict(hides=("markers", "markers"), flags=("confined", "above-leaks")), False,
+             [(False, False, True), (False, False, True)]),
+            ("the write outside lands", dict(hides=("markers", "markers"), flags=()), False,
+             [(True, True, False), (True, True, False)]),
+            ("the tool never ran", dict(hides=("markers", "markers"), flags=("confined", "no-tool")), False,
+             [(False, False, False), (False, False, False)]),
+            ("the Task said it failed", dict(hides=("markers", "markers"), flags=("confined", "is-error")), False,
+             [(True, True, True), (True, True, True)]),
+            ("the version moved under the run", dict(hides=("markers", "markers"), after="9.9.9"), False,
+             [(True, True, True), (True, True, True)]),
+        ]
+        outs = self.run_each({name: kwargs for name, kwargs, *_ in cases})
+        for name, kwargs, passes, holds in cases:
+            folder, out, ran = outs[name]
+            self.assertEqual(ran.returncode, 0, (name, ran.stderr))
+            checked = json.loads((out / "checked-as-is.json").read_text())
+            self.assertEqual([tuple(p["holds"][k] for k in ("environment_hidden", "listed_hidden", "sandbox_held_the_write"))
+                              for p in checked["configurations"]], holds, name)
+            self.assertEqual(checked["some_configuration_passes"], passes, name)
+            for part in checked["configurations"]:
+                self.assertEqual(part["holds"]["answered"], "is-error" not in kwargs.get("flags", ()), name)
+                self.assertEqual(part["holds"]["tool_ran"], True, name)
+                self.assertEqual(part["probe_ran"], "no-tool" not in kwargs.get("flags", ()), name)
+        # The walk: the probe's shell and the top of its namespace, or the CLI's process too where it is above.
+        quiet, leaky = (json.loads((outs[n][1] / "checked-as-is.json").read_text())["configurations"][0]
+                        for n in ("the sandbox hides everything", "the CLI's own process is above the probe"))
+        self.assertEqual((quiet["ancestors"]["read_exits"], quiet["pid_namespace"]["processes_visible"]), ([0, 0], 2))
+        self.assertEqual((leaky["ancestors"]["read_exits"], leaky["ancestors"]["seen"]), ([0, 0, 0], {"parent": True, "listed": True}))
+        self.assertEqual(quiet["pid_namespace"]["own"] in (True, None), True)
+
+    def test_the_cli_is_given_the_stub_a_dummy_key_and_the_markers_alone(self):
+        folder = self.stand_in(hides=("none", "markers"))
+        out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
+        ran = self.run_script(out, folder)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        named = {"HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "LANG", "GITHUB_ACTIONS", "CLAUDE_CONFIG_DIR",
+                 "DISABLE_AUTOUPDATER", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY",
+                 "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "P50_PARENT_MARKER", "ANTHROPIC_CUSTOM_HEADERS"}
+        markers = []
+        for scrub in "01":
+            given = dict(line.split("=", 1) for line in (folder / ("env-" + scrub)).read_text().splitlines() if "=" in line)
+            self.assertEqual(set(given) - {"PWD", "SHLVL", "_", "OLDPWD"}, named)
+            self.assertEqual((given["ANTHROPIC_API_KEY"], given["GITHUB_ACTIONS"]), ("dummy-p50-not-a-key", "true"))
+            self.assertRegex(given["ANTHROPIC_BASE_URL"], r"^http://127\.0\.0\.1:[0-9]{1,5}$")
+            self.assertNotIn("GH_TOKEN", given)
+            markers += [given["P50_PARENT_MARKER"], given["ANTHROPIC_CUSTOM_HEADERS"].split(": ", 1)[1]]
+        self.assertEqual(len(set(markers)), 4, "a fresh marker for each name and each Task")
+        written = "".join(p.read_text() for p in out.rglob("*") if p.is_file()) + ran.stdout + ran.stderr
+        for marker in markers:
+            self.assertNotIn(marker, written)
+        checked = json.loads((out / "checked-as-is.json").read_text())
+        self.assertEqual(checked["configurations"][0]["stub"]["requests"],
+                         {"/v1/messages text": 2, "/v1/messages tool_use": 1})
+        self.assertEqual(checked["configurations"][0]["answer"], {"type": "result", "subtype": "success", "is_error": False, "num_turns": 2})
+
+    def test_a_task_that_fails_says_why_in_the_log_without_its_markers(self):
+        folder = self.stand_in(flags=("confined", "fails"))
+        out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
+        ran = self.run_script(out, folder)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        self.assertEqual(ran.stderr.count("it failed, holding <marker> and X-P50-Marker: <marker>"), 2, ran.stderr)
+        self.assertNotRegex(ran.stderr + ran.stdout, r"p50-[0-9a-f]{24}")
+        checked = json.loads((out / "checked-as-is.json").read_text())
+        self.assertEqual([p["exit"] for p in checked["configurations"]], [3, 3])
+        self.assertFalse(checked["some_configuration_passes"])
+
+    def test_the_stub_answers_one_tool_call_and_keeps_no_header(self):
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        stub = subprocess.Popen([sys.executable, "-I", str(self.STUB), str(folder / "port"), str(folder / "log")],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            for _ in range(100):
+                if (folder / "port").exists():
+                    break
+                time.sleep(0.05)
+            base = "http://127.0.0.1:" + (folder / "port").read_text()
+            def post(path, body):
+                request = urllib.request.Request(base + path, data=json.dumps(body).encode(),
+                                                 headers={"content-type": "application/json", "x-secret": "NEVER-LOGGED"})
+                with urllib.request.urlopen(request, timeout=10) as answer:
+                    return answer.read().decode()
+            tools = [{"name": "Bash"}]
+            plain = json.loads(post("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": "NEVER-LOGGED"}]}))
+            self.assertEqual((plain["stop_reason"], plain["content"][0]["input"]["command"]), ("tool_use", "sh ./probe.sh"))
+            after = json.loads(post("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": [{"type": "tool_result"}]}]}))
+            self.assertEqual((after["stop_reason"], after["content"]), ("end_turn", [{"type": "text", "text": "done"}]))
+            self.assertEqual(json.loads(post("/v1/messages", {"messages": []}))["content"][0]["text"], "done")
+            self.assertEqual(json.loads(post("/v1/messages/count_tokens?beta=true", {})), {"input_tokens": 1})
+            with self.assertRaises(urllib.error.HTTPError) as refused:
+                post("/v1/other", {})
+            self.assertEqual(refused.exception.code, 404)
+            log = (folder / "log").read_text()
+            self.assertNotIn("NEVER-LOGGED", log)
+            self.assertEqual([json.loads(line)["answer"] for line in log.splitlines()], ["tool_use", "text", "text", "count", 404])
+        finally:
+            stub.kill()
+            stub.wait()
+
+    def test_each_refusal_stops_before_anything_is_asked(self):
+        folder = self.stand_in()
+        taken = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        for name, args, said in [("a phase it does not know", ("out", "later"), "PHASE is as-is or userns"),
+                                 ("OUT exists", (str(taken), "as-is"), "exists; name a new directory")]:
+            ran = subprocess.run(["bash", str(self.SCRIPT), args[0], args[1], str(folder / "claude"), str(self.STUB)],
+                                 cwd=pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)), capture_output=True, text=True,
+                                 timeout=60, stdin=subprocess.DEVNULL)
+            self.assertEqual(ran.returncode, 2, name)
+            self.assertIn(said, ran.stderr, name)
+            self.assertFalse((folder / "asked").exists(), name + ": nothing was asked")
 
 
 class Redaction(unittest.TestCase):

@@ -78,6 +78,9 @@ JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its
 SHARDS_TESTS = ("tests.test_tools.Workflows.test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix",)
 P13 = "tools/trial_p13_cli.sh"
 P13_TESTS = "tests.test_tools.TrialScript."
+P50 = "tools/trial_p50_linux_sandbox.sh"
+P50_STUB = "tools/trial_p50_stub.py"
+P50_TESTS = "tests.test_tools.LinuxSandboxTrial."
 HOOK_TESTS = "tests.test_hooks.ProtectedPaths."
 BYPASS_TESTS = (HOOK_TESTS + "test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked",)
 SESSION_TESTS = (HOOK_TESTS + "test_a_command_that_runs_claude_code_with_no_one_asked_asks",
@@ -4210,6 +4213,26 @@ MUTANTS = ISSUE + [
     ("a message about who asked may carry a credential", "tools/check_trials.py",
      "    return [hidden(message) for message in out]\n", "    return out\n",
      ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
+    # Issue 287: P-50, the Linux trial of the pinned CLI's sandbox, run against a stand-in CLI and the real stub.
+    ("P-50's environment is hidden if the tool's own is", P50,
+     'all(part[k]["seen"] is not None and not any(part[k]["seen"].values()) for k in ("env", "ancestors"))',
+     'all(part[k]["seen"] is not None and not any(part[k]["seen"].values()) for k in ("env",))',
+     (P50_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
+    ("P-50's write outside need not be held", P50,
+     'held = recorded and part["write_outside_the_work_directory"]["landed"] is False', 'held = recorded',
+     (P50_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
+    ("P-50's probe reads the script that started the CLI", P50,
+     '    [ -n "$above" ] && [ "$pid" = "$above" ] && break\n', '',
+     (P50_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
+    ("P-50 passes at a version that moved", P50,
+     '"some_configuration_passes": pinned and any(', '"some_configuration_passes": True and any(',
+     (P50_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
+    ("P-50's CLI is not told it runs in GitHub Actions", P50,
+     '        GITHUB_ACTIONS=true CLAUDE_CONFIG_DIR=', '        CLAUDE_CONFIG_DIR=',
+     (P50_TESTS + "test_the_cli_is_given_the_stub_a_dummy_key_and_the_markers_alone",)),
+    ("P-50's stub asks for the tool again after its result", P50_STUB,
+     'return "tool_use" if offers and not answered else "text"', 'return "tool_use" if offers else "text"',
+     (P50_TESTS + "test_the_stub_answers_one_tool_call_and_keeps_no_header",)),
     # Issue 251: P-44's lane, one Run holding it and at most one waiting, kept by one function for both worlds.
     ("the lane keeps every waiting Run", "sim/world.py",
      '        older.update(status="completed", conclusion="cancelled", outcome="superseded")\n', '        pass\n', ("tests.test_simulator.Simulation.test_a_newer_run_cancels_the_one_waiting_in_each_world",)),
