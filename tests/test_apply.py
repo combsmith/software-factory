@@ -6,6 +6,7 @@ handed to it through a pipe, as the job hands the App's key.
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import json
 import pathlib
@@ -13,7 +14,7 @@ import subprocess
 import tempfile
 import unittest
 
-from adapters import github, identity
+from adapters import effects, github, identity
 from harness import apply, shared
 from tests import support
 
@@ -405,6 +406,192 @@ class Apply(unittest.TestCase):
             self.assertEqual(apply.outcome(task, record)["reason"], "effect_failed")
 
 
+LOGIN = "combsmith-sf-pr-review[bot]"
+ITEM = dict(support.ITEM)
+PULL = "/repos/%s/pulls/%d" % (ITEM["repo"], ITEM["number"])
+ISSUE = "/repos/%s/issues/%d" % (ITEM["repo"], ITEM["number"])
+
+
+def p43_review(**over) -> dict:
+    """The review GitHub answered in trials/P-43.json, as this App's on HEAD."""
+    body = copy.deepcopy(json.loads((ROOT / "trials" / "P-43.json").read_text())["exchanges"][4]["response"]["body"])
+    body.update(commit_id=HEAD, user=dict(body["user"], login=LOGIN))
+    body.update(over)
+    return body
+
+
+def ok(body, status=200) -> dict:
+    return {"status": status, "headers": {}, "body": body}
+
+
+def threads_of(review_id, *threads, total=None) -> dict:
+    nodes = [{"id": th, "comments": {"nodes": [{"databaseId": n, "pullRequestReview": {"databaseId": rid}}]}}
+             for n, (th, rid) in enumerate(threads, 1)]
+    return ok({"data": {"repository": {"pullRequest": {"reviewThreads": {
+        "totalCount": len(nodes) if total is None else total, "nodes": nodes}}}}})
+
+
+def thread_node(resolved, number=None, repo=None) -> dict:
+    return ok({"data": {"node": {"id": "PRRT_kw7", "isResolved": resolved, "pullRequest": {
+        "number": ITEM["number"] if number is None else number,
+        "repository": {"nameWithOwner": repo or ITEM["repo"]}}}}})
+
+
+def review_request() -> dict:
+    task, res = the_task(), result()
+    return apply.requests(task, res, HEAD, ROLE)[0][2]
+
+
+class RoleWrites(unittest.TestCase):
+    def test_a_review_is_sent_once_as_a_comment_and_read_back_with_its_threads(self):  # sections 3.6, 3.7
+        rid = p43_review()["id"]
+        hub = GitHub((("GET", PULL + "/reviews?per_page=100"), ok([])), (("POST", PULL + "/reviews"), ok(p43_review())),
+                     (("GET", PULL + "/reviews/%d" % rid), ok(p43_review())),
+                     (("POST", "/graphql"), threads_of(rid, ("PRRT_kw0", 1), ("PRRT_kw7", rid))))
+        back = effects.role_write(hub, ITEM, "submit_review", review_request(), LOGIN)
+        self.assertEqual(back, {"state": "applied", "key": p43_review()["node_id"], "surfaces": {"n1": "PRRT_kw7"},
+                                "reason": None})
+        self.assertEqual(hub.sent[1]["body"], {"commit_id": HEAD, "event": "COMMENT", "body": "", "comments": [
+            {"path": "kernel/decide.py", "line": 94, "start_line": 88, "start_side": "RIGHT", "side": "RIGHT",
+             "body": result()["effects"]["submit_review"][0]["comments"][0]["body"]}]})
+        # One already made by this App on this commit is recovered, never made twice; another's is not this App's.
+        other = p43_review(user={"login": "coderabbitai[bot]"})
+        hub = GitHub((("GET", PULL + "/reviews?per_page=100"), ok([other, p43_review()])),
+                     (("GET", PULL + "/reviews/%d" % rid), ok(p43_review())),
+                     (("POST", "/graphql"), threads_of(rid, ("PRRT_kw7", rid))))
+        self.assertEqual(effects.role_write(hub, ITEM, "submit_review", review_request(), LOGIN)["state"],
+                         "already_applied")
+        self.assertNotIn("POST %s/reviews" % PULL, ["%s %s" % (r["method"], r["path"]) for r in hub.sent])
+        # This App's review on an earlier commit is not one on this commit: a new one is made.
+        hub = GitHub((("GET", PULL + "/reviews?per_page=100"), ok([p43_review(commit_id="0" * 40)])),
+                     (("POST", PULL + "/reviews"), ok(p43_review())), (("GET", PULL + "/reviews/%d" % rid), ok(p43_review())),
+                     (("POST", "/graphql"), threads_of(rid, ("PRRT_kw7", rid))))
+        self.assertEqual(effects.role_write(hub, ITEM, "submit_review", review_request(), LOGIN)["state"], "applied")
+        # Each comment's thread is the one its comment opened, by the comments' order, however the threads are listed.
+        two = dict(review_request(), comments=[dict(review_request()["comments"][0], finding=ref) for ref in ("n1", "n2")])
+        listed = threads_of(rid, ("PRRT_kwB", rid), ("PRRT_kwA", rid))
+        listed["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"].reverse()
+        hub = GitHub((("GET", PULL + "/reviews?per_page=100"), ok([p43_review()])),
+                     (("GET", PULL + "/reviews/%d" % rid), ok(p43_review())), (("POST", "/graphql"), listed))
+        self.assertEqual(effects.role_write(hub, ITEM, "submit_review", two, LOGIN)["surfaces"],
+                         {"n1": "PRRT_kwB", "n2": "PRRT_kwA"})
+        hub = GitHub((("GET", PULL + "/reviews?per_page=100"), ok([p43_review(), p43_review(id=1)])))
+        self.assertEqual(effects.role_write(hub, ITEM, "submit_review", review_request(), LOGIN)["reason"],
+                         "reviewed_twice")
+        for listed in (ok({}), ok([p43_review(id=n, commit_id="0" * 40) for n in range(100)]), ok([], 500)):
+            hub = GitHub((("GET", PULL + "/reviews?per_page=100"), listed))
+            self.assertEqual(effects.role_write(hub, ITEM, "submit_review", review_request(), LOGIN)["reason"],
+                             "reviews_unreadable")
+
+    def test_a_write_github_did_not_take_is_never_claimed_or_sent_again(self):  # section 3.6, L-41
+        rid = p43_review()["id"]
+        for answer, want in ((ok(None, 401), ("refused", "token_refused")), (ok(None, 403), ("refused", "token_refused")),
+                             (ok({"message": "x"}, 422), ("failed", "write_refused")),
+                             (ok(None, 502), ("failed", "write_unanswered")), (None, ("failed", "write_unanswered"))):
+            hub = GitHub((("GET", PULL + "/reviews?per_page=100"), ok([])), (("POST", PULL + "/reviews"), answer))
+            if answer is None:
+                hub.answers.pop()
+            back = effects.role_write(hub, ITEM, "submit_review", review_request(), LOGIN)
+            self.assertEqual((back["state"], back["reason"], back["key"]), want + (None,))
+            self.assertEqual(len(hub.sent), 2)
+        # GitHub took it, but what was read back is not it: sent, and nothing claimed.
+        for review, threads in ((p43_review(commit_id="0" * 40), threads_of(rid, ("PRRT_kw7", rid))),
+                                (p43_review(state="APPROVED"), threads_of(rid, ("PRRT_kw7", rid))),
+                                (p43_review(user={"login": "someone"}), threads_of(rid, ("PRRT_kw7", rid))),
+                                (p43_review(), threads_of(rid)), (p43_review(), threads_of(rid, ("PRRT_kw7", rid), total=101)),
+                                (p43_review(), threads_of(rid, ("not a thread", rid))), (p43_review(), ok({"errors": [1]})),
+                                (p43_review(), ok(dict(threads_of(rid, ("PRRT_kw7", rid))["body"], errors=[1])))):
+            hub = GitHub((("GET", PULL + "/reviews?per_page=100"), ok([])), (("POST", PULL + "/reviews"), ok(p43_review())),
+                         (("GET", PULL + "/reviews/%d" % rid), ok(review)), (("POST", "/graphql"), threads))
+            self.assertEqual(effects.role_write(hub, ITEM, "submit_review", review_request(), LOGIN),
+                             {"state": "sent", "key": None, "surfaces": {}, "reason": None})
+
+    def test_a_thread_is_resolved_once_on_its_own_item_and_read_back_resolved(self):  # section 3.6
+        req = {"thread": "PRRT_kw7"}
+        resolved = ok({"data": {"resolveReviewThread": {"thread": {"id": "PRRT_kw7", "isResolved": True}}}})
+        cases = (((thread_node(False), resolved, thread_node(True)), ("applied", "PRRT_kw7", None)),
+                 ((thread_node(True),), ("already_applied", "PRRT_kw7", None)),
+                 ((thread_node(False, number=43),), ("refused", None, "thread_not_on_item")),
+                 ((thread_node(False, repo="combsmith/other"),), ("refused", None, "thread_not_on_item")),
+                 ((ok({"data": {"node": None}}),), ("failed", None, "thread_unreadable")),
+                 ((thread_node(False), ok({"errors": [{"type": "FORBIDDEN"}]})), ("failed", None, "write_refused")),
+                 ((thread_node(False), ok(None, 401)), ("refused", None, "token_refused")),
+                 ((thread_node(False), resolved, thread_node(False)), ("sent", None, None)))
+        for answers, want in cases:
+            hub = GitHub(*[(("POST", "/graphql"), a) for a in answers])
+            back = effects.role_write(hub, ITEM, "resolve_thread", req, LOGIN)
+            self.assertEqual((back["state"], back["key"], back["reason"]), want, answers)
+            self.assertEqual(len(hub.sent), len(answers))
+        self.assertEqual(hub.sent[1]["body"], {"query": effects.RESOLVE, "variables": {"id": "PRRT_kw7"}})
+
+    def test_a_comment_is_recovered_by_this_apps_comments_since_the_run_began_never_by_its_text(self):  # 3.6
+        since = "2026-10-11T12:58:00Z"
+        listed = ("GET", ISSUE + "/comments?since=%s&per_page=100" % since)
+        mine = lambda cid: {"id": cid, "node_id": "IC_%d" % cid, "user": {"login": LOGIN}, "body": "anything"}
+        req = lambda index: {"on": "item", "body": "Said once.", "since": since, "index": index}
+        hub = GitHub((listed, ok([mine(7), {"id": 8, "user": {"login": "don-petry"}}])),
+                     (("POST", ISSUE + "/comments"), ok(mine(9), 201)),
+                     (("GET", "/repos/%s/issues/comments/9" % ITEM["repo"]), ok(mine(9))))
+        self.assertEqual(effects.role_write(hub, ITEM, "comment", req(1), LOGIN)["state"], "applied")
+        self.assertEqual(hub.sent[1]["body"], {"body": "Said once."})
+        hub = GitHub((listed, ok([mine(9), mine(7)])), (("GET", "/repos/%s/issues/comments/7" % ITEM["repo"]), ok(mine(7))))
+        self.assertEqual(effects.role_write(hub, ITEM, "comment", req(0), LOGIN),
+                         {"state": "already_applied", "key": "IC_7", "surfaces": {}, "reason": None})
+        for answers, want in (((ok({}),), ("failed", "comments_unreadable")),
+                              ((ok([]), ok(None, 403)), ("refused", "token_refused")),
+                              ((ok([]), ok(mine(9), 200)), ("failed", "write_refused"))):
+            calls = [listed, ("POST", ISSUE + "/comments")]
+            hub = GitHub(*zip(calls, answers))
+            back = effects.role_write(hub, ITEM, "comment", req(0), LOGIN)
+            self.assertEqual((back["state"], back["reason"]), want)
+        hub = GitHub((listed, ok([])), (("POST", ISSUE + "/comments"), ok(mine(9), 201)),
+                     (("GET", "/repos/%s/issues/comments/9" % ITEM["repo"]), ok(dict(mine(9), user={"login": "x"}))))
+        self.assertEqual(effects.role_write(hub, ITEM, "comment", req(0), LOGIN)["state"], "sent")
+        # A reply on a thread is not built yet: it fails, and claims nothing.
+        self.assertEqual(effects.role_write(GitHub(), ITEM, "comment", dict(req(0), on="PRRT_kw7"), LOGIN)["reason"],
+                         "not_built")
+        self.assertEqual(effects.role_write(GitHub(), ITEM, "create_check_run", {}, LOGIN)["reason"], "not_built")
+
+    def test_a_role_token_sends_only_its_writes_on_its_one_item(self):  # ruling 6, I-35
+        permits, patterns = effects.role_permits(ITEM)
+        hub = GitHub()
+        allowed = effects.Allowed(hub, permits, patterns)
+        owner, name = ITEM["repo"].split("/")
+        fine = [github.request("GET", PULL + "/reviews?per_page=100"),
+                github.request("POST", PULL + "/reviews", body={"commit_id": HEAD, "event": "COMMENT", "body": "",
+                                                                "comments": []}),
+                github.request("GET", PULL + "/reviews/5602757809"),
+                github.request("POST", ISSUE + "/comments", body={"body": "x"}),
+                github.request("GET", "/repos/%s/issues/comments/9" % ITEM["repo"]),
+                github.request("GET", ISSUE + "/comments?since=2026-10-11T12:58:00Z&per_page=100"),
+                github.request("POST", "/graphql", body={"query": effects.THREADS, "variables": {
+                    "owner": owner, "name": name, "number": ITEM["number"]}}),
+                github.request("POST", "/graphql", body={"query": effects.RESOLVE, "variables": {"id": "PRRT_kw7"}}),
+                github.request("POST", "/graphql", body={"query": effects.THREAD, "variables": {"id": "PRRT_kw7"}})]
+        for req in fine:
+            with self.assertRaisesRegex(github.Unanswered, "nothing left"):      # it reached the fake
+                allowed.send(req)
+        other = "/repos/%s/pulls/%d" % (ITEM["repo"], ITEM["number"] + 1)
+        refused = [github.request("POST", PULL + "/reviews", body={"commit_id": HEAD, "event": "APPROVE", "body": "",
+                                                                   "comments": []}),
+                   github.request("POST", other + "/reviews", body={"commit_id": HEAD, "event": "COMMENT", "body": "",
+                                                                    "comments": []}),
+                   github.request("PUT", PULL + "/merge", body={}),
+                   github.request("GET", PULL + "/reviews/5602757809/../../merge"),
+                   github.request("GET", ISSUE + "/comments?since=yesterday&per_page=100"),
+                   github.request("POST", ISSUE + "/comments", body={"body": "x", "extra": 1}),
+                   github.request("POST", "/graphql", body={"query": effects.THREADS, "variables": {
+                       "owner": owner, "name": name, "number": ITEM["number"] + 1}}),
+                   github.request("POST", "/graphql", body={"query": effects.RESOLVE, "variables": {"id": "PR_kw7"}}),
+                   github.request("POST", "/graphql", body={"query": "mutation { mergePullRequest }", "variables": {}}),
+                   github.request("POST", "/graphql", body={"query": "mutation M($id: ID!) { deleteNode(id: $id) }",
+                                                            "variables": {"id": "PRRT_kw7"}})]
+        for req in refused:
+            with self.assertRaisesRegex(github.Unanswered, "may not send"):
+                allowed.send(req)
+        self.assertEqual(len(hub.sent), len(fine))
+
+
 class Job(unittest.TestCase):
     CONFIG = {"kernel": support.CONFIG, "rubric": RUBRIC, "authority": AUTHORITY, "github_run": 4242,
               "app": APPS["apps"]["pr-review"], "needs": APPS["needs"]}
@@ -481,6 +668,13 @@ class Job(unittest.TestCase):
         self.assertEqual((record["effects"][0]["state"], record["effects"][0]["reason"], calls["revoke"]),
                          ("failed", "effect_raised", 1))
         self.assertEqual((ended["outcome"], ended["reason"]), ("environment", "effect_failed"))
+        # A credential GitHub would not take ends every later write on it, which is never sent.
+        twice = result(findings=result()["findings"][:1], effects={"submit_review": [
+            result()["effects"]["submit_review"][0], dict(result()["effects"]["submit_review"][0], id="e3", comments=[])]})
+        record, ended, calls = self.go(twice, write=lambda kind, req: {"state": "refused", "reason": "token_refused"})
+        self.assertEqual([(e["state"], e["reason"]) for e in record["effects"]],
+                         [("refused", "token_refused"), ("refused", "token_refused")])
+        self.assertEqual((len(calls["written"]), ended["outcome"], ended["reason"]), (1, "environment", "effect_failed"))
         # A token that cannot be minted, or an Effect the App may not write, writes nothing.
         record, ended, calls = self.go(review_only, mint_refuses="token_refused")
         self.assertEqual((ended["outcome"], ended["reason"], calls["written"]), ("environment", "token_refused", []))

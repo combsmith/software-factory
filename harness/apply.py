@@ -184,9 +184,10 @@ def refusal(task: dict, result: dict, facts: dict, runs: list, context: dict, ke
     return ("item", why) if why else None
 
 
-def requests(task: dict, result: dict, head: str, role: dict) -> list:
+def requests(task: dict, result: dict, head: str, role: dict, since: str = None) -> list:
     """`(effect id, type, request)` for each Effect, in the order written. What each request carries beyond the
-    Result's own words is `apply`'s: the commit, the event, the check run's name and conclusion and its key."""
+    Result's own words is `apply`'s: the commit, the event, the check run's name and conclusion and its key, and for a
+    comment, which has no key, when the Run began and its place among the Run's comments, by which it is recovered."""
     raised = {f["ref"]: f for f in result["findings"]}
     out = []
     for review in result["effects"].get("submit_review", ()):
@@ -202,8 +203,9 @@ def requests(task: dict, result: dict, head: str, role: dict) -> list:
                             for a in check["annotations"]]}))
     for resolve in result["effects"].get("resolve_thread", ()):
         out.append((resolve["id"], "resolve_thread", {"thread": resolve["thread"]}))
-    for comment in result["effects"].get("comment", ()):
-        out.append((comment["id"], "comment", {"on": comment["on"], "body": comment["body"], "run": task["run"]}))
+    for index, comment in enumerate(result["effects"].get("comment", ())):
+        out.append((comment["id"], "comment", {"on": comment["on"], "body": comment["body"], "since": since,
+                                                "index": index}))
     return out
 
 
@@ -234,9 +236,10 @@ def applied(task: dict, result: dict, written: list, role: dict, refused=None) -
             effects.append({"id": effect_id, "type": kind, "state": state, "key": key, "reason": None})
             for ref in refs:
                 findings.append(_finding(task, role, raised[ref], kind, key, surfaces[ref]))
+        elif state in ("failed", "refused") and back.get("reason"):
+            effects.append({"id": effect_id, "type": kind, "state": state, "key": None, "reason": back["reason"]})
         else:
-            reason = back.get("reason") if state == "failed" and back.get("reason") else "not_read_back"
-            effects.append({"id": effect_id, "type": kind, "state": "failed", "key": None, "reason": reason})
+            effects.append({"id": effect_id, "type": kind, "state": "failed", "key": None, "reason": "not_read_back"})
     return {"schema": "applied/1", "run": task["run"], "release": task["release"], "effects": effects,
             "findings": findings}
 
@@ -259,7 +262,7 @@ def outcome(task: dict, record: dict, refused=None) -> dict:
     `effect_failed`, when an Effect was not."""
     if refused is not None:
         fault, reason = refused
-    elif any(e["state"] == "failed" for e in record["effects"]):
+    elif any(e["state"] in ("failed", "refused") for e in record["effects"]):
         fault, reason = "environment", "effect_failed"
     else:
         fault, reason = None, None
@@ -304,12 +307,13 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
                   "findings": []}
         return record, _ended(admit, ("environment", "result_unreadable"))
     facts, head, runs, context = read()
+    since = next((r["started_at"] for r in runs if r["run"] == admit["run"]), None)
     why = refusal(admit, result, facts, runs, context, config["kernel"], now, role, config["rubric"],
                   config["authority"], config["github_run"])
     if why is not None:
         record = applied(admit, result, [], role, refused=why[1])
         return record, outcome(admit, record, why)
-    asked = requests(admit, result, head, role)
+    asked = requests(admit, result, head, role, since)
     if not asked:
         record = applied(admit, result, [], role)
         return record, outcome(admit, record)
@@ -322,6 +326,10 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
     written = []
     try:
         for effect_id, kind, req in asked:
+            # A credential GitHub would not take ends every later write on it.
+            if any(back.get("reason") == "token_refused" for _, _, back in written):
+                written.append((effect_id, kind, {"state": "refused", "reason": "token_refused"}))
+                continue
             try:
                 written.append((effect_id, kind, write(transport, kind, req)))
             except (github.Unanswered, OSError, ValueError, KeyError, TypeError):
