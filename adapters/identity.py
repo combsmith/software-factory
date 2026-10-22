@@ -105,8 +105,9 @@ def granted(app: dict, needs: dict, names, kind: str) -> dict:
         need = needs.get(name) if isinstance(needs, dict) else None
         if not isinstance(need, dict) or "permission" not in need or need.get("level") not in LEVELS:
             raise Refused("%s_not_grantable" % kind)
-        grant = app["permissions"].get(need["permission"])
-        if (not isinstance(grant, dict) or name not in grant.get("needs", ())
+        grants = app.get("permissions") if isinstance(app, dict) else None
+        grant = grants.get(need["permission"]) if isinstance(grants, dict) else None
+        if (not isinstance(grant, dict) or name not in grant.get("needs", ()) or grant.get("level") not in LEVELS
                 or LEVELS.index(grant.get("level")) < LEVELS.index(need["level"])):
             raise Refused("%s_not_granted" % kind)
         level = wanted.get(need["permission"], "read")

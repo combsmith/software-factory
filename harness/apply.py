@@ -186,6 +186,11 @@ def _dispositions(task: dict, result: dict, facts: dict, role: dict, authority: 
             return "resolve_not_yours"
         if not accepted & set(_findings_of(facts, resolve["thread"])):
             return "resolve_not_accepted"
+        # The owner may accept a security Finding only on a proposal of fixed or not applicable, and that proposal is
+        # in the author's Run, which `apply` cannot read yet: a security thread is not resolved by any Role (Muse's
+        # read). It waits on the fix Intent, which brings the author's proposal to the owner's Task.
+        if resolve["thread"] in security:
+            return "security_proposal_unread"
     return None
 
 
@@ -361,6 +366,10 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
         record = applied(admit, result, [], role, refused=why[1])
         return record, outcome(admit, record, why)
     asked = requests(admit, result, head, role, since)
+    # A comment on the item is recovered by when the Run began: not read, nothing is minted and nothing written.
+    if since is None and any(kind == "comment" and req["on"] == "item" for _, kind, req in asked):
+        record = applied(admit, result, [], role, refused="run_start_unread")
+        return record, outcome(admit, record, ("environment", "run_start_unread"))
     if not asked:
         record = applied(admit, result, [], role)
         return record, outcome(admit, record)

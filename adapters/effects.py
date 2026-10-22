@@ -210,6 +210,8 @@ ROLE_WRITES = ("submit_review", "create_check_run", "resolve_thread", "comment")
 ANNOTATIONS = 50
 LEVEL = {"minor": "warning", "info": "notice"}
 SHA = re.compile(r"[0-9a-f]{40}")
+# A check run's key: the Run's id and the Effect's.
+EXTERNAL = re.compile(r"r_[0-9A-Z]{6,26}:e[0-9]{1,3}")
 THREADS = """query AppliedThreads($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
@@ -246,7 +248,7 @@ def role_permits(item: dict, head: str, name: str, threads) -> tuple:
 
     def review(body) -> bool:
         return (isinstance(body, dict) and set(body) == {"commit_id", "event", "body", "comments"}
-                and body["event"] == "COMMENT" and isinstance(body["comments"], list))
+                and body["event"] == "COMMENT" and body["commit_id"] == head and isinstance(body["comments"], list))
 
     def comment(body) -> bool:
         return isinstance(body, dict) and set(body) == {"body"} and isinstance(body["body"], str)
@@ -263,6 +265,8 @@ def role_permits(item: dict, head: str, name: str, threads) -> tuple:
         return (isinstance(body, dict) and set(body) == {"name", "head_sha", "external_id", "status", "conclusion",
                                                           "output"}
                 and body["status"] == "completed" and body["name"] == name and body["head_sha"] == head
+                and body["conclusion"] == "success" and isinstance(body["external_id"], str)
+                and EXTERNAL.fullmatch(body["external_id"]) is not None
                 and isinstance(body["head_sha"], str) and SHA.fullmatch(body["head_sha"]) is not None)
     permits = {("GET", pull + "/reviews?per_page=100"): nothing, ("POST", pull + "/reviews"): review,
                ("POST", issue + "/comments"): comment, ("POST", "/graphql"): graphql,

@@ -129,6 +129,11 @@ class Identity(unittest.TestCase):
         both = dict(APPS["needs"], **{"effect:comment": {"permission": "pull_requests", "level": "read"}})
         self.assertEqual(identity.permissions(review, both, ["comment", "submit_review"]), {"pull_requests": "write"})
         self.assertEqual(identity.permissions(review, both, ["comment"]), {"pull_requests": "read"})
+        # A grant of no level, or an App with no grants, is no grant (Muse's read).
+        for app in (dict(review, permissions=dict(review["permissions"], pull_requests={"needs": ["effect:submit_review"]})),
+                    {k: v for k, v in review.items() if k != "permissions"}):
+            with self.assertRaisesRegex(identity.Refused, "^effect_not_granted$"):
+                identity.permissions(app, APPS["needs"], ["submit_review"])
         for level in ("admin", None):
             odd = dict(APPS["needs"], **{"effect:submit_review": {"permission": "pull_requests", "level": level}})
             with self.assertRaisesRegex(identity.Refused, "^effect_not_grantable$"):
@@ -412,7 +417,10 @@ class Apply(unittest.TestCase):
                 ([{"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}], ["PRRT_kw7"],
                  dict(ROLE, kind="reviewer"), "disposition_not_yours")):
             self.assertEqual(asked(dispositions, resolve, role=role), ("item", code), (code, resolve))
-        self.assertIsNone(asked([{"finding": fid("PRRT_kw8"), "decision": {"result": "accepted"}}], ["PRRT_kw8"]))
+        # The owner accepts a security Finding only on the author's proposal of fixed or not applicable, which is in a
+        # Run apply cannot read yet: a security thread is resolved by no Role (Muse's read).
+        self.assertEqual(asked([{"finding": fid("PRRT_kw8"), "decision": {"result": "accepted"}}], ["PRRT_kw8"]),
+                         ("item", "security_proposal_unread"))
         # A Finding the Task lists whose thread is not on the item is no Finding of this item's.
         astray = the_task(permitted_effects=task["permitted_effects"], findings=["f_0000"])
         self.assertEqual(refused(task=astray, facts=facts, role=author, res=result(dispositions=[
@@ -747,6 +755,14 @@ class RoleWrites(unittest.TestCase):
                        "name": "factory / pr-review", "head_sha": "main", "external_id": "x", "status": "completed",
                        "conclusion": "success", "output": {}}),
                    github.request("GET", "/repos/combsmith/other/check-runs/77"),
+                   github.request("POST", PULL + "/reviews", body={"commit_id": "0" * 40, "event": "COMMENT", "body": "",
+                                                                   "comments": []}),
+                   github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
+                       "name": "factory / pr-review", "head_sha": HEAD, "external_id": "%s:e2" % RUN,
+                       "status": "completed", "conclusion": "failure", "output": {}}),
+                   github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
+                       "name": "factory / pr-review", "head_sha": HEAD, "external_id": "anything",
+                       "status": "completed", "conclusion": "success", "output": {}}),
                    github.request("POST", "/graphql", body={"query": effects.RESOLVE,
                                                             "variables": {"id": "PRRT_onAnotherPR"}}),
                    github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
@@ -885,6 +901,14 @@ class Job(unittest.TestCase):
                 support.facts = orig
             self.assertEqual([(r["on"], r["index"], r["since"]) for r in got],
                              [("PRRT_kw7", 0, since), ("item", 0, since), ("item", 1, since)], since)
+        # A comment on the item whose Run's start was not read mints nothing and writes nothing (Codex's read).
+        support.facts = lambda **over: orig(**dict({"threads": facts_threads["threads"]}, **over))
+        try:
+            record, ended, calls = self.go(said, task=talk, records=[], context=support.context(active_runs=0))
+        finally:
+            support.facts = orig
+        self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("environment", "run_start_unread", []))
+        self.assertEqual({e["state"] for e in record["effects"]}, {"refused"})
         def first_fails(kind, req):
             return {"state": "failed", "reason": "write_refused"} if req["on"] == "item" else \
                 {"state": "failed", "reason": "not_built"}
