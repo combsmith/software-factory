@@ -6,6 +6,7 @@ handed to it through a pipe, as the job hands the App's key.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import pathlib
 import subprocess
@@ -19,7 +20,7 @@ from tests import support
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 APPS = json.loads((ROOT / "config" / "apps.json").read_text())
 REPO = "combsmith/software-factory"
-SECRET = "ghs_a-stand-in-for-an-installation-token"
+SECRET = "a-stand-in-for-an-installation-token"
 
 
 def throwaway_key() -> bytes:
@@ -436,11 +437,11 @@ class Job(unittest.TestCase):
 
     def test_a_result_is_taken_by_the_digest_run_reported_and_held_to_its_schema(self):  # section 3.6
         data = json.dumps(result()).encode()
-        digest = "sha256:" + __import__("hashlib").sha256(data).hexdigest()
+        digest = "sha256:" + hashlib.sha256(data).hexdigest()
         self.assertEqual(apply.taken(data, digest), result())
         for given, at in ((data, "sha256:" + "0" * 64), (data + b" ", digest), ("text", digest),
-                          (b"\xff", "sha256:" + __import__("hashlib").sha256(b"\xff").hexdigest()),
-                          (b"{}", "sha256:" + __import__("hashlib").sha256(b"{}").hexdigest())):
+                          (b"\xff", "sha256:" + hashlib.sha256(b"\xff").hexdigest()),
+                          (b"{}", "sha256:" + hashlib.sha256(b"{}").hexdigest())):
             self.assertIsNone(apply.taken(given, at))
         record, ended, calls = self.go(None)
         self.assertEqual((ended["outcome"], ended["reason"], calls["mint"]), ("environment", "result_unreadable", []))
