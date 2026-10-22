@@ -3956,7 +3956,8 @@ class SandboxTrial(unittest.TestCase):
     SCRIPT = ROOT / "tools" / "trial_p26_sandbox.sh"
     PIN = re.search(r"^PIN=(\S+)$", SCRIPT.read_text(), re.M).group(1)
     # The stand-in CLI. A Task runs the probe as the model's shell tool would, unless told the model did not, with a
-    # stand-in curl and ps before the real ones, and hides what the configuration's file says the sandbox hides:
+    # stand-in curl and ps before the real ones, and /proc out of its reach, so that the stand-in ps answers where a
+    # Linux runner has a /proc the Maintainer's Mac does not; and it hides what the configuration's file says the sandbox hides:
     # "markers", "listed" (the name on the scrub's list alone), "everything" (the whole environment) or "none".
     STAND_IN = """#!/bin/sh
 here=$(cd "$(dirname "$0")" && pwd)
@@ -3967,7 +3968,8 @@ case "$1" in
       env > "$here/env-task-$scrub"; printf '%s\\n' "$@" > "$here/args-$scrub"
       echo "$PPID" > "$here/cli-ppid"; cp ./probe.sh "$here/probe-$scrub"
       printf '%s' "$P26_PARENT_MARKER" > "$here/stash"
-      [ -f "$here/confined" ] && sed 's|^outside=.*|outside=/nonexistent-p26/x|' ./probe.sh > ./probe.run || cp ./probe.sh ./probe.run
+      if [ -f "$here/confined" ]; then sed -e 's|^outside=.*|outside=/nonexistent-p26/x|' -e 's|/proc/|/nonexistent-p26/proc/|g' ./probe.sh > ./probe.run
+      else sed 's|/proc/|/nonexistent-p26/proc/|g' ./probe.sh > ./probe.run; fi
       if [ -f "$here/runs" ]; then
         case "$(cat "$here/hides-$scrub")" in
           markers) env -u P26_PARENT_MARKER -u ANTHROPIC_CUSTOM_HEADERS PATH="$here/bin:$PATH" sh ./probe.run ;;
@@ -4185,7 +4187,7 @@ esac
         # A probe that knows no stop reads its own process alone.
         probe = re.search(r"<<'PROBE'\n(.*?)\nPROBE\n", self.SCRIPT.read_text(), re.S).group(1)
         work = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
-        (work / "probe.sh").write_text(probe.replace("@ABOVE@", "").replace("@OUTSIDE@", str(work / "x"))
+        (work / "probe.sh").write_text(probe.replace("@ABOVE@", "").replace("@OUTSIDE@", str(work / "x")).replace("/proc/", "/nonexistent-p26/proc/")
                                        .replace("@ALLOWED@", "example.com").replace("@DENIED@", "example.org"))
         folder = self.stand_in(flags=("to-cli",))
         (folder / "cli-ppid").write_text("2\n")
