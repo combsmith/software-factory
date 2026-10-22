@@ -44,7 +44,7 @@ jobs:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: home
         with:
-          client-id: ${{ secrets.HELDOUT_CLIENT_ID }}
+          client-id: ${{ secrets.HELDOUT_APP_CLIENT_ID }}
           private-key: ${{ secrets.HELDOUT_APP_KEY }}
           owner: ${{ secrets.HELDOUT_OWNER }}
           repositories: ${{ secrets.HELDOUT_REPO }}

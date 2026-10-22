@@ -114,7 +114,7 @@ EVAL_GIVEN = {
     "plan": {"env": {"RELEASE": "${{ inputs.release }}"}},
     # The home's coordinates and its App's client id are secrets, never variables: a step's log shows what it is given,
     # and GitHub masks a secret's value there, and nowhere a variable's.
-    "mint": {"with": {"client-id": "${{ secrets.HELDOUT_CLIENT_ID }}", "private-key": "${{ secrets.HELDOUT_APP_KEY }}",
+    "mint": {"with": {"client-id": "${{ secrets.HELDOUT_APP_CLIENT_ID }}", "private-key": "${{ secrets.HELDOUT_APP_KEY }}",
                       "owner": "${{ secrets.HELDOUT_OWNER }}", "repositories": "${{ secrets.HELDOUT_REPO }}",
                       "permission-contents": "read"}},
     "fetch": {"env": {"HELDOUT_TOKEN": "${{ steps.home.outputs.token }}", "HELDOUT_OWNER": "${{ secrets.HELDOUT_OWNER }}",
