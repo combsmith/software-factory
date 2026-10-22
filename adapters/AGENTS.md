@@ -15,7 +15,6 @@ Not built yet, by the stories that hold their rules: items.py, contract.py, bind
 | It follows no redirect but an artifact's download, takes no proxy, bounds every answer, and uses the token its caller gives it | `tests/test_adapters.py::test_the_live_transport_takes_its_token_from_its_caller_and_follows_no_redirect` |
 | An artifact's download alone follows its redirect, to GitHub's artifact storage alone, over HTTPS | `tests/test_adapters.py::test_only_an_artifacts_download_follows_its_redirect_and_only_to_githubs_storage` |
 | No token is sent to the storage, and what it answers is bounded | `tests/test_adapters.py::test_the_live_transport_sends_no_token_to_the_storage_and_bounds_what_it_holds` |
-| Only `github.py` names the storage | `tests/test_tools.py::test_only_the_transport_names_githubs_artifact_storage` |
 | A failed Run's outcome alone is read, once for each attempt | `tests/test_adapters.py::test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other`, `tests/test_adapters.py::test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt` |
 | An outcome is bounded and held to `outcome/1` and its Run; what cannot be read is not whole | `tests/test_adapters.py::test_an_outcome_that_cannot_be_read_whole_is_not_whole` |
 | A test replays a trial's fixture, which answers each recorded request once, in order and with its whole body, and refuses any other | `tests/test_adapters.py::test_a_replay_answers_only_what_the_fixture_holds_and_each_once` |
@@ -35,6 +34,6 @@ Not built yet, by the stories that hold their rules: items.py, contract.py, bind
 | Closing references read short, of another repo or named twice, are not whole | `tests/test_adapters.py::test_closing_references_are_whole_only_of_this_repo_and_every_one_counted` |
 | A pull request to another base than the default is not whole on its contract | `tests/test_adapters.py::test_a_pull_request_to_another_base_than_the_default_is_not_read_whole_on_its_contract` |
 | The title is handed beside the facts, never in them | `tests/test_adapters.py::test_the_pull_requests_own_facts_and_the_title_beside_them` |
-| A JWT is signed by `openssl` via a pipe; a token has only its Effects' grants | `tests/test_apply.py::test_the_jwt_is_signed_by_openssl_through_a_pipe_and_never_a_file`, `tests/test_apply.py::test_a_token_is_narrowed_to_the_permissions_its_effects_need` |
-| A token is for one repo, held to what was asked, never shown, revoked only on GitHub's word | `tests/test_apply.py::test_a_token_is_minted_for_the_one_repo_and_held_to_what_was_asked`, `tests/test_apply.py::test_a_token_is_revoked_only_when_github_says_so` |
+| A plan of writes not its pass record's sends nothing; a dispatch is sent once, never retried | `tests/test_effects.py::test_a_write_list_that_is_not_the_records_is_refused_whole`, `tests/test_effects.py::test_a_dispatch_is_sent_once_and_never_retried` |
+| Each write goes through its one credential, which sends only its own requests by path and body | `tests/test_effects.py::test_each_write_goes_through_its_one_credential_and_its_allowlist` |
 | A rule of a part not built yet waits on the file named above, and the story that builds it re-points its rows | `tests/test_tools.py::test_a_wait_on_a_file_a_built_directory_plans_holds_until_the_file_exists` |
