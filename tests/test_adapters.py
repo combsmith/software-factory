@@ -763,7 +763,8 @@ def stored(repo: str, github_id: int, zipped, ident: int = 9, store: str = STORE
     listing_ = [artifact] if zipped is not None else []
     found = [{"request": {"via": "rest", "call": "GET /repos/%s/actions/runs/%d/artifacts?name=outcome&per_page=100"
                           % (repo, github_id), "headers": {}},
-              "response": {"status": 200, "headers": {}, "body": {"total_count": len(listing_), "artifacts": listing_}}}]
+              "response": {"status": 200, "headers": {"date": "Wed, 21 Oct 2026 02:18:34 GMT"},
+                           "body": {"total_count": len(listing_), "artifacts": listing_}}}]
     if zipped is not None:
         found.append({"request": {"via": "rest", "call": "GET /repos/%s/actions/artifacts/%d/zip" % (repo, ident),
                                   "headers": {}},
@@ -778,7 +779,7 @@ class Records(unittest.TestCase):
     def read(self, *found, **kw):
         slept = []
         got = records.runs(github.Replay(list(found)), canary(), "main", [WORKFLOW], kw.get("dispatcher", DISPATCHER),
-                           per_page=kw.get("per_page", 10), sleep=slept.append)
+                           per_page=kw.get("per_page", 10), sleep=slept.append, kept=kw.get("kept"))
         return got, slept
 
     def test_a_run_listed_under_its_workflows_name_is_unidentified_after_one_more_read(self):
@@ -865,6 +866,36 @@ class Records(unittest.TestCase):
             got, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item")),
                                                expired=None))
             self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, False), conclusion)
+
+    def test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt(self):
+        # #285's ruling: an outcome is written once by its attempt's final step, so one the pass before read is kept
+        # by its Run id and when its attempt started, and not read again; each outcome read is stamped in the reads.
+        done = {"name": NAME, "status": "completed", "conclusion": "failure"}
+        failed = listing("P-17", 3, rows=done)
+        row = failed["response"]["body"]["workflow_runs"][0]
+        github_id, started = row["id"], row.get("run_started_at") or row["created_at"]
+        read, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item"))))
+        self.assertEqual(read["runs"][0]["outcome"], "item")
+        self.assertEqual([r["read"] for r in read["reads"]], ["runs", "outcome"])
+        # Kept: no artifact is read, and nothing is stamped but the list.
+        kept = records.known({"runs": read["runs"]})
+        self.assertEqual(kept, {("r_01JA6Z", started): "item"})
+        again, _ = self.read(failed, kept=kept)
+        self.assertEqual((again["runs"][0]["outcome"], again["complete"], [r["read"] for r in again["reads"]]),
+                         ("item", True, ["runs"]))
+        # A re-run is another attempt, started at another time: read afresh.
+        rerun = listing("P-17", 3, rows=dict(done, run_started_at="2026-10-21T03:00:00Z"))
+        fresh, _ = self.read(rerun, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "environment"))),
+                             kept=kept)
+        self.assertEqual((fresh["runs"][0]["outcome"], [r["read"] for r in fresh["reads"]]),
+                         ("environment", ["runs", "outcome"]))
+        # Not kept: a Run that left none, whose outcome may be listed later; one that succeeded; one not completed; a
+        # fault the outcome does not name; and a record that is not one.
+        for change in ({"outcome": None}, {"conclusion": "success"}, {"status": "in_progress"},
+                       {"outcome": "late"}, {"run": None}):
+            self.assertEqual(records.known({"runs": [dict(read["runs"][0], **change)]}), {}, change)
+        self.assertEqual((records.known(None), records.known({"runs": None}), records.known({"runs": ["x"]})),
+                         ({}, {}, {}))
 
     def test_a_status_or_a_conclusion_github_would_not_give_a_run_makes_the_list_short(self):
         self.assertEqual(self.read(listing("P-17", 3, rows={"name": NAME, "status": "waiting"}))[0]["runs"][0]["status"],

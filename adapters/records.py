@@ -39,6 +39,8 @@ NOT_STARTED = {"queued", "waiting", "requested", "pending"}
 CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "failure", "cancelled": "cancelled",
                "timed_out": "timed_out"}
 FRESH = {"Cache-Control": "no-cache"}
+# The faults an outcome names, as `outcome/1` holds them: one of these, once read, is that attempt's for good.
+CONCLUDED = {"item", "capacity", "environment", "superseded"}
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 HTTP_DATE = re.compile(r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0-9]{2}) ([A-Z][a-z]{2}) ([0-9]{4}) "
                        r"([0-9]{2}:[0-9]{2}:[0-9]{2}) GMT")
@@ -144,14 +146,29 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
     return (dict(parts, status=status, conclusion=conclusion, outcome=None, started_at=started), None)
 
 
+def known(previous) -> dict:
+    """The outcomes a pass record before this one read, each by its Run id and when its attempt started: a completed
+    Run that did not succeed, whose outcome named a fault. An outcome is written once, by its attempt's final step, so
+    one read is that attempt's for good; a re-run starts again, at another time, and is read afresh. An outcome not
+    yet read, or a Run that left none, is not kept: its artifact may be listed later (#285's ruling)."""
+    runs_ = previous.get("runs") if isinstance(previous, dict) else None
+    return {(r["run"], r["started_at"]): r["outcome"] for r in runs_ or ()
+            if isinstance(r, dict) and r.get("status") == "completed"
+            and r.get("conclusion") not in (None, "success") and r.get("outcome") in CONCLUDED
+            and isinstance(r.get("run"), str) and isinstance(r.get("started_at"), str)}
+
+
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
-         sleep=time.sleep) -> dict:
+         sleep=time.sleep, kept=None) -> dict:
     """The run records of the Factory's Role workflows, the ids of counted Runs not yet named, whether the list was
     read whole, and each read's date and age for the pass record. `dispatcher` is the Controller's App, by its account
     id and type, `(id, "Bot")`: only a run it dispatched is a Run.
 
     `outcome` is the fault a completed Run that did not succeed names in its artifact, and null on every other record
-    and on one that left none."""
+    and on one that left none. `kept` is what `known` read from the pass record before: an outcome held there is not
+    read again. Each outcome read is recorded beside the list's reads, `read` `outcome`, so the pass record says what
+    the outcomes cost."""
+    kept = kept or {}
     roles = {".github/workflows/%s" % name for name in workflows}
 
     def read() -> tuple:
@@ -180,6 +197,11 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
         records, unnamed, again, whole, failed = read()
         reads += again
     for record, github_id in failed:
-        record["outcome"], read_whole = artifacts.outcome(transport, repo, github_id, record["run"])
+        if (record["run"], record["started_at"]) in kept:
+            record["outcome"] = kept[(record["run"], record["started_at"])]
+            continue
+        record["outcome"], read_whole = artifacts.outcome(
+            transport, repo, github_id, record["run"],
+            lambda answer: reads.append(dict(_read_at(answer), read="outcome")))
         whole = whole and read_whole
     return {"runs": records, "unidentified": [str(i) for i in unnamed], "complete": whole, "reads": reads}

@@ -35,10 +35,13 @@ DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 SCHEMA = json.loads((pathlib.Path(__file__).resolve().parent.parent / "schemas" / "outcome.schema.json").read_text())
 
 
-def _listed(transport, repo: str, github_id: int):
-    """The one artifact named `outcome` the run lists, None if it lists none, or False if the list cannot be read."""
+def _listed(transport, repo: str, github_id: int, seen=None):
+    """The one artifact named `outcome` the run lists, None if it lists none, or False if the list cannot be read.
+    `seen`, where given, is handed the list's answer, so the caller can record what the read cost."""
     answer = transport.send(request("GET", "/repos/%s/actions/runs/%d/artifacts?name=%s&per_page=100"
                                     % (repo, github_id, NAME)))
+    if seen is not None:
+        seen(answer)
     if answer["status"] != 200 or not isinstance(answer["body"], dict):
         raise Unanswered("the artifacts of run %d answered %d" % (github_id, answer["status"]))
     listed, total = answer["body"].get("artifacts"), answer["body"].get("total_count")
@@ -68,10 +71,10 @@ def _member(zipped: bytes):
     return held
 
 
-def outcome(transport, repo: str, github_id: int, run: str) -> tuple:
+def outcome(transport, repo: str, github_id: int, run: str, seen=None) -> tuple:
     """`(outcome, whole)` of the Run GitHub numbers `github_id` and the Factory names `run`: the fault its outcome
-    names, None for a Run that left none, and whether it was read whole."""
-    found = _listed(transport, repo, github_id)
+    names, None for a Run that left none, and whether it was read whole. `seen` is handed the list's answer."""
+    found = _listed(transport, repo, github_id, seen)
     if found is None or (found and found.get("expired") is True):
         return None, True
     ident, size, digest = (found or {}).get("id"), (found or {}).get("size_in_bytes"), (found or {}).get("digest")
