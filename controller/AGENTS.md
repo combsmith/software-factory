@@ -7,7 +7,7 @@ three files, the alerts and whether a successor starts. It reads no clock, write
 `reads.py` holds what it reads to the schemas, `feed.py` and `health.py` write the view, and `shared.py` holds
 the schemas and the time format. The writes are the effects port's, and the workflows run it.
 
-Not built yet, by the stories that hold their rules: reconcile.py, relay.py, backpressure.py.
+Not built yet, by the stories that hold their rules: reconcile.py, relay.py, backpressure.py, notify.py.
 
 | Rule | Held by |
 |---|---|
@@ -33,4 +33,5 @@ Not built yet, by the stories that hold their rules: reconcile.py, relay.py, bac
 | A view rebuilt from the pass records is the view written pass by pass | `tests/test_controller.py::test_a_view_rebuilt_from_the_records_equals_the_view_written_pass_by_pass` |
 | Health shows decision 0011's thresholds, null where a figure was not read | `tests/test_controller.py::test_the_three_thresholds_of_decision_0011_are_computed_and_shown` |
 | Health shows the last pass, the chain and what started each pass | `tests/test_controller.py::test_health_carries_the_last_pass_the_chain_and_what_started_the_passes` |
+| The writes a pass plans go in their order: the acts no write serves yet, the dispatches in the record's order, the successor last | `tests/test_effects.py::test_the_writes_go_in_their_order` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

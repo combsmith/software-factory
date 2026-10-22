@@ -1,9 +1,9 @@
 """The records port: the Factory's own run records, as the Kernel reads them (design section 3.10, decision 0036).
 
 A record counts only if it is a run of one of the Factory's own Role workflow files, in the Factory repo, from its
-default branch, started by a dispatch the Controller's App made: a Role's Runs are dispatched, never scheduled, and a
-run of any other workflow, branch, repo, event or dispatcher, a fork's pull request and a person's dispatch among them,
-is never a Run (decision 0003, I-34). Which item a counted Run is on, its Intent, its Role, its content and its id come
+default branch, started by a dispatch the pass job's own token made (P-9; decision 0049): a Role's Runs are
+dispatched, never scheduled, and a run of any other workflow, branch, repo, event or dispatcher, a fork's pull
+request and a person's dispatch among them, is never a Run (decision 0003, I-34). Which item a counted Run is on, its Intent, its Role, its content and its id come
 from its run-name alone, `run-name/1`, and the item's type from the Intent. A counted record whose name is not yet a
 run-name is unidentified: it is reported by its GitHub id, never dropped, and the list is read once more 5 s later, so
 that only what is still unnamed then is reported (decision 0036, rulings 1 and 3).
@@ -147,8 +147,8 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
          sleep=time.sleep) -> dict:
     """The run records of the Factory's Role workflows, the ids of counted Runs not yet named, whether the list was
-    read whole, and each read's date and age for the pass record. `dispatcher` is the Controller's App, by its account
-    id and type, `(id, "Bot")`: only a run it dispatched is a Run.
+    read whole, and each read's date and age for the pass record. `dispatcher` is the pass job's own token's account,
+    by its id and type, `(id, "Bot")`: only a run it dispatched is a Run.
 
     `outcome` is the fault a completed Run that did not succeed names in its artifact, and null on every other record
     and on one that left none."""

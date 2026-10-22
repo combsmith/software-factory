@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "writes/1: the writes one pass plans, in the order they are sent, each named by its type, the item and the Run it serves, and the record's own identities; planned from the pass record by controller/writes.py, which reaches nothing, and sent by adapters/effects.py only if every one is the record's.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "pass",
+    "release",
+    "writes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "writes/1"
+    },
+    "pass": {
+      "type": "string",
+      "pattern": "^p_[0-9A-Z]{6,26}$"
+    },
+    "release": {
+      "type": "string",
+      "pattern": "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "writes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "item",
+          "run",
+          "name",
+          "action"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^w[1-9][0-9]{0,3}$"
+          },
+          "type": {
+            "enum": [
+              "dispatch_run",
+              "dispatch_approval",
+              "dispatch_successor",
+              "status_on_item",
+              "dequeue",
+              "tracking_issue",
+              "not_built"
+            ]
+          },
+          "item": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "repo",
+              "type",
+              "number"
+            ],
+            "properties": {
+              "repo": {
+                "type": "string",
+                "pattern": "^[^/]+/[^/]+$"
+              },
+              "type": {
+                "enum": [
+                  "pull_request",
+                  "issue"
+                ]
+              },
+              "number": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "run": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^r_[0-9A-Z]{6,26}$"
+          },
+          "name": {
+            "description": "A dispatch's run-name, as the pass record gives it; null for any other write",
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sf [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]* [a-z][a-z-]*[a-z] [a-z][a-z-]*[a-z] sha256:[0-9a-f]{4,64} r_[0-9A-Z]{6,26}$"
+          },
+          "action": {
+            "description": "The act a write not built yet would serve, as the Decision names it; null for any other write",
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-z_]+$"
+          }
+        }
+      }
+    }
+  }
+}
