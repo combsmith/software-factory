@@ -1020,7 +1020,7 @@ MUTANTS = ISSUE + [
      ' or any(shared.errors(r, "run-record") for r in runs)',
      '', ("tests.test_approve",)),
     ("any GraphQL query is the approver's read", 'adapters/effects.py',
-     '\n                or body["query"] not in QUERIES:\n',
+     ' \\\n                or body["query"] not in QUERIES:\n',
      ':\n', ("tests.test_approve",)),
     ("a review of another commit is the approver's latest", 'adapters/effects.py',
      'r.get("commit_id") == head and isinstance(r.get("user"), dict)',
