@@ -1292,8 +1292,13 @@ class Timeline(unittest.TestCase):
         compares = {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "diff --git a/x b/x\n",
                     "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "diff --git a/y b/y\n"}
         router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, compares)
-        got, whole = timeline.reviews(router, p7_pull(), events, self.accounts(router), BASE_HEAD)
+        kept = {}
+        got, whole = timeline.reviews(router, p7_pull(), events, self.accounts(router), BASE_HEAD, kept)
         self.assertIs(whole, True)
+        # The list is kept as GitHub gave it, for reconciliation (decision 0061).
+        self.assertEqual(([r.get("node_id") for r in kept["reviews"][0]], kept["reviews"][1]),
+                         ([r.get("node_id") for r in body("P-7", 22)], True))
+        self.assertEqual(len(kept["reviews"][0]), len(got))
         content = {c: "sha256:" + hashlib.sha256(b.encode()).hexdigest() for c, b in compares.items()}
         self.assertEqual([(r["by"]["kind"], r["by"]["name"], r["state"], r["content_id"]) for r in got],
                          [("app", "coderabbitai[bot]", "dismissed", content["f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb"]),
@@ -1848,17 +1853,21 @@ def threads_answer(repo: str, number: int, nodes: list, total=None, after=None, 
 class Threads(unittest.TestCase):
     PULL = {"number": 26, "base": {"repo": {"full_name": "o/r"}}}
 
-    def read(self, *pages, permissions=None):
+    def read(self, *pages, permissions=None, kept=None):
         router = Router(github.Replay(list(pages)), permissions or {"don-petry": "admin", "outsider": "read"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, {LENS[1:]: "coderabbit"})
-        return threads.read(router, self.PULL, accounts)
+        return threads.read(router, self.PULL, accounts, kept)
 
     def test_each_thread_is_read_with_who_opened_and_resolved_it_and_a_persons_is_human(self):
+        kept = {}
         got, whole = self.read(threads_answer("o/r", 26, [
             thread_node("PRRT_1"), thread_node("PRRT_2", LENS, resolved_by=("don-petry", MAINTAINER)),
             thread_node("PRRT_3", APP), thread_node("PRRT_4", ("outsider", 7, "User")),
-            thread_node("PRRT_5", (APPROVER,) + MACHINE)]))
+            thread_node("PRRT_5", (APPROVER,) + MACHINE)]), kept=kept)
         self.assertTrue(whole)
+        # Each node is kept as GitHub gave it, for reconciliation (decision 0061).
+        self.assertEqual(([n["id"] for n in kept["threads"][0]], kept["threads"][1]),
+                         (["PRRT_1", "PRRT_2", "PRRT_3", "PRRT_4", "PRRT_5"], True))
         self.assertEqual(got[0], {"id": "PRRT_1", "resolved": False, "category": "human", "severity": None,
                                   "opened_by": {"kind": "human", "name": "don-petry", "can_write": True},
                                   "resolved_by": None, "opened_at": "2026-10-21T16:18:57Z"})

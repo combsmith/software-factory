@@ -164,6 +164,12 @@ class Matching(unittest.TestCase):
                          [("workflow_token", "dispatch")])
         old = run(name="r_01JA7R", at="2026-10-10T12:00:00Z")
         self.assertEqual(check(seen(), recorded(), records(old), accounts=TOKEN)["unmatched"], [])
+        approving = written(("dispatch_approval", ITEM, "r_01JA7Q", None, "sent"))
+        self.assertEqual(check(seen(), recorded(written_=[approving]), records(r), accounts=TOKEN)["unmatched"], [])
+        # Records that cannot be read match no dispatch: it is unmatched, beside the short reconciliation.
+        found = check(seen(), recorded([dict(applied(("approve", "K", "applied")), effects="none")], [sent]), records(r),
+                      accounts=TOKEN)
+        self.assertEqual(reconcile.alerts(found), ["reconciliation_unreadable", "write_unmatched"])
         refused = written(("dispatch_run", ITEM, "r_01JA7Q", None, "refused"))
         self.assertEqual(kinds(check(seen(), recorded(written_=[refused]), records(r), accounts=TOKEN)),
                          [("workflow_token", "dispatch")])
@@ -339,8 +345,14 @@ class SeenPort(unittest.TestCase):
                 + [kept(**{name: value}) for name, value in bad.items()] \
                 + [kept(**{name: value}) for name, value in keyless.items()]:
             self.assertIs(port(parts)[2], False, parts)
+        unreadable = {"login": "combsmith-sf-controller[bot]"}
+        for parts in (kept(reviews=[{"user": unreadable, "state": "APPROVED", "node_id": "PRR_u", "submitted_at": AT}]),
+                      kept(events=[{"event": "labeled", "actor": unreadable, "created_at": AT}]),
+                      kept(events=[{"event": "labeled", "actor": CONTROLLER, "created_at": "2026-13-01T00:00:00Z"}])):
+            self.assertIs(port(parts)[2], False, parts)
         for answer in ({"status": 403, "body": {}}, None, [{"user": CONTROLLER, "node_id": "IC", "created_at": "x"}],
-                       [{"user": CONTROLLER, "node_id": None, "created_at": AT}]):
+                       [{"user": CONTROLLER, "node_id": None, "created_at": AT}],
+                       [{"user": unreadable, "node_id": "IC_u", "created_at": AT}]):
             self.assertIs(port(over={COMMENTS: answer})[2], False, answer)
         # A pull request whose snapshot kept nothing is short, and its comments are still read.
         writes, _, whole = port(None, {COMMENTS: [{"user": CONTROLLER, "node_id": "IC_c", "created_at": AT}]})
@@ -355,6 +367,7 @@ class SeenPort(unittest.TestCase):
         for answer in ({"status": 500, "body": {}}, None, [{"id": 7, "actor": APPROVER, "timestamp": "x"}],
                        [{"id": None, "actor": APPROVER, "timestamp": AT}], [{"id": True, "actor": APPROVER,
                                                                              "timestamp": AT}],
+                       [{"id": 7, "actor": {"login": "donpetry-bot"}, "timestamp": AT}],
                        [{"id": i + 1, "actor": PERSON, "timestamp": AT} for i in range(100)]):
             self.assertIs(seen_.pushes(GitHub({ACTIVITY: answer}), ITEM["repo"], APPROVER, SINCE)[1], False, answer)
 

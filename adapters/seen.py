@@ -29,7 +29,7 @@ from adapters import timeline
 from adapters.github import Unanswered, request
 
 PAGE = 100          # the activity is read once: a list as long as a page may be cut short
-AT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+AT = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z")
 KEY = re.compile(r"[A-Za-z0-9_=:-]{1,100}")
 PARTS = ("events", "reviews", "threads", "check_runs")
 # The timeline's events that are writes, and what each is: those a Factory write makes, and those that change a pull
@@ -50,10 +50,14 @@ def _pages(transport, path: str) -> tuple:
         return [], False
 
 
+def _readable(actor) -> bool:
+    """Whether an account can be told: by an id and a type GitHub gives."""
+    return isinstance(actor, dict) and isinstance(actor.get("id"), int) and not isinstance(actor.get("id"), bool) \
+        and isinstance(actor.get("type"), str)
+
+
 def _who(actor, identities: dict):
-    if not isinstance(actor, dict) or not isinstance(actor.get("id"), int) or isinstance(actor.get("id"), bool):
-        return None
-    return identities.get((actor["id"], actor.get("type")))
+    return identities.get((actor["id"], actor["type"])) if _readable(actor) else None
 
 
 def _at(text, since: str):
@@ -93,6 +97,7 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         writes.append({"by": by, "kind": kind, "item": dict(item), "key": key, "at": at})
 
     for r in map(_object, parts["reviews"]):
+        whole &= _readable(r.get("user"))
         by, at = _who(r.get("user"), identities), _at(r.get("submitted_at"), since)
         if by is None or at is None or r.get("state") == "PENDING":
             continue
@@ -100,6 +105,7 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         add(by, "approval" if r.get("state") in ("APPROVED", "DISMISSED") else "review", _key(r.get("node_id")),
             at or None)
     for c in map(_object, parts["comments"]):
+        whole &= _readable(c.get("user"))
         by, at = _who(c.get("user"), identities), _at(c.get("created_at"), since)
         if by is None or at is None:
             continue
@@ -110,7 +116,7 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         at = _at(e.get("created_at"), since) if kind else None
         if kind is None or at is None:
             continue
-        whole &= at is not False
+        whole &= at is not False and _readable(e.get("actor"))
         if kind == "merge" and at:
             merged.append({"item": dict(item), "at": at})
         by = _who(e.get("actor"), identities)
@@ -153,8 +159,9 @@ def pushes(transport, repo: str, approver: dict, since: str) -> tuple:
     whole = isinstance(found, list) and len(found) < PAGE
     writes = []
     for a in map(_object, found if isinstance(found, list) else []):
-        actor = _object(a.get("actor"))
-        if (actor.get("id"), actor.get("type")) != (approver["id"], "User") or isinstance(actor.get("id"), bool):
+        actor = a.get("actor")
+        whole &= _readable(actor)
+        if not _readable(actor) or (actor["id"], actor["type"]) != (approver["id"], "User"):
             continue
         at = _at(a.get("timestamp"), since)
         if at is None:

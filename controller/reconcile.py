@@ -110,9 +110,10 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
             unmatched.append({"by": w["by"], "kind": w["kind"], "item": w["item"], "key": w["key"]})
     # The pass job's token is an identity once its account is set; until then no dispatch is reconciled (ruling 2).
     token = isinstance(accounts, dict) and isinstance(accounts.get("workflow_token"), dict)
-    if token and readable and recorded:
+    if token and readable:
+        # A dispatch whose record cannot be read is unmatched, as any write is (ruling 5).
         since = seen["since"]
-        dispatched = _dispatched(effects)
+        dispatched = _dispatched(effects) if recorded else set()
         for r in runs if isinstance(runs, list) else []:
             if r["started_at"] >= since and r["run"] not in dispatched:
                 unmatched.append({"by": "workflow_token", "kind": "dispatch", "item": r["item"], "key": r["run"]})
