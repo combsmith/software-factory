@@ -135,10 +135,12 @@ RULES = (
      "so", ("P-43",), "trials/P-43.json", None),
     # trials/P-45.json: Dependabot moved actions/checkout's pin in a canary workflow; it opened the pull request and pushed
     # its head as dependabot[bot], a Bot, id 49699333, which GraphQL names dependabot: the port reads it by id and type.
-    # The workflow it updated was an ordinary one; that a Lens's own is updated alike is GitHub's rule, not shown here.
     ("a_dependency_bot_updates_a_workflow_pin", "A dependency bot's update can change the pin of an Action in a "
-     "workflow file, a Lens's own among them; the bot opens it and pushes its head, and its class is dependency",
+     "workflow file; the bot opens it and pushes its head, and its class is dependency",
      ("P-45",), "trials/P-45.json", None),
+    # The workflow P-45 updated was an ordinary one, so that a Lens's own is updated alike stays unshown.
+    ("a_dependency_bot_updates_a_lens_pin", "A dependency bot's update can change the pin of an Action in a Lens's own "
+     "workflow file, as it does any other's", ("P-45",), None, None),
     ("an_acceptance_result_names_its_content", "Each result for a criterion of an item's acceptance contract is read "
      "from the check that gave it, with the content it ran on, and stays when the content changes",
      ("P-42",), None, None),
