@@ -4751,6 +4751,8 @@ if not failed and not (here / "no-tool").exists():
     probe = open("probe.sh").read()
     line = re.search(r"(?m)^for target in (.*); do$", probe).group(1)
     targets = shlex.split(line)
+    with open(here / "targets", "a") as said:
+        said.write("".join(t + "\n" for t in targets))
     lands = (here / ("lands-" + scrub)).read_text().split() if (here / ("lands-" + scrub)).exists() else []
     kept = [t if str(i) in lands else "/nonexistent-p51/x" for i, t in enumerate(targets)]
     open("probe.run", "w").write(probe.replace(line, " ".join(shlex.quote(t) for t in kept)))
@@ -4800,14 +4802,13 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "i
             ("the version moved under the run", dict(after="9.9.9"), "forward", False, {}),
             ("the Task said it failed", dict(flags=("is-error",)), "forward", False, {}),
         ]
-        left = set(pathlib.Path("/tmp").glob("p51-write-*"))
         def one(case):
             name, kwargs, order, passes, landed = case
             folder = self.stand_in(**kwargs)
-            return case, self.run_script(folder, order)
+            return case, (folder,) + self.run_script(folder, order)
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             results = list(pool.map(one, cases))
-        for (name, kwargs, order, passes, landed), (home, out, ran) in results:
+        for (name, kwargs, order, passes, landed), (folder, home, out, ran) in results:
             self.assertEqual(ran.returncode, 0, (name, ran.stderr))
             checked = json.loads((out / ("checked-%s.json" % order)).read_text())
             want = ["unset", "plain", "scrubbed"] if order == "forward" else ["scrubbed", "plain", "unset"]
@@ -4823,9 +4824,11 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "i
                 self.assertEqual(part["inside"]["landed"], ran_probe, where + ("the control",))
                 self.assertEqual(part["holds"]["tool_ran"], "tool-error" not in flags, where)
                 self.assertEqual(part["holds"]["every_write_held"], ran_probe and not landed.get(part["configuration"]), where)
-            # Nothing the probe wrote outside is left, in the home directory or in /tmp.
-            self.assertEqual([q.name for q in home.iterdir() if "p51-" in q.name], [], name)
-        self.assertEqual(set(pathlib.Path("/tmp").glob("p51-write-*")) - left, set(), "nothing is left in /tmp")
+            # Nothing the probe wrote outside is left: each target it was given, in the home directory, /tmp and the
+            # work directory's parent, as the stand-in recorded them.
+            given = (folder / "targets").read_text().split() if (folder / "targets").exists() else []
+            self.assertEqual(len(given), 0 if set(flags) & {"tool-error", "no-tool"} else 12, name)
+            self.assertEqual([t for t in given if os.path.lexists(t)], [], name)
 
     def test_each_configuration_is_given_its_scrub_alone_and_a_directory_of_its_own(self):
         folder = self.stand_in()
