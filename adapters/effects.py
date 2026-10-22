@@ -30,6 +30,7 @@ import os
 import pathlib
 import re
 import sys
+import urllib.parse
 
 from adapters.github import Live, Unanswered, request
 from kernel import terms as t
@@ -203,8 +204,12 @@ def refused_all(writes, record, reason: str) -> dict:
 
 
 # A Role's writes, `apply`'s: each on one item, through the Role App's own token, narrowed to them (issue 194, PR 2).
-# A check run waits on the Role App's grant of `checks`, which config/apps.json does not give it.
-ROLE_WRITES = ("submit_review", "resolve_thread", "comment")
+# A check run is written once the Role App is granted `checks`; until then its need waits, and no token is minted for it.
+ROLE_WRITES = ("submit_review", "create_check_run", "resolve_thread", "comment")
+# GitHub takes at most fifty annotations in one request: more would need a second write, which nothing sends yet.
+ANNOTATIONS = 50
+LEVEL = {"minor": "warning", "info": "notice"}
+SHA = re.compile(r"[0-9a-f]{40}")
 THREADS = """query AppliedThreads($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
@@ -251,9 +256,18 @@ def role_permits(item: dict) -> tuple:
             return body["variables"] == {"owner": owner, "name": name, "number": number}
         return (body["query"] in (THREAD, RESOLVE) and set(body["variables"]) == {"id"}
                 and isinstance(body["variables"]["id"], str) and THREAD_ID.fullmatch(body["variables"]["id"]) is not None)
+    def check(body) -> bool:
+        return (isinstance(body, dict) and set(body) == {"name", "head_sha", "external_id", "status", "conclusion",
+                                                          "output"}
+                and body["status"] == "completed" and isinstance(body["head_sha"], str)
+                and SHA.fullmatch(body["head_sha"]) is not None)
     permits = {("GET", pull + "/reviews?per_page=100"): nothing, ("POST", pull + "/reviews"): review,
-               ("POST", issue + "/comments"): comment, ("POST", "/graphql"): graphql}
+               ("POST", issue + "/comments"): comment, ("POST", "/graphql"): graphql,
+               ("POST", "/repos/%s/check-runs" % repo): check}
     patterns = [("GET", re.compile(re.escape(pull) + r"/reviews/[1-9][0-9]{0,18}"), nothing),
+                ("GET", re.compile(r"/repos/%s/check-runs/[1-9][0-9]{0,18}" % re.escape(repo)), nothing),
+                ("GET", re.compile(r"/repos/%s/commits/[0-9a-f]{40}/check-runs\?check_name=[A-Za-z0-9%%._-]+&per_page=100"
+                                   % re.escape(repo)), nothing),
                 ("GET", re.compile(r"/repos/%s/issues/comments/[1-9][0-9]{0,18}" % re.escape(repo)), nothing),
                 ("GET", re.compile(re.escape(issue) + r"/comments\?since=%s&per_page=100" % SINCE.pattern), nothing)]
     return permits, patterns
@@ -296,6 +310,8 @@ def role_write(transport, item: dict, kind: str, req: dict, login: str) -> dict:
     read-back failed, so that nothing is claimed for it."""
     if kind == "submit_review":
         return _review(transport, item, req, login)
+    if kind == "create_check_run":
+        return _check(transport, item, req, login)
     if kind == "resolve_thread":
         return _resolve(transport, item, req)
     if kind == "comment" and req["on"] == "item":
@@ -339,6 +355,47 @@ def _review(transport, item: dict, req: dict, login: str) -> dict:
     if threads is None or len(threads) != len(req["comments"]):
         return _back("sent", None)
     return _back(state, back["node_id"], {c["finding"]: th for c, th in zip(req["comments"], threads)})
+
+
+def _check(transport, item: dict, req: dict, login: str) -> dict:
+    """A check run: recovered by its `external_id`, the Effect's own, on the commit (section 3.6), else made once,
+    complete, with its annotations; read back by its id, by this App, on the commit, with as many annotations as were
+    asked. Each annotation's surface is the check run's key and the Finding's ref."""
+    if len(req["annotations"]) > ANNOTATIONS:
+        return _back("failed", None, reason="too_many_annotations")
+    repo, app = item["repo"], login[: -len("[bot]")] if login.endswith("[bot]") else login
+    listed = _body(_sent(transport, request("GET", "/repos/%s/commits/%s/check-runs?check_name=%s&per_page=100" % (
+        repo, req["commit"], urllib.parse.quote(req["name"], safe="")))), 200)
+    runs = listed.get("check_runs") if isinstance(listed, dict) else None
+    if not isinstance(runs, list) or listed.get("total_count") != len(runs) or len(runs) >= 100:
+        return _back("failed", None, reason="checks_unreadable")
+    mine = [r for r in runs if isinstance(r, dict) and r.get("external_id") == req["external_id"]
+            and isinstance(r.get("app"), dict) and r["app"].get("slug") == app]
+    if len(mine) > 1:
+        return _back("failed", None, reason="checked_twice")
+    state, made = ("already_applied", mine[0]) if mine else ("applied", None)
+    if made is None:
+        answer = _sent(transport, request("POST", "/repos/%s/check-runs" % repo, body={
+            "name": req["name"], "head_sha": req["commit"], "external_id": req["external_id"], "status": "completed",
+            "conclusion": req["conclusion"], "output": {
+                "title": req["name"], "summary": "%d finding(s) that do not gate" % len(req["annotations"]),
+                "annotations": [{"path": a["path"], "start_line": a["start_line"], "end_line": a["end_line"],
+                                 "annotation_level": LEVEL.get(a["severity"], "notice"), "message": a["body"]}
+                                for a in req["annotations"]]}}))
+        made = _body(answer, 201)
+        if not isinstance(made, dict):
+            return _fault(answer)
+    cid = made.get("id")
+    back = _body(_sent(transport, request("GET", "/repos/%s/check-runs/%d" % (repo, cid))), 200) \
+        if type(cid) is int else None
+    if not (isinstance(back, dict) and back.get("id") == cid and back.get("external_id") == req["external_id"]
+            and back.get("head_sha") == req["commit"] and isinstance(back.get("app"), dict)
+            and back["app"].get("slug") == app and isinstance(back.get("output"), dict)
+            and back["output"].get("annotations_count") == len(req["annotations"])
+            and isinstance(back.get("node_id"), str) and back["node_id"]):
+        return _back("sent", None)
+    key = back["node_id"]
+    return _back(state, key, {a["finding"]: "%s:%s" % (key, a["finding"]) for a in req["annotations"]})
 
 
 def _threads(transport, item: dict, review: int):

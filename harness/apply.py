@@ -199,8 +199,8 @@ def requests(task: dict, result: dict, head: str, role: dict, since: str = None)
         out.append((check["id"], "create_check_run", {
             "commit": head, "name": "factory / %s" % role["name"], "conclusion": "success",
             "external_id": "%s:%s" % (task["run"], check["id"]),
-            "annotations": [dict(_place(raised[a["finding"]]), finding=a["finding"], body=a["body"])
-                            for a in check["annotations"]]}))
+            "annotations": [dict(_place(raised[a["finding"]]), finding=a["finding"], body=a["body"],
+                                 severity=raised[a["finding"]]["severity"]) for a in check["annotations"]]}))
     for resolve in result["effects"].get("resolve_thread", ()):
         out.append((resolve["id"], "resolve_thread", {"thread": resolve["thread"]}))
     for index, comment in enumerate(result["effects"].get("comment", ())):

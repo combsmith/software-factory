@@ -550,7 +550,60 @@ class RoleWrites(unittest.TestCase):
         # A reply on a thread is not built yet: it fails, and claims nothing.
         self.assertEqual(effects.role_write(GitHub(), ITEM, "comment", dict(req(0), on="PRRT_kw7"), LOGIN)["reason"],
                          "not_built")
-        self.assertEqual(effects.role_write(GitHub(), ITEM, "create_check_run", {}, LOGIN)["reason"], "not_built")
+
+    def test_a_check_run_is_made_once_complete_and_read_back_with_its_annotations(self):  # sections 3.6, 4.3
+        req = apply.requests(the_task(), result(), HEAD, ROLE)[1][2]
+        listed = ("GET", "/repos/%s/commits/%s/check-runs?check_name=factory%%20%%2F%%20pr-review&per_page=100"
+                  % (ITEM["repo"], HEAD))
+        made = lambda **over: dict({"id": 77, "node_id": "CR_kwDOA7", "external_id": "%s:e2" % RUN, "head_sha": HEAD,
+                                    "app": {"slug": "combsmith-sf-pr-review"}, "output": {"annotations_count": 1}},
+                                   **over)
+        got = ("GET", "/repos/%s/check-runs/77" % ITEM["repo"])
+        hub = GitHub((listed, ok({"total_count": 0, "check_runs": []})),
+                     (("POST", "/repos/%s/check-runs" % ITEM["repo"]), ok(made(), 201)), (got, ok(made())))
+        self.assertEqual(effects.role_write(hub, ITEM, "create_check_run", req, LOGIN),
+                         {"state": "applied", "key": "CR_kwDOA7", "surfaces": {"n2": "CR_kwDOA7:n2"}, "reason": None})
+        sent = hub.sent[1]["body"]
+        self.assertEqual((sent["name"], sent["head_sha"], sent["external_id"], sent["status"], sent["conclusion"]),
+                         ("factory / pr-review", HEAD, "%s:e2" % RUN, "completed", "success"))
+        self.assertEqual(sent["output"]["annotations"], [{"path": "tests/test_decide.py", "start_line": 410,
+                                                          "end_line": 410, "annotation_level": "warning",
+                                                          "message": result()["effects"]["create_check_run"][0]["annotations"][0]["body"]}])
+        # This App's check run for another Run's Effect on the commit is not this one's: a new one is made.
+        hub = GitHub((listed, ok({"total_count": 1, "check_runs": [made(external_id="r_01JA7Z:e2")]})),
+                     (("POST", "/repos/%s/check-runs" % ITEM["repo"]), ok(made(), 201)), (got, ok(made())))
+        self.assertEqual(effects.role_write(hub, ITEM, "create_check_run", req, LOGIN)["state"], "applied")
+        # One this App made for this Effect on this commit is recovered, never made twice; another App's is not it.
+        other = made(app={"slug": "coderabbitai"})
+        hub = GitHub((listed, ok({"total_count": 2, "check_runs": [other, made()]})), (got, ok(made())))
+        self.assertEqual(effects.role_write(hub, ITEM, "create_check_run", req, LOGIN)["state"], "already_applied")
+        for answers, want in (((ok({"total_count": 2, "check_runs": [made()]}),), ("failed", "checks_unreadable")),
+                              ((ok({"total_count": 2, "check_runs": [made(), made(id=78)]}),), ("failed", "checked_twice")),
+                              ((ok({"total_count": 0, "check_runs": []}), ok(None, 403)), ("refused", "token_refused")),
+                              ((ok({"total_count": 0, "check_runs": []}), ok(made(), 200)), ("failed", "write_refused"))):
+            hub = GitHub(*zip([listed, ("POST", "/repos/%s/check-runs" % ITEM["repo"])], answers))
+            back = effects.role_write(hub, ITEM, "create_check_run", req, LOGIN)
+            self.assertEqual((back["state"], back["reason"]), want, want)
+        # What was read back is not what was asked: sent, and nothing claimed.
+        for wrong in (made(external_id="r_01JA7Z:e2"), made(head_sha="0" * 40), made(app={"slug": "other"}),
+                      made(output={"annotations_count": 0}), made(node_id="")):
+            hub = GitHub((listed, ok({"total_count": 0, "check_runs": []})),
+                         (("POST", "/repos/%s/check-runs" % ITEM["repo"]), ok(made(), 201)), (got, ok(wrong)))
+            self.assertEqual(effects.role_write(hub, ITEM, "create_check_run", req, LOGIN)["state"], "sent", wrong)
+        many = dict(req, annotations=req["annotations"] * (effects.ANNOTATIONS + 1))
+        self.assertEqual(effects.role_write(GitHub(), ITEM, "create_check_run", many, LOGIN)["reason"],
+                         "too_many_annotations")
+        info = dict(req, annotations=[dict(req["annotations"][0], severity="info")])
+        hub = GitHub((listed, ok({"total_count": 0, "check_runs": []})),
+                     (("POST", "/repos/%s/check-runs" % ITEM["repo"]), ok(made(), 201)), (got, ok(made())))
+        effects.role_write(hub, ITEM, "create_check_run", info, LOGIN)
+        self.assertEqual(hub.sent[1]["body"]["output"]["annotations"][0]["annotation_level"], "notice")
+
+    @support.pending
+    def test_the_role_app_is_granted_checks_to_write_its_check_run(self):  # the Maintainer, 2026-10-22
+        # Waits on the registration of checks: write for combsmith-sf-pr-review and trial P-39 run again.
+        self.assertEqual(identity.permissions(APPS["apps"]["pr-review"], APPS["needs"], ["create_check_run"]),
+                         {"checks": "write"})
 
     def test_a_role_token_sends_only_its_writes_on_its_one_item(self):  # ruling 6, I-35
         permits, patterns = effects.role_permits(ITEM)
@@ -567,7 +620,13 @@ class RoleWrites(unittest.TestCase):
                 github.request("POST", "/graphql", body={"query": effects.THREADS, "variables": {
                     "owner": owner, "name": name, "number": ITEM["number"]}}),
                 github.request("POST", "/graphql", body={"query": effects.RESOLVE, "variables": {"id": "PRRT_kw7"}}),
-                github.request("POST", "/graphql", body={"query": effects.THREAD, "variables": {"id": "PRRT_kw7"}})]
+                github.request("POST", "/graphql", body={"query": effects.THREAD, "variables": {"id": "PRRT_kw7"}}),
+                github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
+                    "name": "factory / pr-review", "head_sha": HEAD, "external_id": "%s:e2" % RUN, "status": "completed",
+                    "conclusion": "success", "output": {}}),
+                github.request("GET", "/repos/%s/check-runs/77" % ITEM["repo"]),
+                github.request("GET", "/repos/%s/commits/%s/check-runs?check_name=factory%%20%%2F%%20pr-review&per_page=100"
+                               % (ITEM["repo"], HEAD))]
         for req in fine:
             with self.assertRaisesRegex(github.Unanswered, "nothing left"):      # it reached the fake
                 allowed.send(req)
@@ -577,6 +636,13 @@ class RoleWrites(unittest.TestCase):
                    github.request("POST", other + "/reviews", body={"commit_id": HEAD, "event": "COMMENT", "body": "",
                                                                     "comments": []}),
                    github.request("PUT", PULL + "/merge", body={}),
+                   github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
+                       "name": "factory / pr-review", "head_sha": HEAD, "external_id": "x", "status": "in_progress",
+                       "conclusion": "success", "output": {}}),
+                   github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
+                       "name": "factory / pr-review", "head_sha": "main", "external_id": "x", "status": "completed",
+                       "conclusion": "success", "output": {}}),
+                   github.request("GET", "/repos/combsmith/other/check-runs/77"),
                    github.request("GET", PULL + "/reviews/5602757809/../../merge"),
                    github.request("GET", ISSUE + "/comments?since=yesterday&per_page=100"),
                    github.request("POST", ISSUE + "/comments", body={"body": "x", "extra": 1}),
