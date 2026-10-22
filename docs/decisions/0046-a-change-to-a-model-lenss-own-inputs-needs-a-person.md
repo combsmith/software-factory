@@ -36,5 +36,6 @@ Lens of another family exists, its review of the head may stand for the person's
 | The Factory's own approving act never supplies the judgment | `tests/test_decide.py::test_the_factorys_own_approval_never_supplies_the_judgment` |
 | The list is the configuration's, never the change's, and the files that make it are on it | `tests/test_decide.py::test_the_list_is_the_configurations_never_the_change` |
 | An unreadable list defers for the Maintainer, and a queued item leaves the queue | `tests/test_decide.py::test_an_unreadable_list_of_a_model_lenss_inputs_defers_for_the_maintainer` |
+| The machine user's approval never judges such a change, whoever made it; only a different person with write access, neither author nor last pusher, does (the Maintainer, 2026-10-22: "can't approve your own pr. Only a different person with write can approve.") | `tests/test_decide.py::test_the_machine_users_approval_never_judges_a_change_to_a_model_lenss_input` |
 | The Controller builds the list from the base branch's `config/hooks.json` | waiting on `adapters/settings.py` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

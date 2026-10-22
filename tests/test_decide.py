@@ -3471,7 +3471,8 @@ class TheFactorysOwnRules(unittest.TestCase):
                           dismissed_from="changes_requested"),
                    review(kind="human", name="a-colleague", state="commented"),
                    review(kind="human", name="stranger", can_write=False),                    # no write access
-                   review(can_write=False),                                                    # nor the machine user
+                   review(),                                                                   # the machine user
+                   review(can_write=False),                                                    # nor without write
                    review(kind="app", name="combsmith-sf-dev-lead[bot]"),                      # an App
                    review(kind="lens", name="pr-review")):                                     # the Lens itself
             self.waits_for_a_person(dict(f, reviews=[rv]))
@@ -3491,21 +3492,22 @@ class TheFactorysOwnRules(unittest.TestCase):
         self.assertEqual((d["reason"], d["outcome"], d["action"]), ("model_lens_input_needs_person", "act", "dequeue"))
 
     def test_the_maintainers_own_change_waits_for_another_judge(self):  # issue 140, L-44
-        # A session may push as the Maintainer, so opening and pushing a change judges no head. The Maintainer approves
-        # it as the machine user, in the browser, or a colleague does (the Maintainer, 2026-10-21).
+        # A session may push as the Maintainer, so opening and pushing a change judges no head. A colleague with write
+        # access approves it, or the Maintainer merges it by hand outside the Factory (the Maintainer, 2026-10-22).
         own = changing(changed_paths=["roles/pr-review.json"])
         self.assertEqual((own["class"], own["author"], own["last_pusher"]), ("maintainer", "don-petry", "don-petry"))
         self.waits_for_a_person(own)
         self.waits_for_a_person(dict(own, reviews=[review(kind="human", name="don-petry")]))
         d = go(dict(own, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
         self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"))
-        d = go(dict(own, reviews=APPROVED), REVIEWED)
+        self.waits_for_a_person(dict(own, reviews=APPROVED))
+        d = go(dict(own, reviews=APPROVED + [review(kind="human", name="a-colleague")]), REVIEWED)
         self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approved", "enqueue"))
 
     def test_the_factorys_own_approval_never_supplies_the_judgment(self):  # issue 140, the Maintainer, 2026-10-21
-        # The machine user's approval counts as the Maintainer's own. The Factory's approving act cannot supply it: no
-        # Decision issues an approval for such a change while no judge's approval stands, and an approval Run that
-        # succeeded without its review on the timeline yet is no review.
+        # The Factory's approving act cannot supply the judgment: no Decision issues an approval for such a change while
+        # no person's approval stands, and an approval Run that succeeded without its review on the timeline yet is no
+        # review.
         f = changing(**AGENT, changed_paths=["kernel/gate.py"])
         d = self.waits_for_a_person(f)
         self.assertNotIn("action", d)
@@ -3517,6 +3519,19 @@ class TheFactorysOwnRules(unittest.TestCase):
         self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
         self.assertTrue(derive.judged_by_a_person(dict(f, reviews=[review(kind="human", name="a-colleague")])))
         self.assertFalse(derive.judged_by_a_person(f))
+
+    def test_the_machine_users_approval_never_judges_a_change_to_a_model_lenss_input(self):  # the Maintainer, 2026-10-22
+        # "Only a different person with write can approve." The machine user's approval never counts, whoever made it:
+        # the Factory's approving act makes it too, so counting it would let the Factory approve the change to its own
+        # review and then converge on that approval.
+        f = changing(**AGENT, changed_paths=["roles/pr-review.json"])
+        for alone in (APPROVED, [review(content="sha256:aaaa", at="2026-10-11T12:40:00Z")]):
+            d = self.waits_for_a_person(dict(f, reviews=alone))
+            self.assertNotIn("action", d)
+        self.assertFalse(derive.judged_by_a_person(dict(f, reviews=APPROVED)))
+        # A second person's approval converges it, and the machine user's beside it then enqueues it.
+        d = go(dict(f, reviews=APPROVED + [review(kind="human", name="a-colleague")]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approved", "enqueue"))
 
     def test_the_list_is_the_configurations_never_the_change(self):  # issue 140, decision 0020
         # A change that takes the manifest off the list in config/hooks.json still waits: the list is the base branch's.
