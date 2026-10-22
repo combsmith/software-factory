@@ -20,6 +20,7 @@ The records port reads a failed Run's outcome (decisions 0029 and 0039), and Git
 | Boundary | Check |
 |---|---|
 | Only an artifact's download follows its redirect, and only to GitHub's artifact storage over HTTPS | `tests/test_adapters.py::test_only_an_artifacts_download_follows_its_redirect_and_only_to_githubs_storage` |
+| The storage address is under `/actions-results/`, with no segment that climbs out of it, plain or percent-encoded (the Maintainer's answer of 2026-10-21 on "Records port: the Factory's own run records, unidentified Runs and the cache", issue 192) | `tests/test_adapters.py::test_only_an_artifacts_download_follows_its_redirect_and_only_to_githubs_storage` |
 | No token is sent to the storage, what it answers is bounded, and no error holds its address | `tests/test_adapters.py::test_the_live_transport_sends_no_token_to_the_storage_and_bounds_what_it_holds` |
 | No code but the transport names the storage | `tests/test_tools.py::test_only_the_transport_names_githubs_artifact_storage` |
 | An outcome is read from its one file, bounded, stored or deflated, and held to `outcome/1` and its Run | `tests/test_adapters.py::test_an_outcome_that_cannot_be_read_whole_is_not_whole`, `tests/test_adapters.py::test_an_outcome_is_held_in_the_bounds_before_it_is_read_out` |

@@ -146,6 +146,9 @@ class Record(unittest.TestCase):
         wrong = passed(reads(pulls=[], issues=[waiting]), cfg=stale)
         self.assertNotEqual(decisions(right)[0]["attention"], "stale")
         self.assertEqual(decisions(wrong)[0]["attention"], "stale")
+        # An issue's repo is a scope even when no read of the Pause names it: then it was not read (the follow-on).
+        unread = passed(reads(pulls=[], issues=[an_issue(8, repo=OTHER_REPO)], pause={"org": None, "repos": {REPO: None}}))
+        self.assertIsNone(unread["record"]["context"]["paused"])
         # An issue's repo has a Pause of its own, and it is read.
         held = passed(reads(pulls=[], issues=[an_issue(8, repo=OTHER_REPO)],
                             pause={"org": None, "repos": {REPO: None, OTHER_REPO: "true"}}))
@@ -202,6 +205,10 @@ class Record(unittest.TestCase):
         self.assertEqual((out["alerts"], alone["alerts"]), (["facts_unreadable"], []))
         self.assertEqual(passed(reads(pulls=[{"facts": None, "title": "x"}]))["left_out"], [None])
         self.assertEqual(passed(reads(pulls=[{"facts": {}}, "x"]))["left_out"], [None, None])
+        # A good copy and a bad copy of one item: neither is decided (Argon's read of the merged pass).
+        copies = passed(reads(pulls=[pr(42), {"facts": {"item": dict(support.ITEM, number=42)}, "title": "x"}]))
+        self.assertEqual((decisions(copies), copies["dispatch"]), ([], []))
+        self.assertEqual(copies["left_out"], [dict(support.ITEM, number=42)] * 2)
         # An item listed twice is decided neither time: one pass never dispatches two Runs on one item (Muse's read).
         twice = passed(reads(pulls=[pr(42), pr(42), pr(7)], issues=[an_issue(7), an_issue(7)]))
         self.assertEqual([d["item"]["number"] for d in decisions(twice)], [7])
@@ -239,6 +246,14 @@ class Context(unittest.TestCase):
             self.assertIsNone(paused(value), value)
             self.assertIsNone(paused(None, value), value)
         self.assertIsNone(paused(None, repos={}))         # the item's repo was not read
+        # A repo read is a scope whether or not an item of it is decided: a paused repo with nothing open pauses the
+        # pass, and so does one that cannot be read (Argon's read of the merged pass).
+        for repos, want in (({REPO: "true"}, True), ({REPO: "maybe"}, None), ({REPO: None, OTHER_REPO: "true"}, True)):
+            out = passed(reads(pulls=[], pause={"org": None, "repos": repos}))
+            self.assertIs(out["record"]["context"]["paused"], want, repos)
+        elsewhere = {"facts": support.facts(item=dict(support.ITEM, repo=OTHER_REPO, number=1)), "title": "x"}
+        held = passed(reads(pulls=[elsewhere], pause={"org": None, "repos": {REPO: "true", OTHER_REPO: None}}))
+        self.assertEqual((held["dispatch"], decisions(held)[0]["reason"]), ([], "paused"))
         self.assertIsNone(passed(reads(pause={"repos": {REPO: None}}))["record"]["context"]["paused"])
         self.assertIsNone(passed(reads(pause={}))["record"]["context"]["paused"])
 
@@ -288,6 +303,9 @@ class Context(unittest.TestCase):
         self.assertIsNone(later["record"]["context"]["model_deferred_until"])
         self.assertEqual(len(later["view"]["health"]["faults"]), 1)
         self.assertEqual(passed(reads(runs=[fault]), now="2026-10-11T15:00:01Z")["view"]["health"]["faults"], [])
+        # A fault said to start after the pass defers nothing (Argon's read of the merged pass).
+        ahead = passed(reads(runs=[dict(fault, started_at="2026-10-11T13:00:01Z")]))
+        self.assertEqual((ahead["record"]["context"]["model_deferred_until"], ahead["alerts"]), (None, []))
         other = passed(reads(runs=[dict(fault, outcome="item")]))
         self.assertIsNone(other["record"]["context"]["model_deferred_until"])
 
@@ -343,6 +361,8 @@ class Chain(unittest.TestCase):
         unread["context"]["passes_since"] = None
         self.assertIsNone(since(unread))
         self.assertIsNone(since(earlier("2026-10-11T14:00:00Z")))
+        self.assertIsNone(since(earlier("2026-10-11T12:00:00Z"), earlier("2026-10-11T14:00:00Z")))
+        self.assertIsNone(since(earlier("2026-10-11T12:00:00Z"), earlier(NOW)))
         # A record that is not a pass record makes the records unreadable.
         broken = earlier("2026-10-11T08:00:00Z")
         del broken["context"]
@@ -382,6 +402,10 @@ class Chain(unittest.TestCase):
         broken = copy.deepcopy(last)
         del broken["runs"]
         self.assertEqual(pass_.wait_before_reading([broken], NOW, cfg), 180)
+        # A record that cannot be placed before this pass makes the records unreadable, even beside one that can
+        # (Argon's read of the merged pass).
+        for odd in (unread, earlier(NOW), earlier("2026-10-11T13:00:01Z")):
+            self.assertEqual(pass_.wait_before_reading([earlier("2026-10-11T12:00:00Z"), odd], NOW, cfg), 180, odd["now"])
         # A record with no read waits from its time.
         quiet = dict(copy.deepcopy(last), reads=[])
         self.assertEqual(pass_.wait_before_reading([quiet], NOW, cfg), 150)
@@ -447,6 +471,7 @@ class Feed(unittest.TestCase):
         # A cause that holds the whole scope is raised with no item to defer (Codex's read).
         fault = run("r_00000F", number=9, conclusion="failure", outcome="capacity", at="2026-10-11T12:00:00Z")
         for read, raised in ((reads(pulls=[], pause={"org": "true", "repos": {}}), ["paused"]),
+                             (reads(pulls=[], pause={"org": "maybe", "repos": {}}), ["pause_unreadable"]),
                              (reads(pulls=[], runs=[fault]), ["capacity"]),
                              (reads(pulls=[], unidentified=["1"]), ["run_unidentified"]),
                              (reads(pulls=[], complete=False), ["capacity_unreadable"]),
@@ -558,6 +583,10 @@ class Feed(unittest.TestCase):
         again = dict(copy.deepcopy(late["record"]), now="2026-10-11T12:55:00Z")
         once = passed(reads(pulls=[pr(1, last_push_at="2026-10-11T12:45:00Z")]), previous=[before, missed, again])
         self.assertEqual(once["view"]["health"]["thresholds"]["decision_delay_p95_minutes"]["value"], 10.0)
+        # A change dated after the pass that read it is read late by the first pass after it (Argon's read).
+        early = earlier("2026-10-11T12:50:00Z", pulls=[pr(1, last_push_at="2026-10-11T12:50:01Z")])
+        later = passed(reads(pulls=[pr(1, last_push_at="2026-10-11T12:50:01Z")]), previous=[before, early])
+        self.assertEqual(later["view"]["health"]["thresholds"]["decision_delay_p95_minutes"]["value"], 9.98)
         changed = an_issue(7, content_changed_at="2026-10-11T12:50:00Z")
         issue = passed(reads(pulls=[], issues=[changed]), previous=[before])
         self.assertEqual(issue["view"]["health"]["thresholds"]["decision_delay_p95_minutes"]["value"], 10.0)

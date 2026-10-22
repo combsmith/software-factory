@@ -98,14 +98,22 @@ class Transport(unittest.TestCase):
                                       **asked))
         self.assertNotIn("follow", github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
         self.assertEqual(github.storage(STORE), STORE)
-        for url in ("http://productionresultssa7.blob.core.windows.net/x", "https://evil.blob.core.windows.net/x",
-                    "https://productionresultssa7.blob.core.windows.net:8443/x",
-                    "https://u@productionresultssa7.blob.core.windows.net/x",
-                    "https://productionresultssa7.blob.core.windows.net.evil.com/x",
-                    "https://PRODUCTIONRESULTSSA7.blob.core.windows.net/x", "https://pipelines.actions.githubusercontent.com/x",
-                    "https://productionresultssa7.blob.core.windows.net/x\r\nHost: e", "https://api.github.com/x",
-                    "https://productionresultssa7.blob.core.windows.net\\@evil.com/x", None, 7,
-                    "https://productionresultssa20.blob.core.windows.net/x", "https://productionresultssa07.blob.core.windows.net/x"):
+        for url in ("http://productionresultssa7.blob.core.windows.net/actions-results/x", "https://evil.blob.core.windows.net/actions-results/x",
+                    "https://productionresultssa7.blob.core.windows.net:8443/actions-results/x",
+                    "https://u@productionresultssa7.blob.core.windows.net/actions-results/x",
+                    "https://productionresultssa7.blob.core.windows.net.evil.com/actions-results/x",
+                    "https://PRODUCTIONRESULTSSA7.blob.core.windows.net/actions-results/x", "https://pipelines.actions.githubusercontent.com/actions-results/x",
+                    "https://productionresultssa7.blob.core.windows.net/actions-results/x\r\nHost: e", "https://api.github.com/actions-results/x",
+                    "https://productionresultssa7.blob.core.windows.net\\@evil.com/actions-results/x", None, 7,
+                    "https://productionresultssa20.blob.core.windows.net/actions-results/x", "https://productionresultssa07.blob.core.windows.net/actions-results/x",
+                    # Under /actions-results/ alone, and no segment that climbs out, plain or percent-encoded.
+                    "https://productionresultssa7.blob.core.windows.net/other/x?sig=1",
+                    "https://productionresultssa7.blob.core.windows.net/actions-resultsx/x",
+                    "https://productionresultssa7.blob.core.windows.net/actions-results",
+                    "https://productionresultssa7.blob.core.windows.net/actions-results/../x",
+                    "https://productionresultssa7.blob.core.windows.net/actions-results/./x",
+                    "https://productionresultssa7.blob.core.windows.net/actions-results/%2e%2e/x",
+                    "https://productionresultssa7.blob.core.windows.net/actions-results/a%2Fb"):
             with self.assertRaises(github.Unanswered, msg=url):
                 github.storage(url)
         # The replay does as the live transport does: a redirect is refused to any other request, and followed for
@@ -136,6 +144,55 @@ class Transport(unittest.TestCase):
         except github.Unanswered as err:
             self.assertNotIn("sig=", held(err))
 
+    def test_a_redirects_address_is_read_alike_by_both_transports_and_never_named_when_refused(self):
+        # A malformed address is refused, never let through as another error, and the refusal does not name it.
+        for url in ("https://[productionresultssa7.blob.core.windows.net&sig=secret]/actions-results/x",
+                    "https://[::1/actions-results/x?sig=secret"):
+            with self.assertRaises(github.Unanswered) as refused:
+                github.storage(url)
+            self.assertNotIn("sig=", held(refused.exception))
+        # The live transport reads a redirect's address as the replay does, joined to the address asked and never
+        # quoted first, as urllib's own handler would: an address with a space is refused by both.
+        asked = github.urllib.request.Request("https://api.github.com/repos/o/r/actions/artifacts/9/zip")
+        relative = "//productionresultssa7.blob.core.windows.net/actions-results/0a1b/outcome.zip?sig=redacted"
+        for location, joined in ((relative, "https:" + relative), (STORE + " b", STORE + " b")):
+            with self.assertRaises(github.Redirected) as moved:
+                github._NoRedirect().http_error_302(asked, None, 302, "Found", {"Location": location})
+            self.assertEqual(moved.exception.location, joined)
+        found = stored("o/r", 7, outcome_zip("{}"))
+        found[1]["response"]["headers"]["location"] = relative
+        found[2]["request"]["call"] = "GET https:" + relative
+        self.assertEqual(github.Replay(found[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))["status"],
+                         200)
+        spaced = stored("o/r", 7, outcome_zip("{}"), store=STORE + "%20b")
+        spaced[1]["response"]["headers"]["location"] = STORE + " b"
+        with self.assertRaises(github.Unanswered):
+            github.Replay(spaced[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        # A redirect whose address cannot be read is refused by both, naming nothing: the replay here, the live
+        # transport below.
+        self.assertIsNone(github._moved("https://api.github.com/x", "https://[::1/actions-results/x?sig=secret"))
+        broken = stored("o/r", 7, outcome_zip("{}"))
+        broken[1]["response"]["headers"]["location"] = "https://[::1/actions-results/x?sig=secret"
+        with self.assertRaises(github.Unanswered) as refused:
+            github.Replay(broken[1:]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        self.assertNotIn("sig=", held(refused.exception))
+        # Dot segments are never resolved away before the storage's path is checked, by either transport.
+        climbing = STORE.replace("/actions-results/", "/other/../actions-results/")
+        self.assertEqual(github._moved("https://api.github.com/x", climbing), climbing)
+        with self.assertRaises(github.Unanswered):
+            github.storage(climbing)
+        # A download GitHub answers itself, with no redirect, is bounded as the storage's answer is, by both.
+        big = {"request": {"via": "rest", "call": "GET /repos/o/r/actions/artifacts/9/zip", "headers": {}},
+               "response": {"status": 200, "headers": {}, "body": "z" * (github.STORED + 1)}}
+        with self.assertRaises(github.Unanswered):
+            github.Replay([big]).send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        # The replay checks a request as the live transport does: one built by hand to follow elsewhere is refused.
+        elsewhere = copy.deepcopy(stored("o/r", 7, outcome_zip("{}")))
+        elsewhere[1]["request"]["call"] = "GET /repos/o/r/pulls/1"
+        with self.assertRaises(github.Unanswered):
+            github.Replay(elsewhere[1:]).send({"method": "GET", "path": "/repos/o/r/pulls/1", "accept": github.JSON,
+                                               "body": None, "follow": True})
+
     def test_the_live_transport_sends_no_token_to_the_storage_and_bounds_what_it_holds(self):
         sent = []
 
@@ -163,6 +220,14 @@ class Transport(unittest.TestCase):
         live.opener = Opener(github.STORED + 1)
         with self.assertRaises(github.Unanswered):
             live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+
+        class Direct(Opener):
+            def open(self, req, timeout=None):
+                sent.append(req)
+                return Zip(b"z" * self.size)
+        live.opener = Direct(github.STORED + 1)
+        with self.assertRaises(github.Unanswered):
+            live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
         # Any other request that GitHub redirects is refused; and so is a redirect off the storage.
         sent.clear()
         live.opener = Opener(1)
@@ -181,6 +246,28 @@ class Transport(unittest.TestCase):
         live.opener = Permanent(1)
         self.assertEqual(live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))["status"], 200)
         self.assertEqual(sent[1].full_url, STORE)
+
+        # ... and its address is read as the 302's is, joined to the address asked.
+        class Relative(Opener):
+            def open(self, req, timeout=None):
+                sent.append(req)
+                if len(sent) % 2:
+                    raise github.urllib.error.HTTPError(req.full_url, 308, "Permanent",
+                                                        {"Location": STORE[len("https:"):]}, io.BytesIO())
+                return Zip(b"z")
+        sent.clear()
+        live.opener = Relative(1)
+        self.assertEqual(live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))["status"], 200)
+        self.assertEqual(sent[1].full_url, STORE)
+
+        class Unreadable(Opener):
+            def open(self, req, timeout=None):
+                raise github.urllib.error.HTTPError(req.full_url, 308, "Permanent",
+                                                    {"Location": "https://[::1/actions-results/x?sig=secret"}, io.BytesIO())
+        live.opener = Unreadable(1)
+        with self.assertRaises(github.Unanswered) as refused:
+            live.send(github.download("/repos/o/r/actions/artifacts/9/zip"))
+        self.assertNotIn("sig=", held(refused.exception))
         with self.assertRaises(github.Unanswered) as refused:
             live.send(github.request("GET", "/repos/o/r/actions/artifacts/9/zip"))
         self.assertNotIn("sig=", held(refused.exception))
@@ -964,6 +1051,21 @@ class Artifacts(unittest.TestCase):
             archive.writestr(artifacts.MEMBER, "{" + " " * (10 * artifacts.HELD) + "}")
         self.assertIsNone(artifacts._member(wide.getvalue()))
         self.assertEqual(artifacts._member(outcome_zip("{}")), b"{}")
+        # ... and never opened, so no byte of it is decompressed.
+        opened = []
+        real = zipfile.ZipFile.open
+        try:
+            zipfile.ZipFile.open = lambda *a, **k: opened.append(a) or real(*a, **k)
+            self.assertIsNone(artifacts._member(wide.getvalue()))
+        finally:
+            zipfile.ZipFile.open = real
+        self.assertEqual(opened, [])
+        # An encrypted file, which Python will not open without its password, is not read.
+        locked = bytearray(outcome_zip("{}"))
+        for header, flag in ((b"PK\x03\x04", 6), (b"PK\x01\x02", 8)):
+            at = bytes(locked).index(header) + flag
+            locked[at] |= 0x1
+        self.assertIsNone(artifacts._member(bytes(locked)))
         # Only a file stored or deflated is read: bzip2 and LZMA decompress a whole chunk past any bound Python sets.
         for method in (zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA, zipfile.ZIP_STORED):
             packed = io.BytesIO()
@@ -1702,11 +1804,19 @@ class Contract(unittest.TestCase):
                                     (r["actor"]["id"], r["actor"]["type"])) == (None, None) for r in rows),
             "a_new_run_is_listed_unnamed": Records().read(listing("P-17", 9, total=1), listing("P-17", 10, total=1),
                                                           per_page=1)[0]["unidentified"] == ["39086879694"],
+            # The bot's pull request is dependency only as the account named for it, by id and type, and it pushed the head.
+            "a_dependency_bot_updates_a_workflow_pin":
+                pull.own(body("P-45", 5), {"dependency": {(49699333, "Bot")}})[0]["class"] == "dependency"
+                and pull.own(body("P-45", 5), {})[0]["class"] == "outside"
+                and pull.last_pusher(replay("P-45", 7), body("P-45", 5)) == "dependabot[bot]"
+                # The Kernel compares the last pusher with the author as the port reads both, by REST's one spelling.
+                and pull.own(body("P-45", 5), {})[0]["author"] == pull.last_pusher(replay("P-45", 7), body("P-45", 5)),
         }
         # Each is read from the fixture that grounds it, and no other.
         replayed = {"a_push_is_new_content": {"P-29.base"}, "the_pusher_is_the_last_pusher": {"P-28", "P-28.app"},
                     "a_short_diff_says_so": {"P-29.truncated"}, "a_path_list_can_leave_out_a_file": {"P-29.truncated"},
-                    "a_forks_run_never_counts": {"P-27"}, "a_new_run_is_listed_unnamed": {"P-17"}}
+                    "a_forks_run_never_counts": {"P-27"}, "a_new_run_is_listed_unnamed": {"P-17"},
+                    "a_dependency_bot_updates_a_workflow_pin": {"P-45"}}
         # Every other rule a fixture grounds is named, with why this test does not read it yet: a rule added to the
         # fake's grounding fails here until it is read or named.
         not_read = {

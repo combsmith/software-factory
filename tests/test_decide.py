@@ -3171,8 +3171,12 @@ class TheFactorysOwnRules(unittest.TestCase):
         for entry in HOOKS["protected"]:
             path = example(entry["path"])
             self.waits_for_review(["docs/notes.md", path], entry["path"])
-            # Reviewed on this head, it converges, and the machine user approves it as usual.
+            # Reviewed on this head, it converges, and the machine user approves it as usual; but a model Lens's own
+            # input waits for a person as well (issue 140).
             d = go(changing(**DEPENDENCY, changed_paths=["docs/notes.md", path]), REVIEWED)
+            if any(derive.matches(own, path) for own in CONFIG["model_lens_inputs"]):
+                self.assertEqual(d["reason"], "model_lens_input_needs_person", path)
+                continue
             self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"),
                              path)
         # Every other class needs the review anyway; the list names what it touched.
@@ -3392,6 +3396,153 @@ class TheFactorysOwnRules(unittest.TestCase):
         for rules in ([".github/"], [".github/", ".github/"]):
             d = go(f, cfg=config(protected_paths=rules))
             self.assertEqual((d["reason"], d["evidence"]), ("awaiting_review", ["pr-review", ".github/"]), rules)
+
+    # Issue 140: with one model family, the only judge of a change to a model Lens's own inputs that is not the Lens is a
+    # person. The review still counts, and none suffices.
+    OWN = [e["path"] for e in HOOKS["lens_inputs"] if e["lens"] in CONFIG["required_lenses"]["model"]]
+
+    def waits_for_a_person(self, f, runs=REVIEWED, cfg=None):
+        d = go(f, runs, cfg=cfg)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                         ("verifying", "model_lens_input_needs_person", "nothing", "needs_you"))
+        return d
+
+    def test_a_change_to_a_model_lenss_own_input_waits_for_a_person(self):  # issue 140
+        self.assertEqual(self.OWN, ["roles/pr-review.*", "roles/pr-review/", "config/rubric-pr-review.json", "harness/",
+                                    "config/hooks.json", "config/defaults.json", "tools/hooks/protected.py",
+                                    "kernel/gate.py", "kernel/coverage.py", "config/authority.json"])
+        self.assertEqual(CONFIG["model_lens_inputs"], self.OWN)
+        for pattern in self.OWN:
+            for cls in (AGENT, DEPENDENCY):
+                f = changing(**cls, changed_paths=["docs/notes.md", example(pattern)])
+                # The model review is needed first, as for any change on the list; then a person.
+                self.waits_for_review([example(pattern)], pattern, cls=cls)
+                d = self.waits_for_a_person(f)
+                self.assertEqual(d["evidence"], [pattern])
+        # The manifest and a prompt beside it, whatever its suffix, the Role's own directory, anything in the Harness, and
+        # what says which Lens is a model Lens and which files are its own; never another Role's file, nor one further
+        # down (the security pass).
+        for path in ("roles/pr-review.json", "roles/pr-review.md", "ROLES/PR-REVIEW.JSON", "roles/pr-review/prompt.md",
+                     "harness/__init__.py", "harness/apply.py", "config/hooks.json", "config/defaults.json",
+                     "tools/hooks/protected.py"):
+            self.waits_for_a_person(changing(**AGENT, changed_paths=[path]))
+        for path in ("roles/dev-lead.json", "roles/pr-review-b.json", "roles/x/pr-review.json", "harnesses/x.py",
+                     "tools/hooks/identity.py"):
+            d = go(changing(**AGENT, changed_paths=[path]), REVIEWED)
+            self.assertNotEqual(d["reason"], "model_lens_input_needs_person", path)
+        # A rename or a copy out of a listed path waits too: its previous name is read (Muse's read).
+        moved = changing(**AGENT, changed_paths=[("docs/notes.md", "roles/pr-review.json")])
+        self.assertEqual(self.waits_for_a_person(moved)["evidence"], ["roles/pr-review.*"])
+        # Each pattern it matched, once, in the configuration's order.
+        both = changing(**AGENT, changed_paths=["harness/engine.py", "roles/pr-review.json", "roles/pr-review.md"])
+        self.assertEqual(self.waits_for_a_person(both)["evidence"], ["roles/pr-review.*", "harness/"])
+
+    def test_a_persons_approval_of_the_current_head_lets_it_converge(self):  # issue 140
+        f = changing(**AGENT, changed_paths=["roles/pr-review.json"])
+        d = go(dict(f, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"))
+        # The machine user's approval as well, as for any change: it is enqueued.
+        d = go(dict(f, reviews=[review(kind="human", name="a-colleague"), review()]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approved", "enqueue"))
+        # A Lens's dismissal, or any App's, ends nothing a person did (L-17): the approval stands.
+        by_app = review(kind="human", name="a-colleague", state="dismissed", dismissed_by=REVIEWER_APP,
+                        dismissed_from="approved")
+        d = go(dict(f, reviews=[by_app]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"))
+        # That person's latest verdict counts: a later request for changes, on this content, supersedes the approval,
+        # even once a person dismisses the request; a later comment does not (Muse's read).
+        approved = review(kind="human", name="a-colleague", at="2026-10-11T12:10:00Z")
+        asked = review(kind="human", name="a-colleague", state="dismissed", dismissed_by=MAINTAINER,
+                       dismissed_from="changes_requested", at="2026-10-11T12:20:00Z")
+        said = review(kind="human", name="a-colleague", state="commented", at="2026-10-11T12:30:00Z")
+        self.waits_for_a_person(dict(f, reviews=[approved, asked]))
+        self.waits_for_a_person(dict(f, reviews=[asked, approved, dict(asked, submitted_at="2026-10-11T12:40:00Z")]))
+        d = go(dict(f, reviews=[approved, said]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"))
+        for later in ([asked, dict(approved, submitted_at="2026-10-11T12:25:00Z")],
+                      [dict(approved, submitted_at="2026-10-11T12:25:00Z"), asked]):     # by time, not by place
+            d = go(dict(f, reviews=later), REVIEWED)
+            self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"))
+        # None of these is a person's judgment of this head.
+        for rv in (review(kind="human", name="a-colleague", content="sha256:0bd0"),          # an earlier head
+                   review(kind="human", name="a-colleague", state="dismissed", dismissed_by=COLLEAGUE,
+                          dismissed_from="approved"),
+                   review(kind="human", name="a-colleague", state="dismissed", dismissed_by=COLLEAGUE,
+                          dismissed_from="changes_requested"),
+                   review(kind="human", name="a-colleague", state="commented"),
+                   review(kind="human", name="stranger", can_write=False),                    # no write access
+                   review(can_write=False),                                                    # nor the machine user
+                   review(kind="app", name="combsmith-sf-dev-lead[bot]"),                      # an App
+                   review(kind="lens", name="pr-review")):                                     # the Lens itself
+            self.waits_for_a_person(dict(f, reviews=[rv]))
+        # The author's or the last pusher's approval is no other judge's, each on its own (Argon's read).
+        pushed = changing(**dict(AGENT, last_pusher="a-colleague"), changed_paths=["harness/task.py"])
+        self.waits_for_a_person(dict(pushed, reviews=[review(kind="human", name="a-colleague")]))
+        authored = changing(**{"class": "maintainer", "author": "a-colleague",
+                               "last_pusher": "combsmith-sf-dev-lead[bot]"}, changed_paths=["harness/task.py"])
+        self.waits_for_a_person(dict(authored, reviews=[review(kind="human", name="a-colleague")]))
+
+    def test_a_model_review_alone_never_suffices(self):  # issue 140
+        f = changing(**AGENT, changed_paths=["config/rubric-pr-review.json"])
+        self.waits_for_a_person(f)
+        self.waits_for_a_person(f, runs=REVIEWED + [run(name="r2")])
+        # Queued with no judge's approval of this head, it leaves the queue.
+        d = go(dict(f, queue=True, reviews=[]), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"], d["action"]), ("model_lens_input_needs_person", "act", "dequeue"))
+
+    def test_the_maintainers_own_change_waits_for_another_judge(self):  # issue 140, L-44
+        # A session may push as the Maintainer, so opening and pushing a change judges no head. The Maintainer approves
+        # it as the machine user, in the browser, or a colleague does (the Maintainer, 2026-10-21).
+        own = changing(changed_paths=["roles/pr-review.json"])
+        self.assertEqual((own["class"], own["author"], own["last_pusher"]), ("maintainer", "don-petry", "don-petry"))
+        self.waits_for_a_person(own)
+        self.waits_for_a_person(dict(own, reviews=[review(kind="human", name="don-petry")]))
+        d = go(dict(own, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"))
+        d = go(dict(own, reviews=APPROVED), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approved", "enqueue"))
+
+    def test_the_factorys_own_approval_never_supplies_the_judgment(self):  # issue 140, the Maintainer, 2026-10-21
+        # The machine user's approval counts as the Maintainer's own. The Factory's approving act cannot supply it: no
+        # Decision issues an approval for such a change while no judge's approval stands, and an approval Run that
+        # succeeded without its review on the timeline yet is no review.
+        f = changing(**AGENT, changed_paths=["kernel/gate.py"])
+        d = self.waits_for_a_person(f)
+        self.assertNotIn("action", d)
+        landed = REVIEWED + [run(role="pr-review", intent="issue-approval", name="r9", at="2026-10-11T12:30:00Z")]
+        d = self.waits_for_a_person(f, runs=landed)
+        self.assertNotIn("action", d)
+        # Once a judge's approval stands the approval is issued as for any change, and it adds nothing the rule reads.
+        d = go(dict(f, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
+        self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
+        self.assertTrue(derive.judged_by_a_person(dict(f, reviews=[review(kind="human", name="a-colleague")])))
+        self.assertFalse(derive.judged_by_a_person(f))
+
+    def test_the_list_is_the_configurations_never_the_change(self):  # issue 140, decision 0020
+        # A change that takes the manifest off the list in config/hooks.json still waits: the list is the base branch's.
+        f = changing(**AGENT, changed_paths=["docs/hooks-notes.md", "roles/pr-review.json"])
+        self.assertEqual(self.waits_for_a_person(f)["evidence"], ["roles/pr-review.*"])
+        dropped = [p for p in self.OWN if p != "roles/pr-review.*"]
+        d = go(f, REVIEWED, cfg=config(model_lens_inputs=dropped))
+        self.assertNotEqual(d["reason"], "model_lens_input_needs_person")
+        # And the files that make the list are on it: a change that edits the list waits for a person too, so no
+        # change judged by the Lens alone can take a row off it, or name another Lens the model Lens.
+        for path in ("config/hooks.json", "config/defaults.json", "tools/hooks/protected.py"):
+            self.assertEqual(self.waits_for_a_person(changing(**AGENT, changed_paths=[path]))["evidence"], [path])
+
+    def test_an_unreadable_list_of_a_model_lenss_inputs_defers_for_the_maintainer(self):  # issue 140, I-13
+        f = changing(**AGENT, changed_paths=["docs/notes.md"])
+        for rules in ("missing", [], None, "roles/", [""], [5], ["/"], ["roles/../x"]):
+            cfg = config()
+            if rules == "missing":
+                del cfg["model_lens_inputs"]
+            else:
+                cfg["model_lens_inputs"] = rules
+            d = go(f, REVIEWED, cfg=cfg)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             (None, "protected_paths_unreadable", "defer", "needs_you"), rules)
+            d = go(dict(f, queue=True, reviews=APPROVED), REVIEWED, cfg=cfg)
+            self.assertEqual((d["reason"], d["action"]), ("protected_paths_unreadable", "dequeue"), rules)
 
     def test_a_decision_names_the_pattern_never_the_path(self):  # I-45
         # A path is text from outside. The Decision names each pattern of the configuration that matched, once, in the
