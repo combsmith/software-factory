@@ -6,7 +6,9 @@ that trial hardened it:
 - in an environment of exactly the names below, the one key from the job's environment the CLI needs among them, under
   the one name the CLI's scrub removes from what a tool is handed, and the scrub set (issue 287);
 - with no tool at all, `--tools ""`, so that a Task holding outside or advisory text has no shell and no network tool;
-  structured output still works with none (P-13 at 2.1.306);
+  structured output still works with none (P-13 at 2.1.306). The scrub is set only with no tool: on a Linux runner,
+  with the scrub on, a tool's write outside its directory landed (P-50, issue 312), so a call that sets the scrub and
+  could run a tool is never made;
 - with `result/1` as the CLI is handed it: references resolved, the fields the Harness fills removed, `status` narrowed
   to what the Engine may write and `effects` narrowed to the Task's `permitted_effects` (decision 0038).
 Of the CLI's answer only `structured_output` and the counts `usage` needs are read, by name; the model's prose is
@@ -87,6 +89,11 @@ def argv(cli: str, task: dict, model: str, session: str) -> list:
             + OPTIONS + ["--tools", ""])
 
 
+def no_tool(args: list) -> bool:
+    """Whether the CLI is asked with no tool at all: `--tools` once, and given nothing (P-50, issue 312)."""
+    return args.count("--tools") == 1 and args.index("--tools") + 1 < len(args) and args[args.index("--tools") + 1] == ""
+
+
 def _usage(config: dict, session: str, seconds: float, said=None) -> dict:
     usage = said.get("usage") if isinstance(said, dict) and isinstance(said.get("usage"), dict) else {}
 
@@ -141,6 +148,9 @@ def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session:
     args = argv(cli, task, engine["model"], session)
     if max(len(a.encode()) for a in args) > LONGEST:
         return failed(task, "task_too_large", _usage(config, session, 0.0))
+    # With the scrub on, a tool can write outside its directory (P-50): the CLI is never started with both.
+    if env.get(SCRUB) == "1" and not no_tool(args):
+        return failed(task, "engine_failed", _usage(config, session, 0.0))
     began = clock()
     said, reason = None, None
     try:

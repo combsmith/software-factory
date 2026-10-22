@@ -1,8 +1,9 @@
 """The `run` job: one Task, one call of the Engine, one Result (design sections 2.3 and 3.10, issue 194).
 
-    python3 -m harness.run RECORD RUN FACTS TEXTS ROLE FINDINGS OUT
+    python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT
 
-RECORD is the pass record the Run was admitted in, RUN its Run id, FACTS the item's facts as the Run reads them, TEXTS
+RECORD is the pass record the Run was admitted in, RUN its Run id, FACTS the item's facts as the Run reads them, DIFF the
+bytes of the pull request's diff as GitHub served them, empty for an issue, TEXTS
 the texts read for it, each with who wrote it, ROLE the Role's manifest, FINDINGS the Finding ids the Task names, as
 JSON files, and OUT a directory that does not exist yet. The job writes OUT/result.json and OUT/result.sha256, and
 nothing else of the model: the log carries the digest alone, never a field of the Result, since nothing is handed from
@@ -50,11 +51,11 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
     The job reads and writes only inside the directory it runs in, `base`, by default the working directory: each path
     is followed to where it really is, and one outside is refused before anything is opened, naming no path."""
     inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
-    record, run, facts, texts, role, findings, out = paths
-    real = [os.path.realpath(os.path.join(inside, p)) for p in (record, facts, texts, role, findings, out)]
+    record, run, facts, diff, texts, role, findings, out = paths
+    real = [os.path.realpath(os.path.join(inside, p)) for p in (record, facts, diff, texts, role, findings, out)]
     if not all(path.startswith(inside + os.sep) for path in real):
         raise task.Refused("a path the job was given is outside the directory it runs in")
-    record, facts, texts, role, findings, out = real
+    record, facts, diff, texts, role, findings, out = real
     if os.path.lexists(out):
         raise task.Refused("OUT exists; the Result is written into a new directory")
 
@@ -65,7 +66,9 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
     if not isinstance(admitted, dict) or not isinstance(admitted.get("release"), str):
         raise task.Refused("the pass record is no pass/1")
     config = dict(config, release=admitted["release"])
-    the_task = task.build(admitted, run, read(facts), read(texts), read(role), read(findings), config)
+    with open(diff, "rb") as f:
+        change = f.read()
+    the_task = task.build(admitted, run, read(facts), read(texts), read(role), read(findings), config, change)
     result = engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], call or cli_call, clock,
                         session or str(uuid.uuid4()))
     data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
@@ -79,8 +82,8 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
 
 
 def main(argv: list, job_env: dict) -> int:
-    if len(argv) != 7:
-        print("usage: python3 -m harness.run RECORD RUN FACTS TEXTS ROLE FINDINGS OUT", file=sys.stderr)
+    if len(argv) != 8:
+        print("usage: python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT", file=sys.stderr)
         return 2
     try:
         digest = job(argv, job_env, configuration())
