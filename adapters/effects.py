@@ -177,7 +177,8 @@ def scopes(writes: dict, config: dict) -> tuple:
 def controller_permits(config: dict, org: str, repos: list) -> tuple:
     """`(permits, patterns)`: the requests the Controller's token may send for the Pause and the tracking issue. Each
     scope's `FACTORY_PAUSED`; the open issues its App opened, one page; an issue opened with the one title, a body and
-    the Maintainer assigned; and an issue of the home repo edited, its body alone, or closed as completed."""
+    the Maintainer assigned; and an issue of the home repo edited, its body alone or with the Maintainer assigned
+    again, or closed as completed."""
     home = config["home"]["repo"]
     account = config["accounts"]["controller"] or {}
 
@@ -192,6 +193,8 @@ def controller_permits(config: dict, org: str, repos: list) -> tuple:
 
     def edited(body) -> bool:
         return isinstance(body, dict) and (set(body) == {"body"} and isinstance(body["body"], str)
+                                           or set(body) == {"body", "assignees"} and isinstance(body["body"], str)
+                                           and isinstance(maintainer, str) and body["assignees"] == [maintainer]
                                            or body == {"state": "closed", "state_reason": "completed"})
     permits = {("GET", pause_.path(scope)): none for scope in [org] + list(repos)}
     if account.get("login"):
@@ -204,10 +207,20 @@ def listed(home: str, account: dict) -> str:
     return "/repos/%s/issues?state=open&creator=%s&per_page=100" % (home, account["login"])
 
 
+def assigned(issue: dict, config: dict) -> bool:
+    """Whether GitHub's answer for an issue lists the Maintainer among its assignees, by his account id and login."""
+    maintainer = config["accounts"]["maintainer"] or {}
+    listed_ = issue.get("assignees") if isinstance(issue, dict) else None
+    return isinstance(listed_, list) and any(
+        isinstance(a, dict) and (a.get("id"), a.get("login")) == (maintainer.get("id"), maintainer.get("login"))
+        for a in listed_)
+
+
 def open_issues(transport, config: dict):
-    """The open issues the Controller's App opened in the home repo, `[{number, causes}]`, told by their author's id and
-    type, never by a title or a label anyone can set; None where they cannot all be read: a page that names another,
-    or an answer that is no list of issues. The trial that records this read is still to run (#193's ruling 12)."""
+    """The open issues the Controller's App opened in the home repo, `[{number, causes, assigned}]`, told by their
+    author's id and type, never by a title or a label anyone can set, and whether the Maintainer is assigned; None where
+    they cannot all be read: a page that names another, or an answer that is no list of issues. The trial that records
+    this read is still to run (#193's ruling 12)."""
     account = config["accounts"]["controller"]
     if transport is None or account is None:
         return None
@@ -221,7 +234,7 @@ def open_issues(transport, config: dict):
     found = []
     for row in rows:
         user = row.get("user") if isinstance(row, dict) else None
-        if not isinstance(user, dict) or type(row.get("number")) is not int:
+        if not isinstance(user, dict) or type(row.get("number")) is not int or not isinstance(row.get("assignees"), list):
             return None
         causes = causes_of(row.get("body"))
         # The App's own, by its account; and of those, the one this port wrote, by its first line: an issue the App
@@ -229,7 +242,7 @@ def open_issues(transport, config: dict):
         if "pull_request" in row or (user.get("id"), user.get("type")) != (account["id"], account["type"]) \
                 or causes is None:
             continue
-        found.append({"number": row["number"], "causes": causes})
+        found.append({"number": row["number"], "causes": causes, "assigned": assigned(row, config)})
     return found
 
 
@@ -257,8 +270,10 @@ def rendered(record: dict, causes: list) -> str:
 
 def tracking(transport, config: dict, record: dict, causes: list, found) -> tuple:
     """`(state, key, reason)` for the tracking issue: opened with the Maintainer assigned when a cause first stands and
-    none is open, edited in place when its causes change, and closed when none stands. Two open is written to by no
-    one. Each is sent once, and applied only on what GitHub's answer reads back."""
+    none is open, edited in place when its causes change, and closed, completed, when none stands. One open that does
+    not list him is edited to assign him again, so that an assignment GitHub dropped notifies him at the next pass. Two
+    open is written to by no one. Each is sent once, and applied only on what GitHub's answer reads back: an issue
+    written that does not list him is `failed`, `assignee_dropped`, so that the step fails where he sees it."""
     if config["accounts"]["controller"] is None or config["accounts"]["maintainer"] is None:
         # Nothing can be written while the App or the Maintainer is unnamed: a cause unreported is a fault, so that
         # the step fails where he sees it; a pass with none fails nothing.
@@ -281,11 +296,13 @@ def tracking(transport, config: dict, record: dict, causes: list, found) -> tupl
         req = request("POST", "/repos/%s/issues" % home,
                       body={"title": TITLE, "body": body, "assignees": [config["accounts"]["maintainer"]["login"]]})
         want = ("open", None, body)
-    elif issue["causes"] == causes:
+    elif issue["causes"] == causes and issue["assigned"]:
         return "already_applied", str(issue["number"]), None
     else:
         body = rendered(record, causes)
-        req, want = request("PATCH", "/repos/%s/issues/%d" % (home, issue["number"]), body={"body": body}), \
+        asked = {"body": body} if issue["assigned"] else {"body": body,
+                                                          "assignees": [config["accounts"]["maintainer"]["login"]]}
+        req, want = request("PATCH", "/repos/%s/issues/%d" % (home, issue["number"]), body=asked), \
             ("open", issue["number"], body)
     try:
         answer = transport.send(req)
@@ -300,8 +317,11 @@ def tracking(transport, config: dict, record: dict, causes: list, found) -> tupl
     got = answer["body"] if isinstance(answer["body"], dict) else {}
     state, number, body = want
     if got.get("state") != state or type(got.get("number")) is not int \
-            or (number is not None and got["number"] != number) or (body is not None and got.get("body") != body):
+            or (number is not None and got["number"] != number) or (body is not None and got.get("body") != body) \
+            or (state == "closed" and got.get("state_reason") != "completed"):
         return "sent", None, None
+    if state == "open" and not assigned(got, config):
+        return "failed", str(got["number"]), "assignee_dropped"
     return "applied", str(got["number"]), None
 
 

@@ -488,22 +488,49 @@ class Tracking(unittest.TestCase):
         # place, its body alone, when the causes change, which notifies no one; closed, completed, when none stands.
         # Each applied only on what GitHub's answer reads back, as P-46's answers give an issue.
         record = out()["record"]
+        him = [dict(json.loads((ROOT / "trials" / "P-46.json").read_text())["exchanges"][0]["response"]["body"]["user"],
+                    login="don-petry", id=36422719, type="User")]
         body = effects.rendered(record, ["not_run", "write_failed"])
         self.assertEqual(effects.causes_of(body), ["not_run", "write_failed"])
         opened = issued(0, "POST /repos/%s/issues" % self.HOME,
-                        {"title": effects.TITLE, "body": body, "assignees": ["don-petry"]}, body=body, number=52)
+                        {"title": effects.TITLE, "body": body, "assignees": ["don-petry"]}, body=body, number=52,
+                        assignees=him)
         got, replay = self.track(["not_run", "write_failed"], [], opened)
         self.assertEqual((got, replay._left), (("applied", "52", None), []))
-        same, replay = self.track(["not_run", "write_failed"], [{"number": 52, "causes": ["not_run", "write_failed"]}])
+        same, replay = self.track(["not_run", "write_failed"],
+                                  [{"number": 52, "causes": ["not_run", "write_failed"], "assigned": True}])
         self.assertEqual(same, ("already_applied", "52", None))
         edited_body = effects.rendered(record, ["not_run"])
-        edited = issued(0, "PATCH /repos/%s/issues/52" % self.HOME, {"body": edited_body}, body=edited_body, number=52)
-        got, replay = self.track(["not_run"], [{"number": 52, "causes": ["not_run", "write_failed"]}], edited)
+        edited = issued(0, "PATCH /repos/%s/issues/52" % self.HOME, {"body": edited_body}, body=edited_body, number=52,
+                        assignees=him)
+        got, replay = self.track(["not_run"], [{"number": 52, "causes": ["not_run", "write_failed"], "assigned": True}],
+                                 edited)
         self.assertEqual((got, replay._left), (("applied", "52", None), []))
+        # An assignment GitHub dropped is failed, where he sees it, and the next pass assigns him again, whatever the
+        # causes, so that he is notified.
+        dropped = issued(0, "POST /repos/%s/issues" % self.HOME,
+                         {"title": effects.TITLE, "body": body, "assignees": ["don-petry"]}, body=body, number=52)
+        self.assertEqual(self.track(["not_run", "write_failed"], [], dropped)[0], ("failed", "52", "assignee_dropped"))
+        again = issued(0, "PATCH /repos/%s/issues/52" % self.HOME, {"body": body, "assignees": ["don-petry"]}, body=body,
+                       number=52, assignees=him)
+        got, replay = self.track(["not_run", "write_failed"],
+                                 [{"number": 52, "causes": ["not_run", "write_failed"], "assigned": False}], again)
+        self.assertEqual((got, replay._left), (("applied", "52", None), []))
+        still = issued(0, "PATCH /repos/%s/issues/52" % self.HOME, {"body": body, "assignees": ["don-petry"]}, body=body,
+                       number=52)
+        self.assertEqual(self.track(["not_run", "write_failed"],
+                                    [{"number": 52, "causes": ["not_run", "write_failed"], "assigned": False}], still)[0],
+                         ("failed", "52", "assignee_dropped"))
         closed = issued(7, "PATCH /repos/%s/issues/52" % self.HOME, {"state": "closed", "state_reason": "completed"},
                         number=52, state_reason="completed")
-        got, replay = self.track([], [{"number": 52, "causes": ["not_run"]}], closed)
+        got, replay = self.track([], [{"number": 52, "causes": ["not_run"], "assigned": True}], closed)
         self.assertEqual((got, replay._left), (("applied", "52", None), []))
+        # Closed for another reason, or none, is not what was asked: sent, never applied.
+        for reason in ("not_planned", None):
+            other = issued(7, "PATCH /repos/%s/issues/52" % self.HOME, {"state": "closed", "state_reason": "completed"},
+                           number=52, state_reason=reason)
+            self.assertEqual(self.track([], [{"number": 52, "causes": ["not_run"], "assigned": True}], other)[0][0],
+                             "sent", reason)
         self.assertEqual(self.track([], [])[0], ("already_applied", None, None))
         # An answer that does not read back what was asked is sent, never applied: another state or body for the issue
         # opened, and another number for the one edited.
@@ -513,7 +540,8 @@ class Tracking(unittest.TestCase):
             got, _ = self.track(["not_run", "write_failed"], [], wrong)
             self.assertEqual(got[0], "sent", answer)
         elsewhere = issued(0, "PATCH /repos/%s/issues/52" % self.HOME, {"body": edited_body}, body=edited_body, number=53)
-        got, _ = self.track(["not_run"], [{"number": 52, "causes": ["not_run", "write_failed"]}], elsewhere)
+        got, _ = self.track(["not_run"], [{"number": 52, "causes": ["not_run", "write_failed"], "assigned": True}],
+                            elsewhere)
         self.assertEqual(got[0], "sent")
         # A body lists its causes, sorted codes, and nothing from outside: one this port did not write, or one anyone
         # edited by a line, lists none, and is no tracking issue.
@@ -575,6 +603,7 @@ class Tracking(unittest.TestCase):
                 github.request("POST", "/repos/%s/issues" % self.HOME,
                                body={"title": effects.TITLE, "body": "b", "assignees": ["don-petry"]}),
                 github.request("PATCH", "/repos/%s/issues/52" % self.HOME, body={"body": "b"}),
+                github.request("PATCH", "/repos/%s/issues/52" % self.HOME, body={"body": "b", "assignees": ["don-petry"]}),
                 github.request("PATCH", "/repos/%s/issues/52" % self.HOME,
                                body={"state": "closed", "state_reason": "completed"})]
         for req in good:
@@ -594,7 +623,10 @@ class Tracking(unittest.TestCase):
                github.request("GET", pause.path("combsmith"), body={}),
                github.request("POST", "/repos/%s/issues" % self.HOME,
                               body={"title": effects.TITLE, "body": 7, "assignees": ["don-petry"]}),
-               github.request("PATCH", "/repos/%s/issues/52" % self.HOME, body={"body": 7})]
+               github.request("PATCH", "/repos/%s/issues/52" % self.HOME, body={"body": 7}),
+               github.request("PATCH", "/repos/%s/issues/52" % self.HOME, body={"body": "b", "assignees": ["someone"]}),
+               github.request("PATCH", "/repos/%s/issues/52" % self.HOME, body={"body": 7, "assignees": ["don-petry"]}),
+               github.request("PATCH", "/repos/%s/issues/52" % self.HOME, body={"assignees": ["don-petry"]})]
         for req in bad:
             with self.assertRaises(github.Unanswered, msg=req):
                 allowed.send(req)
@@ -622,10 +654,17 @@ class Tracking(unittest.TestCase):
         def listing(rows, status=200, link=""):
             return {"request": {"via": "rest", "call": "GET " + effects.listed(self.HOME, BOT), "headers": {}},
                     "response": {"status": status, "headers": {"link": link}, "body": rows}}
-        self.assertEqual(effects.open_issues(github.Replay([listing([mine, theirs, named, pulled, other])]), cfg),
-                         [{"number": 52, "causes": ["not_run"]}])
+        assignee = dict(recorded["user"], login="don-petry", id=36422719, type="User")
+        his = dict(copy.deepcopy(mine), number=57, assignees=[assignee])
+        self.assertEqual(effects.open_issues(github.Replay([listing([mine, theirs, named, pulled, other, his])]), cfg),
+                         [{"number": 52, "causes": ["not_run"], "assigned": False},
+                          {"number": 57, "causes": ["not_run"], "assigned": True}])
+        # He is assigned only by his account's id and login together.
+        for someone in (dict(assignee, id=1), dict(assignee, login="don-petry-2")):
+            self.assertEqual(effects.open_issues(github.Replay([listing([dict(his, assignees=[someone])])]), cfg)[0]["assigned"],
+                             False, someone)
         for found in (listing([mine], link='<https://x>; rel="next"'), listing({"message": "x"}), listing([mine], 403),
-                      listing([dict(mine, number="52")]), listing(["x"])):
+                      listing([dict(mine, number="52")]), listing(["x"]), listing([dict(mine, assignees=None)])):
             self.assertIsNone(effects.open_issues(github.Replay([found]), cfg), found["response"])
         self.assertIsNone(effects.open_issues(github.Replay([]), cfg))
         self.assertIsNone(effects.open_issues(None, cfg))
