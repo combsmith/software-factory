@@ -2,7 +2,7 @@
 
 The Role manifests, `role/1`, one to a file named for its Role: what each Role sees, raises, owns and may do, and each
 of its Intents with its tier, permitted Effects, budget class and eval set (design sections 3.11 and 5.1). `pr-review.json`
-is the review Role, the owner of every model-judged category, writing through its own App. A manifest is a model Lens's
+is the review Role, the owner of every model-judged category, writing through its own App. `pr-review/prompt.md` is its instructions. A manifest is a model Lens's
 input: once the Factory reviews this repo, a change to one needs a second person's approval (decision 0052).
 
 Not built yet, by the stories that hold their rules: team.md.
