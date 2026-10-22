@@ -12,7 +12,8 @@
 #                                                                               # one after another, as fast as answered
 #   bash tools/trial_window2.sh pr-review dismiss KEY REPO PR REVIEW           # a review, dismissed
 #   bash tools/trial_window2.sh pr-review check KEY REPO SHA NAME              # a check run, completed and successful
-#   bash tools/trial_window2.sh controller queue KEY REPO PR PERMISSIONS       # the queue read, the token narrowed
+#   bash tools/trial_window2.sh controller queue KEY REPO PR PERMISSIONS       # the queue read, and the pull request's
+#                                                                               # issue and review comments (#306), narrowed
 #   bash tools/trial_window2.sh controller label KEY REPO PR LABEL             # a label added, then removed
 #
 # PERMISSIONS narrows the token to exactly those, as name=level separated by commas (pull_requests=write,metadata=read),
@@ -328,7 +329,12 @@ queue)
     as_graphql "the merge queue of $repo's main and pull request $target's place in it, the token narrowed to $narrow" \
         'query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) { mergeQueue(branch: "main") { entries(first: 20) { totalCount nodes { position state pullRequest { number } } } } pullRequest(number: $pr) { isInMergeQueue mergeQueueEntry { position state } } } }' \
         "owner=$owner" "name=$name" "pr=$target"
-    echo "pull request $target: queue read answered $(answered)" ;;
+    echo "pull request $target: queue read answered $(answered)"
+    # Issue 306's reads, under the same narrowed token: the pull request's issue comments and its review comments.
+    as_installation GET "repos/$repo/issues/$target/comments?per_page=100"
+    echo "pull request $target: issue comments answered $(answered)"
+    as_installation GET "repos/$repo/pulls/$target/comments?per_page=100"
+    echo "pull request $target: review comments answered $(answered)" ;;
 resolve|burst)
     as_graphql "the review threads of $repo's pull request $target" "$THREADS" "owner=$owner" "name=$name" "pr=$target"
     if [ "$action" = resolve ]; then

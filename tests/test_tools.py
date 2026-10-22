@@ -5041,6 +5041,10 @@ if path.endswith("/check-runs"):
     answer(201, {"id": 5, "name": "x"})
 if "/labels" in path:
     answer(200, [])
+if path.startswith("repos/%s/issues/7/comments" % repo):
+    answer(403 if refused("issue-comments") else 200, {"message": "Resource not accessible by integration"} if refused("issue-comments") else [])
+if path.startswith("repos/%s/pulls/7/comments" % repo):
+    answer(200, [])
 answer(404, {"message": "the stand-in does not know " + path})
 '''
     CURL = r'''#!/usr/bin/env python3
@@ -5107,7 +5111,8 @@ esac
             (("pr-review", "burst", "7"), ["read", "resolveReviewThread", "resolveReviewThread", "read"]),
             (("pr-review", "dismiss", "7", "99"), ["PUT repos/%s/pulls/7/reviews/99/dismissals", "GET repos/%s/pulls/7/reviews/99"]),
             (("pr-review", "check", "a" * 40, "factory / review"), ["POST repos/%s/check-runs"]),
-            (("controller", "queue", "7", "metadata=read"), ["read"]),
+            (("controller", "queue", "7", "metadata=read"), ["read", "GET repos/%s/issues/7/comments?per_page=100",
+                                                             "GET repos/%s/pulls/7/comments?per_page=100"]),
             (("controller", "label", "7", "factory:hold"), ["POST repos/%s/issues/7/labels", "DELETE repos/%s/issues/7/labels/factory:hold"]),
         ]
         for args, asked in cases:
@@ -5132,6 +5137,7 @@ esac
 
     def test_a_refusal_is_kept_and_the_token_still_revoked(self):
         for args, refuse in ((("pr-review", "dequeue", "7", "metadata=read"), "dequeuePullRequest"),
+                             (("controller", "queue", "7", "metadata=read,pull_requests=read"), "issue-comments"),
                              (("pr-review", "dismiss", "7", "99"), "dismiss")):
             ran, calls, minted, out = self.run_window(*args, refuse=(refuse,))
             self.assertEqual(ran.returncode, 0, (args, ran.stderr))
