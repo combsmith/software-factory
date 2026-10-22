@@ -140,26 +140,30 @@ def one_pass(transport, config: dict, run_id: str, clock=time.time, sleep=time.s
 
 
 def write(out: dict, directory: str) -> None:
-    """`pass.json`, `writes.json` and `view/`, in the folder given."""
+    """`pass.json`, `writes.json` and `view/`, in the folder given, which was empty: each file is made new, and none is
+    written through a link that was already there."""
     files = {"pass.json": out["record"], "writes.json": writes_.plan(out)}
     files.update({os.path.join("view", "%s.json" % name): out["view"][name] for name in VIEW})
-    os.makedirs(os.path.join(directory, "view"), exist_ok=True)
+    os.mkdir(os.path.join(directory, "view"))
     for name, document in files.items():
-        with open(os.path.join(directory, name), "w", encoding="utf-8") as f:
+        made = os.open(os.path.join(directory, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+        with open(made, "w", encoding="utf-8") as f:
             f.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
 
 
 def main(argv=None, environ=None, base=None, clock=time.time, sleep=time.sleep, connect=Live) -> int:
-    """The step. It writes only inside the directory it runs in, `base`, by default the working directory, and names
-    no path, key or token in what it prints."""
+    """The step. It writes only into an empty folder inside the directory it runs in, `base`, by default the working
+    directory, and names no path, key or token in what it prints. The token is revoked whatever happened, and one GitHub
+    did not revoke fails the step, `token_not_revoked`."""
     argv = sys.argv[1:] if argv is None else argv
     environ = os.environ if environ is None else environ
     inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
     out = os.path.realpath(os.path.join(inside, argv[0])) if len(argv) == 1 else None
-    if out is None or not (out == inside or out.startswith(inside + os.sep)) or not os.path.isdir(out):
-        print("usage: python3 -m controller OUT, OUT a folder inside the directory it runs in; nothing was read")
+    if out is None or not (out == inside or out.startswith(inside + os.sep)) or not os.path.isdir(out) \
+            or os.listdir(out):
+        print("usage: python3 -m controller OUT, OUT an empty folder inside the directory it runs in; nothing was read")
         return 2
-    revoke = None
+    revoke, code = None, None
     try:
         release, run_id, key = environ.get("RELEASE"), environ.get("GITHUB_RUN_ID"), environ.get(KEY)
         if not (isinstance(release, str) and RELEASE.fullmatch(release)):
@@ -177,22 +181,22 @@ def main(argv=None, environ=None, base=None, clock=time.time, sleep=time.sleep, 
             raise Stop(str(err) if isinstance(err, identity.Refused) else "token_unreadable") from None
         transport = connect(token.reveal())
         revoke = lambda: identity.revoke(transport)
-        written = one_pass(transport, config, run_id, clock, sleep)
-        write(written, out)
+        write(one_pass(transport, config, run_id, clock, sleep), out)
     except Stop as stop:
-        print(stop.code)
-        return 1
+        code = stop.code
     except Refused:
-        print("pass_refused")
-        return 1
+        code = "pass_refused"
     except Exception:       # a message could quote what GitHub answered: a code alone
-        print("pass_failed")
-        return 1
+        code = "pass_failed"
     finally:
         if revoke is not None:
-            revoke()
-    print("passed")
-    return 0
+            try:
+                revoked = revoke()
+            except Exception:
+                revoked = False
+            code = code or (None if revoked else "token_not_revoked")
+    print(code or "passed")
+    return 1 if code else 0
 
 
 if __name__ == "__main__":

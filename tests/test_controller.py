@@ -745,10 +745,11 @@ class Entry(unittest.TestCase):
         env = {"RELEASE": "factory/v0.3.1", "GITHUB_RUN_ID": self.RUN, entry.KEY: self.key}
         env.update(environ)
         slept, printed = [], io.StringIO()
+        sleep = lambda seconds: slept.append((seconds, len(hub.sent)))
         with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(printed):
             code = entry.main(["out"] if os.makedirs(os.path.join(d, "out")) is None else [], {k: v for k, v in env.items()
                                                                                               if v is not None},
-                              base=d, clock=lambda: self.CLOCK, sleep=slept.append, connect=hub.connect)
+                              base=d, clock=lambda: self.CLOCK, sleep=sleep, connect=hub.connect)
             named = ["pass.json", "writes.json"] + ["view/%s.json" % v for v in entry.VIEW]
             files = {n: json.loads(pathlib.Path(d, "out", n).read_text()) for n in named
                      if pathlib.Path(d, "out", n).is_file()}
@@ -769,7 +770,7 @@ class Entry(unittest.TestCase):
         # is no wait.
         self.assertEqual((record["pull_requests"], record["issues"]), ([], []))
         self.assertIn("facts_unreadable", record["alerts"])
-        self.assertEqual(slept, [0])
+        self.assertEqual([s for s, _ in slept], [0])
         # The App's JWT asks for the token alone, with every read its grant allows and no write; every read after goes
         # through that token, and the last request revokes it.
         through = [(c == self.TOKEN, r["method"], r["path"]) for c, r in hub.sent]
@@ -789,6 +790,29 @@ class Entry(unittest.TestCase):
             _, _, files, _ = self.run_entry(Hub(self.table(pause=org, repo_pause=repo)))
             self.assertIsNone(files["pass.json"]["context"]["paused"], (org, repo))
 
+    def test_the_entry_waits_out_the_read_gap_before_it_reads(self):  # decision 0043
+        from tests.test_adapters import a_pass, a_record, pass_stored, pass_zip, passes_listed
+        before = dict(a_record("2026-10-12T11:59:00Z"), reads=[])
+        table = self.table()
+        listed = passes_listed([a_pass(int(self.RUN)), a_pass(30)])
+        table[("GET", listed["request"]["call"].split()[1])] = listed["response"]
+        found = pass_stored(30, pass_zip(before))
+        table[("GET", found[0]["request"]["call"].split()[1])] = found[0]["response"]
+        table[("GET", found[1]["request"]["call"].split()[1])] = found[2]["response"]
+        hub = Hub(table)
+        code, _, files, slept = self.run_entry(hub)
+        self.assertEqual(code, 0)
+        # The last pass's read began a minute ago: two minutes more, waited before anything but the records is read.
+        self.assertEqual(slept, [(120, 5)])
+        self.assertEqual([r["path"].split("?")[0].rsplit("/", 1)[-1] for _, r in hub.sent[2:5]],
+                         ["runs", "artifacts", "zip"])
+        self.assertEqual(files["view/health.json"]["previous_pass_at"], "2026-10-12T11:59:00Z")
+        # Records that cannot be read wait the whole gap, and the pass knows no chain.
+        table[("GET", listed["request"]["call"].split()[1])] = {"status": 502, "headers": {}, "body": None}
+        code, _, files, slept = self.run_entry(Hub(table))
+        self.assertEqual((code, [s for s, _ in slept]), (0, [CONTROLLER["read_gap_seconds"]]))
+        self.assertIsNone(files["pass.json"]["context"]["passes_since"])
+
     def test_what_the_entry_cannot_read_writes_nothing(self):
         for environ, want in (({"RELEASE": None}, "release_unreadable"), ({"RELEASE": "v1"}, "release_unreadable"),
                               ({"GITHUB_RUN_ID": "1/2"}, "run_unreadable"), ({"GITHUB_RUN_ID": None}, "run_unreadable"),
@@ -804,7 +828,12 @@ class Entry(unittest.TestCase):
         hub = Hub(self.table(numbers=[7], total=2))
         self.assertEqual(self.run_entry(hub)[:3], (1, "pull_requests_unreadable\n", {}))
         self.assertEqual((hub.sent[-1][0], hub.sent[-1][1]["path"]), (self.TOKEN, "/installation/token"))
-        # A folder outside the directory it runs in is refused before anything is read.
+        # A token GitHub did not revoke fails the step, after the pass is written.
+        table = self.table()
+        table[("DELETE", "/installation/token")] = {"status": 500, "headers": {}, "body": None}
+        code, printed, files, _ = self.run_entry(Hub(table))
+        self.assertEqual((code, printed, "pass.json" in files), (1, "token_not_revoked\n", True))
+        # A folder outside the directory it runs in, or one not empty, is refused before anything is read.
         with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()):
             os.makedirs(os.path.join(d, "inside"))
             os.makedirs(os.path.join(d, "elsewhere"))
@@ -812,6 +841,7 @@ class Entry(unittest.TestCase):
             env = {"RELEASE": "factory/v0.3.1", "GITHUB_RUN_ID": self.RUN, entry.KEY: self.key}
             self.assertEqual(entry.main(["../elsewhere"], env, base=os.path.join(d, "inside"), connect=hub.connect), 2)
             self.assertEqual(entry.main([], env, base=d, connect=hub.connect), 2)
+            self.assertEqual(entry.main(["."], env, base=d, connect=hub.connect), 2)
             self.assertEqual(hub.sent, [])
 
     def test_only_the_entry_reads_the_clock_or_the_environment(self):

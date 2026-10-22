@@ -21,7 +21,7 @@ Not built yet, by the stories that hold their rules: reconcile.py, relay.py, bac
 | An automatic pause needs environment faults since a Run last succeeded, on different items, recently; it defers Runs, never an act | `tests/test_controller.py::test_an_automatic_pause_needs_agreeing_faults_from_runs_on_different_items_in_a_recent_window` |
 | `passes_since` restarts only after six hours with no pass | `tests/test_controller.py::test_passes_since_restarts_only_after_a_gap_of_the_second_reading` |
 | The first pass after six hours with none raises the not-run alert, and the next clears it | `tests/test_controller.py::test_the_first_pass_after_six_hours_with_none_raises_the_not_run_alert_and_the_next_clears_it` |
-| The entry reads through the ports with a token of reads alone, revoked whatever happens | `tests/test_controller.py::test_the_entry_reads_through_the_ports_and_hands_the_pass_nothing_else` |
+| The entry reads through the ports with a token of reads alone, and a token not revoked fails it | `tests/test_controller.py::test_the_entry_reads_through_the_ports_and_hands_the_pass_nothing_else` |
 | Only the entry reads the clock and the environment | `tests/test_controller.py::test_only_the_entry_reads_the_clock_or_the_environment` |
 | What the entry cannot read writes nothing, and it says one code | `tests/test_controller.py::test_what_the_entry_cannot_read_writes_nothing` |
 | A pass reads no sooner than three minutes after the last began to read | `tests/test_controller.py::test_a_pass_reads_no_sooner_than_three_minutes_after_the_last_pass_began_to_read` |
