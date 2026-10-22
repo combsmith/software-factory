@@ -920,7 +920,10 @@ estimated. One cause must never become fifty Holds.
 
 **The act Run.** An approval is a Run with no Engine, Intent `issue-approval`, because only `apply`
 holds the machine user's token (§4.9). It has no `run` job and no model, and it asks the Kernel
-again as it starts (I-38). Its run record is what bounds an approval that does not land: a failed
+again as it starts (I-38): `kernel.decide.still_wanted` holds the Decision it was started by to
+what the Kernel decides on the facts it just read, and the approval goes ahead only if it is issued
+again for the same item and content, as a Run goes ahead only if it is admitted again (issue 195).
+Its run record is what bounds an approval that does not land: a failed
 one whose outcome is `item` is an attempt, and `max_attempts` of them since a person with write
 access acted hold the item, reason `attempts_exhausted` (I-28). An approval that lands is an act,
 and does not count toward the Run ceiling, which stays the cost ceiling (FR-39). One that does not
