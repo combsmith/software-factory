@@ -34,7 +34,7 @@ def configuration(root: pathlib.Path = ROOT) -> dict:
     apps = json.loads((root / "config" / "apps.json").read_text())
     defaults = json.loads((root / "config" / "defaults.json").read_text())
     roles = sorted({app["name"] + "[bot]" for app in apps["apps"].values()} | set(defaults["required_lenses"]["model"]))
-    return {"maintainer": hooks["maintainer"]["login"], "roles": roles, "harness": json.loads((root / "config" / "harness.json").read_text())}
+    return {"maintainer": hooks["maintainer"]["login"], "roles": roles, "approver": defaults["approver"], "harness": json.loads((root / "config" / "harness.json").read_text())}
 
 
 def cli_call(args: list, env: dict, timeout: float):
@@ -44,7 +44,7 @@ def cli_call(args: list, env: dict, timeout: float):
                               capture_output=True, text=True, check=False)
 
 
-def job(paths: list, job_env: dict, config: dict, call=cli_call, clock=time.monotonic, session=None) -> str:
+def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotonic, session=None) -> str:
     """Build the Task, run the Engine, and write the Result and its digest into OUT. Returns the digest."""
     record, run, facts, texts, role, findings, out = paths
     out = pathlib.Path(out)
@@ -54,11 +54,13 @@ def job(paths: list, job_env: dict, config: dict, call=cli_call, clock=time.mono
     def read(path):
         return json.loads(pathlib.Path(path).read_text())
     admitted = read(record)
+    if not isinstance(admitted, dict) or not isinstance(admitted.get("release"), str):
+        raise task.Refused("the pass record is no pass/1")
     config = dict(config, release=admitted["release"])
     the_task = task.build(admitted, run, read(facts), read(texts), read(role), read(findings), config)
-    result = engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], call, clock,
+    result = engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], call or cli_call, clock,
                         session or str(uuid.uuid4()))
-    data = (json.dumps(result, indent=2, sort_keys=True) + "\n").encode()
+    data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
     digest = "sha256:" + hashlib.sha256(data).hexdigest()
     out.mkdir(parents=True)
     (out / "result.json").write_bytes(data)

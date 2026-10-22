@@ -29,4 +29,4 @@ to do is to ask, in a form a schema can refuse.
 | `apply` re-reads the Work item before any Effect, and writes nothing if it is held, paused, closed or changed | waiting on `harness/apply.py` |
 | `apply` refuses a change under `.github/`, to code owners, or to a Consumer's setup and test commands, unless a manifest permits it and a person approved | waiting on `harness/apply.py` |
 | `run` and `verify` declare no permissions and use no cache | waiting on `.github/workflows/run.yml` |
-| A Run that reads text from an outsider or a third-party reviewer has no shell and no network tool | waiting on `roles/` |
+| A Run that reads text from an outsider or a third-party reviewer has no shell and no network tool | `tests/test_harness.py::test_the_cli_is_given_no_tool` |

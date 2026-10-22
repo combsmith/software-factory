@@ -10,10 +10,16 @@ what it left out, and how much (L-56). Nothing here reads a clock, a file or the
 from __future__ import annotations
 
 import copy
+import json
+import re
 
 from harness import shared
 
 ADMIT = "admit"
+# The order texts are kept in when not all fit: a person with the Maintainer's word first, then the Roles', then
+# advisory reviewers', then anyone else's, each kind in the order given, newest first as the reads give them (L-56).
+RANK = ("maintainer", "role", "advisory", "outside")
+TEXT_ID = re.compile(r"^[a-z]+:[A-Za-z0-9_-]+$")
 
 
 class Refused(ValueError):
@@ -38,25 +44,39 @@ def trust(actor, config: dict) -> str:
     kind, name = actor.get("kind"), actor.get("name")
     if kind == "human" and name == config["maintainer"]:
         return "maintainer"
-    if kind == "machine_user" or (kind in ("app", "lens") and name in config["roles"]):
+    if (kind == "machine_user" and name == config["approver"]) or (kind in ("app", "lens") and name in config["roles"]):
         return "role"
     if kind == "lens" and name in config["harness"]["advisory"]:
         return "advisory"
     return "outside"
 
 
+def readable_text(text) -> bool:
+    """A text as the reads give one: an id of its kind, who wrote it as the facts name an actor, and its body."""
+    return (isinstance(text, dict) and set(text) == {"id", "by", "body"} and isinstance(text["id"], str)
+            and TEXT_ID.match(text["id"]) is not None and isinstance(text["body"], str)
+            and isinstance(text["by"], dict) and isinstance(text["by"].get("kind"), str)
+            and isinstance(text["by"].get("name"), str))
+
+
+def carried(body: str) -> int:
+    """How long a text is as the Task carries it to the CLI, escaped as JSON, so that the budget bounds the bytes of
+    the one argument the CLI is given and not only its characters."""
+    return len(json.dumps(body)) - 2
+
+
 def texts_of(texts: list, config: dict) -> tuple:
-    """`(kept, omitted)`: the texts in the order given, each with its trust class, up to the configuration's
-    characters in all; and for each kind of text left out, how many and how many characters (L-56). A text is kept
-    whole or left out whole, so no text reaches the model cut short."""
+    """`(kept, omitted)`: the texts, the Maintainer's first and then each trust class in turn (RANK), each with its
+    class, up to the configuration's characters as the Task carries them; and for each kind of text left out, how many
+    and how many characters (L-56). A text is kept whole or left out whole, so no text reaches the model cut short."""
     room = config["harness"]["texts"]["characters"]
     kept, omitted = [], {}
-    for text in texts:
+    ranked = sorted(((trust(t["by"], config), i, t) for i, t in enumerate(texts)), key=lambda x: (RANK.index(x[0]), x[1]))
+    for klass, _, text in ranked:
         body = text["body"]
-        if len(body) <= room:
-            kept.append({"id": text["id"], "trust": trust(text["by"], config), "source": text["by"]["name"],
-                         "body": body})
-            room -= len(body)
+        if carried(body) <= room:
+            kept.append({"id": text["id"], "trust": klass, "source": text["by"]["name"], "body": body})
+            room -= carried(body)
             continue
         kind = text["id"].split(":")[0]
         seen = omitted.setdefault(kind, {"kind": kind, "texts": 0, "characters": 0})
@@ -66,13 +86,24 @@ def texts_of(texts: list, config: dict) -> tuple:
 
 
 def build(record: dict, run: str, facts: dict, texts: list, role: dict, findings: list, config: dict) -> dict:
-    """The Task of Run `run`, validated, or Refused."""
+    """The Task of Run `run`, validated, or Refused. Every input is held to its schema first: what cannot be read is
+    no Task, never a crash."""
+    if shared.errors(record, "pass"):
+        raise Refused("the pass record is no pass/1")
     entry = decision_of(record, run)
     if entry is None:
         raise Refused("no Decision in pass %s admitted Run %s" % (record.get("pass"), run))
     admit = entry["decision"]["admit"]
     # The facts are the item's as the Run reads them: the item and the content the Decision admitted, or the Run is
     # about something else, and is superseded before anything is asked.
+    kind = "facts" if entry["decision"]["item"]["type"] == "pull_request" else "issue-facts"
+    if shared.errors(facts, kind):
+        raise Refused("the facts are no %s" % kind)
+    # Facts read short are no reading of the item: a Task built from them could leave out what a person said.
+    if not all(v is True for v in facts["complete"].values()):
+        raise Refused("the facts of Run %s were read short" % run)
+    if shared.errors(role, "role") or not isinstance(texts, list) or not all(readable_text(t) for t in texts):
+        raise Refused("the manifest or the texts cannot be read")
     if facts["item"] != entry["decision"]["item"] or facts["content_id"] != admit["content_id"]:
         raise Refused("the facts are not of the item and content Run %s was admitted for" % run)
     if role["name"] != admit["role"]:
