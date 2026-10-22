@@ -5,10 +5,10 @@ that trial hardened it:
 - at the pinned version, asked before and after the call, its exit read (L-35);
 - in an environment of exactly the names below, the one key from the job's environment the CLI needs among them, under
   the one name the CLI's scrub removes from what a tool is handed, and the scrub set (issue 287);
-- with no tool at all, `--tools ""`, so that a Task holding outside or advisory text has no shell and no network tool;
-  structured output still works with none (P-13 at 2.1.306). The scrub is set only with no tool: on a Linux runner,
-  with the scrub on, a tool's write outside its directory landed (P-50, issue 312), so a call that sets the scrub and
-  could run a tool is never made;
+- with no tool at all, `--tools ""`, whatever the Task holds; structured output still works with none (P-13 at
+  2.1.306). The scrub is set only with no tool: on a Linux runner at 2.1.306, with the scrub on, a sandboxed tool
+  wrote anywhere the runner's user can, and with it off a tool is handed the credential (P-50, P-51, issue 312; P-26),
+  so at this pin no Run can have a tool, and a call that sets the scrub and could run one is never made;
 - with `result/1` as the CLI is handed it: references resolved, the fields the Harness fills removed, `status` narrowed
   to what the Engine may write and `effects` narrowed to the Task's `permitted_effects` (decision 0038).
 Of the CLI's answer only `structured_output` and the counts `usage` needs are read, by name; the model's prose is
