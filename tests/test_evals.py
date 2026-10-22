@@ -575,6 +575,19 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(job.verdict(changed(set={"count": 0, "sha256": digest}, cases=[], passed=0), empty, digest,
                                      "a" * 40, "factory/v0.1.0"), "eval_set_empty")
 
+    def test_the_job_reads_and_writes_a_file_of_its_own_directory_alone(self):
+        # Every file the job reads or writes is named by one part, a case's id or the step's own, and resolves inside
+        # its directory: a name that climbs out, names a sub-path, or reaches out through a link is no file of the job's.
+        import os
+        from harness import eval as job
+        (self.work / "out").mkdir()
+        os.symlink(str(self.temp), str(self.work / "link.json"))
+        self.assertEqual(job.within(self.work, "eval-report.json"), os.path.realpath(str(self.work / "eval-report.json")))
+        for name in ("../eval-report.json", "out/eval-report.json", "link.json", ".hidden", "", None, "a.b.json", "Eval.json"):
+            with self.assertRaises(job.Stop) as stopped:
+                job.within(self.work, name)
+            self.assertEqual(stopped.exception.code, "path_outside", name)
+
     def test_a_step_says_counts_and_codes_and_never_what_it_raised(self):
         # Whatever a step raised is never printed: its message could quote a case or name the home.
         from harness import eval as job

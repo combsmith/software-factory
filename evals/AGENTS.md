@@ -23,6 +23,7 @@ Maintainer's terminal and recorded by `tools/context_eval.py` with no text of th
 | A case of another set, or no case, is unreadable and asks nothing | `tests/test_evals.py::test_a_case_that_is_no_case_of_this_set_is_unreadable` |
 | The gate passes only this set's report on this commit for this Release, every case passed | `tests/test_evals.py::test_the_gate_passes_only_this_sets_report_on_this_commit_for_this_release` |
 | The fetch takes its token from its own environment alone, and reads with it, never writes | `tests/test_evals.py::test_the_fetch_step_takes_its_token_from_its_environment_alone` |
+| The job reads and writes a file of its own directory alone, named by one part | `tests/test_evals.py::test_the_job_reads_and_writes_a_file_of_its_own_directory_alone` |
 | A step of the job prints counts and codes, never what it raised | `tests/test_evals.py::test_a_step_says_counts_and_codes_and_never_what_it_raised` |
 | The review Intent's set has its cases, and the cutover waits on them | `tests/test_evals.py::test_the_review_intents_eval_set_has_its_cases`, not held yet |
 | A run's record holds paths, first words, counts and verdicts, and no word of the model's | `tests/test_tools.py::test_the_record_holds_paths_counts_and_verdicts_and_no_model_text` |

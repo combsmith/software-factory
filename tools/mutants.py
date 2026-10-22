@@ -5600,6 +5600,12 @@ MUTANTS = ISSUE + [
     ('the effects step writes outside its directory', 'adapters/effects.py',
      '            or not (out == inside or out.startswith(inside + os.sep)):\n',
      '            or False:\n', ('tests.test_effects.Effects.test_a_failed_write_is_recorded_and_fails_the_step',)),
+    ("a file of any name is the job's", 'harness/eval/__init__.py',
+     ' if isinstance(name, str) and NAME.fullmatch(name) else None',
+     ' if isinstance(name, str) else None', ('tests.test_evals.EvalJob.test_the_job_reads_and_writes_a_file_of_its_own_directory_alone',)),
+    ("a file that resolves outside is the job's", 'harness/eval/__init__.py',
+     '    if path is None or not path.startswith(base + os.sep):\n        raise Stop("path_outside")',
+     '    if path is None:\n        raise Stop("path_outside")', ('tests.test_evals.EvalJob.test_the_job_reads_and_writes_a_file_of_its_own_directory_alone',)),
 ]
 
 

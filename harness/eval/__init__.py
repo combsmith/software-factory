@@ -73,15 +73,32 @@ def scratch(env: dict, workspace: pathlib.Path) -> pathlib.Path:
     return pathlib.Path(place)
 
 
-def _read(path: pathlib.Path):
+NAME = re.compile(r"[a-z0-9][a-z0-9-]*(\.json)?")
+
+
+def within(directory, name: str) -> str:
+    """The path of the file `name` in `directory`, held there: a name of one part, no dot but its extension and no
+    slash, that resolves inside the directory itself. Anything else is no file the job reads or writes."""
+    base = os.path.realpath(str(directory))
+    path = os.path.realpath(os.path.join(base, name)) if isinstance(name, str) and NAME.fullmatch(name) else None
+    if path is None or not path.startswith(base + os.sep):
+        raise Stop("path_outside")
+    return path
+
+
+def _read(directory, name: str):
+    path = within(directory, name)
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
     except (OSError, ValueError):
         raise Stop("scratch_unreadable") from None
 
 
-def _write(path: pathlib.Path, document) -> None:
-    path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+def _write(directory, name: str, document) -> None:
+    path = within(directory, name)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
 
 
 def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
@@ -101,7 +118,7 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
         (place / "cases").mkdir(mode=0o700)
     except OSError:
         raise Stop("scratch_unreadable") from None
-    _write(place / "plan.json", {"release": release, "commit": commit, "role": found["role"], "intent": found["intent"],
+    _write(place, "plan.json", {"release": release, "commit": commit, "role": found["role"], "intent": found["intent"],
                                  "set": {"count": found["count"], "sha256": digest}})
     return "planned %d cases" % found["count"]
 
@@ -109,7 +126,7 @@ def plan(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
 def _planned(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> tuple:
     """`(plan, manifest, scratch)`, the set as `plan` hashed it: a set changed since is no set of this run."""
     place = scratch(env, workspace)
-    kept = _read(place / "plan.json")
+    kept = _read(place, "plan.json")
     found, digest = manifest(root)
     if not isinstance(kept, dict) or kept.get("set") != {"count": found["count"], "sha256": digest}:
         raise Stop("eval_set_changed")
@@ -130,10 +147,10 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> 
             data, code = None, "unanswered"
         why[entry["id"]] = code
         if data is not None:
-            path = place / "cases" / ("%s.json" % entry["id"])
-            with open(os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
+            path = within(place / "cases", "%s.json" % entry["id"])
+            with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
                 out.write(data)
-    _write(place / "fetched.json", why)
+    _write(place, "fetched.json", why)
     return "fetched %d of %d cases" % (len([c for c in why.values() if c is None]), found["count"])
 
 
@@ -148,8 +165,9 @@ def assess(found: dict, why: dict, place: pathlib.Path, review) -> dict:
             assessed[entry["id"]] = ("unreadable", [code if code in eval_result_codes() else "unanswered"])
             continue
         try:
-            case = json.loads((place / "cases" / ("%s.json" % entry["id"])).read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            with open(within(place / "cases", "%s.json" % entry["id"]), encoding="utf-8") as f:
+                case = json.load(f)
+        except (OSError, ValueError, Stop):
             assessed[entry["id"]] = ("unreadable", ["schema"])
             continue
         if _errors(case, "eval-case") or case["id"] != entry["id"] or \
@@ -206,9 +224,9 @@ def score(env: dict, root: pathlib.Path, workspace: pathlib.Path, review) -> str
     """The `run` step's work, given the review Intent as `review`: every case assessed, and the report written where
     the upload finds it, whatever the verdicts, so that a set that fails is uploaded too and `judge` fails the run."""
     kept, found, place = _planned(env, root, workspace)
-    assessed = assess(found, _read(place / "fetched.json"), place, review)
+    assessed = assess(found, _read(place, "fetched.json"), place, review)
     written = report(kept, found, assessed)
-    _write(workspace / REPORT, written)
+    _write(workspace, REPORT, written)
     return "scored %d of %d cases, %d passed" % (len(assessed), found["count"], written["passed"])
 
 
@@ -216,7 +234,8 @@ def judge(env: dict, root: pathlib.Path, workspace: pathlib.Path) -> str:
     """The run's verdict on its own report: `verdict`'s, which must be `pass`."""
     kept, found, _ = _planned(env, root, workspace)
     try:
-        written = json.loads((workspace / REPORT).read_text(encoding="utf-8"))
+        with open(within(workspace, REPORT), encoding="utf-8") as f:
+            written = json.load(f)
     except (OSError, ValueError):
         raise Stop("report_unreadable") from None
     said = verdict(written, found, kept["set"]["sha256"], env.get("GITHUB_SHA"), kept["release"])
