@@ -1968,6 +1968,7 @@ class Workflows(unittest.TestCase):
             "a value written in": POLLER + "    with:\n      item: main\n",
             "a timeout": POLLER.replace("    uses:", "    timeout-minutes: 15\n    uses:"),
             "needs": POLLER.replace("    uses:", "    needs:\n      - other\n    uses:"),
+            "inputs in one line": POLLER + "    with: main\n",
         }
         for why, text in broken.items():
             self.assertIn("shim", {rule for rule, _ in check_workflows.lint(text)}, why)
@@ -1996,6 +1997,14 @@ class Workflows(unittest.TestCase):
         problems = check_workflows.run(tree(dict(base, **{".github/workflows/poller.yml": POLLER})))
         self.assertTrue(caught(problems, "poller.yml: a shim is held word for word"), problems)
         held = hashlib.sha256(check_workflows.PIN.sub("@PIN", POLLER).encode()).hexdigest()
+        # A shim's events written as one scalar are its events still: such a file is held too.
+        scalar = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on: workflow_dispatch\n")
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/x.yml": scalar}))),
+                               "x.yml: a shim is held word for word"))
+        # Only the Run's shim names its run.
+        named = POLLER.replace("name: sf-poller\n", "name: sf-poller\nrun-name: x\n")
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/poller.yml": named}))),
+                               "poller.yml: only run.yml names its run"))
         with mock.patch.dict(check_workflows.SHIMS, {"poller.yml": held}):
             self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/poller.yml": POLLER}))),
                                     "poller.yml"))
@@ -2026,8 +2035,21 @@ class Workflows(unittest.TestCase):
             "no workflow named": POLLER.replace("    workflows:\n      - factory\n      - ci\n      - sf-run\n", ""),
             "a branch filter": POLLER.replace("    types:\n", "    branches:\n      - main\n    types:\n"),
         }
+        # The run that woke it is read in no form an expression can write: by an index, in another case, or whole.
+        for read in ("github['event'].workflow_run.conclusion == 'success'", "GitHub.Event.workflow_run.conclusion == 'x'",
+                     "contains(toJSON(github), 'success')", "github .event.action == 'completed'"):
+            broken[read] = POLLER.replace("  pass:\n    permissions:", "  pass:\n    if: %s\n    permissions:" % read)
         for why, text in broken.items():
             self.assertIn("wake", {rule for rule, _ in check_workflows.lint(text)}, why)
+        # Nor does the pass it calls read it: pass.yml is the poller's own job.
+        called = ("name: sf-pass\non:\n  workflow_call:\npermissions: {}\njobs:\n  pass:\n    runs-on: ubuntu-24.04\n"
+                  "    timeout-minutes: 15\n    permissions:\n      actions: write\n      contents: read\n    steps:\n"
+                  "      - run: python3 -m controller\n        env:\n"
+                  "          BRANCH: ${{ github.event.workflow_run.head_branch }}\n")
+        problems = check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": called})))
+        self.assertTrue(caught(problems, "pass.yml: it reads the run that woke the poller"), problems)
+        self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": called.replace(
+            "${{ github.event.workflow_run.head_branch }}", "main")}))), "pass.yml: it reads"))
 
     def test_the_pass_job_alone_is_granted_a_write(self):
         # Issue 196's ruling 4: only the pass job is granted a write, its actions: write, which starts the Runs and the

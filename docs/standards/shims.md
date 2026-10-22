@@ -46,7 +46,7 @@ on:
 ```
 
 poller.yml alone runs on `workflow_run`: it wakes when a workflow of this repo ends, on the completion alone of those
-it names, never its own, and reads nothing of the run that woke it, not `github.event` in any form (decision 0043). Its
+it names, never its own, and reads nothing of the run that woke it, the `github` context by a dot, an index or whole, in any case (decision 0043); nor does the pass it calls. Its
 dispatch takes no input. Its schedule is three lines an hour, none at minute 0. Its job, `pass`, is the one job
 anywhere granted a write, `actions: write`, which starts the Runs and the successor with the job's own token (§4.9,
 P-9); the id `pass` is poller.yml's and pass.yml's alone.

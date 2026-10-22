@@ -305,6 +305,9 @@ class TheSet(unittest.TestCase):
             "a grant above the job": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions:\n  contents: read\n"),
                                       "nothing else above its job"),
             "an empty env on the judge": (EVAL_WORKFLOW + "        env:\n", "its judge step has a env: it is not given"),
+            "a second job": (EVAL_WORKFLOW + "  other:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n"
+                                             "    environment: factory-poller\n    steps:\n      - run: make verify\n",
+                             "it holds the job eval and no other"),
         }
         for why, (text, words) in broken.items():
             self.assertTrue(caught(check_workflows.eval_problems(text), words), why)

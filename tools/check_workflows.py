@@ -73,6 +73,9 @@ SHIMS = {}
 SHAPED = {"eval.yml": ("shim",)}
 # The one workflow that wakes on another's end, and the one job granted a write (issue 196's ruling 4).
 WAKES = "poller.yml"
+# The github context read in any form an expression can write it: by a dot or an index, in any case, or whole. A path
+# such as .github/workflows/ is no read of it. The poller and the pass it calls read nothing of the run that woke them.
+EVENT_READ = re.compile(r"(?<![./\w-])github\s*[.\[]|tojson\(\s*github\s*\)", re.I)
 PASS_JOB, PASS_FILES = "pass", ("poller.yml", "pass.yml")
 # The id GitHub gives the App GitHub Actions: it reports every job in every workflow of the repo.
 ACTIONS_APP = 15368
@@ -354,6 +357,8 @@ def _shim(text: str, entries: list, top: dict, jobs: list) -> list:
         if set(inside) - SHIM_JOB or not SHIM_NEEDS <= set(inside):
             whys.append("job %s holds %s, not a call, its grant and its concurrency alone"
                         % (job["key"], ", ".join(sorted(inside))))
+        if "with" in inside and inside["with"]["value"]:
+            whys.append("job %s passes its inputs on in one line, not one input to a line" % job["key"])
         if "uses" in inside and not RELEASE.match(inside["uses"]["value"]):
             whys.append("job %s calls %s, not a file of the Release at its channel" % (job["key"], inside["uses"]["value"]))
         for e in entries:
@@ -375,7 +380,7 @@ def _wake(text: str, entries: list, top: dict) -> list:
         whys.append("it wakes on its own end")
     if any(e["path"][:2] == ["on", "workflow_dispatch"] for e in entries):
         whys.append("it takes an input")
-    if "github.event" in text:
+    if EVENT_READ.search(text):
         whys.append("it reads the run that woke it")
     return whys
 
@@ -653,6 +658,8 @@ def eval_problems(text: str) -> list:
     if events != {"workflow_dispatch"} or sorted((e["key"], e["value"]) for e in inputs if len(e["path"]) == 4) != \
             [("required", "true"), ("type", "string")] or [e["key"] for e in inputs if len(e["path"]) == 3] != ["release"]:
         problems.append("runs on workflow_dispatch alone, with one input, release, a required string")
+    if [e["key"] for e in entries if e["path"] == ["jobs"]] != [EVAL_JOB]:
+        problems.append("it holds the job %s and no other" % EVAL_JOB)
     inside = {e["key"]: e for e in entries if e["path"] == ["jobs", EVAL_JOB]}
     if set(inside) != EVAL_JOB_KEYS or inside["environment"]["value"] != EVAL_ENVIRONMENT:
         problems.append("its job has exactly %s, and runs on the environment %s"
@@ -688,6 +695,7 @@ def shim_problems(name: str, text: str) -> list:
     if bad:
         return []
     events = {e["key"] for e in entries if e["path"] == ["on"]}
+    events |= {e["value"] for e in entries if not e["path"] and e["key"] == "on" and e["value"]}
     problems = []
     if events & SHIM_EVENTS and name not in SHAPED:
         held = SHIMS.get(name)
@@ -696,6 +704,10 @@ def shim_problems(name: str, text: str) -> list:
                             "is meant, record its new hash in SHIMS")
     if "workflow_run" in events and name != WAKES:
         problems.append("only %s wakes on another workflow's end" % WAKES)
+    if any(e["path"] == [] and e["key"] == "run-name" for e in entries) and name != "run.yml":
+        problems.append("only run.yml names its run, by the run-name the pass gave it")
+    if name in PASS_FILES and EVENT_READ.search(text):
+        problems.append("it reads the run that woke the poller, which says nothing a fork could not write")
     if any(e["path"] == ["jobs"] and e["key"] == PASS_JOB for e in entries) and name not in PASS_FILES:
         problems.append("the job %s is reserved for %s, the one job granted a write" % (PASS_JOB, " and ".join(PASS_FILES)))
     return problems
