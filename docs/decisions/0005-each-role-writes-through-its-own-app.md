@@ -33,7 +33,7 @@ GitHub does not count an approval from an author or a last pusher, so the approv
 | Only the machine user's approval stands, and only while it has write access | `tests/test_decide.py::test_only_the_approvers_approval_stands` |
 | No Role owns or shadows a category of Finding about its own work | `tools/check_authority.py` |
 | No workflow names the owner account's token | `tools/check_workflows.py` |
-| No commit in this repo is authored or pushed by the machine user | waiting on `controller/reconcile.py` |
+| No commit in this repo is authored or pushed by the machine user: the approving act's transport sends one write, the approval, and the reconciliation of every other write waits | `tests/test_approve.py::test_the_act_sends_one_write_and_it_is_the_approval`, `tools/commits_are_the_maintainers.py`; the reconciliation, waiting on `controller/reconcile.py` |
 | Every permission of an App serves a need that the table of needs maps to it, no write need is held by two Apps, and the reader App holds no write | `tools/check_apps.py` |
 | Until a Consumer repo is served (slice 3), each App is installed on named repos only; from then, as decided at that cutover, against UJ-6 | `tools/check_apps.py` |
 | Every permitted Effect of every Intent is within the ceiling of that Role's App | waiting on `roles/` |

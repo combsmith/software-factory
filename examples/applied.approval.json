@@ -1,0 +1,15 @@
+{
+  "schema": "applied/1",
+  "run": "r_01JA7Q",
+  "release": "factory/v0.3.1",
+  "effects": [
+    {
+      "id": "e1",
+      "type": "approve",
+      "state": "applied",
+      "key": "PRR_kwDOapproval",
+      "reason": null
+    }
+  ],
+  "findings": []
+}

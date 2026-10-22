@@ -918,8 +918,9 @@ port reads as `queued` (`adapters/records.py`). The simulator's lane holds this
 a Run that did not succeed is read from its artifact by `adapters/artifacts.py`, through the transport's one redirect. The `capacity` outcome is the capacity signal the PRD has lacked (OQ-3): observed, not
 estimated. One cause must never become fifty Holds.
 
-**The act Run.** An approval is a Run with no Engine, Intent `issue-approval`, because only `apply`
-holds the machine user's token (§4.9). It has no `run` job and no model, and it asks the Kernel
+**The act Run.** An approval is a Run with no Engine, Intent `issue-approval`, because only the
+approving act's one job, `approve` on `factory-approve`, holds the machine user's token (§4.9,
+decision 0055). It has no `run` job and no model, and it asks the Kernel
 again as it starts (I-38): `kernel.decide.still_wanted` holds the Decision it was started by to
 what the Kernel decides on the facts it just read, and the approval goes ahead only if it is issued
 again for the same item and content, as a Run goes ahead only if it is admitted again (issue 195).
@@ -1982,7 +1983,7 @@ it is long-lived, it can approve, and it can merge.
 | Credential | Can | Held by | Stored | Rotated |
 |---|---|---|---|---|
 | The Factory's model subscription | Spend the Factory's model capacity | The `run` job | Environment secret, default branch only | On any suspicion; it is the Factory's alone |
-| The machine user's token | Approve and merge, across the org | `apply`, for the review Intent only | Environment secret, default branch only | On a fixed period, and on any reconciliation alert |
+| The machine user's token | Approve, on this repo alone: a fine-grained token (decision 0055) | The approving act's one job, `approve`, on `factory-approve`, which holds no other secret and no other environment holds it | Environment secret, `main` only | On a fixed period (issue 305), and on any reconciliation alert |
 | Each Role's App key | Mint that Role's tokens | `apply` | Environment secret, default branch only | On a fixed period |
 | The Controller's App key | Read the facts and the run records, and post check runs: the status on the item. It does not start Runs | The poller | Environment secret, default branch only | On a fixed period |
 | The poller job's own token | Start Runs: `actions: write`, declared on that job only | The poller job | Not stored: GitHub mints it for the job | Expires when the job ends |
@@ -2657,8 +2658,10 @@ block said why at each step.
 2. The machine user's approval stands: it is a code owner for the paths the pull request touches,
    and it is neither the author nor the last pusher. The Maintainer's own sessions therefore push
    as the Maintainer.
-3. `apply` submitted that approval: the effects and identity ports exist, the reviewer's App and
-   the machine user's token are environment secrets, and the Result validated.
+3. The approving act submitted that approval: the effects and identity ports exist, the reviewer's
+   App and the machine user's token are environment secrets, the token on `factory-approve` alone,
+   and the act, which has no Result, approved only what the Kernel asked again still wanted
+   (decision 0055).
 4. `run` produced the Result: the Harness built a Task from a Decision, the engine port ran the
    pinned CLI with the tools that Intent is allowed, and the Factory's model credential exists.
 5. The review Intent has a prompt, a result schema and **an eval set**. A gate-deciding Intent may

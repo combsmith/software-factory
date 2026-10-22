@@ -30,6 +30,7 @@ import os
 import pathlib
 import sys
 
+from adapters import acceptance, checks, threads
 from adapters.github import Live, Unanswered, request
 from kernel import terms as t
 from tools.jsonschema_lite import validate
@@ -39,6 +40,8 @@ SCHEMAS = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
            for p in sorted((ROOT / "schemas").glob("*.schema.json"))}
 DISPATCHES = {"dispatch_run": "run", "dispatch_approval": "approval", "dispatch_successor": "poller"}
 REFUSED = {401, 403}
+# The facts port's own GraphQL reads, which the approver's token may ask of its item and nothing else.
+QUERIES = (threads.QUERY, checks.QUERY, acceptance.QUERY)
 
 
 class Refused(ValueError):
@@ -194,6 +197,132 @@ def refused_all(writes, record, reason: str) -> dict:
     return {"schema": "written/1", "pass": ident.get("pass"), "release": ident.get("release"),
             "writes": [{"id": w["id"], "type": w["type"], "item": w["item"], "run": w["run"], "state": "refused",
                         "key": None, "reason": reason} for w in rows]}
+
+
+# The machine user's approval, the approving act's one write (issue 195, ruling 4): through the approver's own token,
+# whose transport may read the item's repo, who the token is and the org's Pause, ask the facts port's own GraphQL reads
+# of this pull request, and write one review, the approval of the commit the act read, with nothing else in it.
+UNAVAILABLE = 429      # with no answer and any 5xx, GitHub's own trouble: the environment's
+GONE = 404             # with 401 and 403, a token GitHub will not take for this item: the environment's
+
+
+class Approving:
+    """The approver's transport: the reads the act makes and the one write, and nothing else, refused before it leaves.
+    No path may climb out of the item's repo."""
+
+    def __init__(self, transport, item: dict, head: str):
+        self._transport, self._item, self._head = transport, dict(item), head
+        self._repo = "/repos/%s/" % item["repo"]
+        self._pause = "/orgs/%s/actions/variables/FACTORY_PAUSED" % item["repo"].split("/")[0]
+        self._reviews = "/repos/%s/pulls/%d/reviews" % (item["repo"], item["number"])
+
+    def _read(self, path) -> bool:
+        if not isinstance(path, str) or ".." in path or "%2e" in path.lower() or "//" in path:
+            return False
+        return path == "/user" or path == self._pause or path.startswith(self._repo)
+
+    def _query(self, body) -> bool:
+        """One of the facts port's own reads of this pull request, its variables this item's and a page's cursor."""
+        if not isinstance(body, dict) or set(body) != {"query", "variables"} or body["query"] not in QUERIES:
+            return False
+        variables = body["variables"]
+        owner, name = self._item["repo"].split("/")
+        return (isinstance(variables, dict) and set(variables) <= {"owner", "name", "number", "after"}
+                and variables.get("owner") == owner and variables.get("name") == name
+                and variables.get("number") == self._item["number"])
+
+    def send(self, req: dict) -> dict:
+        method, path, body = req.get("method"), req.get("path"), req.get("body")
+        if method == "GET" and self._read(path):
+            return self._transport.send(req)
+        if method == "POST" and path == "/graphql" and self._query(body):
+            return self._transport.send(req)
+        if method == "POST" and path == self._reviews and body == {"commit_id": self._head, "event": "APPROVE"}:
+            return self._transport.send(req)
+        raise Unanswered("a request the approver's token may not send")
+
+
+def _asked(transport, req: dict):
+    """GitHub's answer, or None where it gave none. Nothing is sent twice."""
+    try:
+        return transport.send(req)
+    except Unanswered:
+        return None
+
+
+def _answered(answer, status: int):
+    return answer.get("body") if isinstance(answer, dict) and answer.get("status") == status else None
+
+
+def _trouble(answer, otherwise: str) -> tuple:
+    """Whose fault a read GitHub did not answer as asked was: the environment's, by its status alone, never its words."""
+    status = answer.get("status") if isinstance(answer, dict) else None
+    if status is None or status >= 500 or status == UNAVAILABLE:
+        return "environment", "github_unavailable"
+    if status in REFUSED or status == GONE:
+        return "environment", "token_refused"
+    return "environment", otherwise
+
+
+def approver_of(transport) -> dict:
+    """Who the token is, `GET /user`: `{login, type, fault, reason}`, the fault None when it was read."""
+    answer = _asked(transport, request("GET", "/user"))
+    body = _answered(answer, 200)
+    if not isinstance(body, dict):
+        fault, reason = _trouble(answer, "approver_unreadable")
+        return {"login": None, "type": None, "fault": fault, "reason": reason}
+    return {"login": body.get("login"), "type": body.get("type"), "fault": None, "reason": None}
+
+
+def _approval(review, head: str, login: str) -> bool:
+    return (isinstance(review, dict) and review.get("state") == "APPROVED" and review.get("commit_id") == head
+            and isinstance(review.get("user"), dict) and review["user"].get("login") == login
+            and isinstance(review.get("node_id"), str) and review["node_id"] != "")
+
+
+def approval_of(transport, item: dict, head: str, login: str) -> dict:
+    """The approver's approval of `head` that stands, recovered as a review by this actor on this commit (section 3.6):
+    `{state, key, fault, reason}`, `already_applied` with its node id, or a state of None where there is none. A list
+    that cannot be read, or that may be cut short, recovers nothing."""
+    answer = _asked(transport, request("GET", "/repos/%s/pulls/%d/reviews?per_page=100" % (item["repo"], item["number"])))
+    listed = _answered(answer, 200)
+    if not isinstance(listed, list) or len(listed) >= 100:
+        fault, reason = _trouble(answer, "facts_unreadable")
+        return {"state": None, "key": None, "fault": fault, "reason": reason}
+    mine = [r for r in listed if _approval(r, head, login)]
+    if mine:
+        return {"state": "already_applied", "key": mine[-1]["node_id"], "fault": None, "reason": None}
+    return {"state": None, "key": None, "fault": None, "reason": None}
+
+
+def approve(transport, item: dict, head: str, login: str) -> dict:
+    """The approval of `head`, sent once and read back: `{state, key, fault, reason}`. `applied` only with the node id
+    of the approver's own approval of that commit, read back by the id GitHub answered (L-41). Whose fault a failure
+    was is read from its status and from the pull request read again, never from GitHub's words (ruling 6)."""
+    pull = "/repos/%s/pulls/%d" % (item["repo"], item["number"])
+    answer = _asked(transport, request("POST", pull + "/reviews", body={"commit_id": head, "event": "APPROVE"}))
+    review = _answered(answer, 200)
+    if not isinstance(review, dict):
+        status = answer.get("status") if isinstance(answer, dict) else None
+        if status in REFUSED or status == GONE:
+            return {"state": "refused", "key": None, "fault": "environment", "reason": "token_refused"}
+        if status is None or status >= 500 or status == UNAVAILABLE:
+            return {"state": "failed", "key": None, "fault": "environment", "reason": "github_unavailable"}
+        # Any other refusal is the item's, while the pull request is open at the commit; a head that moved or a close
+        # is a change under the act.
+        now = _answered(_asked(transport, request("GET", pull)), 200)
+        if not isinstance(now, dict) or not isinstance(now.get("head"), dict):
+            return {"state": "failed", "key": None, "fault": "environment", "reason": "github_unavailable"}
+        if now.get("state") != "open" or now["head"].get("sha") != head:
+            return {"state": "failed", "key": None, "fault": "superseded", "reason": "head_moved"}
+        return {"state": "failed", "key": None, "fault": "item", "reason": "approval_refused"}
+    rid = review.get("id")
+    back = _answered(_asked(transport, request("GET", pull + "/reviews/%d" % rid)), 200) if type(rid) is int else None
+    if not isinstance(back, dict) or back.get("id") != rid:
+        return {"state": "failed", "key": None, "fault": "environment", "reason": "not_read_back"}
+    if not _approval(back, head, login):
+        return {"state": "failed", "key": None, "fault": "item", "reason": "read_back_differs"}
+    return {"state": "applied", "key": back["node_id"], "fault": None, "reason": None}
 
 
 def main(argv=None, environ=None, base=None) -> int:

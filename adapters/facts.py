@@ -29,6 +29,12 @@ from adapters import acceptance, checks, pull, threads, timeline
 from adapters.github import Unanswered
 from tools.jsonschema_lite import validate
 
+
+class Moved(Unanswered):
+    """The pull request changed while it was read: its head, its base or anything else GitHub moves `updated_at` for.
+    A kind of `Unanswered`, so a pass reads it again at the next one, and the approving act can tell it apart and class
+    it `superseded` without reading any text (issue 195, ruling 4)."""
+
 SCHEMA = json.loads((pathlib.Path(__file__).resolve().parent.parent / "schemas" / "facts.schema.json").read_text())
 
 
@@ -57,7 +63,7 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
     if pusher is not None and pushed_at is None:
         raise Unanswered("the head's push names its pusher but no time that can be read")
     if not pull.unchanged(transport, first):
-        raise Unanswered("the pull request changed while it was read; it is read again at the next pass")
+        raise Moved("the pull request changed while it was read; it is read again at the next pass")
     now = clock()
     facts = dict(own)
     facts.update({
