@@ -1,7 +1,7 @@
 """The records port: the Factory's own run records, as the Kernel reads them (design section 3.10, decision 0036).
 
 A record counts only if it is a run of one of the Factory's own Role workflow files, in the Factory repo, from its
-default branch, started by a dispatch the pass job's own token made (P-9; decision 0049): a Role's Runs are
+default branch, started by a dispatch the pass job's own token made (P-9; decision 0051): a Role's Runs are
 dispatched, never scheduled, and a run of any other workflow, branch, repo, event or dispatcher, a fork's pull
 request and a person's dispatch among them, is never a Run (decision 0003, I-34). Which item a counted Run is on, its Intent, its Role, its content and its id come
 from its run-name alone, `run-name/1`, and the item's type from the Intent. A counted record whose name is not yet a

@@ -1,4 +1,4 @@
-# 0049. The Controller's writes go through one credential each, held to what it may send, and every one is recorded
+# 0051. The Controller's writes go through one credential each, held to what it may send, and every one is recorded
 
 Status: accepted. Taken as a working ruling on 2026-10-21 for "Controller: one pass reads, decides, records, dispatches, writes the view and raises the reconciliation alert" (issue 193), its PR 2, the effects port's first commit, which the Maintainer may overturn in review. It adds to `docs/decisions/0003-one-controller-admits-every-run.md`, whose Runs it dispatches, and to `docs/decisions/0044-the-ports-are-the-one-place-that-reaches-the-network-through-one-transport-held-to-githubs-api.md`, whose transport it sends through.
 
