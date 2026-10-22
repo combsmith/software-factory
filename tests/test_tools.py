@@ -1296,6 +1296,8 @@ class Repo(unittest.TestCase):
             ("the shell", "import os\nos.system('curl x')\n", "names os.system"),
             ("a module held itself", "import os\nx = os\n", "names os itself"),
             ("getattr", "import http.server\ngetattr(http.server, 'HTTPServer')(('0.0.0.0', 0), None)\n", "uses getattr"),
+            ("the classes beneath every object", "().__class__.__base__.__subclasses__()\n", "uses __subclasses__"),
+            ("a function's globals", "Stub.do_GET.__globals__\n", "uses __globals__"),
             ("a create_connection on anything", "x.create_connection(('a', 1))\n", "touches create_connection"),
             # Binding wider.
             ("any address", stub.replace(served, served.replace('"127.0.0.1"', '"0.0.0.0"')), other),

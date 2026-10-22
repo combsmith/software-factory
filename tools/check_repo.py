@@ -42,8 +42,8 @@ TRANSPORT = pathlib.PurePosixPath("adapters/github.py")
 # which serves the pinned CLI canned answers on the canary's runner, and its tests' stand-in on 127.0.0.1 here. It is
 # held by an allowlist, not a list of what is refused: it imports these modules alone, by their own names; of http, os
 # and sys it names these alone; it makes its server one way, http.server.HTTPServer(("127.0.0.1", <port>), <handler>),
-# written as it is; it calls no builtin that reaches round a name, and touches no socket, bind or server_bind; and no
-# workflow of this repo names it.
+# written as it is; it calls no builtin and uses no __special__ attribute that reaches round a name, and touches no
+# socket, bind or server_bind; and no workflow of this repo names it.
 TRIAL_STUB = pathlib.PurePosixPath("tools/trial_p50_stub.py")
 STUB_IMPORTS = {"http.server", "json", "os", "sys"}
 STUB_NAMES = {"http.server.HTTPServer", "http.server.BaseHTTPRequestHandler", "os.replace", "sys.argv", "sys.exit"}
@@ -80,6 +80,8 @@ def _stub(rel: pathlib.PurePath, tree) -> list:
         if isinstance(node, ast.Name) and node.id in ("http", "os", "sys") and id(node) not in inner:
             problems.append("%s:%d names %s itself, not one of the names it may use" % (rel, line, node.id))
         if isinstance(node, ast.Attribute):
+            if node.attr.startswith("__") and node.attr.endswith("__"):
+                problems.append("%s:%d uses %s, which reaches round a name" % (rel, line, node.attr))
             if node.attr in STUB_ATTRS or node.attr == "server_address" and isinstance(node.ctx, ast.Store):
                 problems.append("%s:%d touches %s; the stub serves and never reaches out" % (rel, line, node.attr))
             spelt = _dotted(node)
