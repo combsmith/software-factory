@@ -845,7 +845,7 @@ class Records(unittest.TestCase):
         self.assertIs(self.read(one, again, per_page=1)[0]["complete"], False)
 
     def test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other(self):
-        # Decisions 0039 and 0046: a failed Run's outcome is read from its artifact; a Run that succeeded has none
+        # Decisions 0039 and 0049: a failed Run's outcome is read from its artifact; a Run that succeeded has none
         # read, and one whose outcome cannot be read leaves the list not whole, never read as no attempt.
         done = {"name": NAME, "status": "completed"}
         row = listing("P-17", 3, rows=dict(done, conclusion="success"))
