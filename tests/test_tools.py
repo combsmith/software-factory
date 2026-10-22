@@ -2066,6 +2066,76 @@ class Workflows(unittest.TestCase):
         problems = check_workflows.run(tree(dict(base, **{".github/workflows/other.yml": named})))
         self.assertTrue(caught(problems, "other.yml: the job pass is reserved for poller.yml and pass.yml"), problems)
 
+    def test_a_runs_lane_is_its_item_on_the_job_and_cancels_nothing_running(self):
+        # Issue 196's ruling 6 and decision 0003: the job that calls the Run's jobs holds one concurrency group for each
+        # Work item, exactly ${{ inputs.item }}, on the job, and never cancels a Run in progress.
+        run = check_workflows.RUN_SHIM % 41898282
+        self.assertEqual(check_workflows.lint(run), [])
+        lane = "    concurrency:\n      group: ${{ inputs.item }}\n      cancel-in-progress: false\n"
+        broken = {
+            "a Run cancelled": run.replace("cancel-in-progress: false", "cancel-in-progress: true"),
+            "one lane for all": run.replace("group: ${{ inputs.item }}", "group: sf-run"),
+            "a lane per Run": run.replace("group: ${{ inputs.item }}", "group: ${{ inputs.name }}"),
+            "no group": run.replace("      group: ${{ inputs.item }}\n", ""),
+            "the lane at the top": run.replace(lane, "").replace("permissions: {}\n", "permissions: {}\n"
+                                                                  "concurrency:\n  group: ${{ inputs.item }}\n"),
+        }
+        for why, text in broken.items():
+            self.assertIn("lane", {rule for rule, _ in check_workflows.lint(text)}, why)
+        # The poller's group is its own, a name: it calls the pass, not the Run's jobs, and holds no item's lane.
+        self.assertEqual([r for r, _ in check_workflows.lint(POLLER) if r == "lane"], [])
+        # The three places an expression stands whole beyond env:, with: and secrets:, and none with text around it.
+        for text in (run.replace("run-name: ${{ inputs.name }}", "run-name: Run ${{ inputs.name }}"),
+                     run.replace("run-name: ${{ inputs.name }}", "run-name: ${{ inputs.item }}"),
+                     run.replace("group: ${{ inputs.item }}", "group: lane-${{ inputs.item }}"),
+                     POLLER.replace("group: sf-poller", "group: ${{ github.ref }}")):
+            self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text)})
+        outputs = GOOD.replace("    timeout-minutes: 25\n", "    timeout-minutes: 25\n    outputs:\n"
+                               "      digest: ${{ steps.run.outputs.digest }}\n", 1)
+        self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs)})
+        self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
+            "${{ steps.run.outputs.digest }}", "${{ github.event.pull_request.title }}"))})
+
+    def run_tree(self, text: str, account) -> list:
+        config = json.loads((ROOT / "config" / "controller.json").read_text())
+        config["accounts"]["workflow_token"] = account
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD,
+                "config/controller.json": json.dumps(config)}
+        held = hashlib.sha256(check_workflows.PIN.sub("@PIN", text).encode()).hexdigest()
+        with mock.patch.dict(check_workflows.SHIMS, {"run.yml": held}):
+            return [p for p in check_workflows.run(tree(dict(base, **{".github/workflows/run.yml": text})))
+                    if p.startswith(".github/workflows/run.yml")]
+
+    def test_every_run_dispatch_carries_an_item_and_the_poller_takes_none(self):
+        # Decision 0036: a Run is dispatched with three required inputs, its name, its item and its pass, so every Role
+        # dispatch carries an item; the poller takes none (the rule wake).
+        token = {"type": "Bot", "id": 41898282}
+        run = check_workflows.RUN_SHIM % 41898282
+        self.assertEqual(self.run_tree(run, token), [])
+        item = "      item:\n        required: true\n        type: string\n"
+        for why, text in (("no item", run.replace(item, "")),
+                          ("an item left optional", run.replace(item, item.replace("required: true", "required: false"))),
+                          ("an input more", run.replace(item, item + "      extra:\n        type: string\n"))):
+            self.assertTrue(self.run_tree(text, token), why)
+        self.assertIn("wake", {r for r, _ in check_workflows.lint(POLLER.replace(
+            "  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n      item:\n        type: string\n"))})
+
+    def test_a_run_starts_only_from_the_poller_and_never_under_a_pause(self):
+        # Ruling 6 and I-34: the Run's shim starts its jobs only when the dispatcher is the pass's own token, by the
+        # account controller/1 names for it, and only while no Pause of the repo or the org is set. While controller/1
+        # names no such account, no run.yml is right.
+        token = {"type": "Bot", "id": 41898282}
+        run = check_workflows.RUN_SHIM % 41898282
+        condition = "    if: github.actor_id == '41898282' && vars.FACTORY_PAUSED != 'true'\n"
+        for why, text in (("another dispatcher", run.replace("41898282", "41898283")),
+                          ("no Pause", run.replace(condition, "    if: github.actor_id == '41898282'\n")),
+                          ("either", run.replace("&&", "||")),
+                          ("no condition", run.replace(condition, ""))):
+            self.assertTrue(self.run_tree(text, token), why)
+        self.assertTrue(self.run_tree(run, None))
+        self.assertTrue(self.run_tree(run, {"type": "Bot", "id": 41898283}))
+        self.assertEqual(self.run_tree("# The Run's shim.\n" + run, token), [])
+
     def test_an_exempt_workflow_is_held_word_for_word(self):
         scan = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
         base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}

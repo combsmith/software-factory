@@ -44,7 +44,10 @@ RULES = {
             "alone names an environment",
     "wake": "a workflow on workflow_run wakes on the completion alone of the workflows it names, never its own, takes "
             "no input and reads nothing of the run that woke it",
-    "expression": "an expression stands only as the whole of a value under env:, with: or secrets:, or in if:",
+    "expression": "an expression stands only as the whole of a value under env:, with: or secrets:, or in if:; or as "
+                  "exactly a Run's name, ${{ inputs.name }}, its lane, ${{ inputs.item }}, or a step's output",
+    "lane": "a job that calls the Run's jobs holds its item's lane: its own concurrency group, ${{ inputs.item }}, that "
+            "never cancels the Run in progress",
     "length": "a run: block is at most ten lines",
     "install": "a run: line is `make <target>` or `python3 -m <module>` and nothing else, so nothing is "
                "installed, fetched or decided in a workflow",
@@ -73,6 +76,44 @@ SHIMS = {}
 SHAPED = {"eval.yml": ("shim",)}
 # The one workflow that wakes on another's end, and the one job granted a write (issue 196's ruling 4).
 WAKES = "poller.yml"
+# The Run's lane (issue 196's ruling 6): one concurrency group for each Work item, on the one job that calls the Run's
+# jobs, so that it holds from run to apply and never cancels what runs. And the three places an expression may stand
+# whole beyond env:, with: and secrets:: the run's name, the lane, and a job's output of one of its steps.
+RUN_JOBS = "run-jobs.yml"
+LANE = "${{ inputs.item }}"
+RUN_NAME = "${{ inputs.name }}"
+OUTPUT = re.compile(r"^\$\{\{ steps\.[a-z][\w-]*\.outputs\.[a-z][\w-]* \}\}$")
+# The Run's shim, as the ruling gives it in full: its dispatcher is the pass's own token, by the account controller/1
+# names for it, and a Pause of the repo or the org starts no Run (decision 0003; I-34).
+RUN_SHIM = """name: sf-run
+run-name: ${{ inputs.name }}
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        required: true
+        type: string
+      item:
+        required: true
+        type: string
+      pass:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  lane:
+    if: github.actor_id == '%d' && vars.FACTORY_PAUSED != 'true'
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ inputs.item }}
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/run-jobs.yml@factory/v0-next
+    with:
+      name: ${{ inputs.name }}
+      item: ${{ inputs.item }}
+      pass: ${{ inputs.pass }}
+"""
 # The github context read in any form an expression can write it: by a dot or an index, in any case, or whole. A path
 # such as .github/workflows/ is no read of it. The poller and the pass it calls read nothing of the run that woke them.
 EVENT_READ = re.compile(r"(?<![./\w-])github\s*[.\[]|tojson\(\s*github\s*\)", re.I)
@@ -328,6 +369,13 @@ def lint(text: str) -> list:
             found.append(("shim", "job %s names an environment in a workflow that is not called alone" % job["key"]))
     if events & SHIM_EVENTS:
         found += [("shim", why) for why in _shim(text, entries, top, jobs)]
+    for job in jobs:
+        inside = {e["key"]: e for e in under("jobs", job["key"])}
+        calls = inside.get("uses", {}).get("value", "")
+        if calls.split("@")[0].endswith("/" + RUN_JOBS):
+            lane = {e["key"]: e["value"] for e in under("jobs", job["key"], "concurrency")}
+            if lane != {"group": LANE, "cancel-in-progress": "false"}:
+                found.append(("lane", "job %s calls the Run's jobs outside its item's lane, or cancels a Run" % job["key"]))
     if "workflow_run" in events:
         found += [("wake", why) for why in _wake(text, entries, top)]
 
@@ -336,7 +384,11 @@ def lint(text: str) -> list:
         e = by_line.get(number)
         if "${{" in raw:
             passed = e is not None and e["key"] != "script" and (
-                e["key"] == "if" or (WHOLE.match(e["value"]) and set(e["path"]) & {"env", "with", "secrets"}))
+                e["key"] == "if" or (WHOLE.match(e["value"]) and set(e["path"]) & {"env", "with", "secrets"})
+                or (e["path"] == [] and e["key"] == "run-name" and e["value"] == RUN_NAME)
+                or (e["path"][-1:] == ["concurrency"] and len(e["path"]) == 3 and e["key"] == "group"
+                    and e["value"] == LANE)
+                or (e["path"][-1:] == ["outputs"] and len(e["path"]) == 3 and bool(OUTPUT.match(e["value"]))))
             if not passed:
                 found.append(("expression", "line %d writes an expression where it could become a command" % number))
         for use in SECRET.finditer("" if raw.lstrip().startswith("#") else raw.split(" #")[0]):
@@ -688,7 +740,22 @@ def eval_problems(text: str) -> list:
     return problems
 
 
-def shim_problems(name: str, text: str) -> list:
+def run_problems(text: str, root: pathlib.Path = ROOT) -> list:
+    """What is wrong with run.yml: anything but the Run's shim as the ruling gives it, its dispatcher the account that
+    config/controller.json names for the pass's own token. While it names none, no run.yml is right."""
+    try:
+        account = json.loads((root / "config" / "controller.json").read_text())["accounts"]["workflow_token"]
+    except (OSError, ValueError, KeyError, TypeError):
+        account = None
+    if not isinstance(account, dict) or type(account.get("id")) is not int:
+        return ["config/controller.json names no account for the pass's own token, so no Run's dispatcher can be held"]
+    lines = [line for line in text.split("\n") if line.strip() and not line.lstrip().startswith("#")]
+    if lines != (RUN_SHIM % account["id"]).strip("\n").split("\n"):
+        return ["it is not the Run's shim, word for word, its dispatcher %d and a Pause starting nothing" % account["id"]]
+    return []
+
+
+def shim_problems(name: str, text: str, root: pathlib.Path = ROOT) -> list:
     """What is wrong with one live workflow by its file's name: a shim not held word for word by its hash in SHIMS, a
     workflow that wakes on another's end that is not the poller, or the pass job anywhere but the poller and the pass."""
     entries, bad = read(text)
@@ -704,6 +771,8 @@ def shim_problems(name: str, text: str) -> list:
                             "is meant, record its new hash in SHIMS")
     if "workflow_run" in events and name != WAKES:
         problems.append("only %s wakes on another workflow's end" % WAKES)
+    if name == "run.yml":
+        problems += run_problems(text, root)
     if any(e["path"] == [] and e["key"] == "run-name" for e in entries) and name != "run.yml":
         problems.append("only run.yml names its run, by the run-name the pass gave it")
     if name in PASS_FILES and EVENT_READ.search(text):
@@ -822,7 +891,7 @@ def run(root: pathlib.Path = ROOT) -> list:
             if rule not in spared:
                 problems.append("%s: [%s] %s. The rule: %s" % (path.relative_to(root), rule, message, RULES[rule]))
     for path in live:
-        problems += ["%s: %s" % (path.relative_to(root), p) for p in shim_problems(path.name, raw(path))]
+        problems += ["%s: %s" % (path.relative_to(root), p) for p in shim_problems(path.name, raw(path), root)]
     # The eval job's name is reserved (docs/standards/workflows.md): the job `eval` lives in eval.yml and nowhere else,
     # since it alone will hold the held-out home's read token (design §4.9).
     for path in live:
