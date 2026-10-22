@@ -897,7 +897,8 @@ class Entry(unittest.TestCase):
         _, _, files, _ = self.run_entry(hub)
         self.assertEqual(files["pass.json"]["now"], "2026-10-12T12:00:00Z")
         self.assertRegex(files["pass.json"]["pass"], r"^p_[0-9A-Z]{20}$")
-        self.assertNotEqual(entry.mint_id("p"), entry.mint_id("p"))
+        minted = {entry.mint_id("r") for _ in range(100)}
+        self.assertEqual(len(minted), 100)
 
 
 if __name__ == "__main__":
