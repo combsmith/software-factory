@@ -15,7 +15,7 @@ import pathlib
 import unittest
 import zipfile
 
-from adapters import artifacts, checks, facts, github, pull, records, threads, timeline
+from adapters import acceptance, artifacts, checks, facts, github, pull, records, threads, timeline
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -1456,6 +1456,155 @@ LENS = ("coderabbitai", 136622811, "Bot")          # a Lens's App, as GraphQL na
 APP = ("github-actions", 41898282, "Bot")          # an App no Lens is
 
 
+def closing_answer(repo: str, number: int, issues: list, total=None, elsewhere: str = None, labelled=()) -> dict:
+    """An exchange of the port's closing-references query: `totalCount` and each issue's number, in the shape P-33 and
+    P-46 recorded, with each issue's repo and labels, which no trial has recorded yet. `labelled` are the issues GitHub
+    lists the factory:contract label on."""
+    owner, name = repo.split("/")
+    asked = {"query": acceptance.QUERY, "variables": {"owner": owner, "name": name, "number": number}}
+    nodes = [{"number": n, "repository": {"nameWithOwner": elsewhere or repo},
+              "labels": {"totalCount": 1 if n in labelled else 0,
+                         "nodes": [{"name": "factory:contract"}] if n in labelled else []}} for n in issues]
+    refs = {"totalCount": len(nodes) if total is None else total, "nodes": nodes}
+    return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+            "response": {"status": 200, "headers": {},
+                         "body": {"data": {"repository": {"pullRequest": {"closingIssuesReferences": refs}}}}}}
+
+
+def issue_timeline(repo: str, number: int, events, more: bool = False) -> dict:
+    """An issue's REST timeline, asked as `adapters/timeline.py` asks a pull request's, in trials/P-28.json's shape."""
+    found = copy.deepcopy(exchanges("P-28")[4])
+    found["request"]["call"] = "GET /repos/%s/issues/%d/timeline?per_page=100" % (repo, number)
+    found["response"]["body"] = events
+    found["response"]["headers"] = dict(found["response"]["headers"], link='<https://x>; rel="next"' if more else "")
+    return found
+
+
+def label_event(action: str, actor=PERSON, label: str = "factory:contract", at: str = "2026-10-21T16:00:00Z",
+                via=None) -> dict:
+    login, account, kind = actor
+    return {"event": action, "label": {"name": label}, "actor": {"login": login, "id": account, "type": kind},
+            "created_at": at, "performed_via_github_app": via}
+
+
+class Acceptance(unittest.TestCase):
+    PULL = {"number": 26, "base": {"ref": "main", "repo": {"full_name": "o/r", "default_branch": "main"}}}
+
+    def read(self, *found, pull=None):
+        router = Router(github.Replay(list(found)), {"don-petry": "admin", "reader": "read"})
+        return acceptance.read(router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}))
+
+    def asked(self, events, listed=True):
+        """What one closing issue with these label events, and the label GitHub lists or not, reads as."""
+        return self.read(closing_answer("o/r", 26, [36], labelled=[36] if listed else []),
+                         issue_timeline("o/r", 36, events))
+
+    def test_an_issue_asks_for_a_contract_only_by_a_persons_label(self):
+        # The Maintainer's rule of 2026-10-21 (decision 0047): a pull request that closes no issue, or one whose issue
+        # carries no factory:contract a person placed, asks for none, and acceptance is null and read whole.
+        self.assertEqual(self.read(closing_answer("o/r", 26, [])), (None, True))
+        self.assertEqual(self.asked([], listed=False), (None, True))
+        self.assertEqual(self.asked([label_event("labeled", label="bug")], listed=False), (None, True))
+        # A person's label asks: the contract is then read, which adapters/contract.py, not built, holds; not whole.
+        self.assertEqual(self.asked([label_event("labeled")]), (None, False))
+        # Only a person ends what a person placed (L-17): removed by an App or the machine user, it still asks.
+        later = "2026-10-21T16:01:00Z"
+        self.assertEqual(self.asked([label_event("labeled"), label_event("unlabeled", at=later)], listed=False),
+                         (None, True))
+        for actor in (APP, (APPROVER,) + MACHINE):
+            self.assertEqual(self.asked([label_event("labeled"), label_event("unlabeled", actor, at=later)],
+                                        listed=False), (None, False), actor)
+        # Placed by an App, the machine user, a reader, or an App with a person's token, it asks for nothing.
+        for event in (label_event("labeled", APP), label_event("labeled", (APPROVER,) + MACHINE),
+                      label_event("labeled", ("reader", 8, "User")), label_event("labeled", via={"slug": "x"})):
+            self.assertEqual(self.asked([event]), (None, True), event)
+        # Placed again by an App over a person's, the person's placement stands; after a person removed it, an App's
+        # placement asks for nothing.
+        self.assertEqual(self.asked([label_event("labeled"), label_event("labeled", APP, at=later)]), (None, False))
+        self.assertEqual(self.asked([label_event("labeled"), label_event("unlabeled", at=later),
+                                     label_event("labeled", APP, at="2026-10-21T16:02:00Z")]), (None, True))
+        # A person's placement and removal in the same second read as placed, the reading that asks.
+        self.assertEqual(self.asked([label_event("labeled"), label_event("unlabeled")], listed=False), (None, False))
+        # Of two closing issues, one that asks is enough.
+        self.assertEqual(self.read(closing_answer("o/r", 26, [36, 37], labelled=[37]), issue_timeline("o/r", 36, []),
+                                   issue_timeline("o/r", 37, [label_event("labeled")])), (None, False))
+
+    def test_a_label_event_that_names_no_label_is_refused(self):
+        # It could be the contract label's placement or removal: refused, as timeline.label_events refuses it.
+        for label in (None, {}, {"name": ""}, {"name": 7}, "factory:contract"):
+            event = dict(label_event("labeled"), label=label)
+            with self.assertRaises(github.Unanswered, msg=label):
+                self.asked([event], listed=False)
+
+    def test_an_issue_whose_labels_and_timeline_disagree_or_are_short_is_not_whole(self):
+        # GitHub lists the label, but no event placed it (renamed into the name, or placed out of sight); or the
+        # timeline says it stands and GitHub lists none.
+        self.assertEqual(self.asked([], listed=True), (None, False))
+        self.assertEqual(self.asked([label_event("labeled", APP)], listed=False), (None, False))
+        short = issue_timeline("o/r", 36, {"message": "not a list"})
+        short["request"]["call"] = "GET /repos/o/r/issues/36/timeline?per_page=100&page=2"
+        self.assertEqual(self.read(closing_answer("o/r", 26, [36]), issue_timeline("o/r", 36, [], more=True), short),
+                         (None, False))
+
+    def test_closing_references_are_whole_only_of_this_repo_and_every_one_counted(self):
+        self.assertIn("closingIssuesReferences(first: 10)", acceptance.QUERY)
+        self.assertEqual(self.read(closing_answer("o/r", 26, [36], total=11)), (None, False))
+        self.assertEqual(self.read(closing_answer("o/r", 26, [36], elsewhere="o/other")), (None, False))
+        self.assertEqual(self.read(closing_answer("o/r", 26, [36, 36]), issue_timeline("o/r", 36, [])), (None, False))
+        many = closing_answer("o/r", 26, [36])
+        many["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"][0]["labels"] \
+            = {"totalCount": 51, "nodes": []}
+        self.assertEqual(self.read(many), (None, False))
+        # A label count that is no count is not read whole, though True equals one.
+        boolean = closing_answer("o/r", 26, [36], labelled=[36])
+        boolean["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"][0][
+            "labels"]["totalCount"] = True
+        self.assertEqual(self.read(boolean), (None, False))
+        for broken in ({"number": 0}, {"number": True}, {"number": "36"}, "36"):
+            found = closing_answer("o/r", 26, [36])
+            found["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"] = [broken]
+            with self.assertRaises(github.Unanswered, msg=broken):
+                self.read(found)
+        for refs in (None, {"totalCount": None, "nodes": []}, {"totalCount": 0, "nodes": None},
+                     {"totalCount": True, "nodes": closing_answer("o/r", 26, [36])["response"]["body"]["data"][
+                         "repository"]["pullRequest"]["closingIssuesReferences"]["nodes"]}):
+            found = closing_answer("o/r", 26, [])
+            found["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"] = refs
+            self.assertEqual(self.read(found), (None, False), refs)
+        # A shape GitHub does not give is refused, never let through as another error.
+        for shape in ({"data": "x"}, {"data": {"repository": []}}, {"data": {"repository": {"pullRequest": "x"}}}):
+            odd = closing_answer("o/r", 26, [])
+            odd["response"]["body"] = shape
+            with self.assertRaises(github.Unanswered, msg=shape):
+                self.read(odd)
+        stringly = closing_answer("o/r", 26, [36])
+        stringly["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"][0][
+            "repository"] = "o/r"
+        self.assertEqual(self.read(stringly), (None, False))
+        whole_body = closing_answer("o/r", 26, [])["response"]["body"]
+        for status, answer_body in ((502, None), (502, whole_body), (200, {"errors": [{"message": "x"}]})):
+            failed = closing_answer("o/r", 26, [])
+            failed["response"].update(status=status, body=answer_body)
+            with self.assertRaises(github.Unanswered, msg=status):
+                self.read(failed)
+
+    def test_a_pull_request_to_another_base_than_the_default_is_not_read_whole_on_its_contract(self):
+        # trials/P-33.json: a pull request to a base that is not the default branch carries no closing reference at
+        # all, so whether its issue asks cannot be read.
+        for base in ({"ref": "release", "repo": {"full_name": "o/r", "default_branch": "main"}},
+                     {"ref": "main", "repo": {"full_name": "o/r"}}, {"repo": {"full_name": "o/r"}}):
+            self.assertEqual(self.read(pull={"number": 26, "base": base}), (None, False), base)
+
+    def test_every_intent_a_lifecycle_runs_is_ruled_on_whether_it_asks_for_a_contract(self):
+        # Decision 0047: an issue asks by its item's Intent only for `fix` or `implement`, which no Lifecycle runs.
+        # Every Intent a Lifecycle runs is named here, none of them one that asks: a new one fails here until it is
+        # ruled whether it asks, and the port reads it if it does.
+        from kernel import issue
+        self.assertEqual(set(issue.INTENTS) | set(records.ON_PULL_REQUEST),
+                         {"investigate-issue", "judge-readiness", "open-pull-request", "review-change", "fix-findings",
+                          "adjudicate-findings", "issue-approval"})
+
+
 def thread_node(ident: str, opened=PERSON, at: str = "2026-10-21T16:18:57Z", resolved_by=None) -> dict:
     """A review thread as the port's query asks it. No trial has recorded a thread's author, time or resolver yet (P-43
     recorded only its path and state); the pending test below reads the first that does."""
@@ -1574,7 +1723,7 @@ class Snapshot(unittest.TestCase):
         found = exchanges("P-29.base")
         head = found[1]["response"]["body"]["head"]["sha"]
         return [found[1], found[9], exchanges("P-28")[3], found[2], p26_files(), exchanges("P-28")[4], p26_reviews(),
-                p26_checks(head), threads_answer(canary(), 26, []), found[reread]]
+                p26_checks(head), closing_answer(canary(), 26, []), threads_answer(canary(), 26, []), found[reread]]
 
     def read(self, reread: int):
         router = Router(github.Replay(self.sequence(reread)), {"don-petry": "admin"})
@@ -1590,10 +1739,19 @@ class Snapshot(unittest.TestCase):
         # The activity read is of a later push than the head the pull request was read at: no pusher, and the push's
         # time is the read's, so nothing reads as placed after a push it could not see.
         self.assertEqual((got["last_pusher"], got["last_push_at"]), (None, self.NOW))
-        self.assertEqual(got["complete"], {"acceptance": False, "reviews": True, "threads": True, "checks": True,
+        self.assertEqual(got["complete"], {"acceptance": True, "reviews": True, "threads": True, "checks": True,
                                            "diff": True, "changed_paths": True, "runs": True, "timeline": True})
         self.assertIsNone(got["acceptance"])
         self.assertNotIn(title, json.dumps(got))
+
+    def test_a_snapshot_whose_closing_issue_asks_for_a_contract_is_not_read_whole_on_it(self):
+        seq = self.sequence(1)
+        at = len(seq) - 3
+        seq[at:at + 1] = [closing_answer(canary(), 26, [36]), issue_timeline(canary(), 36, [label_event("labeled")])]
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW)
+        self.assertEqual((got["acceptance"], got["complete"]["acceptance"]), (None, False))
 
     def test_the_bases_head_and_a_pushs_time_are_read_or_refused(self):
         self.assertEqual(pull.base(replay("P-29.base", 9), body("P-29.base", 1))["head"],
@@ -1637,13 +1795,13 @@ class Snapshot(unittest.TestCase):
 
     def test_a_snapshot_holds_every_thread_read_and_says_whether_they_were_read_whole(self):
         seq = self.sequence(1)
-        seq[8] = threads_answer(canary(), 26, [thread_node("PRRT_1", PERSON), thread_node("PRRT_2", LENS)])
+        seq[9] = threads_answer(canary(), 26, [thread_node("PRRT_1", PERSON), thread_node("PRRT_2", LENS)])
         router = Router(github.Replay(copy.deepcopy(seq)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit"})
         got, _ = facts.snapshot(router, canary(), 26, person(), accounts, False, lambda: self.NOW)
         self.assertEqual([(t["id"], t["category"]) for t in got["threads"]], [("PRRT_1", "human"), ("PRRT_2", None)])
         self.assertEqual((got["complete"]["threads"], got["complete"]["runs"]), (True, False))
-        seq[8]["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["totalCount"] = 3
+        seq[9]["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["totalCount"] = 3
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit"})
         got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW)
@@ -1657,7 +1815,7 @@ class Snapshot(unittest.TestCase):
         config = json.loads((ROOT / "config" / "defaults.json").read_text())
         role = ("combsmith-sf-pr-review", 99, "Bot")
         seq = self.sequence(1)
-        seq[8] = threads_answer(canary(), 26, [thread_node("PRRT_1", LENS), thread_node("PRRT_2", role),
+        seq[9] = threads_answer(canary(), 26, [thread_node("PRRT_1", LENS), thread_node("PRRT_2", role),
                                                thread_node("PRRT_3", APP), thread_node("PRRT_4", PERSON)])
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit", role[1:]: "pr-review"})
