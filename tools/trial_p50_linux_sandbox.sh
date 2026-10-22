@@ -83,13 +83,14 @@ finish() {
 trap finish EXIT
 trap 'exit 130' INT TERM
 
-# The stub, on a port of its own; it writes the port once it listens.
-python3 -I "$stub" "$scratch/port" "$scratch/stub.log" > /dev/null 2> "$scratch/stub.err" &
+# The stub, on a port of its own, which it prints once it listens; it logs to stub.log where it is started, and is read
+# through a pipe, never polled for.
+mkfifo "$scratch/port.fifo"
+(cd "$scratch" && exec python3 -I "$stub") > "$scratch/port.fifo" 2> "$scratch/stub.err" &
 stub_pid=$!
-for _ in $(seq 1 50); do [[ -s "$scratch/port" ]] && break; sleep 0.1; done
-[[ -s "$scratch/port" ]] || refuse "the stub did not start"
-port=$(cat "$scratch/port")
-[[ "$port" =~ ^[0-9]{1,5}$ ]] || refuse "the stub's port is not a number"
+port=
+IFS= read -r port < "$scratch/port.fifo" || true
+[[ "$port" =~ ^[0-9]{1,5}$ ]] || refuse "the stub did not say its port"
 host_pidns=$(readlink "/proc/$$/ns/pid" 2>/dev/null || echo unknown)
 node_dir=$(dirname "$(command -v node 2>/dev/null || echo /usr/bin/node)")
 

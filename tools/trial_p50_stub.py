@@ -6,10 +6,10 @@ tool call, `sh ./probe.sh`; to every other request for a message it answers the 
 and answers 404 to any other path. It reads no prompt, keeps no header and logs, a line to a request, only the path
 and what kind of answer it gave, so the trial's markers never reach its log.
 
-    python3 -I tools/trial_p50_stub.py PORT_FILE LOG_FILE
+    (cd DIR && python3 -I tools/trial_p50_stub.py)
 
-It listens on a free port, one request at a time, writes the port to PORT_FILE and to its standard output once it
-listens, and serves until it is killed.
+It takes no argument and opens no path it is given: it logs to stub.log in the directory it is started in, listens on a
+free port, one request at a time, prints the port on its standard output once it listens, and serves until it is killed.
 """
 import http.server
 import json
@@ -141,18 +141,17 @@ class Stub(http.server.BaseHTTPRequestHandler):
         self.close_connection = True
 
 
-def main(argv: list) -> int:
-    port_file, log_file = argv
-    Stub.log_path = log_file
-    open(log_file, "w").close()
+LOG = "stub.log"
+
+
+def main() -> int:
+    Stub.log_path = LOG
+    open(LOG, "w").close()
     server = http.server.HTTPServer(("127.0.0.1", 0), Stub)
-    with open(port_file + ".part", "w") as f:
-        f.write(str(server.server_address[1]))
-    os.replace(port_file + ".part", port_file)
     print(server.server_address[1], flush=True)
     server.serve_forever()
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

@@ -3451,7 +3451,7 @@ class Trials(unittest.TestCase):
         # trials/P-50.json (issue 287): the analysis is read again here from the job's log, each part of the pass is
         # computed from what the probe left, as the script computes it, and must equal the job's record; the fail follows.
         p50 = json.loads((ROOT / "trials" / "P-50.json").read_text())
-        log, analysis = p50["exchanges"][16]["response"]["body"], p50["exchanges"][-1]["response"]["body"]
+        log, analysis = p50["exchanges"][18]["response"]["body"], p50["exchanges"][-1]["response"]["body"]
         printed, lines, inside = {}, [], False
         for line in log.splitlines():
             said = re.match(r"^[^\t]*\t[^\t]*\t\S+Z (.*)$", line)
@@ -3462,7 +3462,7 @@ class Trials(unittest.TestCase):
                 document, inside = json.loads("\n".join(lines)), False
                 printed[document["phase"]] = document
         self.assertEqual(printed, analysis["phases"], "the analysis is what the log printed")
-        for i, name in ((14, "p50/run.sh"), (15, "p50/stub.py")):
+        for i, name in ((16, "p50/run.sh"), (17, "p50/stub.py")):
             self.assertEqual(p50["exchanges"][i]["response"]["body"]["sha"], analysis["copied_whole"][name]["canary"])
             self.assertEqual(len(set(analysis["copied_whole"][name].values())), 1, name + " ran as it was in tools/")
         self.assertEqual(sorted(printed), ["as-is", "userns", "userns-reversed"])
@@ -4313,11 +4313,11 @@ print(json.dumps(said))
 
     def test_the_stub_answers_one_tool_call_and_keeps_no_header(self):
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
-        with subprocess.Popen([sys.executable, "-I", str(self.STUB), str(folder / "port"), str(folder / "log")],
+        with subprocess.Popen([sys.executable, "-I", str(self.STUB)], cwd=folder,
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True) as stub:
             try:
                 port = stub.stdout.readline().strip()
-                self.assertEqual(port, (folder / "port").read_text())
+                self.assertRegex(port, r"^[0-9]{1,5}$")
                 tools = [{"name": "Bash"}]
                 asks = [("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": "NEVER-LOGGED"}]}),
                         ("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": [{"type": "tool_result", "is_error": True}]}]}),
@@ -4335,7 +4335,7 @@ print(json.dumps(said))
         self.assertEqual(bare[1]["content"][0]["text"], "done")
         self.assertEqual(count, [200, {"input_tokens": 1}])
         self.assertEqual(other, [404, None])
-        log = (folder / "log").read_text()
+        log = (folder / "stub.log").read_text()
         self.assertNotIn("NEVER-LOGGED", log)
         lines = [json.loads(line) for line in log.splitlines()]
         self.assertEqual([line["answer"] for line in lines], ["tool_use", "text", "text", "count", 404])
