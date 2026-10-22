@@ -787,7 +787,18 @@ class Records(unittest.TestCase):
         # waited once (decision 0036).
         got, slept = self.read(listing("P-17", 9, total=1), listing("P-17", 10, total=1), per_page=1)
         self.assertEqual(exchanges("P-17")[9]["response"]["body"]["workflow_runs"][0]["name"], "p17-p22-run-records")
-        self.assertEqual((got["runs"], got["unidentified"], got["complete"], slept), ([], ["39086879694"], True, [5]))
+        created = exchanges("P-17")[10]["response"]["body"]["workflow_runs"][0]["created_at"]
+        self.assertEqual((got["runs"], got["unidentified"], got["complete"], slept),
+                         ([], [{"run": "39086879694", "created_at": created,
+                                "status": "in_progress" if exchanges("P-17")[10]["response"]["body"]["workflow_runs"][0]["status"] == "in_progress" else "queued"}], True, [5]))
+        # A run not yet started is listed as queued, whichever word GitHub uses for it (issue 270).
+        got, _ = self.read(listing("P-17", 9, total=1), listing("P-17", 10, total=1, rows={"status": "pending"}),
+                           per_page=1)
+        self.assertEqual([u["status"] for u in got["unidentified"]], ["queued"])
+        # A record whose creation cannot be read is a row that cannot be read: the list is not whole (issue 270).
+        got, _ = self.read(listing("P-17", 9, total=1), listing("P-17", 10, total=1, rows={"created_at": "soon"}),
+                           per_page=1)
+        self.assertEqual((got["unidentified"], got["complete"]), ([], False))
 
     def test_a_run_named_by_the_second_read_is_a_record(self):
         second = listing("P-17", 10, total=1, rows={"name": NAME})
@@ -903,7 +914,9 @@ class Records(unittest.TestCase):
                 if listed["total_count"] > per:
                     continue
                 got, slept = self.read(asked(found), asked(found), per_page=per)
-                ids = [str(r["id"]) for r in listed["workflow_runs"]]
+                ids = [{"run": str(r["id"]), "created_at": r["created_at"],
+                        "status": "queued" if r["status"] in records.NOT_STARTED else r["status"]}
+                       for r in listed["workflow_runs"]]
                 self.assertEqual((got["runs"], got["unidentified"], got["complete"]), ([], ids, True), (name, at))
 
     @pending
@@ -1887,7 +1900,7 @@ class Contract(unittest.TestCase):
             and all(records._record(r, r["repository"]["full_name"], r.get("head_branch"), {r.get("path")},
                                     (r["actor"]["id"], r["actor"]["type"])) == (None, None) for r in rows),
             "a_new_run_is_listed_unnamed": Records().read(listing("P-17", 9, total=1), listing("P-17", 10, total=1),
-                                                          per_page=1)[0]["unidentified"] == ["39086879694"],
+                                                          per_page=1)[0]["unidentified"][0]["run"] == "39086879694",
             # The bot's pull request is dependency only as the account named for it, by id and type, and it pushed the head.
             "a_dependency_bot_updates_a_workflow_pin":
                 pull.own(body("P-45", 5), {"dependency": {(49699333, "Bot")}})[0]["class"] == "dependency"

@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import derive, in_progress, moved_at, overdue, run_deferral, runs_on, since_writer
+from kernel.derive import (derive, in_progress, moved_at, overdue, run_deferral, runs_on, since_writer, unnamed_past,
+                           unnamed_within)
 
 SCHEMA = "decision/1"
 
@@ -74,7 +75,8 @@ def _action(reason: str) -> str:
     return "enqueue" if reason == "approved" else "issue_approval"
 
 
-def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, context: dict, config: dict) -> dict:
+def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, context: dict, config: dict,
+         now: str) -> dict:
     """An act that moves work on, once the brakes let it through. An act that stops work is not decided here."""
     action = _action(reason)
     since = since_writer(mine, facts)
@@ -82,9 +84,33 @@ def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, conte
     if brake:
         return brake
     # An approval is a Run, so a Run that cannot be told whose it is defers it. An enqueue admits none (decision 0036).
-    if action == "issue_approval" and context.get("unidentified_runs") != []:
+    if action == "issue_approval" and unnamed_within(context, now, config["limits"]) != []:
         return _decision(facts, state, "run_unidentified", evidence, t.DEFER)
+    past = unnamed_past(context, now, config["limits"]) if action == "issue_approval" else []
+    if past and len(past) > config["limits"]["max_unnamed_runs"]:
+        return _decision(facts, state, "runs_unnamed", evidence, t.DEFER)
     return _decision(facts, state, reason, evidence, t.ACT, action=action, content_id=facts["content_id"])
+
+
+def stuck_runs(context: dict, config: dict, now: str) -> list:
+    """The alerts of the whole scope a pass shows in the view: one for each unidentified Run listed for
+    max_unnamed_run_seconds or more, by its run id, in the order listed, each run once however often it is listed. It
+    stays an alert until a person deletes the run, or it falls from the newest runs the port reads. Nothing that cannot
+    be read is named: a list that cannot be read defers every Run instead (decision 0036, issue 270)."""
+    limits = config.get("limits") if isinstance(config, dict) else None
+    return [{"alert": t.RUN_UNNAMED, "run": run} for run in unnamed_past(context, now, limits)]
+
+
+def unnamed_scope(context: dict, config: dict, now: str) -> dict:
+    """The Kernel's reading of the unnamed Runs for the whole scope, which a pass needs with no item to decide on
+    (issue 270, the third entry point by the ruling on issue 193): `defers`, whether every Run waits on an unnamed Run
+    inside the window or not yet completed, or on a list that cannot be read; `alerts`, one for each Run unnamed past
+    the window; and `bounded`, whether more such Runs are listed than max_unnamed_runs, past which every Run waits."""
+    limits = config.get("limits") if isinstance(config, dict) else {}
+    alerts = stuck_runs(context, config, now)
+    most = limits.get("max_unnamed_runs") if isinstance(limits, dict) else None
+    defers = unnamed_within(context, now, limits) != []
+    return {"defers": defers, "alerts": alerts, "bounded": not defers and bool(alerts) and len(alerts) > most}
 
 
 def decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> dict:
@@ -143,7 +169,7 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
 
     if state == t.CONVERGED:
         # A Hold the facts establish, such as an approver who is the author, was read above; then the brakes.
-        return _act(facts, state, reason, evidence, mine, context, config)
+        return _act(facts, state, reason, evidence, mine, context, config, now)
 
     # A required check that gave no verdict is unreadable: admit nothing, and wait for a person (I-13).
     if reason == "check_unreadable":

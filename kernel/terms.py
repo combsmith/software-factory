@@ -43,7 +43,7 @@ MAY_GO_STALE = frozenset({REVIEW, READY})
 # stale: a Pause, read or not, the model provider's deferral (`capacity`), capacity unread, the org's limit on Runs, and
 # a Run listed before its run-name, which may be on any item (decision 0036).
 SCOPE_DEFERRALS = frozenset({"paused", "pause_unreadable", "capacity", "capacity_unreadable", "concurrency",
-                             "run_unidentified"})
+                             "run_unidentified", "runs_unnamed"})
 
 # A Finding's categories, as the authority table names them, and its severities: schemas/facts.schema.json names
 # them too, and a thread from a required Lens with any other, or none, cannot be read.
@@ -91,6 +91,11 @@ BOT_CLASSES = ("agent", "dependency")
 # The one text format of a time, YYYY-MM-DDTHH:MM:SSZ, with 9 for any digit. Times compare as text.
 TIME_SHAPE = "9999-99-99T99:99:99Z"
 DIGITS = "0123456789"
+# The alert of the whole scope for a Run unnamed past max_unnamed_run_seconds (issue 270).
+RUN_UNNAMED = "run_unnamed"
+# What a run record's status is read as, and the one a Run that has ended has (issue 270).
+RUN_STATUSES = ("queued", "in_progress", "completed")
+RUN_COMPLETED = "completed"
 # The calendar, which nobody chooses: the only numbers but 0 and 1 the Kernel writes. tools/check_purity.py pins each.
 SECONDS_PER_MINUTE = 60
 MINUTES_PER_HOUR = 60
