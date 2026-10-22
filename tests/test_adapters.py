@@ -1743,11 +1743,19 @@ class Contract(unittest.TestCase):
                                     (r["actor"]["id"], r["actor"]["type"])) == (None, None) for r in rows),
             "a_new_run_is_listed_unnamed": Records().read(listing("P-17", 9, total=1), listing("P-17", 10, total=1),
                                                           per_page=1)[0]["unidentified"][0]["run"] == "39086879694",
+            # The bot's pull request is dependency only as the account named for it, by id and type, and it pushed the head.
+            "a_dependency_bot_updates_a_workflow_pin":
+                pull.own(body("P-45", 5), {"dependency": {(49699333, "Bot")}})[0]["class"] == "dependency"
+                and pull.own(body("P-45", 5), {})[0]["class"] == "outside"
+                and pull.last_pusher(replay("P-45", 7), body("P-45", 5)) == "dependabot[bot]"
+                # The Kernel compares the last pusher with the author as the port reads both, by REST's one spelling.
+                and pull.own(body("P-45", 5), {})[0]["author"] == pull.last_pusher(replay("P-45", 7), body("P-45", 5)),
         }
         # Each is read from the fixture that grounds it, and no other.
         replayed = {"a_push_is_new_content": {"P-29.base"}, "the_pusher_is_the_last_pusher": {"P-28", "P-28.app"},
                     "a_short_diff_says_so": {"P-29.truncated"}, "a_path_list_can_leave_out_a_file": {"P-29.truncated"},
-                    "a_forks_run_never_counts": {"P-27"}, "a_new_run_is_listed_unnamed": {"P-17"}}
+                    "a_forks_run_never_counts": {"P-27"}, "a_new_run_is_listed_unnamed": {"P-17"},
+                    "a_dependency_bot_updates_a_workflow_pin": {"P-45"}}
         # Every other rule a fixture grounds is named, with why this test does not read it yet: a rule added to the
         # fake's grounding fails here until it is read or named.
         not_read = {
