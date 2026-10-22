@@ -16,6 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()),
               lifecycle=json.loads((ROOT / "lifecycle" / "pull_request.json").read_text()),
               protected_paths=protected.protected_paths())
+CONFIG["model_lens_inputs"] = protected.model_lens_inputs(CONFIG["required_lenses"]["model"])
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 42}
 NOW = "2026-10-11T13:00:00Z"
 # Every required check passing, each under its check run's name as GitHub gives it, from its Lens's own App.
