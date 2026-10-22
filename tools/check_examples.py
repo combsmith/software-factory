@@ -28,7 +28,8 @@ COVERAGE_AGAINST = ("config/rubric-pr-review.json", "examples/finding.json", "ex
 # reference, and carries nothing; a data file a person edits carries `schema`, its path being its identity and the commit
 # its Release. A document's class names its identity.
 ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied": ("document", "run"),
-            "outcome": ("document", "run"), "pass": ("document", "pass"), "view-meta": ("document", "pass"),
+            "outcome": ("document", "run"), "pass": ("document", "pass"), "writes": ("document", "pass"),
+            "written": ("document", "pass"), "view-meta": ("document", "pass"),
             "view-items": ("document", "pass"), "health": ("document", "pass"),
             "eval-report": ("document", "commit"),
             "facts": "record", "issue-facts": "record", "decision": "record", "issue-decision": "record", "finding": "record",
@@ -44,7 +45,7 @@ RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # untrusted is marked for whatever reads the feed, and only view-item has it. A reference into a kind outside this set
 # is held by that kind's own rules, so the existing records are not swept.
 CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage", "run-record",
-              "pass", "applied", "outcome", "view-meta", "view-items", "view-item", "health", "role", "feed",
+              "pass", "writes", "written", "applied", "outcome", "view-meta", "view-items", "view-item", "health", "role", "feed",
               "eval-set", "eval-report")
 TEXT_FIELD = "body"
 UNTRUSTED_FIELD = "untrusted"

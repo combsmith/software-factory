@@ -10,7 +10,9 @@
     "not_run_seconds",
     "capacity_window_seconds",
     "automatic_pause",
-    "thresholds"
+    "thresholds",
+    "home",
+    "workflows"
   ],
   "properties": {
     "schema": {
@@ -133,6 +135,49 @@
         "decision_delay_p95_minutes": {
           "type": "number",
           "minimum": 0
+        }
+      }
+    },
+    "home": {
+      "description": "The Factory's own repo and the branch its Runs are dispatched on",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "branch"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "branch": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_./-]{1,100}$"
+        }
+      }
+    },
+    "workflows": {
+      "description": "The workflow file a dispatch of each kind starts, under .github/workflows/; the records port lists the run and approval files as the Role workflow files",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run",
+        "approval",
+        "poller"
+      ],
+      "properties": {
+        "run": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,60}\\.yml$"
+        },
+        "approval": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,60}\\.yml$"
+        },
+        "poller": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,60}\\.yml$"
         }
       }
     }

@@ -1,0 +1,29 @@
+{
+  "schema": "written/1",
+  "pass": "p_01JA7P",
+  "release": "factory/v0.3.1",
+  "writes": [
+    {
+      "id": "w1",
+      "type": "dispatch_run",
+      "item": {
+        "repo": "combsmith/software-factory",
+        "type": "pull_request",
+        "number": 42
+      },
+      "run": "r_01JA7Q",
+      "state": "sent",
+      "key": null,
+      "reason": null
+    },
+    {
+      "id": "w2",
+      "type": "dispatch_successor",
+      "item": null,
+      "run": null,
+      "state": "failed",
+      "key": null,
+      "reason": "dispatch_unanswered"
+    }
+  ]
+}

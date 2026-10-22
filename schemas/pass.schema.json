@@ -132,6 +132,10 @@
           }
         }
       }
+    },
+    "successor": {
+      "description": "Whether the pass starts a successor, as it decided at its end: the one write a pass makes that no Decision in it calls for, held by the effects port to this. Absent in a record written before the effects port",
+      "type": "boolean"
     }
   },
   "$defs": {

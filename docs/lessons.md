@@ -266,7 +266,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-48 Nobody noticed
 **Failure.** "Engine-token liveness monitoring: a 7-day fleet-wide dev-lead outage went unalerted, and pr-review fails open" (issue 1587). The daily failure report appears to have stopped as well; the review could not confirm it.
 **Rule.** One cause raises one alert, a pass that did not run is itself reported, and an item that needs a person is assigned to one.
-**Check.** `tests/test_controller.py::test_one_cause_raises_one_alert`, `tests/test_controller.py::test_the_first_pass_after_six_hours_with_none_raises_the_not_run_alert_and_the_next_clears_it`; assigning an item to a person is waiting on `adapters/effects.py`
+**Check.** `tests/test_controller.py::test_one_cause_raises_one_alert`, `tests/test_controller.py::test_the_first_pass_after_six_hours_with_none_raises_the_not_run_alert_and_the_next_clears_it`; assigning an item to a person is waiting on `controller/notify.py`
 
 ### L-49 The Maintainer's attention was the real limit
 **Failure.** Runs rose about fivefold while merges stayed at 14 to 36 a week. The owner account cleared holds 64 times across 150 merged pull requests.
@@ -276,7 +276,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-50 A credential's permissions were assumed
 **Failure.** A change of credential met a refusal on its first real write and was reverted. An App that could write contents could not move a tag on a repo with workflows, and the fleet was broken for six days.
 **Rule.** Each write a Role may make is tried once on a canary repo, and the recorded response is what the fake GitHub is held to.
-**Check.** waiting on `adapters/effects.py`
+**Check.** `tests/test_effects.py::test_every_write_the_port_sends_has_the_shape_a_trial_recorded`, for a dispatch's answer, from `trials/P-9.json`; the status, the dequeue and the tracking issue are not held yet: `tests/test_effects.py::test_the_status_the_dequeue_and_the_tracking_issue_are_written_as_trials_recorded`
 
 ### L-51 The tests passed against a fake that accepted anything
 **Failure.** The shared stub of the GitHub command returned empty for calls it did not know, so real flags and filters were never exercised.
