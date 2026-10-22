@@ -12,7 +12,7 @@ from tools.jsonschema_lite import ANNOTATIONS, FILE, SchemaError, _resolve, vali
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Data files that are the real thing, not illustrations, and their schema.
-LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lifecycle",
+LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lifecycle", "roles/pr-review.json": "role",
         "config/authority.json": "authority",
         "config/defaults.json": "config", "config/rubric-pr-review.json": "rubric", "config/apps.json": "apps",
         "config/hooks.json": "hooks", "config/feed.json": "feed", "config/controller.json": "controller", "config/harness.json": "harness",

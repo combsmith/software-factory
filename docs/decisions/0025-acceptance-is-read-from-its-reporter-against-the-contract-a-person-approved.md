@@ -83,4 +83,4 @@ P-37 was taken by decision 0023.
 | The port reads whether a contract exists from the issue the pull request closes, never the head; the approved contract at the commit of the newest approving review by a person; the digest over the contract and every path it protects; and each result's check | whether a contract exists: `tests/test_adapters.py::test_an_issue_asks_for_a_contract_only_by_a_persons_label`; the rest is waiting on `adapters/contract.py` |
 | Whether an approval GitHub dismisses as stale stays on its commit, and who is recorded as dismissing it, is a platform fact, unverified until trial P-38 grounds it | `sim/grounding.py`, `tools/check_trials.py` |
 | `apply` refuses the implementing Role's change to a contract or a test it names (I-30) | waiting on `harness/push.py`, the fix Intent's push |
-| A reporter for `role`, `static`, `mutation` and `scenario` | waiting on `roles/` |
+| A reporter for `role`, `static`, `mutation` and `scenario` | waiting on `adapters/contract.py` |

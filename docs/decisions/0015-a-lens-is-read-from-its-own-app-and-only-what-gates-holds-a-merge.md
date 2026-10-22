@@ -84,4 +84,4 @@ the deterministic Lenses alone, they are its only judge.
 | The port reports the latest result per criterion per check suite | waiting on `adapters/contract.py` |
 | A result counts only from the App the configuration allows for its criterion's kind; never from the author's Role. Issue 108, "Kernel: acceptance evidence from the right reporter, against the approved contract" | waiting on `adapters/contract.py` |
 | The contract read is the one the Maintainer approved, unchanged since; no fix Run on a contract not yet approved (I-29), in the same story | waiting on `adapters/contract.py` |
-| No manifest names another Role's output as a trigger | waiting on `roles/` |
+| No manifest names another Role's output as a trigger | role/1 has no field for a trigger: `examples/invalid/role.a-trigger-on-another-roles-output.json` |

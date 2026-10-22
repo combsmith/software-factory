@@ -789,6 +789,84 @@ class Authority(unittest.TestCase):
         del facts["properties"]["threads"]["items"]["properties"]["category"]
         self.assertTrue(caught(check_authority.run(self.table, facts=facts), "a thread in the facts carries no category"))
 
+    def team(self, roles=None, apps=None):
+        """The team checks alone, on the manifests given, or the repo's."""
+        from tools.check_examples import LIVE
+        roles = check_authority.manifests() if roles is None else roles
+        apps = json.loads((ROOT / "config" / "apps.json").read_text()) if apps is None else apps
+        return check_authority.team(roles, self.table, apps, LIVE)
+
+    def review(self, **over) -> dict:
+        m = json.loads((ROOT / "roles" / "pr-review.json").read_text())
+        m.update(over)
+        return m
+
+    def test_the_repos_roles_hold_to_the_team_checks(self):  # issue 194, ruling 8
+        self.assertEqual(self.team(), [])
+        self.assertEqual(sorted(check_authority.manifests()), ["pr-review"])
+        # The check the verify step runs reads the team too.
+        self.assertTrue(caught(check_authority.run(self.table, roles={"pr-review": self.review(name="x")}),
+                               "roles/pr-review.json names the Role 'x'"))
+
+    def test_a_manifest_is_named_as_its_file_and_held_to_role_1(self):  # decision 0039
+        problems = self.team({"pr-review": self.review(name="dev-lead"), "qa-lead": self.review(name="qa-lead",
+                                                                                                kind="shadow")})
+        self.assertTrue(caught(problems, "roles/pr-review.json names the Role 'dev-lead'"))
+        self.assertTrue(caught(problems, "roles/qa-lead.json is held to no schema; add it to LIVE"))
+
+    def test_an_owner_owns_what_the_authority_table_names_and_each_category_has_one(self):  # section 5.4
+        fewer = self.review(owns=self.review()["owns"][1:])
+        self.assertTrue(caught(self.team({"pr-review": fewer}), "pr-review owns"))
+        self.assertTrue(caught(self.team({"pr-review": self.review(kind="reviewer")}),
+                               "only an owner owns a category"))
+        self.assertTrue(caught(self.team({}), "functional's owner pr-review has no manifest in roles/"))
+        twin = self.review(name="pr-review-two", app="combsmith-sf-other", owns=["security"])
+        self.assertTrue(caught(self.team({"pr-review": self.review(), "pr-review-two": twin}),
+                               "security is owned by ['pr-review', 'pr-review-two']"))
+
+    def test_each_permitted_effect_is_within_the_ceiling_of_its_roles_own_app(self):  # section 5.4, decision 0005
+        wide = self.review(intents=[dict(self.review()["intents"][0], permitted_effects=["submit_review",
+                                                                                         "create_check_run"])])
+        self.assertTrue(caught(self.team({"pr-review": wide}), "pr-review permits create_check_run, beyond the ceiling"))
+        self.assertTrue(caught(self.team({"pr-review": self.review(app="combsmith-sf-nobody")}),
+                               "names no App of config/apps.json"))
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        apps["apps"]["pr-review"]["permissions"]["pull_requests"]["needs"].remove("effect:submit_review")
+        self.assertTrue(caught(self.team(apps=apps), "pr-review permits submit_review, beyond the ceiling"))
+        # Granted and mapped, it is within the ceiling.
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        apps["needs"]["effect:create_check_run"] = {"permission": "checks", "level": "write"}
+        apps["apps"]["pr-review"]["permissions"]["checks"] = {"level": "write", "needs": ["effect:create_check_run"]}
+        self.assertEqual(self.team({"pr-review": wide}, apps), [])
+
+    def test_an_intent_of_class_gate_names_an_eval_set_of_its_own(self):  # section 5.4
+        for evals in ("evals/nothing-here", "evals/context"):
+            gate = self.review(intents=[dict(self.review()["intents"][0], evals=evals)])
+            self.assertTrue(caught(self.team({"pr-review": gate}), "names no eval set of its own"), evals)
+        other = self.review(intents=[dict(self.review()["intents"][0], name="adjudicate-findings")])
+        self.assertTrue(caught(self.team({"pr-review": other}), "Intent adjudicate-findings spends from gate"))
+
+    def test_a_shadow_writes_nothing_and_spends_from_shadow(self):  # decision 0039
+        shadow = self.review(name="qa-lead", kind="shadow", owns=[], app="combsmith-sf-qa-lead")
+        live = {"pr-review": self.review(), "qa-lead": shadow}
+        from tools.check_examples import LIVE
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        problems = check_authority.team(live, self.table, apps, set(LIVE) | {"roles/qa-lead.json"})
+        self.assertTrue(caught(problems, "qa-lead is a shadow, and its Intent review-change writes"))
+        quiet = dict(shadow, intents=[dict(shadow["intents"][0], permitted_effects=[], budget_class="shadow")])
+        del quiet["app"]
+        self.assertEqual(check_authority.team({"pr-review": self.review(), "qa-lead": quiet}, self.table, apps,
+                                              set(LIVE) | {"roles/qa-lead.json"}), [])
+
+    def test_each_role_writes_through_its_own_app(self):  # L-44
+        other = self.review(name="qa-lead", kind="shadow", owns=[],
+                            intents=[dict(self.review()["intents"][0], permitted_effects=[], budget_class="shadow")])
+        from tools.check_examples import LIVE
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        problems = check_authority.team({"pr-review": self.review(), "qa-lead": other}, self.table, apps,
+                                        set(LIVE) | {"roles/qa-lead.json"})
+        self.assertTrue(caught(problems, "['pr-review', 'qa-lead'] write through one App, combsmith-sf-pr-review"))
+
     def test_a_raised_finding_with_a_category_nobody_owns_is_caught(self):  # decision 0038
         result = json.loads((ROOT / "schemas" / "result.schema.json").read_text())
         raised = result["$defs"]["raised"]["properties"]
