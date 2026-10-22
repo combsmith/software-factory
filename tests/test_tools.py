@@ -4016,21 +4016,25 @@ esac
 exit 9
 """
     # A stand-in curl: what each fetch gets, from the file `net` beside it: "limited" answers the allowed host through
-    # the proxy alone; "open" answers every fetch; "none" answers nothing; "around" answers the denied host around it;
-    # "proxied" answers the denied host through the proxy, and around it nothing denied.
+    # the proxy alone; "open" answers every fetch; "none" answers nothing; "around" answers the denied host around it, by its name;
+    # "proxied" answers the denied host through the proxy, and around it nothing denied; "address" answers the denied
+    # host at the address given it by --resolve alone. Each address given is recorded in `resolved`.
     CURL = """#!/bin/sh
 here=$(cd "$(dirname "$0")/.." && pwd)
 net=$(cat "$here/net")
-around=no; host=
+around=no; host=; resolved=; prev=
 for a in "$@"; do
+  [ "$prev" = --resolve ] && { resolved=$a; echo "$a" >> "$here/resolved"; }
   case "$a" in --noproxy) around=yes ;; https://*) host=${a#https://}; host=${host%/} ;; esac
+  prev=$a
 done
 yes_() { printf 'http=200 connect=000'; exit 0; }
 no_() { printf 'http=000 connect=403'; exit 56; }
 case "$net" in open) yes_ ;; none) no_ ;; esac
 [ "$host" = example.com ] && [ "$around" = no ] && yes_
-[ "$net" = around ] && [ "$host" = example.org ] && [ "$around" = yes ] && yes_
+[ "$net" = around ] && [ "$host" = example.org ] && [ "$around" = yes ] && [ -z "$resolved" ] && yes_
 [ "$net" = proxied ] && [ "$host" = example.org ] && [ "$around" = no ] && yes_
+[ "$net" = address ] && [ "$host" = example.org ] && [ -n "$resolved" ] && yes_
 no_
 """
     # A stand-in ps: `-o ppid=` gives the stand-in CLI's own parent, the script, where the file `to-cli` is, else 1;
@@ -4043,6 +4047,13 @@ case "$*" in
   *-E*) for a in "$@"; do last=$a; done; echo "$last" >> "$here/ps-read"
         if [ -f "$here/above-leaks" ]; then echo "P26_PARENT_MARKER=$(cat "$here/stash")"; else env; fi ;;
 esac
+"""
+    # A stand-in dig, for the script itself, outside the sandbox: the denied host's address after a name that is not
+    # one, as +short gives a CNAME, or nothing where the file `no-address` is.
+    DIG = """#!/bin/sh
+here=$(cd "$(dirname "$0")/.." && pwd)
+[ -f "$here/no-address" ] && exit 0
+printf 'example.org.cdn.example.\\n192.0.2.7\\n'
 """
     PROSE = {"result": "the model wrote THIS-PROSE-1 here", "added": "a field the CLI adds carries THIS-PROSE-2",
              "denied": "THIS-PROSE-4 in a refused tool's input", "stderr": "THIS-PROSE-11 the model said on standard error"}
@@ -4068,14 +4079,15 @@ esac
         for flag in (("runs",) if runs else ()) + (("confined",) if confined else ()) + tuple(flags):
             (folder / flag).write_text("")
         (folder / "bin").mkdir()
-        for name, text in (("claude", self.STAND_IN), ("bin/curl", self.CURL), ("bin/ps", self.PS)):
+        (folder / "host-bin").mkdir()
+        for name, text in (("claude", self.STAND_IN), ("bin/curl", self.CURL), ("bin/ps", self.PS), ("host-bin/dig", self.DIG)):
             (folder / name).write_text(text)
             (folder / name).chmod(0o755)
         return folder
 
     def run_script(self, out, cfg, cli, home=None) -> subprocess.CompletedProcess:
         """The script as the Maintainer runs it, from a shell that holds a key the CLI must never see."""
-        env = {"PATH": os.environ["PATH"], "HOME": str(home or self.home), "LANG": "C",
+        env = {"PATH": "%s:%s" % (pathlib.Path(cli).parent / "host-bin", os.environ["PATH"]), "HOME": str(home or self.home), "LANG": "C",
                "ANTHROPIC_API_KEY": "sk-" + "ant-" + "api03-NEVER-SEEN", "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
         return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg), str(cli)], cwd=SCRATCH.name,
                               capture_output=True, text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
@@ -4154,7 +4166,7 @@ esac
             self.assertEqual(part["write_outside_the_work_directory"], {"exit": 0, "landed": True})
             self.assertEqual(part["stderr"], {"lines": 1, "characters": len(self.PROSE["stderr"]) + 1})
             self.assertEqual(sorted(part["fetches"]), ["allowed_around_proxy", "allowed_through_proxy",
-                                                       "denied_around_proxy", "denied_through_proxy"])
+                                                       "denied_around_proxy", "denied_by_address", "denied_through_proxy"])
             self.assertEqual((part["ancestors"]["read_exits"], part["ancestors"]["processes"]), (None, None))
         self.assertEqual(list(self.home.glob(".p26-write-probe-*")), [], "the write outside is removed")
         requests = json.loads((self.out / "requests.json").read_text())
@@ -4173,6 +4185,8 @@ esac
                 ("the denied host answers around the proxy", dict(hides=("markers", "markers"), net="around"), 1,
                  (True, True, False), (True, True, False)),
                 ("the denied host answers through the proxy", dict(hides=("markers", "markers"), net="proxied"), 1,
+                 (True, True, False), (True, True, False)),
+                ("the denied host answers at its address", dict(hides=("markers", "markers"), net="address"), 1,
                  (True, True, False), (True, True, False)),
                 ("the allowed host does not answer", dict(hides=("markers", "markers"), net="none"), 1,
                  (True, True, False), (True, True, False)),
@@ -4206,6 +4220,12 @@ esac
         self.assertEqual((self.checked(out)["login"], self.checked(out)["some_configuration_hides_and_limits"]),
                          ({"exit": 0, "status": "no"}, False))
 
+    def test_the_probe_tries_the_denied_host_at_the_address_looked_up_outside(self):
+        # The address the script looked up, outside the sandbox, is the one the probe gives curl, in each Task.
+        folder = self.stand_in(hides=("markers", "markers"))
+        self.assertEqual(self.run_script(self.out, self.cfg, folder / "claude").returncode, 0)
+        self.assertEqual((folder / "resolved").read_text().split(), ["example.org:443:192.0.2.7"] * 2)
+
     def test_the_probe_reads_nothing_above_the_cli(self):
         # The process above the probe is the script itself, the CLI's parent: the probe stops there and never reads it,
         # though the sandbox hides every name in its environment.
@@ -4222,7 +4242,8 @@ esac
         probe = re.search(r"<<'PROBE'\n(.*?)\nPROBE\n", self.SCRIPT.read_text(), re.S).group(1)
         work = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
         (work / "probe.sh").write_text(probe.replace("@ABOVE@", "").replace("@OUTSIDE@", str(work / "x")).replace("/proc/", "/nonexistent-p26/proc/")
-                                       .replace("@ALLOWED@", "example.com").replace("@DENIED@", "example.org"))
+                                       .replace("@ALLOWED@", "example.com").replace("@DENIED@", "example.org")
+                                       .replace("@ADDRESS@", "192.0.2.7"))
         folder = self.stand_in(flags=("to-cli",))
         (folder / "cli-ppid").write_text("2\n")
         subprocess.run(["sh", "./probe.sh"], cwd=work, env={"PATH": "%s:/usr/bin:/bin" % (folder / "bin")},
@@ -4247,6 +4268,11 @@ esac
             self.assertIn(said, ran.stderr, name)
             self.assertFalse(out.exists() and out != existing, name)
             self.assertFalse((folder / "env-version").exists(), name + ": nothing was asked")
+        folder = self.stand_in(flags=("no-address",))
+        ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertEqual(ran.returncode, 2, ran.stderr)
+        self.assertIn("example.org has no IPv4 address here", ran.stderr)
+        self.assertFalse((folder / "env-version").exists(), "no address: nothing was asked")
         for name, folder, said in [("wrong version", self.stand_in(version="0.0.1"), "is version '0.0.1', exit 0, not " + self.PIN),
                                    ("not logged in", self.stand_in(status={"loggedIn": False}), "login under CONFIG_DIR is 'no'")]:
             out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))

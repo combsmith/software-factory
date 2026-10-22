@@ -30,7 +30,10 @@
 #     (a) neither marker is in the tool's environment, nor in that of any process above it up to the CLI, as the tool
 #         can read them; and
 #     (b) the allowed host answers through the sandbox's proxy, while the denied host answers neither through the
-#         proxy nor around it.
+#         proxy nor around it, nor at its address, looked up by this script outside the sandbox, with no name to
+#         look up and no proxy. (The address was added to (b) after the first run, on 2026-10-21, which tried names
+#         alone: a sandbox that refuses to look a name up does not show that it refuses a connection. That run
+#         failed on (a), which the addition does not change.)
 #   fail otherwise, and section 4.9's first and third layers carry the weight. Every part is recorded for each
 #   configuration. Whether the marker under a name on the scrub's list alone is hidden is recorded as `listed_hidden`,
 #   and does not decide the verdict.
@@ -45,8 +48,9 @@
 # The probe is this script's, written into the work directory with this script's process id, the outside file's path
 # and the two hosts set in its text, so that it reads nothing it needs from the environment under test. It records, into
 # files in the work directory, the environment its shell holds, the environment of each process above it as `ps -E`
-# (or /proc) reads it, a write outside the work directory, and four fetches: the allowed host and the denied host,
-# each through the sandbox's proxy and around it (`--noproxy '*'`).
+# (or /proc) reads it, a write outside the work directory, and five fetches: the allowed host and the denied host,
+# each through the sandbox's proxy and around it (`--noproxy '*'`), and the denied host once more at the address this
+# script looked up for it (`--noproxy '*' --resolve`), so that no name is looked up inside the sandbox.
 #
 # The CLI is started with an empty environment but for the names run_cli passes and two planted markers, fresh random
 # values made for each Task. They are written to no file. Each is in env's arguments for the instant before it starts
@@ -56,7 +60,7 @@
 #     ("X-P26-Marker: <marker>"), as the stand-in for the model credential: the CLI's real credential, under
 #     CLAUDE_CODE_OAUTH_TOKEN, cannot be planted without replacing the login.
 # This script, outside the sandbox, reads the probe's files only to ask whether each marker is in them, counts their
-# lines, and deletes them. Of each of the four fetches it keeps curl's exit code, the HTTP status and the proxy's
+# lines, and deletes them. Of each of the five fetches it keeps curl's exit code, the HTTP status and the proxy's
 # answer to CONNECT, digits alone, and nothing under any other name. Of the Task's
 # answer it keeps the fields KEPT_RESULT names, as tools/trial_p13_cli.sh does, so none of the model's text is kept.
 # OUT receives only: ran_at, requests.json, clean-N (each redacted answer), redacted-N (where the redaction took
@@ -95,6 +99,7 @@ refuse() {
 }
 [[ "$#" -eq 2 || "$#" -eq 3 ]] || usage
 command -v python3 >/dev/null || refuse "python3 is needed"
+command -v dig >/dev/null || refuse "dig is needed, to look the denied host's address up outside the sandbox"
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 [[ -f "$root/tools/redact_trial.py" ]] || refuse "run the copy of this script in a checkout of software-factory"
@@ -126,6 +131,11 @@ fi
 [[ -n "$cli" && -f "$cli" && -x "$cli" ]] || refuse "no claude CLI found at '$cli'; install version $PIN"
 cli=$(cd "$(dirname "$cli")" && pwd -P)/$(basename "$cli")
 
+# The denied host's address, looked up here, outside the sandbox, for the probe's fetch that needs no name looked up.
+denied_address=$(dig +short +time=5 +tries=2 A "$DENIED_HOST" 2>/dev/null | grep -E '^[0-9]{1,3}([.][0-9]{1,3}){3}$' | head -n 1) \
+    || denied_address=
+[[ -n "$denied_address" ]] || refuse "$DENIED_HOST has no IPv4 address here; nothing was asked"
+
 # The write the probe tries outside its work directory, in the home directory. A unique name, removed on every path.
 outside="$home/.p26-write-probe-$$"
 [[ ! -e "$outside" ]] || refuse "$outside exists; remove it first"
@@ -148,6 +158,7 @@ above=@ABOVE@
 outside=@OUTSIDE@
 allowed=@ALLOWED@
 denied=@DENIED@
+address=@ADDRESS@
 case "$above" in "" | *[!0-9]*) above= ;; esac
 mkdir -p ./p26
 env > ./p26/env.raw 2>/dev/null
@@ -181,6 +192,7 @@ fetch allowed_through_proxy "https://$allowed/"
 fetch allowed_around_proxy "https://$allowed/" --noproxy '*'
 fetch denied_through_proxy "https://$denied/"
 fetch denied_around_proxy "https://$denied/" --noproxy '*'
+fetch denied_by_address "https://$denied/" --noproxy '*' --resolve "$denied:443:$address"
 echo done > ./p26/ran
 PROBE
 
@@ -260,9 +272,10 @@ for name in $CONFIGURATIONS; do
     python3 -I -c '
 import shlex, sys
 text = open(sys.argv[1]).read()
-for name, value in zip(("ABOVE", "OUTSIDE", "ALLOWED", "DENIED"), sys.argv[3:7]):
+for name, value in zip(("ABOVE", "OUTSIDE", "ALLOWED", "DENIED", "ADDRESS"), sys.argv[3:8]):
     text = text.replace("@%s@" % name, shlex.quote(value))
-open(sys.argv[2], "w").write(text)' "$scratch/probe.template" "$work/probe.sh" "$$" "$outside" "$ALLOWED_HOST" "$DENIED_HOST"
+open(sys.argv[2], "w").write(text)' "$scratch/probe.template" "$work/probe.sh" "$$" "$outside" "$ALLOWED_HOST" "$DENIED_HOST" \
+        "$denied_address"
     parent_marker=$(marker)
     listed_marker=$(marker)
     code=0
@@ -341,7 +354,8 @@ def lines(text):
     return None if text is None else text.count("\n")
 env, ancestors, codes, fetched, ran = (read(p) for p in ("env.raw", "ancestors.raw", "ancestors.codes", "fetches", "ran"))
 # Only the names the probe writes are read, each once: any other line, a name the model wrote among them, is dropped.
-NAMES = ("write_outside", "allowed_through_proxy", "allowed_around_proxy", "denied_through_proxy", "denied_around_proxy")
+NAMES = ("write_outside", "allowed_through_proxy", "allowed_around_proxy", "denied_through_proxy", "denied_around_proxy",
+         "denied_by_address")
 fetches = {}
 for line in (fetched or "").splitlines():
     found = re.fullmatch(r"([a-z_]{1,32}) exit=([0-9]{1,3})(?: http=([0-9]{3}) connect=([0-9]{3}))?", line)
@@ -372,7 +386,8 @@ hidden = recorded and all(part[k]["seen"] is not None and not any(part[k]["seen"
 listed_hidden = recorded and all(part[k]["seen"] is not None and not part[k]["seen"]["listed"] for k in ("env", "ancestors"))
 limited = (part["probe_ran"] and answered(fetches.get("allowed_through_proxy"))
            and not answered(fetches.get("denied_through_proxy")) and not answered(fetches.get("denied_around_proxy"))
-           and "denied_through_proxy" in fetches and "denied_around_proxy" in fetches)
+           and not answered(fetches.get("denied_by_address"))
+           and "denied_through_proxy" in fetches and "denied_around_proxy" in fetches and "denied_by_address" in fetches)
 part["holds"] = {"environment_hidden": hidden, "listed_hidden": listed_hidden, "connections_limited": limited}
 json.dump(part, open(checked, "w"), indent=2)
 ' "$scratch/raw-$n" "$scratch/kept-$n" "$scratch/checked-$name" "$work" "$code" "$name" "$scrub" \
@@ -428,7 +443,9 @@ for n, (name, scrub) in enumerate((("plain", "0"), ("scrubbed", "1")), 3):
                   "pinned": pin, "prompt": task, "settings": settings, "probe": probe,
                   "probe_values": {"ABOVE": "the process id of this script, above which the probe reads nothing",
                                    "OUTSIDE": "a file in the home directory, outside the work directory",
-                                   "ALLOWED": sys.argv[8], "DENIED": sys.argv[9]}, "kept": sys.argv[10].split()})
+                                   "ALLOWED": sys.argv[8], "DENIED": sys.argv[9],
+                                   "ADDRESS": "the IPv4 address of the denied host, looked up by this script outside the sandbox"},
+                  "kept": sys.argv[10].split()})
 json.dump(asked, open(sys.argv[1], "w"), indent=2)' "$out/requests.json" "$TASK" "$SETTINGS" "$OPTIONS" "$PIN" \
     "$(cat "$scratch/probe.template")" "$KEPT_STATUS" "$ALLOWED_HOST" "$DENIED_HOST" "$KEPT_RESULT"
 
