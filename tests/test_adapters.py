@@ -1862,13 +1862,53 @@ class ChecksAsked(unittest.TestCase):
         self.assertTrue(str(codeql["workflow"]).startswith("dynamic/"))
 
 
+def per_hundred(found: dict) -> dict:
+    """A fixture's exchange asked as the port asks a list: a full page of a hundred, GitHub's answer kept."""
+    found = copy.deepcopy(found)
+    words = found["request"]["call"].split()
+    found["request"]["call"] = " ".join([words[0], words[1].replace("per_page=1", "per_page=100")] + words[2:])
+    return found
+
+
+def second_page(found: dict, body) -> dict:
+    """The page the port asks next, after `found`, answered with `body`."""
+    page = copy.deepcopy(found)
+    words = page["request"]["call"].split()
+    page["request"]["call"] = " ".join([words[0], words[1] + "&page=2"] + words[2:])
+    page["response"]["body"] = body
+    return page
+
+
+# Each grounded rule of the fake that the port does not read here, by why: the Controller's, the workflows' or a
+# person's, which no port reads (`controller`); the issues port's, not built (`issues_port`); or a fixture recorded in
+# another request's shape than the port asks, which a trial records again (`shape`).
+NOT_READ = {
+    "a_run_waits_its_turn": "controller", "a_tick_can_be_lost": "controller",
+    "a_pass_starts_its_successor": "controller", "a_public_event_starts_a_pass": "controller",
+    "a_closing_reference_is_read_from_any_pull_request": "issues_port", "who_changed_the_draft_flag_is_read": "issues_port",
+    "an_issues_content_time_is_read_apart": "issues_port", "a_reopening_names_its_actor": "issues_port",
+    "an_issues_close_and_reopening_say_when": "issues_port",
+    "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",
+    "a_label_event_names_its_actor": "shape",
+}
+WHY = {"controller", "issues_port", "shape"}
+# Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
+# as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
+REFUSALS = {
+    ("P-27", 15): "effects",           # a dispatch GitHub refused: the effects port's, which records it failed
+    ("P-27", 21): None,                # an org membership read, which no port asks
+    ("P-29.truncated", 4): "diff",     # the diff too large to serve: read as truncated, never as the whole
+    ("P-29.truncated", 14): None,      # the patch form, which no port asks
+    ("P-4", 2): None, ("P-4", 3): None, ("P-4", 9): None,   # a trial's own writes and reads of a file
+    ("P-43", 3): None,                 # a review written by the trial, which no port writes yet
+    ("P-44", 3): "runs",               # a list of runs GitHub did not find
+}
+
+
 class Contract(unittest.TestCase):
-    def test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it(self):
-        # L-51 and sim/AGENTS.md: each rule of the fake GitHub a fixture grounds, and the port reads, is read by the
-        # port from that same fixture as the rule states it. The fake is not run here: a rule dropped from the fake's
-        # grounding, or a fixture the port reads otherwise, fails.
-        from sim import grounding
-        grounded = {code: fixture for code, _, _, fixture, _ in grounding.RULES if fixture}
+    def reads(self) -> dict:
+        """Each grounded rule the port reads, from the fixture that grounds it, as the rule states it: the fixtures it
+        replays, and whether the port's reading holds the rule."""
         before = pull.diff(replay("P-29.base", 2), body("P-29.base", 1))["content_id"]
         after = pull.diff(replay("P-29.base", 13), body("P-29.base", 12))["content_id"]
         fork = [e for e in exchanges("P-27") if "/runs?" in e["request"].get("call", "") and e["response"]["status"] == 200]
@@ -1876,53 +1916,102 @@ class Contract(unittest.TestCase):
                 if r["head_repository"]["full_name"] != r["repository"]["full_name"]]
         # A fork's run is a pull request's, and would not count even were it a dispatch of a Role's file.
         recorded, rows = rows, rows + [dict(r, event="workflow_dispatch") for r in rows]
-        reads = {
-            "a_push_is_new_content": before != after,
-            "the_pusher_is_the_last_pusher": pull.last_pusher(replay("P-28", 7), body("P-28", 10)) == "don-petry"
-            and pull.last_pusher(replay("P-28.app", 1), body("P-28.app", 0)) == "combsmith-sf-trial-author[bot]",
-            "a_short_diff_says_so": pull.diff(replay("P-29.truncated", 4), body("P-29.truncated", 2))["diff"]["truncated"],
-            "a_path_list_can_leave_out_a_file": pull.changed_paths(github.Replay(files_pages(30, [])),
-                                                                   body("P-29.truncated", 2))["complete"] is False,
-            "a_forks_run_never_counts": bool(recorded) and all(r["event"] == "pull_request" for r in recorded)
-            and all(records._record(r, r["repository"]["full_name"], r.get("head_branch"), {r.get("path")},
-                                    (r["actor"]["id"], r["actor"]["type"])) == (None, None) for r in rows),
-            "a_new_run_is_listed_unnamed": Records().read(listing("P-17", 9, total=1), listing("P-17", 10, total=1),
-                                                          per_page=1)[0]["unidentified"] == ["39086879694"],
-            # The bot's pull request is dependency only as the account named for it, by id and type, and it pushed the head.
-            "a_dependency_bot_updates_a_workflow_pin":
+        p43 = exchanges("P-43")
+        queued = Records().read(listing("P-17", 3, rows={"name": NAME}))[0]
+        late = []
+        for found in exchanges("P-22"):
+            if "/runs?" in found["request"].get("call", "") and found["response"]["status"] == 200:
+                per = int(found["request"]["call"].split("per_page=")[1].split()[0].rstrip(","))
+                if found["response"]["body"]["total_count"] > per:
+                    continue            # a list longer than its page, which the trial read one page of
+                got = Records().read(asked(found), asked(found), per_page=per)[0]
+                late.append(got["complete"] and len(got["unidentified"]) == len(found["response"]["body"]["workflow_runs"]))
+        compares = {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "diff --git a/x b/x\n",
+                    "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "diff --git a/y b/y\n"}
+        router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, compares)
+        events, _ = timeline.events(replay("P-7", 16), p7_pull())
+        reviewed, _ = timeline.reviews(router, p7_pull(), events, timeline.Accounts(router, canary(), MACHINE, {}),
+                                       BASE_HEAD)
+        short_events = timeline.events(github.Replay([per_hundred(p43[13]), second_page(per_hundred(p43[13]), {})]),
+                                       {"number": 48, "base": {"repo": {"full_name": canary()}}})
+        files = pull.changed_paths(replay("P-43", 10), body("P-43", 8))
+        return {
+            "a_push_is_new_content": ({"P-29.base"}, before != after),
+            "the_pusher_is_the_last_pusher": ({"P-28", "P-28.app"},
+                pull.last_pusher(replay("P-28", 7), body("P-28", 10)) == "don-petry"
+                and pull.last_pusher(replay("P-28.app", 1), body("P-28.app", 0)) == "combsmith-sf-trial-author[bot]"),
+            "a_short_diff_says_so": ({"P-29.truncated"},
+                pull.diff(replay("P-29.truncated", 4), body("P-29.truncated", 2))["diff"]["truncated"]),
+            "a_path_list_can_leave_out_a_file": ({"P-29.truncated"},
+                pull.changed_paths(github.Replay(files_pages(30, [])), body("P-29.truncated", 2))["complete"] is False),
+            "a_forks_run_never_counts": ({"P-27"},
+                bool(recorded) and all(r["event"] == "pull_request" for r in recorded)
+                and all(records._record(r, r["repository"]["full_name"], r.get("head_branch"), {r.get("path")},
+                                        (r["actor"]["id"], r["actor"]["type"])) == (None, None) for r in rows)),
+            "a_new_run_is_listed_unnamed": ({"P-17"},
+                Records().read(listing("P-17", 9, total=1), listing("P-17", 10, total=1),
+                               per_page=1)[0]["unidentified"] == ["39086879694"]),
+            # The bot's pull request is dependency only as the account named for it, by id and type, and it pushed the
+            # head; the Kernel compares the last pusher with the author as the port reads both, by REST's one spelling.
+            "a_dependency_bot_updates_a_workflow_pin": ({"P-45"},
                 pull.own(body("P-45", 5), {"dependency": {(49699333, "Bot")}})[0]["class"] == "dependency"
                 and pull.own(body("P-45", 5), {})[0]["class"] == "outside"
                 and pull.last_pusher(replay("P-45", 7), body("P-45", 5)) == "dependabot[bot]"
-                # The Kernel compares the last pusher with the author as the port reads both, by REST's one spelling.
-                and pull.own(body("P-45", 5), {})[0]["author"] == pull.last_pusher(replay("P-45", 7), body("P-45", 5)),
+                and pull.own(body("P-45", 5), {})[0]["author"] == pull.last_pusher(replay("P-45", 7), body("P-45", 5))),
+            # Listed while queued, before its job starts: a record of status queued.
+            "a_queued_run_is_listed": ({"P-17"}, [r["status"] for r in queued["runs"]] == ["queued"]),
+            # The port reads each list as GitHub gives it, and never infers a Run it does not list: every listing P-22
+            # recorded is read whole, each row read.
+            "a_new_run_is_listed_late": ({"P-22"}, bool(late) and all(late)),
+            # A filtered list stops at the 1,000th run, however many it counts: the port reads no more than it serves.
+            "a_run_list_stops_short": ({"P-43"},
+                p43[26]["response"]["body"]["total_count"] > records.SERVED == 1000
+                and p43[27]["response"]["body"]["workflow_runs"] == []),
+            # A list whose page names a next one is read on, and one that then ends in no list is read short.
+            "a_short_list_says_so": ({"P-43"}, short_events[1] is False and len(short_events[0]) == 1),
+            "a_pull_request_lists_the_paths_it_changes": ({"P-43"},
+                files["complete"] is True and len(files["changed_paths"]) == body("P-43", 8)["changed_files"]
+                and any(p["previous"] for p in files["changed_paths"])),
+            "a_short_path_list_says_so": ({"P-43"},
+                pull.changed_paths(github.Replay([per_hundred(p43[9])]), body("P-43", 8))["complete"] is False),
+            # The App pushed last, and the machine user's approval of that head still stands, read as its approval.
+            "an_app_pushes_to_the_head": ({"P-7"},
+                pull.last_pusher(replay("P-7", 11), body("P-7", 7)) == "combsmith-sf-trial-author[bot]"),
+            "the_machine_users_approval_counts": ({"P-7"},
+                [(r["by"]["kind"], r["state"]) for r in reviewed if r["by"]["kind"] == "machine_user"][-1:]
+                == [("machine_user", "approved")]),
         }
-        # Each is read from the fixture that grounds it, and no other.
-        replayed = {"a_push_is_new_content": {"P-29.base"}, "the_pusher_is_the_last_pusher": {"P-28", "P-28.app"},
-                    "a_short_diff_says_so": {"P-29.truncated"}, "a_path_list_can_leave_out_a_file": {"P-29.truncated"},
-                    "a_forks_run_never_counts": {"P-27"}, "a_new_run_is_listed_unnamed": {"P-17"},
-                    "a_dependency_bot_updates_a_workflow_pin": {"P-45"}}
-        # Every other rule a fixture grounds is named, with why this test does not read it yet: a rule added to the
-        # fake's grounding fails here until it is read or named.
-        not_read = {
-            # Read by the port or by a part of it, but not yet compared here with what the fake assumes.
-            "a_queued_run_is_listed", "a_new_run_is_listed_late", "a_run_list_stops_short", "a_short_list_says_so",
-            "a_pull_request_lists_the_paths_it_changes", "a_short_path_list_says_so",
-            "the_machine_users_approval_counts", "an_app_pushes_to_the_head",
-            # The fixture records GraphQL's shape; the port reads the REST timeline, which no fixture holds whole.
-            "a_label_event_names_its_actor",
-            # Not the facts or records port's: the Controller's lane and passes, and the issues port, not built.
-            "a_run_waits_its_turn", "a_tick_can_be_lost", "a_pass_starts_its_successor", "a_public_event_starts_a_pass",
-            "a_closing_reference_is_read_from_any_pull_request", "who_changed_the_draft_flag_is_read",
-            "an_issues_content_time_is_read_apart", "a_reopening_names_its_actor", "an_issues_close_and_reopening_say_when",
-            "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing",
-        }
-        self.assertEqual(set(grounded), set(reads) | not_read)
-        self.assertFalse(set(reads) & not_read)
-        for code, holds in reads.items():
+
+    def test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it(self):
+        # L-51 and sim/AGENTS.md: each rule of the fake GitHub a fixture grounds is read by the port from that same
+        # fixture as the rule states it, or is named in NOT_READ with why. The fake is not run here: it answers no
+        # request, so what it assumes is the rule's statement, which each reading holds.
+        from sim import grounding
+        grounded = {code: fixture for code, _, _, fixture, _ in grounding.RULES if fixture}
+        reads = self.reads()
+        self.assertEqual(set(grounded), set(reads) | set(NOT_READ))
+        self.assertFalse(set(reads) & set(NOT_READ))
+        self.assertLessEqual(set(NOT_READ.values()), WHY)
+        for code, (replayed, holds) in reads.items():
             fixtures = grounded[code] if isinstance(grounded[code], tuple) else (grounded[code],)
-            self.assertEqual({pathlib.PurePath(f).stem for f in fixtures}, replayed[code], code)
+            self.assertEqual({pathlib.PurePath(f).stem for f in fixtures}, replayed, code)
             self.assertTrue(holds, code)
 
+    def test_a_response_a_trial_shows_github_refusing_is_never_read_as_an_answer(self):
+        # FR-56: every refusal a trial recorded is placed, and each a port asks is read as no answer: a list of runs
+        # GitHub did not find refuses the pass's read, and a diff too large to serve is read as truncated.
+        found = {(path.stem, at) for path in sorted((ROOT / "trials").glob("P-*.json"))
+                 for at, e in enumerate(json.loads(path.read_text()).get("exchanges", []))
+                 if (e.get("request") or {}).get("via") in ("rest", "graphql")
+                 and isinstance(e.get("response", {}).get("status"), int) and e["response"]["status"] >= 400}
+        self.assertEqual(found, set(REFUSALS))
+        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "effects", "runs"])
+        missing = exchanges("P-44")[3]
+        call = missing["request"]["call"].split()[1].rstrip(",")
+        workflow = call.split("/workflows/")[1].split("/")[0]
+        with self.assertRaises(github.Unanswered):
+            records.runs(github.Replay([asked(missing)]), canary(), "main", [workflow], DISPATCHER)
+        self.assertTrue(pull.diff(replay("P-29.truncated", 4), body("P-29.truncated", 2))["diff"]["truncated"])
 
 if __name__ == "__main__":
     unittest.main()
