@@ -1,4 +1,4 @@
-# 0046. The model is given a Task and no tool, and apply writes only what it reads back
+# 0047. The model is given a Task and no tool, and apply writes only what it reads back
 
 Status: accepted. Taken as working rulings on 2026-10-21, which the Maintainer may overturn in review, for
 "Harness: run and apply for the review Intent, and the model holds no credential that can write" (issue 194). It reopens
