@@ -53,7 +53,7 @@
     {"lens": "verify", "path": "sim/", "is": "the simulator verify runs"},
     {"lens": "verify", "path": "adapters/", "is": "the ports, whose tests verify runs"},
     {"lens": "verify", "path": "controller/", "is": "the Controller, whose tests verify runs"},
-    {"lens": "verify", "path": "harness/", "is": "the Harness, whose tests verify runs"},
+    {"lens": "verify", "path": "harness/", "is": "the Harness, which gives the review its Task and takes its answer"},
     {"lens": "pr-review", "path": "roles/pr-review.*", "is": "the review Role's manifest and its prompt beside it"},
     {"lens": "pr-review", "path": "roles/pr-review/", "is": "the review Role's own files"},
     {"lens": "pr-review", "path": "config/rubric-pr-review.json", "is": "a rubric"},
