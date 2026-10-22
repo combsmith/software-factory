@@ -132,6 +132,8 @@ RULES = (
     ("a_pull_request_lists_the_paths_it_changes", "Every file a pull request changes is read once, as many as the diff "
      "counts, by its path from the top of the repo, with the path a renamed file had before; an unchanged copy is "
      "listed as an added file", ("P-43",), "trials/P-43.json", None),
+    # The port reads a compare, not this list (issue 284): a change of more files than a compare lists, 300 as GitHub
+    # documents it and no trial records, is read short by changed_files alone, which the fixture's 3,001 shows.
     ("a_path_list_can_leave_out_a_file", "A list of the files a pull request changes can leave one out while it says it "
      "was read in full; it then holds fewer records than the diff has files: GitHub's list stops at its cap with a 200 "
      "and an empty next page, and only changed_files shows it short", ("P-29",), "trials/P-29.truncated.json", None),
