@@ -1257,26 +1257,47 @@ class Repo(unittest.TestCase):
                                 "reaches the network"))
 
     def test_the_p50_stub_alone_may_serve_and_only_on_loopback(self):
-        # Decision 0044's one exception (issue 287): tools/trial_p50_stub.py may import http.server, and nothing that
-        # reaches out; it serves on 127.0.0.1 written as it is, calls no create_connection, and no workflow here names it.
+        # Decision 0044's one exception (issue 287), held by an allowlist: tools/trial_p50_stub.py may import
+        # http.server, json, os and sys by their own names, name nothing of http, os and sys but what it uses, make its
+        # server one way, on 127.0.0.1 written as it is, and touch no socket; and no workflow here names it.
         stub = (ROOT / "tools" / "trial_p50_stub.py").read_text()
         rel = "tools/trial_p50_stub.py"
         self.assertEqual(check_repo.run(clone({})), [], "the stub as it is")
-        for text in ("import http.server\n", "from http import server\n"):
-            self.assertFalse(caught(check_repo.run(tree({rel: text})), "reaches the network"), text)
-            self.assertTrue(caught(check_repo.run(tree({"tools/trial_p51_stub.py": text})), "reaches the network"), text)
-        for text in ("import urllib.request\n", "import http.client\n", "from http import client, server\n", "import ssl\n",
-                     "import socket\n", "from socket import create_connection\n"):
-            self.assertTrue(caught(check_repo.run(tree({rel: text})), "reaches the network"), text)
-        self.assertTrue(caught(check_repo.run(tree({rel: "import x\nx.create_connection(('a', 1))\n"})), "create_connection"))
+        self.assertTrue(caught(check_repo.run(tree({"tools/trial_p51_stub.py": "import http.server\n"})), "reaches the network"))
         served = 'http.server.HTTPServer(("127.0.0.1", 0), Stub)'
         self.assertIn(served, stub)
-        for wrong in ('"0.0.0.0"', '""', '"localhost"', "HOST"):
-            text = stub.replace(served, served.replace('"127.0.0.1"', wrong))
-            self.assertTrue(caught(check_repo.run(tree({rel: text})), "serves on an address that is not 127.0.0.1"), wrong)
-        text = stub.replace(served, served.replace("HTTPServer", "ThreadingHTTPServer").replace('"127.0.0.1"', '"0.0.0.0"'))
-        self.assertTrue(caught(check_repo.run(tree({rel: text})), "serves on an address"))
-        self.assertTrue(caught(check_repo.run(tree({rel: "import x\nx.bind(('', 80))\n"})), "serves on an address"))
+        other = "makes its server other than as HTTPServer"
+        bypasses = [
+            # Reaching out.
+            ("a client module", "import urllib.request\n", "imports urllib.request, which the stub may not"),
+            ("http.client beside the server", "import http.server\nhttp.client.HTTPSConnection('x')\n", "names http.client.HTTPSConnection"),
+            ("a socket", "import socket\n", "imports socket, which the stub may not"),
+            ("TLS", "import ssl\n", "imports ssl, which the stub may not"),
+            ("a from-import", "from http import server\n", "imports from http"),
+            ("an alias", "import http.server as h\n", "imports http.server, which the stub may not"),
+            ("the server's own socket module", "import http.server\nhttp.server.socket.socket().connect(('x', 1))\n", "touches socket"),
+            ("create_server through the server's module", "import http.server\nhttp.server.socket.create_server(('x', 1))\n", "touches create_server"),
+            ("a module named by a string", "import importlib\nimportlib.import_module('so' + 'cket')\n", "imports importlib, which the stub may not"),
+            ("a subprocess", "import subprocess\nsubprocess.run(['curl', 'x'])\n", "imports subprocess, which the stub may not"),
+            ("the shell", "import os\nos.system('curl x')\n", "names os.system"),
+            ("a module held itself", "import os\nx = os\n", "names os itself"),
+            ("getattr", "import http.server\ngetattr(http.server, 'HTTPServer')(('0.0.0.0', 0), None)\n", "uses getattr"),
+            ("a create_connection on anything", "x.create_connection(('a', 1))\n", "touches create_connection"),
+            # Binding wider.
+            ("any address", stub.replace(served, served.replace('"127.0.0.1"', '"0.0.0.0"')), other),
+            ("every address", stub.replace(served, served.replace('"127.0.0.1"', '""')), other),
+            ("a name for an address", stub.replace(served, served.replace('"127.0.0.1"', "HOST")), other),
+            ("IPv6's every address", stub.replace(served, served.replace('"127.0.0.1"', '"::"')), other),
+            ("an address by keyword", stub.replace(served, 'http.server.HTTPServer(server_address=("0.0.0.0", 0), RequestHandlerClass=Stub)'), other),
+            ("the server under another name", stub.replace(served, 'S = http.server.HTTPServer\n    server = S(("0.0.0.0", 0), Stub)'), other),
+            ("a subclass", "import http.server\nclass S(http.server.HTTPServer):\n    pass\nS(('0.0.0.0', 0), None)\n", other),
+            ("socketserver beneath it", "import http.server\nhttp.server.socketserver.TCPServer(('0.0.0.0', 0), None)\n", "touches socketserver"),
+            ("the module's own server", "import http.server\nhttp.server.test(bind='0.0.0.0')\n", "names http.server.test"),
+            ("a bind put off", "server.server_address = ('0.0.0.0', 0)\nserver.server_bind()\n", "touches server_address"),
+            ("a bind", "x.bind(('', 80))\n", "touches bind"),
+        ]
+        for name, text, said in bypasses:
+            self.assertTrue(caught(check_repo.run(tree({rel: text})), said), name)
         workflow = (ROOT / ".github" / "workflows" / "verify.yml").read_text()
         named = workflow.replace("      - run: make verify\n", "      - run: python3 tools/trial_p50_stub.py p l\n")
         self.assertNotEqual(named, workflow)
@@ -3440,6 +3461,7 @@ class Trials(unittest.TestCase):
                     and not any(part["env"]["seen"].values()) and not any(part["ancestors"]["seen"].values())
                 held = ran and part["write_outside_the_work_directory"]["landed"] is False
                 self.assertEqual((part["holds"]["environment_hidden"], part["holds"]["sandbox_held_the_write"]), (hidden, held), where)
+                # tool_ran says the tool's result went back to the stub, an error or not; probe_ran says it ran.
                 self.assertEqual((part["exit"], part["answer"]["is_error"], part["holds"]["tool_ran"]), (0, False, True), where)
                 if phase == "as-is":
                     # As the runner stands the tool's result came back an error and the probe never ran, though the
