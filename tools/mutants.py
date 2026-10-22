@@ -889,10 +889,14 @@ ISSUE = [
 MUTANTS = ISSUE + [
     # Issue 195, ruling 4: an act or a Run asks the Kernel again before it writes (I-38).
     ("an act or a Run is still wanted for another item", "kernel/decide.py",
-     '            or again.get("item") != decided.get("item"):\n',
-     '            or False:\n', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
+     ' or again.get("item") != decided.get("item"):\n',
+     ':\n', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
     ("an act or a Run is still wanted for an item that cannot be read", "kernel/decide.py",
      ' or not _a_pull_request(decided.get("item")) \\\n', ' \\\n', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
+    ("the item asked again is not read", "kernel/decide.py",
+     '            or not _a_pull_request(again.get("item")) or', '            or', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
+    ("a repo is any truthy value", "kernel/decide.py",
+     'isinstance(repo, str) and bool(repo)', 'bool(repo)', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
     ("an issue is read as a pull request", "kernel/decide.py",
      '    if not isinstance(item, dict) or item.get("type") != "pull_request":\n', '    if not isinstance(item, dict):\n', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
     ("a pull request with no repo is whole", "kernel/decide.py",

@@ -3819,6 +3819,7 @@ class StillWanted(unittest.TestCase):
                   dict(approval, item=dict(item, repo=None)), dict(approval, item=dict(item, type="issue")),
                   dict(approval, item=dict(item, number=None)), dict(approval, item=dict(item, number=True)),
                   dict(approval, item=dict(item, number=0)), dict(approval, item=dict(item, number="42")),
+                  dict(approval, item=dict(item, repo=7)),
                   dict(admitted, admit=dict(REVIEW_IT, content_id=None)), dict(admitted, admit=dict(REVIEW_IT, role=None)),
                   dict(admitted, admit=dict(REVIEW_IT, intent=None)), dict(admitted, admit="pr-review"),
                   dict(admitted, admit=dict(REVIEW_IT, role="")), dict(admitted, admit=dict(REVIEW_IT, content_id=7)),
@@ -3829,6 +3830,11 @@ class StillWanted(unittest.TestCase):
             self.assertFalse(still_wanted(admitted, dict(admitted, outcome=outcome)), outcome)
             self.assertFalse(still_wanted(dict(admitted, outcome=outcome), admitted), outcome)
         self.assertFalse(still_wanted(admitted, dict(admitted, item=dict(admitted["item"], number=43))))
+        # Each side's item is read on its own: True is no number, though Python counts it equal to 1 (Argon's read).
+        one = dict(approval, item=dict(approval["item"], number=1))
+        self.assertTrue(still_wanted(one, one))
+        for number in (True, 1.0):
+            self.assertFalse(still_wanted(one, dict(one, item=dict(one["item"], number=number))), number)
         # What cannot be read wants nothing.
         for bad in (None, [], "act", {}):
             self.assertFalse(still_wanted(approval, bad), bad)

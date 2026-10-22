@@ -108,7 +108,7 @@ def still_wanted(decided: dict, again: dict) -> bool:
     a Pause, a close, new content, a Run in flight, a writer's gate, a wait for a person and an approver who is now the
     author each stop it. Anything else, or anything that cannot be read, is not wanted."""
     if not isinstance(decided, dict) or not isinstance(again, dict) or not _a_pull_request(decided.get("item")) \
-            or again.get("item") != decided.get("item"):
+            or not _a_pull_request(again.get("item")) or again.get("item") != decided.get("item"):
         return False
     admit = decided.get("admit")
     if admit is not None:
