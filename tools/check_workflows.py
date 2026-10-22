@@ -127,6 +127,10 @@ EVAL_GIVEN = {
 EVAL_STEP_KEYS = {"uses", "run", "with", "env", "id"}
 EVAL_TOP = {"name": "factory", "on": "", "permissions": "{}", "jobs": ""}
 EVAL_ACTIONS = {"checkout", "mint", "upload"}
+# The model's credential, an organisation secret no branch policy narrows (decision 0053): named in eval.yml's run step
+# and in the run job's workflow, and in no other workflow.
+MODEL_SECRET = re.compile(r"CLAUDE_CODE_OAUTH_TOKEN", re.I)
+MODEL_WORKFLOWS = {EVAL_WORKFLOW, "run.yml"}
 # What names the held-out home or the eval job's environment, in a workflow that is not eval.yml.
 EVAL_ONLY = re.compile(r"factory-eval|HELDOUT_|harness\.eval", re.I)    # GitHub's names of these ignore case
 SCAN_BASE = "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}"
@@ -730,6 +734,9 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems += ["%s: %s" % (path.relative_to(root), p) for p in eval_problems(raw(path))]
         else:
             for number, line in enumerate(raw(path).split("\n"), 1):
+                if MODEL_SECRET.search(line) and path.name not in MODEL_WORKFLOWS:
+                    problems.append("%s: line %d names the model's credential, which only eval.yml's run step and the "
+                                    "run job name" % (path.relative_to(root), number))
                 if EVAL_ONLY.search(line):
                     problems.append("%s: line %d names the eval job's environment, the held-out home or its steps, "
                                     "which are eval.yml's alone" % (path.relative_to(root), number))

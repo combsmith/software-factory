@@ -323,6 +323,12 @@ class TheSet(unittest.TestCase):
                                                   ".github/workflows/other.yml": other}))
             self.assertTrue(caught(problems, "other.yml: line"), (line, problems))
         self.assertTrue(check_workflows.EVAL_ONLY.search("    environment: Factory-Eval"))
+        # The model's credential, an organisation secret any branch could read, is named by the model's steps alone.
+        other = GOOD.replace("      - run: make verify\n", "      - run: make verify\n        env:\n"
+                             "          T: ${{ secrets.claude_code_oauth_token }}\n", 1)
+        problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW,
+                                              ".github/workflows/other.yml": other}))
+        self.assertTrue(caught(problems, "names the model's credential, which only"), problems)
         problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW.replace("id: home", "id: x")}))
         self.assertTrue(caught(problems, "eval.yml: its mint step"), problems)
 

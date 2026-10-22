@@ -4754,6 +4754,9 @@ MUTANTS = ISSUE + [
     ('a token that cannot be read is sent', 'harness/eval/fetch.py',
      '    try:\n        return github.Live(env.get("HELDOUT_TOKEN"))\n    except github.Unanswered:\n        raise Stop("token_unreadable") from None\n',
      '    return github.Live(env.get("HELDOUT_TOKEN") or "x")\n', ('tests.test_evals.EvalJob.test_the_fetch_step_takes_its_token_from_its_environment_alone',)),
+    ("another workflow may name the model's credential", 'tools/check_workflows.py',
+     '                if MODEL_SECRET.search(line) and path.name not in MODEL_WORKFLOWS:\n',
+     '                if False:\n', ('tests.test_evals.TheSet.test_the_eval_workflow_names_each_credential_in_one_step_alone',)),
 ]
 
 

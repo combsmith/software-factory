@@ -1946,7 +1946,7 @@ it is long-lived, it can approve, and it can merge.
 
 | Credential | Can | Held by | Stored | Rotated |
 |---|---|---|---|---|
-| The Factory's model subscription | Spend the Factory's model capacity | The `run` job, and the eval job's `run` step | An organisation secret, which no branch policy narrows: only those two steps name it (decision 0053) | On any suspicion; it is the Factory's alone |
+| The Factory's model subscription | Spend the Factory's model capacity | The `run` job, and the eval job's `run` step | An organisation secret, its access this repo alone. No branch policy narrows it, so any branch of this repo can read it: the Maintainer's accepted risk, held by who can push and by only those two steps naming it (decision 0053) | On any suspicion; it is the Factory's alone |
 | The machine user's token | Approve and merge, across the org | `apply`, for the review Intent only | Environment secret, default branch only | On a fixed period, and on any reconciliation alert |
 | Each Role's App key | Mint that Role's tokens | `apply` | Environment secret, default branch only | On a fixed period |
 | The Controller's App key | Read the facts and the run records, and post check runs: the status on the item. It does not start Runs | The poller | Environment secret, default branch only | On a fixed period |
