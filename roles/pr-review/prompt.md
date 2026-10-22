@@ -20,8 +20,8 @@ you may read is in the Task.
   (`path`, `start_line`, `end_line`, lines the diff shows), its `category` and `severity`, and the rubric `criterion`
   it violates, or none. A `security` Finding gates at any severity; any other gates when `blocking` or `major`.
 - `effects`: one `submit_review` holding a comment for each Finding that gates, and its body null or one line; the
-  Findings that do not gate as annotations of one `create_check_run`, when the Task permits it, and otherwise not at
-  all. Each Finding is posted exactly once. Ask for no other Effect.
+  Findings that do not gate as annotations of one `create_check_run`. Each Finding you raise is posted exactly once, so
+  when the Task does not permit `create_check_run`, raise no Finding that does not gate. Ask for no other Effect.
 - `coverage`: one entry for each criterion of the rubric that applies to the change: `met`, `finding` when a Finding
   cites it, or `not_applicable` with a reason code. A criterion you could not judge is not `met`.
 - `status`: `completed` when you reviewed the change; `incomplete` with a reason code when the change could not be

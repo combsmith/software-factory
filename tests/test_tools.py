@@ -899,6 +899,26 @@ class Authority(unittest.TestCase):
         del apps["apps"]["pr-review"]["permissions"]
         self.assertTrue(caught(self.team(apps=apps), "pr-review permits submit_review, beyond the ceiling"))
 
+    def test_a_writer_spends_from_gate_and_no_role_is_named_for_no_one(self):  # the Claude review
+        # An Intent that writes spends from gate, so it is held to an eval set before it writes.
+        off = self.review(intents=[dict(self.review()["intents"][0], budget_class="shadow", evals="evals/nothing")])
+        self.assertTrue(caught(self.team({"pr-review": off}), "an Intent that writes spends from gate"))
+        # The table reads `human` and `none` as no Role, so no manifest is named either.
+        from tools.check_examples import LIVE
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        quiet = {"intents": [dict(self.review()["intents"][0], permitted_effects=[], budget_class="shadow")]}
+        for word in ("human", "none"):
+            one = self.review(name=word, kind="shadow", owns=[], **quiet)
+            del one["app"]
+            self.assertTrue(caught(check_authority.team({"pr-review": self.review(), word: one}, self.table, apps,
+                                                        set(LIVE) | {"roles/%s.json" % word}),
+                                   "which the authority table reads as no Role"), word)
+        # The Controller's App and the reader's are no Role's.
+        for app in ("combsmith-sf-controller", "combsmith-sf-reader"):
+            one = self.review(name="dev-lead", kind="author", owns=[], app=app, **quiet)
+            self.assertTrue(caught(check_authority.team({"pr-review": self.review(), "dev-lead": one}, self.table, apps,
+                                                        set(LIVE) | {"roles/dev-lead.json"}), "which is no Role's App"), app)
+
     def test_each_role_writes_through_its_own_app(self):  # L-44
         other = self.review(name="qa-lead", kind="shadow", owns=[],
                             intents=[dict(self.review()["intents"][0], permitted_effects=[], budget_class="shadow")])

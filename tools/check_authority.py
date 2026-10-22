@@ -43,6 +43,12 @@ def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = RO
     held to `role/1`."""
     problems = []
     cats = authority["categories"]
+    # The authority table names a person and nobody by these words: no Role is either.
+    for stem, m in sorted(roles.items()):
+        if isinstance(m, dict) and m.get("name") in ("human", "none"):
+            problems.append("roles/%s.json names a Role %r, which the authority table reads as no Role" % (stem, m["name"]))
+    # The Controller's App and the reader's are no Role's, and a Role writes through neither.
+    no_role = {entry.get("name") for key, entry in apps["apps"].items() if key in ("controller", "reader")}
     unread = sorted(stem for stem, m in roles.items() if not isinstance(m, dict))
     for stem in unread:
         problems.append("roles/%s.json cannot be read as a manifest" % stem)
@@ -69,6 +75,13 @@ def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = RO
                 if i.get("permitted_effects") or i.get("budget_class") != "shadow":
                     problems.append("%s is a shadow, and its Intent %s writes or spends from %s; a shadow writes "
                                     "nothing and spends from shadow" % (name, i.get("name"), i.get("budget_class")))
+        # An Intent that writes spends from gate, so it is held to an eval set before it can write.
+        for i in intents:
+            if i.get("permitted_effects") and i.get("budget_class") != "gate":
+                problems.append("%s's Intent %s writes and spends from %s; an Intent that writes spends from gate"
+                                % (name, i.get("name"), i.get("budget_class")))
+        if m.get("app") in no_role:
+            problems.append("%s names %s, which is no Role's App" % (name, m["app"]))
         effects = sorted({e for i in intents for e in i.get("permitted_effects", ())})
         app = next((entry for entry in apps["apps"].values() if entry.get("name") == m.get("app")), None)
         if (effects or "app" in m) and app is None:

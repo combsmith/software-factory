@@ -6160,6 +6160,16 @@ MUTANTS = ISSUE + [
     ('a manifest that cannot be read is passed over', 'tools/check_authority.py',
      '    for stem in unread:\n        problems.append("roles/%s.json cannot be read as a manifest" % stem)\n',
      '', ('tests.test_tools.Authority.test_what_cannot_be_read_is_reported_never_raised',)),
+    # The Claude review of #194's PR 3.
+    ('a writing Intent may spend from shadow', 'tools/check_authority.py',
+     '            if i.get("permitted_effects") and i.get("budget_class") != "gate":\n',
+     '            if False:\n', ('tests.test_tools.Authority.test_a_writer_spends_from_gate_and_no_role_is_named_for_no_one',)),
+    ('a Role may be named for no one', 'tools/check_authority.py',
+     '        if isinstance(m, dict) and m.get("name") in ("human", "none"):\n',
+     '        if False:\n', ('tests.test_tools.Authority.test_a_writer_spends_from_gate_and_no_role_is_named_for_no_one',)),
+    ("a Role may write through a non-Role's App", 'tools/check_authority.py',
+     '        if m.get("app") in no_role:\n',
+     '        if False:\n', ('tests.test_tools.Authority.test_a_writer_spends_from_gate_and_no_role_is_named_for_no_one',)),
 ]
 
 
