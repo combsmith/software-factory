@@ -16,7 +16,7 @@ on:
 permissions: {}
 jobs:
   lane:
-    if: github.actor_id == '41898282' && vars.FACTORY_PAUSED != 'true'
+    if: github.actor_id == '41898282' && github.run_attempt == '1' && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
     permissions:
       contents: read
     concurrency:

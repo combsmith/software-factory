@@ -1969,6 +1969,8 @@ class Workflows(unittest.TestCase):
             "a timeout": POLLER.replace("    uses:", "    timeout-minutes: 15\n    uses:"),
             "needs": POLLER.replace("    uses:", "    needs:\n      - other\n    uses:"),
             "inputs in one line": POLLER + "    with: main\n",
+            "a group of none": POLLER.replace("      group: sf-poller\n", ""),
+            "a pass cancelled": POLLER.replace("cancel-in-progress: false", "cancel-in-progress: true"),
         }
         for why, text in broken.items():
             self.assertIn("shim", {rule for rule, _ in check_workflows.lint(text)}, why)
@@ -2037,10 +2039,16 @@ class Workflows(unittest.TestCase):
         }
         # The run that woke it is read in no form an expression can write: by an index, in another case, or whole.
         for read in ("github['event'].workflow_run.conclusion == 'success'", "GitHub.Event.workflow_run.conclusion == 'x'",
-                     "contains(toJSON(github), 'success')", "github .event.action == 'completed'"):
+                     "contains(toJSON(github), 'success')", "github .event.action == 'completed'",
+                     "(github).event.workflow_run.conclusion == 'success'", "contains(format('{0}', github), 'x')",
+                     "github.token.x == 'y'"):
             broken[read] = POLLER.replace("  pass:\n    permissions:", "  pass:\n    if: %s\n    permissions:" % read)
         for why, text in broken.items():
             self.assertIn("wake", {rule for rule, _ in check_workflows.lint(text)}, why)
+        # A comment is no read: the poller may say, in a comment, what it does not read.
+        noted = "# The poller reads nothing of github.event.\n" + POLLER.replace(
+            "  pass:\n", "  pass:  # nor github['event']\n")
+        self.assertEqual([r for r, _ in check_workflows.lint(noted) if r == "wake"], [])
         # Nor does the pass it calls read it: pass.yml is the poller's own job.
         called = ("name: sf-pass\non:\n  workflow_call:\npermissions: {}\njobs:\n  pass:\n    runs-on: ubuntu-24.04\n"
                   "    timeout-minutes: 15\n    permissions:\n      actions: write\n      contents: read\n    steps:\n"
@@ -2049,7 +2057,12 @@ class Workflows(unittest.TestCase):
         problems = check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": called})))
         self.assertTrue(caught(problems, "pass.yml: it reads the run that woke the poller"), problems)
         self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": called.replace(
-            "${{ github.event.workflow_run.head_branch }}", "main")}))), "pass.yml: it reads"))
+            "BRANCH: ${{ github.event.workflow_run.head_branch }}", "WORKFLOW_TOKEN: ${{ github.token }}")}))),
+            "pass.yml: it reads"))
+        for whole in ("${{ github }}", "${{ toJSON(github) }}"):
+            problems = check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": called.replace(
+                "${{ github.event.workflow_run.head_branch }}", whole)})))
+            self.assertTrue(caught(problems, "pass.yml: it reads the run that woke the poller"), whole)
 
     def test_the_pass_job_alone_is_granted_a_write(self):
         # Issue 196's ruling 4: only the pass job is granted a write, its actions: write, which starts the Runs and the
@@ -2088,7 +2101,10 @@ class Workflows(unittest.TestCase):
         for text in (run.replace("run-name: ${{ inputs.name }}", "run-name: Run ${{ inputs.name }}"),
                      run.replace("run-name: ${{ inputs.name }}", "run-name: ${{ inputs.item }}"),
                      run.replace("group: ${{ inputs.item }}", "group: lane-${{ inputs.item }}"),
-                     POLLER.replace("group: sf-poller", "group: ${{ github.ref }}")):
+                     POLLER.replace("group: sf-poller", "group: ${{ github.ref }}"),
+                     run.replace("permissions: {}\n", "permissions: {}\nconcurrency:\n  group: ${{ inputs.item }}\n"),
+                     GOOD.replace("      - run: make verify\n", "      - run: make verify\n        outputs:\n"
+                                  "          d: ${{ steps.a.outputs.b }}\n", 1)):
             self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text)})
         outputs = GOOD.replace("    timeout-minutes: 25\n", "    timeout-minutes: 25\n    outputs:\n"
                                "      digest: ${{ steps.run.outputs.digest }}\n", 1)
@@ -2126,15 +2142,53 @@ class Workflows(unittest.TestCase):
         # names no such account, no run.yml is right.
         token = {"type": "Bot", "id": 41898282}
         run = check_workflows.RUN_SHIM % 41898282
-        condition = "    if: github.actor_id == '41898282' && vars.FACTORY_PAUSED != 'true'\n"
+        condition = ("    if: github.actor_id == '41898282' && github.run_attempt == '1' && "
+                     "(vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')\n")
+        self.assertIn(condition, run)
         for why, text in (("another dispatcher", run.replace("41898282", "41898283")),
-                          ("no Pause", run.replace(condition, "    if: github.actor_id == '41898282'\n")),
-                          ("either", run.replace("&&", "||")),
-                          ("no condition", run.replace(condition, ""))):
+                          ("no Pause", run.replace(condition, "    if: github.actor_id == '41898282' && github.run_attempt == '1'\n")),
+                          ("a re-run", run.replace(" && github.run_attempt == '1'", "")),
+                          ("any value but true", run.replace("(vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')",
+                                                             "vars.FACTORY_PAUSED != 'true'")),
+                          ("either", run.replace("' && github", "' || github")),
+                          ("no condition", run.replace(condition, "")),
+                          ("a trailing word", run.replace("cancel-in-progress: false", "cancel-in-progress: false # x"))):
             self.assertTrue(self.run_tree(text, token), why)
-        self.assertTrue(self.run_tree(run, None))
-        self.assertTrue(self.run_tree(run, {"type": "Bot", "id": 41898283}))
+        for account in (None, {"type": "Bot", "id": 41898283}, {"type": "Bot", "id": "41898282"},
+                        {"type": "Bot", "id": True}, "41898282"):
+            self.assertTrue(self.run_tree(run, account), account)
+        # A configuration that cannot be read names no dispatcher.
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD,
+                "config/controller.json": "{not json", ".github/workflows/run.yml": run}
+        held = hashlib.sha256(check_workflows.PIN.sub("@PIN", run).encode()).hexdigest()
+        with mock.patch.dict(check_workflows.SHIMS, {"run.yml": held}):
+            self.assertTrue(caught(check_workflows.run(tree(base)), "run.yml: config/controller.json names no account"))
+            # And the Run's jobs are called from run.yml alone.
+            elsewhere = dict(base, **{"config/controller.json": (ROOT / "config" / "controller.json").read_text()})
+            del elsewhere[".github/workflows/run.yml"]
+            other = GOOD.replace("  checks:\n", "  lane:\n    permissions:\n      contents: read\n    concurrency:\n"
+                                 "      group: ${{ inputs.item }}\n      cancel-in-progress: false\n"
+                                 "    uses: combsmith/software-factory/.github/workflows/run-jobs.yml@factory/v0-next\n"
+                                 "  checks:\n", 1)
+            problems = check_workflows.run(tree(dict(elsewhere, **{".github/workflows/other.yml": other})))
+            self.assertTrue(caught(problems, "other.yml: only run.yml calls the Run's jobs"), problems)
         self.assertEqual(self.run_tree("# The Run's shim.\n" + run, token), [])
+
+    def test_no_step_sets_the_scrub_or_hands_the_model_a_tool_list(self):
+        # Decision 0050: the scrub is the Engine's to set, beside --tools "", and a step can pass the CLI no argument;
+        # and the step that holds the model's credential is handed no tool list, by a name or a value.
+        for name in ("model.a-scrub-set-by-the-step.yml", "model.a-tool-list-beside-the-credential.yml"):
+            text = (ROOT / "examples" / "workflows" / "invalid" / name).read_text()
+            self.assertEqual({r for r, _ in check_workflows.lint(text)}, {"model"}, name)
+        clean = (ROOT / "examples" / "workflows" / "invalid" / "model.a-scrub-set-by-the-step.yml").read_text().replace(
+            "          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: 1\n", "")
+        self.assertEqual(check_workflows.lint(clean), [])
+        for line in ("          claude_code_subprocess_env_scrub: 1\n", "          ARGS: --allowedTools Bash\n",
+                     "          CLAUDE_TOOLS: Read\n"):
+            self.assertIn("model", {r for r, _ in check_workflows.lint(clean + line)}, line)
+        # A tool list in a step that holds no model credential is no concern of this rule.
+        self.assertNotIn("model", {r for r, _ in check_workflows.lint(clean.replace(
+            "CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}", "OTHER: x") + "          TOOLS: a\n")})
 
     def test_an_exempt_workflow_is_held_word_for_word(self):
         scan = (ROOT / ".github" / "workflows" / "ci.yml").read_text()

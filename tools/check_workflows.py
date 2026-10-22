@@ -46,6 +46,8 @@ RULES = {
             "no input and reads nothing of the run that woke it",
     "expression": "an expression stands only as the whole of a value under env:, with: or secrets:, or in if:; or as "
                   "exactly a Run's name, ${{ inputs.name }}, its lane, ${{ inputs.item }}, or a step's output",
+    "model": "no step sets the CLI's environment scrub, which only the Engine sets, beside --tools \"\", and a step that "
+             "holds the model's credential is handed no tool list",
     "lane": "a job that calls the Run's jobs holds its item's lane: its own concurrency group, ${{ inputs.item }}, that "
             "never cancels the Run in progress",
     "length": "a run: block is at most ten lines",
@@ -84,7 +86,8 @@ LANE = "${{ inputs.item }}"
 RUN_NAME = "${{ inputs.name }}"
 OUTPUT = re.compile(r"^\$\{\{ steps\.[a-z][\w-]*\.outputs\.[a-z][\w-]* \}\}$")
 # The Run's shim, as the ruling gives it in full: its dispatcher is the pass's own token, by the account controller/1
-# names for it, and a Pause of the repo or the org starts no Run (decision 0003; I-34).
+# names for it, on the run's first attempt alone, since a re-run keeps the dispatcher's id though a person started it;
+# and a Pause of the repo or the org starts no Run, any value but unset or exactly false a Pause (decision 0003; I-34).
 RUN_SHIM = """name: sf-run
 run-name: ${{ inputs.name }}
 on:
@@ -102,7 +105,7 @@ on:
 permissions: {}
 jobs:
   lane:
-    if: github.actor_id == '%d' && vars.FACTORY_PAUSED != 'true'
+    if: github.actor_id == '%d' && github.run_attempt == '1' && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
     permissions:
       contents: read
     concurrency:
@@ -114,9 +117,10 @@ jobs:
       item: ${{ inputs.item }}
       pass: ${{ inputs.pass }}
 """
-# The github context read in any form an expression can write it: by a dot or an index, in any case, or whole. A path
-# such as .github/workflows/ is no read of it. The poller and the pass it calls read nothing of the run that woke them.
-EVENT_READ = re.compile(r"(?<![./\w-])github\s*[.\[]|tojson\(\s*github\s*\)", re.I)
+# The github context named in any form an expression can write it, by a dot, an index, a bracket, an argument or whole,
+# in any case, but its token, which is the pass job's own; outside comments. A path such as .github/workflows/ is no
+# read of it. The poller and the pass it calls read nothing of the run that woke them.
+EVENT_READ = re.compile(r"(?<![./\w-])github(?![\w-])(?!\.token(?![\w.\[]))", re.I)
 PASS_JOB, PASS_FILES = "pass", ("poller.yml", "pass.yml")
 # The id GitHub gives the App GitHub Actions: it reports every job in every workflow of the repo.
 ACTIONS_APP = 15368
@@ -195,11 +199,15 @@ EVAL_STEP_KEYS = {"uses", "run", "with", "env"}
 EVAL_TOP = {"name": "factory", "on": "", "permissions": "{}", "jobs": ""}
 EVAL_ACTIONS = {"checkout", "upload"}
 # The model's credential, an organisation secret no branch policy narrows (decision 0053): named in eval.yml's run step
-# and in the run job's workflow, run.yml, and in no other workflow. Within run.yml, that only its run job names it is
-# that workflow's own check, "Harness: run and apply for the review Intent, and the model holds no credential that can
+# and in the Run's jobs' workflow, run-jobs.yml, and in no other workflow; run.yml, a shim, names no secret. Within
+# run-jobs.yml, that only its run step names it is that workflow's own check, "Harness: run and apply for the review Intent, and the model holds no credential that can
 # write" (issue 194), its PR 3.
 MODEL_SECRET = re.compile(r"CLAUDE_CODE_OAUTH_TOKEN", re.I)
-MODEL_WORKFLOWS = {EVAL_WORKFLOW, "run.yml"}
+MODEL_WORKFLOWS = {EVAL_WORKFLOW, "run-jobs.yml"}
+# The CLI's environment scrub, which the Engine alone sets beside --tools "" (decision 0050): a workflow can pass the CLI
+# no argument, so a step that set the scrub would set it with no word of the tools. And a tool list, by name or flag.
+SCRUB = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"
+TOOLS = re.compile(r"tool", re.I)
 # What names the held-out home or the eval job's environment, in a workflow that is not eval.yml.
 EVAL_ONLY = re.compile(r"factory-eval|HELDOUT_|harness\.eval", re.I)    # GitHub's names of these ignore case
 SCAN_BASE = "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}"
@@ -321,7 +329,8 @@ def lint(text: str) -> list:
     # A job's grant may write in one place: the pass job's actions: write, which starts the Runs and the successor.
     for e in entries:
         if len(e["path"]) == 3 and e["path"][0] == "jobs" and e["path"][2] == "permissions" and \
-                e["value"] not in ("read", "none") and (e["path"][1], e["key"], e["value"]) != (PASS_JOB, "actions", "write"):
+                e["value"] not in ("read", "none") and e["key"] != "security-events" and \
+                (e["path"][1], e["key"], e["value"]) != (PASS_JOB, "actions", "write"):     # security-events: its own, below
             found.append(("permissions", "job %s is granted %s: %s" % (e["path"][1], e["key"], e["value"])))
     if any(e["path"][-1:] == ["permissions"] and e["key"] == "security-events" and e["value"] == "write"
            for e in entries):
@@ -350,7 +359,7 @@ def lint(text: str) -> list:
             found.append(("token", "inherits secrets"))
         if key == "shell":
             found.append(("install", "sets its own shell"))
-        if key == "run":
+        if key == "run" and e["path"][-1:] == ["steps"]:     # a step's command; a job may be named run too
             commands = e["body"] if e["body"] else [value]
             if len(commands) > MAX_RUN_LINES:
                 found.append(("length", "a run: block of %d lines" % len(commands)))
@@ -369,6 +378,13 @@ def lint(text: str) -> list:
             found.append(("shim", "job %s names an environment in a workflow that is not called alone" % job["key"]))
     if events & SHIM_EVENTS:
         found += [("shim", why) for why in _shim(text, entries, top, jobs)]
+    for e in entries:
+        if e["path"][-1:] == ["env"] and e["key"].upper() == SCRUB:
+            found.append(("model", "a step sets %s, which only the Engine sets, with --tools \"\"" % SCRUB))
+        if MODEL_SECRET.search(e["value"]) and e["path"][-1:] == ["env"]:
+            given = [x for x in entries if x["step"] == e["step"] and x["path"] == e["path"]]
+            if any(TOOLS.search(x["key"]) or TOOLS.search(x["value"]) for x in given):
+                found.append(("model", "the step that holds the model's credential is handed a tool list"))
     for job in jobs:
         inside = {e["key"]: e for e in under("jobs", job["key"])}
         calls = inside.get("uses", {}).get("value", "")
@@ -399,6 +415,11 @@ def lint(text: str) -> list:
     return sorted(set(found))
 
 
+def _uncommented(text: str) -> str:
+    """The text with its comments left out: each line from its first ` #`, or whole where it starts with `#`."""
+    return "\n".join("" if line.lstrip().startswith("#") else line.split(" #")[0] for line in text.split("\n"))
+
+
 def _shim(text: str, entries: list, top: dict, jobs: list) -> list:
     """Why a workflow on a shim's events is not a shim: something above its jobs but the name, the events, the grant
     and a run's name; or a job that holds anything but its call, its grant, its concurrency group, an if: and the
@@ -409,6 +430,11 @@ def _shim(text: str, entries: list, top: dict, jobs: list) -> list:
         if set(inside) - SHIM_JOB or not SHIM_NEEDS <= set(inside):
             whys.append("job %s holds %s, not a call, its grant and its concurrency alone"
                         % (job["key"], ", ".join(sorted(inside))))
+        held = {e["key"]: e["value"] for e in entries if e["path"] == ["jobs", job["key"], "concurrency"]}
+        calls_run = inside.get("uses", {}).get("value", "").split("@")[0].endswith("/" + RUN_JOBS)
+        if "concurrency" in inside and not calls_run and (set(held) != {"group", "cancel-in-progress"} or not held["group"]
+                                        or held["cancel-in-progress"] != "false"):
+            whys.append("job %s holds no group of its own that waits, never cancelling the run in progress" % job["key"])
         if "with" in inside and inside["with"]["value"]:
             whys.append("job %s passes its inputs on in one line, not one input to a line" % job["key"])
         if "uses" in inside and not RELEASE.match(inside["uses"]["value"]):
@@ -432,7 +458,7 @@ def _wake(text: str, entries: list, top: dict) -> list:
         whys.append("it wakes on its own end")
     if any(e["path"][:2] == ["on", "workflow_dispatch"] for e in entries):
         whys.append("it takes an input")
-    if EVENT_READ.search(text):
+    if EVENT_READ.search(_uncommented(text)):
         whys.append("it reads the run that woke it")
     return whys
 
@@ -773,9 +799,11 @@ def shim_problems(name: str, text: str, root: pathlib.Path = ROOT) -> list:
         problems.append("only %s wakes on another workflow's end" % WAKES)
     if name == "run.yml":
         problems += run_problems(text, root)
+    elif any(e["key"] == "uses" and e["value"].split("@")[0].endswith("/" + RUN_JOBS) for e in entries):
+        problems.append("only run.yml calls the Run's jobs, from the pass's own token and never under a Pause")
     if any(e["path"] == [] and e["key"] == "run-name" for e in entries) and name != "run.yml":
         problems.append("only run.yml names its run, by the run-name the pass gave it")
-    if name in PASS_FILES and EVENT_READ.search(text):
+    if name in PASS_FILES and EVENT_READ.search(_uncommented(text)):
         problems.append("it reads the run that woke the poller, which says nothing a fork could not write")
     if any(e["path"] == ["jobs"] and e["key"] == PASS_JOB for e in entries) and name not in PASS_FILES:
         problems.append("the job %s is reserved for %s, the one job granted a write" % (PASS_JOB, " and ".join(PASS_FILES)))
