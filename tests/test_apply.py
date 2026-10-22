@@ -96,7 +96,7 @@ class Identity(unittest.TestCase):
             with self.assertRaisesRegex(identity.Refused, "^key_unreadable$"):
                 identity.signed(b"m", bad)
         with self.assertRaisesRegex(identity.Refused, "^key_cannot_sign$"):
-            identity.signed(b"m", b"-----BEGIN PRIVATE KEY-----\nnot a key\n-----END PRIVATE KEY-----\n")
+            identity.signed(b"m", b"no key, in no format openssl reads\n")
         for code, out in ((0, b""), (1, b"half a signature")):
             with self.assertRaisesRegex(identity.Refused, "^key_cannot_sign$"):
                 identity.signed(b"m", key, run=lambda a, **k: subprocess.CompletedProcess(a, code, out, b""))
