@@ -28,6 +28,7 @@ The workflows' pass job runs the pass, and the Controller's ruling 10 gave it to
 | The entry reads through the ports with a token of reads alone, and revokes it whatever happens | `tests/test_controller.py::test_the_entry_reads_through_the_ports_and_hands_the_pass_nothing_else` |
 | What the entry cannot read writes nothing, and it prints one code | `tests/test_controller.py::test_what_the_entry_cannot_read_writes_nothing` |
 | The entry waits out the read gap before it reads anything but the records, and the whole gap when they cannot be read | `tests/test_controller.py::test_the_entry_waits_out_the_read_gap_before_it_reads` |
+| Each snapshot is read with the configured accounts, by id, and whether the run records were read whole | `tests/test_controller.py::test_each_snapshot_is_read_with_the_configured_accounts_and_kept` |
 | Only the entry reads the clock or the environment | `tests/test_controller.py::test_only_the_entry_reads_the_clock_or_the_environment` |
 | The last two pass records are read, this pass's run passed over, and what cannot be read is none | `tests/test_adapters.py::test_the_last_two_pass_records_are_read`, `tests/test_adapters.py::test_unreadable_pass_records_are_none` |
 | A pass record alone is downloaded under 1 MiB, and read out to 8 MiB | `tests/test_adapters.py::test_a_pass_record_alone_is_downloaded_under_a_wider_bound` |

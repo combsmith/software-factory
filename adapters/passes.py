@@ -39,13 +39,18 @@ def _id(value) -> bool:
     return type(value) is int and value >= 1
 
 
+def _repo(value):
+    """The full name a run's repository object gives, or None for anything that is not one."""
+    return value.get("full_name") if isinstance(value, dict) else None
+
+
 def _is_pass(row, repo: str, branch: str, poller: str, own: int) -> bool:
     """Whether a listed run is a completed pass of this repo's poller from its default branch, other than this one."""
     path, _, ref = str(row.get("path", "")).partition("@")
     return (path == ".github/workflows/%s" % poller and ref in ("", "refs/heads/" + branch)
             and row.get("event") in EVENTS and row.get("head_branch") == branch and row.get("status") == "completed"
-            and (row.get("repository") or {}).get("full_name") == repo
-            and (row.get("head_repository") or {}).get("full_name") == repo and row.get("id") != own)
+            and _repo(row.get("repository")) == repo
+            and _repo(row.get("head_repository")) == repo and row.get("id") != own)
 
 
 def _expired(seen: list) -> bool:
@@ -109,7 +114,7 @@ def started(transport, repo: str, run_id):
         return None
     body = answer["body"] if answer["status"] == 200 and isinstance(answer["body"], dict) else {}
     actor = body.get("actor")
-    if body.get("id") != int(run_id) or (body.get("repository") or {}).get("full_name") != repo \
+    if body.get("id") != int(run_id) or _repo(body.get("repository")) != repo \
             or not isinstance(body.get("event"), str) or not _id(body.get("run_attempt")):
         return None
     who = None

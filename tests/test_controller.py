@@ -15,6 +15,7 @@ import os
 import pathlib
 import tempfile
 import unittest
+import unittest.mock
 
 from adapters import github, records
 import controller.__main__ as entry
@@ -789,6 +790,40 @@ class Entry(unittest.TestCase):
         for org, repo in ((403, 404), (404, 403)):
             _, _, files, _ = self.run_entry(Hub(self.table(pause=org, repo_pause=repo)))
             self.assertIsNone(files["pass.json"]["context"]["paused"], (org, repo))
+
+    def test_each_snapshot_is_read_with_the_configured_accounts_and_kept(self):  # decisions 0005, 0061
+        handed = []
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock):
+            handed.append((repo, number, identities, who.approver, who.lenses, who.factory, runs_whole, clock()))
+            return support.facts(item=dict(support.ITEM, number=number)), "A title"
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot):
+            code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+        self.assertEqual(code, 0)
+        self.assertEqual([e["facts"]["item"]["number"] for e in files["pass.json"]["pull_requests"]], [7])
+        self.assertEqual(files["view/items.json"]["items"][0]["untrusted"]["title"], "A title")
+        self.assertEqual(handed, [(self.HOME, 7, {"agent": set(), "maintainer": {(36422719, "User")},
+                                                  "dependency": {(49699333, "Bot")}},
+                                   (281750570, "User"), {}, set(), True, "2026-10-12T12:00:00Z")])
+        # A list of runs read short is said to each snapshot.
+        table = self.table(numbers=[7])
+        path = "/repos/%s/actions/workflows/run.yml/runs?branch=main&event=workflow_dispatch&per_page=100" % self.HOME
+        table[("GET", path)]["body"]["total_count"] = 1
+        handed.clear()
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot):
+            self.run_entry(Hub(table))
+        self.assertIs(handed[0][6], False)
+        # The accounts as controller/1 holds them, each by id and type; the dispatcher is the pass's token's alone.
+        held = copy.deepcopy(CONTROLLER)
+        held["accounts"].update(lenses=[{"lens": "pr-review", "login": "combsmith-sf-pr-review[bot]", "id": 11}],
+                                agents=[{"login": "combsmith-sf-dev-lead[bot]", "id": 12}],
+                                controller={"id": 13, "type": "Bot", "login": "combsmith-sf-controller[bot]"},
+                                maintainer=None, approver=None, dependencies=[])
+        self.assertEqual(entry.accounts(held), ({"agent": {(12, "Bot")}, "maintainer": set(), "dependency": set()},
+                                                (0, "User"), {(11, "Bot"): "pr-review"},
+                                                {(11, "Bot"), (12, "Bot"), (13, "Bot")}))
+        self.assertEqual(entry.dispatcher(CONTROLLER), (0, "Bot"))
+        self.assertEqual(entry.dispatcher(config()["controller"]), (41898282, "Bot"))
 
     def test_the_entry_waits_out_the_read_gap_before_it_reads(self):  # decision 0043
         from tests.test_adapters import a_pass, a_record, pass_stored, pass_zip, passes_listed

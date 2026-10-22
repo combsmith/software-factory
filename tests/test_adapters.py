@@ -2405,7 +2405,8 @@ class PassRecords(unittest.TestCase):
         # Runs that are not passes of the poller, from the default branch, of this repo, completed, are passed over.
         others = [a_pass(40, path=".github/workflows/run.yml"), a_pass(41, head_branch="other"),
                   a_pass(42, status="in_progress"), a_pass(43, event="push"),
-                  a_pass(44, repository={"full_name": "a/fork"}), a_pass(45, head_repository={"full_name": "a/fork"})]
+                  a_pass(44, repository={"full_name": "a/fork"}), a_pass(45, head_repository={"full_name": "a/fork"}),
+                  a_pass(46, repository=HOME), a_pass(47, head_repository=None)]
         got = self.read(passes_listed(others + [a_pass(10)]), pass_stored(10, pass_zip(before)))
         self.assertEqual(got, [before])
         # No pass before this one is none, and a record past its retention ends the reading.
@@ -2463,7 +2464,7 @@ class PassRecords(unittest.TestCase):
         repo, ident = recorded["response"]["body"]["repository"]["full_name"], recorded["response"]["body"]["id"]
         got = passes.started(github.Replay([recorded]), repo, str(ident))
         self.assertEqual(got, {"event": "workflow_dispatch", "actor": {"id": MAINTAINER, "type": "User"}, "attempt": 1})
-        for change in ({"id": ident + 1}, {"repository": {"full_name": "a/fork"}}, {"run_attempt": 0},
+        for change in ({"id": ident + 1}, {"repository": {"full_name": "a/fork"}}, {"repository": repo}, {"run_attempt": 0},
                        {"run_attempt": True}, {"event": None}):
             varied = copy.deepcopy(recorded)
             varied["response"]["body"].update(change)

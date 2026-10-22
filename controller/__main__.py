@@ -87,6 +87,13 @@ def accounts(controller: dict) -> tuple:
     return identities, approver, lenses, factory
 
 
+def dispatcher(controller: dict) -> tuple:
+    """The pass's token's account, by id and type, which alone dispatches a Run; with none held, no account GitHub gives,
+    id 0, so that no run is a Run."""
+    token = controller["accounts"]["workflow_token"]
+    return (token["id"], token["type"]) if token else (0, "Bot")
+
+
 def mint_id(prefix: str) -> str:
     """A new id in the schemas' form, from the system's own randomness: twenty letters of 32, a hundred bits."""
     return "%s_%s" % (prefix, "".join(ALPHABET[b % 32] for b in os.urandom(20)))
@@ -100,13 +107,10 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock) -> dic
     """Everything the pass reads after the wait, as `pass_.run` takes it."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
-    token = controller["accounts"]["workflow_token"]
-    # With no account for the pass's token, no run is a Run: no account GitHub gives has the id 0.
-    dispatcher = (token["id"], token["type"]) if token else (0, "Bot")
     kept = records.known(pass_.earlier(reads_.previous_records(previous), now) or [])
     try:
         runs = records.runs(transport, home, branch, [controller["workflows"]["run"], controller["workflows"]["approval"]],
-                            dispatcher, kept=kept)
+                            dispatcher(controller), kept=kept)
     except Unanswered:
         runs = None
     try:
