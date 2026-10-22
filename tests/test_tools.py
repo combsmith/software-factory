@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import concurrent.futures
 import contextlib
 import copy
 import hashlib
@@ -4175,7 +4176,7 @@ printf 'example.org.cdn.example.\\n192.0.2.7\\n'
         self.assertNotIn(str(self.home), json.dumps(requests), "the probe is recorded as its template")
 
     def test_each_configuration_is_judged_by_the_condition(self):
-        for name, kwargs, code, plain, scrubbed in [
+        cases = [
                 ("the scrub and the sandbox hide and limit", dict(hides=("none", "markers")), 0,
                  (False, False, True), (True, True, True)),
                 ("the scrub hides the listed name alone", dict(hides=("none", "listed")), 1,
@@ -4196,29 +4197,39 @@ printf 'example.org.cdn.example.\\n192.0.2.7\\n'
                  (False, False, True), (False, False, True)),
                 ("the Task said it failed", dict(hides=("markers", "markers"), is_error=True), 1, (True, True, True), (True, True, True)),
                 ("the version moved under the run", dict(hides=("markers", "markers"), after="9.9.9"), 1,
-                 (True, True, True), (True, True, True))]:
-            folder = self.stand_in(**kwargs)
-            out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
-            ran = self.run_script(out, self.cfg, folder / "claude")
+                 (True, True, True), (True, True, True))]
+        # The tool's own environment is clean, but it reads the parent marker in a process above it; and a login that
+        # fails leaves its record.
+        runs = {name: kwargs for name, kwargs, *_ in cases}
+        runs.update({"above": dict(hides=("markers", "markers"), flags=("above-leaks",)), "no login": dict(status={"loggedIn": False})})
+        outs = self.run_each(runs)
+        for name, kwargs, code, plain, scrubbed in cases:
+            out, ran = outs[name]
             self.assertEqual(ran.returncode, code, (name, ran.stderr))
             checked = self.checked(out)
             holds = [tuple(p["holds"][k] for k in ("environment_hidden", "listed_hidden", "connections_limited"))
                      for p in checked["configurations"]]
             self.assertEqual(holds, [plain, scrubbed], name)
             self.assertEqual(checked["some_configuration_hides_and_limits"], code == 0, name)
-        # The tool's own environment is clean, but it reads the parent marker in a process above it.
-        folder = self.stand_in(hides=("markers", "markers"), flags=("above-leaks",))
-        out = self.home.parent / (self.home.name + "-above")
-        self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 1)
+        out, ran = outs["above"]
+        self.assertEqual(ran.returncode, 1, ran.stderr)
         for part in self.checked(out)["configurations"]:
             self.assertEqual((part["env"]["seen"]["parent"], part["ancestors"]["seen"]["parent"]), (False, True))
             self.assertEqual(part["holds"]["environment_hidden"], False)
-        # A login that fails leaves its record.
-        folder = self.stand_in(status={"loggedIn": False})
-        out = self.home.parent / (self.home.name + "-no-login")
-        self.assertEqual(self.run_script(out, self.cfg, folder / "claude").returncode, 1)
+        out, ran = outs["no login"]
+        self.assertEqual(ran.returncode, 1, ran.stderr)
         self.assertEqual((self.checked(out)["login"], self.checked(out)["some_configuration_hides_and_limits"]),
                          ({"exit": 0, "status": "no"}, False))
+
+    def run_each(self, runs: dict) -> dict:
+        """The script once for each stand-in, four at a time, each with an OUT and a CONFIG_DIR of its own: {name: (OUT, run)}."""
+        def one(name):
+            folder = self.stand_in(**runs[name])
+            out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
+            cfg = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+            return name, (out, self.run_script(out, cfg, folder / "claude"))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            return dict(pool.map(one, runs))
 
     def test_the_probe_tries_the_denied_host_at_the_address_looked_up_outside(self):
         # The address the script looked up, outside the sandbox, is the one the probe gives curl, in each Task.
