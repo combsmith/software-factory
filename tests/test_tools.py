@@ -3422,6 +3422,34 @@ class Trials(unittest.TestCase):
                              [False, True], attempt)
         self.assertEqual(p50["verdict"], "fail")
 
+    def test_the_sandbox_limits_connections_and_passes_the_environment(self):
+        # trials/P-26.json (issue 188): each part of the pass is computed here from what the probe left, as the script
+        # computes it, and must equal the script's record; the fail follows. The Tasks' answers hold none of the model's text.
+        p26 = json.loads((ROOT / "trials" / "P-26.json").read_text())
+        checked = p26["exchanges"][-1]["response"]["body"]
+        parts = {p["configuration"]: p for p in checked["configurations"]}
+        self.assertEqual(sorted(parts), ["plain", "scrubbed"])
+        answered = lambda f: f.get("exit") == 0 and 200 <= f.get("http", 0) < 600
+        for name, part in parts.items():
+            fetches = part["fetches"]
+            ran = part["probe_ran"] and (part["env"]["lines"] or 0) > 0
+            hidden = ran and not any(part["env"]["seen"].values()) and not any(part["ancestors"]["seen"].values())
+            limited = ran and answered(fetches["allowed_through_proxy"]) and not answered(fetches["denied_through_proxy"]) \
+                and not answered(fetches["denied_around_proxy"])
+            self.assertEqual((part["holds"]["environment_hidden"], part["holds"]["connections_limited"]), (hidden, limited), name)
+            self.assertEqual((hidden, limited), (False, True), name)
+            self.assertEqual(fetches["denied_through_proxy"]["connect"], 403, name)
+            self.assertEqual(part["write_outside_the_work_directory"]["landed"], False, name)
+            # No process was read: the one read tried failed and left nothing.
+            self.assertTrue(part["ancestors"]["read_exits"] and 0 not in part["ancestors"]["read_exits"], name)
+            self.assertEqual(part["ancestors"]["lines"], 0, name)
+        # With the scrub, the marker under a listed name was gone and the other stayed.
+        self.assertEqual([(parts[c]["env"]["seen"]["parent"], parts[c]["env"]["seen"]["listed"]) for c in ("plain", "scrubbed")],
+                         [(True, True), (True, False)])
+        self.assertEqual((checked["some_configuration_hides_and_limits"], p26["verdict"]), (False, "fail"))
+        for exchange in p26["exchanges"][2:4]:
+            self.assertNotIn("result", exchange["response"]["body"])
+
     def test_a_dependency_bot_opens_and_pushes_its_update(self):
         # trials/P-45.json (issue 251) grounds a_dependency_bot_updates_a_workflow_pin: the pass is computed here from the
         # reads, so a fixture edited to pass, or to say what it did not see, fails.
@@ -4213,6 +4241,332 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "i
             self.assertEqual(ran.returncode, 2, name)
             self.assertIn(said, ran.stderr, name)
             self.assertFalse((folder / "asked").exists(), name + ": nothing was asked")
+
+
+class SandboxTrial(unittest.TestCase):
+    """`tools/trial_p26_sandbox.sh`, run against a stand-in CLI, curl and ps and never the real ones (issue 188): what the
+    CLI is given, the probe that reads nothing above the CLI, the verdict each configuration earns, and that no marker
+    and none of the model's text reaches OUT."""
+
+    SCRIPT = ROOT / "tools" / "trial_p26_sandbox.sh"
+    PIN = re.search(r"^PIN=(\S+)$", SCRIPT.read_text(), re.M).group(1)
+    # The stand-in CLI. A Task runs the probe as the model's shell tool would, unless told the model did not, with a
+    # stand-in curl and ps before the real ones, and /proc out of its reach, so that the stand-in ps answers where a
+    # Linux runner has a /proc the Maintainer's Mac does not; and it hides what the configuration's file says the sandbox hides:
+    # "markers", "listed" (the name on the scrub's list alone), "everything" (the whole environment) or "none".
+    STAND_IN = """#!/bin/sh
+here=$(cd "$(dirname "$0")" && pwd)
+case "$1" in
+  --version) env > "$here/env-version"; [ -f "$here/args-1" ] && [ -f "$here/version.after" ] && cp "$here/version.after" "$here/version"; cat "$here/version"; exit 0 ;;
+  auth) env > "$here/env-auth"; cat "$here/status"; exit 0 ;;
+  -p) scrub=$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB
+      env > "$here/env-task-$scrub"; printf '%s\\n' "$@" > "$here/args-$scrub"
+      echo "$PPID" > "$here/cli-ppid"; cp ./probe.sh "$here/probe-$scrub"
+      printf '%s' "$P26_PARENT_MARKER" > "$here/stash"
+      if [ -f "$here/confined" ]; then sed -e 's|^outside=.*|outside=/nonexistent-p26/x|' -e 's|/proc/|/nonexistent-p26/proc/|g' ./probe.sh > ./probe.run
+      else sed 's|/proc/|/nonexistent-p26/proc/|g' ./probe.sh > ./probe.run; fi
+      if [ -f "$here/runs" ]; then
+        case "$(cat "$here/hides-$scrub")" in
+          markers) env -u P26_PARENT_MARKER -u ANTHROPIC_CUSTOM_HEADERS PATH="$here/bin:$PATH" sh ./probe.run ;;
+          listed) env -u ANTHROPIC_CUSTOM_HEADERS PATH="$here/bin:$PATH" sh ./probe.run ;;
+          everything) env -i PATH="$here/bin:/usr/bin:/bin" sh ./probe.run ;;
+          *) PATH="$here/bin:$PATH" sh ./probe.run ;;
+        esac
+        [ -f "$here/forge" ] && { echo "the_model_wrote_these_words exit=0 http=200 connect=000" >> ./p26/fetches
+                                  i=0; while [ $i -lt 20 ]; do echo "read=123" >> ./p26/ancestors.codes; i=$((i+1)); done; }
+        [ -f "$here/empty-env" ] && : > ./p26/env.raw
+      fi
+      cat "$here/stderr" >&2; cat "$here/answer"; exit 0 ;;
+esac
+exit 9
+"""
+    # A stand-in curl: what each fetch gets, from the file `net` beside it: "limited" answers the allowed host through
+    # the proxy alone; "open" answers every fetch; "none" answers nothing; "around" answers the denied host around it, by its name;
+    # "proxied" answers the denied host through the proxy, and around it nothing denied; "address" answers the denied
+    # host at the address given it by --resolve alone. Each address given is recorded in `resolved`.
+    CURL = """#!/bin/sh
+here=$(cd "$(dirname "$0")/.." && pwd)
+net=$(cat "$here/net")
+around=no; host=; resolved=; prev=
+for a in "$@"; do
+  [ "$prev" = --resolve ] && { resolved=$a; echo "$a" >> "$here/resolved"; }
+  case "$a" in --noproxy) around=yes ;; https://*) host=${a#https://}; host=${host%/} ;; esac
+  prev=$a
+done
+yes_() { printf 'http=200 connect=000'; exit 0; }
+no_() { printf 'http=000 connect=403'; exit 56; }
+case "$net" in open) yes_ ;; none) no_ ;; esac
+[ "$host" = example.com ] && [ "$around" = no ] && yes_
+[ "$net" = around ] && [ "$host" = example.org ] && [ "$around" = yes ] && [ -z "$resolved" ] && yes_
+[ "$net" = proxied ] && [ "$host" = example.org ] && [ "$around" = no ] && yes_
+[ "$net" = address ] && [ "$host" = example.org ] && [ -n "$resolved" ] && yes_
+no_
+"""
+    # A stand-in ps: `-o ppid=` gives the stand-in CLI's own parent, the script, where the file `to-cli` is, else 1;
+    # `-E` gives its own environment, or, where the file `above-leaks` is, the parent marker the CLI was given, as a
+    # process above the tool would hold it; and it records each pid it was asked to read.
+    PS = """#!/bin/sh
+here=$(cd "$(dirname "$0")/.." && pwd)
+case "$*" in
+  *ppid=*) if [ -f "$here/to-cli" ]; then cat "$here/cli-ppid"; else echo 1; fi ;;
+  *-E*) for a in "$@"; do last=$a; done; echo "$last" >> "$here/ps-read"
+        if [ -f "$here/above-leaks" ]; then echo "P26_PARENT_MARKER=$(cat "$here/stash")"; else env; fi ;;
+esac
+"""
+    # A stand-in dig, for the script itself, outside the sandbox: the denied host's address after a name that is not
+    # one, as +short gives a CNAME, or nothing where the file `no-address` is.
+    DIG = """#!/bin/sh
+here=$(cd "$(dirname "$0")/.." && pwd)
+[ -f "$here/no-address" ] && exit 0
+printf 'example.org.cdn.example.\\n192.0.2.7\\n'
+"""
+    PROSE = {"result": "the model wrote THIS-PROSE-1 here", "added": "a field the CLI adds carries THIS-PROSE-2",
+             "denied": "THIS-PROSE-4 in a refused tool's input", "stderr": "THIS-PROSE-11 the model said on standard error"}
+
+    def answer(self, is_error=False) -> dict:
+        return {"type": "result", "subtype": "success", "is_error": is_error, "num_turns": 2, "duration_ms": 5,
+                "total_cost_usd": 0.1, "usage": {"input_tokens": 1, "output_tokens": 2}, "result": self.PROSE["result"],
+                "a_new_field": self.PROSE["added"],
+                "permission_denials": [{"tool_name": "Bash", "tool_input": {"command": self.PROSE["denied"]}}]}
+
+    def stand_in(self, hides=("none", "none"), net="limited", runs=True, confined=True, flags=(), version=None,
+                 after=None, status=None, is_error=False) -> pathlib.Path:
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (folder / "version").write_text("%s (Claude Code)\n" % (version or self.PIN))
+        if after is not None:
+            (folder / "version.after").write_text("%s (Claude Code)\n" % after)
+        (folder / "status").write_text(json.dumps({"loggedIn": True, "authMethod": "claude.ai"} if status is None else status))
+        (folder / "stderr").write_text(self.PROSE["stderr"] + "\n")
+        (folder / "answer").write_text(json.dumps(self.answer(is_error)))
+        for scrub, hidden in zip("01", hides):
+            (folder / ("hides-" + scrub)).write_text(hidden)
+        (folder / "net").write_text(net)
+        for flag in (("runs",) if runs else ()) + (("confined",) if confined else ()) + tuple(flags):
+            (folder / flag).write_text("")
+        (folder / "bin").mkdir()
+        (folder / "host-bin").mkdir()
+        for name, text in (("claude", self.STAND_IN), ("bin/curl", self.CURL), ("bin/ps", self.PS), ("host-bin/dig", self.DIG)):
+            (folder / name).write_text(text)
+            (folder / name).chmod(0o755)
+        return folder
+
+    def run_script(self, out, cfg, cli, home=None) -> subprocess.CompletedProcess:
+        """The script as the Maintainer runs it, from a shell that holds a key the CLI must never see."""
+        env = {"PATH": "%s:%s" % (pathlib.Path(cli).parent / "host-bin", os.environ["PATH"]), "HOME": str(home or self.home), "LANG": "C",
+               "ANTHROPIC_API_KEY": "sk-" + "ant-" + "api03-NEVER-SEEN", "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
+        return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg), str(cli)], cwd=SCRATCH.name,
+                              capture_output=True, text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
+
+    INSIDE = ("never-made-in-the-repo-p26",)
+
+    def setUp(self):
+        self.home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        self.cfg = self.home.parent / (self.home.name + "-cfg")
+        self.cfg.mkdir()
+        self.out = self.home.parent / (self.home.name + "-out")
+
+    def tearDown(self):
+        for name in self.INSIDE:
+            shutil.rmtree(ROOT / name, ignore_errors=True)
+
+    def given(self, folder, call) -> dict:
+        return dict(line.split("=", 1) for line in (folder / ("env-" + call)).read_text().splitlines() if "=" in line)
+
+    def markers(self, folder) -> list:
+        """The four markers the script made, read from what the stand-in CLI was given."""
+        found = []
+        for scrub in "01":
+            given = self.given(folder, "task-" + scrub)
+            found += [given["P26_PARENT_MARKER"], given["ANTHROPIC_CUSTOM_HEADERS"].split(": ", 1)[1]]
+        return found
+
+    def written(self, out) -> str:
+        return "".join(p.read_text() for p in pathlib.Path(out).iterdir())
+
+    def checked(self, out) -> dict:
+        return json.loads((pathlib.Path(out) / "checked.json").read_text())
+
+    def test_the_cli_is_given_only_the_named_environment_and_one_command(self):
+        folder = self.stand_in(hides=("markers", "markers"))
+        ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        named = {"HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "LANG", "CLAUDE_CONFIG_DIR", "DISABLE_AUTOUPDATER"}
+        task = {"CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "P26_PARENT_MARKER", "ANTHROPIC_CUSTOM_HEADERS"}
+        shell_adds = {"PWD", "OLDPWD", "SHLVL", "_"}
+        for call, expected in (("version", named), ("auth", named), ("task-0", named | task), ("task-1", named | task)):
+            self.assertEqual(set(self.given(folder, call)) - shell_adds, expected, call)
+            self.assertNotIn("NEVER-SEEN", (folder / ("env-" + call)).read_text(), call)
+        self.assertEqual([self.given(folder, "task-" + s)["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"] for s in "01"], ["0", "1"])
+        self.assertEqual(len(set(self.markers(folder))), 4, "each Task has fresh markers")
+        for scrub in "01":
+            args = (folder / ("args-" + scrub)).read_text().split("\n")
+            self.assertEqual(args[args.index("--tools") + 1], "Bash", "the model is given the shell alone")
+            self.assertEqual(args[args.index("--allowedTools") + 1], "Bash(sh ./probe.sh)")
+            self.assertEqual(args[args.index("--permission-prompts") + 1], "none")
+            settings = json.loads(args[args.index("--settings") + 1])
+            sandbox = settings["sandbox"]
+            self.assertEqual((sandbox["enabled"], sandbox["failIfUnavailable"], sandbox["allowUnsandboxedCommands"],
+                              sandbox["autoAllowBashIfSandboxed"], sandbox["network"]["allowedDomains"]),
+                             (True, True, False, False, ["example.com"]), "a sandboxed command is not allowed for that alone")
+            self.assertEqual(settings["permissions"], {"allow": ["Bash(sh ./probe.sh)"]})
+            # The probe holds its values in its text: the script's pid, which is the CLI's parent, and the two hosts.
+            probe = (folder / ("probe-" + scrub)).read_text()
+            self.assertNotRegex(probe, r"@[A-Z]+@")
+            self.assertEqual(re.search(r"^above=(\S+)$", probe, re.M).group(1), (folder / "cli-ppid").read_text().strip())
+            self.assertEqual(re.findall(r"^(allowed|denied)=(\S+)$", probe, re.M), [("allowed", "example.com"), ("denied", "example.org")])
+            self.assertNotIn("P26_", probe.replace("P26_PARENT", ""), "the probe reads nothing it needs from its environment")
+
+    def test_no_marker_and_no_model_text_reaches_out(self):
+        # The sandbox hides nothing and lets the tool write outside its directory, and the model writes words of its
+        # own among the probe's codes: no marker and none of those words reaches OUT.
+        folder = self.stand_in(net="open", confined=False, flags=("forge",))
+        ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        written = self.written(self.out) + ran.stdout + ran.stderr
+        for word in self.markers(folder) + list(self.PROSE.values()) + ["NEVER-SEEN", "the_model_wrote", "123"]:
+            self.assertNotIn(word, written)
+        for part in self.checked(self.out)["configurations"]:
+            self.assertEqual((part["env"]["seen"], part["ancestors"]["seen"]),
+                             ({"parent": True, "listed": True}, {"parent": True, "listed": True}))
+            self.assertEqual(part["write_outside_the_work_directory"], {"exit": 0, "landed": True})
+            self.assertEqual(part["stderr"], {"lines": 1, "characters": len(self.PROSE["stderr"]) + 1})
+            self.assertEqual(sorted(part["fetches"]), ["allowed_around_proxy", "allowed_through_proxy",
+                                                       "denied_around_proxy", "denied_by_address", "denied_through_proxy"])
+            self.assertEqual((part["ancestors"]["read_exits"], part["ancestors"]["processes"]), (None, None))
+        self.assertEqual(list(self.home.glob(".p26-write-probe-*")), [], "the write outside is removed")
+        requests = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual([r["configuration"] for r in requests[2:]], ["plain", "scrubbed"])
+        self.assertEqual(requests[0]["env"].keys() & {"P26_PARENT_MARKER", "ANTHROPIC_CUSTOM_HEADERS"}, set())
+        self.assertNotIn(str(self.home), json.dumps(requests), "the probe is recorded as its template")
+
+    def test_each_configuration_is_judged_by_the_condition(self):
+        cases = [
+                ("the scrub and the sandbox hide and limit", dict(hides=("none", "markers")), 0,
+                 (False, False, True), (True, True, True)),
+                ("the scrub hides the listed name alone", dict(hides=("none", "listed")), 1,
+                 (False, False, True), (False, True, True)),
+                ("the sandbox hides everything", dict(hides=("everything", "everything")), 0, (True, True, True), (True, True, True)),
+                ("nothing limits a fetch", dict(hides=("markers", "markers"), net="open"), 1, (True, True, False), (True, True, False)),
+                ("the denied host answers around the proxy", dict(hides=("markers", "markers"), net="around"), 1,
+                 (True, True, False), (True, True, False)),
+                ("the denied host answers through the proxy", dict(hides=("markers", "markers"), net="proxied"), 1,
+                 (True, True, False), (True, True, False)),
+                ("the denied host answers at its address", dict(hides=("markers", "markers"), net="address"), 1,
+                 (True, True, False), (True, True, False)),
+                ("the allowed host does not answer", dict(hides=("markers", "markers"), net="none"), 1,
+                 (True, True, False), (True, True, False)),
+                ("the model did not run the probe", dict(hides=("markers", "markers"), runs=False), 1,
+                 (False, False, False), (False, False, False)),
+                ("the probe recorded no environment", dict(hides=("markers", "markers"), flags=("empty-env",)), 1,
+                 (False, False, True), (False, False, True)),
+                ("the Task said it failed", dict(hides=("markers", "markers"), is_error=True), 1, (True, True, True), (True, True, True)),
+                ("the version moved under the run", dict(hides=("markers", "markers"), after="9.9.9"), 1,
+                 (True, True, True), (True, True, True))]
+        # The tool's own environment is clean, but it reads the parent marker in a process above it; and a login that
+        # fails leaves its record.
+        runs = {name: kwargs for name, kwargs, *_ in cases}
+        runs.update({"above": dict(hides=("markers", "markers"), flags=("above-leaks",)), "no login": dict(status={"loggedIn": False})})
+        outs = self.run_each(runs)
+        for name, kwargs, code, plain, scrubbed in cases:
+            out, ran = outs[name]
+            self.assertEqual(ran.returncode, code, (name, ran.stderr))
+            checked = self.checked(out)
+            holds = [tuple(p["holds"][k] for k in ("environment_hidden", "listed_hidden", "connections_limited"))
+                     for p in checked["configurations"]]
+            self.assertEqual(holds, [plain, scrubbed], name)
+            self.assertEqual(checked["some_configuration_hides_and_limits"], code == 0, name)
+        out, ran = outs["above"]
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        for part in self.checked(out)["configurations"]:
+            self.assertEqual((part["env"]["seen"]["parent"], part["ancestors"]["seen"]["parent"]), (False, True))
+            self.assertEqual(part["holds"]["environment_hidden"], False)
+        out, ran = outs["no login"]
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        self.assertEqual((self.checked(out)["login"], self.checked(out)["some_configuration_hides_and_limits"]),
+                         ({"exit": 0, "status": "no"}, False))
+
+    def run_each(self, runs: dict) -> dict:
+        """The script once for each stand-in, four at a time, each with an OUT and a CONFIG_DIR of its own: {name: (OUT, run)}."""
+        def one(name):
+            folder = self.stand_in(**runs[name])
+            out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
+            cfg = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+            return name, (out, self.run_script(out, cfg, folder / "claude"))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            return dict(pool.map(one, runs))
+
+    def test_the_probe_tries_the_denied_host_at_the_address_looked_up_outside(self):
+        # The address the script looked up, outside the sandbox, is the one the probe gives curl, in each Task.
+        folder = self.stand_in(hides=("markers", "markers"))
+        self.assertEqual(self.run_script(self.out, self.cfg, folder / "claude").returncode, 0)
+        self.assertEqual((folder / "resolved").read_text().split(), ["example.org:443:192.0.2.7"] * 2)
+
+    def test_the_probe_reads_nothing_above_the_cli(self):
+        # The process above the probe is the script itself, the CLI's parent: the probe stops there and never reads it,
+        # though the sandbox hides every name in its environment.
+        for hides in ("markers", "everything"):
+            folder = self.stand_in(hides=(hides, hides), flags=("to-cli",))
+            out = self.home.parent / (self.home.name + "-" + hides)
+            ran = self.run_script(out, self.cfg, folder / "claude")
+            self.assertEqual(ran.returncode, 0, (hides, ran.stderr))
+            script = (folder / "cli-ppid").read_text().strip()
+            read = (folder / "ps-read").read_text().split()
+            self.assertEqual(len(read), 2, "one process read in each Task, the probe's own")
+            self.assertNotIn(script, read, "the script that started the CLI is never read")
+        # A probe that knows no stop reads its own process alone.
+        probe = re.search(r"<<'PROBE'\n(.*?)\nPROBE\n", self.SCRIPT.read_text(), re.S).group(1)
+        work = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (work / "probe.sh").write_text(probe.replace("@ABOVE@", "").replace("@OUTSIDE@", str(work / "x")).replace("/proc/", "/nonexistent-p26/proc/")
+                                       .replace("@ALLOWED@", "example.com").replace("@DENIED@", "example.org")
+                                       .replace("@ADDRESS@", "192.0.2.7"))
+        folder = self.stand_in(flags=("to-cli",))
+        (folder / "cli-ppid").write_text("2\n")
+        subprocess.run(["sh", "./probe.sh"], cwd=work, env={"PATH": "%s:/usr/bin:/bin" % (folder / "bin")},
+                       timeout=60, capture_output=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(len((folder / "ps-read").read_text().split()), 1)
+
+    def test_each_refusal_stops_before_anything_is_asked(self):
+        folder = self.stand_in()
+        existing = self.home.parent / (self.home.name + "-taken")
+        existing.mkdir()
+        dot_claude = self.home / ".claude" / "deep"
+        dot_claude.mkdir(parents=True)
+        for name, out, cfg, said in [("OUT exists", existing, self.cfg, "exists; name a new directory"),
+                                     ("OUT inside the repo", ROOT / self.INSIDE[0], self.cfg, "OUT is inside the repo"),
+                                     ("OUT inside CONFIG_DIR", self.cfg / "out", self.cfg, "OUT is inside CONFIG_DIR"),
+                                     ("CONFIG_DIR inside the repo", self.out, ROOT / "tools", "CONFIG_DIR is inside the repo"),
+                                     ("CONFIG_DIR is HOME", self.out, self.home, "the home directory or holds it"),
+                                     ("CONFIG_DIR under ~/.claude", self.out, dot_claude, "under ~/.claude"),
+                                     ("CONFIG_DIR missing", self.out, self.home / "none", "CONFIG_DIR is not a directory")]:
+            ran = self.run_script(out, cfg, folder / "claude")
+            self.assertEqual(ran.returncode, 2, (name, ran.stderr))
+            self.assertIn(said, ran.stderr, name)
+            self.assertFalse(out.exists() and out != existing, name)
+            self.assertFalse((folder / "env-version").exists(), name + ": nothing was asked")
+        folder = self.stand_in(flags=("no-address",))
+        ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertEqual(ran.returncode, 2, ran.stderr)
+        self.assertIn("example.org has no IPv4 address here", ran.stderr)
+        self.assertFalse((folder / "env-version").exists(), "no address: nothing was asked")
+        for name, folder, said in [("wrong version", self.stand_in(version="0.0.1"), "is version '0.0.1', exit 0, not " + self.PIN),
+                                   ("not logged in", self.stand_in(status={"loggedIn": False}), "login under CONFIG_DIR is 'no'")]:
+            out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
+            ran = self.run_script(out, self.cfg, folder / "claude")
+            self.assertEqual(ran.returncode, 1, (name, ran.stderr))
+            self.assertIn(said, ran.stderr, name)
+            self.assertFalse((folder / "args-0").exists(), name + ": no Task was asked")
+
+    def test_the_shell_snapshots_the_run_made_are_deleted(self):
+        older = self.cfg / "shell-snapshots" / "older.sh"
+        older.parent.mkdir()
+        older.write_text("kept")
+        os.utime(older, (1, 1))
+        folder = self.stand_in(hides=("markers", "markers"))
+        (folder / "claude").write_text(self.STAND_IN.replace(
+            'scrub=$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB\n', 'scrub=$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB\n      echo snap > "$CLAUDE_CONFIG_DIR/shell-snapshots/new-$scrub.sh"\n'))
+        self.assertEqual(self.run_script(self.out, self.cfg, folder / "claude").returncode, 0)
+        self.assertEqual([p.name for p in older.parent.iterdir()], ["older.sh"])
+        self.assertEqual([p["shell_snapshots_removed"] for p in self.checked(self.out)["configurations"]], [1, 1])
 
 
 class Redaction(unittest.TestCase):
