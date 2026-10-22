@@ -3757,6 +3757,9 @@ exit 9
                 pins[path.name] = found.group(1)
         self.assertLessEqual({"trial_p13_cli.sh", "context_eval.sh"}, set(pins))
         self.assertEqual(set(pins.values()), {self.PIN}, pins)
+        # The Engine runs at the pin the trials ran at: config/harness.json holds the same version (CodeRabbit's read).
+        harness = json.loads((ROOT / "config" / "harness.json").read_text())
+        self.assertEqual(harness["engine"]["version"], self.PIN)
         # The pin moves only by a run of P-13 at the new version: it is the version the newest P-13 fixture ran at, before
         # and after its Task, and that run passed.
         runs = sorted((json.loads(p.read_text()) for p in (ROOT / "trials").glob("P-13*.json")), key=lambda f: f["ran_at"])
