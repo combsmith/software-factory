@@ -586,14 +586,14 @@ class ChangedPaths(unittest.TestCase):
                                "complete": True})
 
     def test_a_list_github_stops_short_of_the_count_is_never_the_whole(self):
-        # trials/P-29.truncated.json: 3,001 files. A compare lists at most 300 of them, so the list is short, and a
-        # change of more than 300 files is never read whole, whatever the list holds (issue 284's ruling).
+        # trials/P-29.truncated.json: 3,001 files. A compare lists at most 300, so a change of more is read short by
+        # its count alone: nothing is asked (an empty replay answers nothing), so no answer can refuse the snapshot
+        # (issue 284's ruling). 301 rows, which GitHub would not send, are never read whole either.
         data = body("P-29.truncated", 2)
-        got = pull.changed_paths(github.Replay([compare_files(files_rows(300), data)]), data, PINNED_BASE)
-        self.assertEqual((len(got["changed_paths"]), got["complete"]), (300, False))
-        data["changed_files"] = 301
-        got = pull.changed_paths(github.Replay([compare_files(files_rows(301), data)]), data, PINNED_BASE)
-        self.assertIs(got["complete"], False)
+        for count in (3001, 301):
+            data["changed_files"] = count
+            got = pull.changed_paths(github.Replay([]), data, PINNED_BASE)
+            self.assertEqual(got, {"changed_paths": [], "complete": False}, count)
 
     def test_a_list_of_up_to_three_hundred_files_is_whole(self):
         data = body("P-29.truncated", 2)
@@ -972,7 +972,8 @@ MACHINE = (281750570, "User")     # its account, as trials/P-7.json records it
 
 class Router:
     """A transport that answers a permission or a compare from a table it is given, and anything else from a replay.
-    No fixture holds those two reads yet: the permission's trial is #222's, and P-7 recorded no compare."""
+    A compare not in the table is the replay's, as the snapshot's own compares of the diff and the files are (issue
+    284), and one the replay does not hold either answers 404. The permission's trial is #222's."""
 
     def __init__(self, replay, permissions=None, compares=None):
         self.replay, self.permissions, self.compares, self.asked = replay, dict(permissions or {}), dict(compares or {}), []
@@ -1688,9 +1689,8 @@ class Contract(unittest.TestCase):
             "the_pusher_is_the_last_pusher": pull.last_pusher(replay("P-28", 7), body("P-28", 10)) == "don-petry"
             and pull.last_pusher(replay("P-28.app", 1), body("P-28.app", 0)) == "combsmith-sf-trial-author[bot]",
             "a_short_diff_says_so": pull.diff(compared("P-29.truncated", 4, body("P-29.truncated", 2)), body("P-29.truncated", 2), PINNED_BASE)["diff"]["truncated"],
-            "a_path_list_can_leave_out_a_file": pull.changed_paths(
-                github.Replay([compare_files(files_rows(300), body("P-29.truncated", 2))]), body("P-29.truncated", 2),
-                PINNED_BASE)["complete"] is False,
+            "a_path_list_can_leave_out_a_file": pull.changed_paths(github.Replay([]), body("P-29.truncated", 2),
+                                                                   PINNED_BASE)["complete"] is False,
             "a_forks_run_never_counts": bool(recorded) and all(r["event"] == "pull_request" for r in recorded)
             and all(records._record(r, r["repository"]["full_name"], r.get("head_branch"), {r.get("path")},
                                     (r["actor"]["id"], r["actor"]["type"])) == (None, None) for r in rows),

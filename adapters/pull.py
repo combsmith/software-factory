@@ -15,7 +15,7 @@ import urllib.parse
 
 from adapters.github import DIFF, Unanswered, raw, request
 
-COMPARED = 300      # the files a compare lists at most; a change of more is read short (issue 284's ruling)
+COMPARED = 300      # the files a compare lists at most, as GitHub documents it, unverified; more is read short
 # What GitHub says of a file. A rename and a copy carry the name the file had; no other status does.
 STATUSES = {"added", "removed", "modified", "renamed", "copied", "changed", "unchanged"}
 MOVED = {"renamed", "copied"}
@@ -239,11 +239,15 @@ def changed_paths(transport, pull: dict, base_head: str) -> dict:
     """`changed_paths` and `complete.changed_paths`: every file the head commit changes against its merge base, from the
     same compare as the diff, pinned to the head of the pull request's first read (issue 284), each by its path and,
     for a rename or a copy, the path it had before. Whole only when the list holds exactly as many files as the pull
-    request's count, each once. A compare lists at most COMPARED files, so a change of more is read short, never as the
-    whole, and the Kernel defers it for the Maintainer (issue 284's ruling; the pull request's own list gave 3,000, P-29)."""
+    request's count, each once. A compare lists at most COMPARED files, as GitHub documents it (no trial records it), so
+    a change of more is read short by its count alone, with nothing asked, and the Kernel defers it for the Maintainer:
+    no answer GitHub gives for such a change can refuse the snapshot (issue 284's ruling; the pull request's own list
+    gave 3,000, P-29)."""
     want = pull.get("changed_files")
     if not isinstance(want, int) or isinstance(want, bool) or want < 0:
         raise Unanswered("the pull request's count of files cannot be read")
+    if want > COMPARED:
+        return {"changed_paths": [], "complete": False}
     path = _compare(pull, base_head)
     compared = _ok(transport.send(request("GET", path)), "the compare")
     rows = compared.get("files") if isinstance(compared, dict) else None
@@ -264,6 +268,5 @@ def changed_paths(transport, pull: dict, base_head: str) -> dict:
             return {"changed_paths": paths, "complete": False}
         paths.append({"path": name, "previous": before})
     names = [p["path"] for p in paths]
-    # More files than a compare lists can never be read whole, whatever the list holds.
-    whole = want <= COMPARED and len(paths) == want and len(set(names)) == len(names)
+    whole = len(paths) == want and len(set(names)) == len(names)
     return {"changed_paths": paths, "complete": whole}
