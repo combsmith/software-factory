@@ -121,12 +121,13 @@ def fetch(env: dict, root: pathlib.Path, workspace: pathlib.Path, transport) -> 
     why each that is not there is not: `fetched.json`, by id, a code or null."""
     from adapters import heldout
     _, found, place = _planned(env, root, workspace)
-    try:
-        read = heldout.cases(transport, env.get("HELDOUT_OWNER"), env.get("HELDOUT_REPO"), found)
-    except Exception:
-        raise Stop("unanswered") from None
     why = {}
-    for entry, data, code in read:
+    # Each case is written as it is read, so that no more than one is held at a time, whatever the set's count.
+    for entry in found["cases"]:
+        try:
+            data, code = heldout.case(transport, env.get("HELDOUT_OWNER"), env.get("HELDOUT_REPO"), found["role"], entry)
+        except Exception:
+            data, code = None, "unanswered"
         why[entry["id"]] = code
         if data is not None:
             path = place / "cases" / ("%s.json" % entry["id"])

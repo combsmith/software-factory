@@ -44,16 +44,16 @@ jobs:
       - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: home
         with:
-          client-id: ${{ vars.HELDOUT_CLIENT_ID }}
+          client-id: ${{ secrets.HELDOUT_CLIENT_ID }}
           private-key: ${{ secrets.HELDOUT_APP_KEY }}
-          owner: ${{ vars.HELDOUT_OWNER }}
-          repositories: ${{ vars.HELDOUT_REPO }}
+          owner: ${{ secrets.HELDOUT_OWNER }}
+          repositories: ${{ secrets.HELDOUT_REPO }}
           permission-contents: read
       - run: python3 -m harness.eval.fetch
         env:
           HELDOUT_TOKEN: ${{ steps.home.outputs.token }}
-          HELDOUT_OWNER: ${{ vars.HELDOUT_OWNER }}
-          HELDOUT_REPO: ${{ vars.HELDOUT_REPO }}
+          HELDOUT_OWNER: ${{ secrets.HELDOUT_OWNER }}
+          HELDOUT_REPO: ${{ secrets.HELDOUT_REPO }}
       - run: python3 -m harness.eval.run
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -286,7 +286,7 @@ class TheSet(unittest.TestCase):
             "an id on fetch": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.fetch\n",
                                                      "      - run: python3 -m harness.eval.fetch\n        id: home\n"),
                                "its fetch step has a key it may not"),
-            "a token of every repo": (EVAL_WORKFLOW.replace("          repositories: ${{ vars.HELDOUT_REPO }}\n", ""),
+            "a token of every repo": (EVAL_WORKFLOW.replace("          repositories: ${{ secrets.HELDOUT_REPO }}\n", ""),
                                       "its mint step is given under with"),
             "a token that can write": (EVAL_WORKFLOW.replace("permission-contents: read", "permission-contents: write"),
                                        "its mint step is given under with"),
@@ -296,17 +296,33 @@ class TheSet(unittest.TestCase):
                                           "its checkout step is given under with"),
             "another mint": (EVAL_WORKFLOW.replace("actions/create-github-app-token@", "someone/create-github-app-token@"),
                              "in that order"),
+            "a mint of its own": (EVAL_WORKFLOW.replace("uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510"
+                                                        " # v3.3.0", "run: python3 -m harness.eval.mint"), "in that order"),
+            "an upload of its own": (EVAL_WORKFLOW.replace("uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
+                                                           " # v7.0.2", "run: python3 -m harness.eval.upload"), "in that order"),
+            "the home as a variable": (EVAL_WORKFLOW.replace("${{ secrets.HELDOUT_OWNER }}", "${{ vars.HELDOUT_OWNER }}"),
+                                       "its mint step is given under with"),
+            "a credential for every step": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions: {}\nenv:\n"
+                                                                  "  KEY: ${{ secrets.HELDOUT_APP_KEY }}\n"),
+                                            "nothing else above its job"),
+            "a default for every step": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions: {}\ndefaults:\n  run:\n"
+                                                               "    working-directory: x\n"), "nothing else above its job"),
+            "another name": (EVAL_WORKFLOW.replace("name: factory\n", "name: eval\n"), "nothing else above its job"),
+            "a grant above the job": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions:\n  contents: read\n"),
+                                      "nothing else above its job"),
+            "an empty env on the judge": (EVAL_WORKFLOW + "        env:\n", "its judge step has a env: it is not given"),
         }
         for why, (text, words) in broken.items():
             self.assertTrue(caught(check_workflows.eval_problems(text), words), why)
         # Run whole: the shape is held in eval.yml, and no other workflow names its environment, the home or its steps.
         problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW}))
         self.assertEqual(problems, [])
-        other = GOOD.replace("      - run: make verify\n", "      - run: make verify\n        env:\n"
-                             "          HELDOUT_OWNER: ${{ vars.HELDOUT_OWNER }}\n", 1)
-        problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW,
-                                              ".github/workflows/other.yml": other}))
-        self.assertTrue(caught(problems, "other.yml: line"), problems)
+        for line in ("          HELDOUT_OWNER: ${{ secrets.HELDOUT_OWNER }}\n", "          X: ${{ secrets.heldout_app_key }}\n"):
+            other = GOOD.replace("      - run: make verify\n", "      - run: make verify\n        env:\n" + line, 1)
+            problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW,
+                                                  ".github/workflows/other.yml": other}))
+            self.assertTrue(caught(problems, "other.yml: line"), (line, problems))
+        self.assertTrue(check_workflows.EVAL_ONLY.search("    environment: Factory-Eval"))
         problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW.replace("id: home", "id: x")}))
         self.assertTrue(caught(problems, "eval.yml: its mint step"), problems)
 
@@ -442,6 +458,7 @@ class EvalJob(unittest.TestCase):
         self.step(job.plan)
         first = next(iter(self.cases))
         self.assertEqual(self.step(job.fetch, self.home(dict(self.cases, **{first: b"changed"}))), "fetched 1 of 2 cases")
+        self.assertEqual(json.loads((self.temp / "heldout" / "fetched.json").read_text()), {first: "hash_differs", "poc-two": None})
         self.assertFalse((self.temp / "heldout" / "cases" / ("%s.json" % first)).exists())
         self.step(job.score, lambda case: wrong)
         written = json.loads((self.work / job.REPORT).read_text())
@@ -453,6 +470,22 @@ class EvalJob(unittest.TestCase):
         self.assertEqual(self.step(job.judge), "report_unreadable")
         self.set({first: self.cases[first]})
         self.assertEqual(self.step(job.judge), "eval_set_changed")
+
+    def test_a_case_the_home_does_not_answer_is_unanswered_and_the_rest_are_fetched(self):
+        # Each case is written as it is read, one held at a time; one whose read fails however it fails is unanswered,
+        # and says nothing of why.
+        from harness import eval as job
+        first = next(iter(self.cases))
+        home = self.home({"poc-two": self.cases["poc-two"]})
+
+        class Failing:
+            def send(self, req):
+                if first in req["path"]:
+                    raise RuntimeError("the home is o/home")
+                return home.send(req)
+        self.step(job.plan)
+        self.assertEqual(self.step(job.fetch, Failing()), "fetched 1 of 2 cases")
+        self.assertEqual(json.loads((self.temp / "heldout" / "fetched.json").read_text()), {first: "unanswered", "poc-two": None})
 
     def test_a_case_that_is_no_case_of_this_set_is_unreadable(self):
         from harness import eval as job

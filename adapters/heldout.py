@@ -64,10 +64,3 @@ def case(transport, owner: str, name: str, role: str, entry) -> tuple:
         return None, "hash_differs"
     return data, None
 
-
-def cases(transport, owner: str, name: str, manifest: dict) -> list:
-    """`[(entry, bytes or None, code or None)]`, one for each case the manifest names, in its order, each read once. The
-    manifest is the caller's, held to `eval-set/1`; one that names no list of cases is refused, never read as none."""
-    if not isinstance(manifest, dict) or not isinstance(manifest.get("cases"), list):
-        raise Unanswered("the manifest names no list of cases")
-    return [(entry,) + case(transport, owner, name, manifest.get("role"), entry) for entry in manifest.get("cases", [])]

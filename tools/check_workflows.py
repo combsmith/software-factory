@@ -112,19 +112,23 @@ EVAL_JOB_KEYS = {"runs-on", "timeout-minutes", "permissions", "environment", "st
 EVAL_GIVEN = {
     "checkout": {"with": {"persist-credentials": "false"}},
     "plan": {"env": {"RELEASE": "${{ inputs.release }}"}},
-    "mint": {"with": {"client-id": "${{ vars.HELDOUT_CLIENT_ID }}", "private-key": "${{ secrets.HELDOUT_APP_KEY }}",
-                      "owner": "${{ vars.HELDOUT_OWNER }}", "repositories": "${{ vars.HELDOUT_REPO }}",
+    # The home's coordinates and its App's client id are secrets, never variables: a step's log shows what it is given,
+    # and GitHub masks a secret's value there, and nowhere a variable's.
+    "mint": {"with": {"client-id": "${{ secrets.HELDOUT_CLIENT_ID }}", "private-key": "${{ secrets.HELDOUT_APP_KEY }}",
+                      "owner": "${{ secrets.HELDOUT_OWNER }}", "repositories": "${{ secrets.HELDOUT_REPO }}",
                       "permission-contents": "read"}},
-    "fetch": {"env": {"HELDOUT_TOKEN": "${{ steps.home.outputs.token }}", "HELDOUT_OWNER": "${{ vars.HELDOUT_OWNER }}",
-                      "HELDOUT_REPO": "${{ vars.HELDOUT_REPO }}"}},
+    "fetch": {"env": {"HELDOUT_TOKEN": "${{ steps.home.outputs.token }}", "HELDOUT_OWNER": "${{ secrets.HELDOUT_OWNER }}",
+                      "HELDOUT_REPO": "${{ secrets.HELDOUT_REPO }}"}},
     "run": {"env": {"CLAUDE_CODE_OAUTH_TOKEN": "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"}},
     "upload": {"with": {"name": "eval-report", "path": "eval-report.json", "if-no-files-found": "error",
                         "retention-days": "90"}},
     "judge": {},
 }
 EVAL_STEP_KEYS = {"uses", "run", "with", "env", "id"}
+EVAL_TOP = {"name": "factory", "on": "", "permissions": "{}", "jobs": ""}
+EVAL_ACTIONS = {"checkout", "mint", "upload"}
 # What names the held-out home or the eval job's environment, in a workflow that is not eval.yml.
-EVAL_ONLY = re.compile(r"factory-eval|HELDOUT_|harness\.eval")
+EVAL_ONLY = re.compile(r"factory-eval|HELDOUT_|harness\.eval", re.I)    # GitHub's names of these ignore case
 SCAN_BASE = "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}"
 # gitleaks 8.30.1 reads the ignore file named by --gitleaks-ignore-path and also the one at the top of --source, so the
 # head's is deleted on the line before. Its own log options are kept, and --text added, so a head's .gitattributes cannot
@@ -549,7 +553,7 @@ def _kind(step: dict) -> str:
         return "mint" if uses.startswith(MINT) else "upload" if uses.startswith(UPLOAD) else None
     command = _lines(step.get("run"))
     for name in EVAL_ORDER:
-        if command == [EVAL_STEP % name] and "uses" not in step:
+        if name not in EVAL_ACTIONS and command == [EVAL_STEP % name] and "uses" not in step:
             return name
     return None
 
@@ -565,6 +569,9 @@ def eval_problems(text: str) -> list:
     if bad:
         return ["line %d is not in the narrow form" % bad[0]]
     problems = []
+    # Nothing above the job: an env: or a default there would reach every step, the model's among them.
+    if {e["key"]: e["value"] for e in entries if e["path"] == []} != EVAL_TOP:
+        problems.append("it holds name: factory, on:, permissions: {} and jobs:, and nothing else above its job")
     events = {e["key"] for e in entries if e["path"] == ["on"]}
     inputs = [e for e in entries if e["path"][:3] == ["on", "workflow_dispatch", "inputs"]]
     if events != {"workflow_dispatch"} or sorted((e["key"], e["value"]) for e in inputs if len(e["path"]) == 4) != \
@@ -593,8 +600,8 @@ def eval_problems(text: str) -> list:
                      and e["path"] == ["jobs", EVAL_JOB, "steps", under]}
             if given != EVAL_GIVEN[kind].get(under, {}):
                 problems.append("its %s step is given under %s: %s, exactly" % (kind, under, EVAL_GIVEN[kind].get(under, {})))
-            if under in step and step[under]["value"]:
-                problems.append("its %s step writes %s: on one line" % (kind, under))
+            if under in step and (step[under]["value"] or under not in EVAL_GIVEN[kind]):
+                problems.append("its %s step has a %s: it is not given" % (kind, under))
     return problems
 
 

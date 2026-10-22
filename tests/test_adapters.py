@@ -1887,12 +1887,9 @@ class Heldout(unittest.TestCase):
         # Issue 309: each case the manifest names is asked for by its Role and id, once, in its order, and handed back
         # as exactly the bytes the manifest hashed; GitHub's base64, wrapped, is decoded whole.
         manifest = home_set(("c-1", self.ONE), ("c-2", self.TWO))
-        got = heldout.cases(github.Replay([home_file("c-1", self.ONE), home_file("c-2", self.TWO)]), "o", "home", manifest)
-        self.assertEqual([(e["id"], data, code) for e, data, code in got],
-                         [("c-1", self.ONE, None), ("c-2", self.TWO, None)])
-        for manifest in ({"cases": None}, None, ["c-1"]):
-            with self.assertRaises(github.Unanswered):
-                heldout.cases(github.Replay([]), "o", "home", manifest)
+        home = github.Replay([home_file("c-1", self.ONE), home_file("c-2", self.TWO)])
+        self.assertEqual([heldout.case(home, "o", "home", manifest["role"], e) for e in manifest["cases"]],
+                         [(self.ONE, None), (self.TWO, None)])
 
     def test_a_held_out_case_not_read_whole_says_why(self):
         entry = home_set(("c-1", self.ONE))["cases"][0]
