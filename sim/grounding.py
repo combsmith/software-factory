@@ -170,10 +170,11 @@ RULES = (
      "use the canary token); GitHub documents that anyone may review a public repo"),
     # The issue world's rules (sim/issues.py, issue 43). trials/P-32.json showed the listing's authorAssociation tells
     # an App nothing of write access (CONTRIBUTOR for the org's owner), so write access is read from the repository's
-    # collaborator permission instead (issue 222, decision 0046).
+    # collaborator permission instead (issue 222, decision 0048).
     ("a_logins_permission_is_read_from_the_collaborator_endpoint", "A person's write access is read from the "
-     "repository's collaborator permission: admin, maintain and write are write access, and triage, read and none are "
-     "not", ("P-47",), "trials/P-47.json", None),
+     "repository's collaborator permission: admin and write are write access, a maintainer's role among them, which "
+     "the field gives as write, and read is not; triage, which GitHub documents as read, was not tried", ("P-47",),
+     "trials/P-47.json", None),
     # trials/P-33.json: a pull request to a base that is not the default branch carries no closing reference at all
     # (section 6's fallback: the issue Lifecycle serves the default branch only). The reverse read from the issue is
     # no substitute: willCloseTarget is false for a closed-unmerged pull request that keeps its reference, false for

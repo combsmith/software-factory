@@ -70,7 +70,14 @@ done
 API=https://api.github.com
 VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
-scratch=$(mktemp -d)
+# The raw answers are kept outside the repo, as OUT is: a TMPDIR inside it, or a link into it, is refused.
+# The template names TMPDIR itself: macOS's mktemp -d alone does not always read it.
+scratch=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/trial-reader.XXXXXX")" && pwd -P)
+case "$scratch/" in "$root"/*)
+    rm -rf "$scratch"
+    echo "trial_reader_reads: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
+    exit 2 ;;
+esac
 token=""
 
 revoke() {
@@ -161,17 +168,21 @@ with_token() {   # PERMISSION
     signature=$(printf '%s.%s' "$header" "$claims" | openssl dgst -sha256 -sign "$key" -binary | b64url)
     jwt="$header.$claims.$signature"
     # GitHub's answer and its status are held in a variable, never a file, since a minted token is in the answer.
+    # curl's own exit code comes last: a transfer that failed is never trusted, however whole its answer reads.
     minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
         -H "$VERSION" -d "{\"repositories\":[\"$name\"],\"permissions\":{\"$1\":\"read\"}}" \
-        "$API/app/installations/$installation/access_tokens" || true)
+        "$API/app/installations/$installation/access_tokens" && printf '\n0' || printf '\n%s' "$?")
     jwt=""
+    minted_exit=$(printf '%s\n' "$minted" | tail -n 1)
+    minted=$(printf '%s\n' "$minted" | sed '$d')
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)
     token=$(printf '%s\n' "$minted" | sed '$d' | python3 -I -c '
 import json, sys
 answer = json.load(sys.stdin)
 print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/null || true)
-    if [ "$minted_status" = 201 ] && [ -z "$token" ]; then
-        # GitHub minted a token and its answer could not be read whole: the token may be live. It is revoked if it
+    if [ "$minted_status" = 201 ] && { [ -z "$token" ] || [ "$minted_exit" != 0 ]; }; then
+        # GitHub minted a token and its answer could not be read whole, or curl said the transfer failed: the token
+        # may be live. It is revoked if it
         # can be found in what came back, and the Maintainer is told either way; nothing of the answer is kept.
         token=$(token_in "$minted")
         minted=""

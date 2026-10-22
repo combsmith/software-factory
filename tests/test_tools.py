@@ -1113,6 +1113,12 @@ class Apps(unittest.TestCase):
         self.assertTrue(caught(check_apps.run(tree({"x": ""})), "config/apps.json cannot be read"))
         self.assertTrue(caught(check_apps.run(tree({"config/apps.json": "{"})), "config/apps.json cannot be read"))
         self.assertTrue(caught(check_apps.run(tree({"config/apps.json": "{}"})), "names no Apps"))
+        # A schema whose properties, $defs or a definition's properties are not objects is unreadable, never a crash
+        # (Codex on PR 298).
+        table = (ROOT / "config" / "apps.json").read_text()
+        for schema in ({"properties": None}, {"properties": {}, "$defs": []}, {"properties": {}, "$defs": {"actor": {"properties": 1}}}, []):
+            got = check_apps.run(tree({"config/apps.json": table, "schemas/facts.schema.json": json.dumps(schema)}))
+            self.assertTrue(caught(got, "schemas/facts.schema.json cannot be read"), schema)
 
 
 class Purity(unittest.TestCase):
@@ -3201,7 +3207,7 @@ class Trials(unittest.TestCase):
         self.assertTrue(all(e["actor"]["login"] and e["actor"]["__typename"] and e["createdAt"] for e in events))
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
         # The events ground the rule about them; the association, which an App reads wrong, is no rule of the fake: write
-        # access is read from the collaborator permission, which P-47 asks (decision 0046).
+        # access is read from the collaborator permission, which P-47 asks (decision 0048).
         self.assertEqual(by_code["a_label_event_names_its_actor"], "trials/P-32.json")
         self.assertNotIn("an_issues_author_has_an_association", by_code)
         self.assertIn("a_logins_permission_is_read_from_the_collaborator_endpoint", by_code)
@@ -5085,15 +5091,17 @@ if url.endswith("/access_tokens"):
     open(os.path.join(here, "grant"), "w").write(json.loads(body)["permissions"] and list(json.loads(body)["permissions"])[0])
     sys.stdout.write(json.dumps({"token": "''' + "gh" + "s_" + "R" * 36 + r'''", "permissions": json.loads(body)["permissions"],
                                  "repository_selection": "selected"}) + "\n201")
-    sys.exit(0)
+    # A transfer that failed after the whole answer came, as curl's exit 18 says of a partial one.
+    sys.exit(18 if os.path.exists(os.path.join(here, "broke")) else 0)
 if method == "DELETE":
     sys.stdout.write(open(os.path.join(here, "revoke.status")).read().strip())
     sys.exit(0)
 roles = json.load(open(os.path.join(here, "roles")))
 if os.path.exists(os.path.join(here, "slow")):
-    import time
-    open(os.path.join(here, "reading"), "w").write("yes")
-    time.sleep(30)
+    # Mid-read: tell the test on one pipe, and wait on the other until the test lets the read end, or is gone.
+    told, held = (int(n) for n in open(os.path.join(here, "slow")).read().split())
+    os.write(told, b"r")
+    os.read(held, 1)
 if "/collaborators/" in url:
     login = url.split("/collaborators/")[1].split("/")[0]
     if login in roles:
@@ -5136,15 +5144,16 @@ esac
 
     # OUT names the refusal cases give inside the repo. A broken script could make one, in a copy the mutation check
     # lends to the next mutant, so each is removed after the test whether or not it was refused.
-    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link")
+    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link", "scratch-of-the-reader")
 
     def tearDown(self):
         for name in self.INSIDE:
             shutil.rmtree(ROOT / name, ignore_errors=True)
 
-    def run_script(self, *args, out=None) -> subprocess.CompletedProcess:
+    def run_script(self, *args, out=None, tmpdir=None) -> subprocess.CompletedProcess:
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
                "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
+        env.update({"TMPDIR": str(tmpdir)} if tmpdir else {})
         given = args or (self.CANARY, "main", "don-petry", "a-writer", "a-triager", "an-outsider")
         return subprocess.run(["sh", str(self.SCRIPT), str(out or self.out), str(self.key), *given],
                               cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=120)
@@ -5209,6 +5218,28 @@ esac
         self.assertIn("cannot read the key file", ran.stderr)
         self.assertEqual(self.calls(), [])
 
+    def test_a_mint_answered_whole_by_a_transfer_that_failed_is_revoked_and_told(self):
+        # curl read the whole answer and still failed: the token is not trusted, but revoked, and the run stops
+        # (Codex on PR 298).
+        (self.stand_in / "broke").write_text("yes\n")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 1)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST", "DELETE"])
+        self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+
+    def test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted(self):
+        # The raw answers are kept outside the repo, as OUT is: a TMPDIR inside it, or reached through a link into it,
+        # is refused and the directory mktemp made is removed (Codex on PR 298).
+        inside = ROOT / self.INSIDE[2]
+        inside.mkdir()
+        link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "into-the-repo"
+        link.symlink_to(inside)
+        for tmpdir in (inside, link):
+            ran = self.run_script(tmpdir=tmpdir)
+            self.assertEqual(ran.returncode, 2, tmpdir)
+            self.assertIn("is inside the repo; set TMPDIR outside it", ran.stderr, tmpdir)
+            self.assertEqual((self.calls(), list(inside.iterdir())), ([], []), tmpdir)
+
     def test_a_mint_answered_201_and_cut_short_is_revoked_and_told(self):
         # curl cut the mint's answer short: GitHub minted a token the script cannot parse. It finds the token, revokes
         # it, says so, and stops; nothing is read with it, and no token reaches what it hands over.
@@ -5228,19 +5259,28 @@ esac
         self.assertIn("inside the repo", ran.stderr)
         self.assertEqual(self.calls(), [])
 
-    @support.wall_clock
     def test_a_signal_mid_read_revokes_the_live_token(self):
-        # Interrupted while a token is live, the script revokes it on its way out, and keeps no raw answer.
-        (self.stand_in / "slow").write_text("yes\n")
+        # Interrupted while a token is live, the script revokes it on its way out, and keeps no raw answer. The stand-in
+        # says on a pipe that a read has begun, and holds it until the script has been signalled: no clock is read, so
+        # the mutation check runs this test. A script that ends first closes both pipes, so nothing waits for ever.
+        told_r, told_w = os.pipe()
+        held_r, held_w = os.pipe()
+        (self.stand_in / "slow").write_text("%d %d\n" % (told_w, held_r))
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
         running = subprocess.Popen(["sh", str(self.SCRIPT), str(self.out), str(self.key), self.CANARY, "main", "don-petry"],
-                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
-        deadline = time.time() + 30
-        while not (self.stand_in / "reading").exists() and time.time() < deadline:
-            time.sleep(0.1)
-        (self.stand_in / "slow").unlink()
-        running.terminate()
+                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                                   pass_fds=(told_w, held_r))
+        os.close(told_w)
+        os.close(held_r)
+        try:
+            begun = os.read(told_r, 1)
+            (self.stand_in / "slow").unlink()
+            running.terminate()
+        finally:
+            os.close(told_r)
+            os.close(held_w)
         out, err = running.communicate(timeout=60)
+        self.assertEqual(begun, b"r", "the script reached no read: " + err)
         self.assertNotEqual(running.returncode, 0)
         self.assertIn("DELETE", [c["method"] for c in self.calls()])
         self.assertIn("stopped with a token live; revoking it returned 204", err)

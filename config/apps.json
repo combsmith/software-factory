@@ -173,7 +173,8 @@
           "level": "read",
           "needs": [
             "read:facts.item",
-            "read:facts.targets_protected"
+            "read:facts.targets_protected",
+            "read:facts.actor.can_write"
           ]
         },
         "pull_requests": {

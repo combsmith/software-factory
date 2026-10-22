@@ -1,4 +1,4 @@
-# 0046. A person's write access is read from the collaborator permission, never from an association
+# 0048. A person's write access is read from the collaborator permission, never from an association
 
 Status: accepted. Taken as the working rulings on 2026-10-20, with the Maintainer's answer of 2026-10-21 that triage is
 not write access, for this issue:
@@ -11,8 +11,9 @@ and for this one:
 Every actor the facts carry with write access, an issue's author, each label event's actor, each review's and each
 dismissal's, and each thread's opening and resolving actor, has it read from the repository's collaborator permission,
 `GET /repos/{repo}/collaborators/{login}/permission`. Write access is `admin`, `maintain` or `write`; `triage`, `read`
-and `none` are not. The port reads the permission once for each distinct login in a pass and applies it wherever that
-login appears in the pass; it caches nothing across passes, and never asks it of an App, whose access is
+and `none` are not. A permission is a repo's: the port reads it once for each distinct login in each repo, keeps it by
+repo and login (`timeline.Accounts` is made for one repo), and applies it only where that login acts in that repo; it
+caches nothing across passes, and never asks it of an App, whose access is
 `config/apps.json`'s (decision 0035). The facts keep their shape: `can_write` stays the boolean the port computes, and
 nothing in `kernel/` or in a schema of the facts changes. No read of `authorAssociation` decides write access.
 
@@ -35,10 +36,9 @@ a change: a person with triage can label an issue and cannot push, so a triage r
 stops work, and is the reading the Maintainer overturns by granting write.
 
 The cost is REST, not GraphQL: the read spends none of the 3,000 points an hour W-4 allows nor of the 1,788 P-8
-measured. At P-8's scale, 41 items on the repo it measured, it is one request for each distinct login the pass reads
-on them, authors, label actors, reviewers and thread actors alike; not measured, but a login is read once a pass
-however many items it touches, so the count is the people active on the repo, and a pass of 41 items by a handful of
-people is a handful of requests, far inside an installation's 5,000 an hour.
+measured. It is one request for each distinct login in each repo the pass reads, authors, label actors, reviewers and
+thread actors alike, so the count is the people active on each repo, never the items; not measured. On the one repo P-8
+measured, 41 items by a handful of people, it is a handful of requests, far inside an installation's 5,000 an hour.
 
 ## Boundaries
 

@@ -212,11 +212,17 @@ def _keys(apps: dict) -> list:
 
 def fields(schema: dict) -> set:
     """What a read of facts/1 may name: each of its fields, and each property of one of its definitions as
-    definition.property, such as actor.can_write, which every actor the facts carry holds (decision 0046)."""
-    named = set(schema["properties"])
-    for name, definition in schema.get("$defs", {}).items():
-        for prop in definition.get("properties", {}) if isinstance(definition, dict) else {}:
-            named.add("%s.%s" % (name, prop))
+    definition.property, such as actor.can_write, which every actor the facts carry holds (decision 0048)."""
+    properties = schema.get("properties") if isinstance(schema, dict) else None
+    definitions = schema.get("$defs", {}) if isinstance(schema, dict) else None
+    if not isinstance(properties, dict) or not isinstance(definitions, dict):
+        raise ValueError("its properties and $defs are not each an object")
+    named = set(properties)
+    for name, definition in definitions.items():
+        inner = definition.get("properties", {}) if isinstance(definition, dict) else {}
+        if not isinstance(inner, dict):
+            raise ValueError("the properties of $defs.%s are not an object" % name)
+        named.update("%s.%s" % (name, prop) for prop in inner)
     return named
 
 

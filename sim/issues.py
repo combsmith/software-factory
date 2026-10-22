@@ -42,7 +42,7 @@ SERVED = {"served_from": "2026-01-01T00:00:00Z", "left_out_labels": ["epic", "id
 CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), lifecycle=LIFECYCLE, issues=SERVED)
 LIMITS = CONFIG["limits"]
 # Each person's permission on the repo, as the collaborator permission endpoint answers it, and the permissions that
-# are write access (issue 222, decision 0046): the port reads the one and gives the facts the other.
+# are write access (issue 222, decision 0048): the port reads the one and gives the facts the other.
 PERMISSIONS = {MAINTAINER["name"]: "admin", COLLEAGUE["name"]: "write", STRANGER["name"]: "read"}
 WRITE_ACCESS = ("admin", "maintain", "write")
 # The invariants the Kernel does not hold yet, each the name of a test marked @pending in tests/test_issue.py.
