@@ -81,6 +81,8 @@ P13_TESTS = "tests.test_tools.TrialScript."
 P50 = "tools/trial_p50_linux_sandbox.sh"
 P50_STUB = "tools/trial_p50_stub.py"
 P50_TESTS = "tests.test_tools.LinuxSandboxTrial."
+P51 = "tools/trial_p51_sandbox_writes.sh"
+P51_TESTS = "tests.test_tools.SandboxWritesTrial."
 P26 = "tools/trial_p26_sandbox.sh"
 P26_TESTS = "tests.test_tools.SandboxTrial."
 HOOK_TESTS = "tests.test_hooks.ProtectedPaths."
@@ -4530,6 +4532,25 @@ MUTANTS = ISSUE + [
     ('a workflow here may name the P-50 stub', "tools/check_repo.py",
      '        if rel.parts[:2] == (".github", "workflows") and TRIAL_STUB.stem in text:\n', '        if False:\n',
      ("tests.test_tools.Repo.test_the_p50_stub_alone_may_serve_and_only_on_loopback",)),
+    # Issue 312: P-51, the pinned CLI's sandbox and writes outside the work directory, against a stand-in CLI and P-50's stub.
+    ("P-51's write outside may land", P51,
+     'held = part["probe_ran"] and len(exits) == len(names) and not any(landed.values())', 'held = part["probe_ran"]',
+     (P51_TESTS + "test_each_configuration_and_order_is_judged_by_the_condition",)),
+    ("P-51's tool ran though its result was an error", P51,
+     'tool_ran = bool(back) and True not in errors', 'tool_ran = bool(back)',
+     (P51_TESTS + "test_each_configuration_and_order_is_judged_by_the_condition",)),
+    ('P-51 counts an answer that is an error', P51,
+     'answered = code == 0 and isinstance(answer, dict) and answer.get("is_error") is False', 'answered = code == 0 and isinstance(answer, dict)',
+     (P51_TESTS + "test_each_configuration_and_order_is_judged_by_the_condition",)),
+    ('P-51 passes when one configuration does', P51,
+     '"every_configuration_passes": pinned and len(parts) == 3 and all(', '"every_configuration_passes": pinned and len(parts) == 3 and any(',
+     (P51_TESTS + "test_each_configuration_and_order_is_judged_by_the_condition",)),
+    ('P-51 passes at a version that moved', P51,
+     'pinned = before == pin and after == pin', 'pinned = True',
+     (P51_TESTS + "test_each_configuration_and_order_is_judged_by_the_condition",)),
+    ("P-51's unset configuration sets the scrub", P51,
+     'unset) scrub=() ;;', 'unset) scrub=(CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0) ;;',
+     (P51_TESTS + "test_each_configuration_is_given_its_scrub_alone_and_a_directory_of_its_own",)),
     # Issue 287: P-50, the Linux trial of the pinned CLI's sandbox, run against a stand-in CLI and the real stub.
     ("P-50's environment is hidden if the tool's own is", P50,
      'all(part[k]["seen"] is not None and not any(part[k]["seen"].values()) for k in ("env", "ancestors"))',
