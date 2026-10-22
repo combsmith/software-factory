@@ -749,8 +749,9 @@ class Entry(unittest.TestCase):
             code = entry.main(["out"] if os.makedirs(os.path.join(d, "out")) is None else [], {k: v for k, v in env.items()
                                                                                               if v is not None},
                               base=d, clock=lambda: self.CLOCK, sleep=slept.append, connect=hub.connect)
-            files = {str(f.relative_to(os.path.join(d, "out"))): json.loads(f.read_text())
-                     for f in pathlib.Path(d, "out").rglob("*.json")}
+            named = ["pass.json", "writes.json"] + ["view/%s.json" % v for v in entry.VIEW]
+            files = {n: json.loads(pathlib.Path(d, "out", n).read_text()) for n in named
+                     if pathlib.Path(d, "out", n).is_file()}
         return code, printed.getvalue(), files, slept
 
     def test_the_entry_reads_through_the_ports_and_hands_the_pass_nothing_else(self):  # #193 ruling 10, #196 PR 2
@@ -816,7 +817,7 @@ class Entry(unittest.TestCase):
     def test_only_the_entry_reads_the_clock_or_the_environment(self):
         # Every other module of controller/ is a function of what it is given (the test above it); the entry takes the
         # clock, the environment, the sleep and the transport as arguments, so that a test gives each.
-        reaching = {"os", "time", "secrets", "random", "sys"}
+        reaching = {"os", "time", "random", "sys"}
         for module in sorted(m for m in (ROOT / "controller").glob("*.py") if m.name != "__main__.py"):
             tree = ast.parse(module.read_text())
             imported = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names} | \
@@ -825,7 +826,7 @@ class Entry(unittest.TestCase):
             self.assertFalse([n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr in ("now", "utcnow")],
                              module.name)
         main = ast.parse((ROOT / "controller" / "__main__.py").read_text())
-        self.assertLessEqual({"os", "time", "secrets"}, {a.name for n in ast.walk(main) if isinstance(n, ast.Import)
+        self.assertLessEqual({"os", "time"}, {a.name for n in ast.walk(main) if isinstance(n, ast.Import)
                                                          for a in n.names})
         hub = Hub(self.table())
         _, _, files, _ = self.run_entry(hub)

@@ -23,7 +23,6 @@ import json
 import os
 import pathlib
 import re
-import secrets
 import sys
 import time
 
@@ -89,8 +88,8 @@ def accounts(controller: dict) -> tuple:
 
 
 def mint_id(prefix: str) -> str:
-    """A new id in the schemas' form, from the system's own randomness."""
-    return "%s_%s" % (prefix, "".join(secrets.choice(ALPHABET) for _ in range(20)))
+    """A new id in the schemas' form, from the system's own randomness: twenty letters of 32, a hundred bits."""
+    return "%s_%s" % (prefix, "".join(ALPHABET[b % 32] for b in os.urandom(20)))
 
 
 def utc(clock=time.time) -> str:
