@@ -17,6 +17,54 @@ from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SET = ROOT / "evals" / "pr-review" / "cases.json"
+# The eval job's workflow as issue 309's ruling 10 shapes it, for the check to hold: the live file lands with its `run`
+# step's Task (the ruling's PR 2), and until then this text is the shape.
+EVAL_WORKFLOW = """name: factory
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  eval:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    environment: factory-eval
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -m harness.eval.plan
+        env:
+          RELEASE: ${{ inputs.release }}
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: home
+        with:
+          client-id: ${{ vars.HELDOUT_CLIENT_ID }}
+          private-key: ${{ secrets.HELDOUT_APP_KEY }}
+          owner: ${{ vars.HELDOUT_OWNER }}
+          repositories: ${{ vars.HELDOUT_REPO }}
+          permission-contents: read
+      - run: python3 -m harness.eval.fetch
+        env:
+          HELDOUT_TOKEN: ${{ steps.home.outputs.token }}
+          HELDOUT_OWNER: ${{ vars.HELDOUT_OWNER }}
+          HELDOUT_REPO: ${{ vars.HELDOUT_REPO }}
+      - run: python3 -m harness.eval.run
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: eval-report
+          path: eval-report.json
+          if-no-files-found: error
+          retention-days: 90
+      - run: python3 -m harness.eval.judge
+"""
 
 
 def load(rel: str):
@@ -191,6 +239,77 @@ class TheSet(unittest.TestCase):
         problems = check_workflows.run(clone({".github/workflows/eval.yml": GOOD}))
         self.assertTrue(caught(problems, ".github/workflows/eval.yml: holds the job eval and no other"))
 
+    def test_the_eval_workflow_names_each_credential_in_one_step_alone(self):
+        # Issue 309, ruling 10: dispatched alone with the Release it judges; one job on factory-eval, granted
+        # contents: read; its steps in order; the held-out App's key named by the mint alone, the token it mints by
+        # fetch alone and the model's credential by run alone, so no step holds both; the upload takes the report alone.
+        from tests.test_tools import clone, caught, GOOD
+        from tools import check_workflows
+        self.assertEqual(check_workflows.eval_problems(EVAL_WORKFLOW), [])
+        self.assertEqual(check_workflows.lint(EVAL_WORKFLOW), [])
+        token = "          HELDOUT_TOKEN: ${{ steps.home.outputs.token }}\n"
+        model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
+        key = "          private-key: ${{ secrets.HELDOUT_APP_KEY }}\n"
+        both = EVAL_WORKFLOW.replace(token, token + model.replace("          ", "          ", 1))
+        broken = {
+            "the token beside the model": (both, "its fetch step is given under env"),
+            "the model beside the token": (EVAL_WORKFLOW.replace(model, model + token), "its run step is given under env"),
+            "the key handed to fetch": (EVAL_WORKFLOW.replace(token, token + key.replace("private-key", "HELDOUT_KEY")),
+                                        "its fetch step is given under env"),
+            "the token on the job": (EVAL_WORKFLOW.replace("    environment: factory-eval\n",
+                                                           "    environment: factory-eval\n    env:\n" + token[4:]),
+                                     "its job has exactly"),
+            "another environment": (EVAL_WORKFLOW.replace("environment: factory-eval", "environment: factory-run"),
+                                    "runs on the environment factory-eval"),
+            "a write": (EVAL_WORKFLOW.replace("      contents: read\n", "      contents: read\n      actions: read\n"),
+                        "granted contents: read and nothing else"),
+            "a pull request": (EVAL_WORKFLOW.replace("on:\n", "on:\n  pull_request:\n  merge_group:\n"),
+                               "runs on workflow_dispatch alone"),
+            "a schedule": (EVAL_WORKFLOW.replace("on:\n", "on:\n  schedule:\n    - cron: '17 3 * * *'\n"),
+                           "runs on workflow_dispatch alone"),
+            "no release": (EVAL_WORKFLOW.replace("      release:\n", "      version:\n"), "one input, release"),
+            "a release left optional": (EVAL_WORKFLOW.replace("required: true", "required: false"), "one input, release"),
+            "the mint first": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.plan\n        env:\n"
+                                                     "          RELEASE: ${{ inputs.release }}\n", "", 1)
+                               .replace("      - run: python3 -m harness.eval.fetch\n",
+                                        "      - run: python3 -m harness.eval.plan\n        env:\n"
+                                        "          RELEASE: ${{ inputs.release }}\n"
+                                        "      - run: python3 -m harness.eval.fetch\n", 1), "in that order"),
+            "no judge": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.judge\n", ""), "in that order"),
+            "a step of its own": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.judge\n",
+                                                        "      - run: python3 -m harness.eval.judge\n"
+                                                        "      - run: make verify\n"), "in that order"),
+            "a step skipped": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.judge\n",
+                                                     "      - run: python3 -m harness.eval.judge\n        if: false\n"),
+                               "its judge step has a key it may not"),
+            "a mint named otherwise": (EVAL_WORKFLOW.replace("id: home", "id: held"), "only the mint has an id, home"),
+            "an id on fetch": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.fetch\n",
+                                                     "      - run: python3 -m harness.eval.fetch\n        id: home\n"),
+                               "its fetch step has a key it may not"),
+            "a token of every repo": (EVAL_WORKFLOW.replace("          repositories: ${{ vars.HELDOUT_REPO }}\n", ""),
+                                      "its mint step is given under with"),
+            "a token that can write": (EVAL_WORKFLOW.replace("permission-contents: read", "permission-contents: write"),
+                                       "its mint step is given under with"),
+            "the whole workspace uploaded": (EVAL_WORKFLOW.replace("path: eval-report.json", "path: ."),
+                                             "its upload step is given under with"),
+            "a credential left on disk": (EVAL_WORKFLOW.replace("persist-credentials: false", "persist-credentials: true"),
+                                          "its checkout step is given under with"),
+            "another mint": (EVAL_WORKFLOW.replace("actions/create-github-app-token@", "someone/create-github-app-token@"),
+                             "in that order"),
+        }
+        for why, (text, words) in broken.items():
+            self.assertTrue(caught(check_workflows.eval_problems(text), words), why)
+        # Run whole: the shape is held in eval.yml, and no other workflow names its environment, the home or its steps.
+        problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW}))
+        self.assertEqual(problems, [])
+        other = GOOD.replace("      - run: make verify\n", "      - run: make verify\n        env:\n"
+                             "          HELDOUT_OWNER: ${{ vars.HELDOUT_OWNER }}\n", 1)
+        problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW,
+                                              ".github/workflows/other.yml": other}))
+        self.assertTrue(caught(problems, "other.yml: line"), problems)
+        problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW.replace("id: home", "id: x")}))
+        self.assertTrue(caught(problems, "eval.yml: its mint step"), problems)
+
     @pending
     def test_the_review_intents_eval_set_has_its_cases(self):
         # Decision 0010: an Intent family is cut over only after its eval set exists. The cases are written in the
@@ -229,6 +348,163 @@ class TheSet(unittest.TestCase):
                 if change["path"] == "tools/mutants.py":
                     self.assertEqual(change["removed"], 0)
             self.assertEqual(r["restored"], [])
+
+
+class EvalJob(unittest.TestCase):
+    """The eval job's steps (issue 309), run against a stand-in home and a stand-in reviewer: a synthetic case, made
+    from examples/, stands in for the home's; nothing of the home is in this repo."""
+
+    def setUp(self):
+        import tempfile
+        self.dir = tempfile.TemporaryDirectory()
+        base = pathlib.Path(self.dir.name)
+        self.root, self.work, self.temp = base / "root", base / "work", base / "temp"
+        for place in (self.root, self.work, self.temp):
+            place.mkdir()
+        one = load("examples/eval-case.json")
+        two = dict(copy.deepcopy(one), id="poc-two")
+        self.cases = {c["id"]: (json.dumps(c, indent=2) + "\n").encode() for c in (one, two)}
+        self.set(self.cases)
+        self.env = {"RELEASE": "factory/v0.1.0", "GITHUB_SHA": "a" * 40, "RUNNER_TEMP": str(self.temp),
+                    "HELDOUT_OWNER": "o", "HELDOUT_REPO": "home"}
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def set(self, cases: dict) -> None:
+        import hashlib
+        manifest = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "count": len(cases),
+                    "cases": [{"id": i, "sha256": hashlib.sha256(d).hexdigest()} for i, d in cases.items()]}
+        (self.root / "evals" / "pr-review").mkdir(parents=True, exist_ok=True)
+        (self.root / "evals" / "pr-review" / "cases.json").write_text(json.dumps(manifest, indent=2) + "\n")
+
+    def step(self, step, *given, env=None):
+        from harness import eval as job
+        try:
+            return step(dict(self.env, **(env or {})), self.root, self.work, *given)
+        except job.Stop as stop:
+            return stop.code
+
+    def home(self, cases: dict):
+        from adapters import github
+        from tests.test_adapters import home_file
+        return github.Replay([home_file(i, d) for i, d in cases.items()])
+
+    def test_a_set_of_no_case_ends_the_run_before_anything_is_minted(self):
+        # Ruling 8: the set this repo holds today has no case; the run says so and makes nothing, not even the scratch.
+        from harness import eval as job
+        self.assertEqual(self.step_root(job.plan), "eval_set_empty")
+        self.assertEqual(list(self.temp.iterdir()), [])
+        for env, code in (({"RELEASE": "v0.1.0"}, "release_unreadable"), ({"RELEASE": None}, "release_unreadable"),
+                          ({"GITHUB_SHA": "a" * 39}, "commit_unreadable"), ({"RUNNER_TEMP": "."}, "scratch_unreadable"),
+                          ({"RUNNER_TEMP": str(self.work)}, "scratch_in_workspace"),
+                          ({"RUNNER_TEMP": str(self.work / "deeper")}, "scratch_in_workspace")):
+            self.assertEqual(self.step(job.plan, env=env), code, env)
+        # A manifest that is no eval-set/1, or miscounts its cases, or names one id twice, is no set.
+        manifest = json.loads((self.root / "evals" / "pr-review" / "cases.json").read_text())
+        for broken in ({"schema": "eval-set/1", "count": 3}, dict(manifest, count=3),
+                       dict(manifest, cases=[manifest["cases"][0], dict(manifest["cases"][0], sha256="0" * 64)])):
+            (self.root / "evals" / "pr-review" / "cases.json").write_text(json.dumps(broken))
+            self.assertEqual(self.step(job.plan), "eval_set_unreadable", broken)
+        self.assertEqual(list(self.temp.iterdir()), [])
+
+    def step_root(self, step):
+        from harness import eval as job
+        try:
+            return step(dict(self.env), ROOT, self.work)
+        except job.Stop as stop:
+            return stop.code
+
+    def test_each_case_is_fetched_into_the_scratch_and_scored_and_only_the_report_reaches_the_workspace(self):
+        from harness import eval as job
+        result = load("examples/result.json")
+        self.assertEqual(self.step(job.plan), "planned 2 cases")
+        self.assertEqual(self.step(job.fetch, self.home(self.cases)), "fetched 2 of 2 cases")
+        kept = self.temp / "heldout" / "cases"
+        self.assertEqual(sorted(p.name for p in kept.iterdir()), sorted("%s.json" % i for i in self.cases))
+        self.assertEqual({p.stat().st_mode & 0o777 for p in kept.iterdir()}, {0o600})
+        asked = []
+        self.assertEqual(self.step(job.score, lambda case: asked.append(case["id"]) or result),
+                         "scored 2 of 2 cases, 2 passed")
+        self.assertEqual(asked, list(self.cases))
+        self.assertEqual(sorted(p.name for p in self.work.iterdir()), [job.REPORT])
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual(validate(written, load("schemas/eval-report.schema.json"), schemas=eval_result.schemas()), [])
+        self.assertEqual((written["passed"], written["commit"], written["release"]), (2, "a" * 40, "factory/v0.1.0"))
+        self.assertNotIn("diff", (self.work / job.REPORT).read_text())
+        self.assertEqual(self.step(job.judge), "passed 2 of 2 cases")
+
+    def test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded(self):
+        from harness import eval as job
+        result = load("examples/result.json")
+        wrong = copy.deepcopy(result)
+        wrong["findings"] = []
+        self.step(job.plan)
+        first = next(iter(self.cases))
+        self.assertEqual(self.step(job.fetch, self.home(dict(self.cases, **{first: b"changed"}))), "fetched 1 of 2 cases")
+        self.assertFalse((self.temp / "heldout" / "cases" / ("%s.json" % first)).exists())
+        self.step(job.score, lambda case: wrong)
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual([(c["verdict"], c["reasons"]) for c in written["cases"]],
+                         [("unreadable", ["hash_differs"]), ("fail", ["finding_not_raised"])])
+        self.assertEqual(self.step(job.judge), "case_failed")
+        # A set changed since the plan is no set of this run, and a report that is not there passes nothing.
+        (self.work / job.REPORT).unlink()
+        self.assertEqual(self.step(job.judge), "report_unreadable")
+        self.set({first: self.cases[first]})
+        self.assertEqual(self.step(job.judge), "eval_set_changed")
+
+    def test_a_case_that_is_no_case_of_this_set_is_unreadable(self):
+        from harness import eval as job
+        other = dict(json.loads(next(iter(self.cases.values()))), intent="fix-findings")
+        stray = dict(json.loads(next(iter(self.cases.values()))), id="poc-three")
+        cases = {next(iter(self.cases)): (json.dumps(other) + "\n").encode(), "poc-two": b"not json",
+                 "poc-three": (json.dumps(dict(stray, id="poc-four")) + "\n").encode()}
+        self.set(cases)
+        self.step(job.plan)
+        self.step(job.fetch, self.home(cases))
+        self.step(job.score, lambda case: self.fail("no case of this set is reviewed"))
+        written = json.loads((self.work / job.REPORT).read_text())
+        self.assertEqual([c["reasons"] for c in written["cases"]], [["not_this_set"], ["schema"], ["not_this_set"]])
+
+    def test_the_gate_passes_only_this_sets_report_on_this_commit_for_this_release(self):
+        from harness import eval as job
+        found, digest = job.manifest(self.root)
+        good = job.report({"release": "factory/v0.1.0", "commit": "a" * 40, "set": {"count": 2, "sha256": digest}},
+                          found, {i: ("pass", []) for i in self.cases})
+        self.assertEqual(job.verdict(good, found, digest, "a" * 40, "factory/v0.1.0"), "pass")
+
+        def changed(**change):
+            return dict(copy.deepcopy(good), **change)
+        first = good["cases"][0]
+        for document, code in ((changed(schema="eval-report/2"), "report_unreadable"),
+                               (changed(commit="b" * 40), "another_commit"),
+                               (changed(release="factory/v0.1.1"), "another_release"),
+                               (changed(set={"count": 2, "sha256": "0" * 64}), "another_set"),
+                               (changed(intent="fix-findings"), "another_set"),
+                               (changed(cases=good["cases"][:1]), "cases_differ"),
+                               (changed(cases=[first, dict(first, verdict="fail")]), "cases_differ"),
+                               (changed(cases=[first, dict(good["cases"][1], sha256="0" * 64)]), "cases_differ"),
+                               (changed(cases=[first, dict(good["cases"][1], verdict="fail", reasons=["schema"])]),
+                                "case_failed"),
+                               (changed(cases=[first, dict(good["cases"][1], reasons=["schema"])]), "case_failed"),
+                               (changed(passed=1), "count_differs")):
+            self.assertEqual(job.verdict(document, found, digest, "a" * 40, "factory/v0.1.0"), code, code)
+        empty = dict(found, count=0, cases=[])
+        self.assertEqual(job.verdict(changed(set={"count": 0, "sha256": digest}, cases=[], passed=0), empty, digest,
+                                     "a" * 40, "factory/v0.1.0"), "eval_set_empty")
+
+    def test_a_step_says_counts_and_codes_and_never_what_it_raised(self):
+        # Whatever a step raised is never printed: its message could quote a case or name the home.
+        from harness import eval as job
+
+        def leaks(env, root, work):
+            raise ValueError("the case's diff: --- a/kernel/x.py")
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out, mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            self.assertEqual(job.main(leaks), 1)
+            self.assertEqual(job.main(lambda env, root, work: (_ for _ in ()).throw(job.Stop("eval_set_empty"))), 1)
+            self.assertEqual(job.main(lambda env, root, work: "planned 2 cases"), 0)
+        self.assertEqual((out.getvalue(), err.getvalue()), ("eval_step_failed\neval_set_empty\nplanned 2 cases\n", ""))
 
 
 if __name__ == "__main__":

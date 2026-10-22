@@ -98,8 +98,33 @@ EVENT = "${{ github.event_name }}"
 # nothing else; the secret scan, which also runs on a push to main, falls back to the commit pushed.
 BASE = "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}"
 SCAN = "ci.yml"
-# The eval job and its workflow: reserved names, the Harness story's (docs/standards/workflows.md).
+# The eval job and its workflow: reserved names, the Harness story's (docs/standards/workflows.md). Its shape, issue
+# 309's ruling 10: dispatched alone, one job on its own environment, its steps in order, and each of its two credentials
+# named by one step alone, the held-out home's by the mint and the step it hands the token to, the model's by `run`.
 EVAL_JOB, EVAL_WORKFLOW = "eval", "eval.yml"
+EVAL_ENVIRONMENT = "factory-eval"
+EVAL_STEP = "python3 -m harness.eval.%s"
+MINT = "actions/create-github-app-token@"
+UPLOAD = "actions/upload-artifact@"
+EVAL_ORDER = ("checkout", "plan", "mint", "fetch", "run", "upload", "judge")
+EVAL_JOB_KEYS = {"runs-on", "timeout-minutes", "permissions", "environment", "steps"}
+# What each step may be given, under with: or env:, exactly: a step's own keys beside these are refused.
+EVAL_GIVEN = {
+    "checkout": {"with": {"persist-credentials": "false"}},
+    "plan": {"env": {"RELEASE": "${{ inputs.release }}"}},
+    "mint": {"with": {"client-id": "${{ vars.HELDOUT_CLIENT_ID }}", "private-key": "${{ secrets.HELDOUT_APP_KEY }}",
+                      "owner": "${{ vars.HELDOUT_OWNER }}", "repositories": "${{ vars.HELDOUT_REPO }}",
+                      "permission-contents": "read"}},
+    "fetch": {"env": {"HELDOUT_TOKEN": "${{ steps.home.outputs.token }}", "HELDOUT_OWNER": "${{ vars.HELDOUT_OWNER }}",
+                      "HELDOUT_REPO": "${{ vars.HELDOUT_REPO }}"}},
+    "run": {"env": {"CLAUDE_CODE_OAUTH_TOKEN": "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"}},
+    "upload": {"with": {"name": "eval-report", "path": "eval-report.json", "if-no-files-found": "error",
+                        "retention-days": "90"}},
+    "judge": {},
+}
+EVAL_STEP_KEYS = {"uses", "run", "with", "env", "id"}
+# What names the held-out home or the eval job's environment, in a workflow that is not eval.yml.
+EVAL_ONLY = re.compile(r"factory-eval|HELDOUT_|harness\.eval")
 SCAN_BASE = "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}"
 # gitleaks 8.30.1 reads the ignore file named by --gitleaks-ignore-path and also the one at the top of --source, so the
 # head's is deleted on the line before. Its own log options are kept, and --text added, so a head's .gitattributes cannot
@@ -515,6 +540,64 @@ def _commits(text: str, entries: list, jobs: list) -> list:
     return whys
 
 
+def _kind(step: dict) -> str:
+    """What one step of the eval job is: a listed checkout, the mint, the upload, one of harness.eval's steps, or None."""
+    uses = step.get("uses", {}).get("value", "") if "uses" in step else None
+    if uses is not None and "run" not in step:
+        if (uses, step["uses"]["comment"]) == CHECKOUT:
+            return "checkout"
+        return "mint" if uses.startswith(MINT) else "upload" if uses.startswith(UPLOAD) else None
+    command = _lines(step.get("run"))
+    for name in EVAL_ORDER:
+        if command == [EVAL_STEP % name] and "uses" not in step:
+            return name
+    return None
+
+
+def eval_problems(text: str) -> list:
+    """What is wrong with eval.yml's shape (issue 309, ruling 10), each a sentence. It runs on `workflow_dispatch` alone,
+    with one input, the Release it judges, and one job, `eval`, on the environment `factory-eval`, granted
+    `contents: read` alone and given no env: of its own. Its steps are EVAL_ORDER, each given exactly what EVAL_GIVEN
+    says and nothing else: the held-out App's key by the mint alone, the token it mints by `fetch` alone, the model's
+    credential by `run` alone, so no step holds both, and the upload takes the report alone. Every other spelling is
+    refused: a check reads what it names, never what it can guess."""
+    entries, bad = read(text)
+    if bad:
+        return ["line %d is not in the narrow form" % bad[0]]
+    problems = []
+    events = {e["key"] for e in entries if e["path"] == ["on"]}
+    inputs = [e for e in entries if e["path"][:3] == ["on", "workflow_dispatch", "inputs"]]
+    if events != {"workflow_dispatch"} or sorted((e["key"], e["value"]) for e in inputs if len(e["path"]) == 4) != \
+            [("required", "true"), ("type", "string")] or [e["key"] for e in inputs if len(e["path"]) == 3] != ["release"]:
+        problems.append("runs on workflow_dispatch alone, with one input, release, a required string")
+    inside = {e["key"]: e for e in entries if e["path"] == ["jobs", EVAL_JOB]}
+    if set(inside) != EVAL_JOB_KEYS or inside["environment"]["value"] != EVAL_ENVIRONMENT:
+        problems.append("its job has exactly %s, and runs on the environment %s"
+                        % (", ".join(sorted(EVAL_JOB_KEYS)), EVAL_ENVIRONMENT))
+    granted = sorted((e["key"], e["value"]) for e in entries if e["path"] == ["jobs", EVAL_JOB, "permissions"])
+    if granted != [("contents", "read")]:
+        problems.append("its job is granted contents: read and nothing else")
+    steps = _steps(entries, EVAL_JOB)
+    kinds = [_kind(step) for step in steps]
+    if tuple(kinds) != EVAL_ORDER:
+        problems.append("its steps are %s, in that order, and no other" % ", ".join(EVAL_ORDER))
+    for step, kind in zip(steps, kinds):
+        if kind is None:
+            continue
+        number = next(iter(step.values()))["step"]
+        own = set(step) - EVAL_STEP_KEYS
+        if own or ("id" in step) != (kind == "mint") or (kind == "mint" and step["id"]["value"] != "home"):
+            problems.append("its %s step has a key it may not: only the mint has an id, home" % kind)
+        for under in ("with", "env"):
+            given = {e["key"]: e["value"] for e in entries if e["step"] == number
+                     and e["path"] == ["jobs", EVAL_JOB, "steps", under]}
+            if given != EVAL_GIVEN[kind].get(under, {}):
+                problems.append("its %s step is given under %s: %s, exactly" % (kind, under, EVAL_GIVEN[kind].get(under, {})))
+            if under in step and step[under]["value"]:
+                problems.append("its %s step writes %s: on one line" % (kind, under))
+    return problems
+
+
 def lens_job_problems(text: str, check: str) -> list:
     """Why a workflow holding `text` would never report the check run `check` on every head and in the merge queue.
 
@@ -636,6 +719,13 @@ def run(root: pathlib.Path = ROOT) -> list:
         if path.name == EVAL_WORKFLOW and jobs != [EVAL_JOB]:
             problems.append("%s: holds the job %s and no other, or it is not the eval job's workflow"
                             % (path.relative_to(root), EVAL_JOB))
+        if path.name == EVAL_WORKFLOW:
+            problems += ["%s: %s" % (path.relative_to(root), p) for p in eval_problems(raw(path))]
+        else:
+            for number, line in enumerate(raw(path).split("\n"), 1):
+                if EVAL_ONLY.search(line):
+                    problems.append("%s: line %d names the eval job's environment, the held-out home or its steps, "
+                                    "which are eval.yml's alone" % (path.relative_to(root), number))
     for folder in sorted((root / ".github").glob("actions*")):
         problems.append("%s: a local action is not read by this check; write a reusable workflow"
                         % folder.relative_to(root))

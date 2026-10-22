@@ -17,6 +17,12 @@ Maintainer's terminal and recorded by `tools/context_eval.py` with no text of th
 | A right change passes by covering its criterion as met and raising nothing against it | `tests/test_evals.py::test_a_right_change_is_scored_by_its_coverage` |
 | A case or a Result that cannot be read scores nothing, a case whose criterion its Role's rubric lacks among them | `tests/test_evals.py::test_a_case_or_a_result_that_cannot_be_read_scores_nothing` |
 | A case expects a Finding in the Finding's own categories and severities | `tests/test_evals.py::test_a_cases_categories_are_the_findings` |
+| The eval job ends a set of no case before anything is minted, and reads the Release and commit it judges | `tests/test_evals.py::test_a_set_of_no_case_ends_the_run_before_anything_is_minted` |
+| Each case is fetched into a scratch outside the workspace and scored; only the report, of hashes and codes, reaches it | `tests/test_evals.py::test_each_case_is_fetched_into_the_scratch_and_scored_and_only_the_report_reaches_the_workspace` |
+| A case not read whole or failed fails the run, its report uploaded all the same | `tests/test_evals.py::test_a_case_not_read_whole_or_failed_fails_the_run_with_its_report_uploaded` |
+| A case of another set, or no case, is unreadable and asks nothing | `tests/test_evals.py::test_a_case_that_is_no_case_of_this_set_is_unreadable` |
+| The gate passes only this set's report on this commit for this Release, every case passed | `tests/test_evals.py::test_the_gate_passes_only_this_sets_report_on_this_commit_for_this_release` |
+| A step of the job prints counts and codes, never what it raised | `tests/test_evals.py::test_a_step_says_counts_and_codes_and_never_what_it_raised` |
 | The review Intent's set has its cases, and the cutover waits on them | `tests/test_evals.py::test_the_review_intents_eval_set_has_its_cases`, not held yet |
 | A run's record holds paths, first words, counts and verdicts, and no word of the model's | `tests/test_tools.py::test_the_record_holds_paths_counts_and_verdicts_and_no_model_text` |
 | What cannot be read makes no record | `tests/test_tools.py::test_what_cannot_be_read_makes_no_record` |

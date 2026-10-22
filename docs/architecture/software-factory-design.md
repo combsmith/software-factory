@@ -926,12 +926,12 @@ intents:
     tier: standard
     permitted_effects: []         # a shadow Role writes nothing
     budget_class: shadow
-    evals: evals/review-change
+    evals: evals/devops-lead       # a set is named for its Role: evals/<role>/cases.json
   - name: adjudicate-findings     # would it have decided as the owner did?
     tier: deep
     permitted_effects: []
     budget_class: shadow
-    evals: evals/adjudicate-findings
+    evals: evals/devops-lead-adjudicate-findings   # a second Intent's set, a manifest of its own
 ```
 
 Promotion changes three lines in one pull request: `kind: owner`, `owns: [delivery]`, and an `app:`
@@ -1946,13 +1946,13 @@ it is long-lived, it can approve, and it can merge.
 
 | Credential | Can | Held by | Stored | Rotated |
 |---|---|---|---|---|
-| The Factory's model subscription | Spend the Factory's model capacity | The `run` job | Environment secret, default branch only | On any suspicion; it is the Factory's alone |
+| The Factory's model subscription | Spend the Factory's model capacity | The `run` job, and the eval job's `run` step | Environment secret, default branch only, in `factory-run` and `factory-eval` | On any suspicion; it is the Factory's alone |
 | The machine user's token | Approve and merge, across the org | `apply`, for the review Intent only | Environment secret, default branch only | On a fixed period, and on any reconciliation alert |
 | Each Role's App key | Mint that Role's tokens | `apply` | Environment secret, default branch only | On a fixed period |
 | The Controller's App key | Read the facts and the run records, and post check runs: the status on the item. It does not start Runs | The poller | Environment secret, default branch only | On a fixed period |
 | The poller job's own token | Start Runs: `actions: write`, declared on that job only | The poller job | Not stored: GitHub mints it for the job | Expires when the job ends |
 | The reader App's key | Read public repos | The `run` job | Environment secret, default branch only | On a fixed period |
-| The held-out sets' credential | Read the held-out repo | The eval job only | Environment secret, default branch only | On a fixed period |
+| The held-out sets' credential | Read the held-out repo | The eval job only: its mint and its `fetch` step | The key of an App installed on the held-out repo alone, an environment secret of `factory-eval`, default branch only; each token minted for one job | On a fixed period |
 | The relay's webhook secret | Prove that a webhook came from GitHub | The relay | The relay's host | On a fixed period |
 | The relay itself | Nothing over the Factory repo | The relay's host | None needed | Not applicable |
 
