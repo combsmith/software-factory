@@ -1880,12 +1880,13 @@ def second_page(found: dict, body) -> dict:
 
 
 # Each grounded rule of the fake that the port does not read here, by why: the Controller's, the workflows' or a
-# person's, which no port reads (`controller`); the issues port's, not built (`issues_port`); or a fixture recorded in
-# another request's shape than the port asks, which a trial records again (`shape`).
+# person's, which no port reads (`controller`); the Kernel's, held by its own boundary tests, a race no port can read
+# (`kernel`); the issues port's, not built (`issues_port`); or a fixture recorded in another request's shape than the
+# port asks, which a trial records again (`shape`).
 NOT_READ = {
     # The records port reads what GitHub lists and cannot see a Run it does not list: the race is the Kernel's, held by
     # the unidentified window (decision 0036).
-    "a_new_run_is_listed_late": "controller",
+    "a_new_run_is_listed_late": "kernel",
     "a_tick_can_be_lost": "controller",
     "a_pass_starts_its_successor": "controller", "a_public_event_starts_a_pass": "controller",
     # adapters/acceptance.py reads closing references, and adapters/timeline.py the draft flag's events, each in a
@@ -1896,12 +1897,12 @@ NOT_READ = {
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",
     "a_label_event_names_its_actor": "shape",
 }
-WHY = {"controller", "issues_port", "shape"}
+WHY = {"controller", "kernel", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
 # as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
 REFUSALS = {
     ("P-27", 15): None,                # a dispatch GitHub refused: the effects port's, not on main yet
-    ("P-8", 1): None,                  # a GraphQL read over the resource limits, answered 200 with errors: the old pass's
+    ("P-8", 1): "graphql",             # a GraphQL read over the resource limits, answered 200 with errors
     ("P-27", 21): None,                # an org membership read, which no port asks
     ("P-29.truncated", 4): "diff",     # the diff too large to serve: read as truncated, never as the whole
     ("P-29.truncated", 14): None,      # the patch form, which no port asks
@@ -2035,13 +2036,28 @@ class Contract(unittest.TestCase):
                  and (e["response"]["status"] >= 400
                       or (isinstance(e["response"].get("body"), dict) and e["response"]["body"].get("errors")))}
         self.assertEqual(found, set(REFUSALS))
-        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "runs"])
+        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "graphql", "runs"])
         missing = exchanges("P-44")[3]
         call = missing["request"]["call"].split()[1].rstrip(",")
         workflow = call.split("/workflows/")[1].split("/")[0]
         with self.assertRaises(github.Unanswered):
             records.runs(github.Replay([asked(missing)]), canary(), "main", [workflow], DISPATCHER)
         self.assertTrue(pull.diff(replay("P-29.truncated", 4), body("P-29.truncated", 2))["diff"]["truncated"])
+        # A GraphQL read GitHub answers 200 with errors, as P-8 recorded over its resource limits, is no answer to any
+        # port that reads GraphQL, even where the data it gave beside them would read: the checks, the threads and the
+        # closing references.
+        refused = exchanges("P-8")[1]["response"]["body"]["errors"]
+        node = p32_pull()
+        for port, answer, read in (
+                ("checks", checks_answer(node), lambda t: checks.read(t, as_pull(node))),
+                ("threads", threads_answer("o/r", 26, []),
+                 lambda t: threads.read(t, Threads.PULL, timeline.Accounts(t, "o/r", MACHINE, {}))),
+                ("acceptance", closing_answer("o/r", 26, []), lambda t: acceptance.closing(t, Acceptance.PULL))):
+            read(github.Replay([copy.deepcopy(answer)]))
+            answer["response"]["body"]["errors"] = copy.deepcopy(refused)
+            with self.assertRaises(github.Unanswered, msg=port):
+                read(github.Replay([answer]))
+
 
 if __name__ == "__main__":
     unittest.main()
