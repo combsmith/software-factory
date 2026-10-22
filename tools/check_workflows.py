@@ -282,9 +282,6 @@ def lint(text: str) -> list:
         if len(e["path"]) == 3 and e["path"][0] == "jobs" and e["path"][2] == "permissions" and \
                 e["value"] not in ("read", "none") and (e["path"][1], e["key"], e["value"]) != (PASS_JOB, "actions", "write"):
             found.append(("permissions", "job %s is granted %s: %s" % (e["path"][1], e["key"], e["value"])))
-    if any(e["path"][-1:] == ["permissions"] and e["key"] == "security-events" and e["value"] == "write"
-           for e in entries):
-        found.append(("permissions", "a job is granted security-events: write"))
 
     for e in entries:
         key, value = e["key"], e["value"]

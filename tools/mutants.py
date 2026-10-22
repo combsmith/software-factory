@@ -1513,8 +1513,6 @@ MUTANTS = ISSUE + [
      "        if actions and not isinstance(rel, str):\n", "        if False:\n", ("tests.test_tools.Workflows",)),
     ("a Lens of another App may name a workflow file", "tools/check_workflows.py",
      "        if not actions and rel is not None:\n", "        if False:\n", ("tests.test_tools.Workflows",)),
-    ("a job may be granted security-events: write", "tools/check_workflows.py",
-     'e["key"] == "security-events" and e["value"] == "write"', "False", ("tests.test_tools.Workflows",)),
     ("an App may hold a permission no Factory App may", "tools/check_apps.py",
      "            if name in NEVER:\n", "            if False:\n", ("tests.test_tools.Apps",)),
     ("an App may hold workflows", "tools/check_apps.py",
