@@ -3986,7 +3986,8 @@ esac
 exit 9
 """
     # A stand-in curl: what each fetch gets, from the file `net` beside it: "limited" answers the allowed host through
-    # the proxy alone; "open" answers every fetch; "none" answers nothing; "around" answers the denied host around it.
+    # the proxy alone; "open" answers every fetch; "none" answers nothing; "around" answers the denied host around it;
+    # "proxied" answers the denied host through the proxy, and around it nothing denied.
     CURL = """#!/bin/sh
 here=$(cd "$(dirname "$0")/.." && pwd)
 net=$(cat "$here/net")
@@ -3999,6 +4000,7 @@ no_() { printf 'http=000 connect=403'; exit 56; }
 case "$net" in open) yes_ ;; none) no_ ;; esac
 [ "$host" = example.com ] && [ "$around" = no ] && yes_
 [ "$net" = around ] && [ "$host" = example.org ] && [ "$around" = yes ] && yes_
+[ "$net" = proxied ] && [ "$host" = example.org ] && [ "$around" = no ] && yes_
 no_
 """
     # A stand-in ps: `-o ppid=` gives the stand-in CLI's own parent, the script, where the file `to-cli` is, else 1;
@@ -4139,6 +4141,8 @@ esac
                 ("the sandbox hides everything", dict(hides=("everything", "everything")), 0, (True, True, True), (True, True, True)),
                 ("nothing limits a fetch", dict(hides=("markers", "markers"), net="open"), 1, (True, True, False), (True, True, False)),
                 ("the denied host answers around the proxy", dict(hides=("markers", "markers"), net="around"), 1,
+                 (True, True, False), (True, True, False)),
+                ("the denied host answers through the proxy", dict(hides=("markers", "markers"), net="proxied"), 1,
                  (True, True, False), (True, True, False)),
                 ("the allowed host does not answer", dict(hides=("markers", "markers"), net="none"), 1,
                  (True, True, False), (True, True, False)),

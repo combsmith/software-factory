@@ -4168,6 +4168,9 @@ MUTANTS = ISSUE + [
     ("P-26's denied host may answer around the proxy", P26,
      ' and not answered(fetches.get("denied_around_proxy"))', '',
      (P26_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
+    ("P-26's denied host may answer through the proxy", P26,
+     ' and not answered(fetches.get("denied_through_proxy"))', '',
+     (P26_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
     # Issue 251: P-44's lane, one Run holding it and at most one waiting, kept by one function for both worlds.
     ("the lane keeps every waiting Run", "sim/world.py",
      '        older.update(status="completed", conclusion="cancelled", outcome="superseded")\n', '        pass\n', ("tests.test_simulator.Simulation.test_a_newer_run_cancels_the_one_waiting_in_each_world",)),
