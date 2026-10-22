@@ -21,9 +21,12 @@ def paused(_decision, facts, state, evidence, context: dict, **extra):
 
 
 def _attempts(recent: list, intent: str) -> list:
-    """Runs of this Intent that failed by a fault of the item. Only those are attempts (I-23)."""
-    return [r for r in recent if r["intent"] == intent and r["status"] == "completed"
-            and r["conclusion"] != "success" and r.get("outcome") == "item"]
+    """Runs of this Intent that failed by a fault of the item. Only those are attempts (I-23). A Run that ran and left
+    no outcome, failed or timed out, is the item's: killed, out of memory or crashed in its own step, it is the loop the
+    attempts bound. One cancelled, by a person or its concurrency group, with no outcome is none, and so is a job that
+    never started, which the records port reads as cancelled (issue 286's ruling)."""
+    return [r for r in recent if r["intent"] == intent and r["status"] == "completed" and r["conclusion"] != "success"
+            and (r.get("outcome") == "item" or (r.get("outcome") is None and r["conclusion"] in t.RAN_AND_DIED))]
 
 
 def _spent(recent: list) -> list:
