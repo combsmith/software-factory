@@ -6,7 +6,7 @@ Result and its digest and nothing else of the model. The model is given no tool,
 under its own name. Every test drives a stand-in for the CLI: the first live Run is the workflows' and the Release's.
 `approve.py` is the approving act, a Run with no Engine: through the machine user's token alone it approves the commit
 it read, only if the Kernel asked again still wants it, and says whose fault each failure was (decision 0055). Its
-tests drive a stand-in GitHub; its step lands with the approving workflow (issue 196).
+tests drive a stand-in GitHub; its step lands with the approving workflow.
 
 Not built yet, by the stories that hold their rules: apply.py, verify.py.
 

@@ -1,8 +1,8 @@
 # 0055. The approving act holds the machine user's token alone, approves the commit it re-read, and says whose fault each failure was
 
-Status: accepted. The working rulings on "The approving act: the machine user approves from a Run with no Engine, bound
-to the admitted commit" (issue 195), 2026-10-21, with the Maintainer's answers of 2026-10-21 relayed by the
-orchestration session.
+Status: accepted. The working rulings of 2026-10-21 on
+"The approving act: the machine user approves from a Run with no Engine, bound to the admitted commit" (issue 195),
+with the Maintainer's answers of 2026-10-21 relayed by the orchestration session.
 
 ## Decision
 
@@ -25,9 +25,10 @@ just read, still wants it. Section 3.10 and section 4.9 put the token in `apply`
 of its own, and this takes the issue's: `apply` holds the Role Apps' keys for a Run's Effects, and a Role's Result
 can never reach the approver's token.
 
-The token's age and its alert (L-37) are deferred to "Credentials: each stored credential's age read, and one alert
-near its limit" (issue 305), and the reconciliation of every write by a Factory identity to a recorded Effect (I-33)
-to "Controller: reconciliation, every write by a Factory identity matched to a recorded Effect (I-33)" (issue 306), by the Maintainer's answers 3 and 4.
+The token's age and its alert (L-37) are deferred to
+"Credentials: each stored credential's age read, and one alert near its limit" (issue 305), and the reconciliation
+of every write by a Factory identity to a recorded Effect (I-33) to
+"Controller: reconciliation, every write by a Factory identity matched to a recorded Effect (I-33)" (issue 306), by the Maintainer's answers 3 and 4.
 
 ## Boundaries
 
