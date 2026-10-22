@@ -3834,7 +3834,9 @@ class StillWanted(unittest.TestCase):
         one = dict(approval, item=dict(approval["item"], number=1))
         self.assertTrue(still_wanted(one, one))
         for number in (True, 1.0):
-            self.assertFalse(still_wanted(one, dict(one, item=dict(one["item"], number=number))), number)
+            odd = dict(one, item=dict(one["item"], number=number))
+            self.assertFalse(still_wanted(one, odd), number)
+            self.assertFalse(still_wanted(odd, one), number)
         # What cannot be read wants nothing.
         for bad in (None, [], "act", {}):
             self.assertFalse(still_wanted(approval, bad), bad)
