@@ -20,6 +20,7 @@
         "effect:submit_review",
         "effect:resolve_thread",
         "effect:comment",
+        "effect:create_check_run",
         "effect:enqueue_merge",
         "effect:dequeue_merge",
         "effect:assign",
@@ -61,6 +62,9 @@
           "$ref": "#/$defs/mapping"
         },
         "effect:comment": {
+          "$ref": "#/$defs/mapping"
+        },
+        "effect:create_check_run": {
           "$ref": "#/$defs/mapping"
         },
         "effect:enqueue_merge": {

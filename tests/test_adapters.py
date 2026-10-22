@@ -1962,7 +1962,8 @@ class Snapshot(unittest.TestCase):
         self.assertEqual(pull.last_push(github.Replay([odd]), body("P-28", 10)), ("don-petry", None))
 
     def test_a_snapshot_whose_head_moved_while_it_was_read_is_refused(self):
-        with self.assertRaises(github.Unanswered):
+        # As Moved, which the approving act classes as a change under it, not a read that failed (issue 195).
+        with self.assertRaises(facts.Moved):
             self.read(12)
 
     def test_a_snapshot_of_a_pull_request_that_changed_while_it_was_read_is_refused(self):
@@ -1971,7 +1972,7 @@ class Snapshot(unittest.TestCase):
         # the parts of two pull requests.
         self.assertEqual(body("P-29.base", 6)["head"]["sha"], body("P-29.base", 1)["head"]["sha"])
         self.assertNotEqual(body("P-29.base", 6)["updated_at"], body("P-29.base", 1)["updated_at"])
-        with self.assertRaises(github.Unanswered):
+        with self.assertRaises(facts.Moved):
             self.read(6)
 
     def test_a_push_that_names_its_pusher_and_no_time_is_refused(self):
