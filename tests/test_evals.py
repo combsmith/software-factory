@@ -238,7 +238,9 @@ class TheSet(unittest.TestCase):
         from tests.test_tools import clone, caught, GOOD
         from tools import check_workflows
         self.assertEqual(check_workflows.eval_problems(EVAL_WORKFLOW), [])
-        self.assertEqual(check_workflows.lint(EVAL_WORKFLOW), [])
+        # eval.yml runs main's own file on a dispatch, as the eval job judges main's commit: it is spared the shim rule,
+        # since eval_problems holds every line of it, and keeps every other rule.
+        self.assertEqual([r for r in check_workflows.lint(EVAL_WORKFLOW) if r[0] not in check_workflows.SHAPED["eval.yml"]], [])
         token = "          HELDOUT_TOKEN: ${{ secrets.HELDOUT_TOKEN }}\n"
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
         broken = {

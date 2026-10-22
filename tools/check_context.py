@@ -21,7 +21,7 @@ PAGE_LINES = 120    # a standard is one page
 # The workflows page shows the required check's workflow word for word, its first yaml block, as
 # tools/check_workflows.py holds it, however long that grows. The page's own words are held to one page.
 COPIED = re.compile(r"```yaml\n.*?```", re.S)
-STANDARDS = ("code", "tests", "workflows", "security-boundaries")
+STANDARDS = ("code", "tests", "workflows", "shims", "security-boundaries")
 # The design, brought in as it was written. It cites the proof of concept as evidence, by that
 # repo's paths and numbers, so it is read and not held to the rules below. Nothing else is exempt.
 RECORD = (("docs", "prd"), ("docs", "architecture"), ("docs", "research"))

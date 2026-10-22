@@ -37,6 +37,8 @@ from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
 GOOD = (ROOT / "examples" / "workflows" / "verify.yml").read_text()
+# The poller's shim, as issue 196's ruling 4 gives it in full: the shape the rules shim and wake hold.
+POLLER = 'name: sf-poller\non:\n  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n  workflow_dispatch:\n  workflow_run:\n    workflows:\n      - factory\n      - ci\n      - sf-run\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n    permissions:\n      actions: write\n      contents: read\n    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n'
 STEP = "      - run: make verify\n"
 
 
@@ -1946,6 +1948,102 @@ class Workflows(unittest.TestCase):
             if line and not line.startswith("#"):
                 self.assertRegex(line, r"^[0-9a-f]{40}:[^:]+:[a-z0-9-]+:[0-9]+$", line)
 
+    def test_a_shim_holds_no_step_and_calls_the_release_at_its_channel(self):
+        # Issue 196's ruling 3: a workflow on schedule, workflow_dispatch or workflow_run runs the default branch's
+        # file, so each job calls one file of the Release at its channel, with its grant and its concurrency group, an
+        # if: and with: values that pass its inputs on, and nothing else; only a called workflow names an environment.
+        self.assertEqual(check_workflows.lint(POLLER), [])
+        call = "    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n"
+        broken = {
+            "a step": POLLER.replace(call, "    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    steps:\n"
+                                           "      - run: python3 -m controller\n"),
+            "main's copy": POLLER.replace(call, "    uses: ./.github/workflows/pass.yml\n"),
+            "another repo's file": POLLER.replace("combsmith/software-factory/", "combsmith/other/"),
+            "a secret handed on": POLLER + "    secrets:\n      KEY: ${{ secrets.KEY }}\n",
+            "an env above the jobs": POLLER.replace("permissions: {}\n", "permissions: {}\nenv:\n  A: b\n"),
+            "no concurrency": POLLER.replace("    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n", ""),
+            "no grant": POLLER.replace("    permissions:\n      actions: write\n      contents: read\n", ""),
+            "an environment": POLLER.replace("    uses:", "    environment: factory-poller\n    uses:"),
+            "an input renamed": POLLER + "    with:\n      item: ${{ inputs.other }}\n",
+            "a value written in": POLLER + "    with:\n      item: main\n",
+            "a timeout": POLLER.replace("    uses:", "    timeout-minutes: 15\n    uses:"),
+            "needs": POLLER.replace("    uses:", "    needs:\n      - other\n    uses:"),
+        }
+        for why, text in broken.items():
+            self.assertIn("shim", {rule for rule, _ in check_workflows.lint(text)}, why)
+        # Each of the three events makes a shim alone: a dispatch, a schedule and another's end.
+        for event in ("  workflow_dispatch:\n", "  schedule:\n    - cron: '17 3 * * *'\n", "  workflow_run:\n"):
+            alone = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n" + event)
+            self.assertIn("shim", {rule for rule, _ in check_workflows.lint(alone)}, event)
+        passed_on = POLLER + "    with:\n      item: ${{ inputs.item }}\n"
+        self.assertEqual([r for r, _ in check_workflows.lint(passed_on) if r == "shim"], [])
+        # An environment is a called workflow's alone: named on a push's job or a pull request's, it is refused.
+        pushed = GOOD.replace("  checks:\n", "  checks:\n    environment: factory-run\n", 1)
+        self.assertIn("shim", {rule for rule, _ in check_workflows.lint(pushed)})
+        called = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n  workflow_call:\n").replace(
+            "  checks:\n", "  checks:\n    environment: factory-run\n", 1)
+        self.assertNotIn("shim", {rule for rule, _ in check_workflows.lint(called)})
+
+    def test_every_shim_calls_one_channel(self):
+        # Decision 0006 and L-46: every shim names the one channel, factory/v0-next, never a branch, a commit or another.
+        for ref in ("main", "factory/v0-stable", "factory/v1-next", "3d3c42e5aac5ba805825da76410c181273ba90b1"):
+            text = POLLER.replace("@factory/v0-next", "@" + ref)
+            self.assertIn("shim", {rule for rule, _ in check_workflows.lint(text)}, ref)
+
+    def test_a_shim_is_held_word_for_word(self):
+        # A shim is held by its hash, as ci.yml is: one not in SHIMS, or changed since its hash was recorded, fails.
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        problems = check_workflows.run(tree(dict(base, **{".github/workflows/poller.yml": POLLER})))
+        self.assertTrue(caught(problems, "poller.yml: a shim is held word for word"), problems)
+        held = hashlib.sha256(check_workflows.PIN.sub("@PIN", POLLER).encode()).hexdigest()
+        with mock.patch.dict(check_workflows.SHIMS, {"poller.yml": held}):
+            self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/poller.yml": POLLER}))),
+                                    "poller.yml"))
+            moved = POLLER.replace("13 * * * *", "14 * * * *")
+            self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/poller.yml": moved}))),
+                                   "poller.yml: a shim is held word for word"))
+            # Held under its own name alone: the same text under another is refused.
+            self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/tick.yml": POLLER}))),
+                                   "tick.yml: a shim is held word for word"))
+
+    def test_only_the_poller_runs_on_workflow_run(self):
+        # Decision 0043 and issue 196's ruling 4: the poller alone wakes on another workflow's end, on its completion
+        # alone, never its own; it takes no input and reads nothing of the run that woke it.
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        held = hashlib.sha256(check_workflows.PIN.sub("@PIN", POLLER).encode()).hexdigest()
+        with mock.patch.dict(check_workflows.SHIMS, {"other.yml": held}):
+            problems = check_workflows.run(tree(dict(base, **{".github/workflows/other.yml": POLLER})))
+        self.assertTrue(caught(problems, "other.yml: only poller.yml wakes on another workflow's end"), problems)
+        broken = {
+            "its own end": POLLER.replace("      - sf-run\n", "      - sf-run\n      - sf-poller\n"),
+            "every stage": POLLER.replace("    types:\n      - completed\n", ""),
+            "a request": POLLER.replace("      - completed\n", "      - requested\n"),
+            "an input": POLLER.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n      item:\n"
+                                                                  "        type: string\n"),
+            "the run that woke it": POLLER.replace("  pass:\n    permissions:",
+                                                   "  pass:\n    if: github.event.workflow_run.conclusion == 'success'\n"
+                                                   "    permissions:"),
+            "no workflow named": POLLER.replace("    workflows:\n      - factory\n      - ci\n      - sf-run\n", ""),
+            "a branch filter": POLLER.replace("    types:\n", "    branches:\n      - main\n    types:\n"),
+        }
+        for why, text in broken.items():
+            self.assertIn("wake", {rule for rule, _ in check_workflows.lint(text)}, why)
+
+    def test_the_pass_job_alone_is_granted_a_write(self):
+        # Issue 196's ruling 4: only the pass job is granted a write, its actions: write, which starts the Runs and the
+        # successor; the job id pass is the poller's and the pass's alone.
+        self.assertEqual([r for r, _ in check_workflows.lint(POLLER) if r == "permissions"], [])
+        for grant in ("      contents: write\n", "      pull-requests: write\n", "      id-token: write\n"):
+            self.assertIn("permissions", {r for r, _ in check_workflows.lint(
+                POLLER.replace("      contents: read\n", grant))}, grant)
+        elsewhere = GOOD.replace("    permissions:\n      contents: read\n",
+                                 "    permissions:\n      actions: write\n      contents: read\n", 1)
+        self.assertIn("permissions", {r for r, _ in check_workflows.lint(elsewhere)})
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        named = GOOD.replace("  checks:\n", "  pass:\n", 1).replace("      - checks\n", "      - pass\n")
+        problems = check_workflows.run(tree(dict(base, **{".github/workflows/other.yml": named})))
+        self.assertTrue(caught(problems, "other.yml: the job pass is reserved for poller.yml and pass.yml"), problems)
+
     def test_an_exempt_workflow_is_held_word_for_word(self):
         scan = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
         base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
@@ -2138,7 +2236,7 @@ class Workflows(unittest.TestCase):
             "a failure swallowed in shell": (GOOD.replace(STEP, "      - run: make verify || true\n"), "install"),
             "read-all": (GOOD.replace("permissions: {}", "permissions: read-all"), "permissions"),
             "write-all on a job": (GOOD.replace("      contents: read\n", "      write-all\n"), "form"),
-            "woken by another workflow": (GOOD.replace("  merge_group:\n", "  merge_group:\n  workflow_run:\n"), "target"),
+            "woken by another workflow": (GOOD.replace("  merge_group:\n", "  merge_group:\n  workflow_run:\n"), "wake"),
             "every thirty minutes": (GOOD.replace("  merge_group:\n", '  merge_group:\n  schedule:\n    - cron: "0,30 * * * *"\n'), "cron"),
             "a runner from a matrix": (GOOD.replace("ubuntu-24.04", "${{ matrix.os }}"), "runner"),
             "a runner in a list": (GOOD.replace("    runs-on: ubuntu-24.04\n", "    runs-on:\n      - ubuntu-latest\n"), "runner"),
@@ -2162,7 +2260,7 @@ class Workflows(unittest.TestCase):
             "a comment naming a banned event": GOOD.replace("  pull_request:\n", "  pull_request:    # never pull_request_target\n"),
             "a secret whose name holds the letters": GOOD.replace(STEP, STEP + "        env:\n          K: ${{ secrets.RELAY_DISPATCH_KEY }}\n"),
             "the org's reusable at its channel": GOOD.replace("  verify:\n", "  shield:\n    uses: combsmith/.github/.github/workflows/agent-shield-reusable.yml@agent-shield/v2-stable\n  verify:\n"),
-            "an off-zero schedule": GOOD.replace("  merge_group:\n", "  merge_group:\n  schedule:\n    - cron: '17,47 * * * *'\n"),
+            "an off-zero schedule": POLLER.replace('"13 * * * *"', "'17,47 * * * *'"),
             "indented by four": "\n".join((len(l) - len(l.lstrip(" "))) * " " + l for l in GOOD.split("\n")),
         }
         for name, text in fine.items():
