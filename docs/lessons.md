@@ -281,7 +281,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-51 The tests passed against a fake that accepted anything
 **Failure.** The shared stub of the GitHub command returned empty for calls it did not know, so real flags and filters were never exercised.
 **Rule.** Every rule the fake GitHub applies cites a response recorded from the real one, and the required check prints the rules that do not.
-**Check.** `tests/test_tools.py::test_a_rule_of_the_fake_that_is_not_listed_is_caught`, `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate`, `tests/test_tools.py::test_verify_prints_every_rule_no_fixture_grounds`, `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can`; the port's reading of each fixture that grounds a rule of the fake, held to what the rule states, every other named with why it is not read here, the fake not run: `tests/test_adapters.py::test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it`; each refusal a trial recorded placed, and each one a built port asks read as no answer: `tests/test_adapters.py::test_a_response_a_trial_shows_github_refusing_is_never_read_as_an_answer`
+**Check.** `tests/test_tools.py::test_a_rule_of_the_fake_that_is_not_listed_is_caught`, `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate`, `tests/test_tools.py::test_verify_prints_every_rule_no_fixture_grounds`, `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can`; the port's reading of each fixture that grounds a rule of the fake, held to what the rule states, every other named with why it is not read here, the fake not run: `tests/test_adapters.py::test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it`; each refusal a trial recorded placed, and each one a built port asks read as no answer: `tests/test_adapters.py::test_a_recorded_refusal_is_no_answer`
 
 ### L-52 The fleet and every session shared one API quota
 **Failure.** "The fleet and every session share one GitHub API quota" (issue 2197). It ran out on 2026-10-10 and failed a workflow.
@@ -311,7 +311,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-57 Who counted as a writer depended on which token asked
 **Failure.** GitHub reports an author's standing relative to the token that reads it. Read with the wrong credential, every trusted marker was dropped as untrusted, and the breaker that counted them could never trip.
 **Rule.** Whether an actor can write is read with one named credential, and a trial records what each credential is shown.
-**Check.** `tests/test_adapters.py::test_an_actor_is_told_by_its_account_type_and_the_configuration`; what each credential is shown of a permission is not held yet: `tests/test_adapters.py::test_what_each_credential_is_shown_of_a_permission_is_recorded`
+**Check.** `tests/test_adapters.py::test_an_actor_is_told_by_its_account_type_and_the_configuration`, `tests/test_adapters.py::test_what_each_credential_is_shown_of_a_permission_is_recorded`
 
 ### L-58 The pause variable meant different things to different readers
 **Failure.** A repo's variable overrode the org's of the same name, and a workflow expression matched its value without regard to case while a script matched it exactly. One spelling delivered a credential to a run that then would not use it.

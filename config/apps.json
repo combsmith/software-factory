@@ -62,8 +62,12 @@
       "permission": "pull_requests",
       "level": "read"
     },
+    "read:facts.actor.can_write": {
+      "permission": "metadata",
+      "level": "read"
+    },
     "read:facts.last_pusher": {
-      "permission": "pull_requests",
+      "permission": "contents",
       "level": "read"
     },
     "read:facts.mergeable": {
@@ -161,14 +165,16 @@
           "level": "read",
           "needs": [
             "read:facts.content_id",
-            "read:facts.diff"
+            "read:facts.diff",
+            "read:facts.last_pusher"
           ]
         },
         "metadata": {
           "level": "read",
           "needs": [
             "read:facts.item",
-            "read:facts.targets_protected"
+            "read:facts.targets_protected",
+            "read:facts.actor.can_write"
           ]
         },
         "pull_requests": {
@@ -178,7 +184,6 @@
             "read:facts.state",
             "read:facts.is_draft",
             "read:facts.author",
-            "read:facts.last_pusher",
             "read:facts.mergeable",
             "read:facts.label_events",
             "read:facts.last_push_at",
@@ -256,7 +261,8 @@
           "needs": [
             "read:task.change",
             "read:facts.content_id",
-            "read:facts.diff"
+            "read:facts.diff",
+            "read:facts.last_pusher"
           ]
         },
         "issues": {
@@ -269,7 +275,8 @@
           "level": "read",
           "needs": [
             "read:facts.item",
-            "read:facts.targets_protected"
+            "read:facts.targets_protected",
+            "read:facts.actor.can_write"
           ]
         },
         "pull_requests": {
@@ -280,7 +287,6 @@
             "read:facts.state",
             "read:facts.is_draft",
             "read:facts.author",
-            "read:facts.last_pusher",
             "read:facts.mergeable",
             "read:facts.label_events",
             "read:facts.last_push_at",

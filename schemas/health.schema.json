@@ -215,6 +215,7 @@
           "capacity_unreadable",
           "concurrency",
           "run_unidentified",
+          "runs_unnamed",
           "environment",
           "facts_unreadable",
           "not_run"
