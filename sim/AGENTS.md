@@ -15,8 +15,8 @@ the issue is held or declined, and a person none while it is declined: the Contr
 | A rule the fake applies about GitHub is marked `# GitHub: <code>` where it is applied, and listed once in `grounding.py` with its trials and its fixture in `trials/`, one or a tuple, or none. Verify prints each with none | `tools/check_trials.py` |
 | A rule no trial asks is grounded only once a trial for it is added to section 6 of the design | `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate` |
 | Until then it names that trial, or says in one sentence why none can; `make verify` prints which | `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can` |
-| Each rule of the fake a fixture grounds is read by the port from that fixture as the rule states it, or named with why no port does | `tests/test_adapters.py::test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it` |
-| Every refusal a trial recorded is placed, and each a port asks is read as no answer (FR-56) | `tests/test_adapters.py::test_a_response_a_trial_shows_github_refusing_is_never_read_as_an_answer` |
+| Each rule of the fake a fixture grounds is read by the port from that fixture as the rule states it, or named with why it is not read here | `tests/test_adapters.py::test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it` |
+| Every refusal a trial recorded is placed, and each one a built port asks is read as no answer (FR-56) | `tests/test_adapters.py::test_a_response_a_trial_shows_github_refusing_is_never_read_as_an_answer` |
 
 The world is one pull request, paused for a span on some seeds, or with a Pause that cannot be read, and on some with no writer's action yet.
 On those seeds the Pause may begin early, as an approval falls due or a count is spent (`tests/test_simulator.py::test_the_pause_falls_due_with_an_approval`, `..._with_a_spent_count`).

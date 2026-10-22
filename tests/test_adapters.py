@@ -1883,9 +1883,14 @@ def second_page(found: dict, body) -> dict:
 # person's, which no port reads (`controller`); the issues port's, not built (`issues_port`); or a fixture recorded in
 # another request's shape than the port asks, which a trial records again (`shape`).
 NOT_READ = {
-    "a_run_waits_its_turn": "controller", "a_tick_can_be_lost": "controller",
+    # The records port reads what GitHub lists and cannot see a Run it does not list: the race is the Kernel's, held by
+    # the unidentified window (decision 0036).
+    "a_new_run_is_listed_late": "controller",
+    "a_tick_can_be_lost": "controller",
     "a_pass_starts_its_successor": "controller", "a_public_event_starts_a_pass": "controller",
-    "a_closing_reference_is_read_from_any_pull_request": "issues_port", "who_changed_the_draft_flag_is_read": "issues_port",
+    # adapters/acceptance.py reads closing references, and adapters/timeline.py the draft flag's events, each in a
+    # shape these GraphQL fixtures did not record: P-33 asked no issue's repo, and no REST timeline of a draft change.
+    "a_closing_reference_is_read_from_any_pull_request": "shape", "who_changed_the_draft_flag_is_read": "shape",
     "an_issues_content_time_is_read_apart": "issues_port", "a_reopening_names_its_actor": "issues_port",
     "an_issues_close_and_reopening_say_when": "issues_port",
     "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": "issues_port",
@@ -1895,7 +1900,8 @@ WHY = {"controller", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
 # as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
 REFUSALS = {
-    ("P-27", 15): "effects",           # a dispatch GitHub refused: the effects port's, which records it failed
+    ("P-27", 15): None,                # a dispatch GitHub refused: the effects port's, not on main yet
+    ("P-8", 1): None,                  # a GraphQL read over the resource limits, answered 200 with errors: the old pass's
     ("P-27", 21): None,                # an org membership read, which no port asks
     ("P-29.truncated", 4): "diff",     # the diff too large to serve: read as truncated, never as the whole
     ("P-29.truncated", 14): None,      # the patch form, which no port asks
@@ -1918,14 +1924,31 @@ class Contract(unittest.TestCase):
         recorded, rows = rows, rows + [dict(r, event="workflow_dispatch") for r in rows]
         p43 = exchanges("P-43")
         queued = Records().read(listing("P-17", 3, rows={"name": NAME}))[0]
-        late = []
-        for found in exchanges("P-22"):
-            if "/runs?" in found["request"].get("call", "") and found["response"]["status"] == 200:
-                per = int(found["request"]["call"].split("per_page=")[1].split()[0].rstrip(","))
-                if found["response"]["body"]["total_count"] > per:
-                    continue            # a list longer than its page, which the trial read one page of
-                got = Records().read(asked(found), asked(found), per_page=per)[0]
-                late.append(got["complete"] and len(got["unidentified"]) == len(found["response"]["body"]["workflow_runs"]))
+        # A list GitHub counts past the 1,000 runs it serves, as P-43 counted one, read through the port page by page:
+        # the port stops at the 1,000th and reads the list short.
+        counted = p43[26]["response"]["body"]["total_count"]
+        template = listing("P-17", 3, rows={"name": NAME})
+        pages = []
+        for page in range(1, records.SERVED // records.PAGE + 1):
+            found = asked(copy.deepcopy(template), page)
+            found["request"]["call"] = found["request"]["call"].replace("per_page=10", "per_page=100")
+            row = found["response"]["body"]["workflow_runs"][0]
+            found["response"]["body"].update(total_count=counted, workflow_runs=[
+                dict(row, id=page * 1000 + n, name=NAME.replace("r_01JA6Z", "r_%06dA" % (page * 1000 + n)))
+                for n in range(records.PAGE)])
+            pages.append(found)
+        stopped = records.runs(github.Replay(pages), canary(), "main", [WORKFLOW], DISPATCHER)
+        # A run GitHub lists as pending, waiting its turn in its lane, is a Run queued (P-44).
+        pending = next(r for e in exchanges("P-44") if "/runs?" in e["request"].get("call", "")
+                       and isinstance(e["response"]["body"], dict)
+                       for r in e["response"]["body"].get("workflow_runs", []) if r.get("status") == "pending")
+        path = ".github/workflows/%s" % WORKFLOW
+        counted_row = dict(pending, path=path, event="workflow_dispatch", head_branch="main", name=NAME,
+                           repository={"full_name": canary()}, head_repository={"full_name": canary()},
+                           actor={"id": DISPATCHER[0], "type": DISPATCHER[1]})
+        waiting = records._record(counted_row, canary(), "main", {path}, DISPATCHER)
+        short_reviews = timeline._pages(github.Replay([per_hundred(p43[11]), second_page(per_hundred(p43[11]), {})]),
+                                        p43[11]["request"]["call"].split()[1].replace("per_page=1", "per_page=100"))
         compares = {"f03b9ecd01f6b1b34631a42b3d73ed3bd8cdfebb": "diff --git a/x b/x\n",
                     "355cb4d9626f8f434dff093d76eb4535a6e7e93e": "diff --git a/y b/y\n"}
         router = Router(reviews_read(22), {"don-petry": "admin", APPROVER: "write"}, compares)
@@ -1960,15 +1983,15 @@ class Contract(unittest.TestCase):
                 and pull.own(body("P-45", 5), {})[0]["author"] == pull.last_pusher(replay("P-45", 7), body("P-45", 5))),
             # Listed while queued, before its job starts: a record of status queued.
             "a_queued_run_is_listed": ({"P-17"}, [r["status"] for r in queued["runs"]] == ["queued"]),
-            # The port reads each list as GitHub gives it, and never infers a Run it does not list: every listing P-22
-            # recorded is read whole, each row read.
-            "a_new_run_is_listed_late": ({"P-22"}, bool(late) and all(late)),
-            # A filtered list stops at the 1,000th run, however many it counts: the port reads no more than it serves.
+            # A filtered list stops at the 1,000th run, however many it counts (P-43): the port reads it short.
             "a_run_list_stops_short": ({"P-43"},
-                p43[26]["response"]["body"]["total_count"] > records.SERVED == 1000
-                and p43[27]["response"]["body"]["workflow_runs"] == []),
-            # A list whose page names a next one is read on, and one that then ends in no list is read short.
-            "a_short_list_says_so": ({"P-43"}, short_events[1] is False and len(short_events[0]) == 1),
+                p43[27]["response"]["body"]["workflow_runs"] == [] and counted > records.SERVED
+                and stopped["complete"] is False and len(stopped["runs"]) == records.SERVED),
+            "a_run_waits_its_turn": ({"P-44"}, waiting is not None and waiting[0]["status"] == "queued"),
+            # A list whose page names a next one is read on, and one that then ends in no list is read short: the
+            # timeline's and the reviews'.
+            "a_short_list_says_so": ({"P-43"}, short_events[1] is False and len(short_events[0]) == 1
+                                     and short_reviews[1] is False and len(short_reviews[0]) == 1),
             "a_pull_request_lists_the_paths_it_changes": ({"P-43"},
                 files["complete"] is True and len(files["changed_paths"]) == body("P-43", 8)["changed_files"]
                 and any(p["previous"] for p in files["changed_paths"])),
@@ -1977,9 +2000,14 @@ class Contract(unittest.TestCase):
             # The App pushed last, and the machine user's approval of that head still stands, read as its approval.
             "an_app_pushes_to_the_head": ({"P-7"},
                 pull.last_pusher(replay("P-7", 11), body("P-7", 7)) == "combsmith-sf-trial-author[bot]"),
+            # The App pushed the head last, read after the approval too, and the machine user's approval of that head
+            # stands: approved, on that commit, dismissed by no one.
             "the_machine_users_approval_counts": ({"P-7"},
-                [(r["by"]["kind"], r["state"]) for r in reviewed if r["by"]["kind"] == "machine_user"][-1:]
-                == [("machine_user", "approved")]),
+                pull.last_pusher(replay("P-7", 24), body("P-7", 20)) == "combsmith-sf-trial-author[bot]"
+                and [(r["state"], r["dismissed_by"] is None) for r in reviewed if r["by"]["kind"] == "machine_user"]
+                == [("dismissed", False), ("approved", True)]
+                and [r["commit"] for r in reviewed if r["by"]["kind"] == "machine_user"][-1]
+                == body("P-7", 20)["head"]["sha"]),
         }
 
     def test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it(self):
@@ -2003,9 +2031,11 @@ class Contract(unittest.TestCase):
         found = {(path.stem, at) for path in sorted((ROOT / "trials").glob("P-*.json"))
                  for at, e in enumerate(json.loads(path.read_text()).get("exchanges", []))
                  if (e.get("request") or {}).get("via") in ("rest", "graphql")
-                 and isinstance(e.get("response", {}).get("status"), int) and e["response"]["status"] >= 400}
+                 and isinstance(e.get("response", {}).get("status"), int)
+                 and (e["response"]["status"] >= 400
+                      or (isinstance(e["response"].get("body"), dict) and e["response"]["body"].get("errors")))}
         self.assertEqual(found, set(REFUSALS))
-        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "effects", "runs"])
+        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "runs"])
         missing = exchanges("P-44")[3]
         call = missing["request"]["call"].split()[1].rstrip(",")
         workflow = call.split("/workflows/")[1].split("/")[0]
