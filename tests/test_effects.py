@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import pathlib
 import tempfile
 import unittest
@@ -265,7 +266,7 @@ class Effects(unittest.TestCase):
             (folder / "writes.json").write_text(json.dumps(writes_.plan(o)))
             # No token at all: every write it would carry is refused, and the step fails.
             argv = [str(folder / "pass.json"), str(folder / "writes.json"), str(folder)]
-            self.assertEqual(effects.main(argv, environ={}), 1)
+            self.assertEqual(effects.main(argv, environ={}, base=tmp), 1)
             written = json.loads((folder / "written.json").read_text())
         self.assertEqual({w["reason"] for w in written["writes"][1:]}, {"uncounted", "no_credential"})
         # A token the transport cannot take, or a plan refused whole, still leaves written.json, every write refused.
@@ -275,15 +276,15 @@ class Effects(unittest.TestCase):
             plan = writes_.plan(o)
             (folder / "writes.json").write_text(json.dumps(plan))
             argv = [str(folder / "pass.json"), str(folder / "writes.json"), str(folder)]
-            self.assertEqual(effects.main(argv, environ={"WORKFLOW_TOKEN": "two words"}), 1)
+            self.assertEqual(effects.main(argv, environ={"WORKFLOW_TOKEN": "two words"}, base=tmp), 1)
             unreadable = json.loads((folder / "written.json").read_text())
             plan["pass"] = "p_000099A"
             (folder / "writes.json").write_text(json.dumps(plan))
-            self.assertEqual(effects.main(argv, environ={}), 1)
+            self.assertEqual(effects.main(argv, environ={}, base=tmp), 1)
             refused = json.loads((folder / "written.json").read_text())
             # A plan that cannot be read at all is refused with no write in it, and still fails the step.
             (folder / "writes.json").write_text(json.dumps({"schema": "writes/1"}))
-            self.assertEqual(effects.main(argv, environ={}), 1)
+            self.assertEqual(effects.main(argv, environ={}, base=tmp), 1)
             self.assertEqual(json.loads((folder / "written.json").read_text())["writes"], [])
         self.assertEqual({(w["state"], w["reason"]) for w in unreadable["writes"]}, {("refused", "token_unreadable")})
         self.assertEqual({(w["state"], w["reason"]) for w in refused["writes"]}, {("refused", "plan_refused")})
@@ -292,6 +293,24 @@ class Effects(unittest.TestCase):
         counted = Counted()
         self.assertEqual(effects.main(["pass.json", "writes.json"], environ={}), 2)
         self.assertEqual(effects.main(["pass.json", "writes.json", "/no/such/folder"], environ={}), 2)
+        # Nor does one given a path outside the directory it runs in, however the path is spelled.
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as elsewhere:
+            (pathlib.Path(tmp) / "pass.json").write_text(json.dumps(o["record"]))
+            (pathlib.Path(tmp) / "writes.json").write_text(json.dumps(writes_.plan(o)))
+            (pathlib.Path(tmp) / "out").mkdir()
+            os.symlink(elsewhere, str(pathlib.Path(tmp) / "link"))
+            for argv in (["pass.json", "writes.json", elsewhere], ["../" + pathlib.Path(tmp).name + "/pass.json",
+                         "/etc/hosts", "out"], ["pass.json", "writes.json", "link"],
+                         ["pass.json", "writes.json", "out/../.."]):
+                self.assertEqual(effects.main(argv, environ={}, base=tmp), 2, argv)
+            # An OUT inside it that is no folder, or none at all, is refused too, before anything is sent.
+            for out_ in ("missing", "pass.json"):
+                self.assertEqual(effects.main(["pass.json", "writes.json", out_], environ={"WORKFLOW_TOKEN": "t"},
+                                              base=tmp), 2, out_)
+            self.assertEqual(counted.sent, [])
+            self.assertEqual(effects.main(["pass.json", "writes.json", "out"], environ={}, base=tmp), 1)
+            self.assertTrue((pathlib.Path(tmp) / "out" / "written.json").exists())
+            self.assertEqual(list(pathlib.Path(elsewhere).iterdir()), [])
         self.assertEqual(counted.sent, [])
         # A pass whose only write is an act no write serves fails nothing.
         self.assertFalse(effects.failed({"writes": [{"state": "refused", "reason": "not_built"}]}))

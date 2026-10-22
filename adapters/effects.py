@@ -196,13 +196,21 @@ def refused_all(writes, record, reason: str) -> dict:
                         "key": None, "reason": reason} for w in rows]}
 
 
-def main(argv=None, environ=None) -> int:
+def main(argv=None, environ=None, base=None) -> int:
+    """The step. It reads and writes only inside the directory it runs in, `base`, by default the working directory:
+    each path is followed to where it really is, and one outside is refused before anything is opened, naming no path."""
     argv = sys.argv[1:] if argv is None else argv
     environ = os.environ if environ is None else environ
-    if len(argv) != 3 or not pathlib.Path(argv[2]).is_dir() or not os.access(argv[2], os.W_OK):
+    inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
+    real = [os.path.realpath(os.path.join(inside, p)) for p in argv]
+    if len(argv) != 3 or not all(path.startswith(inside + os.sep) or path == inside for path in real[2:]) \
+            or not all(path.startswith(inside + os.sep) for path in real[:2]):
+        print("usage: python3 -m adapters.effects PASS WRITES OUT, each inside the directory it runs in; nothing was sent")
+        return 2
+    if not pathlib.Path(real[2]).is_dir() or not os.access(real[2], os.W_OK):
         print("usage: python3 -m adapters.effects PASS WRITES OUT, OUT a folder it can write; nothing was sent")
         return 2
-    record, writes = (json.loads(pathlib.Path(p).read_text()) for p in argv[:2])
+    record, writes = (json.loads(pathlib.Path(p).read_text()) for p in real[:2])
     config = json.loads((ROOT / "config" / "controller.json").read_text())
     owner_role = json.loads((ROOT / "config" / "defaults.json").read_text())["owner_role"]
     token = environ.get("WORKFLOW_TOKEN")
@@ -214,7 +222,7 @@ def main(argv=None, environ=None) -> int:
         written, sent = refused_all(writes, record, "token_unreadable"), False
     except Refused:
         written, sent = refused_all(writes, record, "plan_refused"), False
-    pathlib.Path(argv[2], "written.json").write_text(json.dumps(written, indent=2) + "\n")
+    pathlib.Path(real[2], "written.json").write_text(json.dumps(written, indent=2) + "\n")
     return 0 if sent and not failed(written) else 1
 
 

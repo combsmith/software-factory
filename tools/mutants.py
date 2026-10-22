@@ -2307,8 +2307,8 @@ MUTANTS = ISSUE + [
      'REFUSED = {401, 403}',
      'REFUSED = {401}', ('tests.test_effects',)),
     ('the step sends with no folder to write its record to', 'adapters/effects.py',
-     '    if len(argv) != 3 or not pathlib.Path(argv[2]).is_dir() or not os.access(argv[2], os.W_OK):\n        print(',
-     '    if len(argv) < 2:\n        print(', ('tests.test_effects',)),
+     '    if not pathlib.Path(real[2]).is_dir() or not os.access(real[2], os.W_OK):\n        print(',
+     '    if False:\n        print(', ('tests.test_effects',)),
     ('the pass does not record its successor', 'controller/pass_.py',
      '    record["successor"] = successor\n',
      '    record["successor"] = False\n', ('tests.test_effects',)),
@@ -5411,6 +5411,12 @@ MUTANTS = ISSUE + [
     ('a dispatch GitHub refused is read as sent', 'adapters/effects.py',
      '    return "failed", "dispatch_refused"\n',
      '    return "sent", None\n', ('tests.test_adapters.Contract.test_a_recorded_refusal_is_no_answer',)),
+    ('the effects step reads a path outside its directory', 'adapters/effects.py',
+     '            or not all(path.startswith(inside + os.sep) for path in real[:2]):\n',
+     '            or False:\n', ('tests.test_effects.Effects.test_a_failed_write_is_recorded_and_fails_the_step',)),
+    ('the effects step writes outside its directory', 'adapters/effects.py',
+     '    if len(argv) != 3 or not all(path.startswith(inside + os.sep) or path == inside for path in real[2:]) \\\n',
+     '    if len(argv) != 3 \\\n', ('tests.test_effects.Effects.test_a_failed_write_is_recorded_and_fails_the_step',)),
 ]
 
 
