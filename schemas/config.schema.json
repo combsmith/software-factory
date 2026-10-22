@@ -180,7 +180,9 @@
         "max_diff_lines",
         "max_acts_per_item",
         "max_path_length",
-        "max_close_lag_seconds"
+        "max_close_lag_seconds",
+        "max_unnamed_run_seconds",
+        "max_unnamed_runs"
       ],
       "properties": {
         "max_attempts": {
@@ -218,6 +220,16 @@
         },
         "max_close_lag_seconds": {
           "description": "How long after a linked pull request's merge GitHub may take to close the issue, in seconds: an open issue read within it waits for the close; read after it, a merge that closed nothing is no merge of the issue (P-33 saw the close a second after the merge and its event two; issue 267)",
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_unnamed_run_seconds": {
+          "description": "How long a counted Run may be listed without its run-name before it is no Run waiting for its name, in seconds: inside it an unidentified Run defers every admission (decision 0036); past it, it defers nothing and is one alert, by its run id (issue 270). P-17 saw a name listed within 3.7 s",
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_unnamed_runs": {
+          "description": "How many Runs may be listed unnamed past max_unnamed_run_seconds, of any status, each counted once, before every Run defers, runs_unnamed: such a Run, were it on an item, is missing from that item's attempts and Run ceiling, so past this bound nothing admits until a person deletes them (issue 270)",
           "type": "integer",
           "minimum": 1
         }

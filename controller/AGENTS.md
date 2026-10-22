@@ -11,7 +11,7 @@ Not built yet, by the stories that hold their rules: reconcile.py, relay.py, bac
 
 | Rule | Held by |
 |---|---|
-| The pass asks the Kernel through its two entry points alone, and imports no clock and nothing that reaches out | `tests/test_controller.py::test_the_pass_asks_the_kernel_through_its_two_entry_points_alone` |
+| The pass asks the Kernel through its entry points alone, each Lifecycle's `decide` and `unnamed_scope`, and imports no clock and nothing that reaches out | `tests/test_controller.py::test_the_pass_asks_the_kernel_through_its_entry_points_alone` |
 | The pass record holds what the Kernel was given, and replays every Decision | `tests/test_controller.py::test_the_pass_record_holds_what_the_kernel_was_given_and_replays_it` |
 | A Run id is minted for an admission or an approval alone | `tests/test_controller.py::test_only_an_admission_or_an_approval_gets_a_run_id` |
 | Each Run is dispatched by its run-name | `tests/test_controller.py::test_the_runs_to_dispatch_are_named_by_their_run_names` |

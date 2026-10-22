@@ -34,6 +34,7 @@
         "read:facts.state",
         "read:facts.is_draft",
         "read:facts.author",
+        "read:facts.actor.can_write",
         "read:facts.last_pusher",
         "read:facts.mergeable",
         "read:facts.label_events",
@@ -102,6 +103,9 @@
           "$ref": "#/$defs/mapping"
         },
         "read:facts.author": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:facts.actor.can_write": {
           "$ref": "#/$defs/mapping"
         },
         "read:facts.last_pusher": {
@@ -326,6 +330,7 @@
               "read:facts.state",
               "read:facts.is_draft",
               "read:facts.author",
+              "read:facts.actor.can_write",
               "read:facts.last_pusher",
               "read:facts.mergeable",
               "read:facts.label_events",

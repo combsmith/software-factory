@@ -481,9 +481,70 @@ def run_deferral(_decision, facts: dict, state, evidence: list, context: dict, n
         return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
     if active >= limits["org_max_active_runs"]:
         return _decision(facts, state, "concurrency", evidence, t.DEFER)
-    if context.get("unidentified_runs") != []:
+    if unnamed_within(context, now, limits) != []:
         return _decision(facts, state, "run_unidentified", evidence, t.DEFER)
+    past = unnamed_past(context, now, limits)
+    if past and len(past) > limits["max_unnamed_runs"]:
+        return _decision(facts, state, "runs_unnamed", evidence, t.DEFER)
     return None
+
+
+def unnamed_runs(context: dict):
+    """The context's unidentified Runs, each a run id of digits, when its record was created, and whether it is queued,
+    in progress or completed; or None when the list or one of them cannot be read (decision 0036, issue 270)."""
+    listed = context.get("unidentified_runs") if isinstance(context, dict) else None
+    if not isinstance(listed, list):
+        return None
+    for entry in listed:
+        if not (isinstance(entry, dict) and isinstance(entry.get("run"), str) and entry["run"]
+                and all(c in t.DIGITS for c in entry["run"]) and is_time(entry.get("created_at"))
+                and entry.get("status") in t.RUN_STATUSES):
+            return None
+    return listed
+
+
+def unnamed_age(entry: dict, now: str) -> int:
+    """How long ago the unidentified Run's record was created, in seconds; below zero where the clock reads it later."""
+    return seconds(now) - seconds(entry["created_at"])
+
+
+def unnamed_window(limits: dict):
+    """max_unnamed_run_seconds and max_unnamed_runs, each a whole number of at least one, or None."""
+    if not isinstance(limits, dict):
+        return None
+    window, most = limits.get("max_unnamed_run_seconds"), limits.get("max_unnamed_runs")
+    if not (type(window) is int and window >= 1 and type(most) is int and most >= 1):
+        return None
+    return window
+
+
+def unnamed_within(context: dict, now: str, limits: dict):
+    """The unidentified Runs that defer every admission, by run id: each inside max_unnamed_run_seconds of its creation,
+    which may yet be named as a Run in flight, and each not yet completed, whatever its age, which may be a Run on an
+    item running now; or None when the list, a Run of it, the limits or `now` cannot be read. A completed one older
+    than the window is no Run waiting for its name: P-17 saw a name listed within 3.7 s (issue 270)."""
+    listed = unnamed_runs(context)
+    if listed == []:
+        return []
+    window = unnamed_window(limits)
+    if listed is None or window is None or not is_time(now):
+        return None
+    return [entry["run"] for entry in listed
+            if unnamed_age(entry, now) < window or entry["status"] != t.RUN_COMPLETED]
+
+
+def unnamed_past(context: dict, now: str, limits: dict) -> list:
+    """The unidentified Runs listed for max_unnamed_run_seconds or more, by run id, each once, in the order listed: the
+    alerts of the whole scope. Read only where unnamed_within can read the list, and empty otherwise. A Run on an item
+    among them is missing from that item's counts, so past max_unnamed_runs of them every Run defers (issue 270)."""
+    listed, within = unnamed_runs(context), unnamed_within(context, now, limits)
+    if listed is None or within is None:
+        return []
+    window, past = unnamed_window(limits), []
+    for entry in listed:
+        if unnamed_age(entry, now) >= window and entry["run"] not in past:
+            past.append(entry["run"])
+    return past
 
 
 def readable_actor(actor, facts: dict, config: dict) -> bool:

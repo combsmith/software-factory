@@ -17,20 +17,27 @@ def previous_records(previous):
 
 def run_records(records) -> tuple:
     """`(listed, whole)`: whether the records port's list can be read at all, every run record a run record, every
-    unidentified Run a GitHub id and every read a date and an age; and whether it was also read whole."""
+    unidentified Run a GitHub id with its record's creation and status (issue 270) and every read a date and an age,
+    one of them at least a read of the list itself (an outcome read is no read of the list); and whether it was also
+    read whole."""
     if not isinstance(records, dict):
         return False, False
     runs, unidentified, reads = records.get("runs"), records.get("unidentified"), records.get("reads")
     listed = (isinstance(runs, list) and not any(errors(r, "run-record") for r in runs)
               and isinstance(unidentified, list)
-              and all(isinstance(i, str) and i != "" and set(i) <= DIGITS for i in unidentified)
-              and isinstance(reads, list) and all(_read(r) for r in reads))
+              and all(isinstance(i, dict) and set(i) == {"run", "created_at", "status"}
+                      and isinstance(i["run"], str) and i["run"] != "" and set(i["run"]) <= DIGITS
+                      and moment(i["created_at"]) is not None and i["status"] in ("queued", "in_progress", "completed")
+                      for i in unidentified)
+              and isinstance(reads, list) and all(_read(r) for r in reads)
+              and any(r["read"] == "runs" for r in reads))
     return listed, listed and records.get("complete") is True
 
 
 def _read(entry) -> bool:
-    """One read of the list, as the pass record keeps it: `runs`, a date and an age in whole seconds."""
-    return (isinstance(entry, dict) and set(entry) == {"read", "date", "age"} and entry["read"] == "runs"
+    """One read of the list, as the pass record keeps it: `runs`, or `outcome` for a Run's outcome the records port
+    read (#285), a date and an age in whole seconds."""
+    return (isinstance(entry, dict) and set(entry) == {"read", "date", "age"} and entry["read"] in ("runs", "outcome")
             and moment(entry["date"]) is not None and type(entry["age"]) is int and entry["age"] >= 0)
 
 

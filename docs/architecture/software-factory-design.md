@@ -327,8 +327,8 @@ for contract tests, so one schema has three uses.
 | `mergeable` | Whether the head merges cleanly into the base: true, false, or null while GitHub has not worked it out. As GitHub last worked it out: a move of the base alone does not make GitHub work it out again (P-29) |
 | `diff_size` | Files and lines changed |
 | `head`, `base`, `merge_base` | Commit hashes: the head commit; the base branch's head, read at the pass, never the pull request's `base.sha`, which moves only when the head is pushed (P-29); and the merge base GitHub gives for the head against that branch, `compare`'s `merge_base_commit`. None is in `schemas/facts.schema.json` until something reads it |
-| `content_id` | Hash of the pull request's own diff against its merge base, computed by the port |
-| `changed_paths` | One record for each file in that diff, as many as `diff_size` counts files, each by its own path once, from the top of the repo, with `previous`, the path a renamed or copied file had before, null for any other change. A list of another length, a record not in that shape, or a path with an empty, `.` or `..` name, is unreadable, `paths_unreadable`, for the Maintainer. The Kernel matches each against the protected paths and the Lenses' inputs, and never shows one (§4.2, decision 0020) |
+| `content_id` | Hash of the head commit's diff against its merge base, computed by the port. It is read by compare, `GET /repos/{repo}/compare/{base}...{head}`, at the head of the snapshot's first read and the base branch's head the pass read, so a head pushed away and back during the snapshot still gives that commit's content (issue 284). P-29 shows those bytes are the pull request's own diff. A `406` `too_large` reads as truncated, with the head commit's hash as its id: P-29 grounds that answer for the pull request's diff, not for compare's |
+| `changed_paths` | One record for each file in that diff, as many as `diff_size` counts files, each by its own path once, from the top of the repo, with `previous`, the path a renamed or copied file had before, null for any other change. A list of another length, a record not in that shape, or a path with an empty, `.` or `..` name, is unreadable, `paths_unreadable`, for the Maintainer. The Kernel matches each against the protected paths and the Lenses' inputs, and never shows one (§4.2, decision 0020). Read from the same compare as `content_id`, which lists at most 300 files, as GitHub documents it (unverified): a change of more is read short by its count alone, with nothing asked, and the Kernel defers it for the Maintainer (issue 284) |
 | `label_events` | Every `labeled` and `unlabeled` event on the timeline: the label, who added or removed it (kind, name and write access), and when |
 | `reviews` | Who submitted it (`by`: kind, name and whether that actor has write access, as a thread's opening actor), state (`approved`, `changes_requested`, `commented` or `dismissed`, as GitHub holds it now), commit, `content_id`, `submitted_at`; and, from the timeline, `dismissed_by`: who dismissed it, of what kind and with what access, and `dismissed_from`: what it was before (`approved`, `changes_requested` or `commented`). Both are null unless it was dismissed |
 | `threads` | Thread id, path, line, when it was opened, resolved, outdated, opening actor and resolving actor, each with its kind and whether it has write access (the resolving actor null unless resolved); and the Finding's `category` and `severity`. For a required Lens's thread both come from that Lens's own Finding record, in its Run's `applied.json` (§3.7, §3.10), joined by `surface.key`, never from the comment text, which anyone with write access can edit. A person's thread is `human`, with no severity; an Advisory reviewer's, which no Finding record names, has neither |
@@ -511,7 +511,13 @@ configuration names as `approver`, and no other; `lens`, the Bot account of an A
 a Lens, a Role's or a third-party reviewer's; and `app`, the Bot account of any other App. The
 port's contract: it tells the kinds apart from GitHub's own account type and the configuration,
 never from a name's spelling, and reads write access with one named credential (I-28, L-57); it
-waits on `adapters/`. A person is `human` with write access, and nobody else is. What a person
+waits on `adapters/`. Write access is read from the repository's collaborator permission,
+`GET /repos/{repo}/collaborators/{login}/permission`, one REST read per distinct login in each repo,
+applied wherever that login appears in that repo and never in another, never from an association, which an App does not
+see (P-32): `admin`, `maintain` and `write` are write access, and `triage`, `read` and `none` are not.
+An App is never asked: its access is `config/apps.json`'s (decision 0035). The read spends no GraphQL
+points, and its REST count is the distinct logins of each repo a pass reads, unmeasured (decision 0048). A person is `human`
+with write access, and nobody else is. What a person
 placed, only a person ends:
 
 - A person's thread resolved by anyone but that person stays open (L-17). A Lens's thread resolved
@@ -591,7 +597,8 @@ code, never a sentence; the sentence a person reads is rendered from it.
 
 Every pass uploads a **pass record**, `pass/1` (`schemas/pass.schema.json`): the time it gave the
 Kernel, the whole context (`paused`, `active_runs`, `model_deferred_until`, `passes_since` and
-`unidentified_runs`, every key always present, since a key left out reads differently from null),
+`unidentified_runs`, each a run id, its record's creation and its status, every key always
+present, since a key left out reads differently from null),
 every run record it read, once for the pass, each read's `date` and `age` from GitHub, and, in one
 list for pull requests and one for issues, each item's facts, its Decision and the Run id the
 Controller minted for an admission or an approval, or null. The configuration is not copied: it is
@@ -842,8 +849,27 @@ characters. Status, conclusion, start and end times and the attempt number come 
 workflow file, from the default branch, started by a schedule or a dispatch, in the Factory repo.
 The name is a label for people and is never what identifies a Run. Nor does it ever make a record
 count: it is what says which item a counted Run is on. Until GitHub lists the name (P-17: up to
-3.7 s after the dispatch), the Run is unidentified: the records port reports its GitHub id apart
-from the Runs it can name, and it defers every admission (I-46, decision 0036). Only a record
+3.7 s after the dispatch), the Run is unidentified: the records port reports its GitHub id, when
+its record was created and whether it is queued, in progress or completed, apart from the Runs it
+can name, and it defers every admission (I-46, decision 0036) while it is inside
+`max_unnamed_run_seconds` of its creation (60 s, `config/defaults.json`), or has not completed,
+since it may be running on an item now. One completed and unnamed for that long is no Run waiting
+for its name: a dispatch of the Controller's App whose run-name never resolves, a Factory bug or a
+broken name expression, would otherwise defer every admission for the 90 days GitHub keeps its
+record. It defers nothing, and every Run unnamed past the window is one alert of the whole scope,
+`run_unnamed` with its run id, which every pass writes to the view's `alerts` (`view-meta/1`, from
+`kernel.decide.unnamed_scope`): one alert to a run, not one to a pass or an item, so a person sees it
+within one pass and sees it once. A Run on an item among them is missing from that item's attempts
+and Run ceiling, so past `max_unnamed_runs` of them (1) every Run and approval defers,
+`runs_unnamed`, as a deferral of the whole scope: a name the port cannot read admits at most that
+many Runs more before a person must act. A person clears an alert by deleting the run, cancelling
+it first if it is still running, since a run-name is fixed at the dispatch; it also leaves the view
+once the run falls from the newest runs the port reads. Nothing in the Factory clears one (issue
+270). The window is measured from the pass's `now`, not from the list's own `date` and `age`: a
+read served stale, or a pass whose clock runs ahead of GitHub's, can read a completed Run as past
+it a little early. The item's lane bounds what follows, and so will the Run's re-checks at its
+start and in `apply`, which wait on `harness/`. Rules 1 and 2 of decision 0036 hold as narrowed
+here. Only a record
 started by a `workflow_dispatch` of a Role's workflow, with an item in its input, can be
 unidentified, and only while its name is not yet listed, whether or not it has completed: a
 completed record read as no one's would fall out of its item's attempts and Run ceiling. The name is
@@ -879,10 +905,13 @@ cost is not known exactly; its duration is the estimate.
 | `superseded` | The item was held or changed before `apply`, or a newer Run in its group replaced it while it waited | No | The next pass decides afresh |
 
 A pass reads `outcome.json` only for Runs that did not succeed, which are few. A killed Run has no
-outcome file; it is treated as `item` unless other Runs are failing as `environment` at the same
-time. A Run cancelled before its job had a runner or a step has none either, and is no attempt: it
-is read as `superseded`. Its concurrency group cancels a Run that waits behind another as a newer
-one queues (P-44); a person's cancel of a waiting Run reads the same, and then the Run ceiling, not
+outcome file; one that ran, its conclusion `failure` or `timed_out`, is read as `item`, an attempt,
+whatever other Runs are failing as (decision 0049, issue 286): the facts give no window to judge an
+outage by, and the automatic pause stops admission on the Runs that did write `environment`. That a
+job killed at its timeout concludes `timed_out` waits on P-18. A Run `cancelled` with no outcome is
+no attempt: it is read as `superseded`, and so is a job that never started, `startup_failure`, which
+the records port reads as `cancelled`. Its concurrency group cancels a Run that waits behind another
+as a newer one queues (P-44); a person's cancel of a waiting Run reads the same, and then the Run ceiling, not
 the attempts, bounds it. GitHub lists a Run waiting for its group as `pending`, which the records
 port reads as `queued` (`adapters/records.py`). The simulator's lane holds this
 (`tests/test_simulator.py::test_a_newer_run_cancels_the_one_waiting_in_each_world`); the outcome of
@@ -891,7 +920,10 @@ estimated. One cause must never become fifty Holds.
 
 **The act Run.** An approval is a Run with no Engine, Intent `issue-approval`, because only `apply`
 holds the machine user's token (§4.9). It has no `run` job and no model, and it asks the Kernel
-again as it starts (I-38). Its run record is what bounds an approval that does not land: a failed
+again as it starts (I-38): `kernel.decide.still_wanted` holds the Decision it was started by to
+what the Kernel decides on the facts it just read, and the approval goes ahead only if it is issued
+again for the same item and content, as a Run goes ahead only if it is admitted again (issue 195).
+Its run record is what bounds an approval that does not land: a failed
 one whose outcome is `item` is an attempt, and `max_attempts` of them since a person with write
 access acted hold the item, reason `attempts_exhausted` (I-28). An approval that lands is an act,
 and does not count toward the Run ceiling, which stays the cost ceiling (FR-39). One that does not
@@ -1698,7 +1730,7 @@ These are the properties the simulator asserts. Each is a sentence a test can fa
 | I-43 | After a linked pull request closes unmerged, at most `max_unmerged_closes` further linked pull requests are opened before a person with write access acts | FR-18 |
 | I-44 | An issue's State is given by exactly one row of its derivation, and no issue admits two Runs at once | FR-16 |
 | I-45 | Nothing that changes a protected path or a Lens's input is approved, enqueued, left in the merge queue or merged without every model Lens's review of that head, whatever its class | §4.2, §5.1 |
-| I-46 | No Run is admitted and no approval issued while a run record of a Role's workflow, dispatched for an item, completed or not, cannot be told whose it is; the poller's own runs, scheduled or dispatched with no item, never count as such | §3.10 |
+| I-46 | No Run is admitted and no approval issued while a run record of a Role's workflow, dispatched for an item, cannot be told whose it is, inside `max_unnamed_run_seconds` of its creation or until it has completed; past it, it is one alert of the whole scope, and past `max_unnamed_runs` such records every Run waits for a person; the poller's own runs, scheduled or dispatched with no item, never count as such | §3.10 |
 
 ### 4.5 The simulator
 
@@ -1720,7 +1752,10 @@ decision logic against a fake world, quickly, thousands of times.
   A Result that fails validation. An Engine that times out. A required check that times out or
   gives no verdict. A human acting mid-Run. An App dismissing a person's request for changes. An approval
   that does not land, and a merge queue that ejects; each also as a world where it happens every
-  time, which must come to rest on its bound (I-8). On the issue, each on seeds a constant chooses: an
+  time, which must come to rest on its bound (I-8). A Run listed unnamed for a pass, and a run that
+  never takes its name: inside `max_unnamed_run_seconds`, or while it has not completed, no Run is
+  admitted on any item, and past it the Factory admits as usual and the pass names the run as one
+  alert, so it neither stalls past the window nor admits inside it (issue 270). On the issue, each on seeds a constant chooses: an
   outsider's edit after admission, a stranger's pull request naming it, a reopening by someone without
   write access, a label removed while a Run is in flight, and run records that expire.
 - **Properties.** I-2 to I-17 are checked after every step, as are I-19 to I-38. On the issue, I-39 to I-44 are
@@ -1922,7 +1957,7 @@ room. That shapes every row.
 
 | Attack | Rule |
 |---|---|
-| Inject text the model reads, and have it print the model credential, encoded, into a public log. No network access is needed | Three layers, none sufficient alone. No shell or network tool for a Run that reads untrusted text (I-35). The model CLI's sandbox, if a trial shows it can hide the parent's environment and limit connections (P-26). A credential that belongs to the Factory alone, so that theft is a rotation and not the loss of the Maintainer's own account |
+| Inject text the model reads, and have it print the model credential, encoded, into a public log. No network access is needed | Three layers, none sufficient alone. No shell or network tool for a Run that reads untrusted text (I-35). The model CLI's sandbox limits where a tool connects by name, a connection to an address with no name looked up not tried, but passes the parent's environment to the tool (P-26 failed, on macOS); the CLI's scrub, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, took out the one name on its credential list that was tried. On a GitHub-hosted Linux runner the same holds (P-50 failed): with unprivileged user namespaces allowed, the tool runs in a PID namespace of its own, the CLI out of its sight, but holds the parent's environment itself, as did the one process above it that it could read; and with the scrub on, a write outside the work directory landed. As the runner stands the tool did not run: its result came back an error, though the CLI exited 0 with `failIfUnavailable` set. The model credential's own name and the files of the CLI's configuration directory were not tried. So the first and third layers carry the weight, and no Run has a shell or network tool until P-26 and P-50 pass. A credential that belongs to the Factory alone, so that theft is a rotation and not the loss of the Maintainer's own account |
 | From a fork, start a workflow run named like a Factory Run, with forged artifacts | Run records count by workflow, event and repo, never by name (I-34) |
 | Put instructions in a pull-request title, which reaches the feed, which a board in the Maintainer's own Claude session reads | The feed carries no free text from outside (§8.4) |
 | Get a harmless fork commit admitted, then push the real one | Admission lapses on the next push (I-36) |
@@ -2111,7 +2146,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-18 | Does a final step still run, and upload partial usage, when a job times out or is cancelled? | Yes, or duration is the only estimate |
 | P-19 | Can a static page in a separate public repo be published from files the Controller writes? | Yes |
 | P-20 | Does an event that anyone may cause, such as starring a repo, still start a workflow, and how often may it? | Yes, often enough for a tick every minute or two. **Passed** on 2026-10-21 (`trials/P-20.json`): ten stars a minute apart started ten runs, each within two seconds |
-| P-26 | Can the model CLI's sandbox stop a tool reading the parent process's environment, and limit where it connects? | Yes to both, or the first and third layers of §4.9 carry the weight |
+| P-26 | Can the model CLI's sandbox stop a tool reading the parent process's environment, and limit where it connects? | Yes to both, or the first and third layers of §4.9 carry the weight. **Failed** on 2026-10-21 (`trials/P-26.json`), at 2.1.306: in both configurations the sandbox limited connections by name, the denied host refused at CONNECT and, around its proxy, neither host's name was looked up (curl exit 6); a connection to an address with no name looked up was not tried, and the script now tries one, but the tool's shell held the parent's environment: with the scrub the listed marker was gone and the unlisted one stayed, the environment three lines shorter, the names not recorded. The sandbox would not run `ps` (exit 126), so no process was read, not even the probe's own; Linux's /proc is P-50's |
 | P-27 | Does a fork's pull-request workflow run wait for approval, and can it never be a schedule or dispatch run? | Yes to both. **Passed** on 2026-10-21 (`trials/P-27.json`): an outside first-time contributor's run waited (`action_required`) until a person approved it; a fork's workflow file ran only as the pull request's own run, a dispatch of it was refused and no schedule ran |
 | P-31 | Does the Controller App's webhook reach a hosted function for every repo it is installed on, and can that function cause a nudge with no credential over the Factory? | Yes to both |
 | P-28 | Can the actor who last pushed a pull request's head be read as a fact? | Yes, or I-26 has to be met another way |
@@ -2122,7 +2157,7 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-24 | With the Maintainer as the only code owner of a path, does the machine user's approval fail to satisfy code-owner review there? Not needed for the Factory's repo while its code owners follow the org's standard | It fails to satisfy it |
 | P-25 | Does resolving a reviewer's thread cause that reviewer to re-post it, reply, or approve? | No, with the configuration of §4.2 |
 | P-22 | How soon after it is started does a Run appear in the list of run records? | Soon enough that a pass never admits the same Run twice; the item's lane and I-21 cover the gap |
-| P-32 | Can an issue's author's permission be read in the listing of open issues, and who added and who removed each label, with the time, in the full read? | Yes to both, within the budget P-8 measures |
+| P-32 | Can an issue's author's permission be read in the listing of open issues, and who added and who removed each label, with the time, in the full read? | Yes to both, within the budget P-8 measures. **Failed** for the permission on 2026-10-20 (`trials/P-32.json`): the reader App reads the org's owner's `authorAssociation` as CONTRIBUTOR where the Maintainer's login reads MEMBER, so write access is read from the collaborator permission instead (P-47, decision 0048); the label events passed, and ground `a_label_event_names_its_actor` |
 | P-34 | Can the time an issue's title or body last changed be read, apart from the time anything on it changed; and each reopening, with who did it? | Yes to both |
 | P-33 | Can the issue a pull request closes be read from a draft, an open, a merged and a closed-unmerged pull request alike, with its opening actor; and does a pull request to a branch that is not the default one carry it? Can who last changed the draft flag be read? | Yes to the first and last. If a closed pull request loses the reference, closes are counted by the work's branch name. If a non-default base carries none, the issue Lifecycle serves the default branch only. If who changed the draft flag cannot be read, a linked pull request that has once left draft and is a draft again is treated as taken in hand |
 | P-35 | Where does each check run's workflow file come from, and in what form? Can it be read as the `path` of the check run's check suite's workflow run, with the permissions the reader and the Controller hold, in the one read of the facts, and does that `path` ever carry a ref suffix or take a `dynamic/` form, which the port passes on verbatim, never as null? Does the check run `CodeQL` that GitHub Advanced Security reports have a workflow run at all? Where does a check run created through the API with `GITHUB_TOKEN` and `checks: write` land, in which check suite and under which workflow path, and can that token update a check run of another workflow's run? And does a job a pull request adds in a file of its own, under a required Lens's check name, report under GitHub Actions with that file's path? | Each answered and recorded; the path readable within the budget P-8 measures; CodeQL's check with no workflow run; a check created with `GITHUB_TOKEN` under its own workflow's path and unable to change another's |
@@ -2137,6 +2172,8 @@ it observed as a recorded fixture, which is what the simulator's fake GitHub is 
 | P-44 | With a concurrency group for each Work item on a Run's job, does GitHub keep one Run running and one pending, cancel the older pending Run, and never cancel the one running? | As GitHub documents it; the lane in `sim/world.py` then changes to match (`a_run_waits_its_turn`, "Known to differ" in `sim/AGENTS.md`). **Passed** on 2026-10-21 (`trials/P-44.json`): four pushes ten seconds apart gave one run in progress and at most one waiting at every read; the second and third were cancelled as a newer one queued, never started, and the first and fourth succeeded |
 | P-45 | When a dependency bot updates an Action's pin in a workflow file, does it open the pull request and push its head under its own `[bot]` identity, so that the port's class for it is `dependency`? | Yes, with the bot as author and last pusher. If a person's push follows, the class is read as any other change's (decision 0026). **Passed** on 2026-10-21 (`trials/P-45.json`): Dependabot opened canary pull request 50, moving actions/checkout from v7.0.0 to v7.0.1, and pushed its head, both as `dependabot[bot]`, a Bot, id 49699333; GraphQL names the same account `dependabot`, so the port reads it by id and type |
 | P-46 | Does a merged pull request's closing reference change when its description is edited after the merge, or when an issue is linked to it by hand? | No: the reference stands as it was at the merge. **Failed** on 2026-10-21 (`trials/P-46.json`): an edit after the merge added issue 47 to canary pull request 38's references, and undoing it took the issue out; a link by hand was not tried. So the issue Lifecycle reads the join as it stood at the merge, never the live field: by the issue's close the timeline names the merge the closer of (`trials/P-33.json`), which the edit did not write, since it raised only the cross-reference a bare mention raises, and the undo left that standing (issue 267) |
+| P-47 | Can the reader App read a login's repository permission from `GET /repos/{repo}/collaborators/{login}/permission`, for an owner, a collaborator with write, one with triage and an outsider, and does the answer tell write access apart? And which of its grants does each read need, and the read of a branch's activity (`GET /repos/{repo}/activity`), which P-28 made as a person? Run by `tools/trial_reader_reads.sh` at the Maintainer's terminal with the reader's key, each read made twice, narrowed once to `metadata: read` and once to `contents: read` | Yes: `admin` or `maintain` for the owner, `write` for the collaborator, `triage` for the triage role and `read` or `none` for the outsider; and the least grant each read needs is the one `config/apps.json` names for it (decision 0035). **Passed** on 2026-10-21 (`trials/P-47.json`): with each grant, `metadata: read` and `contents: read`, the reader read `admin` for the owner, `write` for the collaborator and for the machine user, whose `role_name` is `maintain`, and `read` for an outsider; and the activity of `trial/p-9`. GitHub's `x-accepted-github-permissions` names `metadata=read` for the permission read and `contents=read` for the activity read, and `config/apps.json` names each so: the canary is public, so the token with `metadata` alone read the activity all the same. GitHub's `permission` folds `maintain` into `write`; write access reads the same from it. The triage role was not tried: the canary has none, and the Maintainer chose to run without one |
+| P-50 | On a GitHub-hosted Linux runner, can a tool that the pinned model CLI runs in its sandbox read a parent process's environment, its own or through `/proc/PID/environ` of a process above it? | No, in one configuration a Run can be given, or §4.9's first and third layers carry the weight on Linux too. **Failed** on 2026-10-22 (`trials/P-50.json`), at 2.1.306, in the canary, the CLI's API a stub on the runner that answered one scripted tool call, with no secret. As the runner stands the tool's result came back an error and the probe never ran, though the CLI exited 0 with `failIfUnavailable` set. With `kernel.apparmor_restrict_unprivileged_userns=0` the tool ran in a PID namespace of its own, the CLI out of its sight, and held the parent marker in its own environment, as did the one process above it that it could read; the next refused (exit 2). The scrub took the listed marker out, the environment four lines shorter, the names not recorded. With the scrub on, the write outside the work directory landed, whichever Task ran first; with it off, it was refused |
 
 ### 6.1 The order to run them in
 
@@ -2145,7 +2182,7 @@ An assumption audit on 2026-10-10 ranked each trial by what breaks if its answer
 | Batch | Trials | If the answer is no |
 |---|---|---|
 | **1. Before any code** | P-13 (the model CLI returns structured output on a subscription); P-1, P-7, P-24 (the approval mechanics); P-17, P-22 (run records can be identified); P-3 (secrets are isolated by environment); P-28, P-29 (last pusher and content identity are readable); P-8 (a pass fits its budget); P-39 (each App was granted what the data says) | The design does not work as written. Each of these is a foundation: no Run, no approval, no derived State, no credential boundary, or no poller |
-| **2. Before the first approval** | P-9, P-20, P-31 (chaining, the outside tick and the relay's host, on which W-2 rests: decision 0043); P-5, P-23, P-25 (resolving others' threads); P-2 (an App in the merge queue); P-30 (cutting a Release); P-27, P-14, P-4 (forks, caches, narrowed tokens); P-26 (the sandbox); P-35, P-36 (what a Lens's check is read from); P-37 (what a Lens reads from the base in the queue); P-38 (the commit an approved contract is read at); P-40 (whether a base move alone makes GitHub work `mergeable` out again); P-41, P-42, P-43 (reviews, labels, actors and check runs on a pull request, and the lists read short); P-46 (whether an edit after a merge changes the issues it closes) | One mechanism is replaced and the design stands. If threads cannot be resolved by an App, required thread resolution is dropped in repos the Factory serves |
+| **2. Before the first approval** | P-9, P-20, P-31 (chaining, the outside tick and the relay's host, on which W-2 rests: decision 0043); P-5, P-23, P-25 (resolving others' threads); P-2 (an App in the merge queue); P-30 (cutting a Release); P-27, P-14, P-4 (forks, caches, narrowed tokens); P-26, P-50 (the sandbox, on macOS and on a Linux runner); P-35, P-36 (what a Lens's check is read from); P-37 (what a Lens reads from the base in the queue); P-38 (the commit an approved contract is read at); P-40 (whether a base move alone makes GitHub work `mergeable` out again); P-41, P-42, P-43 (reviews, labels, actors and check runs on a pull request, and the lists read short); P-47 (the reader's read of a permission and of the activity); P-46 (whether an edit after a merge changes the issues it closes) | One mechanism is replaced and the design stands. If threads cannot be resolved by an App, required thread resolution is dropped in repos the Factory serves |
 | **3. Before the control room** | P-11, P-19, P-21 (publishing the page); P-16, P-18 (retention and final steps) | The page is published another way, or history is shorter |
 | **4. As they come up** | P-6, P-10, P-12, P-15, P-44, P-45 (the lane's concurrency group; a dependency bot's pin) | A detail changes |
 
@@ -2514,7 +2551,9 @@ board. It is also not where a chat session's output is made terser; that is a se
 
 `view/meta.json` is `view-meta/1` and `view/items.json` is `view-items/1`, each a document
 carrying the pass that wrote it, so the page can tell a matched pair from two files written by
-different passes. An item is a part, `view-item` (`schemas/view-item.schema.json`), with no
+different passes. `view-meta/1` also carries the pass's `alerts` of the whole scope, one to a cause
+however many items it touches: a Run unnamed past `max_unnamed_run_seconds`, by its run id
+(§3.10). An item is a part, `view-item` (`schemas/view-item.schema.json`), with no
 `schema` of its own. The page reads these files directly and is rebuilt only when its own code
 changes.
 

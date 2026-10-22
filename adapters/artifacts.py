@@ -1,5 +1,5 @@
 """A Run's outcome, `outcome/1`, read from its artifact, for a Run that did not succeed and for no other (design section
-3.10, decisions 0029 and 0039).
+3.10, decisions 0039 and 0049).
 
 The outcome is the artifact named `outcome` the run lists, a zip of one file, `outcome.json`, a few bytes long. It is
 downloaded through the transport's one redirect, to GitHub's artifact storage (decision 0045, the Maintainer's ruling on
@@ -8,8 +8,9 @@ and the bytes read out of it. Its digest, where the listing gives one, is checke
 to `outcome/1` and must name the Run whose artifact it is.
 
 A Run that left no outcome, as a killed one does, is read whole with none, and so is one whose outcome is past its
-retention: that is a fact, and what it means is the Kernel's (decision 0029 and design section 3.10). An outcome not yet
-listed just after its Run completed reads the same, until the next pass lists it. What cannot be read, two of the name,
+retention: that is a fact, and what it means is the Kernel's (decision 0049 and design section 3.10). An outcome not yet
+listed just after its Run completed reads the same, until the next pass lists it: a failed Run then counts as an
+attempt for that pass, on the safe side. What cannot be read, two of the name,
 a zip of anything else, or a file that is not `outcome/1` of this Run, is not whole: the Kernel defers, and never reads
 it as no attempt. A failed Run's file that names no fault contradicts itself, and is not whole either. The zip's file is
 read only stored or deflated, the two ways whose output Python bounds as it reads.
@@ -35,12 +36,15 @@ DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 SCHEMA = json.loads((pathlib.Path(__file__).resolve().parent.parent / "schemas" / "outcome.schema.json").read_text())
 
 
-def _listed(transport, repo: str, github_id: int):
-    """The one artifact named `outcome` the run lists, None if it lists none, or False if the list cannot be read."""
+def _listed(transport, repo: str, github_id: int, seen=None):
+    """The one artifact named `outcome` the run lists, None if it lists none, or False if the list cannot be read.
+    `seen`, where given, is handed the list's answer, so the caller can record what the read cost."""
     answer = transport.send(request("GET", "/repos/%s/actions/runs/%d/artifacts?name=%s&per_page=100"
                                     % (repo, github_id, NAME)))
     if answer["status"] != 200 or not isinstance(answer["body"], dict):
         raise Unanswered("the artifacts of run %d answered %d" % (github_id, answer["status"]))
+    if seen is not None:
+        seen(answer)
     listed, total = answer["body"].get("artifacts"), answer["body"].get("total_count")
     if not isinstance(listed, list) or not isinstance(total, int) or isinstance(total, bool) or total != len(listed):
         return False
@@ -68,10 +72,10 @@ def _member(zipped: bytes):
     return held
 
 
-def outcome(transport, repo: str, github_id: int, run: str) -> tuple:
+def outcome(transport, repo: str, github_id: int, run: str, seen=None) -> tuple:
     """`(outcome, whole)` of the Run GitHub numbers `github_id` and the Factory names `run`: the fault its outcome
-    names, None for a Run that left none, and whether it was read whole."""
-    found = _listed(transport, repo, github_id)
+    names, None for a Run that left none, and whether it was read whole. `seen` is handed the list's answer."""
+    found = _listed(transport, repo, github_id, seen)
     if found is None or (found and found.get("expired") is True):
         return None, True
     ident, size, digest = (found or {}).get("id"), (found or {}).get("size_in_bytes"), (found or {}).get("digest")

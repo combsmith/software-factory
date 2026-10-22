@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "harness/1: what the Harness is told beside the Role's manifest: the Engine's CLI, by name, the version it is pinned to and the model it runs; each tier's limits; how many characters of text a Task carries, and of the change's diff apart; and the third-party reviewers whose text is advisory, by the name the facts give their Lens.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "engine",
+    "limits",
+    "texts",
+    "advisory"
+  ],
+  "properties": {
+    "schema": {
+      "const": "harness/1"
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "model"
+      ],
+      "properties": {
+        "name": {
+          "const": "claude-cli"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^[a-z0-9.-]+$"
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "standard",
+        "deep"
+      ],
+      "properties": {
+        "standard": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "turns",
+            "repair_turns",
+            "seconds",
+            "cost_ceiling_usd"
+          ],
+          "properties": {
+            "turns": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "repair_turns": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "seconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "cost_ceiling_usd": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        "deep": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "turns",
+            "repair_turns",
+            "seconds",
+            "cost_ceiling_usd"
+          ],
+          "properties": {
+            "turns": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "repair_turns": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "seconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "cost_ceiling_usd": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "texts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "characters",
+        "diff_characters"
+      ],
+      "properties": {
+        "characters": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "diff_characters": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "advisory": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]*$"
+      }
+    }
+  }
+}
