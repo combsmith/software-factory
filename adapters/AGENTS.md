@@ -35,5 +35,6 @@ Not built yet, by the stories that hold their rules: items.py, acceptance.py, is
 | The snapshot is refused when the pull request moved while it was read, and is held to `facts/1` | `tests/test_adapters.py::test_a_snapshot_whose_head_moved_while_it_was_read_is_refused` |
 | The title is handed beside the facts, never in them | `tests/test_adapters.py::test_the_pull_requests_own_facts_and_the_title_beside_them` |
 | A plan of writes not its pass record's sends nothing | `tests/test_effects.py::test_a_write_list_that_is_not_the_records_is_refused_whole` |
-| Each write goes through its one credential's list; a dispatch is sent once, never applied, never while its token's account is unnamed; a failed write fails the step | `tests/test_effects.py` |
+| Each write goes through its one credential, which sends only its own requests by path and body | `tests/test_effects.py::test_each_write_goes_through_its_one_credential_and_its_allowlist` |
+| A dispatch is sent once and never retried | `tests/test_effects.py::test_a_dispatch_is_sent_once_and_never_retried` |
 | A rule of a part not built yet waits on the file named above, and the story that builds it re-points its rows | `tests/test_tools.py::test_a_wait_on_a_file_a_built_directory_plans_holds_until_the_file_exists` |

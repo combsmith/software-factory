@@ -276,7 +276,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-50 A credential's permissions were assumed
 **Failure.** A change of credential met a refusal on its first real write and was reverted. An App that could write contents could not move a tag on a repo with workflows, and the fleet was broken for six days.
 **Rule.** Each write a Role may make is tried once on a canary repo, and the recorded response is what the fake GitHub is held to.
-**Check.** `tests/test_effects.py::test_every_write_the_port_sends_has_the_shape_a_trial_recorded`, for the dispatch, from `trials/P-9.json`; the status, the dequeue and the tracking issue wait on their trials, P-12 and P-2 among them, with `adapters/effects.py`'s next part
+**Check.** `tests/test_effects.py::test_every_write_the_port_sends_has_the_shape_a_trial_recorded`, for a dispatch's answer, from `trials/P-9.json`; the status, the dequeue and the tracking issue are not held yet: `tests/test_effects.py::test_the_status_the_dequeue_and_the_tracking_issue_are_written_as_trials_recorded`
 
 ### L-51 The tests passed against a fake that accepted anything
 **Failure.** The shared stub of the GitHub command returned empty for calls it did not know, so real flags and filters were never exercised.

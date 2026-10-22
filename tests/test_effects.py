@@ -12,10 +12,26 @@ import unittest
 from adapters import effects, github
 from controller import writes as writes_
 from tests import support
+from tests.support import pending
 from tests.test_controller import config, passed, pr, reads, run
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTROLLER = json.loads((ROOT / "config" / "controller.json").read_text())
+OWNER = json.loads((ROOT / "config" / "defaults.json").read_text())["owner_role"]
+
+
+class Counted:
+    """A transport that answers each request with the status given in turn, and counts every request sent."""
+
+    def __init__(self, *statuses):
+        self.statuses, self.sent = list(statuses), []
+
+    def send(self, req):
+        self.sent.append(req)
+        status = self.statuses.pop(0)
+        if status is None:
+            raise github.Unanswered("no answer")
+        return {"status": status, "headers": {}, "body": None}
 
 
 def p9_dispatch() -> dict:
@@ -64,8 +80,8 @@ class Effects(unittest.TestCase):
         plan = plan or writes_.plan(o)
         replay = github.Replay(list(exchanges))
         cfg = cfg or controller()
-        got = effects.apply(plan, record or o["record"], {"workflow": effects.Allowed(replay, effects.workflow_permits(cfg))},
-                            cfg)
+        transport = {"workflow": effects.Allowed(replay, effects.workflow_permits(cfg))}
+        got = effects.apply(plan, record or o["record"], transport, cfg, OWNER)
         return got, replay
 
     def dispatches(self, o=None, statuses=(204, 204, 204)) -> list:
@@ -105,17 +121,18 @@ class Effects(unittest.TestCase):
 
     def test_a_dispatch_is_sent_once_and_never_retried(self):
         # GitHub answered with a 5xx, or did not answer: the dispatch may still have started a run, so it is failed and
-        # never sent again in this pass; the next pass decides on the run list.
-        got, replay = self.send(*self.dispatches(statuses=(502, 204, 204)))
-        self.assertEqual([w["state"] for w in got["writes"]], ["refused", "failed", "sent", "sent"])
-        self.assertEqual(got["writes"][1]["reason"], "dispatch_unanswered")
-        self.assertEqual(replay._left, [])
-        unanswered = self.dispatches()[1:]
-        got, replay = self.send(*unanswered)
-        self.assertEqual((got["writes"][1]["state"], got["writes"][1]["reason"]), ("failed", "dispatch_unanswered"))
-        self.assertEqual([w["state"] for w in got["writes"][2:]], ["sent", "sent"])
-        refused = self.dispatches(statuses=(422, 204, 204))
-        self.assertEqual(self.send(*refused)[0]["writes"][1]["reason"], "dispatch_refused")
+        # never sent again in this pass; the next pass decides on the run list. Every write is sent exactly once.
+        o = out()
+        for statuses, state, reason in (((502, 204, 204), "failed", "dispatch_unanswered"),
+                                        ((None, 204, 204), "failed", "dispatch_unanswered"),
+                                        ((422, 204, 204), "failed", "dispatch_refused")):
+            counted = Counted(*statuses)
+            transport = {"workflow": effects.Allowed(counted, effects.workflow_permits(controller()))}
+            got = effects.apply(writes_.plan(o), o["record"], transport, controller(), OWNER)
+            self.assertEqual((got["writes"][1]["state"], got["writes"][1]["reason"]), (state, reason), statuses)
+            self.assertEqual([w["state"] for w in got["writes"][2:]], ["sent", "sent"])
+            self.assertEqual(len(counted.sent), 3, statuses)
+            self.assertEqual(len({json.dumps(r["body"], sort_keys=True) for r in counted.sent}), 3)
 
     def test_a_refused_token_ends_every_later_write_on_it(self):
         got, replay = self.send(*self.dispatches(statuses=(401, 204, 204))[:1])
@@ -133,20 +150,33 @@ class Effects(unittest.TestCase):
         self.assertEqual(replay._left, [])
         # And with no token at all, nothing is sent.
         o = out()
-        got = effects.apply(writes_.plan(o), o["record"], {"workflow": None}, controller())
+        got = effects.apply(writes_.plan(o), o["record"], {"workflow": None}, controller(), OWNER)
         self.assertEqual({w["reason"] for w in got["writes"][1:]}, {"no_credential"})
 
     def test_each_write_goes_through_its_one_credential_and_its_allowlist(self):
         cfg = controller()
-        self.assertEqual(effects.workflow_permits(cfg),
-                         [("POST", "/repos/combsmith/software-factory/actions/workflows/%s/dispatches" % f)
-                          for f in ("run.yml", "approve.yml", "poller.yml")])
+        self.assertEqual(sorted(effects.workflow_permits(cfg)),
+                         sorted(("POST", "/repos/combsmith/software-factory/actions/workflows/%s/dispatches" % f)
+                                for f in ("run.yml", "approve.yml", "poller.yml")))
         class Anything:
             """A transport that answers every request, so only the allowlist can refuse one."""
             def send(self, req):
                 return {"status": 204, "headers": {}, "body": None}
         allowed = effects.Allowed(Anything(), effects.workflow_permits(cfg))
-        self.assertEqual(allowed.send(github.request("POST", effects.dispatch_path(cfg, "run"), body={}))["status"], 204)
+        inputs = {"name": "n", "item": "i", "pass": "p"}
+        self.assertEqual(allowed.send(github.request("POST", effects.dispatch_path(cfg, "run"),
+                                                     body={"ref": "main", "inputs": inputs}))["status"], 204)
+        self.assertEqual(allowed.send(github.request("POST", effects.dispatch_path(cfg, "poller"),
+                                                     body={"ref": "main"}))["status"], 204)
+        # Each dispatch's body is held too: on the home branch, a Run's with its three inputs, the successor's with none.
+        for path, body in ((effects.dispatch_path(cfg, "run"), {"ref": "other", "inputs": inputs}),
+                           (effects.dispatch_path(cfg, "run"), {"ref": "main", "inputs": dict(inputs, extra="x")}),
+                           (effects.dispatch_path(cfg, "run"), {"ref": "main", "inputs": dict(inputs, name=7)}),
+                           (effects.dispatch_path(cfg, "approval"), {"ref": "main"}),
+                           (effects.dispatch_path(cfg, "poller"), {"ref": "main", "inputs": inputs}),
+                           (effects.dispatch_path(cfg, "run"), None)):
+            with self.assertRaises(github.Unanswered, msg=(path, body)):
+                allowed.send(github.request("POST", path, body=body))
         for req in (github.request("GET", "/repos/combsmith/software-factory/actions/workflows/run.yml/dispatches"),
                     github.request("POST", "/repos/combsmith/other/actions/workflows/run.yml/dispatches"),
                     github.request("POST", "/repos/combsmith/software-factory/actions/workflows/ci.yml/dispatches"),
@@ -185,16 +215,34 @@ class Effects(unittest.TestCase):
             broken(lambda p: p["writes"][0].update(action=None)),
             broken(lambda p: p["writes"][0].update(type="dequeue")),
             broken(lambda p: p["writes"][1].update(id="w9")),
+            broken(lambda p: p["writes"][2].update(name=p["writes"][2]["name"].replace("pr-review", "dev-lead"))),
+            broken(lambda p: p["writes"][1].update(action="enqueue")),
+            broken(lambda p: p["writes"][1].update(name=p["writes"][1]["name"].replace(p["writes"][1]["run"],
+                                                                                       p["writes"][2]["run"]))),
+            broken(lambda p: (p["writes"].insert(1, p["writes"].pop(2)), [w.update(id="w%d" % (n + 1))
+                                                                          for n, w in enumerate(p["writes"])])),
+            broken(lambda p: (p["writes"].pop(1), [w.update(id="w%d" % (n + 1)) for n, w in enumerate(p["writes"])])),
+            broken(lambda p: (p["writes"].insert(0, dict(p["writes"][0], action="merge")),
+                              [w.update(id="w%d" % (n + 1)) for n, w in enumerate(p["writes"])])),
+            broken(lambda p: p["writes"][0].update(item=dict(p["writes"][0]["item"], number=99))),
+            broken(lambda p: p["writes"][-1].update(action="enqueue")),
             broken(lambda p: p["writes"].insert(2, copy.deepcopy(p["writes"][1])) or [w.update(id="w%d" % (n + 1))
                                                                                     for n, w in enumerate(p["writes"])]),
         ]
         for bad in cases:
             replay = github.Replay(self.dispatches())
             with self.assertRaises(effects.Refused, msg=bad["writes"]):
-                effects.apply(bad, o["record"], {"workflow": replay}, controller())
+                effects.apply(bad, o["record"], {"workflow": replay}, controller(), OWNER)
             self.assertEqual(len(replay._left), 3)
         with self.assertRaises(effects.Refused):
-            effects.apply(plan, other, {"workflow": github.Replay(self.dispatches())}, controller())
+            effects.apply(plan, other, {"workflow": github.Replay(self.dispatches())}, controller(), OWNER)
+        # An approval's run-name holds the configuration's owner Role, and no other.
+        with self.assertRaises(effects.Refused):
+            effects.apply(plan, o["record"], {"workflow": github.Replay(self.dispatches())}, controller(), "dev-lead")
+        # A configuration that does not validate is refused too, an account held as no account among it.
+        odd = controller(workflow_token={"id": None, "type": None})
+        with self.assertRaises(effects.Refused):
+            effects.apply(plan, o["record"], {"workflow": github.Replay(self.dispatches())}, odd, OWNER)
 
     def test_a_failed_write_is_recorded_and_fails_the_step(self):
         o = out()
@@ -207,10 +255,50 @@ class Effects(unittest.TestCase):
             self.assertEqual(effects.main(argv, environ={}), 1)
             written = json.loads((folder / "written.json").read_text())
         self.assertEqual({w["reason"] for w in written["writes"][1:]}, {"uncounted", "no_credential"})
+        # A token the transport cannot take, or a plan refused whole, still leaves written.json, every write refused.
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = pathlib.Path(tmp)
+            (folder / "pass.json").write_text(json.dumps(o["record"]))
+            plan = writes_.plan(o)
+            (folder / "writes.json").write_text(json.dumps(plan))
+            argv = [str(folder / "pass.json"), str(folder / "writes.json"), str(folder)]
+            self.assertEqual(effects.main(argv, environ={"WORKFLOW_TOKEN": "two words"}), 1)
+            unreadable = json.loads((folder / "written.json").read_text())
+            plan["pass"] = "p_000099A"
+            (folder / "writes.json").write_text(json.dumps(plan))
+            self.assertEqual(effects.main(argv, environ={}), 1)
+            refused = json.loads((folder / "written.json").read_text())
+            # A plan that cannot be read at all is refused with no write in it, and still fails the step.
+            (folder / "writes.json").write_text(json.dumps({"schema": "writes/1"}))
+            self.assertEqual(effects.main(argv, environ={}), 1)
+            self.assertEqual(json.loads((folder / "written.json").read_text())["writes"], [])
+        self.assertEqual({(w["state"], w["reason"]) for w in unreadable["writes"]}, {("refused", "token_unreadable")})
+        self.assertEqual({(w["state"], w["reason"]) for w in refused["writes"]}, {("refused", "plan_refused")})
+        self.assertEqual(len(refused["writes"]), 4)
         # A pass whose only write is an act no write serves fails nothing.
         self.assertFalse(effects.failed({"writes": [{"state": "refused", "reason": "not_built"}]}))
         self.assertTrue(effects.failed({"writes": [{"state": "failed", "reason": "dispatch_unanswered"}]}))
         self.assertTrue(effects.failed({"writes": [{"state": "refused", "reason": "uncounted"}]}))
+
+class Asked(unittest.TestCase):
+    @pending
+    def test_a_dispatch_of_another_file_and_one_with_no_inputs_are_answered_as_a_trial_recorded(self):
+        # P-9's dispatch was of the job's own file, with inputs. A dispatch of another file, as a pass dispatches
+        # run.yml, and the successor's, with none, are asked by the workflows' canary trial (rulings on "Workflows: the
+        # frozen entry shim, the poller, the Run's three jobs and the nudge, each held to its shape"); until its
+        # fixture lands, this test is expected to fail.
+        found = [e for path in sorted((ROOT / "trials").glob("P-*.json"))
+                 for e in json.loads(path.read_text()).get("exchanges", [])
+                 if str((e.get("request") or {}).get("call", "")).endswith("/run.yml/dispatches")]
+        self.assertTrue(found)
+
+    @pending
+    def test_the_status_the_dequeue_and_the_tracking_issue_are_written_as_trials_recorded(self):
+        # P-12 asks the check run's writes, P-2 the dequeue by the Controller's App, and a trial still to be filed the
+        # tracking issue's; the port writes none of them until their fixtures land.
+        self.assertTrue(hasattr(effects, "status_on_item") and hasattr(effects, "dequeue")
+                        and hasattr(effects, "tracking_issue"))
+
 
 if __name__ == "__main__":
     unittest.main()
