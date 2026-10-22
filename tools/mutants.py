@@ -4640,6 +4640,16 @@ MUTANTS = ISSUE + [
     ('a workflow here may name the P-50 stub', "tools/check_repo.py",
      '        if rel.parts[:2] == (".github", "workflows") and TRIAL_STUB.stem in text:\n', '        if False:\n',
      ("tests.test_tools.Repo.test_the_p50_stub_alone_may_serve_and_only_on_loopback",)),
+    # The #193 PR 2 ruling, read:pass.pause: P-52's pause read, against a stand-in curl and openssl.
+    ('P-52 reads on with no token minted', "tools/trial_p52_pause.sh",
+     'if [ "$minted_status" != 201 ] || [ -z "$token" ]; then', 'if false; then',
+     ('tests.test_tools.PauseReadTrial.test_a_mint_refused_reads_nothing',)),
+    ('P-52 finishes though its token was not revoked', "tools/trial_p52_pause.sh",
+     'if [ "$revoked" != 204 ]; then\n    echo "trial_p52_pause: revoking the token returned', 'if false; then\n    echo "trial_p52_pause: revoking the token returned',
+     ('tests.test_tools.PauseReadTrial.test_a_revocation_refused_stops_it_and_says_so',)),
+    ("P-52 keeps the mint's whole answer", "tools/trial_p52_pause.sh",
+     'json.dump({"permissions": answer.get("permissions"), "repository_selection": answer.get("repository_selection")},', 'json.dump(dict(answer, permissions=answer.get("permissions")),',
+     ('tests.test_tools.PauseReadTrial.test_one_token_reads_three_times_and_is_revoked_and_never_kept',)),
     # Issue 312: P-51, the pinned CLI's sandbox and writes outside the work directory, against a stand-in CLI and P-50's stub.
     ("P-51's write outside may land", P51,
      'held = part["probe_ran"] and len(exits) == len(names) and not any(landed.values())', 'held = part["probe_ran"]',

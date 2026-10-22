@@ -4861,6 +4861,129 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "i
             self.assertFalse((folder / "asked").exists(), name + ": nothing was asked")
 
 
+class PauseReadTrial(unittest.TestCase):
+    """`tools/trial_p52_pause.sh` (the #193 PR 2 ruling, read:pass.pause), run against a stand-in curl and openssl that
+    act out GitHub's answers: one token minted for the controller's installation, three reads made with it, the token
+    revoked last; the token never reaches a command line or OUT, and a read GitHub refuses is kept as it was answered."""
+
+    SCRIPT = ROOT / "tools" / "trial_p52_pause.sh"
+    TOKEN = "ghs_" + "P" * 36
+    # The stand-in curl: what GitHub answers each call, from the files beside it; it records what it was asked, and
+    # whether the token arrived on its standard input and not in its arguments.
+    CURL = r'''#!/usr/bin/env python3
+import json, pathlib, sys
+here = pathlib.Path(__file__).resolve().parent
+args = sys.argv[1:]
+given = sys.stdin.read()
+with open(here / "calls", "a") as calls:
+    calls.write(json.dumps({"argv": args, "stdin_bearer": given.startswith("Authorization: Bearer ")}) + "\n")
+url = next(a for a in args if a.startswith("https://"))
+method = args[args.index("-X") + 1] if "-X" in args else "GET"
+def status(name, default):
+    found = here / ("status-" + name)
+    return int(found.read_text()) if found.exists() else default
+if method == "POST" and url.endswith("/access_tokens"):
+    code = status("mint", 201)
+    body = {"token": "''' + "ghs_" + "P" * 36 + r'''", "expires_at": "2026-10-22T19:00:00Z",
+            "permissions": {"variables": "read", "issues": "write", "metadata": "read"}, "repository_selection": "selected"}
+    print(json.dumps(body) + "\n" + str(code), end="")
+    sys.exit(0)
+if method == "DELETE":
+    print(status("revoke", 204), end="")
+    sys.exit(0)
+if "/organization-variables" in url:
+    code, body = status("list", 200), {"total_count": 1, "variables": [{"name": "FACTORY_PAUSED", "value": "false"}]}
+elif "/orgs/" in url:
+    code, body = status("org", 403), {"message": "Resource not accessible by integration"}
+else:
+    code, body = status("repo", 200), {"name": "FACTORY_PAUSED", "value": "false"}
+print("HTTP/2 %d\r\ncontent-type: application/json\r\n\r\n%s" % (code, json.dumps(body)))
+'''
+    OPENSSL = r'''#!/bin/sh
+case "$1" in
+  base64) /usr/bin/base64 | tr -d '\n' ;;
+  dgst) cat > /dev/null; printf 'signature' ;;
+esac
+'''
+
+    def stand_in(self, **statuses) -> pathlib.Path:
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        for name, text in (("curl", self.CURL), ("openssl", self.OPENSSL)):
+            (folder / name).write_text(text)
+            (folder / name).chmod(0o755)
+        for name, code in statuses.items():
+            (folder / ("status-" + name)).write_text(str(code))
+        (folder / "key.pem").write_text("not a key: the stand-in openssl never reads it\n")
+        return folder
+
+    def run_script(self, folder, out=None) -> tuple:
+        out = out or pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
+        env = {"PATH": "%s:/usr/bin:/bin" % folder, "HOME": str(folder), "LANG": "C",
+               "TMPDIR": str(pathlib.Path(SCRATCH.name).resolve())}
+        ran = subprocess.run(["sh", str(self.SCRIPT), str(out), str(folder / "key.pem")], capture_output=True, text=True,
+                             env=env, timeout=60, stdin=subprocess.DEVNULL)
+        return out, ran
+
+    def calls(self, folder) -> list:
+        return [json.loads(line) for line in (folder / "calls").read_text().splitlines()]
+
+    def test_one_token_reads_three_times_and_is_revoked_and_never_kept(self):
+        folder = self.stand_in()
+        out, ran = self.run_script(folder)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        calls = self.calls(folder)
+        said = [(c["argv"][c["argv"].index("-X") + 1] if "-X" in c["argv"] else "GET",
+                 next(a for a in c["argv"] if a.startswith("https://")).split("api.github.com/", 1)[1]) for c in calls]
+        repo = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]["installed_on"][1]
+        self.assertEqual(said, [("POST", "app/installations/172571513/access_tokens"),
+                                ("GET", "repos/%s/actions/variables/FACTORY_PAUSED" % repo),
+                                ("GET", "orgs/combsmith/actions/variables/FACTORY_PAUSED"),
+                                ("GET", "repos/%s/actions/organization-variables?per_page=100" % repo),
+                                ("DELETE", "installation/token")])
+        # The token, and the JWT, reach curl on its standard input alone; nothing narrows the token.
+        self.assertTrue(all(c["stdin_bearer"] for c in calls))
+        self.assertTrue(all(self.TOKEN not in " ".join(c["argv"]) for c in calls))
+        self.assertNotIn("-d", calls[0]["argv"])
+        written = "".join(p.read_text() for p in out.iterdir()) + ran.stdout + ran.stderr
+        self.assertNotIn(self.TOKEN, written)
+        self.assertEqual(sorted(p.name for p in out.iterdir()),
+                         ["clean-1", "clean-2", "clean-3", "ran_at", "redacted-1", "redacted-2", "redacted-3",
+                          "requests.json", "token.json"])
+        self.assertEqual(json.loads((out / "token.json").read_text()),
+                         {"permissions": {"variables": "read", "issues": "write", "metadata": "read"}, "repository_selection": "selected"})
+        # A refused read is kept as it was answered, and its status recorded.
+        asked = json.loads((out / "requests.json").read_text())
+        self.assertEqual(([r["status"] for r in asked["reads"]], asked["revoked"]), (["200", "403", "200"], "204"))
+        self.assertIn("Resource not accessible by integration", (out / "clean-2").read_text())
+
+    def test_a_mint_refused_reads_nothing(self):
+        folder = self.stand_in(mint=403)
+        out, ran = self.run_script(folder)
+        self.assertEqual(ran.returncode, 1)
+        self.assertIn("no token was minted", ran.stderr)
+        self.assertEqual(len(self.calls(folder)), 1)
+        self.assertFalse((out / "token.json").exists())
+
+    def test_a_revocation_refused_stops_it_and_says_so(self):
+        folder = self.stand_in(revoke=500)
+        out, ran = self.run_script(folder)
+        self.assertEqual(ran.returncode, 1)
+        self.assertIn("revoking the token returned 500", ran.stderr)
+        self.assertIn("revoke it by hand", ran.stderr)
+        self.assertFalse((out / "requests.json").exists())
+
+    def test_each_refusal_stops_before_anything_is_asked(self):
+        folder = self.stand_in()
+        taken = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        for name, out, said in [("OUT exists", taken, "exists; name a new directory"),
+                                ("OUT inside the repo", ROOT / "never-made-p52", "is inside the repo")]:
+            out_, ran = self.run_script(folder, out)
+            self.assertEqual(ran.returncode, 2, name)
+            self.assertIn(said, ran.stderr, name)
+            self.assertFalse((folder / "calls").exists(), name + ": nothing was asked")
+        self.assertFalse((ROOT / "never-made-p52").exists())
+
+
 class Redaction(unittest.TestCase):
     """`tools/redact_trial.py` runs on the raw capture, outside the repo, before anyone reads it."""
 
