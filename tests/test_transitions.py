@@ -104,6 +104,9 @@ BASES = {
     "a dependency update to a workflow's pin, queued": base(
         [reviewed()], reviews=APPROVED, queue=True, acts_since_writer=2,
         changed_paths=[a_file(PIN), a_file("docs/notes.md")], **DEPENDENCY),
+    # An agent's change to the review Role's manifest: reviewed, it waits for a person's approval of its head (issue 140).
+    "an agent's change to a model Lens's input, awaiting a person": base(
+        [reviewed()], changed_paths=[a_file("roles/pr-review.json"), a_file("docs/notes.md")], **AGENT),
     # A dependency bot's rebase at the act ceiling: held, then rebased, then its last check passes, and held again.
     "a dependency update held at the act ceiling": base(content_id="sha256:bbbb", reviews=APPROVED,
                                                         acts_since_writer=LIMITS["max_acts_per_item"], **DEPENDENCY),

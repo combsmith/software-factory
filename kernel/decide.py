@@ -21,7 +21,7 @@ NEEDS_YOU_REASONS = frozenset({
     "acceptance_unreadable", "paths_unreadable", "protected_paths_unreadable",
     "last_pusher_unreadable",
     "contract_not_approved", "contract_changed", "acceptance_reporters_unreadable",
-    "run_unreadable",
+    "run_unreadable", "model_lens_input_needs_person",
 })
 
 

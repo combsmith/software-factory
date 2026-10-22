@@ -2,11 +2,11 @@
 
 All of the Factory's I/O. `github.py` is the one transport: every request to GitHub goes through it, and nothing else in
 this repo reaches the network. `pull.py` reads the facts of a pull request that its own reads give, `timeline.py` its reviews, labels and who acted,
-`checks.py` its checks and its place in the queue, `facts.py` the one snapshot of it all, `records.py` the Factory's own run records,
-and `artifacts.py` a failed Run's outcome from its artifact. A port decides nothing
+`checks.py` its checks and its place in the queue, `threads.py` its review threads, `facts.py` the one snapshot of it all,
+`records.py` the Factory's own run records, and `artifacts.py` a failed Run's outcome from its artifact. A port decides nothing
 and hands the Kernel no text: what it cannot read whole it says is short, and the title travels beside the facts.
 
-Not built yet, by the stories that hold their rules: threads.py, items.py, acceptance.py, issues.py, settings.py, effects.py, usage.py.
+Not built yet, by the stories that hold their rules: items.py, acceptance.py, issues.py, settings.py, effects.py, usage.py.
 
 | Rule | Held by |
 |---|---|
@@ -26,6 +26,9 @@ Not built yet, by the stories that hold their rules: threads.py, items.py, accep
 | A run counts only as a dispatch of a Role's workflow from this repo's default branch; its name says whose it is | `tests/test_adapters.py::test_only_a_dispatch_of_a_role_workflow_from_the_default_branch_in_this_repo_counts` |
 | A counted run not yet named is reported by its id after one more read 5 s later, and every read of runs is uncached | `tests/test_adapters.py::test_a_run_listed_under_its_workflows_name_is_unidentified_after_one_more_read` |
 | Write access is a person's alone, read from the collaborator permission, admin, maintain or write, once a login | `tests/test_adapters.py::test_an_actor_is_told_by_its_account_type_and_the_configuration` |
+| Each review thread is read with who opened and resolved it, told by account; a person's is `human`, and no comment's text is read | `tests/test_adapters.py::test_each_thread_is_read_with_who_opened_and_resolved_it_and_a_persons_is_human` |
+| A thread is a Lens's only when its author is that Lens's own App; only a required model Lens's open thread with no category defers | `tests/test_adapters.py::test_only_a_required_lenss_own_apps_open_thread_defers` |
+| Threads are whole only when every one counted was read, once, and no cursor repeats | `tests/test_adapters.py::test_threads_are_read_page_by_page_and_whole_only_when_every_one_was_read_once` |
 | A review's dismissal, its dismisser and its state before are read from the timeline; no text of GitHub's is kept | `tests/test_adapters.py::test_reviews_are_read_with_their_commit_content_and_who_dismissed_them` |
 | Every check run on the head is given with its exact name, its App and its workflow file, and none dropped | `tests/test_adapters.py::test_every_check_run_on_the_head_is_read_with_its_name_app_and_workflow` |
 | The snapshot is refused when the pull request moved while it was read, and is held to `facts/1` | `tests/test_adapters.py::test_a_snapshot_whose_head_moved_while_it_was_read_is_refused` |

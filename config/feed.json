@@ -169,6 +169,14 @@
       ]
     },
     {
+      "reason": "model_lens_input_needs_person",
+      "question": "a_lens_input_needs_you",
+      "choices": [
+        "approve",
+        "close"
+      ]
+    },
+    {
       "reason": "contract_not_approved",
       "question": "contract_needs_approval",
       "choices": [

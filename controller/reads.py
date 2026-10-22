@@ -46,11 +46,21 @@ def items(entries, kind: str) -> tuple:
         # from it would look healthy. It is refused, and the not-run alert reports it.
         raise Refused("the list of %s could not be read" % ("pull requests" if kind == "facts" else "issues"))
     readable = [e for e in entries if isinstance(e, dict) and not errors(e.get("facts"), kind)]
-    seen = [key(e["facts"]["item"]) for e in readable]
+    # An item listed twice is counted wherever it can be named, readable or not, so a bad copy leaves the good one out.
+    seen = [_named(e) for e in entries]
     kept = [e for e in readable if seen.count(key(e["facts"]["item"])) == 1]
     left_out = [e.get("facts", {}).get("item") if isinstance(e, dict) and isinstance(e.get("facts"), dict) else None
                 for e in entries if not any(e is k for k in kept)]
     return kept, [i if isinstance(i, dict) else None for i in left_out]
+
+
+def _named(entry):
+    """The item an entry names, as its page, wherever it can be read; None otherwise."""
+    item = entry.get("facts", {}).get("item") if isinstance(entry, dict) and isinstance(entry.get("facts"), dict) else None
+    if not (isinstance(item, dict) and isinstance(item.get("repo"), str) and item.get("type") in ("pull_request", "issue")
+            and type(item.get("number")) is int):
+        return None
+    return key(item)
 
 
 def configured(controller: dict) -> dict:
