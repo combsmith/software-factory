@@ -1952,7 +1952,7 @@ it is long-lived, it can approve, and it can merge.
 | The Controller's App key | Read the facts and the run records, and post check runs: the status on the item. It does not start Runs | The poller | Environment secret, default branch only | On a fixed period |
 | The poller job's own token | Start Runs: `actions: write`, declared on that job only | The poller job | Not stored: GitHub mints it for the job | Expires when the job ends |
 | The reader App's key | Read public repos | The `run` job | Environment secret, default branch only | On a fixed period |
-| The held-out sets' credential | Read the held-out repo | The eval job only: its mint and its `fetch` step | The key of an App installed on the held-out repo alone, with the repo's coordinates, secrets of `factory-eval`, default branch only; each token minted for one job | On a fixed period |
+| The held-out sets' credential | Read the held-out repo | The eval job's `fetch` step alone, for reads | The Maintainer's fine-grained personal token, read-only on the held-out repo alone, with the repo's coordinates, secrets of `factory-eval`, default branch only (decision 0053) | At its expiry, and on any suspicion |
 | The relay's webhook secret | Prove that a webhook came from GitHub | The relay | The relay's host | On a fixed period |
 | The relay itself | Nothing over the Factory repo | The relay's host | None needed | Not applicable |
 

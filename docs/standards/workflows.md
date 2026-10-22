@@ -138,7 +138,9 @@ jobs:
       contents: read       # then only what this job needs
 ```
 
-No personal access token, no `secrets: inherit`; every checkout sets `persist-credentials: false`. No job is granted `security-events: write`: with it, an upload to code scanning could stand for CodeQL's verdict.
+No personal access token, no `secrets: inherit`; every checkout sets `persist-credentials: false`. One personal token is
+named as the exception: the Maintainer's, `HELDOUT_TOKEN`, read-only on the held-out home alone, in eval.yml's `fetch`
+step and nowhere else (decision 0053). No job is granted `security-events: write`: with it, an upload to code scanning could stand for CodeQL's verdict.
 
 Org standard: ci-standards.md, "Permissions Policy". Refusing a personal token and inherited secrets departs from github-settings.md, "Required secrets (all repos)": decision 0014.
 Held by: `examples/workflows/invalid/permissions.none-declared.yml`, `examples/workflows/invalid/token.a-persons-token.yml`, `examples/workflows/invalid/credentials.a-token-left-on-disk.yml`, `examples/workflows/invalid/permissions.security-events-on-a-job.yml`

@@ -100,33 +100,30 @@ BASE = "${{ github.event.pull_request.base.sha || github.event.merge_group.base_
 SCAN = "ci.yml"
 # The eval job and its workflow: reserved names, the Harness story's (docs/standards/workflows.md). Its shape, issue
 # 309's ruling 10: dispatched alone, one job on its own environment, its steps in order, and each of its two credentials
-# named by one step alone, the held-out home's by the mint and the step it hands the token to, the model's by `run`.
+# named by one step alone, the held-out home's by `fetch`, the model's by `run`.
 EVAL_JOB, EVAL_WORKFLOW = "eval", "eval.yml"
 EVAL_ENVIRONMENT = "factory-eval"
 EVAL_STEP = "python3 -m harness.eval.%s"
-MINT = "actions/create-github-app-token@"
 UPLOAD = "actions/upload-artifact@"
-EVAL_ORDER = ("checkout", "plan", "mint", "fetch", "run", "upload", "judge")
+EVAL_ORDER = ("checkout", "plan", "fetch", "run", "upload", "judge")
 EVAL_JOB_KEYS = {"runs-on", "timeout-minutes", "permissions", "environment", "steps"}
 # What each step may be given, under with: or env:, exactly: a step's own keys beside these are refused.
 EVAL_GIVEN = {
     "checkout": {"with": {"persist-credentials": "false"}},
     "plan": {"env": {"RELEASE": "${{ inputs.release }}"}},
-    # The home's coordinates and its App's client id are secrets, never variables: a step's log shows what it is given,
-    # and GitHub masks a secret's value there, and nowhere a variable's.
-    "mint": {"with": {"client-id": "${{ secrets.HELDOUT_APP_CLIENT_ID }}", "private-key": "${{ secrets.HELDOUT_APP_KEY }}",
-                      "owner": "${{ secrets.HELDOUT_OWNER }}", "repositories": "${{ secrets.HELDOUT_REPO }}",
-                      "permission-contents": "read"}},
-    "fetch": {"env": {"HELDOUT_TOKEN": "${{ steps.home.outputs.token }}", "HELDOUT_OWNER": "${{ secrets.HELDOUT_OWNER }}",
+    # The one personal token a workflow here may name, the Maintainer's, read-only on the home alone (decision 0053),
+    # and the home's coordinates, secrets and never variables: a step's log shows what it is given, and GitHub masks a
+    # secret's value there, and nowhere a variable's.
+    "fetch": {"env": {"HELDOUT_TOKEN": "${{ secrets.HELDOUT_TOKEN }}", "HELDOUT_OWNER": "${{ secrets.HELDOUT_OWNER }}",
                       "HELDOUT_REPO": "${{ secrets.HELDOUT_REPO }}"}},
     "run": {"env": {"CLAUDE_CODE_OAUTH_TOKEN": "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"}},
     "upload": {"with": {"name": "eval-report", "path": "eval-report.json", "if-no-files-found": "error",
                         "retention-days": "90"}},
     "judge": {},
 }
-EVAL_STEP_KEYS = {"uses", "run", "with", "env", "id"}
+EVAL_STEP_KEYS = {"uses", "run", "with", "env"}
 EVAL_TOP = {"name": "factory", "on": "", "permissions": "{}", "jobs": ""}
-EVAL_ACTIONS = {"checkout", "mint", "upload"}
+EVAL_ACTIONS = {"checkout", "upload"}
 # The model's credential, an organisation secret no branch policy narrows (decision 0053): named in eval.yml's run step
 # and in the run job's workflow, and in no other workflow.
 MODEL_SECRET = re.compile(r"CLAUDE_CODE_OAUTH_TOKEN", re.I)
@@ -549,12 +546,12 @@ def _commits(text: str, entries: list, jobs: list) -> list:
 
 
 def _kind(step: dict) -> str:
-    """What one step of the eval job is: a listed checkout, the mint, the upload, one of harness.eval's steps, or None."""
+    """What one step of the eval job is: the listed checkout, the upload, one of harness.eval's steps, or None."""
     uses = step.get("uses", {}).get("value", "") if "uses" in step else None
     if uses is not None and "run" not in step:
         if (uses, step["uses"]["comment"]) == CHECKOUT:
             return "checkout"
-        return "mint" if uses.startswith(MINT) else "upload" if uses.startswith(UPLOAD) else None
+        return "upload" if uses.startswith(UPLOAD) else None
     command = _lines(step.get("run"))
     for name in EVAL_ORDER:
         if name not in EVAL_ACTIONS and command == [EVAL_STEP % name] and "uses" not in step:
@@ -566,7 +563,7 @@ def eval_problems(text: str) -> list:
     """What is wrong with eval.yml's shape (issue 309, ruling 10), each a sentence. It runs on `workflow_dispatch` alone,
     with one input, the Release it judges, and one job, `eval`, on the environment `factory-eval`, granted
     `contents: read` alone and given no env: of its own. Its steps are EVAL_ORDER, each given exactly what EVAL_GIVEN
-    says and nothing else: the held-out App's key by the mint alone, the token it mints by `fetch` alone, the model's
+    says and nothing else: the Maintainer's token for the held-out home by `fetch` alone, the model's
     credential by `run` alone, so no step holds both, and the upload takes the report alone. Every other spelling is
     refused: a check reads what it names, never what it can guess."""
     entries, bad = read(text)
@@ -597,8 +594,8 @@ def eval_problems(text: str) -> list:
             continue
         number = next(iter(step.values()))["step"]
         own = set(step) - EVAL_STEP_KEYS
-        if own or ("id" in step) != (kind == "mint") or (kind == "mint" and step["id"]["value"] != "home"):
-            problems.append("its %s step has a key it may not: only the mint has an id, home" % kind)
+        if own:
+            problems.append("its %s step has a key it may not: %s" % (kind, ", ".join(sorted(own))))
         for under in ("with", "env"):
             given = {e["key"]: e["value"] for e in entries if e["step"] == number
                      and e["path"] == ["jobs", EVAL_JOB, "steps", under]}

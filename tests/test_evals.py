@@ -41,17 +41,9 @@ jobs:
       - run: python3 -m harness.eval.plan
         env:
           RELEASE: ${{ inputs.release }}
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        id: home
-        with:
-          client-id: ${{ secrets.HELDOUT_APP_CLIENT_ID }}
-          private-key: ${{ secrets.HELDOUT_APP_KEY }}
-          owner: ${{ secrets.HELDOUT_OWNER }}
-          repositories: ${{ secrets.HELDOUT_REPO }}
-          permission-contents: read
       - run: python3 -m harness.eval.fetch
         env:
-          HELDOUT_TOKEN: ${{ steps.home.outputs.token }}
+          HELDOUT_TOKEN: ${{ secrets.HELDOUT_TOKEN }}
           HELDOUT_OWNER: ${{ secrets.HELDOUT_OWNER }}
           HELDOUT_REPO: ${{ secrets.HELDOUT_REPO }}
       - run: python3 -m harness.eval.run
@@ -247,15 +239,22 @@ class TheSet(unittest.TestCase):
         from tools import check_workflows
         self.assertEqual(check_workflows.eval_problems(EVAL_WORKFLOW), [])
         self.assertEqual(check_workflows.lint(EVAL_WORKFLOW), [])
-        token = "          HELDOUT_TOKEN: ${{ steps.home.outputs.token }}\n"
+        token = "          HELDOUT_TOKEN: ${{ secrets.HELDOUT_TOKEN }}\n"
         model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
-        key = "          private-key: ${{ secrets.HELDOUT_APP_KEY }}\n"
-        both = EVAL_WORKFLOW.replace(token, token + model.replace("          ", "          ", 1))
         broken = {
-            "the token beside the model": (both, "its fetch step is given under env"),
+            "the token beside the model": (EVAL_WORKFLOW.replace(token, token + model), "its fetch step is given under env"),
             "the model beside the token": (EVAL_WORKFLOW.replace(model, model + token), "its run step is given under env"),
-            "the key handed to fetch": (EVAL_WORKFLOW.replace(token, token + key.replace("private-key", "HELDOUT_KEY")),
-                                        "its fetch step is given under env"),
+            "the token handed to the plan": (EVAL_WORKFLOW.replace("          RELEASE: ${{ inputs.release }}\n",
+                                                                   "          RELEASE: ${{ inputs.release }}\n" + token),
+                                             "its plan step is given under env"),
+            "the token given to the upload": (EVAL_WORKFLOW.replace("          retention-days: 90\n",
+                                                                    "          retention-days: 90\n          token: ${{ secrets.HELDOUT_TOKEN }}\n"),
+                                              "its upload step is given under with"),
+            "the token under another name": (EVAL_WORKFLOW.replace("${{ secrets.HELDOUT_TOKEN }}", "${{ secrets.HELDOUT_PAT }}"),
+                                             "its fetch step is given under env"),
+            "a token minted beside it": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.fetch\n",
+                                                               "      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0\n"
+                                                               "      - run: python3 -m harness.eval.fetch\n"), "in that order"),
             "the token on the job": (EVAL_WORKFLOW.replace("    environment: factory-eval\n",
                                                            "    environment: factory-eval\n    env:\n" + token[4:]),
                                      "its job has exactly"),
@@ -269,12 +268,12 @@ class TheSet(unittest.TestCase):
                            "runs on workflow_dispatch alone"),
             "no release": (EVAL_WORKFLOW.replace("      release:\n", "      version:\n"), "one input, release"),
             "a release left optional": (EVAL_WORKFLOW.replace("required: true", "required: false"), "one input, release"),
-            "the mint first": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.plan\n        env:\n"
-                                                     "          RELEASE: ${{ inputs.release }}\n", "", 1)
-                               .replace("      - run: python3 -m harness.eval.fetch\n",
-                                        "      - run: python3 -m harness.eval.plan\n        env:\n"
-                                        "          RELEASE: ${{ inputs.release }}\n"
-                                        "      - run: python3 -m harness.eval.fetch\n", 1), "in that order"),
+            "the fetch first": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.plan\n        env:\n"
+                                                      "          RELEASE: ${{ inputs.release }}\n", "", 1)
+                                .replace("      - run: python3 -m harness.eval.run\n",
+                                         "      - run: python3 -m harness.eval.plan\n        env:\n"
+                                         "          RELEASE: ${{ inputs.release }}\n"
+                                         "      - run: python3 -m harness.eval.run\n", 1), "in that order"),
             "no judge": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.judge\n", ""), "in that order"),
             "a step of its own": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.judge\n",
                                                         "      - run: python3 -m harness.eval.judge\n"
@@ -282,28 +281,19 @@ class TheSet(unittest.TestCase):
             "a step skipped": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.judge\n",
                                                      "      - run: python3 -m harness.eval.judge\n        if: false\n"),
                                "its judge step has a key it may not"),
-            "a mint named otherwise": (EVAL_WORKFLOW.replace("id: home", "id: held"), "only the mint has an id, home"),
             "an id on fetch": (EVAL_WORKFLOW.replace("      - run: python3 -m harness.eval.fetch\n",
                                                      "      - run: python3 -m harness.eval.fetch\n        id: home\n"),
                                "its fetch step has a key it may not"),
-            "a token of every repo": (EVAL_WORKFLOW.replace("          repositories: ${{ secrets.HELDOUT_REPO }}\n", ""),
-                                      "its mint step is given under with"),
-            "a token that can write": (EVAL_WORKFLOW.replace("permission-contents: read", "permission-contents: write"),
-                                       "its mint step is given under with"),
             "the whole workspace uploaded": (EVAL_WORKFLOW.replace("path: eval-report.json", "path: ."),
                                              "its upload step is given under with"),
             "a credential left on disk": (EVAL_WORKFLOW.replace("persist-credentials: false", "persist-credentials: true"),
                                           "its checkout step is given under with"),
-            "another mint": (EVAL_WORKFLOW.replace("actions/create-github-app-token@", "someone/create-github-app-token@"),
-                             "in that order"),
-            "a mint of its own": (EVAL_WORKFLOW.replace("uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510"
-                                                        " # v3.3.0", "run: python3 -m harness.eval.mint"), "in that order"),
             "an upload of its own": (EVAL_WORKFLOW.replace("uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
                                                            " # v7.0.2", "run: python3 -m harness.eval.upload"), "in that order"),
             "the home as a variable": (EVAL_WORKFLOW.replace("${{ secrets.HELDOUT_OWNER }}", "${{ vars.HELDOUT_OWNER }}"),
-                                       "its mint step is given under with"),
+                                       "its fetch step is given under env"),
             "a credential for every step": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions: {}\nenv:\n"
-                                                                  "  KEY: ${{ secrets.HELDOUT_APP_KEY }}\n"),
+                                                                  "  KEY: ${{ secrets.HELDOUT_TOKEN }}\n"),
                                             "nothing else above its job"),
             "a default for every step": (EVAL_WORKFLOW.replace("permissions: {}\n", "permissions: {}\ndefaults:\n  run:\n"
                                                                "    working-directory: x\n"), "nothing else above its job"),
@@ -329,8 +319,15 @@ class TheSet(unittest.TestCase):
         problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW,
                                               ".github/workflows/other.yml": other}))
         self.assertTrue(caught(problems, "names the model's credential, which only"), problems)
-        problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW.replace("id: home", "id: x")}))
-        self.assertTrue(caught(problems, "eval.yml: its mint step"), problems)
+        problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW.replace(
+            "      - run: python3 -m harness.eval.fetch\n", "      - run: python3 -m harness.eval.fetch\n        id: x\n")}))
+        self.assertTrue(caught(problems, "eval.yml: its fetch step"), problems)
+        # The Maintainer's token, in another workflow under its one name, in any case, is the eval job's alone.
+        other = GOOD.replace("      - run: make verify\n", "      - run: make verify\n        env:\n"
+                             "          T: ${{ secrets.Heldout_Token }}\n", 1)
+        problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW,
+                                              ".github/workflows/other.yml": other}))
+        self.assertTrue(caught(problems, "other.yml: line"), problems)
 
     @pending
     def test_the_review_intents_eval_set_has_its_cases(self):
@@ -528,7 +525,22 @@ class EvalJob(unittest.TestCase):
             with self.assertRaises(job.Stop) as stopped:
                 step.transport({"HELDOUT_TOKEN": token})
             self.assertEqual(stopped.exception.code, "token_unreadable")
-        self.assertIsNotNone(step.transport({"HELDOUT_TOKEN": "t0ken"}))
+        # The token reads, and never writes: a request that is not a bare GET is refused before it is sent.
+        from adapters import github
+        sent = []
+
+        class Stand:
+            def send(self, req):
+                sent.append(req["method"])
+                return {"status": 200, "headers": {}, "body": {}}
+        read = step.ReadOnly(Stand())
+        self.assertEqual(read.send(github.request("GET", "/repos/o/home/contents/pr-review/c.json"))["status"], 200)
+        for req in (github.request("PUT", "/repos/o/home/contents/x", body={"content": ""}),
+                    github.request("DELETE", "/repos/o/home/contents/x"), dict(github.request("GET", "/x"), body={}), None):
+            with self.assertRaises(github.Unanswered):
+                read.send(req)
+        self.assertEqual(sent, ["GET"])
+        self.assertIsInstance(step.transport({"HELDOUT_TOKEN": "t0ken"}), step.ReadOnly)
 
     def test_the_gate_passes_only_this_sets_report_on_this_commit_for_this_release(self):
         from harness import eval as job
