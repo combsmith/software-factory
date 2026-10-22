@@ -60,9 +60,16 @@ def run(name="r_01JA6Z", number=42, intent="review-change", role="pr-review", st
             "outcome": outcome, "started_at": at}
 
 
+def unnamed(run_id: str, created: str = "2026-10-11T12:59:58Z", status: str = "in_progress") -> dict:
+    """A run the records port lists before its name: its id, when its record was created and its status (issue 270)."""
+    return {"run": run_id, "created_at": created, "status": status}
+
+
 def listed(runs=(), unidentified=(), complete=True) -> dict:
-    """What the records port returns."""
-    return {"runs": [copy.deepcopy(r) for r in runs], "unidentified": list(unidentified), "complete": complete,
+    """What the records port returns. An unnamed Run given by its id alone is one in flight, created two seconds before
+    the pass."""
+    return {"runs": [copy.deepcopy(r) for r in runs],
+            "unidentified": [unnamed(u) if isinstance(u, str) else dict(u) for u in unidentified], "complete": complete,
             "reads": [{"read": "runs", "date": "2026-10-11T12:59:58Z", "age": 0}]}
 
 
@@ -215,7 +222,7 @@ class Record(unittest.TestCase):
         self.assertEqual(len(twice["dispatch"]), 1)
         self.assertEqual(twice["left_out"], [dict(support.ITEM, number=42)] * 2 + [dict(test_issue.ITEM, number=7)] * 2)
 
-    def test_the_pass_asks_the_kernel_through_its_two_entry_points_alone(self):  # issue 193, ruling 8
+    def test_the_pass_asks_the_kernel_through_its_entry_points_alone(self):  # issue 193, ruling 8, amended for 270
         for module in sorted((ROOT / "controller").glob("*.py")):
             tree = ast.parse(module.read_text())
             kernel = {a.asname or a.name: node.module + "." + a.name for node in ast.walk(tree)
@@ -227,7 +234,9 @@ class Record(unittest.TestCase):
                                                           "urllib", "http")], module)
             used = {(n.value.id, n.attr) for n in ast.walk(tree) if isinstance(n, ast.Attribute)
                     and isinstance(n.value, ast.Name) and n.value.id in kernel}
-            self.assertLessEqual({attr for name, attr in used if kernel[name] != "kernel.terms"}, {"decide"}, module)
+            # Each Lifecycle's decide, and the scope's reading of the unnamed Runs (issue 270).
+            self.assertLessEqual({attr for name, attr in used if kernel[name] != "kernel.terms"},
+                                 {"decide", "unnamed_scope"}, module)
             self.assertNotIn("now()", module.read_text(), module)
             self.assertNotIn("today()", module.read_text(), module)
 
@@ -262,8 +271,23 @@ class Context(unittest.TestCase):
                                  run("r_00000B", number=8, status="queued"), run("r_00000C")],
                            unidentified=["39086879694"]))
         context = out["record"]["context"]
-        self.assertEqual((context["active_runs"], context["unidentified_runs"]), (2, ["39086879694"]))
+        self.assertEqual((context["active_runs"], context["unidentified_runs"]), (2, [unnamed("39086879694")]))
         self.assertEqual(decisions(out)[0]["reason"], "run_unidentified")
+        # Past the window a completed one defers nothing, and is one alert in the view, by its run id; past
+        # max_unnamed_runs of them every Run defers, the scope raises runs_unnamed, and no successor starts (issue 270).
+        old = [unnamed(str(i), created="2026-10-11T12:00:00Z", status="completed") for i in (1, 2)]
+        one = passed(reads(runs=[], unidentified=old[:1]))
+        self.assertEqual((decisions(one)[0]["outcome"], one["view"]["meta"]["alerts"], one["alerts"]),
+                         ("admit", [{"alert": "run_unnamed", "run": "1"}], []))
+        two = passed(reads(runs=[], unidentified=old))
+        self.assertEqual((decisions(two)[0]["reason"], two["alerts"], len(two["view"]["meta"]["alerts"])),
+                         ("runs_unnamed", ["runs_unnamed"], 2))
+        # The bound holds the whole scope, so it is raised with no item to defer as well.
+        self.assertEqual(passed(reads(pulls=[], runs=[], unidentified=old))["alerts"], ["runs_unnamed"])
+        self.assertEqual(passed()["view"]["meta"]["alerts"], [])
+        # An enqueue goes ahead past the bound, as it does beside a Run inside the window, and starts no successor.
+        bound = passed(reads(pulls=[pr(reviews=[support.review()])], runs=[run()], unidentified=old))
+        self.assertEqual(([d.get("action") for d in bound["acts"]], bound["successor"]), (["enqueue"], False))
 
     def test_a_list_of_runs_read_short_or_not_at_all_admits_nothing(self):  # L-53
         short = passed(reads(complete=False))
@@ -278,8 +302,12 @@ class Context(unittest.TestCase):
         unread["pull_requests"][0]["facts"]["complete"]["runs"] = False
         self.assertEqual(decisions(passed(unread))[0]["outcome"], "defer")
         # A list that holds what is not a run record, an id that is not GitHub's or a read with no date is not a list.
-        for change in ({"runs": [{}]}, {"runs": [dict(run(), status="done")]}, {"unidentified": ["abc"]},
-                       {"unidentified": [""]}, {"unidentified": [39086879694]},
+        for change in ({"runs": [{}]}, {"runs": [dict(run(), status="done")]}, {"unidentified": ["39086879694"]},
+                       {"unidentified": [unnamed("abc")]}, {"unidentified": [unnamed("")]},
+                       {"unidentified": [dict(unnamed("7"), status="done")]},
+                       {"unidentified": [dict(unnamed("7"), created_at="soon")]},
+                       {"unidentified": [dict(unnamed("7"), more=1)]}, {"unidentified": [39086879694]},
+                       {"unidentified": [dict(unnamed("7"), run=["7"])]}, {"unidentified": [dict(unnamed("7"), run=7)]},
                        {"reads": [{"read": "runs", "date": "yesterday", "age": 0}]},
                        {"reads": [{"read": "runs", "date": NOW, "age": -1}]}, {"reads": [{"read": "facts", "date": NOW, "age": 0}]},
                        {"reads": [{"read": "runs", "date": NOW, "age": True}]}):
@@ -530,19 +558,24 @@ class Feed(unittest.TestCase):
                  ("2026-10-11T13:05:00Z", reads(pulls=[pr(1), pr(2)], runs=[run(number=1, status="in_progress")])),
                  ("2026-10-11T13:10:00Z", reads(pulls=[pr(1)], runs=[run(number=1, status="in_progress")])),
                  ("2026-10-11T13:15:00Z", reads(pulls=[pr(1), pr(2)], runs=[run(number=1)])),
-                 ("2026-10-11T13:20:00Z", reads(pulls=[pr(1), pr(2, state="closed")], runs=[run(number=1)]))]
+                 ("2026-10-11T13:20:00Z", reads(pulls=[pr(1), pr(2, state="closed")], runs=[run(number=1)])),
+                 # A run unnamed past the window is an alert of that pass, and of the rebuild (issue 270).
+                 ("2026-10-11T13:25:00Z", reads(pulls=[pr(1)], runs=[run(number=1)],
+                                                unidentified=[unnamed("9", created="2026-10-11T13:00:00Z",
+                                                                      status="completed")]))]
         for now, read in steps:
             out = pass_.run(read, cfg, now, list(kept), mint)
             kept.append(out["record"])
             written.append({"meta": out["view"]["meta"], "items": out["view"]["items"]})
         titles = {"https://github.com/%s/pull/%d" % (REPO, n): "A title" for n in (1, 2)}
         self.assertEqual(pass_.rebuild(list(reversed(kept)), titles, cfg), written)
+        self.assertEqual([w["meta"]["alerts"] for w in written][-2:], [[], [{"alert": "run_unnamed", "run": "9"}]])
 
         def ages(n):
             return [[i["age_hours"] for i in w["items"]["items"] if i["item"]["number"] == n] for w in written]
-        self.assertEqual(ages(1), [[0.0], [0.08], [0.17], [0.0], [0.08]])
+        self.assertEqual(ages(1), [[0.0], [0.08], [0.17], [0.0], [0.08], [0.17]])
         # Read in a pass, missed by the next and read again: its time in its State starts again.
-        self.assertEqual(ages(2), [[0.0], [0.08], [], [0.0], []])
+        self.assertEqual(ages(2), [[0.0], [0.08], [], [0.0], [], []])
 
     def test_the_three_thresholds_of_decision_0011_are_computed_and_shown(self):  # decision 0011
         thresholds = passed()["view"]["health"]["thresholds"]

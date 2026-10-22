@@ -210,6 +210,22 @@ def _keys(apps: dict) -> list:
     return problems
 
 
+def fields(schema: dict) -> set:
+    """What a read of facts/1 may name: each of its fields, and each property of one of its definitions as
+    definition.property, such as actor.can_write, which every actor the facts carry holds (decision 0048)."""
+    properties = schema.get("properties") if isinstance(schema, dict) else None
+    definitions = schema.get("$defs", {}) if isinstance(schema, dict) else None
+    if not isinstance(properties, dict) or not isinstance(definitions, dict):
+        raise ValueError("its properties and $defs are not each an object")
+    named = set(properties)
+    for name, definition in definitions.items():
+        inner = definition.get("properties", {}) if isinstance(definition, dict) else {}
+        if not isinstance(inner, dict):
+            raise ValueError("the properties of $defs.%s are not an object" % name)
+        named.update("%s.%s" % (name, prop) for prop in inner)
+    return named
+
+
 def _table(needs: dict, facts: set) -> list:
     problems = []
     for code, entry in sorted(needs.items()):
@@ -222,8 +238,8 @@ def _table(needs: dict, facts: set) -> list:
         elif mapped and not ("permission" in entry and "level" in entry):
             problems.append("%s maps to a permission with no level, or a level with no permission; give both" % code)
         if code.startswith(FACT) and code[len(FACT):] not in facts:
-            problems.append("%s reads a field facts/1 does not have; name a field in schemas/facts.schema.json"
-                            % code)
+            problems.append("%s reads a field facts/1 does not have; name a field in schemas/facts.schema.json, or a "
+                            "property of one of its definitions as definition.property" % code)
     return problems
 
 
@@ -272,7 +288,7 @@ def run(root: pathlib.Path = ROOT) -> list:
     if not isinstance(apps, dict) or not apps:
         return ["config/apps.json names no Apps; give each App its permissions under apps"]
     try:
-        facts = set(json.loads((root / "schemas" / "facts.schema.json").read_text())["properties"])
+        facts = fields(json.loads((root / "schemas" / "facts.schema.json").read_text()))
     except (OSError, ValueError, KeyError) as err:
         return ["schemas/facts.schema.json cannot be read, so no read of a fact can be checked: %s" % err]
     needs = table.get("needs")

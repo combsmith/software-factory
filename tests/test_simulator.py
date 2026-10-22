@@ -420,6 +420,23 @@ class Simulation(unittest.TestCase):
             self.assertTrue(w.unnamed_passes == 0 or seed % world.UNNAMED_EVERY == world.UNNAMED, seed)
         self.assertTrue(unnamed and deferred, (unnamed, deferred))
 
+    def test_the_seeds_list_a_run_that_never_takes_its_name(self):  # issue 270, decision 0036
+        # On one seed in eight a run whose name never resolves is listed unnamed from minute NEVER_FROM: inside the
+        # window it defers what a pass would admit, and past it the pass admits as usual and names it as one alert, on
+        # every pass after; every invariant holds throughout. Every other seed lists no such run.
+        reached = False
+        for seed in SEEDS:
+            w = World(seed)
+            for _ in range(250):
+                w.step()
+            if seed % world.NEVER_NAMED_EVERY != world.NEVER_NAMED:
+                self.assertIsNone(w.never, seed)
+                continue
+            self.assertIsNotNone(w.never, seed)
+            reached = reached or bool(w.alerted)
+            self.assertTrue(any("never takes its name" in line for line in w.trace), seed)
+        self.assertTrue(reached)
+
     def test_the_seeds_read_a_push_missing_from_the_activity(self):  # I-13, I-26, issue 163
         # On one seed in nine the push that left the head is now and then missing from the branch's activity, and the
         # last pusher reads null: that pass defers for the Maintainer, approves, enqueues and admits nothing, and takes

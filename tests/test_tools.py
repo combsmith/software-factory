@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import concurrent.futures
 import contextlib
 import copy
 import hashlib
@@ -1084,6 +1085,14 @@ class Apps(unittest.TestCase):
     def test_a_read_of_a_fact_that_does_not_exist_is_caught(self):
         self.needs["read:facts.title"] = {"permission": "pull_requests", "level": "read"}
         self.assertTrue(caught(self.check(), "read:facts.title reads a field facts/1 does not have"))
+        # A property of one of facts/1's definitions is named as definition.property, and only one it has.
+        for code in ("read:facts.actor.title", "read:facts.nothing.can_write", "read:facts.can_write"):
+            self.setUp()
+            self.needs[code] = {"permission": "metadata", "level": "read"}
+            self.assertTrue(caught(self.check(), "%s reads a field facts/1 does not have" % code), code)
+        self.setUp()
+        self.assertIn("read:facts.actor.can_write", self.needs)
+        self.assertEqual(self.check(), [])
 
     def test_an_app_installed_across_the_org_is_caught(self):
         self.apps["controller"]["installed_on"] = "all"
@@ -1105,6 +1114,12 @@ class Apps(unittest.TestCase):
         self.assertTrue(caught(check_apps.run(tree({"x": ""})), "config/apps.json cannot be read"))
         self.assertTrue(caught(check_apps.run(tree({"config/apps.json": "{"})), "config/apps.json cannot be read"))
         self.assertTrue(caught(check_apps.run(tree({"config/apps.json": "{}"})), "names no Apps"))
+        # A schema whose properties, $defs or a definition's properties are not objects is unreadable, never a crash
+        # (Codex on PR 298).
+        table = (ROOT / "config" / "apps.json").read_text()
+        for schema in ({"properties": None}, {"properties": {}, "$defs": []}, {"properties": {}, "$defs": {"actor": {"properties": 1}}}, []):
+            got = check_apps.run(tree({"config/apps.json": table, "schemas/facts.schema.json": json.dumps(schema)}))
+            self.assertTrue(caught(got, "schemas/facts.schema.json cannot be read"), schema)
 
 
 class Purity(unittest.TestCase):
@@ -3193,9 +3208,11 @@ class Trials(unittest.TestCase):
         self.assertTrue(events)
         self.assertTrue(all(e["actor"]["login"] and e["actor"]["__typename"] and e["createdAt"] for e in events))
         by_code = {code: fixture for code, _, _, fixture, _ in check_trials.rules()}
-        # The events ground the rule about them; the association, which an App reads wrong, stays unverified.
+        # The events ground the rule about them; the association, which an App reads wrong, is no rule of the fake: write
+        # access is read from the collaborator permission, which P-47 asks (decision 0048).
         self.assertEqual(by_code["a_label_event_names_its_actor"], "trials/P-32.json")
-        self.assertIsNone(by_code["an_issues_author_has_an_association"])
+        self.assertNotIn("an_issues_author_has_an_association", by_code)
+        self.assertIn("a_logins_permission_is_read_from_the_collaborator_endpoint", by_code)
 
     def test_the_issue_fixtures_hold_what_grounds_the_four_rules(self):
         # trials/P-33.json and trials/P-34.json (issue 184) ground four rules of the issue world: each is held to the
@@ -3382,6 +3399,34 @@ class Trials(unittest.TestCase):
         self.assertIn('rel="next"', thousand["headers"]["link"])
         self.assertEqual((past["body"]["total_count"], past["body"]["workflow_runs"], past["headers"].get("link")), (0, [], None))
         self.assertEqual(p43["ran_at"], call("for when the trial began")["response"]["body"]["commit"]["author"]["date"])
+
+    def test_the_sandbox_limits_connections_and_passes_the_environment(self):
+        # trials/P-26.json (issue 188): each part of the pass is computed here from what the probe left, as the script
+        # computes it, and must equal the script's record; the fail follows. The Tasks' answers hold none of the model's text.
+        p26 = json.loads((ROOT / "trials" / "P-26.json").read_text())
+        checked = p26["exchanges"][-1]["response"]["body"]
+        parts = {p["configuration"]: p for p in checked["configurations"]}
+        self.assertEqual(sorted(parts), ["plain", "scrubbed"])
+        answered = lambda f: f.get("exit") == 0 and 200 <= f.get("http", 0) < 600
+        for name, part in parts.items():
+            fetches = part["fetches"]
+            ran = part["probe_ran"] and (part["env"]["lines"] or 0) > 0
+            hidden = ran and not any(part["env"]["seen"].values()) and not any(part["ancestors"]["seen"].values())
+            limited = ran and answered(fetches["allowed_through_proxy"]) and not answered(fetches["denied_through_proxy"]) \
+                and not answered(fetches["denied_around_proxy"])
+            self.assertEqual((part["holds"]["environment_hidden"], part["holds"]["connections_limited"]), (hidden, limited), name)
+            self.assertEqual((hidden, limited), (False, True), name)
+            self.assertEqual(fetches["denied_through_proxy"]["connect"], 403, name)
+            self.assertEqual(part["write_outside_the_work_directory"]["landed"], False, name)
+            # No process was read: the one read tried failed and left nothing.
+            self.assertTrue(part["ancestors"]["read_exits"] and 0 not in part["ancestors"]["read_exits"], name)
+            self.assertEqual(part["ancestors"]["lines"], 0, name)
+        # With the scrub, the marker under a listed name was gone and the other stayed.
+        self.assertEqual([(parts[c]["env"]["seen"]["parent"], parts[c]["env"]["seen"]["listed"]) for c in ("plain", "scrubbed")],
+                         [(True, True), (True, False)])
+        self.assertEqual((checked["some_configuration_hides_and_limits"], p26["verdict"]), (False, "fail"))
+        for exchange in p26["exchanges"][2:4]:
+            self.assertNotIn("result", exchange["response"]["body"])
 
     def test_a_dependency_bot_opens_and_pushes_its_update(self):
         # trials/P-45.json (issue 251) grounds a_dependency_bot_updates_a_workflow_pin: the pass is computed here from the
@@ -3951,6 +3996,332 @@ exit 9
         self.assertIn('--tools ""', asked[2]["call"])
         self.assertEqual(asked[2]["env"]["CLAUDE_CONFIG_DIR"],
                          "a configuration directory of its own, logged in to the Maintainer's own subscription (decision 0033)")
+
+
+class SandboxTrial(unittest.TestCase):
+    """`tools/trial_p26_sandbox.sh`, run against a stand-in CLI, curl and ps and never the real ones (issue 188): what the
+    CLI is given, the probe that reads nothing above the CLI, the verdict each configuration earns, and that no marker
+    and none of the model's text reaches OUT."""
+
+    SCRIPT = ROOT / "tools" / "trial_p26_sandbox.sh"
+    PIN = re.search(r"^PIN=(\S+)$", SCRIPT.read_text(), re.M).group(1)
+    # The stand-in CLI. A Task runs the probe as the model's shell tool would, unless told the model did not, with a
+    # stand-in curl and ps before the real ones, and /proc out of its reach, so that the stand-in ps answers where a
+    # Linux runner has a /proc the Maintainer's Mac does not; and it hides what the configuration's file says the sandbox hides:
+    # "markers", "listed" (the name on the scrub's list alone), "everything" (the whole environment) or "none".
+    STAND_IN = """#!/bin/sh
+here=$(cd "$(dirname "$0")" && pwd)
+case "$1" in
+  --version) env > "$here/env-version"; [ -f "$here/args-1" ] && [ -f "$here/version.after" ] && cp "$here/version.after" "$here/version"; cat "$here/version"; exit 0 ;;
+  auth) env > "$here/env-auth"; cat "$here/status"; exit 0 ;;
+  -p) scrub=$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB
+      env > "$here/env-task-$scrub"; printf '%s\\n' "$@" > "$here/args-$scrub"
+      echo "$PPID" > "$here/cli-ppid"; cp ./probe.sh "$here/probe-$scrub"
+      printf '%s' "$P26_PARENT_MARKER" > "$here/stash"
+      if [ -f "$here/confined" ]; then sed -e 's|^outside=.*|outside=/nonexistent-p26/x|' -e 's|/proc/|/nonexistent-p26/proc/|g' ./probe.sh > ./probe.run
+      else sed 's|/proc/|/nonexistent-p26/proc/|g' ./probe.sh > ./probe.run; fi
+      if [ -f "$here/runs" ]; then
+        case "$(cat "$here/hides-$scrub")" in
+          markers) env -u P26_PARENT_MARKER -u ANTHROPIC_CUSTOM_HEADERS PATH="$here/bin:$PATH" sh ./probe.run ;;
+          listed) env -u ANTHROPIC_CUSTOM_HEADERS PATH="$here/bin:$PATH" sh ./probe.run ;;
+          everything) env -i PATH="$here/bin:/usr/bin:/bin" sh ./probe.run ;;
+          *) PATH="$here/bin:$PATH" sh ./probe.run ;;
+        esac
+        [ -f "$here/forge" ] && { echo "the_model_wrote_these_words exit=0 http=200 connect=000" >> ./p26/fetches
+                                  i=0; while [ $i -lt 20 ]; do echo "read=123" >> ./p26/ancestors.codes; i=$((i+1)); done; }
+        [ -f "$here/empty-env" ] && : > ./p26/env.raw
+      fi
+      cat "$here/stderr" >&2; cat "$here/answer"; exit 0 ;;
+esac
+exit 9
+"""
+    # A stand-in curl: what each fetch gets, from the file `net` beside it: "limited" answers the allowed host through
+    # the proxy alone; "open" answers every fetch; "none" answers nothing; "around" answers the denied host around it, by its name;
+    # "proxied" answers the denied host through the proxy, and around it nothing denied; "address" answers the denied
+    # host at the address given it by --resolve alone. Each address given is recorded in `resolved`.
+    CURL = """#!/bin/sh
+here=$(cd "$(dirname "$0")/.." && pwd)
+net=$(cat "$here/net")
+around=no; host=; resolved=; prev=
+for a in "$@"; do
+  [ "$prev" = --resolve ] && { resolved=$a; echo "$a" >> "$here/resolved"; }
+  case "$a" in --noproxy) around=yes ;; https://*) host=${a#https://}; host=${host%/} ;; esac
+  prev=$a
+done
+yes_() { printf 'http=200 connect=000'; exit 0; }
+no_() { printf 'http=000 connect=403'; exit 56; }
+case "$net" in open) yes_ ;; none) no_ ;; esac
+[ "$host" = example.com ] && [ "$around" = no ] && yes_
+[ "$net" = around ] && [ "$host" = example.org ] && [ "$around" = yes ] && [ -z "$resolved" ] && yes_
+[ "$net" = proxied ] && [ "$host" = example.org ] && [ "$around" = no ] && yes_
+[ "$net" = address ] && [ "$host" = example.org ] && [ -n "$resolved" ] && yes_
+no_
+"""
+    # A stand-in ps: `-o ppid=` gives the stand-in CLI's own parent, the script, where the file `to-cli` is, else 1;
+    # `-E` gives its own environment, or, where the file `above-leaks` is, the parent marker the CLI was given, as a
+    # process above the tool would hold it; and it records each pid it was asked to read.
+    PS = """#!/bin/sh
+here=$(cd "$(dirname "$0")/.." && pwd)
+case "$*" in
+  *ppid=*) if [ -f "$here/to-cli" ]; then cat "$here/cli-ppid"; else echo 1; fi ;;
+  *-E*) for a in "$@"; do last=$a; done; echo "$last" >> "$here/ps-read"
+        if [ -f "$here/above-leaks" ]; then echo "P26_PARENT_MARKER=$(cat "$here/stash")"; else env; fi ;;
+esac
+"""
+    # A stand-in dig, for the script itself, outside the sandbox: the denied host's address after a name that is not
+    # one, as +short gives a CNAME, or nothing where the file `no-address` is.
+    DIG = """#!/bin/sh
+here=$(cd "$(dirname "$0")/.." && pwd)
+[ -f "$here/no-address" ] && exit 0
+printf 'example.org.cdn.example.\\n192.0.2.7\\n'
+"""
+    PROSE = {"result": "the model wrote THIS-PROSE-1 here", "added": "a field the CLI adds carries THIS-PROSE-2",
+             "denied": "THIS-PROSE-4 in a refused tool's input", "stderr": "THIS-PROSE-11 the model said on standard error"}
+
+    def answer(self, is_error=False) -> dict:
+        return {"type": "result", "subtype": "success", "is_error": is_error, "num_turns": 2, "duration_ms": 5,
+                "total_cost_usd": 0.1, "usage": {"input_tokens": 1, "output_tokens": 2}, "result": self.PROSE["result"],
+                "a_new_field": self.PROSE["added"],
+                "permission_denials": [{"tool_name": "Bash", "tool_input": {"command": self.PROSE["denied"]}}]}
+
+    def stand_in(self, hides=("none", "none"), net="limited", runs=True, confined=True, flags=(), version=None,
+                 after=None, status=None, is_error=False) -> pathlib.Path:
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (folder / "version").write_text("%s (Claude Code)\n" % (version or self.PIN))
+        if after is not None:
+            (folder / "version.after").write_text("%s (Claude Code)\n" % after)
+        (folder / "status").write_text(json.dumps({"loggedIn": True, "authMethod": "claude.ai"} if status is None else status))
+        (folder / "stderr").write_text(self.PROSE["stderr"] + "\n")
+        (folder / "answer").write_text(json.dumps(self.answer(is_error)))
+        for scrub, hidden in zip("01", hides):
+            (folder / ("hides-" + scrub)).write_text(hidden)
+        (folder / "net").write_text(net)
+        for flag in (("runs",) if runs else ()) + (("confined",) if confined else ()) + tuple(flags):
+            (folder / flag).write_text("")
+        (folder / "bin").mkdir()
+        (folder / "host-bin").mkdir()
+        for name, text in (("claude", self.STAND_IN), ("bin/curl", self.CURL), ("bin/ps", self.PS), ("host-bin/dig", self.DIG)):
+            (folder / name).write_text(text)
+            (folder / name).chmod(0o755)
+        return folder
+
+    def run_script(self, out, cfg, cli, home=None) -> subprocess.CompletedProcess:
+        """The script as the Maintainer runs it, from a shell that holds a key the CLI must never see."""
+        env = {"PATH": "%s:%s" % (pathlib.Path(cli).parent / "host-bin", os.environ["PATH"]), "HOME": str(home or self.home), "LANG": "C",
+               "ANTHROPIC_API_KEY": "sk-" + "ant-" + "api03-NEVER-SEEN", "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
+        return subprocess.run(["bash", str(self.SCRIPT), str(out), str(cfg), str(cli)], cwd=SCRATCH.name,
+                              capture_output=True, text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
+
+    INSIDE = ("never-made-in-the-repo-p26",)
+
+    def setUp(self):
+        self.home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        self.cfg = self.home.parent / (self.home.name + "-cfg")
+        self.cfg.mkdir()
+        self.out = self.home.parent / (self.home.name + "-out")
+
+    def tearDown(self):
+        for name in self.INSIDE:
+            shutil.rmtree(ROOT / name, ignore_errors=True)
+
+    def given(self, folder, call) -> dict:
+        return dict(line.split("=", 1) for line in (folder / ("env-" + call)).read_text().splitlines() if "=" in line)
+
+    def markers(self, folder) -> list:
+        """The four markers the script made, read from what the stand-in CLI was given."""
+        found = []
+        for scrub in "01":
+            given = self.given(folder, "task-" + scrub)
+            found += [given["P26_PARENT_MARKER"], given["ANTHROPIC_CUSTOM_HEADERS"].split(": ", 1)[1]]
+        return found
+
+    def written(self, out) -> str:
+        return "".join(p.read_text() for p in pathlib.Path(out).iterdir())
+
+    def checked(self, out) -> dict:
+        return json.loads((pathlib.Path(out) / "checked.json").read_text())
+
+    def test_the_cli_is_given_only_the_named_environment_and_one_command(self):
+        folder = self.stand_in(hides=("markers", "markers"))
+        ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        named = {"HOME", "USER", "LOGNAME", "SHELL", "PATH", "TMPDIR", "LANG", "CLAUDE_CONFIG_DIR", "DISABLE_AUTOUPDATER"}
+        task = {"CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "P26_PARENT_MARKER", "ANTHROPIC_CUSTOM_HEADERS"}
+        shell_adds = {"PWD", "OLDPWD", "SHLVL", "_"}
+        for call, expected in (("version", named), ("auth", named), ("task-0", named | task), ("task-1", named | task)):
+            self.assertEqual(set(self.given(folder, call)) - shell_adds, expected, call)
+            self.assertNotIn("NEVER-SEEN", (folder / ("env-" + call)).read_text(), call)
+        self.assertEqual([self.given(folder, "task-" + s)["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"] for s in "01"], ["0", "1"])
+        self.assertEqual(len(set(self.markers(folder))), 4, "each Task has fresh markers")
+        for scrub in "01":
+            args = (folder / ("args-" + scrub)).read_text().split("\n")
+            self.assertEqual(args[args.index("--tools") + 1], "Bash", "the model is given the shell alone")
+            self.assertEqual(args[args.index("--allowedTools") + 1], "Bash(sh ./probe.sh)")
+            self.assertEqual(args[args.index("--permission-prompts") + 1], "none")
+            settings = json.loads(args[args.index("--settings") + 1])
+            sandbox = settings["sandbox"]
+            self.assertEqual((sandbox["enabled"], sandbox["failIfUnavailable"], sandbox["allowUnsandboxedCommands"],
+                              sandbox["autoAllowBashIfSandboxed"], sandbox["network"]["allowedDomains"]),
+                             (True, True, False, False, ["example.com"]), "a sandboxed command is not allowed for that alone")
+            self.assertEqual(settings["permissions"], {"allow": ["Bash(sh ./probe.sh)"]})
+            # The probe holds its values in its text: the script's pid, which is the CLI's parent, and the two hosts.
+            probe = (folder / ("probe-" + scrub)).read_text()
+            self.assertNotRegex(probe, r"@[A-Z]+@")
+            self.assertEqual(re.search(r"^above=(\S+)$", probe, re.M).group(1), (folder / "cli-ppid").read_text().strip())
+            self.assertEqual(re.findall(r"^(allowed|denied)=(\S+)$", probe, re.M), [("allowed", "example.com"), ("denied", "example.org")])
+            self.assertNotIn("P26_", probe.replace("P26_PARENT", ""), "the probe reads nothing it needs from its environment")
+
+    def test_no_marker_and_no_model_text_reaches_out(self):
+        # The sandbox hides nothing and lets the tool write outside its directory, and the model writes words of its
+        # own among the probe's codes: no marker and none of those words reaches OUT.
+        folder = self.stand_in(net="open", confined=False, flags=("forge",))
+        ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        written = self.written(self.out) + ran.stdout + ran.stderr
+        for word in self.markers(folder) + list(self.PROSE.values()) + ["NEVER-SEEN", "the_model_wrote", "123"]:
+            self.assertNotIn(word, written)
+        for part in self.checked(self.out)["configurations"]:
+            self.assertEqual((part["env"]["seen"], part["ancestors"]["seen"]),
+                             ({"parent": True, "listed": True}, {"parent": True, "listed": True}))
+            self.assertEqual(part["write_outside_the_work_directory"], {"exit": 0, "landed": True})
+            self.assertEqual(part["stderr"], {"lines": 1, "characters": len(self.PROSE["stderr"]) + 1})
+            self.assertEqual(sorted(part["fetches"]), ["allowed_around_proxy", "allowed_through_proxy",
+                                                       "denied_around_proxy", "denied_by_address", "denied_through_proxy"])
+            self.assertEqual((part["ancestors"]["read_exits"], part["ancestors"]["processes"]), (None, None))
+        self.assertEqual(list(self.home.glob(".p26-write-probe-*")), [], "the write outside is removed")
+        requests = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual([r["configuration"] for r in requests[2:]], ["plain", "scrubbed"])
+        self.assertEqual(requests[0]["env"].keys() & {"P26_PARENT_MARKER", "ANTHROPIC_CUSTOM_HEADERS"}, set())
+        self.assertNotIn(str(self.home), json.dumps(requests), "the probe is recorded as its template")
+
+    def test_each_configuration_is_judged_by_the_condition(self):
+        cases = [
+                ("the scrub and the sandbox hide and limit", dict(hides=("none", "markers")), 0,
+                 (False, False, True), (True, True, True)),
+                ("the scrub hides the listed name alone", dict(hides=("none", "listed")), 1,
+                 (False, False, True), (False, True, True)),
+                ("the sandbox hides everything", dict(hides=("everything", "everything")), 0, (True, True, True), (True, True, True)),
+                ("nothing limits a fetch", dict(hides=("markers", "markers"), net="open"), 1, (True, True, False), (True, True, False)),
+                ("the denied host answers around the proxy", dict(hides=("markers", "markers"), net="around"), 1,
+                 (True, True, False), (True, True, False)),
+                ("the denied host answers through the proxy", dict(hides=("markers", "markers"), net="proxied"), 1,
+                 (True, True, False), (True, True, False)),
+                ("the denied host answers at its address", dict(hides=("markers", "markers"), net="address"), 1,
+                 (True, True, False), (True, True, False)),
+                ("the allowed host does not answer", dict(hides=("markers", "markers"), net="none"), 1,
+                 (True, True, False), (True, True, False)),
+                ("the model did not run the probe", dict(hides=("markers", "markers"), runs=False), 1,
+                 (False, False, False), (False, False, False)),
+                ("the probe recorded no environment", dict(hides=("markers", "markers"), flags=("empty-env",)), 1,
+                 (False, False, True), (False, False, True)),
+                ("the Task said it failed", dict(hides=("markers", "markers"), is_error=True), 1, (True, True, True), (True, True, True)),
+                ("the version moved under the run", dict(hides=("markers", "markers"), after="9.9.9"), 1,
+                 (True, True, True), (True, True, True))]
+        # The tool's own environment is clean, but it reads the parent marker in a process above it; and a login that
+        # fails leaves its record.
+        runs = {name: kwargs for name, kwargs, *_ in cases}
+        runs.update({"above": dict(hides=("markers", "markers"), flags=("above-leaks",)), "no login": dict(status={"loggedIn": False})})
+        outs = self.run_each(runs)
+        for name, kwargs, code, plain, scrubbed in cases:
+            out, ran = outs[name]
+            self.assertEqual(ran.returncode, code, (name, ran.stderr))
+            checked = self.checked(out)
+            holds = [tuple(p["holds"][k] for k in ("environment_hidden", "listed_hidden", "connections_limited"))
+                     for p in checked["configurations"]]
+            self.assertEqual(holds, [plain, scrubbed], name)
+            self.assertEqual(checked["some_configuration_hides_and_limits"], code == 0, name)
+        out, ran = outs["above"]
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        for part in self.checked(out)["configurations"]:
+            self.assertEqual((part["env"]["seen"]["parent"], part["ancestors"]["seen"]["parent"]), (False, True))
+            self.assertEqual(part["holds"]["environment_hidden"], False)
+        out, ran = outs["no login"]
+        self.assertEqual(ran.returncode, 1, ran.stderr)
+        self.assertEqual((self.checked(out)["login"], self.checked(out)["some_configuration_hides_and_limits"]),
+                         ({"exit": 0, "status": "no"}, False))
+
+    def run_each(self, runs: dict) -> dict:
+        """The script once for each stand-in, four at a time, each with an OUT and a CONFIG_DIR of its own: {name: (OUT, run)}."""
+        def one(name):
+            folder = self.stand_in(**runs[name])
+            out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
+            cfg = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+            return name, (out, self.run_script(out, cfg, folder / "claude"))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            return dict(pool.map(one, runs))
+
+    def test_the_probe_tries_the_denied_host_at_the_address_looked_up_outside(self):
+        # The address the script looked up, outside the sandbox, is the one the probe gives curl, in each Task.
+        folder = self.stand_in(hides=("markers", "markers"))
+        self.assertEqual(self.run_script(self.out, self.cfg, folder / "claude").returncode, 0)
+        self.assertEqual((folder / "resolved").read_text().split(), ["example.org:443:192.0.2.7"] * 2)
+
+    def test_the_probe_reads_nothing_above_the_cli(self):
+        # The process above the probe is the script itself, the CLI's parent: the probe stops there and never reads it,
+        # though the sandbox hides every name in its environment.
+        for hides in ("markers", "everything"):
+            folder = self.stand_in(hides=(hides, hides), flags=("to-cli",))
+            out = self.home.parent / (self.home.name + "-" + hides)
+            ran = self.run_script(out, self.cfg, folder / "claude")
+            self.assertEqual(ran.returncode, 0, (hides, ran.stderr))
+            script = (folder / "cli-ppid").read_text().strip()
+            read = (folder / "ps-read").read_text().split()
+            self.assertEqual(len(read), 2, "one process read in each Task, the probe's own")
+            self.assertNotIn(script, read, "the script that started the CLI is never read")
+        # A probe that knows no stop reads its own process alone.
+        probe = re.search(r"<<'PROBE'\n(.*?)\nPROBE\n", self.SCRIPT.read_text(), re.S).group(1)
+        work = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        (work / "probe.sh").write_text(probe.replace("@ABOVE@", "").replace("@OUTSIDE@", str(work / "x")).replace("/proc/", "/nonexistent-p26/proc/")
+                                       .replace("@ALLOWED@", "example.com").replace("@DENIED@", "example.org")
+                                       .replace("@ADDRESS@", "192.0.2.7"))
+        folder = self.stand_in(flags=("to-cli",))
+        (folder / "cli-ppid").write_text("2\n")
+        subprocess.run(["sh", "./probe.sh"], cwd=work, env={"PATH": "%s:/usr/bin:/bin" % (folder / "bin")},
+                       timeout=60, capture_output=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(len((folder / "ps-read").read_text().split()), 1)
+
+    def test_each_refusal_stops_before_anything_is_asked(self):
+        folder = self.stand_in()
+        existing = self.home.parent / (self.home.name + "-taken")
+        existing.mkdir()
+        dot_claude = self.home / ".claude" / "deep"
+        dot_claude.mkdir(parents=True)
+        for name, out, cfg, said in [("OUT exists", existing, self.cfg, "exists; name a new directory"),
+                                     ("OUT inside the repo", ROOT / self.INSIDE[0], self.cfg, "OUT is inside the repo"),
+                                     ("OUT inside CONFIG_DIR", self.cfg / "out", self.cfg, "OUT is inside CONFIG_DIR"),
+                                     ("CONFIG_DIR inside the repo", self.out, ROOT / "tools", "CONFIG_DIR is inside the repo"),
+                                     ("CONFIG_DIR is HOME", self.out, self.home, "the home directory or holds it"),
+                                     ("CONFIG_DIR under ~/.claude", self.out, dot_claude, "under ~/.claude"),
+                                     ("CONFIG_DIR missing", self.out, self.home / "none", "CONFIG_DIR is not a directory")]:
+            ran = self.run_script(out, cfg, folder / "claude")
+            self.assertEqual(ran.returncode, 2, (name, ran.stderr))
+            self.assertIn(said, ran.stderr, name)
+            self.assertFalse(out.exists() and out != existing, name)
+            self.assertFalse((folder / "env-version").exists(), name + ": nothing was asked")
+        folder = self.stand_in(flags=("no-address",))
+        ran = self.run_script(self.out, self.cfg, folder / "claude")
+        self.assertEqual(ran.returncode, 2, ran.stderr)
+        self.assertIn("example.org has no IPv4 address here", ran.stderr)
+        self.assertFalse((folder / "env-version").exists(), "no address: nothing was asked")
+        for name, folder, said in [("wrong version", self.stand_in(version="0.0.1"), "is version '0.0.1', exit 0, not " + self.PIN),
+                                   ("not logged in", self.stand_in(status={"loggedIn": False}), "login under CONFIG_DIR is 'no'")]:
+            out = self.home.parent / (self.home.name + "-" + name.replace(" ", "-"))
+            ran = self.run_script(out, self.cfg, folder / "claude")
+            self.assertEqual(ran.returncode, 1, (name, ran.stderr))
+            self.assertIn(said, ran.stderr, name)
+            self.assertFalse((folder / "args-0").exists(), name + ": no Task was asked")
+
+    def test_the_shell_snapshots_the_run_made_are_deleted(self):
+        older = self.cfg / "shell-snapshots" / "older.sh"
+        older.parent.mkdir()
+        older.write_text("kept")
+        os.utime(older, (1, 1))
+        folder = self.stand_in(hides=("markers", "markers"))
+        (folder / "claude").write_text(self.STAND_IN.replace(
+            'scrub=$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB\n', 'scrub=$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB\n      echo snap > "$CLAUDE_CONFIG_DIR/shell-snapshots/new-$scrub.sh"\n'))
+        self.assertEqual(self.run_script(self.out, self.cfg, folder / "claude").returncode, 0)
+        self.assertEqual([p.name for p in older.parent.iterdir()], ["older.sh"])
+        self.assertEqual([p["shell_snapshots_removed"] for p in self.checked(self.out)["configurations"]], [1, 1])
 
 
 class Redaction(unittest.TestCase):
@@ -5094,6 +5465,261 @@ sys.exit(0 if killed == len(MUTANTS) else 1)
         self.assertEqual(ran.returncode, 1)
         self.assertIn("is version '0.0.1', exit 0, not " + self.PIN, ran.stderr)
         self.assertFalse((wrong / "args").exists(), "the agent was not asked")
+
+
+class ReaderTrialScript(unittest.TestCase):
+    """`tools/trial_reader_reads.sh`, run against a stand-in curl and openssl and never GitHub (issues 222 and 231): each
+    refusal before anything is minted, two tokens each narrowed to one permission on the canary alone, every read made
+    with each and kept with its status, each token revoked, and no token anywhere the Maintainer hands to a session."""
+
+    SCRIPT = ROOT / "tools" / "trial_reader_reads.sh"
+    CANARY = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["reader"]["installed_on"]
+              if r != "combsmith/software-factory"][0]
+    TOKEN = "gh" + "s_" + "R" * 36
+    # The stand-in GitHub: each call is logged with its method, URL, body and whether a credential came on stdin; a mint
+    # answers a token, a revocation the status in revoke.status, and a read an answer by its path and the token's grant.
+    CURL = r'''#!/usr/bin/env python3
+import json, os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+args = sys.argv[1:]
+url = [a for a in args if a.startswith("https://")][-1]
+method = args[args.index("-X") + 1] if "-X" in args else "GET"
+body = args[args.index("-d") + 1] if "-d" in args else None
+said = sys.stdin.read() if "@-" in args else ""
+grant = open(os.path.join(here, "grant")).read().strip() if os.path.exists(os.path.join(here, "grant")) else ""
+with open(os.path.join(here, "log"), "a") as log:
+    log.write(json.dumps({"method": method, "url": url, "body": body, "credential": "Bearer " in said,
+                          "grant": grant}) + "\n")
+if url.endswith("/access_tokens"):
+    status = open(os.path.join(here, "mint.status")).read().strip()
+    if os.path.exists(os.path.join(here, "cut")):
+        # The answer cut short after the token, as a transfer that broke would leave it.
+        sys.stdout.write('{"token": "' + "gh" + "s_" + "R" * 36 + '", "expires_at": "2026\n201')
+        sys.exit(18)
+    if status != "201":
+        sys.stdout.write(json.dumps({"message": "Bad credentials"}) + "\n" + status)
+        sys.exit(0)
+    open(os.path.join(here, "grant"), "w").write(json.loads(body)["permissions"] and list(json.loads(body)["permissions"])[0])
+    sys.stdout.write(json.dumps({"token": "''' + "gh" + "s_" + "R" * 36 + r'''", "permissions": json.loads(body)["permissions"],
+                                 "repository_selection": "selected"}) + "\n201")
+    # A transfer that failed after the whole answer came, as curl's exit 18 says of a partial one.
+    sys.exit(18 if os.path.exists(os.path.join(here, "broke")) else 0)
+if method == "DELETE":
+    sys.stdout.write(open(os.path.join(here, "revoke.status")).read().strip())
+    sys.exit(0)
+roles = json.load(open(os.path.join(here, "roles")))
+if os.path.exists(os.path.join(here, "slow")):
+    # Mid-read: tell the test on one pipe, and wait on the other until the test lets the read end, or is gone.
+    told, held = (int(n) for n in open(os.path.join(here, "slow")).read().split())
+    os.write(told, b"r")
+    os.read(held, 1)
+if "/collaborators/" in url:
+    login = url.split("/collaborators/")[1].split("/")[0]
+    if login in roles:
+        status, answer = 200, {"permission": roles[login], "role_name": roles[login], "user": {"login": login, "type": "User"}}
+    else:
+        status, answer = 404, {"message": "Not Found"}
+elif "/activity" in url:
+    if grant == "contents":
+        status, answer = 200, [{"before": "0" * 40, "after": "a" * 40, "activity_type": "push",
+                                "actor": {"login": "don-petry", "type": "User"}}]
+    else:
+        status, answer = 403, {"message": "Resource not accessible by integration"}
+else:
+    status, answer = 404, {"message": "Not Found"}
+# Every answer carries a credential-shaped string, as an answer may: the redaction must take it out before OUT.
+if isinstance(answer, dict):
+    answer["leak"] = "gh" + "s_" + "L" * 36
+sys.stdout.write("HTTP/2 %d\r\ncontent-type: application/json\r\n\r\n%s" % (status, json.dumps(answer)))
+'''
+    OPENSSL = '''#!/bin/sh
+case "$1" in
+  base64) cat | od -An -tx1 | tr -d ' \\n' ;;
+  dgst) cat > /dev/null; printf 'signed' ;;
+  *) exit 9 ;;
+esac
+'''
+
+    def setUp(self):
+        self.stand_in = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        for name, text in (("curl", self.CURL), ("openssl", self.OPENSSL)):
+            (self.stand_in / name).write_text(text)
+            (self.stand_in / name).chmod(0o755)
+        (self.stand_in / "mint.status").write_text("201\n")
+        (self.stand_in / "revoke.status").write_text("204\n")
+        (self.stand_in / "roles").write_text(json.dumps({"don-petry": "admin", "a-writer": "write", "a-triager": "triage",
+                                                         "an-outsider": "read"}))
+        self.key = self.stand_in / "reader.pem"
+        self.key.write_text("not a key\n")
+        self.out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
+
+    # OUT names the refusal cases give inside the repo. A broken script could make one, in a copy the mutation check
+    # lends to the next mutant, so each is removed after the test whether or not it was refused.
+    INSIDE = ("never-made-by-the-reader", "never-made-by-the-reader-through-a-link", "scratch-of-the-reader")
+
+    def tearDown(self):
+        for name in self.INSIDE:
+            shutil.rmtree(ROOT / name, ignore_errors=True)
+
+    def run_script(self, *args, out=None, tmpdir=None) -> subprocess.CompletedProcess:
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
+               "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
+        env.update({"TMPDIR": str(tmpdir)} if tmpdir else {})
+        given = args or (self.CANARY, "main", "don-petry", "a-writer", "a-triager", "an-outsider")
+        return subprocess.run(["sh", str(self.SCRIPT), str(out or self.out), str(self.key), *given],
+                              cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=120)
+
+    def calls(self) -> list:
+        log = self.stand_in / "log"
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+        calls = self.calls()
+        mints = [c for c in calls if c["url"].endswith("/access_tokens")]
+        self.assertEqual([json.loads(m["body"]) for m in mints],
+                         [{"repositories": [self.CANARY.split("/")[1]], "permissions": {"metadata": "read"}},
+                          {"repositories": [self.CANARY.split("/")[1]], "permissions": {"contents": "read"}}])
+        self.assertEqual([c["method"] for c in calls if c["method"] == "DELETE"], ["DELETE", "DELETE"])
+        self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
+        reads = [c for c in calls if c["method"] == "GET"]
+        self.assertEqual([c["url"].split("/repos/")[1] for c in reads[:5]],
+                         ["%s/collaborators/%s/permission" % (self.CANARY, login)
+                          for login in ("don-petry", "a-writer", "a-triager", "an-outsider")]
+                         + ["%s/activity?ref=refs/heads/main&per_page=5" % self.CANARY])
+        self.assertEqual(len(reads), 10)
+        texts = {p.name: p.read_text() for p in self.out.iterdir()}
+        self.assertEqual(sorted(texts), sorted(["ran_at", "requests.json"] + ["clean-%d" % n for n in range(1, 11)]
+                                               + ["redacted-%d" % n for n in range(1, 11)]))
+        asked = json.loads(texts["requests.json"])
+        statuses = [(a["narrowed_to"], "activity" if "/activity?" in a["call"] else "permission", a["status"])
+                    for a in asked if "call" in a]
+        self.assertIn(("metadata: read", "activity", 403), statuses)
+        self.assertIn(("contents: read", "activity", 200), statuses)
+        self.assertIn(("metadata: read", "permission", 200), statuses)
+        self.assertEqual([a for a in asked if "revoked" in a],
+                         [{"revoked": "metadata: read", "status": 204}, {"revoked": "contents: read", "status": 204}])
+        self.assertIn('"permission": "triage"', texts["clean-3"])
+        everything = "".join(texts.values()) + ran.stdout + ran.stderr
+        # Each answer carried a credential-shaped string; the redaction took it out of every clean answer, and said where.
+        self.assertNotIn("gh" + "s_" + "L" * 36, everything)
+        self.assertTrue(all("leak" in texts["redacted-%d" % n] for n in (1, 2, 3, 4, 6, 7, 8, 9)))
+        self.assertNotIn(self.TOKEN, everything)
+        self.assertNotIn("NEVER-SEEN", everything)
+
+    def test_each_refusal_comes_before_anything_is_minted(self):
+        self.out.parent.mkdir(parents=True, exist_ok=True)
+        cases = [((self.CANARY, "main", "don-petry"), self.out.parent, "exists"),
+                 ((self.CANARY, "main", "don-petry"), ROOT / self.INSIDE[0], "inside the repo"),
+                 (("combsmith/software-factory", "main", "don-petry"), None, "is not the canary the reader is installed on"),
+                 (("combsmith/elsewhere", "main", "don-petry"), None, "is not the canary the reader is installed on"),
+                 (("combsmith", "main", "don-petry"), None, "is not owner/name"),
+                 ((self.CANARY, "main;x", "don-petry"), None, "is not a branch name"),
+                 ((self.CANARY, "../x", "don-petry"), None, "is not a branch name"),
+                 ((self.CANARY, "main", "don/petry"), None, "is not a login"),
+                 ((self.CANARY, "main", "-x"), None, "is not a login")]
+        for args, out, said in cases:
+            ran = self.run_script(*args, out=out)
+            self.assertNotEqual(ran.returncode, 0, args)
+            self.assertIn(said, ran.stderr, args)
+            self.assertEqual(self.calls(), [], args)
+        self.key.unlink()
+        ran = self.run_script()
+        self.assertIn("cannot read the key file", ran.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_mint_answered_whole_by_a_transfer_that_failed_is_revoked_and_told(self):
+        # curl read the whole answer and still failed: the token is not trusted, but revoked, and the run stops
+        # (Codex on PR 298).
+        (self.stand_in / "broke").write_text("yes\n")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 1)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST", "DELETE"])
+        self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+
+    def test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted(self):
+        # The raw answers are kept outside the repo, as OUT is: a TMPDIR inside it, or reached through a link into it,
+        # is refused and the directory mktemp made is removed (Codex on PR 298).
+        inside = ROOT / self.INSIDE[2]
+        inside.mkdir()
+        link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "into-the-repo"
+        link.symlink_to(inside)
+        for tmpdir in (inside, link):
+            ran = self.run_script(tmpdir=tmpdir)
+            self.assertEqual(ran.returncode, 2, tmpdir)
+            self.assertIn("is inside the repo; set TMPDIR outside it", ran.stderr, tmpdir)
+            self.assertEqual((self.calls(), list(inside.iterdir())), ([], []), tmpdir)
+
+    def test_a_mint_answered_201_and_cut_short_is_revoked_and_told(self):
+        # curl cut the mint's answer short: GitHub minted a token the script cannot parse. It finds the token, revokes
+        # it, says so, and stops; nothing is read with it, and no token reaches what it hands over.
+        (self.stand_in / "cut").write_text("yes\n")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 1)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST", "DELETE"])
+        self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+        self.assertFalse(self.out.exists() and any(self.TOKEN in p.read_text() for p in self.out.iterdir()))
+
+    def test_an_output_folder_reached_through_a_link_into_the_repo_is_refused(self):
+        # OUT is resolved as the file system resolves it: a folder whose parent is a link into the repo is inside it.
+        link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "into-the-repo"
+        link.symlink_to(ROOT)
+        ran = self.run_script(out=link / self.INSIDE[1])
+        self.assertNotEqual(ran.returncode, 0)
+        self.assertIn("inside the repo", ran.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_signal_mid_read_revokes_the_live_token(self):
+        # Interrupted while a token is live, the script revokes it on its way out, and keeps no raw answer. The stand-in
+        # says on a pipe that a read has begun, and holds it until the script has been signalled: no clock is read, so
+        # the mutation check runs this test. A script that ends first closes both pipes, so nothing waits for ever.
+        told_r, told_w = os.pipe()
+        held_r, held_w = os.pipe()
+        (self.stand_in / "slow").write_text("%d %d\n" % (told_w, held_r))
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
+        running = subprocess.Popen(["sh", str(self.SCRIPT), str(self.out), str(self.key), self.CANARY, "main", "don-petry"],
+                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                                   pass_fds=(told_w, held_r))
+        os.close(told_w)
+        os.close(held_r)
+        try:
+            begun = os.read(told_r, 1)
+            (self.stand_in / "slow").unlink()
+            running.terminate()
+        finally:
+            os.close(told_r)
+            os.close(held_w)
+        out, err = running.communicate(timeout=60)
+        self.assertEqual(begun, b"r", "the script reached no read: " + err)
+        self.assertNotEqual(running.returncode, 0)
+        self.assertIn("DELETE", [c["method"] for c in self.calls()])
+        self.assertIn("stopped with a token live; revoking it returned 204", err)
+        self.assertNotIn(self.TOKEN, out + err)
+
+    def test_curl_reads_no_configuration_of_the_maintainers(self):
+        # A .curlrc that turns on verbose would print the Authorization header; -q comes first on every call.
+        (self.stand_in / ".curlrc").write_text("verbose\n")
+        script = self.SCRIPT.read_text()
+        calls = [line for line in script.splitlines() if "| curl " in line]
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(line.split("| curl ", 1)[1].startswith("-q ") for line in calls))
+
+    def test_a_refused_mint_or_revocation_stops_the_run_and_says_so(self):
+        (self.stand_in / "mint.status").write_text("401\n")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 1)
+        self.assertIn("no token narrowed to metadata was minted (status 401)", ran.stderr)
+        self.assertEqual([c for c in self.calls() if c["method"] == "GET"], [])
+        (self.stand_in / "log").unlink()
+        (self.stand_in / "mint.status").write_text("201\n")
+        (self.stand_in / "revoke.status").write_text("500\n")
+        ran = self.run_script(out=self.out.parent / "again")
+        self.assertEqual(ran.returncode, 1)
+        self.assertIn("returned 500, not 204. The token may be live", ran.stderr)
+        self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
+        # The exit trap tried once more to revoke the live token.
+        self.assertEqual(len([c for c in self.calls() if c["method"] == "DELETE"]), 2)
 
 
 class Rulesets(unittest.TestCase):
