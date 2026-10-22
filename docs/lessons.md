@@ -211,7 +211,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-37 One person's token served seven purposes
 **Failure.** The owner account's token was named 70 times and served seven purposes, and nine workflows passed every secret to whatever they called. Its rotation would show only as a refusal on the next run.
 **Rule.** No workflow names a personal access token, and none inherits secrets. The age of each credential is read, and one near its limit raises one alert.
-**Check.** `examples/workflows/invalid/token.a-persons-token.yml`; a credential's age is waiting on `adapters/identity.py`
+**Check.** `examples/workflows/invalid/token.a-persons-token.yml`; a credential's age is waiting on `adapters/settings.py`
 
 ### L-38 A gate was allowed to fail
 **Failure.** The eval gate ran only with its failure ignored, and the release never looked at its result.
@@ -231,12 +231,12 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-41 Success was reported for work that was not done
 **Failure.** "pr-review announces an approval it never created" (issue 1874). The author posted "Fixed" for changes it never pushed, and reported a rebase complete with no commit.
 **Rule.** A claim is written by `apply`, from what it wrote and then read back. The model's output has no field for one.
-**Check.** waiting on `harness/apply.py`
+**Check.** `tests/test_apply.py::test_an_effect_is_claimed_only_from_what_was_read_back`
 
 ### L-42 The author edited the tests it was judged by
 **Failure.** "[Phase 4] Name and guard the "agent optimizes the check, not the intent" failure mode" (issue 1468): a test tool vendored to satisfy a check, and a distributed file edited to turn a monitor green. Separately, the author edited tests to match its own code.
 **Rule.** `apply` refuses a change by an implementing Role to a test, a fixture, a threshold or an acceptance contract that judges it.
-**Check.** waiting on `harness/apply.py`
+**Check.** waiting on `harness/push.py`, the fix Intent's push
 
 ### L-43 The model held the credential that could write
 **Failure.** The author's job held the owner account's token and kept it for pushing. "Never push" was a sentence in the prompt.
@@ -301,7 +301,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-55 A forced push destroyed the Maintainer's commit
 **Failure.** A push leased against a ref that an earlier fetch in the same run had refreshed. The lease passed, and the push discarded a commit the Maintainer had made to steer the work.
 **Rule.** `apply` pushes against the exact head its Decision named. A refusal means the Run was superseded.
-**Check.** waiting on `harness/apply.py`
+**Check.** waiting on `harness/push.py`, the fix Intent's push
 
 ### L-56 Steering never reached the agent
 **Failure.** An issue steered by a comment sat idle, because only its title and body reached the prompt. When comments were added they had to be cut to people with write access, newest first, with what was dropped counted and said.

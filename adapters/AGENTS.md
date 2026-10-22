@@ -3,11 +3,12 @@
 All of the Factory's I/O. `github.py` is the one transport: every request to GitHub goes through it, and nothing else in
 this repo reaches the network. `pull.py` reads the facts of a pull request that its own reads give, `timeline.py` its reviews, labels and who acted,
 `checks.py` its checks and its place in the queue, `threads.py` its review threads, `facts.py` the one snapshot of it all,
-`records.py` the Factory's own run records, `artifacts.py` a failed Run's outcome from its artifact, and `acceptance.py`
-whether the issues it closes ask for a contract. A port decides nothing
+`records.py` the Factory's own run records, `artifacts.py` a failed Run's outcome from its artifact, `acceptance.py`
+whether the issues it closes ask for a contract, and `identity.py` a Role App's token, narrowed to the Effects it
+writes. A port decides nothing
 and hands the Kernel no text: what it cannot read whole it says is short, and the title travels beside the facts.
 
-Not built yet, by the stories that hold their rules: items.py, contract.py, binding.py, issues.py, settings.py, effects.py, usage.py, texts.py, identity.py.
+Not built yet, by the stories that hold their rules: items.py, contract.py, binding.py, issues.py, settings.py, effects.py, usage.py, texts.py, applied.py.
 
 | Rule | Held by |
 |---|---|
@@ -37,4 +38,8 @@ Not built yet, by the stories that hold their rules: items.py, contract.py, bind
 | Closing references read short, of another repo or named twice, are not whole | `tests/test_adapters.py::test_closing_references_are_whole_only_of_this_repo_and_every_one_counted` |
 | A pull request to another base than the default is not whole on its contract | `tests/test_adapters.py::test_a_pull_request_to_another_base_than_the_default_is_not_read_whole_on_its_contract` |
 | The title is handed beside the facts, never in them | `tests/test_adapters.py::test_the_pull_requests_own_facts_and_the_title_beside_them` |
+| An App's JWT is signed by `openssl` from the key handed through a pipe, never a file | `tests/test_apply.py::test_the_jwt_is_signed_by_openssl_through_a_pipe_and_never_a_file` |
+| A token is narrowed to the permissions its Effects need, each within the App's grant for that need | `tests/test_apply.py::test_a_token_is_narrowed_to_the_permissions_its_effects_need` |
+| A token is for the one repo, and held to what was asked; it never says what it is | `tests/test_apply.py::test_a_token_is_minted_for_the_one_repo_and_held_to_what_was_asked` |
+| A token is revoked only when GitHub says so | `tests/test_apply.py::test_a_token_is_revoked_only_when_github_says_so` |
 | A rule of a part not built yet waits on the file named above, and the story that builds it re-points its rows | `tests/test_tools.py::test_a_wait_on_a_file_a_built_directory_plans_holds_until_the_file_exists` |
