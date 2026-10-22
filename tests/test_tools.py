@@ -1256,6 +1256,32 @@ class Repo(unittest.TestCase):
         self.assertFalse(caught(check_repo.run(tree({"tools/a.py": "import urllib.parse\nfrom urllib import parse\n"})),
                                 "reaches the network"))
 
+    def test_the_p50_stub_alone_may_serve_and_only_on_loopback(self):
+        # Decision 0044's one exception (issue 287): tools/trial_p50_stub.py may import http.server, and nothing that
+        # reaches out; it serves on 127.0.0.1 written as it is, calls no create_connection, and no workflow here names it.
+        stub = (ROOT / "tools" / "trial_p50_stub.py").read_text()
+        rel = "tools/trial_p50_stub.py"
+        self.assertEqual(check_repo.run(clone({})), [], "the stub as it is")
+        for text in ("import http.server\n", "from http import server\n"):
+            self.assertFalse(caught(check_repo.run(tree({rel: text})), "reaches the network"), text)
+            self.assertTrue(caught(check_repo.run(tree({"tools/trial_p51_stub.py": text})), "reaches the network"), text)
+        for text in ("import urllib.request\n", "import http.client\n", "from http import client, server\n", "import ssl\n",
+                     "import socket\n", "from socket import create_connection\n"):
+            self.assertTrue(caught(check_repo.run(tree({rel: text})), "reaches the network"), text)
+        self.assertTrue(caught(check_repo.run(tree({rel: "import x\nx.create_connection(('a', 1))\n"})), "create_connection"))
+        served = 'http.server.HTTPServer(("127.0.0.1", 0), Stub)'
+        self.assertIn(served, stub)
+        for wrong in ('"0.0.0.0"', '""', '"localhost"', "HOST"):
+            text = stub.replace(served, served.replace('"127.0.0.1"', wrong))
+            self.assertTrue(caught(check_repo.run(tree({rel: text})), "serves on an address that is not 127.0.0.1"), wrong)
+        text = stub.replace(served, served.replace("HTTPServer", "ThreadingHTTPServer").replace('"127.0.0.1"', '"0.0.0.0"'))
+        self.assertTrue(caught(check_repo.run(tree({rel: text})), "serves on an address"))
+        self.assertTrue(caught(check_repo.run(tree({rel: "import x\nx.bind(('', 80))\n"})), "serves on an address"))
+        workflow = (ROOT / ".github" / "workflows" / "verify.yml").read_text()
+        named = workflow.replace("      - run: make verify\n", "      - run: python3 tools/trial_p50_stub.py p l\n")
+        self.assertNotEqual(named, workflow)
+        self.assertTrue(caught(check_repo.run(clone({".github/workflows/verify.yml": named})), "runs only in the canary's workflow"))
+
     def test_only_the_transport_names_githubs_artifact_storage(self):
         # The Maintainer's ruling on #192: the transport alone follows the artifact's redirect, so no other code names
         # the storage it goes to, by either of GitHub's hosts; a test may, to answer for it.

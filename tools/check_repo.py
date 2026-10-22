@@ -38,6 +38,13 @@ STDLIB = STDLIB | {"zipfile", "zlib"}
 NETWORK = {"urllib.request", "http", "socket", "ssl", "ftplib", "smtplib", "imaplib", "poplib", "nntplib",
            "telnetlib", "xmlrpc", "socketserver", "asyncio", "webbrowser"}
 TRANSPORT = pathlib.PurePosixPath("adapters/github.py")
+# The one exception, decision 0044's Boundaries (the Maintainer's ruling on issue 287): P-50's stub of the model's API,
+# which serves the pinned CLI canned answers on the canary's runner, and nowhere else. It is held to that: it imports
+# http.server and nothing that reaches out, its server binds 127.0.0.1 and nothing else, it calls no
+# create_connection, and no workflow of this repo names it.
+TRIAL_STUB = pathlib.PurePosixPath("tools/trial_p50_stub.py")
+STUB_SERVES = "http.server"
+LOOPBACK = "127.0.0.1"
 # The one host off GitHub's API the transport reaches, an artifact's storage (the Maintainer's ruling on #192): no other
 # code names it, so no other code builds an address there; a test may, to answer for it.
 STORAGE = re.compile(r"blob\.core\.windows\.net|githubusercontent\.com", re.IGNORECASE)
@@ -102,6 +109,7 @@ def _python(rel: pathlib.PurePath, text: str) -> list:
         problems.append("%s:%d defines %s a second time" % (rel, line, name))
     seeded = rel.parts[0] in ("sim", "tests")
     transport = pathlib.PurePosixPath(*rel.parts) == TRANSPORT
+    stub = pathlib.PurePosixPath(*rel.parts) == TRIAL_STUB
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 0)
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and STORAGE.search(node.value) \
@@ -119,9 +127,20 @@ def _python(rel: pathlib.PurePath, text: str) -> list:
             if mod.split(".")[0] not in STDLIB | LOCAL:
                 problems.append("%s:%d imports %s, which is not in the allowed list" % (rel, line, mod))
         for mod in mods + (reached if isinstance(node, ast.ImportFrom) and not node.level else []):
-            if any(mod == net or mod.startswith(net + ".") for net in NETWORK) and pathlib.PurePosixPath(*rel.parts) != TRANSPORT:
+            served = stub and (mod == STUB_SERVES or mod == "http" and isinstance(node, ast.ImportFrom)
+                               and all(alias.name == "server" for alias in node.names))
+            if any(mod == net or mod.startswith(net + ".") for net in NETWORK) and not transport and not served:
                 problems.append("%s:%d imports %s, which reaches the network; only %s does, as the one transport"
                                 % (rel, line, mod, TRANSPORT))
+        if stub and isinstance(node, ast.Attribute) and node.attr == "create_connection":
+            problems.append("%s:%d calls create_connection; the stub serves and never reaches out" % (rel, line))
+        if stub and isinstance(node, ast.Call):
+            called = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+            if called.endswith("HTTPServer") or called == "bind":
+                where = node.args[0] if node.args else None
+                host = where.elts[0] if isinstance(where, ast.Tuple) and where.elts else None
+                if not (isinstance(host, ast.Constant) and host.value == LOOPBACK):
+                    problems.append("%s:%d serves on an address that is not %s, written as it is" % (rel, line, LOOPBACK))
         if isinstance(node, ast.Name) and node.id in LOADERS:
             problems.append("%s:%d uses %s, which can load code no check has seen" % (rel, line, node.id))
         # Only random() gives the same sequence from the same seed on every Python version.
@@ -210,6 +229,8 @@ def run(root: pathlib.Path = ROOT) -> list:
         for shape in SECRETS:
             if shape.search(text):
                 problems.append("%s: holds something shaped like a credential" % rel)
+        if rel.parts[:2] == (".github", "workflows") and TRIAL_STUB.stem in text:
+            problems.append("%s names %s, which runs only in the canary's workflow" % (rel, TRIAL_STUB))
         if path.suffix == ".py" and rel.parts[0] != "tests" and \
                 re.search(r"(?:^test_)|(?:_tests?$)", path.stem):
             problems.append("%s: a test outside tests/ is never run" % rel)
