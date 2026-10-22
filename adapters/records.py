@@ -41,6 +41,8 @@ NOT_STARTED = {"queued", "waiting", "requested", "pending"}
 CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "cancelled", "cancelled": "cancelled",
                "timed_out": "timed_out"}
 FRESH = {"Cache-Control": "no-cache"}
+# The faults an outcome names, as `outcome/1` holds them: one of these, once read, is that attempt's for good.
+CONCLUDED = {"item", "capacity", "environment", "superseded"}
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 HTTP_DATE = re.compile(r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0-9]{2}) ([A-Z][a-z]{2}) ([0-9]{4}) "
                        r"([0-9]{2}:[0-9]{2}:[0-9]{2}) GMT")
@@ -154,18 +156,58 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
     return (dict(parts, status=status, conclusion=conclusion, outcome=None, started_at=started), None)
 
 
+def known(previous: list) -> dict:
+    """The outcomes the pass records before this one read, each by its Run id and when its attempt started, from the
+    records `controller/pass_.earlier` placed before the pass, held to `pass/1` by `controller/reads.previous_records`,
+    the Factory's own, last two at most (#285's ruling).
+
+    An outcome is written once, by its attempt's final step, so one that named a fault is that attempt's for good; a
+    re-run starts again, at another time, and is read afresh. A Run that left none is kept as none only once two passes
+    in a row read none for that attempt and each read its list whole, its count of active Runs a count: a list read
+    short may have read none where there was one, and an outcome GitHub listed late is read the pass after. A key
+    either record lists twice, whatever its status, is kept by neither, and nothing is kept from a record that is not
+    a `pass/1` record's runs."""
+    def read(record) -> dict:
+        runs_ = record.get("runs") if isinstance(record, dict) else None
+        if not isinstance(runs_, list):
+            return {}
+        context = record.get("context") if isinstance(record.get("context"), dict) else {}
+        whole = type(context.get("active_runs")) is int
+        found, listed = {}, []
+        for r in runs_:
+            if not (isinstance(r, dict) and isinstance(r.get("run"), str) and isinstance(r.get("started_at"), str)):
+                continue
+            listed.append((r["run"], r["started_at"]))
+            outcome = r.get("outcome")
+            if not (r.get("status") == "completed" and r.get("conclusion") not in (None, "success")
+                    and (outcome in CONCLUDED if isinstance(outcome, str) else outcome is None and whole)):
+                continue
+            found[(r["run"], r["started_at"])] = outcome
+        return {k: v for k, v in found.items() if listed.count(k) == 1}
+    records_ = list(previous[-2:]) if isinstance(previous, list) else []
+    last = read(records_[-1]) if records_ else {}
+    before = read(records_[-2]) if len(records_) == 2 else {}
+    return {k: v for k, v in last.items() if v is not None or (k in before and before[k] is None)}
+
+
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
-         sleep=time.sleep) -> dict:
+         sleep=time.sleep, kept=None) -> dict:
     """The run records of the Factory's Role workflows, the ids of counted Runs not yet named, whether the list was
     read whole, and each read's date and age for the pass record. `dispatcher` is the Controller's App, by its account
     id and type, `(id, "Bot")`: only a run it dispatched is a Run.
 
     `outcome` is the fault a completed Run that did not succeed names in its artifact, and null on every other record
-    and on one that left none."""
+    and on one that left none. `kept` is what `known` read from the pass records before: an outcome held there is not
+    read again, for a row that names when its attempt started, and once in this list, whatever its status. Each outcome read is stamped
+    beside the list's reads, `read` `outcome`: one stamp for each Run's read, its artifacts listed and, where an
+    outcome is listed, downloaded, so the pass record says how many outcomes a pass read. Nothing calls `known` until
+    the pass's entry, the effects port's next part (#193), hands it the records it placed."""
+    kept = kept or {}
     roles = {".github/workflows/%s" % name for name in workflows}
 
     def read() -> tuple:
         records, unnamed, reads, whole, failed = [], [], [], True, []
+        attempts = {}
         for workflow in workflows:
             rows, got, complete = _list(transport, repo, workflow, branch, per_page)
             reads += got
@@ -178,18 +220,26 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
                 record, unidentified = found
                 if record is not None:
                     records.append(record)
+                    key = (record["run"], record["started_at"])
+                    attempts[key] = attempts.get(key, 0) + 1
                     if record["status"] == "completed" and record["conclusion"] != "success":
-                        failed.append((record, row["id"]))
+                        failed.append((record, row["id"], bool(row.get("run_started_at"))))
                 if unidentified is not None:
                     unnamed.append(unidentified)
-        return records, unnamed, reads, whole, failed
+        return records, unnamed, reads, whole, [(r, i, timed and attempts[(r["run"], r["started_at"])] == 1)
+                                                for r, i, timed in failed]
 
     records, unnamed, reads, whole, failed = read()
     if unnamed:
         sleep(WAIT)
         records, unnamed, again, whole, failed = read()
         reads += again
-    for record, github_id in failed:
-        record["outcome"], read_whole = artifacts.outcome(transport, repo, github_id, record["run"])
+    for record, github_id, keyed in failed:
+        if keyed and (record["run"], record["started_at"]) in kept:
+            record["outcome"] = kept[(record["run"], record["started_at"])]
+            continue
+        record["outcome"], read_whole = artifacts.outcome(
+            transport, repo, github_id, record["run"],
+            lambda answer: reads.append(dict(_read_at(answer), read="outcome")))
         whole = whole and read_whole
     return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads}

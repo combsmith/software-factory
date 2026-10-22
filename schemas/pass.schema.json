@@ -64,7 +64,8 @@
           "read": {
             "enum": [
               "runs",
-              "facts"
+              "facts",
+              "outcome"
             ]
           },
           "date": {
