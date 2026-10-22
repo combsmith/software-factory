@@ -287,9 +287,12 @@ class Apply(unittest.TestCase):
         # A Run listed before its name defers, but this one's own, by its GITHUB_RUN_ID (decision 0036).
         listed = lambda *ids: support.context(active_runs=1, unidentified_runs=[
             {"run": i, "created_at": "2026-10-11T12:58:00Z", "status": "in_progress"} for i in ids])
-        self.assertIsNone(refused(context=listed(4242)))
-        self.assertEqual(refused(context=listed(4242, 4243)), ("superseded", "not_admitted"))
-        self.assertEqual(refused(context=listed(4242), github_run=4243), ("superseded", "not_admitted"))
+        self.assertIsNone(refused(context=listed("4242")))
+        self.assertEqual(refused(context=listed("4242", "4243")), ("superseded", "not_admitted"))
+        self.assertEqual(refused(context=listed("4242"), github_run=4243), ("superseded", "not_admitted"))
+        # The records port gives the id as digits, and the job may be given its own as a number: the same id either way.
+        self.assertIsNone(refused(context=listed("4242"), github_run=4242))
+        self.assertEqual(refused(context=listed("4242"), github_run=None), ("superseded", "not_admitted"))
         # A count of active Runs that cannot be this Run's is left as read, and the Kernel defers on it (Argon's read).
         for count in (True, -1, None):
             self.assertEqual(refused(context=support.context(active_runs=count)), ("superseded", "not_admitted"), count)
@@ -330,12 +333,15 @@ class Apply(unittest.TestCase):
             ({"effects": {"submit_review": [dict(review, comments=review["comments"] + [{"finding": "n9", "body": "x"}])],
                           "create_check_run": [check]}}, "finding_not_raised"),
             ({"effects": {"submit_review": [review]}}, "finding_not_posted_once"),
-            ({"effects": {"submit_review": [review, dict(review, id="e3")], "create_check_run": [check]}},
-             "finding_not_posted_once"),
+            ({"effects": {"submit_review": [review], "create_check_run": [dict(check, annotations=check["annotations"] + [
+                {"finding": "n1", "body": "again"}])]}}, "finding_not_posted_once"),
             ({"findings": [n1, dict(n2, severity="major")]}, "finding_gates"),
             ({"findings": [dict(n1, severity="minor"), n2]}, "finding_does_not_gate"),
             ({"findings": [{k: v for k, v in n1.items() if k != "location"}, n2]}, "finding_has_no_place"),
-            ({"findings": [n1, {k: v for k, v in n2.items() if k != "location"}]}, "finding_has_no_place"))
+            ({"findings": [n1, {k: v for k, v in n2.items() if k != "location"}]}, "finding_has_no_place"),
+            ({"findings": [dict(n1, location={"path": "kernel/decide.py"}), n2]}, "finding_has_no_place"),
+            ({"effects": {"submit_review": [review, dict(review, id="e3", comments=[])], "create_check_run": [check]}},
+             "review_twice"))
         for over, code in cases:
             self.assertEqual(refused(res=result(**over)), ("item", code), code)
         # A security Finding gates at any severity, so it is a review comment.
@@ -538,6 +544,13 @@ class RoleWrites(unittest.TestCase):
             back = effects.role_write(hub, ITEM, "submit_review", review_request(), LOGIN)
             self.assertEqual((back["state"], back["reason"], back["key"]), want + (None,))
             self.assertEqual(len(hub.sent), 2)
+        # A credential GitHub refuses on a recovery read or a read-back is refused as on a write (Codex's read).
+        for answers in ((ok(None, 401),), (ok([]), ok(p43_review()), ok(None, 403))):
+            calls = [("GET", PULL + "/reviews?per_page=100"), ("POST", PULL + "/reviews"),
+                     ("GET", PULL + "/reviews/%d" % rid)]
+            hub = GitHub(*zip(calls, answers))
+            self.assertEqual(effects.role_write(hub, ITEM, "submit_review", review_request(), LOGIN),
+                             {"state": "refused", "key": None, "surfaces": {}, "reason": "token_refused"})
         # GitHub took it, but what was read back is not it: sent, and nothing claimed.
         for review, threads in ((p43_review(commit_id="0" * 40), threads_of(rid, ("PRRT_kw7", rid))),
                                 (p43_review(state="APPROVED"), threads_of(rid, ("PRRT_kw7", rid))),
@@ -578,13 +591,18 @@ class RoleWrites(unittest.TestCase):
     def test_a_comment_is_recovered_by_this_apps_comments_since_the_run_began_never_by_its_text(self):  # 3.6
         since = "2026-10-11T12:58:00Z"
         listed = ("GET", ISSUE + "/comments?since=%s&per_page=100" % since)
-        mine = lambda cid: {"id": cid, "node_id": "IC_%d" % cid, "user": {"login": LOGIN}, "body": "anything"}
+        mine = lambda cid, at=since: {"id": cid, "node_id": "IC_%d" % cid, "user": {"login": LOGIN}, "body": "anything",
+                                      "created_at": at}
         req = lambda index: {"on": "item", "body": "Said once.", "since": since, "index": index}
-        hub = GitHub((listed, ok([mine(7), {"id": 8, "user": {"login": "don-petry"}}])),
+        hub = GitHub((listed, ok([mine(7), {"id": 8, "user": {"login": "don-petry"}, "created_at": since}])),
                      (("POST", ISSUE + "/comments"), ok(mine(9), 201)),
                      (("GET", "/repos/%s/issues/comments/9" % ITEM["repo"]), ok(mine(9))))
         self.assertEqual(effects.role_write(hub, ITEM, "comment", req(1), LOGIN)["state"], "applied")
         self.assertEqual(hub.sent[1]["body"], {"body": "Said once."})
+        # One this App made before the Run and edited since is listed, and is not this Run's (Codex's read).
+        hub = GitHub((listed, ok([mine(3, "2026-10-11T11:00:00Z")])), (("POST", ISSUE + "/comments"), ok(mine(9), 201)),
+                     (("GET", "/repos/%s/issues/comments/9" % ITEM["repo"]), ok(mine(9))))
+        self.assertEqual(effects.role_write(hub, ITEM, "comment", req(0), LOGIN)["state"], "applied")
         hub = GitHub((listed, ok([mine(9), mine(7)])), (("GET", "/repos/%s/issues/comments/7" % ITEM["repo"]), ok(mine(7))))
         self.assertEqual(effects.role_write(hub, ITEM, "comment", req(0), LOGIN),
                          {"state": "already_applied", "key": "IC_7", "surfaces": {}, "reason": None})
@@ -756,7 +774,8 @@ class Job(unittest.TestCase):
     CONFIG = {"kernel": support.CONFIG, "rubric": RUBRIC, "authority": AUTHORITY, "github_run": 4242,
               "app": APPS["apps"]["pr-review"], "needs": APPS["needs"]}
 
-    def go(self, res, refusing=False, write=None, mint_refuses=None, task=None, records=None, context=None):
+    def go(self, res, refusing=False, write=None, mint_refuses=None, task=None, records=None, context=None,
+           revoked=True):
         calls = {"mint": [], "revoke": 0, "written": []}
 
         def read():
@@ -770,6 +789,7 @@ class Job(unittest.TestCase):
                 raise identity.Refused(mint_refuses)
             def revoke():
                 calls["revoke"] += 1
+                return revoked
             return "a transport with the token", revoke
 
         def wrote(transport, kind, req):
@@ -830,12 +850,17 @@ class Job(unittest.TestCase):
                          ("failed", "effect_raised", 1))
         self.assertEqual((ended["outcome"], ended["reason"]), ("environment", "effect_failed"))
         # A credential GitHub would not take ends every later write on it, which is never sent.
-        twice = result(findings=result()["findings"][:1], effects={"submit_review": [
-            result()["effects"]["submit_review"][0], dict(result()["effects"]["submit_review"][0], id="e3", comments=[])]})
-        record, ended, calls = self.go(twice, write=lambda kind, req: {"state": "refused", "reason": "token_refused"})
+        twice = result(findings=result()["findings"][:1], effects={
+            "submit_review": result()["effects"]["submit_review"], "comment": [{"id": "e3", "on": "item", "body": "x"}]})
+        record, ended, calls = self.go(twice, write=lambda kind, req: {"state": "refused", "reason": "token_refused"},
+                                       task=the_task(permitted_effects=["submit_review", "comment"]))
         self.assertEqual([(e["state"], e["reason"]) for e in record["effects"]],
                          [("refused", "token_refused"), ("refused", "token_refused")])
         self.assertEqual((len(calls["written"]), ended["outcome"], ended["reason"]), (1, "environment", "effect_failed"))
+        # A token GitHub did not confirm revoked may still write: the Run ends the Factory's to look at (Codex's read).
+        record, ended, calls = self.go(review_only, revoked=False)
+        self.assertEqual((record["effects"][0]["state"], ended["outcome"], ended["reason"]),
+                         ("applied", "environment", "token_not_revoked"))
         # A comment carries when the Run began, from its record or, listed before its name, its run's creation; its
         # place is among the Run's comments on the item; none is sent after one on the item that was not written.
         talk = the_task(permitted_effects=["comment"])
@@ -846,7 +871,7 @@ class Job(unittest.TestCase):
         facts_threads = support.facts(threads=[support.thread("PRRT_kw7")])
         cases = ((runs(), support.context(active_runs=1), "2026-10-11T12:58:00Z"),
                  ([], support.context(active_runs=0, unidentified_runs=[
-                     {"run": 4242, "created_at": "2026-10-11T12:57:00Z", "status": "in_progress"}]), "2026-10-11T12:57:00Z"))
+                     {"run": "4242", "created_at": "2026-10-11T12:57:00Z", "status": "in_progress"}]), "2026-10-11T12:57:00Z"))
         for records, context, since in cases:
             got = []
             def note(kind, req):

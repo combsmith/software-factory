@@ -276,19 +276,25 @@ def role_permits(item: dict, head: str, name: str, threads) -> tuple:
     return permits, patterns
 
 
+class _TokenRefused(Exception):
+    """GitHub would not take the credential, on a read or a write: the write ends refused, and so does every later one."""
+
+
 def _sent(transport, req: dict):
-    """GitHub's answer, or None where it gave none. Nothing is sent twice."""
+    """GitHub's answer, or None where it gave none. Nothing is sent twice. A 401 or 403, to a read as to a write, ends
+    the write: the credential is refused."""
     try:
-        return transport.send(req)
+        answer = transport.send(req)
     except Unanswered:
         return None
+    if isinstance(answer, dict) and answer.get("status") in REFUSED:
+        raise _TokenRefused()
+    return answer
 
 
 def _fault(answer) -> dict:
-    """A write GitHub did not take: refused for a credential it would not take, which ends every later write on it, or
-    failed for no answer or one it did not take."""
-    if answer is not None and answer.get("status") in REFUSED:
-        return _back("refused", None, reason="token_refused")
+    """A write GitHub did not take: failed for no answer or one it did not take. A credential it would not take never
+    reaches here: `_sent` ends the write refused."""
     if answer is None or answer.get("status", 500) >= 500:
         return _back("failed", None, reason="write_unanswered")
     return _back("failed", None, reason="write_refused")
@@ -311,14 +317,17 @@ def role_write(transport, item: dict, kind: str, req: dict, login: str) -> dict:
     """What one of a Role's writes did, read back: `{state, key, surfaces, reason}`. `applied` or `already_applied`
     only with the key it was read back by, and for a review each comment's thread; `sent` for one GitHub took whose
     read-back failed, so that nothing is claimed for it."""
-    if kind == "submit_review":
-        return _review(transport, item, req, login)
-    if kind == "create_check_run":
-        return _check(transport, item, req, login)
-    if kind == "resolve_thread":
-        return _resolve(transport, item, req)
-    if kind == "comment" and req["on"] == "item":
-        return _comment(transport, item, req, login)
+    try:
+        if kind == "submit_review":
+            return _review(transport, item, req, login)
+        if kind == "create_check_run":
+            return _check(transport, item, req, login)
+        if kind == "resolve_thread":
+            return _resolve(transport, item, req)
+        if kind == "comment" and req["on"] == "item":
+            return _comment(transport, item, req, login)
+    except _TokenRefused:
+        return _back("refused", None, reason="token_refused")
     return _back("failed", None, reason="not_built")
 
 
@@ -461,8 +470,10 @@ def _comment(transport, item: dict, req: dict, login: str) -> dict:
     listed = _body(_sent(transport, request("GET", issue + "?since=%s&per_page=100" % req["since"])), 200)
     if not isinstance(listed, list) or len(listed) >= 100:
         return _back("failed", None, reason="comments_unreadable")
+    # `since` lists comments updated since then: one made before the Run and edited since is not this Run's.
     mine = sorted((c for c in listed if isinstance(c, dict) and isinstance(c.get("user"), dict)
-                   and c["user"].get("login") == login and type(c.get("id")) is int), key=lambda c: c["id"])
+                   and c["user"].get("login") == login and type(c.get("id")) is int
+                   and isinstance(c.get("created_at"), str) and c["created_at"] >= req["since"]), key=lambda c: c["id"])
     state = "already_applied" if len(mine) > req["index"] else "applied"
     if state == "applied":
         answer = _sent(transport, request("POST", issue, body={"body": req["body"]}))

@@ -74,6 +74,12 @@ def posts(effects: dict) -> list:
     return out
 
 
+def _this_run(listed, github_run) -> bool:
+    """Whether a Run listed before its name is this job's own: its GitHub id, which the records port gives as digits,
+    is this job's `GITHUB_RUN_ID`, compared as the same text whatever type either was given as."""
+    return isinstance(listed, dict) and str(listed.get("run")) == str(github_run)
+
+
 def _superseded(task: dict, facts: dict, runs: list, context: dict, kernel: dict, now: str, github_run):
     """The code of a change under the Run, or None. The Kernel is asked again with this Run left out: a Run in
     progress admits nothing, and this one is; nor does a Run listed before its name, and this one may be, so its own
@@ -95,7 +101,7 @@ def _superseded(task: dict, facts: dict, runs: list, context: dict, kernel: dict
         context = dict(context, active_runs=active - len(mine))
     if isinstance(context.get("unidentified_runs"), list):
         context = dict(context, unidentified_runs=[u for u in context["unidentified_runs"]
-                                                   if not (isinstance(u, dict) and u.get("run") == github_run)])
+                                                   if not _this_run(u, github_run)])
     again = decide(facts, others, context, kernel, now)
     if again["outcome"] != t.ADMIT or again["admit"] != {"role": task["role"], "intent": task["intent"],
                                                           "content_id": task["content_id"]}:
@@ -110,6 +116,9 @@ def _effects(task: dict, result: dict, facts: dict):
     ids = [e["id"] for kind in ORDER for e in effects.get(kind, ())]
     if len(ids) != len(set(ids)):
         return "effect_named_twice"
+    # A review is recovered as this App's one on this commit (section 3.6): a second would be read back as the first.
+    if len(effects.get("submit_review", ())) > 1:
+        return "review_twice"
     # A thread's id is global, and the App's token reaches every item it is installed on: an Effect on a thread is
     # on one of this item's (decision 0038).
     threads = {th["id"] for th in facts["threads"]}
@@ -133,7 +142,8 @@ def _effects(task: dict, result: dict, facts: dict):
             return "finding_does_not_gate"
         if kind == "create_check_run" and gates(finding):
             return "finding_gates"
-        if "location" not in finding:
+        # A posted Finding is placed on lines: a whole file is no place a review comment or an annotation can be.
+        if "location" not in finding or "start_line" not in finding["location"]:
             return "finding_has_no_place"
     return None
 
@@ -235,7 +245,7 @@ def requests(task: dict, result: dict, head: str, role: dict, since: str = None)
 
 def _place(finding: dict) -> dict:
     where = finding["location"]
-    start = where.get("start_line", 1)
+    start = where["start_line"]
     return {"path": where["path"], "start_line": start, "end_line": where.get("end_line", start)}
 
 
@@ -343,8 +353,8 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
     # 0036). Neither read, a comment on the item cannot be recovered, and is refused as unreadable.
     since = next((r["started_at"] for r in runs if r["run"] == admit["run"]), None)
     if since is None and isinstance(context.get("unidentified_runs"), list):
-        since = next((u["created_at"] for u in context["unidentified_runs"]
-                      if isinstance(u, dict) and u.get("run") == config["github_run"]), None)
+        since = next((u["created_at"] for u in context["unidentified_runs"] if _this_run(u, config["github_run"])),
+                     None)
     why = refusal(admit, result, facts, runs, context, config["kernel"], now, role, config["rubric"],
                   config["authority"], config["github_run"])
     if why is not None:
@@ -379,8 +389,11 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
                 # A write that raised is a failed Effect, never a claim.
                 written.append((effect_id, kind, {"state": "failed", "reason": "effect_raised"}))
     finally:
-        revoke()
+        revoked = revoke()
     record = applied(admit, result, written, role)
+    # A token GitHub did not confirm revoked may still write: the Run is the Factory's to look at.
+    if revoked is not True:
+        return record, outcome(admit, record, ("environment", "token_not_revoked"))
     return record, outcome(admit, record)
 
 
