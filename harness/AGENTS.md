@@ -7,8 +7,11 @@ under its own name. Every test drives a stand-in for the CLI: the first live Run
 `approve.py` is the approving act, a Run with no Engine: through the machine user's token alone it approves the commit
 it read, only if the Kernel asked again still wants it, and says whose fault each failure was (decision 0055). Its
 tests drive a stand-in GitHub; its step lands with the approving workflow.
+`eval/` is the eval job's steps, `factory / eval`: the held-out set run on the commit it judges, each case read into a
+scratch outside the workspace, scored, and reported by hashes, verdicts and codes alone (decision 0053; its rules are
+`evals/AGENTS.md`'s).
 
-Not built yet, by the stories that hold their rules: apply.py, verify.py.
+Not built yet, by the stories that hold their rules: apply.py, verify.py, eval/run.py.
 
 | Rule | Held by |
 |---|---|
