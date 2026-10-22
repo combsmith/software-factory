@@ -92,6 +92,14 @@ def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, conte
     return _decision(facts, state, reason, evidence, t.ACT, action=action, content_id=facts["content_id"])
 
 
+def _a_pull_request(item) -> bool:
+    """Whether `item` names a pull request whole: its repo, its type and its number, each as `facts/1` gives it."""
+    if not isinstance(item, dict) or item.get("type") != "pull_request":
+        return False
+    repo, number = item.get("repo"), item.get("number")
+    return isinstance(repo, str) and bool(repo) and isinstance(number, int) and not isinstance(number, bool) and number > 0
+
+
 def still_wanted(decided: dict, again: dict) -> bool:
     """Whether an act or a Run may go ahead: the Decision it was started by, `decided`, against `again`, the Kernel asked
     again on what it just read with its own Run left out of the records (I-38, issue 195). A Run is still wanted only if
@@ -99,7 +107,7 @@ def still_wanted(decided: dict, again: dict) -> bool:
     issue's. An approval is still wanted only if the approval is issued again, for the same item and content. So a Hold,
     a Pause, a close, new content, a Run in flight, a writer's gate, a wait for a person and an approver who is now the
     author each stop it. Anything else, or anything that cannot be read, is not wanted."""
-    if not isinstance(decided, dict) or not isinstance(again, dict) or not isinstance(decided.get("item"), dict) \
+    if not isinstance(decided, dict) or not isinstance(again, dict) or not _a_pull_request(decided.get("item")) \
             or again.get("item") != decided.get("item"):
         return False
     admit = decided.get("admit")

@@ -3813,7 +3813,12 @@ class StillWanted(unittest.TestCase):
                   go(facts(label_events=[labelled("factory:hold")]))):
             self.assertFalse(still_wanted(d, d), d["reason"])
         # An item or a Run that cannot be read wants nothing, even of its twin (Argon's read).
+        item = approval["item"]
         for d in (dict(approval, item=None), dict(admitted, item=None), dict(admitted, admit={}),
+                  dict(approval, item={}), dict(admitted, item={}), dict(approval, item=dict(item, repo="")),
+                  dict(approval, item=dict(item, repo=None)), dict(approval, item=dict(item, type="issue")),
+                  dict(approval, item=dict(item, number=None)), dict(approval, item=dict(item, number=True)),
+                  dict(approval, item=dict(item, number=0)), dict(approval, item=dict(item, number="42")),
                   dict(admitted, admit=dict(REVIEW_IT, content_id=None)), dict(admitted, admit=dict(REVIEW_IT, role=None)),
                   dict(admitted, admit=dict(REVIEW_IT, intent=None)), dict(admitted, admit="pr-review"),
                   dict(admitted, admit=dict(REVIEW_IT, role="")), dict(admitted, admit=dict(REVIEW_IT, content_id=7)),
