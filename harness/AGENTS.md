@@ -4,6 +4,7 @@ The Harness: the jobs that carry one Run. `task.py` builds the Task from the Dec
 Result and its digest and nothing else of the model. `apply.py` is what the `apply` job does with that Result: it reads the item again, refuses what may not be written, writes the Effects with a token narrowed to them, and records only what
 it read back. The model is given no tool, and the CLI no secret but the one under its own name. Every test drives a stand-in for the CLI: the first live Run is the workflows' and the Release's. `eval/` is the eval job's steps, `factory /
 eval`: the held-out set run on the commit it judges, each case read into a scratch outside the workspace, scored, and reported by hashes, verdicts and codes alone (decision 0053; its rules are `evals/AGENTS.md`'s).
+`approve.py` is the approving act, a Run with no Engine: through the machine user's token alone it approves the commit it read, only if the Kernel asked again still wants it (decision 0055).
 
 Not built yet, by the stories that hold their rules: verify.py, push.py, eval/run.py.
 
@@ -34,4 +35,6 @@ Not built yet, by the stories that hold their rules: verify.py, push.py, eval/ru
 | The Result is taken by the digest `run` reported, and held to its schema | `tests/test_apply.py::test_a_result_is_taken_by_the_digest_run_reported_and_held_to_its_schema` |
 | A Result is held to the Decision that admitted its Run | `tests/test_apply.py::test_what_a_result_is_held_to_is_the_decision_that_admitted_its_run` |
 | Nothing is minted for a refused Result, and the token is revoked whatever happens | `tests/test_apply.py::test_nothing_is_minted_for_a_refused_result_and_the_token_is_revoked_whatever_happens` |
+| The approving act sends one write, the approval of the commit it read, and claims only what it reads back | `tests/test_approve.py::test_the_act_sends_one_write_and_it_is_the_approval` |
+| It approves only through the approver's token, for a Decision that issued the approval, what the Kernel still wants | `tests/test_approve.py::test_the_act_approves_only_what_the_kernel_asked_again_still_wants` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
