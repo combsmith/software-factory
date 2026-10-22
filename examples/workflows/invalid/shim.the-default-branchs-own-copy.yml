@@ -1,0 +1,25 @@
+# Must be rejected. A local path calls main's copy of the pass, not the Release's.
+name: sf-poller
+on:
+  schedule:
+    - cron: "13 * * * *"
+    - cron: "33 * * * *"
+    - cron: "53 * * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - factory
+      - ci
+      - sf-run
+    types:
+      - completed
+permissions: {}
+jobs:
+  pass:
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: sf-poller
+      cancel-in-progress: false
+    uses: ./.github/workflows/pass.yml
