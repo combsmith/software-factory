@@ -12,7 +12,7 @@ Every read of the list asks GitHub for the default branch's dispatches alone and
 keeps the answer's `date` and `age` for the pass record, which never reach the Kernel (ruling 4). The list is whole
 only when every page was read, each run once, as many as the count GitHub gives, with every row readable and every
 counted run's outcome read (L-53). A Run that did not succeed has its outcome read from its artifact by
-`adapters/artifacts.py`, once the list is final, and for no other Run (decisions 0029 and 0039): one it cannot read
+`adapters/artifacts.py`, once the list is final, and for no other Run (decisions 0039 and 0049): one it cannot read
 leaves the list not whole, so that no failed Run is ever read as no attempt.
 """
 from __future__ import annotations
@@ -34,9 +34,11 @@ NAME = re.compile(r"sf ([A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100})#([1-9][0-9]
 # The Intents a pull request's Runs carry, as kernel/decide.py admits them, and an issue's, as kernel/issue.py does.
 # A name with any other Intent cannot be placed on an item: its row cannot be read.
 ON_PULL_REQUEST = {"review-change", "fix-findings", "adjudicate-findings", terms.ISSUE_APPROVAL}
-# GitHub's words for a run that has not started, and how each ends, as the run record holds them.
+# GitHub's words for a run that has not started, and how each ends, as the run record holds them. A Run whose job never
+# started, `startup_failure`, ran no Role and left no outcome: it is read as `cancelled`, no attempt, and the Run ceiling
+# bounds it (decision 0049, issue 286), never as `failure`, which with no outcome is an attempt.
 NOT_STARTED = {"queued", "waiting", "requested", "pending"}
-CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "failure", "cancelled": "cancelled",
+CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "cancelled", "cancelled": "cancelled",
                "timed_out": "timed_out"}
 FRESH = {"Cache-Control": "no-cache"}
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
