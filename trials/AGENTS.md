@@ -6,6 +6,8 @@ org itself for a trial about the org and its Apps (decision 0035), or, for a tri
 CLI, in no repo (decision 0033), and what came back, with every credential removed. The fake
 GitHub in `sim/` is held to these (`sim/grounding.py`). How a trial is run is the skill
 `.claude/skills/run-a-platform-trial/SKILL.md`; P-13's script, `tools/trial_p13_cli.sh`, has its runbook beside it, `tools/trial_p13_runbook.md`.
+P-26's script, `tools/trial_p26_sandbox.sh`, holds its runbook and its pass condition at its top; so do P-50's and P-51's, `tools/trial_p50_linux_sandbox.sh` and `tools/trial_p51_sandbox_writes.sh`,
+which with P-50's stub, `tools/trial_p50_stub.py`, a trial runs only in the canary's workflow; this repo's tests run them against a stand-in CLI, the stub on 127.0.0.1.
 `python3 -m tools.check_trials` checks this folder alone, before a fixture is added to git.
 
 | Rule | Held by |
@@ -27,3 +29,12 @@ GitHub in `sim/` is held to these (`sim/grounding.py`). How a trial is run is th
 | It refuses the default configuration: the home directory, any directory holding it, anything under `~/.claude`, the repo | `tests/test_tools.py::test_each_refusal_stops_before_anything_is_asked` |
 | It stops unless `auth status` exits 0 and says logged in, and records that exit code | `tests/test_tools.py::test_the_logins_exit_code_is_recorded` |
 | Of the Task's answer only the fields the script names reach OUT, so no model text does, whether or not the structured output validates | `tests/test_tools.py::test_no_model_text_reaches_out_whether_or_not_the_output_validates` |
+| P-26's script gives the CLI only the environment it names, its markers and one command | `tests/test_tools.py::test_the_cli_is_given_only_the_named_environment_and_one_command` |
+| Its probe reads no process above the CLI | `tests/test_tools.py::test_the_probe_reads_nothing_above_the_cli` |
+| No marker and none of the model's text reaches its OUT | `tests/test_tools.py::test_no_marker_and_no_model_text_reaches_out` |
+| Each configuration is judged by the condition written first | `tests/test_tools.py::test_each_configuration_is_judged_by_the_condition` |
+| P-50's script gives the CLI the stub, a dummy key and its markers alone | `tests/test_tools.py::test_the_cli_is_given_the_stub_a_dummy_key_and_the_markers_alone` |
+| Its stub answers one tool call, then done, and keeps no header or prompt | `tests/test_tools.py::test_the_stub_answers_one_tool_call_and_keeps_no_header` |
+| A Task that fails says why in the log, its markers taken out | `tests/test_tools.py::test_a_task_that_fails_says_why_in_the_log_without_its_markers` |
+| P-51's script gives each configuration its scrub alone and a configuration directory of its own | `tests/test_tools.py::test_each_configuration_is_given_its_scrub_alone_and_a_directory_of_its_own` |
+| Each configuration and order is judged by the condition written first, and nothing written outside is left | `tests/test_tools.py::test_each_configuration_and_order_is_judged_by_the_condition` |

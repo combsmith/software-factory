@@ -16,7 +16,7 @@ A Result only requests Effects. No job holds both a model credential and a crede
 write, and no job that can write runs code from the Work item's branch.
 
 Org standard: none. It departs from ci-standards.md, "Concurrency, pinning, and the permission contract", which gives the agent's job write access: decision 0014.
-Held by: waiting on `harness/`
+Held by: waiting on `.github/workflows/run.yml`
 
 ## No text from outside reaches a decision
 
@@ -108,4 +108,4 @@ approved it. Code ownership does not do this here: the code owners are the org's
 the machine user.
 
 Org standard: codeowners-standard.md, "Rule": the code owners file is the org's, word for word.
-Held by: `tests/test_tools.py::test_code_owners_are_the_orgs_word_for_word`; the refusal is waiting on `harness/`
+Held by: `tests/test_tools.py::test_code_owners_are_the_orgs_word_for_word`; the refusal is waiting on `harness/apply.py`

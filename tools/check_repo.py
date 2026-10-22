@@ -10,7 +10,7 @@ import re
 from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-LOCAL = {"kernel", "tools", "sim", "tests", "adapters", "controller"}
+LOCAL = {"kernel", "tools", "sim", "tests", "adapters", "controller", "harness"}
 # The standard-library modules in use. A new one is added here on purpose, in the same change.
 STDLIB = {"__future__", "ast", "contextlib", "copy", "datetime", "hashlib", "io", "json", "os", "pathlib", "random", "re", "shlex",
           "shutil", "subprocess", "sys", "tempfile", "time", "typing", "unittest"}
@@ -32,12 +32,73 @@ STDLIB = STDLIB | {"importlib"}
 STDLIB = STDLIB | {"http"}
 # zipfile and zlib: adapters/artifacts.py opens a Run's artifact, a zip GitHub serves, of one file and bounded.
 STDLIB = STDLIB | {"zipfile", "zlib"}
+# uuid: harness/run.py names a Run's session before the call, so that its usage names it even when the CLI never answers.
+STDLIB = STDLIB | {"uuid"}
 # The network. Only the one transport reaches it, so a request to GitHub is made in one file a review can read whole;
 # everywhere else these are refused, the required check fetches nothing, and a test replays what a trial recorded.
 # A net, as the search for secrets is: a subprocess or importlib can still reach out, and review is the real guard.
 NETWORK = {"urllib.request", "http", "socket", "ssl", "ftplib", "smtplib", "imaplib", "poplib", "nntplib",
            "telnetlib", "xmlrpc", "socketserver", "asyncio", "webbrowser"}
 TRANSPORT = pathlib.PurePosixPath("adapters/github.py")
+# The one exception, decision 0044's Boundaries (the Maintainer's ruling on issue 287): P-50's stub of the model's API,
+# which serves the pinned CLI canned answers on the canary's runner, and its tests' stand-in on 127.0.0.1 here. It is
+# held by an allowlist, not a list of what is refused: it imports these modules alone, by their own names; of http, os
+# and sys it names these alone; it makes its server one way, http.server.HTTPServer(("127.0.0.1", <port>), <handler>),
+# written as it is; it calls no builtin and uses no __special__ attribute that reaches round a name, and touches no
+# socket, bind or server_bind; and no workflow of this repo names it.
+TRIAL_STUB = pathlib.PurePosixPath("tools/trial_p50_stub.py")
+STUB_IMPORTS = {"http.server", "json", "os", "sys"}
+STUB_NAMES = {"http.server.HTTPServer", "http.server.BaseHTTPRequestHandler", "os.replace", "sys.argv", "sys.exit"}
+STUB_SERVER = "http.server.HTTPServer"
+STUB_BUILTINS = {"getattr", "setattr", "delattr", "vars", "globals", "locals", "__import__", "eval", "exec", "compile"}
+STUB_ATTRS = {"socket", "bind", "server_bind", "connect", "create_connection", "create_server", "socketserver"}
+LOOPBACK = "127.0.0.1"
+
+
+def _dotted(node):
+    """The name an attribute chain spells, as a.b.c, when it starts at a plain name; else None."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    return ".".join([node.id] + parts[::-1]) if isinstance(node, ast.Name) else None
+
+
+def _stub(rel: pathlib.PurePath, tree) -> list:
+    """What P-50's stub does beyond the allowlist above."""
+    problems = []
+    inner = {id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    calls = {id(node.func): node for node in ast.walk(tree) if isinstance(node, ast.Call)}
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+        if isinstance(node, ast.ImportFrom):
+            problems.append("%s:%d imports from %s; the stub imports whole modules by their own names" % (rel, line, node.module))
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name not in STUB_IMPORTS or alias.asname:
+                    problems.append("%s:%d imports %s, which the stub may not" % (rel, line, alias.name))
+        if isinstance(node, ast.Name) and node.id in STUB_BUILTINS:
+            problems.append("%s:%d uses %s, which reaches round a name" % (rel, line, node.id))
+        if isinstance(node, ast.Name) and node.id in ("http", "os", "sys") and id(node) not in inner:
+            problems.append("%s:%d names %s itself, not one of the names it may use" % (rel, line, node.id))
+        if isinstance(node, ast.Attribute):
+            if node.attr.startswith("__") and node.attr.endswith("__"):
+                problems.append("%s:%d uses %s, which reaches round a name" % (rel, line, node.attr))
+            if node.attr in STUB_ATTRS or node.attr == "server_address" and isinstance(node.ctx, ast.Store):
+                problems.append("%s:%d touches %s; the stub serves and never reaches out" % (rel, line, node.attr))
+            spelt = _dotted(node)
+            if id(node) in inner or spelt is None or spelt.split(".")[0] not in ("http", "os", "sys"):
+                continue
+            if spelt not in STUB_NAMES:
+                problems.append("%s:%d names %s, which the stub may not" % (rel, line, spelt))
+            elif spelt == STUB_SERVER:
+                call = calls.get(id(node))
+                host = call.args[0].elts[0] if call and len(call.args) == 2 and not call.keywords \
+                    and isinstance(call.args[0], ast.Tuple) and len(call.args[0].elts) == 2 else None
+                if not (isinstance(host, ast.Constant) and host.value == LOOPBACK):
+                    problems.append("%s:%d makes its server other than as HTTPServer((\"%s\", port), handler)"
+                                    % (rel, line, LOOPBACK))
+    return problems
 # The one host off GitHub's API the transport reaches, an artifact's storage (the Maintainer's ruling on #192): no other
 # code names it, so no other code builds an address there; a test may, to answer for it.
 STORAGE = re.compile(r"blob\.core\.windows\.net|githubusercontent\.com", re.IGNORECASE)
@@ -102,6 +163,9 @@ def _python(rel: pathlib.PurePath, text: str) -> list:
         problems.append("%s:%d defines %s a second time" % (rel, line, name))
     seeded = rel.parts[0] in ("sim", "tests")
     transport = pathlib.PurePosixPath(*rel.parts) == TRANSPORT
+    stub = pathlib.PurePosixPath(*rel.parts) == TRIAL_STUB
+    if stub:
+        problems += _stub(rel, tree)
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 0)
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and STORAGE.search(node.value) \
@@ -119,7 +183,8 @@ def _python(rel: pathlib.PurePath, text: str) -> list:
             if mod.split(".")[0] not in STDLIB | LOCAL:
                 problems.append("%s:%d imports %s, which is not in the allowed list" % (rel, line, mod))
         for mod in mods + (reached if isinstance(node, ast.ImportFrom) and not node.level else []):
-            if any(mod == net or mod.startswith(net + ".") for net in NETWORK) and pathlib.PurePosixPath(*rel.parts) != TRANSPORT:
+            served = stub and mod == "http.server" and isinstance(node, ast.Import)
+            if any(mod == net or mod.startswith(net + ".") for net in NETWORK) and not transport and not served:
                 problems.append("%s:%d imports %s, which reaches the network; only %s does, as the one transport"
                                 % (rel, line, mod, TRANSPORT))
         if isinstance(node, ast.Name) and node.id in LOADERS:
@@ -210,6 +275,8 @@ def run(root: pathlib.Path = ROOT) -> list:
         for shape in SECRETS:
             if shape.search(text):
                 problems.append("%s: holds something shaped like a credential" % rel)
+        if rel.parts[:2] == (".github", "workflows") and TRIAL_STUB.stem in text:
+            problems.append("%s names %s, which runs only in the canary's workflow" % (rel, TRIAL_STUB))
         if path.suffix == ".py" and rel.parts[0] != "tests" and \
                 re.search(r"(?:^test_)|(?:_tests?$)", path.stem):
             problems.append("%s: a test outside tests/ is never run" % rel)
