@@ -108,4 +108,4 @@ approved it. Code ownership does not do this here: the code owners are the org's
 the machine user.
 
 Org standard: codeowners-standard.md, "Rule": the code owners file is the org's, word for word.
-Held by: `tests/test_tools.py::test_code_owners_are_the_orgs_word_for_word`; the refusal is waiting on `harness/apply.py`
+Held by: `tests/test_tools.py::test_code_owners_are_the_orgs_word_for_word`; the refusal is waiting on `harness/push.py`, the fix Intent's push
