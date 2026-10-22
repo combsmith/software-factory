@@ -41,6 +41,10 @@ SERVED = {"served_from": "2026-01-01T00:00:00Z", "left_out_labels": ["epic", "id
                       issue.OPENING: {"role": "dev-lead", "app": AUTHOR_APP["name"]}}}
 CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), lifecycle=LIFECYCLE, issues=SERVED)
 LIMITS = CONFIG["limits"]
+# Each person's permission on the repo, as the collaborator permission endpoint answers it, and the permissions that
+# are write access (issue 222, decision 0048): the port reads the one and gives the facts the other.
+PERMISSIONS = {MAINTAINER["name"]: "admin", COLLEAGUE["name"]: "write", STRANGER["name"]: "read"}
+WRITE_ACCESS = ("admin", "maintain", "write")
 # The invariants the Kernel does not hold yet, each the name of a test marked @pending in tests/test_issue.py.
 NOT_YET_HELD = ()
 # On an even seed a person with write access opened the issue; on an odd seed an outsider did, whom the Maintainer
@@ -181,8 +185,9 @@ class IssueWorld:
             "schema": "issue-facts/1", "item": dict(ITEM), "state": self.state,
             # GitHub: an_issues_close_and_reopening_say_when
             "closed_first_at": None if self.closed is None else World.at(self.closed),
-            # GitHub: an_issues_author_has_an_association
-            "author": dict(self.author), "type": self.type, "label_names": list(self.label_names),
+            # GitHub: a_logins_permission_is_read_from_the_collaborator_endpoint
+            "author": dict(self.author, can_write=PERMISSIONS[self.author["name"]] in WRITE_ACCESS),
+            "type": self.type, "label_names": list(self.label_names),
             "assignees": [],
             # GitHub: a_reopening_names_its_actor
             "life_started_at": World.at(self.life_started), "reopened_last_by": self.reopened_last_by,
