@@ -4,8 +4,11 @@ The Harness: the jobs that carry one Run. `task.py` builds the Task from the Dec
 runs the vendor's CLI on it and takes the Result from its answer, and `run.py` is the `run` job, which writes the
 Result and its digest and nothing else of the model. The model is given no tool, and the CLI no secret but the one
 under its own name. Every test drives a stand-in for the CLI: the first live Run is the workflows' and the Release's.
+`eval/` is the eval job's steps, `factory / eval`: the held-out set run on the commit it judges, each case read into a
+scratch outside the workspace, scored, and reported by hashes, verdicts and codes alone (decision 0053; its rules are
+`evals/AGENTS.md`'s).
 
-Not built yet, by the stories that hold their rules: apply.py, verify.py.
+Not built yet, by the stories that hold their rules: apply.py, verify.py, eval/run.py.
 
 | Rule | Held by |
 |---|---|
