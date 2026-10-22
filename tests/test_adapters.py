@@ -6,6 +6,7 @@ the network: the live transport is held by what it refuses before it sends anyth
 """
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import io
@@ -15,7 +16,7 @@ import pathlib
 import unittest
 import zipfile
 
-from adapters import acceptance, artifacts, checks, facts, github, pull, records, threads, timeline
+from adapters import acceptance, artifacts, checks, facts, github, heldout, pull, records, threads, timeline
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -2056,6 +2057,82 @@ class ChecksAsked(unittest.TestCase):
         self.assertTrue(str(codeql["workflow"]).startswith("dynamic/"))
 
 
+def home_file(name: str, data: bytes, path: str = None, **change) -> dict:
+    """One case of a stand-in home, `o/home`, as GitHub's contents API answers for a file: its bytes base64 encoded and
+    wrapped at 60 characters, as GitHub wraps them. The bytes are no case: nothing of the home is in this repo."""
+    path = path or "pr-review/%s.json" % name
+    encoded = base64.b64encode(data).decode()
+    body = {"type": "file", "encoding": "base64", "size": len(data), "name": path.split("/")[-1], "path": path,
+            "content": "\n".join(encoded[i:i + 60] for i in range(0, len(encoded), 60)) + "\n"}
+    body.update(change)
+    return {"request": {"via": "rest", "call": "GET /repos/o/home/contents/pr-review/%s.json" % name, "headers": {}},
+            "response": {"status": 200, "headers": {"content-type": "application/json; charset=utf-8"}, "body": body}}
+
+
+def home_set(*named) -> dict:
+    return {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "count": len(named),
+            "cases": [{"id": n, "sha256": hashlib.sha256(d).hexdigest()} for n, d in named]}
+
+
+class Heldout(unittest.TestCase):
+    ONE, TWO = b"stand-in one\n" * 9, bytes(range(256))
+
+    def test_a_held_out_case_is_its_hashed_bytes(self):
+        # Issue 309: each case the manifest names is asked for by its Role and id, once, in its order, and handed back
+        # as exactly the bytes the manifest hashed; GitHub's base64, wrapped, is decoded whole.
+        manifest = home_set(("c-1", self.ONE), ("c-2", self.TWO))
+        home = github.Replay([home_file("c-1", self.ONE), home_file("c-2", self.TWO)])
+        self.assertEqual([heldout.case(home, "o", "home", manifest["role"], e) for e in manifest["cases"]],
+                         [(self.ONE, None), (self.TWO, None)])
+
+    def test_a_held_out_case_not_read_whole_says_why(self):
+        entry = home_set(("c-1", self.ONE))["cases"][0]
+
+        def read(found, owner="o", name="home", role="pr-review", which=entry):
+            return heldout.case(github.Replay(found), owner, name, role, which)
+        missing = home_file("c-1", self.ONE)
+        missing["response"].update(status=404, body={"message": "Not Found"})
+        refused = home_file("c-1", self.ONE)
+        refused["response"]["status"] = 500
+        large = home_file("c-1", b"", size=heldout.LARGEST + 1, content="", encoding="none")
+        for found, code in (([missing], "not_found"), ([refused], "unanswered"), ([], "unanswered"),
+                            ([home_file("c-1", self.TWO)], "hash_differs"), ([large], "too_large"),
+                            ([home_file("c-1", self.ONE, type="dir")], "not_found"),
+                            ([home_file("c-1", self.ONE, path="other/c-1.json")], "not_found"),
+                            ([home_file("c-1", self.ONE, size=True)], "not_found"),
+                            ([home_file("c-1", self.ONE, size=-1)], "not_found"),
+                            ([home_file("c-1", self.ONE, encoding="none")], "unanswered"),
+                            ([home_file("c-1", self.ONE, content="not base64!")], "unanswered"),
+                            ([home_file("c-1", self.ONE, size=len(self.ONE) - 1)], "unanswered"),
+                            ([home_file("c-1", self.ONE, content=None)], "unanswered")):
+            self.assertEqual(read(found), (None, code), code)
+        refused["response"]["body"] = "not json"
+        refused["response"]["status"] = 200
+        self.assertEqual(read([refused]), (None, "unanswered"))
+        self.assertEqual(read([home_file("c-1", self.ONE, size=heldout.LARGEST)]), (None, "unanswered"))
+        # GitHub's base64 holds its alphabet and line breaks alone: anything else is no answer of GitHub's.
+        loose = home_file("c-1", self.ONE)
+        loose["response"]["body"]["content"] = "*" + loose["response"]["body"]["content"]
+        self.assertEqual(read([loose]), (None, "unanswered"))
+        # A case or a Role that could name another file, and a home that could name another repo or climb out of one,
+        # are refused before anything is asked: the stand-in would answer anything, and is asked nothing.
+        asked = []
+
+        class Anything:
+            def send(self, req):
+                asked.append(req["path"])
+                return home_file("c-1", self.ONE)["response"]
+        Anything.ONE = self.ONE
+        for which, role in ((dict(entry, id="../c-1"), "pr-review"), (dict(entry, id="c-1.json"), "pr-review"),
+                            (dict(entry, sha256="x"), "pr-review"), ("c-1", "pr-review"), (entry, "pr-review/.."),
+                            (entry, "Pr-Review"), (entry, None), (dict(entry, id=7), "pr-review")):
+            self.assertEqual(heldout.case(Anything(), "o", "home", role, which), (None, "not_this_set"), (which, role))
+        for owner, name in (("o", ".."), ("o", "."), ("o/x", "home"), ("o", "home/contents"), ("-o", "home"),
+                            ("o", "home?ref=x"), (None, "home"), ("o", ""), ("o", None)):
+            self.assertEqual(heldout.case(Anything(), owner, name, "pr-review", entry), (None, "unanswered"), (owner, name))
+        self.assertEqual(asked, [])
+        self.assertEqual(heldout.case(Anything(), "o", "home", "pr-review", entry), (self.ONE, None))
+        self.assertEqual(asked, ["/repos/o/home/contents/pr-review/c-1.json"])
 def per_hundred(found: dict) -> dict:
     """A fixture's exchange asked as the port asks a list: a full page of a hundred, GitHub's answer kept."""
     found = copy.deepcopy(found)
