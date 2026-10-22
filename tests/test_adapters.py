@@ -15,7 +15,7 @@ import pathlib
 import unittest
 import zipfile
 
-from adapters import artifacts, checks, facts, github, pull, records, threads, timeline
+from adapters import acceptance, artifacts, checks, facts, github, pull, records, threads, timeline
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -536,17 +536,64 @@ class LastPusher(unittest.TestCase):
         self.assertIsNone(pull.last_pusher(github.Replay([]), fork))
 
 
+PINNED_BASE = "b" * 40      # a base branch's head the compare names; a replay matches the call it is given
+
+
+def as_compare(exchange: dict, data: dict, base: str = PINNED_BASE) -> dict:
+    """A recorded answer to the pull request's own diff, or to a page of its files, replayed as the compare of `base`
+    with the head of `data`, as the port now asks it (issue 284): P-29 shows the diff's bytes equal the compare's
+    (`trials/P-29.base.json`), and a compare lists its files under `files`, as P-29's exchange 10 does."""
+    found = copy.deepcopy(exchange)
+    call = found["request"]["call"]
+    found["request"]["call"] = "GET /repos/%s/compare/%s...%s" % (data["base"]["repo"]["full_name"], base,
+                                                                 data["head"]["sha"])
+    if "/files" in call:
+        found["request"]["headers"] = dict(found["request"]["headers"], accept="application/vnd.github+json")
+        found["response"] = dict(found["response"], body={"files": found["response"]["body"]})
+    return found
+
+
+def compared(name: str, at: int, data: dict, base: str = PINNED_BASE) -> github.Replay:
+    return github.Replay([as_compare(exchanges(name)[at], data, base)])
+
+
 class Diff(unittest.TestCase):
+    def test_a_diff_read_at_another_commit_cannot_give_the_snapshots_content(self):  # issue 284
+        # The diff is read by compare at the head of the pull request's first read, never off the pull request: a head
+        # pushed away and back between the reads still gives the content of the first read's head, and an answer for
+        # another commit is not one the port asks for.
+        data = body("P-29.base", 1)
+        at_head = pull.diff(compared("P-29.base", 2, data), data, PINNED_BASE)
+        self.assertEqual(at_head["content_id"], "sha256:" + body("P-29.base", 24)["before the base moved"])
+        elsewhere = copy.deepcopy(data)
+        elsewhere["head"]["sha"] = "c" * 40
+        with self.assertRaises(github.Unanswered):
+            pull.diff(github.Replay([as_compare(exchanges("P-29.base")[2], elsewhere)]), data, PINNED_BASE)
+        with self.assertRaises(github.Unanswered):           # the pull request's own diff is never read
+            pull.diff(replay("P-29.base", 2), data, PINNED_BASE)
+        # A head no longer there answers 404, and a base head that cannot be read is refused: no snapshot.
+        gone = as_compare(exchanges("P-29.base")[2], data)
+        gone["response"] = dict(gone["response"], status=404, body={"message": "Not Found"})
+        with self.assertRaises(github.Unanswered):
+            pull.diff(github.Replay([gone]), data, PINNED_BASE)
+        with self.assertRaises(github.Unanswered):
+            pull.diff(compared("P-29.base", 2, data, "main"), data, "main")
+        # A fork's head is compared in the base repo, which holds both commits, never in the fork (Muse on PR 284).
+        fork = copy.deepcopy(data)
+        fork["head"]["repo"] = dict(fork["head"]["repo"], full_name="someone/fork", id=1)
+        self.assertEqual(pull.diff(compared("P-29.base", 2, fork), fork, PINNED_BASE)["content_id"], at_head["content_id"])
+
     def test_the_content_is_the_hash_of_the_diff_as_github_served_it(self):
         # trials/P-29.base.json: the hash taken as each diff arrived is the one the port computes.
         hashes = body("P-29.base", 24)
         for at, answer, moment in ((1, 2, "before the base moved"), (12, 13, "after the plain push"),
                                    (21, 22, "after the force push")):
-            got = pull.diff(replay("P-29.base", answer), body("P-29.base", at))
+            got = pull.diff(compared("P-29.base", answer, body("P-29.base", at)), body("P-29.base", at), PINNED_BASE)
             self.assertEqual(got["content_id"], "sha256:" + hashes[moment], moment)
             self.assertIs(got["complete"], True, moment)
             self.assertEqual(got["diff"]["truncated"], False)
-        self.assertEqual(pull.diff(replay("P-29.base", 2), body("P-29.base", 1))["diff"],
+        data = body("P-29.base", 1)
+        self.assertEqual(pull.diff(compared("P-29.base", 2, data), data, PINNED_BASE)["diff"],
                          {"files": 1, "lines": 3, "truncated": False})
 
     def test_the_content_is_hashed_over_the_bytes_github_sent(self):
@@ -559,7 +606,7 @@ class Diff(unittest.TestCase):
             answer = github._answer(200, {"Content-Type": github.DIFF}, sent)
             exchange = dict(exchanges("P-29.base")[2], response=dict(exchanges("P-29.base")[2]["response"],
                                                                      body=answer["body"]))
-            got = pull.diff(github.Replay([exchange]), data)
+            got = pull.diff(github.Replay([as_compare(exchange, data)]), data, PINNED_BASE)
             self.assertEqual(got["content_id"], "sha256:" + hashlib.sha256(sent).hexdigest())
             self.assertIs(got["complete"], True)
             ids.append(got["content_id"])
@@ -569,29 +616,29 @@ class Diff(unittest.TestCase):
         # Decision 0002: the diff is held to the same pull request's counts; a difference is a short read.
         data = body("P-29.base", 1)
         data["additions"] += 1
-        self.assertIs(pull.diff(replay("P-29.base", 2), data)["complete"], False)
+        self.assertIs(pull.diff(compared("P-29.base", 2, data), data, PINNED_BASE)["complete"], False)
         data = body("P-29.base", 1)
         data["changed_files"] += 1
-        self.assertIs(pull.diff(replay("P-29.base", 2), data)["complete"], False)
+        self.assertIs(pull.diff(compared("P-29.base", 2, data), data, PINNED_BASE)["complete"], False)
 
     def test_a_diff_github_will_not_serve_is_truncated_and_new_content_at_every_push(self):
         # trials/P-29.truncated.json: 3,001 files, a 406 too_large. Read whole, so the Kernel holds it as too large;
         # its content is the head commit's, so a push is never read as unchanged.
         data = body("P-29.truncated", 2)
-        got = pull.diff(replay("P-29.truncated", 4), data)
+        got = pull.diff(compared("P-29.truncated", 4, data), data, PINNED_BASE)
         self.assertEqual((got["diff"], got["complete"]), ({"files": 3001, "lines": 3001, "truncated": True}, True))
         moved = copy.deepcopy(data)
         moved["head"]["sha"] = "0" * 40
-        self.assertNotEqual(pull.diff(replay("P-29.truncated", 4), moved)["content_id"], got["content_id"])
+        self.assertNotEqual(pull.diff(compared("P-29.truncated", 4, moved), moved, PINNED_BASE)["content_id"], got["content_id"])
         # A 406 for anything but too_large, and a head that cannot be read, are refused.
         other = copy.deepcopy(exchanges("P-29.truncated")[4])
         other["response"]["body"]["errors"][0]["code"] = "not_acceptable"
         with self.assertRaises(github.Unanswered):
-            pull.diff(github.Replay([other]), data)
+            pull.diff(github.Replay([as_compare(other, data)]), data, PINNED_BASE)
         no_head = copy.deepcopy(data)
         no_head["head"]["sha"] = ""
         with self.assertRaises(github.Unanswered):
-            pull.diff(replay("P-29.truncated", 4), no_head)
+            pull.diff(compared("P-29.truncated", 4, no_head), no_head, PINNED_BASE)
 
     def test_a_line_of_content_that_looks_like_a_header_is_counted_as_the_line_it_is(self):
         text = ("diff --git a/q.sql b/q.sql\nindex 1..2 100644\n--- a/q.sql\n+++ b/q.sql\n@@ -1,2 +1,2 @@\n"
@@ -606,41 +653,60 @@ class Diff(unittest.TestCase):
         broken = copy.deepcopy(exchanges("P-29.base")[2])
         broken["response"]["status"] = 500
         with self.assertRaises(github.Unanswered):
-            pull.diff(github.Replay([broken]), body("P-29.base", 1))
+            pull.diff(github.Replay([as_compare(broken, body("P-29.base", 1))]), body("P-29.base", 1), PINNED_BASE)
 
 
-def files_pages(pages: int, last: list) -> list:
-    """Pages 1 to `pages` of pull request 27's files, shaped as P-29.truncated's page 30, then that page and `last`."""
-    found = exchanges("P-29.truncated")
-    page30, page31 = found[10], found[11]
-    base = page30["request"]["call"].split()[1].split("&page=")[0]
-    out = []
-    for n in range(1, pages):
-        rows = [dict(row, filename="p29-many-files/f%04d.txt" % ((n - 1) * 100 + i + 1))
-                for i, row in enumerate(page30["response"]["body"])]
-        call = "GET %s" % (base if n == 1 else "%s&page=%d" % (base, n))
-        out.append({"request": dict(page30["request"], call=call), "response": dict(page30["response"], body=rows)})
-    return out + [page30, dict(page31, response=dict(page31["response"], body=last))]
+def files_rows(count: int) -> list:
+    """`count` rows of a list of files, shaped as P-29.truncated's page 30 gives them."""
+    row = exchanges("P-29.truncated")[10]["response"]["body"][0]
+    return [dict(row, filename="p29-many-files/f%04d.txt" % (i + 1)) for i in range(count)]
+
+
+def compare_files(rows: list, data: dict) -> dict:
+    """A compare at the head of `data` that lists `rows` as its files."""
+    found = as_compare(exchanges("P-29.truncated")[13], data)
+    found["response"] = dict(found["response"], body={"files": rows})
+    return found
 
 
 class ChangedPaths(unittest.TestCase):
     def test_every_file_is_read_and_the_list_is_whole_when_it_holds_the_count(self):
-        got = pull.changed_paths(replay("P-29.truncated", 13), body("P-29.truncated", 12))
+        got = pull.changed_paths(compared("P-29.truncated", 13, body("P-29.truncated", 12)), body("P-29.truncated", 12), PINNED_BASE)
         self.assertEqual(got, {"changed_paths": [{"path": "p29-many-lines-2.txt", "previous": None},
                                                  {"path": "p29-many-lines.txt", "previous": None}],
                                "complete": True})
 
     def test_a_list_github_stops_short_of_the_count_is_never_the_whole(self):
-        # trials/P-29.truncated.json: 3,001 files; page 30 is the last GitHub serves, and page 31 is a 200 with none.
-        got = pull.changed_paths(github.Replay(files_pages(30, [])), body("P-29.truncated", 2))
-        self.assertEqual((len(got["changed_paths"]), got["complete"]), (3000, False))
-
-    def test_a_list_at_an_exact_page_count_asks_for_no_page_past_it(self):
+        # trials/P-29.truncated.json: 3,001 files. A compare lists at most 300, so a change of more is read short by
+        # its count alone: nothing is asked (an empty replay answers nothing), so no answer can refuse the snapshot
+        # (issue 284's ruling). 301 rows, which GitHub would not send, are never read whole either.
         data = body("P-29.truncated", 2)
-        data["changed_files"] = 200
-        pages = files_pages(3, [])[:2]
-        got = pull.changed_paths(github.Replay(pages), data)
-        self.assertEqual((len(got["changed_paths"]), got["complete"]), (200, True))
+        for count in (3001, 301):
+            data["changed_files"] = count
+            got = pull.changed_paths(github.Replay([]), data, PINNED_BASE)
+            self.assertEqual(got, {"changed_paths": [], "complete": False}, count)
+
+    def test_a_list_of_up_to_three_hundred_files_is_whole(self):
+        data = body("P-29.truncated", 2)
+        for count in (200, 300):
+            data["changed_files"] = count
+            got = pull.changed_paths(github.Replay([compare_files(files_rows(count), data)]), data, PINNED_BASE)
+            self.assertEqual((len(got["changed_paths"]), got["complete"]), (count, True), count)
+
+    def test_a_file_list_read_at_another_commit_is_not_asked_for(self):  # issue 284
+        data = body("P-29.truncated", 12)
+        elsewhere = copy.deepcopy(data)
+        elsewhere["head"]["sha"] = "c" * 40
+        with self.assertRaises(github.Unanswered):
+            pull.changed_paths(github.Replay([as_compare(exchanges("P-29.truncated")[13], elsewhere)]), data, PINNED_BASE)
+        with self.assertRaises(github.Unanswered):           # the pull request's own list is never read
+            pull.changed_paths(replay("P-29.truncated", 13), data, PINNED_BASE)
+        # A compare whose files are not a list, or are not there at all, is refused, never read as none (Muse on PR 284).
+        for answered in ({"files": "none"}, {}):
+            broken = as_compare(exchanges("P-29.truncated")[13], data)
+            broken["response"] = dict(broken["response"], body=answered)
+            with self.assertRaises(github.Unanswered):
+                pull.changed_paths(github.Replay([broken]), data, PINNED_BASE)
 
     def test_a_rename_or_a_copy_gives_both_names_and_one_without_its_old_name_is_short(self):
         data = body("P-29.truncated", 12)
@@ -649,11 +715,11 @@ class ChangedPaths(unittest.TestCase):
         rows[1].update(status="copied", previous_filename="p29-many-lines-2.txt")
         answer = dict(exchanges("P-29.truncated")[13], response=dict(exchanges("P-29.truncated")[13]["response"],
                                                                      body=rows))
-        got = pull.changed_paths(github.Replay([answer]), data)
+        got = pull.changed_paths(github.Replay([as_compare(answer, data)]), data, PINNED_BASE)
         self.assertEqual([p["previous"] for p in got["changed_paths"]], ["old/name.txt", "p29-many-lines-2.txt"])
         self.assertIs(got["complete"], True)
         del rows[0]["previous_filename"]
-        self.assertIs(pull.changed_paths(github.Replay([answer]), data)["complete"], False)
+        self.assertIs(pull.changed_paths(github.Replay([as_compare(answer, data)]), data, PINNED_BASE)["complete"], False)
 
     def test_a_list_with_a_name_twice_or_none_is_short(self):
         data = body("P-29.truncated", 12)
@@ -663,7 +729,7 @@ class ChangedPaths(unittest.TestCase):
             rows[0].update(change)
             answer = dict(exchanges("P-29.truncated")[13], response=dict(exchanges("P-29.truncated")[13]["response"],
                                                                          body=rows))
-            self.assertIs(pull.changed_paths(github.Replay([answer]), data)["complete"], False, change)
+            self.assertIs(pull.changed_paths(github.Replay([as_compare(answer, data)]), data, PINNED_BASE)["complete"], False, change)
 
     def test_a_renamed_file_is_read_with_its_old_name_from_a_fixture(self):
         # trials/P-43.json (issue 250) records a rename: REST names its old path, as the synthetic case above does.
@@ -787,7 +853,18 @@ class Records(unittest.TestCase):
         # waited once (decision 0036).
         got, slept = self.read(listing("P-17", 9, total=1), listing("P-17", 10, total=1), per_page=1)
         self.assertEqual(exchanges("P-17")[9]["response"]["body"]["workflow_runs"][0]["name"], "p17-p22-run-records")
-        self.assertEqual((got["runs"], got["unidentified"], got["complete"], slept), ([], ["39086879694"], True, [5]))
+        created = exchanges("P-17")[10]["response"]["body"]["workflow_runs"][0]["created_at"]
+        self.assertEqual((got["runs"], got["unidentified"], got["complete"], slept),
+                         ([], [{"run": "39086879694", "created_at": created,
+                                "status": "in_progress" if exchanges("P-17")[10]["response"]["body"]["workflow_runs"][0]["status"] == "in_progress" else "queued"}], True, [5]))
+        # A run not yet started is listed as queued, whichever word GitHub uses for it (issue 270).
+        got, _ = self.read(listing("P-17", 9, total=1), listing("P-17", 10, total=1, rows={"status": "pending"}),
+                           per_page=1)
+        self.assertEqual([u["status"] for u in got["unidentified"]], ["queued"])
+        # A record whose creation cannot be read is a row that cannot be read: the list is not whole (issue 270).
+        got, _ = self.read(listing("P-17", 9, total=1), listing("P-17", 10, total=1, rows={"created_at": "soon"}),
+                           per_page=1)
+        self.assertEqual((got["unidentified"], got["complete"]), ([], False))
 
     def test_a_run_named_by_the_second_read_is_a_record(self):
         second = listing("P-17", 10, total=1, rows={"name": NAME})
@@ -845,14 +922,14 @@ class Records(unittest.TestCase):
         self.assertIs(self.read(one, again, per_page=1)[0]["complete"], False)
 
     def test_the_outcome_is_read_for_a_run_that_did_not_succeed_and_for_no_other(self):
-        # Decisions 0029 and 0039: a failed Run's outcome is read from its artifact; a Run that succeeded has none
+        # Decisions 0039 and 0049: a failed Run's outcome is read from its artifact; a Run that succeeded has none
         # read, and one whose outcome cannot be read leaves the list not whole, never read as no attempt.
         done = {"name": NAME, "status": "completed"}
         row = listing("P-17", 3, rows=dict(done, conclusion="success"))
         github_id = row["response"]["body"]["workflow_runs"][0]["id"]
         got, _ = self.read(row)
         self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"], got["complete"]), ("success", None, True))
-        for conclusion, read in (("startup_failure", "failure"), ("timed_out", "timed_out"), ("cancelled", "cancelled")):
+        for conclusion, read in (("startup_failure", "cancelled"), ("timed_out", "timed_out"), ("cancelled", "cancelled")):
             failed = listing("P-17", 3, rows=dict(done, conclusion=conclusion))
             got, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item"))))
             self.assertEqual((got["runs"][0]["conclusion"], got["runs"][0]["outcome"], got["complete"]),
@@ -903,7 +980,9 @@ class Records(unittest.TestCase):
                 if listed["total_count"] > per:
                     continue
                 got, slept = self.read(asked(found), asked(found), per_page=per)
-                ids = [str(r["id"]) for r in listed["workflow_runs"]]
+                ids = [{"run": str(r["id"]), "created_at": r["created_at"],
+                        "status": "queued" if r["status"] in records.NOT_STARTED else r["status"]}
+                       for r in listed["workflow_runs"]]
                 self.assertEqual((got["runs"], got["unidentified"], got["complete"]), ([], ids, True), (name, at))
 
     @pending
@@ -1014,7 +1093,8 @@ MACHINE = (281750570, "User")     # its account, as trials/P-7.json records it
 
 class Router:
     """A transport that answers a permission or a compare from a table it is given, and anything else from a replay.
-    No fixture holds those two reads yet: the permission's trial is #222's, and P-7 recorded no compare."""
+    A compare not in the table is the replay's, as the snapshot's own compares of the diff and the files are (issue
+    284), and one the replay does not hold either answers 404. The permission's trial is #222's."""
 
     def __init__(self, replay, permissions=None, compares=None):
         self.replay, self.permissions, self.compares, self.asked = replay, dict(permissions or {}), dict(compares or {}), []
@@ -1030,9 +1110,13 @@ class Router:
             return {"status": 200, "headers": {}, "body": {"permission": level}}
         if "/compare/" in path:
             commit = path.split("...")[1]
-            if commit not in self.compares:
+            if commit in self.compares:
+                return {"status": 200, "headers": {}, "body": self.compares[commit]}
+            # The snapshot's own compares, of the diff and the files at the head, are the replay's (issue 284).
+            try:
+                return self.replay.send(req)
+            except github.Unanswered:
                 return {"status": 404, "headers": {}, "body": {"message": "Not Found"}}
-            return {"status": 200, "headers": {}, "body": self.compares[commit]}
         return self.replay.send(req)
 
 
@@ -1258,17 +1342,44 @@ class Timeline(unittest.TestCase):
         writer = Router(github.Replay([]), {"don-petry": "admin"})
         self.assertIsNone(timeline.since_writer([via], self.accounts(writer))["last_writer_action_at"])
 
-    @pending
     def test_what_each_credential_is_shown_of_a_permission_is_recorded(self):
-        # L-57: what each credential is shown is recorded by a trial. The collaborator permission's trial, which the
-        # Maintainer's ruling on issue 222 plans, has not run: no fixture yet holds a read of the permission endpoint.
-        # P-27 reads one as the Maintainer; what L-57 asks is what the reader App, a credential of the Factory's, is
-        # shown, which no fixture holds yet.
-        reads = [e for path in sorted((ROOT / "trials").glob("P-*.json"))
-                 for e in json.loads(path.read_text())["exchanges"]
-                 if "/collaborators/" in e["request"].get("call", "") and "/permission" in e["request"].get("call", "")
-                 and (e["request"].get("as") or {}).get("kind") == "app"]
+        # L-57: what each credential is shown is recorded by a trial. trials/P-27.json reads the permission as the
+        # Maintainer; trials/P-47.json as the reader App, the credential the port reads it with, narrowed to
+        # metadata: read and to contents: read. Each answers the same: the owner admin, the machine user and a
+        # collaborator write, and an outsider read. GitHub's permission folds maintain into write, as role_name says,
+        # so write access is read the same whichever the role.
+        shown, reads = {}, []
+        for path in sorted((ROOT / "trials").glob("P-*.json")):
+            narrowed = None
+            for e in json.loads(path.read_text())["exchanges"]:
+                call = e["request"].get("call", "")
+                if call.endswith("/access_tokens") and isinstance(e["request"].get("body"), dict):
+                    # Each read is made with the token the mint before it narrowed, until it is revoked.
+                    narrowed = "%s: read" % next(iter(e["request"]["body"]["permissions"]))
+                if "/collaborators/" in call and "/permission" in call and (e["request"].get("as") or {}).get("kind") == "app":
+                    reads.append(e)
+                    login = call.split("/collaborators/")[1].split("/")[0]
+                    shown.setdefault(login, {})[narrowed] = (e["response"]["status"], e["response"]["body"]["permission"],
+                                                             e["response"]["body"]["role_name"])
         self.assertTrue(reads)
+        self.assertEqual({login: set(by.values()) for login, by in shown.items()},
+                         {"don-petry": {(200, "admin", "admin")}, "donpetry-bot": {(200, "write", "maintain")},
+                          "Joaolfelicio": {(200, "write", "write")}, "octocat": {(200, "read", "read")}})
+        self.assertTrue(all(set(by) == {"metadata: read", "contents: read"} for by in shown.values()))
+        # The port reads `permission`, which folds maintain into write: the machine user, whose role_name is maintain,
+        # has write access, as the ruling on issue 222 has it.
+        self.assertEqual(next(iter(shown["donpetry-bot"].values()))[1:], ("write", "maintain"))
+        self.assertIn("write", timeline.WRITE)
+        # Each read's least grant is the one GitHub's x-accepted-github-permissions names, and config/apps.json names it
+        # so: the canary is public, so a token without the grant read the activity all the same (issue 231).
+        needs = json.loads((ROOT / "config" / "apps.json").read_text())["needs"]
+        p47 = exchanges("P-47")
+        for fragment, need in (("/permission", "read:facts.actor.can_write"), ("/activity?", "read:facts.last_pusher")):
+            accepted = {e["response"]["headers"].get("x-accepted-github-permissions") for e in p47
+                        if fragment in e["request"]["call"]}
+            self.assertEqual(accepted, {"%s=%s" % (needs[need]["permission"], needs[need]["level"])}, need)
+        for login, (_, permission, _) in ((l, next(iter(by.values()))) for l, by in shown.items()):
+            self.assertEqual(permission in timeline.WRITE, login != "octocat", login)
 
     def test_a_permission_is_read_as_github_answers_it(self):
         # trials/P-27.json: the permission endpoint, asked of a collaborator with read, answers read: no write access.
@@ -1456,6 +1567,155 @@ LENS = ("coderabbitai", 136622811, "Bot")          # a Lens's App, as GraphQL na
 APP = ("github-actions", 41898282, "Bot")          # an App no Lens is
 
 
+def closing_answer(repo: str, number: int, issues: list, total=None, elsewhere: str = None, labelled=()) -> dict:
+    """An exchange of the port's closing-references query: `totalCount` and each issue's number, in the shape P-33 and
+    P-46 recorded, with each issue's repo and labels, which no trial has recorded yet. `labelled` are the issues GitHub
+    lists the factory:contract label on."""
+    owner, name = repo.split("/")
+    asked = {"query": acceptance.QUERY, "variables": {"owner": owner, "name": name, "number": number}}
+    nodes = [{"number": n, "repository": {"nameWithOwner": elsewhere or repo},
+              "labels": {"totalCount": 1 if n in labelled else 0,
+                         "nodes": [{"name": "factory:contract"}] if n in labelled else []}} for n in issues]
+    refs = {"totalCount": len(nodes) if total is None else total, "nodes": nodes}
+    return {"request": {"via": "graphql", "call": "POST /graphql", "headers": {}, "body": asked},
+            "response": {"status": 200, "headers": {},
+                         "body": {"data": {"repository": {"pullRequest": {"closingIssuesReferences": refs}}}}}}
+
+
+def issue_timeline(repo: str, number: int, events, more: bool = False) -> dict:
+    """An issue's REST timeline, asked as `adapters/timeline.py` asks a pull request's, in trials/P-28.json's shape."""
+    found = copy.deepcopy(exchanges("P-28")[4])
+    found["request"]["call"] = "GET /repos/%s/issues/%d/timeline?per_page=100" % (repo, number)
+    found["response"]["body"] = events
+    found["response"]["headers"] = dict(found["response"]["headers"], link='<https://x>; rel="next"' if more else "")
+    return found
+
+
+def label_event(action: str, actor=PERSON, label: str = "factory:contract", at: str = "2026-10-21T16:00:00Z",
+                via=None) -> dict:
+    login, account, kind = actor
+    return {"event": action, "label": {"name": label}, "actor": {"login": login, "id": account, "type": kind},
+            "created_at": at, "performed_via_github_app": via}
+
+
+class Acceptance(unittest.TestCase):
+    PULL = {"number": 26, "base": {"ref": "main", "repo": {"full_name": "o/r", "default_branch": "main"}}}
+
+    def read(self, *found, pull=None):
+        router = Router(github.Replay(list(found)), {"don-petry": "admin", "reader": "read"})
+        return acceptance.read(router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}))
+
+    def asked(self, events, listed=True):
+        """What one closing issue with these label events, and the label GitHub lists or not, reads as."""
+        return self.read(closing_answer("o/r", 26, [36], labelled=[36] if listed else []),
+                         issue_timeline("o/r", 36, events))
+
+    def test_an_issue_asks_for_a_contract_only_by_a_persons_label(self):
+        # The Maintainer's rule of 2026-10-21 (decision 0047): a pull request that closes no issue, or one whose issue
+        # carries no factory:contract a person placed, asks for none, and acceptance is null and read whole.
+        self.assertEqual(self.read(closing_answer("o/r", 26, [])), (None, True))
+        self.assertEqual(self.asked([], listed=False), (None, True))
+        self.assertEqual(self.asked([label_event("labeled", label="bug")], listed=False), (None, True))
+        # A person's label asks: the contract is then read, which adapters/contract.py, not built, holds; not whole.
+        self.assertEqual(self.asked([label_event("labeled")]), (None, False))
+        # Only a person ends what a person placed (L-17): removed by an App or the machine user, it still asks.
+        later = "2026-10-21T16:01:00Z"
+        self.assertEqual(self.asked([label_event("labeled"), label_event("unlabeled", at=later)], listed=False),
+                         (None, True))
+        for actor in (APP, (APPROVER,) + MACHINE):
+            self.assertEqual(self.asked([label_event("labeled"), label_event("unlabeled", actor, at=later)],
+                                        listed=False), (None, False), actor)
+        # Placed by an App, the machine user, a reader, or an App with a person's token, it asks for nothing.
+        for event in (label_event("labeled", APP), label_event("labeled", (APPROVER,) + MACHINE),
+                      label_event("labeled", ("reader", 8, "User")), label_event("labeled", via={"slug": "x"})):
+            self.assertEqual(self.asked([event]), (None, True), event)
+        # Placed again by an App over a person's, the person's placement stands; after a person removed it, an App's
+        # placement asks for nothing.
+        self.assertEqual(self.asked([label_event("labeled"), label_event("labeled", APP, at=later)]), (None, False))
+        self.assertEqual(self.asked([label_event("labeled"), label_event("unlabeled", at=later),
+                                     label_event("labeled", APP, at="2026-10-21T16:02:00Z")]), (None, True))
+        # A person's placement and removal in the same second read as placed, the reading that asks.
+        self.assertEqual(self.asked([label_event("labeled"), label_event("unlabeled")], listed=False), (None, False))
+        # Of two closing issues, one that asks is enough.
+        self.assertEqual(self.read(closing_answer("o/r", 26, [36, 37], labelled=[37]), issue_timeline("o/r", 36, []),
+                                   issue_timeline("o/r", 37, [label_event("labeled")])), (None, False))
+
+    def test_a_label_event_that_names_no_label_is_refused(self):
+        # It could be the contract label's placement or removal: refused, as timeline.label_events refuses it.
+        for label in (None, {}, {"name": ""}, {"name": 7}, "factory:contract"):
+            event = dict(label_event("labeled"), label=label)
+            with self.assertRaises(github.Unanswered, msg=label):
+                self.asked([event], listed=False)
+
+    def test_an_issue_whose_labels_and_timeline_disagree_or_are_short_is_not_whole(self):
+        # GitHub lists the label, but no event placed it (renamed into the name, or placed out of sight); or the
+        # timeline says it stands and GitHub lists none.
+        self.assertEqual(self.asked([], listed=True), (None, False))
+        self.assertEqual(self.asked([label_event("labeled", APP)], listed=False), (None, False))
+        short = issue_timeline("o/r", 36, {"message": "not a list"})
+        short["request"]["call"] = "GET /repos/o/r/issues/36/timeline?per_page=100&page=2"
+        self.assertEqual(self.read(closing_answer("o/r", 26, [36]), issue_timeline("o/r", 36, [], more=True), short),
+                         (None, False))
+
+    def test_closing_references_are_whole_only_of_this_repo_and_every_one_counted(self):
+        self.assertIn("closingIssuesReferences(first: 10)", acceptance.QUERY)
+        self.assertEqual(self.read(closing_answer("o/r", 26, [36], total=11)), (None, False))
+        self.assertEqual(self.read(closing_answer("o/r", 26, [36], elsewhere="o/other")), (None, False))
+        self.assertEqual(self.read(closing_answer("o/r", 26, [36, 36]), issue_timeline("o/r", 36, [])), (None, False))
+        many = closing_answer("o/r", 26, [36])
+        many["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"][0]["labels"] \
+            = {"totalCount": 51, "nodes": []}
+        self.assertEqual(self.read(many), (None, False))
+        # A label count that is no count is not read whole, though True equals one.
+        boolean = closing_answer("o/r", 26, [36], labelled=[36])
+        boolean["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"][0][
+            "labels"]["totalCount"] = True
+        self.assertEqual(self.read(boolean), (None, False))
+        for broken in ({"number": 0}, {"number": True}, {"number": "36"}, "36"):
+            found = closing_answer("o/r", 26, [36])
+            found["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"] = [broken]
+            with self.assertRaises(github.Unanswered, msg=broken):
+                self.read(found)
+        for refs in (None, {"totalCount": None, "nodes": []}, {"totalCount": 0, "nodes": None},
+                     {"totalCount": True, "nodes": closing_answer("o/r", 26, [36])["response"]["body"]["data"][
+                         "repository"]["pullRequest"]["closingIssuesReferences"]["nodes"]}):
+            found = closing_answer("o/r", 26, [])
+            found["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"] = refs
+            self.assertEqual(self.read(found), (None, False), refs)
+        # A shape GitHub does not give is refused, never let through as another error.
+        for shape in ({"data": "x"}, {"data": {"repository": []}}, {"data": {"repository": {"pullRequest": "x"}}}):
+            odd = closing_answer("o/r", 26, [])
+            odd["response"]["body"] = shape
+            with self.assertRaises(github.Unanswered, msg=shape):
+                self.read(odd)
+        stringly = closing_answer("o/r", 26, [36])
+        stringly["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"][0][
+            "repository"] = "o/r"
+        self.assertEqual(self.read(stringly), (None, False))
+        whole_body = closing_answer("o/r", 26, [])["response"]["body"]
+        for status, answer_body in ((502, None), (502, whole_body), (200, {"errors": [{"message": "x"}]})):
+            failed = closing_answer("o/r", 26, [])
+            failed["response"].update(status=status, body=answer_body)
+            with self.assertRaises(github.Unanswered, msg=status):
+                self.read(failed)
+
+    def test_a_pull_request_to_another_base_than_the_default_is_not_read_whole_on_its_contract(self):
+        # trials/P-33.json: a pull request to a base that is not the default branch carries no closing reference at
+        # all, so whether its issue asks cannot be read.
+        for base in ({"ref": "release", "repo": {"full_name": "o/r", "default_branch": "main"}},
+                     {"ref": "main", "repo": {"full_name": "o/r"}}, {"repo": {"full_name": "o/r"}}):
+            self.assertEqual(self.read(pull={"number": 26, "base": base}), (None, False), base)
+
+    def test_every_intent_a_lifecycle_runs_is_ruled_on_whether_it_asks_for_a_contract(self):
+        # Decision 0047: an issue asks by its item's Intent only for `fix` or `implement`, which no Lifecycle runs.
+        # Every Intent a Lifecycle runs is named here, none of them one that asks: a new one fails here until it is
+        # ruled whether it asks, and the port reads it if it does.
+        from kernel import issue
+        self.assertEqual(set(issue.INTENTS) | set(records.ON_PULL_REQUEST),
+                         {"investigate-issue", "judge-readiness", "open-pull-request", "review-change", "fix-findings",
+                          "adjudicate-findings", "issue-approval"})
+
+
 def thread_node(ident: str, opened=PERSON, at: str = "2026-10-21T16:18:57Z", resolved_by=None) -> dict:
     """A review thread as the port's query asks it. No trial has recorded a thread's author, time or resolver yet (P-43
     recorded only its path and state); the pending test below reads the first that does."""
@@ -1573,8 +1833,11 @@ class Snapshot(unittest.TestCase):
         P-29.truncated, P-7 and P-32 for its files, reviews and checks, which no fixture holds for this one."""
         found = exchanges("P-29.base")
         head = found[1]["response"]["body"]["head"]["sha"]
-        return [found[1], found[9], exchanges("P-28")[3], found[2], p26_files(), exchanges("P-28")[4], p26_reviews(),
-                p26_checks(head), threads_answer(canary(), 26, []), found[reread]]
+        branch = found[9]["response"]["body"]["commit"]["sha"]
+        data = found[1]["response"]["body"]
+        return [found[1], found[9], exchanges("P-28")[3], as_compare(found[2], data, branch),
+                as_compare(p26_files(), data, branch), exchanges("P-28")[4], p26_reviews(), p26_checks(head),
+                closing_answer(canary(), 26, []), threads_answer(canary(), 26, []), found[reread]]
 
     def read(self, reread: int):
         router = Router(github.Replay(self.sequence(reread)), {"don-petry": "admin"})
@@ -1590,10 +1853,19 @@ class Snapshot(unittest.TestCase):
         # The activity read is of a later push than the head the pull request was read at: no pusher, and the push's
         # time is the read's, so nothing reads as placed after a push it could not see.
         self.assertEqual((got["last_pusher"], got["last_push_at"]), (None, self.NOW))
-        self.assertEqual(got["complete"], {"acceptance": False, "reviews": True, "threads": True, "checks": True,
+        self.assertEqual(got["complete"], {"acceptance": True, "reviews": True, "threads": True, "checks": True,
                                            "diff": True, "changed_paths": True, "runs": True, "timeline": True})
         self.assertIsNone(got["acceptance"])
         self.assertNotIn(title, json.dumps(got))
+
+    def test_a_snapshot_whose_closing_issue_asks_for_a_contract_is_not_read_whole_on_it(self):
+        seq = self.sequence(1)
+        at = len(seq) - 3
+        seq[at:at + 1] = [closing_answer(canary(), 26, [36]), issue_timeline(canary(), 36, [label_event("labeled")])]
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW)
+        self.assertEqual((got["acceptance"], got["complete"]["acceptance"]), (None, False))
 
     def test_the_bases_head_and_a_pushs_time_are_read_or_refused(self):
         self.assertEqual(pull.base(replay("P-29.base", 9), body("P-29.base", 1))["head"],
@@ -1637,13 +1909,13 @@ class Snapshot(unittest.TestCase):
 
     def test_a_snapshot_holds_every_thread_read_and_says_whether_they_were_read_whole(self):
         seq = self.sequence(1)
-        seq[8] = threads_answer(canary(), 26, [thread_node("PRRT_1", PERSON), thread_node("PRRT_2", LENS)])
+        seq[9] = threads_answer(canary(), 26, [thread_node("PRRT_1", PERSON), thread_node("PRRT_2", LENS)])
         router = Router(github.Replay(copy.deepcopy(seq)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit"})
         got, _ = facts.snapshot(router, canary(), 26, person(), accounts, False, lambda: self.NOW)
         self.assertEqual([(t["id"], t["category"]) for t in got["threads"]], [("PRRT_1", "human"), ("PRRT_2", None)])
         self.assertEqual((got["complete"]["threads"], got["complete"]["runs"]), (True, False))
-        seq[8]["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["totalCount"] = 3
+        seq[9]["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["totalCount"] = 3
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit"})
         got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW)
@@ -1657,7 +1929,7 @@ class Snapshot(unittest.TestCase):
         config = json.loads((ROOT / "config" / "defaults.json").read_text())
         role = ("combsmith-sf-pr-review", 99, "Bot")
         seq = self.sequence(1)
-        seq[8] = threads_answer(canary(), 26, [thread_node("PRRT_1", LENS), thread_node("PRRT_2", role),
+        seq[9] = threads_answer(canary(), 26, [thread_node("PRRT_1", LENS), thread_node("PRRT_2", role),
                                                thread_node("PRRT_3", APP), thread_node("PRRT_4", PERSON)])
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, canary(), MACHINE, {LENS[1:]: "coderabbit", role[1:]: "pr-review"})
@@ -1711,8 +1983,8 @@ class Contract(unittest.TestCase):
         # grounding, or a fixture the port reads otherwise, fails.
         from sim import grounding
         grounded = {code: fixture for code, _, _, fixture, _ in grounding.RULES if fixture}
-        before = pull.diff(replay("P-29.base", 2), body("P-29.base", 1))["content_id"]
-        after = pull.diff(replay("P-29.base", 13), body("P-29.base", 12))["content_id"]
+        before = pull.diff(compared("P-29.base", 2, body("P-29.base", 1)), body("P-29.base", 1), PINNED_BASE)["content_id"]
+        after = pull.diff(compared("P-29.base", 13, body("P-29.base", 12)), body("P-29.base", 12), PINNED_BASE)["content_id"]
         fork = [e for e in exchanges("P-27") if "/runs?" in e["request"].get("call", "") and e["response"]["status"] == 200]
         rows = [r for e in fork for r in e["response"]["body"].get("workflow_runs", [])
                 if r["head_repository"]["full_name"] != r["repository"]["full_name"]]
@@ -1722,19 +1994,33 @@ class Contract(unittest.TestCase):
             "a_push_is_new_content": before != after,
             "the_pusher_is_the_last_pusher": pull.last_pusher(replay("P-28", 7), body("P-28", 10)) == "don-petry"
             and pull.last_pusher(replay("P-28.app", 1), body("P-28.app", 0)) == "combsmith-sf-trial-author[bot]",
-            "a_short_diff_says_so": pull.diff(replay("P-29.truncated", 4), body("P-29.truncated", 2))["diff"]["truncated"],
-            "a_path_list_can_leave_out_a_file": pull.changed_paths(github.Replay(files_pages(30, [])),
-                                                                   body("P-29.truncated", 2))["complete"] is False,
+            "a_short_diff_says_so": pull.diff(compared("P-29.truncated", 4, body("P-29.truncated", 2)), body("P-29.truncated", 2), PINNED_BASE)["diff"]["truncated"],
+            "a_path_list_can_leave_out_a_file": pull.changed_paths(github.Replay([]), body("P-29.truncated", 2),
+                                                                   PINNED_BASE)["complete"] is False,
             "a_forks_run_never_counts": bool(recorded) and all(r["event"] == "pull_request" for r in recorded)
             and all(records._record(r, r["repository"]["full_name"], r.get("head_branch"), {r.get("path")},
                                     (r["actor"]["id"], r["actor"]["type"])) == (None, None) for r in rows),
+            "a_logins_permission_is_read_from_the_collaborator_endpoint": all(
+                timeline.Accounts(github.Replay([e]), canary(), MACHINE, {}).actor(
+                    {"login": e["response"]["body"]["user"]["login"], "id": e["response"]["body"]["user"]["id"],
+                     "type": "User"})["can_write"] == (e["response"]["body"]["permission"] in ("admin", "maintain", "write"))
+                for e in exchanges("P-47") if "/permission" in e["request"]["call"]),
             "a_new_run_is_listed_unnamed": Records().read(listing("P-17", 9, total=1), listing("P-17", 10, total=1),
-                                                          per_page=1)[0]["unidentified"] == ["39086879694"],
+                                                          per_page=1)[0]["unidentified"][0]["run"] == "39086879694",
+            # The bot's pull request is dependency only as the account named for it, by id and type, and it pushed the head.
+            "a_dependency_bot_updates_a_workflow_pin":
+                pull.own(body("P-45", 5), {"dependency": {(49699333, "Bot")}})[0]["class"] == "dependency"
+                and pull.own(body("P-45", 5), {})[0]["class"] == "outside"
+                and pull.last_pusher(replay("P-45", 7), body("P-45", 5)) == "dependabot[bot]"
+                # The Kernel compares the last pusher with the author as the port reads both, by REST's one spelling.
+                and pull.own(body("P-45", 5), {})[0]["author"] == pull.last_pusher(replay("P-45", 7), body("P-45", 5)),
         }
         # Each is read from the fixture that grounds it, and no other.
         replayed = {"a_push_is_new_content": {"P-29.base"}, "the_pusher_is_the_last_pusher": {"P-28", "P-28.app"},
                     "a_short_diff_says_so": {"P-29.truncated"}, "a_path_list_can_leave_out_a_file": {"P-29.truncated"},
-                    "a_forks_run_never_counts": {"P-27"}, "a_new_run_is_listed_unnamed": {"P-17"}}
+                    "a_forks_run_never_counts": {"P-27"}, "a_new_run_is_listed_unnamed": {"P-17"},
+                    "a_logins_permission_is_read_from_the_collaborator_endpoint": {"P-47"},
+                    "a_dependency_bot_updates_a_workflow_pin": {"P-45"}}
         # Every other rule a fixture grounds is named, with why this test does not read it yet: a rule added to the
         # fake's grounding fails here until it is read or named.
         not_read = {

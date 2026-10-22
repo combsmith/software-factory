@@ -104,6 +104,12 @@ RULES = (
      ("P-17",), "trials/P-17.json", None),
     ("a_new_run_is_listed_unnamed", "A Run can be listed under its workflow's name, not its run-name, for its first "
      "seconds", ("P-17",), "trials/P-17.json", None),
+    ("a_run_whose_name_never_resolves_stays_listed_unnamed", "A run whose run-name never resolves is listed under "
+     "its workflow's name for as long as its record is kept", (), None,
+     "assumed, no trial can ask it: a run-name that never resolves is a fault of a Factory workflow's name expression "
+     "or of the Controller's own dispatch, the one dispatcher whose runs count, not a behaviour of GitHub a trial could "
+     "make happen on a sound workflow; GitHub documents that a run-name that cannot be evaluated shows the workflow's "
+     "name, as P-17 saw in its first seconds"),
     ("a_new_run_is_listed_late", "The newest Run can be missing from the list of run records for one pass",
      ("P-22",), "trials/P-22.json", None),
     # trials/P-43.json: with a filter, as the records port reads one, this repo's run list stops at 1,000 of the 1,879 it
@@ -126,6 +132,8 @@ RULES = (
     ("a_pull_request_lists_the_paths_it_changes", "Every file a pull request changes is read once, as many as the diff "
      "counts, by its path from the top of the repo, with the path a renamed file had before; an unchanged copy is "
      "listed as an added file", ("P-43",), "trials/P-43.json", None),
+    # The port reads a compare, not this list (issue 284): a change of more files than a compare lists, 300 as GitHub
+    # documents it and no trial records, is read short by changed_files alone, which the fixture's 3,001 shows.
     ("a_path_list_can_leave_out_a_file", "A list of the files a pull request changes can leave one out while it says it "
      "was read in full; it then holds fewer records than the diff has files: GitHub's list stops at its cap with a 200 "
      "and an empty next page, and only changed_files shows it short", ("P-29",), "trials/P-29.truncated.json", None),
@@ -133,9 +141,14 @@ RULES = (
     # pull request's count of files, as trials/P-29.truncated.json shows (a_path_list_can_leave_out_a_file).
     ("a_short_path_list_says_so", "The list of paths a pull request changes, read short or cut off at its limit, says "
      "so", ("P-43",), "trials/P-43.json", None),
+    # trials/P-45.json: Dependabot moved actions/checkout's pin in a canary workflow; it opened the pull request and pushed
+    # its head as dependabot[bot], a Bot, id 49699333, which GraphQL names dependabot: the port reads it by id and type.
     ("a_dependency_bot_updates_a_workflow_pin", "A dependency bot's update can change the pin of an Action in a "
-     "workflow file, a Lens's own among them; the bot opens it and pushes its head, and its class is dependency",
-     ("P-45",), None, None),
+     "workflow file; the bot opens it and pushes its head, and its class is dependency",
+     ("P-45",), "trials/P-45.json", None),
+    # The workflow P-45 updated was an ordinary one, so that a Lens's own is updated alike stays unshown.
+    ("a_dependency_bot_updates_a_lens_pin", "A dependency bot's update can change the pin of an Action in a Lens's own "
+     "workflow file, as it does any other's", ("P-45",), None, None),
     ("an_acceptance_result_names_its_content", "Each result for a criterion of an item's acceptance contract is read "
      "from the check that gave it, with the content it ran on, and stays when the content changes",
      ("P-42",), None, None),
@@ -168,11 +181,13 @@ RULES = (
      (), None,
      "assumed, no trial can ask it: it needs an account outside the org, which no trial has (#27 is the last story to "
      "use the canary token); GitHub documents that anyone may review a public repo"),
-    # The issue world's rules (sim/issues.py, issue 43). Contradicted by trials/P-32.json for an App's read: the
-    # listing says MEMBER to a person and CONTRIBUTOR to an App, for an owner's issue. Left unverified, as it is: the
-    # Factory reads an issue as the machine user, and no trial has yet asked what that read says.
-    ("an_issues_author_has_an_association", "The listing of issues says whether an issue's author has write access",
-     ("P-32",), None, None),
+    # The issue world's rules (sim/issues.py, issue 43). trials/P-32.json showed the listing's authorAssociation tells
+    # an App nothing of write access (CONTRIBUTOR for the org's owner), so write access is read from the repository's
+    # collaborator permission instead (issue 222, decision 0048).
+    ("a_logins_permission_is_read_from_the_collaborator_endpoint", "A person's write access is read from the "
+     "repository's collaborator permission: admin and write are write access, a maintainer's role among them, which "
+     "the field gives as write, and read is not; triage, which GitHub documents as read, was not tried", ("P-47",),
+     "trials/P-47.json", None),
     # trials/P-33.json: a pull request to a base that is not the default branch carries no closing reference at all
     # (section 6's fallback: the issue Lifecycle serves the default branch only). The reverse read from the issue is
     # no substitute: willCloseTarget is false for a closed-unmerged pull request that keeps its reference, false for

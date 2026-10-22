@@ -1,7 +1,7 @@
 """One pass of the Controller, as a function of what it read (design sections 2.3, 3.4 and 7.3, issue 193).
 
 `run(reads, config, now, previous, mint)` builds the context from the reads, asks the Kernel about every item through
-its two entry points, and returns the pass record, the Runs to dispatch, each named by its run-name, the acts to make,
+its entry points, and returns the pass record, the Runs to dispatch, each named by its run-name, the acts to make,
 the view's three files, the alerts, and whether to start a successor. It decides nothing itself: every Decision is the
 Kernel's, and what it reports of the Factory's own health is read from the reads and the pass records. It writes
 nothing and reads no clock: `now` is given, and so is `mint`, which gives each new id. What it returns is written by the
@@ -166,7 +166,8 @@ def wait_before_reading(previous, now: str, config: dict) -> int:
 
 def rebuild(records: list, titles: dict, config: dict) -> list:
     """The feed's two files as each pass record left them, rebuilt from the records alone (decision 0002)."""
-    return feed_.rebuild(records, titles, config["feed"])
+    return feed_.rebuild(records, titles, config["feed"],
+                         lambda r: pull_request.unnamed_scope(r["context"], config["kernel"], r["now"])["alerts"])
 
 
 def _run_name(item: dict, intent: str, role: str, content: str, run: str) -> str:
@@ -244,6 +245,10 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
         elif d["outcome"] == t.ACT:
             acts.append(d)
 
+    # An unnamed Run defers only inside the window or until it completes; past the window it is an alert, by its run id,
+    # and past max_unnamed_runs of them every Run defers (issue 270).
+    unnamed = pull_request.unnamed_scope(context, config["kernel"], now)
+
     def gap(later: str, earlier_: str) -> bool:
         return seconds(later, earlier_) > rules["not_run_seconds"]
 
@@ -251,18 +256,18 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     raised = bool(before) and gap(now, before[-1]["now"])
     cleared = len(before) >= 2 and gap(before[-1]["now"], before[-2]["now"]) and not raised
     alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, automatic is not None,
-                            bool(left_out), raised)
+                            bool(left_out), raised, unnamed)
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}
-    feed = feed_.view(record, before, titles, config["feed"])
+    feed = feed_.view(record, before, titles, config["feed"], unnamed["alerts"])
     feed["health"] = health_.health(record, before, pause, automatic is not None, alerts, reads.get("usage"), rules)
     # A successor only for an item due at the pass's end: an act made here, whose next Decision is due at once, and not
     # one the pass before made too, which did not take. A Run's end starts the next pass itself, and a pass deferred by
     # a Run it cannot name starts none (decisions 0036, 0043).
     done = _acts(before[-1]) if before else set()
     due = [d for d in acts if (key(d["item"]), d["action"], d.get("content_id")) not in done]
-    successor = bool(due) and context["unidentified_runs"] == []
+    successor = bool(due) and not unnamed["defers"] and not unnamed["bounded"]
     # The one write no Decision calls for: recorded, so the effects port can hold a plan's successor to it.
     record["successor"] = successor
     return {"record": record, "dispatch": dispatch, "acts": acts, "view": feed, "alerts": alerts,

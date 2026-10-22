@@ -58,17 +58,19 @@ def thresholds(window: list, usage, rule: dict) -> dict:
             "decision_delay_p95_minutes": threshold(delay_p95(window), rule["decision_delay_p95_minutes"])}
 
 
-def alerts(reasons: list, context: dict, capacity, automatic: bool, left_out: bool, not_run: bool) -> list:
+def alerts(reasons: list, context: dict, capacity, automatic: bool, left_out: bool, not_run: bool, unnamed: dict) -> list:
     """Each cause once, however many items it defers (L-48). A cause that holds the whole scope is raised from the
     context as well as from the Decisions, so that it is raised with no item to defer. The automatic pause defers as
     `capacity` does, and is the one cause `environment` unless a capacity fault holds too. Facts left out are one cause,
-    and so is six hours with no pass."""
+    and so is six hours with no pass. `unnamed` is the Kernel's `unnamed_scope`: an unnamed Run inside the window
+    defers, and past `max_unnamed_runs` of them past it every Run does (issue 270)."""
     causes = set(reasons) & t.SCOPE_DEFERRALS
     causes |= {"paused"} if context["paused"] is True else set()
     causes |= {"pause_unreadable"} if context["paused"] is None else set()
     causes |= {"capacity"} if capacity is not None else set()
     causes |= {"capacity_unreadable"} if context["active_runs"] is None else set()
-    causes |= {"run_unidentified"} if context["unidentified_runs"] != [] else set()
+    causes |= {"run_unidentified"} if unnamed["defers"] else set()
+    causes |= {"runs_unnamed"} if unnamed["bounded"] else set()
     if automatic and capacity is None:
         causes.discard("capacity")
     causes |= {ENVIRONMENT} if automatic else set()

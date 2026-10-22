@@ -22,7 +22,7 @@ Channel back is the whole of a rollback.
 | Boundary | Check |
 |---|---|
 | Every action is pinned to a full commit hash, and one of the org's own reusable workflows to its channel tag | `tools/check_workflows.py` |
-| Every Run records the Release it ran | waiting on `harness/` |
+| Every Run records the Release it ran | `tests/test_harness.py::test_a_result_the_engine_wrote_is_filled_and_kept`, `tests/test_harness.py::test_the_job_writes_the_result_and_its_digest_and_nothing_else` |
 | Inside a Release, Factory files are read at the commit of the running workflow, never at a branch | waiting on `release/` |
 | The only files that run from the default branch are thin callers: each job `uses:` a pinned reusable and declares no steps | waiting on `release/` |
 | A candidate reaches `stable` only with an eval result for each Intent whose inputs changed, and verified Effects from the `next` ring | waiting on `release/` |
