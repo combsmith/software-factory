@@ -2095,7 +2095,7 @@ WHY = {"controller", "kernel", "issues_port", "shape"}
 # Every response a trial shows GitHub refusing, by fixture and exchange, and whether a port asks it: a port's is read
 # as no answer, never as one (FR-56); a refusal recorded later fails here until it is placed.
 REFUSALS = {
-    ("P-27", 15): None,                # a dispatch GitHub refused: the effects port's, not on main yet
+    ("P-27", 15): "dispatch",          # a dispatch GitHub refused: the effects port reads it as a write that failed
     ("P-8", 1): "graphql",             # a GraphQL read over the resource limits, answered 200 with errors
     ("P-27", 21): None,                # an org membership read, which no port asks
     ("P-29.truncated", 4): "diff",     # the diff too large to serve: read as truncated, never as the whole
@@ -2237,7 +2237,7 @@ class Contract(unittest.TestCase):
                  and (e["response"]["status"] >= 400
                       or (isinstance(e["response"].get("body"), dict) and e["response"]["body"].get("errors")))}
         self.assertEqual(found, set(REFUSALS))
-        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "graphql", "runs"])
+        self.assertEqual(sorted({p for p in REFUSALS.values() if p}), ["diff", "dispatch", "graphql", "runs"])
         missing = exchanges("P-44")[3]
         call = missing["request"]["call"].split()[1].rstrip(",")
         workflow = call.split("/workflows/")[1].split("/")[0]
@@ -2245,6 +2245,14 @@ class Contract(unittest.TestCase):
             records.runs(github.Replay([asked(missing)]), canary(), "main", [workflow], DISPATCHER)
         self.assertTrue(pull.diff(compared("P-29.truncated", 4, body("P-29.truncated", 2)), body("P-29.truncated", 2),
                                   PINNED_BASE)["diff"]["truncated"])
+        # A dispatch GitHub refuses, as P-27 recorded its 422, is a write that failed, never one sent.
+        from tests import test_effects
+        sending = test_effects.Effects()
+        found = sending.dispatches()
+        found[0]["response"] = copy.deepcopy(exchanges("P-27")[15]["response"])
+        written, _ = sending.send(*found)
+        self.assertEqual([(w["state"], w["reason"]) for w in written["writes"][1:]],
+                         [("failed", "dispatch_refused"), ("sent", None), ("sent", None)])
         # A GraphQL read GitHub answers 200 with errors, as P-8 recorded over its resource limits, is no answer to any
         # port that reads GraphQL, even where the data it gave beside them would read: the checks, the threads and the
         # closing references.

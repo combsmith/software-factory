@@ -268,5 +268,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     done = _acts(before[-1]) if before else set()
     due = [d for d in acts if (key(d["item"]), d["action"], d.get("content_id")) not in done]
     successor = bool(due) and not unnamed["defers"] and not unnamed["bounded"]
+    # The one write no Decision calls for: recorded, so the effects port can hold a plan's successor to it.
+    record["successor"] = successor
     return {"record": record, "dispatch": dispatch, "acts": acts, "view": feed, "alerts": alerts,
             "cleared": [NOT_RUN] if cleared else [], "left_out": left_out, "successor": successor}
