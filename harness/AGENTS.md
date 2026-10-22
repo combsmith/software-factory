@@ -1,13 +1,11 @@
 # harness/
 
-The Harness: the jobs that carry one Run. `task.py` builds the Task from the Decision that admitted the Run, `engine.py`
-runs the vendor's CLI on it and takes the Result from its answer, and `run.py` is the `run` job, which writes the
-Result and its digest and nothing else of the model. `apply.py` is what the `apply` job does with that Result: it reads
-the item again, refuses what may not be written, writes the Effects with a token narrowed to them, and records only
-what it read back. The model is given no tool, and the CLI no secret but the one
-under its own name. Every test drives a stand-in for the CLI: the first live Run is the workflows' and the Release's.
+The Harness: the jobs that carry one Run. `task.py` builds the Task from the Decision that admitted the Run, `engine.py` runs the vendor's CLI on it and takes the Result from its answer, and `run.py` is the `run` job, which writes the
+Result and its digest and nothing else of the model. `apply.py` is what the `apply` job does with that Result: it reads the item again, refuses what may not be written, writes the Effects with a token narrowed to them, and records only what
+it read back. The model is given no tool, and the CLI no secret but the one under its own name. Every test drives a stand-in for the CLI: the first live Run is the workflows' and the Release's. `eval/` is the eval job's steps, `factory /
+eval`: the held-out set run on the commit it judges, each case read into a scratch outside the workspace, scored, and reported by hashes, verdicts and codes alone (decision 0053; its rules are `evals/AGENTS.md`'s).
 
-Not built yet, by the stories that hold their rules: verify.py, push.py.
+Not built yet, by the stories that hold their rules: verify.py, push.py, eval/run.py.
 
 | Rule | Held by |
 |---|---|
