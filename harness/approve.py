@@ -107,7 +107,8 @@ def job(record, run: str, read, port, config: dict, now: str) -> tuple:
     except Exception:     # any read that failed is the environment's, never a Run that died with no outcome (ruling 6)
         return _records(run, release, "refused", None, ("environment", "facts_unreadable"))
     # A Pause that cannot be read is a read that failed: the environment's, not a change under the act.
-    if not isinstance(head, str) or SHA.fullmatch(head) is None or not isinstance(runs, list) \
+    if not isinstance(facts, dict) or not isinstance(head, str) or SHA.fullmatch(head) is None \
+            or not isinstance(runs, list) \
             or not isinstance(context, dict) or context.get("paused") not in (True, False):
         return _records(run, release, "refused", None, ("environment", "facts_unreadable"))
     done = port.recover(item, head)

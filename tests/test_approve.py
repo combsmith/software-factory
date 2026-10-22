@@ -136,6 +136,7 @@ class TheAct(unittest.TestCase):
                                                   "{ id } } }", "variables": {}}),
                    ("GET", "/repos/combsmith/other/pulls/42", None),
                    ("GET", "/repos/%s/../other/pulls/1" % repo, None), ("GET", "/repos/%s/%%2e%%2e/x" % repo, None),
+                   ("GET", "/repos/%s//pulls/42" % repo, None),
                    ("GET", "/orgs/combsmith/members", None), ("GET", "https://example.com/repos/%s/pulls/42" % repo, None)]
         for method, path, body in refused:
             with self.assertRaises(Unanswered, msg=(method, path, body)):
@@ -310,6 +311,9 @@ class TheAct(unittest.TestCase):
             (GitHub(), reads(head="not a commit"), ("environment", "facts_unreadable"), "refused"),
             (GitHub(), reads(head=None), ("environment", "facts_unreadable"), "refused"),
             (GitHub(), failing(IndexError("x")), ("environment", "facts_unreadable"), "refused"),
+            (GitHub(), lambda: (None, HEAD, REVIEWED, context()), ("environment", "facts_unreadable"), "refused"),
+            (GitHub(), lambda: (facts(), HEAD, None, context()), ("environment", "facts_unreadable"), "refused"),
+            (GitHub(), lambda: (facts(), HEAD, REVIEWED, None), ("environment", "facts_unreadable"), "refused"),
             (GitHub(), reads(ctx=context(paused=None)), ("environment", "facts_unreadable"), "refused"),
             (GitHub(), reads(ctx=context(paused="true")), ("environment", "facts_unreadable"), "refused"),
             (posting({"status": 201, "body": LANDED}), None, ("environment", "not_read_back"), "failed"),
