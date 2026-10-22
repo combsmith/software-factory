@@ -16,9 +16,10 @@ from tools.hooks import protected
 
 # Fixed seeds: the required check cannot fail at random. SIM_SEEDS shortens a local run.
 SEEDS = range(1, 1 + int(os.environ.get("SIM_SEEDS", "300")))
-# The first seed whose Hold takes a queued item out (test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause),
-# and the first of each world on which a newer Run cancels the one waiting (a_run_waits_its_turn).
-HOLD_SEED, LANE_SEED, ISSUE_LANE_SEED = 109, 2, 54
+# The first seed whose Hold takes a queued item out, and the first whose lost approval does since a killed Run may leave
+# no outcome (issue 286) (test_the_seeds_take_a_pull_request_out_of_the_queue_for_each_cause), and the first of each
+# world on which a newer Run cancels the one waiting (a_run_waits_its_turn).
+HOLD_SEED, LOST_SEED, LANE_SEED, ISSUE_LANE_SEED = 109, 69, 2, 54
 # Seeds on which the item is a dependency update with no acceptance contract: to a workflow's pin, and to neither list.
 DEPENDENCY_ON_THE_LIST, DEPENDENCY_OFF_THE_LIST = 4, 34
 
@@ -679,9 +680,10 @@ class Simulation(unittest.TestCase):
             return d
 
         # The first seed whose Hold takes an item out lies past a local run of forty seeds since the lane cancels a
-        # waiting Run (trials/P-44.json): it is run as well, so a short run still asks for that cause.
+        # waiting Run (trials/P-44.json), and so does the first whose approval is lost since a killed Run may leave no
+        # outcome (issue 286): each is run as well, so a short run still asks for that cause.
         with mock.patch.object(world, "decide", recording):
-            for seed in sorted(set(SEEDS) | {HOLD_SEED}):
+            for seed in sorted(set(SEEDS) | {HOLD_SEED, LOST_SEED}):
                 w = World(seed)
                 for _ in range(250):
                     w.step()

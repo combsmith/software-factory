@@ -1997,14 +1997,39 @@ class AReviewThatReported(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"], d["evidence"]),
                          ("held", "attempts_exhausted", "hold", "needs_you", [r["run"] for r in failed]))
         self.assertEqual(go(facts(), failed[1:]).get("admit"), REVIEW_IT)
-        # One that failed with no outcome has not reported either. It is no attempt, so the Run ceiling bounds it.
-        unread = [run(conclusion="failure", outcome=None, at=at(10 + i), name="n%d" % i)
+        # One that was cancelled with no outcome has not reported either. It is no attempt: its concurrency group cancels
+        # the one waiting behind a newer one (P-44), or a person did; the Run ceiling bounds it (issue 286's ruling).
+        unread = [run(conclusion="cancelled", outcome=None, at=at(10 + i), name="n%d" % i)
                   for i in range(LIMITS["max_runs_per_item"])]
         d = go(facts(), unread[:LIMITS["max_attempts"]])
         self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("admit")),
                          ("verifying", "awaiting_review", "admit", REVIEW_IT))
         d = go(facts(), unread)
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "run_ceiling", "hold"))
+
+    def test_a_run_that_ran_and_left_no_outcome_is_an_attempt(self):  # issue 286's ruling, I-23
+        # A Run that failed or timed out with no outcome ran and did not report: killed, out of memory, or crashed in its
+        # own step. It is the item's, as section 3.10 reads a killed Run, so three such are held at max_attempts and not
+        # left to the Run ceiling. One cancelled with no outcome is no attempt; a job that never started is read as
+        # cancelled by the records port (tests/test_adapters.py).
+        top = LIMITS["max_attempts"]
+        for conclusion in ("failure", "timed_out"):
+            died = [run(conclusion=conclusion, outcome=None, at=at(10 + i), name="d%d" % i) for i in range(top)]
+            d = go(facts(), died)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["evidence"]),
+                             ("held", "attempts_exhausted", "hold", [r["run"] for r in died]), conclusion)
+            self.assertEqual(go(facts(), died[1:]).get("admit"), REVIEW_IT, conclusion)
+        gone = [run(conclusion="cancelled", outcome=None, at=at(10 + i), name="g%d" % i) for i in range(top)]
+        d = go(facts(), gone)
+        self.assertEqual((d["reason"], d.get("admit")), ("awaiting_review", REVIEW_IT))
+        # An outcome the Run wrote is read as it says: a failure by the environment or capacity is no attempt.
+        for outcome in ("environment", "capacity", "superseded"):
+            other = [run(conclusion="failure", outcome=outcome, at=at(10 + i), name="o%d" % i) for i in range(top)]
+            self.assertEqual(go(facts(), other)["reason"], "awaiting_review", outcome)
+        # A Run still in flight has no outcome yet, and is no attempt: one attempt short, it does not hold the item.
+        died = [run(conclusion="failure", outcome=None, at=at(10 + i), name="d%d" % i) for i in range(top - 1)]
+        flying = run(conclusion=None, status="in_progress", outcome=None, at=at(20), name="f0")
+        self.assertNotEqual(go(facts(), died + [flying])["reason"], "attempts_exhausted")
 
     def test_a_review_that_succeeded_with_a_fault_is_unreadable(self):  # I-13
         # A Run that succeeded and names whose fault its failure was contradicts itself: no report is read from it,
@@ -2290,7 +2315,8 @@ class Ceilings(unittest.TestCase):
     def test_an_approval_that_keeps_failing_for_the_environment_is_bounded(self):  # I-8
         # Not an attempt, and never landed, so not an act: only the Run ceiling can bound it.
         ceiling = LIMITS["max_runs_per_item"]
-        for kind in ("environment", "capacity", "superseded", None):
+        # An approval that ran and left no outcome is an attempt (issue 286's ruling): held at max_attempts, below.
+        for kind in ("environment", "capacity", "superseded"):
             d = go(facts(), REVIEWED + approvals(ceiling - 1, outcome=kind))
             self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"]),
                              ("held", "hold", "run_ceiling", "needs_you"), kind)
@@ -2299,6 +2325,17 @@ class Ceilings(unittest.TestCase):
             # A writer's action renews the allowance, as for any Run.
             d = go(facts(last_writer_action_at=at(40)), REVIEWED + approvals(ceiling - 1, outcome=kind))
             self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"), kind)
+
+    def test_an_approval_that_ran_and_left_no_outcome_is_an_attempt(self):  # issue 286's ruling
+        top = LIMITS["max_attempts"]
+        d = go(facts(), REVIEWED + approvals(top, outcome=None))
+        self.assertEqual((d["state"], d["outcome"], d["reason"]), ("held", "hold", "attempts_exhausted"))
+        d = go(facts(), REVIEWED + approvals(top - 1, outcome=None))
+        self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
+        # Cancelled with no outcome, it is none, and the Run ceiling bounds it.
+        cancelled = [dict(r, conclusion="cancelled") for r in approvals(LIMITS["max_runs_per_item"] - 1, outcome=None)]
+        d = go(facts(), REVIEWED + cancelled)
+        self.assertEqual((d["state"], d["outcome"], d["reason"]), ("held", "hold", "run_ceiling"))
 
     def test_a_failed_model_run_is_not_an_approval_attempt(self):
         fixes = [run(role="dev-lead", intent="fix-findings", conclusion="failure", outcome="item",

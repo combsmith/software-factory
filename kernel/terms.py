@@ -139,3 +139,6 @@ LABEL_ACTIONS = ("labeled", "unlabeled")
 # The label a person adds to an issue to ask for an acceptance contract (decision 0047): the facts port reads it from the
 # issue a pull request closes, as the Kernel reads a control label. No Lifecycle runs an Intent that asks yet.
 LABEL_CONTRACT = "factory:contract"
+
+# The conclusions of a Run that ran and did not report: with no outcome, it is the item's, an attempt (issue 286).
+RAN_AND_DIED = ("failure", "timed_out")

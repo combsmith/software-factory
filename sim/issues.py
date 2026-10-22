@@ -395,7 +395,8 @@ class IssueWorld:
                           for c in self.comments)
         if current:
             return False
-        failed = [r for r in kept if r["status"] == "completed" and r["outcome"] == "item" and after(r["started_at"])]
+        failed = [r for r in kept if r["status"] == "completed" and after(r["started_at"]) and (
+            r["outcome"] == "item" or (r["outcome"] is None and r["conclusion"] in ("failure", "timed_out")))]
         return len(failed) < LIMITS["max_attempts"]
 
     def admit(self, d: dict, facts: dict):
@@ -468,7 +469,8 @@ class IssueWorld:
         run["status"] = "completed"
         if self.faults and self.rng.random() < 0.12 and run["run"] != self.removal_in_flight:
             # GitHub: a_killed_job_times_out
-            run.update(conclusion="timed_out", outcome=self.pick(["item", "capacity", "environment"]))
+            # A killed Run may write no outcome (section 3.10): with none, it is an attempt (issue 286).
+            run.update(conclusion="timed_out", outcome=self.pick(["item", "capacity", "environment", None]))
             self.note("run %s: killed (%s)" % (run["run"], run["outcome"]))
             return
         # apply asks the Kernel again with its own Run left out (I-38): a label removed, a Hold added, an edit made or
