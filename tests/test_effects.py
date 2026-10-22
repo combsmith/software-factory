@@ -394,8 +394,25 @@ class Pause(unittest.TestCase):
                          {"org": pause.UNREADABLE, "repos": {"combsmith/software-factory": None}})
         self.assertEqual(pause.read(None, "combsmith", ["b/a", "a/b"]),
                          {"org": pause.UNREADABLE, "repos": {"a/b": pause.UNREADABLE, "b/a": pause.UNREADABLE}})
-        for scope in ("combsmith/..", "-x", "a/b/c", "", "combsmith/software-factory?x=1"):
-            self.assertEqual(pause.read(github.Replay([]), scope, [])["org"], pause.UNREADABLE, scope)
+        asked = []
+
+        class Clear:
+            """Answers any request as a variable set to false would be, so only the port can refuse a scope."""
+            def send(self, req):
+                asked.append(req["path"])
+                return {"status": 200, "headers": {}, "body": {"name": pause.NAME, "value": "false"}}
+        for scope in ("combsmith/..", "-x", "a/b/c", "", "combsmith/software-factory?x=1", "combsmith/."):
+            self.assertEqual(pause.read(Clear(), scope, [])["org"], pause.UNREADABLE, scope)
+        self.assertEqual(asked, [])
+        self.assertEqual(pause.read(Clear(), "combsmith", [])["org"], "false")
+        self.assertEqual(asked, [pause.path("combsmith")])
+        # An answer of 200 that is not this variable, by its name and a text value, is unreadable too.
+        for body in ({"name": "OTHER", "value": "false"}, {"name": pause.NAME, "value": False}, {"name": pause.NAME},
+                     ["false"]):
+            class Odd:
+                def send(self, req, body=body):
+                    return {"status": 200, "headers": {}, "body": body}
+            self.assertEqual(pause.read(Odd(), "combsmith", [])["org"], pause.UNREADABLE, body)
         refused = copy.deepcopy(missing)
         refused["response"]["status"] = 403
         self.assertEqual(pause.read(github.Replay([refused]), "x", ["combsmith/software-factory"])["repos"],

@@ -328,7 +328,7 @@ def apply(writes: dict, record: dict, transports: dict, config: dict, owner_role
                 if reason == "token_refused":
                     ended.add("controller")
         elif w["type"] in DISPATCHES:
-            if stopped is not None:
+            if stopped is not None and w["type"] in STOPPED:
                 reason = stopped
             elif w["type"] != "dispatch_successor" and config["accounts"]["workflow_token"] is None:
                 reason = "uncounted"
