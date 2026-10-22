@@ -1,0 +1,979 @@
+{
+  "schema": "trial/1",
+  "trial": "P-47",
+  "question": "Can the reader App read a login's repository permission from `GET /repos/{repo}/collaborators/{login}/permission`, for an owner, a collaborator with write, one with triage and an outsider, and does the answer tell write access apart? And which of its grants does each read need, and the read of a branch's activity (`GET /repos/{repo}/activity`), which P-28 made as a person? Run by `tools/trial_reader_reads.sh` at the Maintainer's terminal with the reader's key, each read made twice, narrowed once to `metadata: read` and once to `contents: read`",
+  "pass": "Yes: `admin` or `maintain` for the owner, `write` for the collaborator, `triage` for the triage role and `read` or `none` for the outsider; and the least grant each read needs is the one `config/apps.json` names for it (decision 0035). The least grant each read needs is the one GitHub's x-accepted-github-permissions names for it, since the canary is public and a token without the grant reads it all the same. Not tried, and so not judged: the triage role, which the canary has none of; the Maintainer chose to run without one (2026-10-21). The mints' answers and the revocations' are the script's records of their statuses, not GitHub's bodies, which it keeps nowhere.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-21T21:58:38Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172572220/access_tokens",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "repositories": [
+            "software-factory-canary"
+          ],
+          "permissions": {
+            "metadata": "read"
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/collaborators/don-petry/permission",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 21:58:39 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1286",
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"c7b952cedabb3205b522beb809a3cdbb454747ed6f06dd882b8004e097ba7188\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "metadata=read",
+          "x-github-request-id": "C6C1:20F44D:14ECAC2:446159B:6AD9358E",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4999",
+          "x-ratelimit-reset": "1792623518",
+          "x-ratelimit-used": "1",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "permission": "admin",
+          "user": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false,
+            "permissions": {
+              "admin": true,
+              "maintain": true,
+              "push": true,
+              "triage": true,
+              "pull": true
+            },
+            "role_name": "admin"
+          },
+          "role_name": "admin"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/collaborators/donpetry-bot/permission",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 21:58:39 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1323",
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"b7eddc56917f7fb269e8717c1261bcedf6175d7a18e8d48543fcbeaa8722ec4e\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "metadata=read",
+          "x-github-request-id": "C6C2:1BB797:14103C7:4167C78:6AD9358F",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4998",
+          "x-ratelimit-reset": "1792623518",
+          "x-ratelimit-used": "2",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "permission": "write",
+          "user": {
+            "login": "donpetry-bot",
+            "id": 281750570,
+            "node_id": "U_kgDOEMssKg",
+            "avatar_url": "https://avatars.githubusercontent.com/u/281750570?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/donpetry-bot",
+            "html_url": "https://github.com/donpetry-bot",
+            "followers_url": "https://api.github.com/users/donpetry-bot/followers",
+            "following_url": "https://api.github.com/users/donpetry-bot/following{/other_user}",
+            "gists_url": "https://api.github.com/users/donpetry-bot/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/donpetry-bot/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/donpetry-bot/subscriptions",
+            "organizations_url": "https://api.github.com/users/donpetry-bot/orgs",
+            "repos_url": "https://api.github.com/users/donpetry-bot/repos",
+            "events_url": "https://api.github.com/users/donpetry-bot/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/donpetry-bot/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false,
+            "permissions": {
+              "admin": false,
+              "maintain": true,
+              "push": true,
+              "triage": true,
+              "pull": true
+            },
+            "role_name": "maintain"
+          },
+          "role_name": "maintain"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/collaborators/Joaolfelicio/permission",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 21:58:40 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1324",
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"78adae181b529dace6b643918e1cb299f5b6e11d05fb3e62bbc8196b8878938e\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "metadata=read",
+          "x-github-request-id": "C6C3:1EA56B:155608D:45826A0:6AD9358F",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4997",
+          "x-ratelimit-reset": "1792623518",
+          "x-ratelimit-used": "3",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "permission": "write",
+          "user": {
+            "login": "Joaolfelicio",
+            "id": 44256600,
+            "node_id": "MDQ6VXNlcjQ0MjU2NjAw",
+            "avatar_url": "https://avatars.githubusercontent.com/u/44256600?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/Joaolfelicio",
+            "html_url": "https://github.com/Joaolfelicio",
+            "followers_url": "https://api.github.com/users/Joaolfelicio/followers",
+            "following_url": "https://api.github.com/users/Joaolfelicio/following{/other_user}",
+            "gists_url": "https://api.github.com/users/Joaolfelicio/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/Joaolfelicio/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/Joaolfelicio/subscriptions",
+            "organizations_url": "https://api.github.com/users/Joaolfelicio/orgs",
+            "repos_url": "https://api.github.com/users/Joaolfelicio/repos",
+            "events_url": "https://api.github.com/users/Joaolfelicio/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/Joaolfelicio/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false,
+            "permissions": {
+              "admin": false,
+              "maintain": false,
+              "push": true,
+              "triage": true,
+              "pull": true
+            },
+            "role_name": "write"
+          },
+          "role_name": "write"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/collaborators/octocat/permission",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 21:58:40 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1259",
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"8fe4d76fc9913edd6f55a9322a830e45af2d13385fce7fb2a0b1b4756ad38975\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "metadata=read",
+          "x-github-request-id": "C6C4:348C5A:13EF7B1:40BB80D:6AD93590",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4996",
+          "x-ratelimit-reset": "1792623518",
+          "x-ratelimit-used": "4",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "permission": "read",
+          "user": {
+            "login": "octocat",
+            "id": 583231,
+            "node_id": "MDQ6VXNlcjU4MzIzMQ==",
+            "avatar_url": "https://avatars.githubusercontent.com/u/583231?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/octocat",
+            "html_url": "https://github.com/octocat",
+            "followers_url": "https://api.github.com/users/octocat/followers",
+            "following_url": "https://api.github.com/users/octocat/following{/other_user}",
+            "gists_url": "https://api.github.com/users/octocat/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/octocat/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/octocat/subscriptions",
+            "organizations_url": "https://api.github.com/users/octocat/orgs",
+            "repos_url": "https://api.github.com/users/octocat/repos",
+            "events_url": "https://api.github.com/users/octocat/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/octocat/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false,
+            "permissions": {
+              "admin": false,
+              "maintain": false,
+              "push": false,
+              "triage": false,
+              "pull": true
+            },
+            "role_name": "read"
+          },
+          "role_name": "read"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/activity?ref=refs/heads/trial/p-9&per_page=5",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 21:58:40 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "5677",
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"5862460fca1951f409f3b4e9a998862e56ef4f05b82e2aaae64b5ec3045a700a\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "contents=read",
+          "x-github-request-id": "C6C5:13274A:15DFC14:477FF8F:6AD93590",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4995",
+          "x-ratelimit-reset": "1792623518",
+          "x-ratelimit-used": "5",
+          "x-ratelimit-resource": "core"
+        },
+        "body": [
+          {
+            "id": 47264626652,
+            "node_id": "PSH_kwLOVFD6788AAAALATD33A",
+            "before": "c4b2979493c9d0570148f4a46a6aee0b1dbca362",
+            "after": "0000000000000000000000000000000000000000",
+            "ref": "refs/heads/trial/p-9",
+            "timestamp": "2026-10-21T13:35:18Z",
+            "activity_type": "branch_deletion",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "id": 47203113487,
+            "node_id": "PSH_kwLOVFD6788AAAAK_YZaDw",
+            "before": "03fe245d34f8d7ffafc0df0961809860ed070a93",
+            "after": "c4b2979493c9d0570148f4a46a6aee0b1dbca362",
+            "ref": "refs/heads/trial/p-9",
+            "timestamp": "2026-10-21T01:43:17Z",
+            "activity_type": "push",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "id": 47195363502,
+            "node_id": "PSH_kwLOVFD6788AAAAK_RAYrg",
+            "before": "be2218fe4a5d68580a1474ddf77f93b5e011833a",
+            "after": "03fe245d34f8d7ffafc0df0961809860ed070a93",
+            "ref": "refs/heads/trial/p-9",
+            "timestamp": "2026-10-20T23:52:26Z",
+            "activity_type": "push",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "id": 47195280015,
+            "node_id": "PSH_kwLOVFD6788AAAAK_Q7Sjw",
+            "before": "0000000000000000000000000000000000000000",
+            "after": "be2218fe4a5d68580a1474ddf77f93b5e011833a",
+            "ref": "refs/heads/trial/p-9",
+            "timestamp": "2026-10-20T23:51:13Z",
+            "activity_type": "branch_creation",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "POST /app/installations/172572220/access_tokens",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": {
+          "repositories": [
+            "software-factory-canary"
+          ],
+          "permissions": {
+            "contents": "read"
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/collaborators/don-petry/permission",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 21:58:42 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1286",
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"f770d883630b912657d54662cb74552af69d8633ec56db22ca34f8258b296867\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "metadata=read",
+          "x-github-request-id": "C6CA:1EA56B:1556BE9:4584C60:6AD93592",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4994",
+          "x-ratelimit-reset": "1792623518",
+          "x-ratelimit-used": "6",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "permission": "admin",
+          "user": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false,
+            "permissions": {
+              "admin": true,
+              "maintain": true,
+              "push": true,
+              "triage": true,
+              "pull": true
+            },
+            "role_name": "admin"
+          },
+          "role_name": "admin"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/collaborators/donpetry-bot/permission",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 21:58:42 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1323",
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"fd08607b7248e9de8566d36b9d1e71b8ffb00371d3ce1647a1ff0e0e842b4ca4\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "metadata=read",
+          "x-github-request-id": "C6CC:1EA56B:1556E0E:458534A:6AD93592",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4993",
+          "x-ratelimit-reset": "1792623518",
+          "x-ratelimit-used": "7",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "permission": "write",
+          "user": {
+            "login": "donpetry-bot",
+            "id": 281750570,
+            "node_id": "U_kgDOEMssKg",
+            "avatar_url": "https://avatars.githubusercontent.com/u/281750570?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/donpetry-bot",
+            "html_url": "https://github.com/donpetry-bot",
+            "followers_url": "https://api.github.com/users/donpetry-bot/followers",
+            "following_url": "https://api.github.com/users/donpetry-bot/following{/other_user}",
+            "gists_url": "https://api.github.com/users/donpetry-bot/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/donpetry-bot/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/donpetry-bot/subscriptions",
+            "organizations_url": "https://api.github.com/users/donpetry-bot/orgs",
+            "repos_url": "https://api.github.com/users/donpetry-bot/repos",
+            "events_url": "https://api.github.com/users/donpetry-bot/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/donpetry-bot/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false,
+            "permissions": {
+              "admin": false,
+              "maintain": true,
+              "push": true,
+              "triage": true,
+              "pull": true
+            },
+            "role_name": "maintain"
+          },
+          "role_name": "maintain"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/collaborators/Joaolfelicio/permission",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 21:58:43 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1324",
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"d0fa0cef23b290554ae3e287abf6552d23bd352b682bc58cbc90e0068b016896\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "metadata=read",
+          "x-github-request-id": "C6CE:FC110:13454D4:3EFE14D:6AD93592",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4992",
+          "x-ratelimit-reset": "1792623518",
+          "x-ratelimit-used": "8",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "permission": "write",
+          "user": {
+            "login": "Joaolfelicio",
+            "id": 44256600,
+            "node_id": "MDQ6VXNlcjQ0MjU2NjAw",
+            "avatar_url": "https://avatars.githubusercontent.com/u/44256600?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/Joaolfelicio",
+            "html_url": "https://github.com/Joaolfelicio",
+            "followers_url": "https://api.github.com/users/Joaolfelicio/followers",
+            "following_url": "https://api.github.com/users/Joaolfelicio/following{/other_user}",
+            "gists_url": "https://api.github.com/users/Joaolfelicio/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/Joaolfelicio/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/Joaolfelicio/subscriptions",
+            "organizations_url": "https://api.github.com/users/Joaolfelicio/orgs",
+            "repos_url": "https://api.github.com/users/Joaolfelicio/repos",
+            "events_url": "https://api.github.com/users/Joaolfelicio/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/Joaolfelicio/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false,
+            "permissions": {
+              "admin": false,
+              "maintain": false,
+              "push": true,
+              "triage": true,
+              "pull": true
+            },
+            "role_name": "write"
+          },
+          "role_name": "write"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/collaborators/octocat/permission",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 21:58:43 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1259",
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"308b5e9cf39b0687ce8a5d320f7ebc32114d020cdc70cfba9042480e9fd6947a\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "metadata=read",
+          "x-github-request-id": "C6CF:FC110:13456FC:3EFE847:6AD93593",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4991",
+          "x-ratelimit-reset": "1792623518",
+          "x-ratelimit-used": "9",
+          "x-ratelimit-resource": "core"
+        },
+        "body": {
+          "permission": "read",
+          "user": {
+            "login": "octocat",
+            "id": 583231,
+            "node_id": "MDQ6VXNlcjU4MzIzMQ==",
+            "avatar_url": "https://avatars.githubusercontent.com/u/583231?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/octocat",
+            "html_url": "https://github.com/octocat",
+            "followers_url": "https://api.github.com/users/octocat/followers",
+            "following_url": "https://api.github.com/users/octocat/following{/other_user}",
+            "gists_url": "https://api.github.com/users/octocat/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/octocat/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/octocat/subscriptions",
+            "organizations_url": "https://api.github.com/users/octocat/orgs",
+            "repos_url": "https://api.github.com/users/octocat/repos",
+            "events_url": "https://api.github.com/users/octocat/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/octocat/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false,
+            "permissions": {
+              "admin": false,
+              "maintain": false,
+              "push": false,
+              "triage": false,
+              "pull": true
+            },
+            "role_name": "read"
+          },
+          "role_name": "read"
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/activity?ref=refs/heads/trial/p-9&per_page=5",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "date": "Wed, 21 Oct 2026 21:58:44 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "5677",
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "etag": "\"43a78adcb915ed58965c1251f0a5968fd9d6ced8f31b218d8e6e2c7c8bed10a9\"",
+          "x-github-media-type": "github.v3; format=json",
+          "x-accepted-github-permissions": "contents=read",
+          "x-github-request-id": "C6D1:196A26:150CAC6:4457906:6AD93593",
+          "server": "github.com",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4990",
+          "x-ratelimit-reset": "1792623518",
+          "x-ratelimit-used": "10",
+          "x-ratelimit-resource": "core"
+        },
+        "body": [
+          {
+            "id": 47264626652,
+            "node_id": "PSH_kwLOVFD6788AAAALATD33A",
+            "before": "c4b2979493c9d0570148f4a46a6aee0b1dbca362",
+            "after": "0000000000000000000000000000000000000000",
+            "ref": "refs/heads/trial/p-9",
+            "timestamp": "2026-10-21T13:35:18Z",
+            "activity_type": "branch_deletion",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "id": 47203113487,
+            "node_id": "PSH_kwLOVFD6788AAAAK_YZaDw",
+            "before": "03fe245d34f8d7ffafc0df0961809860ed070a93",
+            "after": "c4b2979493c9d0570148f4a46a6aee0b1dbca362",
+            "ref": "refs/heads/trial/p-9",
+            "timestamp": "2026-10-21T01:43:17Z",
+            "activity_type": "push",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "id": 47195363502,
+            "node_id": "PSH_kwLOVFD6788AAAAK_RAYrg",
+            "before": "be2218fe4a5d68580a1474ddf77f93b5e011833a",
+            "after": "03fe245d34f8d7ffafc0df0961809860ed070a93",
+            "ref": "refs/heads/trial/p-9",
+            "timestamp": "2026-10-20T23:52:26Z",
+            "activity_type": "push",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "id": 47195280015,
+            "node_id": "PSH_kwLOVFD6788AAAAK_Q7Sjw",
+            "before": "0000000000000000000000000000000000000000",
+            "after": "be2218fe4a5d68580a1474ddf77f93b5e011833a",
+            "ref": "refs/heads/trial/p-9",
+            "timestamp": "2026-10-20T23:51:13Z",
+            "activity_type": "branch_creation",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "app",
+          "name": "combsmith-sf-reader"
+        },
+        "via": "rest",
+        "call": "DELETE /installation/token",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "headers": {},
+        "body": null
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
+    "exchanges[11].request.headers.authorization",
+    "exchanges[12].request.headers.authorization",
+    "exchanges[13].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}

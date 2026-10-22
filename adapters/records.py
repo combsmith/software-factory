@@ -111,8 +111,9 @@ def _list(transport, repo: str, workflow: str, branch: str, per_page: int) -> tu
 
 
 def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
-    """`(record, unidentified id)` for one listed run: a record for a counted run its name names, its id for a counted
-    run its name does not yet, and neither for a run that does not count. None for a row that cannot be read."""
+    """`(record, unidentified)` for one listed run: a record for a counted run its name names, its id, its record's
+    creation and its status for a counted run its name does not yet, and neither for a run that does not count. None
+    for a row that cannot be read."""
     if not isinstance(row, dict) or not isinstance(row.get("id"), int) or isinstance(row.get("id"), bool):
         return None
     path, _, ref = str(row.get("path", "")).partition("@")
@@ -124,13 +125,20 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
                and (actor.get("id"), actor.get("type")) == dispatcher)
     if not counted:
         return (None, None)
-    parts = named(row.get("name"))
-    if parts is None:
-        return (None, row["id"])
     status = row.get("status")
     status = "queued" if status in NOT_STARTED else status
     if status not in ("queued", "in_progress", "completed"):
         return None
+    parts = named(row.get("name"))
+    if parts is None:
+        # Its record's creation and its status, from which the Kernel reads how long it has gone unnamed and whether
+        # it may be running on an item now (issue 270).
+        created = row.get("created_at")
+        try:
+            datetime.datetime.strptime(str(created), "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return None
+        return (None, {"run": str(row["id"]), "created_at": created, "status": status})
     conclusion = row.get("conclusion")
     if status == "completed":
         if conclusion not in CONCLUSIONS:
@@ -184,4 +192,4 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     for record, github_id in failed:
         record["outcome"], read_whole = artifacts.outcome(transport, repo, github_id, record["run"])
         whole = whole and read_whole
-    return {"runs": records, "unidentified": [str(i) for i in unnamed], "complete": whole, "reads": reads}
+    return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads}
