@@ -3942,24 +3942,26 @@ def answer(status, body):
     print("HTTP/2.0 %d %s\nContent-Type: application/json\n" % (status, "OK"))
     if body is not None:
         print(json.dumps(body))
-    sys.exit(0)
+    sys.exit(0 if status < 400 else 1)
 if args[0] == "api" and "graphql" in args:
     query = next(a.split("=", 1)[1] for a in args if a.startswith("query="))
     if query.lstrip().startswith("mutation"):
+        if "id=PRRT_T1" not in args:
+            answer(422, {"errors": [{"message": "Could not resolve to a node"}]})
         state["resolved"] = True
-        answer(200, {"data": {"resolveReviewThread": {"thread": {"id": "T1", "isResolved": True, "resolvedBy": None}}}})
+        answer(200, {"data": {"resolveReviewThread": {"thread": {"id": "PRRT_T1", "isResolved": True, "resolvedBy": None}}}})
     threads = []
     if state["reviews"] >= 1:
-        threads.append({"id": "T1", "isResolved": state["resolved"], "resolvedBy": None,
-                        "comments": {"totalCount": 1, "nodes": [{"databaseId": 101, "author": {"login": "combsmith-sf-trial-author", "__typename": "Bot"},
-                                                                 "body": "Trial thread 1: the App resolves it.", "replyTo": None}]}})
+        threads.append({"id": os.environ.get("STANDIN_ID", "PRRT_T1"), "isResolved": state["resolved"], "resolvedBy": None,
+                        "comments": {"totalCount": 1, "nodes": [{"databaseId": 101, "author": {"login": os.environ.get("STANDIN_AUTHOR", "combsmith-sf-trial-author"), "__typename": "Bot"},
+                                                                 "body": os.environ.get("STANDIN_FIRST", "Trial thread 1: the App resolves it."), "replyTo": None}]}})
     if state["reviews"] >= 2:
         nodes = [] if state["deleted"] else [{"databaseId": 201, "author": {"login": "combsmith-sf-trial-author", "__typename": "Bot"},
                                                "body": "Trial thread 2: its first comment is deleted.", "replyTo": None}]
         if state["reply"]:
             nodes.append({"databaseId": 202, "author": {"login": "combsmith-sf-trial-author", "__typename": "Bot"},
                           "body": "Trial thread 2: a reply, which should stay.", "replyTo": {"databaseId": 201}})
-        threads.append({"id": "T2", "isResolved": False, "resolvedBy": None, "comments": {"totalCount": len(nodes), "nodes": nodes}})
+        threads.append({"id": "PRRT_T2", "isResolved": False, "resolvedBy": None, "comments": {"totalCount": len(nodes), "nodes": nodes}})
     answer(200, {"data": {"repository": {"pullRequest": {"reviewThreads": {"totalCount": len(threads), "nodes": threads}}}}})
 method = args[args.index("-X") + 1]
 path = next(a for a in args[1:] if not a.startswith("-") and a not in (method, "Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"))
@@ -4012,7 +4014,7 @@ case "$1" in
 esac
 '''
 
-    def test_the_app_opens_resolves_and_deletes_and_revokes_its_token(self):
+    def run_threads(self, **extra) -> tuple:
         bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         for name, text in (("gh", self.GH), ("curl", self.CURL), ("openssl", self.OPENSSL)):
             (bin_ / name).write_text(text)
@@ -4020,9 +4022,13 @@ esac
         key = bin_ / "key.pem"
         key.write_text("not a key: the stand-in openssl never reads it\n")
         env = {"PATH": "%s:/usr/bin:/bin" % bin_, "HOME": str(bin_), "LANG": "C", "STANDIN_REPO": self.REPO,
-               "TMPDIR": str(pathlib.Path(SCRATCH.name).resolve())}
+               "TMPDIR": str(pathlib.Path(SCRATCH.name).resolve()), **extra}
         ran = subprocess.run(["bash", str(self.SCRIPT), "threads", str(key), self.REPO, "trial/p-threads", "trial-notes/threads.md"],
                              capture_output=True, text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
+        return bin_, ran
+
+    def test_the_app_opens_resolves_and_deletes_and_revokes_its_token(self):
+        bin_, ran = self.run_threads()
         self.assertEqual(ran.returncode, 0, ran.stderr)
         self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
         calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
@@ -4046,22 +4052,47 @@ esac
             elif "installation/token" in line:
                 kinds.append("revoke")
         self.assertEqual(kinds, ["review", "read", "resolve", "read", "review", "read", "reply", "read", "delete", "read", "revoke"])
-        # Every exchange it kept is one the fixture check reads, of the canary alone; the resolution is the command line.
+        # The mutation was sent the id of the App's own thread, by -f, and every reply and deletion was answered.
+        mutation = [c["argv"] for c in calls if any(a.startswith("query=mutation") for a in c["argv"])]
+        self.assertEqual(len(mutation), 1)
+        self.assertEqual(mutation[0][mutation[0].index("id=PRRT_T1") - 1], "-f")
+        # Every exchange it kept but the mutation is one the fixture check reads, of the canary alone. The mutation is
+        # recorded as the GraphQL write it was; a fixture holds reads alone, so its builder says what it sent and got.
         out = pathlib.Path(ran.stdout.strip().splitlines()[-1].strip())
         exchanges = json.loads((out / "exchanges.json").read_text())["exchanges"]
         self.assertNotIn(self.TOKEN, json.dumps(exchanges))
+        resolve = [e for e in exchanges if "resolveReviewThread" in e["request"]["call"]]
+        self.assertEqual([(e["request"]["via"], e["response"]["status"]) for e in resolve], [("graphql", 200)])
+        self.assertTrue(resolve[0]["request"]["body"]["query"].startswith("mutation"))
+        self.assertEqual(resolve[0]["request"]["body"]["variables"], {"id": "PRRT_T1"})
         for exchange in exchanges:
+            if exchange in resolve:
+                continue
             owners, repos, wrong = check_trials._asked(exchange["request"])
             self.assertEqual(wrong, [], exchange["request"]["call"])
             self.assertLessEqual(repos, {self.REPO}, exchange["request"]["call"])
-        resolve = [e for e in exchanges if "resolveReviewThread" in e["request"]["call"]]
-        self.assertEqual([(e["request"]["via"], e["response"]["status"]) for e in resolve], [("cli", 200)])
-        self.assertEqual(resolve[0]["request"]["body"]["variables"], {"id": "T1"})
+            self.assertLess(exchange["response"]["status"], 400, exchange["request"]["call"])
         reads = [e["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"] for e in exchanges
-                 if e["request"]["via"] == "graphql"]
-        self.assertEqual([[t["id"] for t in r["nodes"]] for r in reads], [["T1"], ["T1"], ["T1", "T2"], ["T1", "T2"], ["T1", "T2"]])
+                 if e["request"]["via"] == "graphql" and e not in resolve]
+        self.assertEqual([[t["id"] for t in r["nodes"]] for r in reads],
+                         [["PRRT_T1"], ["PRRT_T1"], ["PRRT_T1", "PRRT_T2"], ["PRRT_T1", "PRRT_T2"], ["PRRT_T1", "PRRT_T2"]])
         self.assertEqual([r["nodes"][0]["isResolved"] for r in reads], [False, True, True, True, True])
         self.assertEqual(exchanges[-1]["request"]["call"], "DELETE /installation/token")
+
+    def test_a_thread_it_cannot_find_stops_it_before_any_write_and_the_token_is_revoked(self):
+        # The first thread is not the App's own trial thread, being another's words, another's comment, or given an id
+        # that is not one: the lookup finds none, so no mutation is sent, the run fails, and the token is revoked last
+        # and reaches no file.
+        for name, extra in [("another's words", {"STANDIN_FIRST": "Someone else's comment"}),
+                            ("another's comment", {"STANDIN_AUTHOR": "someone-else"}),
+                            ("an id that is not one", {"STANDIN_ID": "../../repos/other"})]:
+            bin_, ran = self.run_threads(**extra)
+            self.assertNotEqual(ran.returncode, 0, name)
+            calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
+            self.assertFalse([c for c in calls if any(a.startswith("query=mutation") for a in c["argv"])], name)
+            self.assertIn("installation/token", " ".join(calls[-1]["argv"]), name)
+            out = next(pathlib.Path(line.strip()) for line in ran.stdout.splitlines() if line.startswith("  /"))
+            self.assertNotIn(self.TOKEN, "".join(p.read_text() for p in out.iterdir()), name)
 
 
 class Redaction(unittest.TestCase):

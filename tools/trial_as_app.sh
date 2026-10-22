@@ -131,34 +131,43 @@ read_threads() {   # PR
     local owner=${repo%%/*} name=${repo#*/}
     record "POST /graphql (gh api graphql): the review threads of $repo's pull request $1" "${APP}[bot], by an installation token" \
         "$(python3 -I -c 'import json, sys; print(json.dumps({"query": sys.argv[1], "variables": {"owner": sys.argv[2], "name": sys.argv[3], "pr": int(sys.argv[4])}}))' "$THREADS" "$owner" "$name" "$1")" graphql
-    GH_TOKEN="$token" gh api graphql --include -f query="$THREADS" -F owner="$owner" -F name="$name" -F pr="$1" \
+    GH_TOKEN="$token" gh api graphql --include -f query="$THREADS" -f owner="$owner" -f name="$name" -F pr="$1" \
         | tr -d '\r' > "$raw"
     redact "$raw"
 }
-# Resolve one review thread by its node id: a GraphQL mutation, which a fixture records as the command line it was.
+# Resolve one review thread by its node id: a GraphQL write, recorded as what it was. A fixture holds a GraphQL read
+# alone, so the session that builds one from OUT says what this write sent and was answered, in its own analysis.
 RESOLVE='mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id isResolved resolvedBy { login __typename } } } }'
 resolve_thread() {   # THREAD_ID PR
-    record "gh api graphql -f query=RESOLVE -F id=THREAD: resolveReviewThread on a thread of https://github.com/$repo/pull/$2" \
+    record "POST /graphql (gh api graphql): resolveReviewThread, the App's write, on a thread of $repo's pull request $2" \
         "${APP}[bot], by an installation token" \
-        "$(python3 -I -c 'import json, sys; print(json.dumps({"query": sys.argv[1], "variables": {"id": sys.argv[2]}}))' "$RESOLVE" "$1")" cli
-    GH_TOKEN="$token" gh api graphql --include -f query="$RESOLVE" -F id="$1" | tr -d '\r' > "$raw"
+        "$(python3 -I -c 'import json, sys; print(json.dumps({"query": sys.argv[1], "variables": {"id": sys.argv[2]}}))' "$RESOLVE" "$1")" graphql
+    GH_TOKEN="$token" gh api graphql --include -f query="$RESOLVE" -f id="$1" | tr -d '\r' > "$raw"
     redact "$raw"
 }
-# The node id of the thread, or the database id of its first comment, whose first comment's body starts with PREFIX,
-# in the redacted read FILE.
+# The node id of the one thread, or the database id of its first comment, whose first comment is the App's own, no
+# reply, and starts with PREFIX, in the redacted read FILE; it fails unless exactly one thread is so, and unless the id
+# has the shape GitHub gives one, so that nothing read from an answer is sent but an id of this App's own thread.
 thread_of() {   # FILE PREFIX FIELD
     python3 -I -c '
-import json, sys
+import json, re, sys
 text = open(sys.argv[1]).read()
 head, gap, body = text.partition("\n\n")
 data = json.loads(body if gap else text)
+found = []
 for node in data["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]:
     first = node["comments"]["nodes"][0] if node["comments"]["nodes"] else {}
-    if str(first.get("body", "")).startswith(sys.argv[2]):
-        print(node["id"] if sys.argv[3] == "thread" else first["databaseId"])
-        break
-else:
-    sys.exit("no thread starts with " + sys.argv[2])' "$1" "$2" "$3"
+    author = first.get("author") or {}
+    if (str(first.get("body", "")).startswith(sys.argv[2]) and first.get("replyTo") is None
+            and author.get("login") == sys.argv[4] and author.get("__typename") == "Bot"):
+        found.append(node["id"] if sys.argv[3] == "thread" else first["databaseId"])
+if len(found) != 1:
+    sys.exit("%d threads of the App start with %s; one was looked for" % (len(found), sys.argv[2]))
+said = str(found[0])
+shape = r"PRRT_[A-Za-z0-9_-]{1,100}" if sys.argv[3] == "thread" else r"[1-9][0-9]{0,18}"
+if not re.fullmatch(shape, said):
+    sys.exit("the id read does not have the shape of one")
+print(said)' "$1" "$2" "$3" "$APP"
 }
 
 # Revoke the token first, whatever happened; then redact what is left and gather the exchanges.
@@ -276,7 +285,8 @@ if [ "$action" = threads ]; then
     # The first thread: the App opens it, resolves it, and reads it as itself.
     as_installation POST "repos/$repo/pulls/$pr/reviews" "$(python3 -I -c 'import json, sys; print(json.dumps({"event": "COMMENT", "body": "A platform trial (issue 282): the first review thread, which the App resolves.", "comments": [{"path": sys.argv[1], "line": 1, "side": "RIGHT", "body": "Trial thread 1: the App resolves it."}]}))' "$file")"
     read_threads "$pr"
-    resolve_thread "$(thread_of "$out/$id.clean" "Trial thread 1" thread)" "$pr"
+    thread=$(thread_of "$out/$id.clean" "Trial thread 1" thread)
+    resolve_thread "$thread" "$pr"
     read_threads "$pr"
     # The second thread: the App opens it and replies to it, then deletes its first comment, reading it before and after.
     as_installation POST "repos/$repo/pulls/$pr/reviews" "$(python3 -I -c 'import json, sys; print(json.dumps({"event": "COMMENT", "body": "A platform trial (issue 282): the second review thread, whose first comment is deleted.", "comments": [{"path": sys.argv[1], "line": 1, "side": "RIGHT", "body": "Trial thread 2: its first comment is deleted."}]}))' "$file")"
