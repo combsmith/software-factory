@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "written/1: what each write one pass planned did, as read back: its state, the key read back and a reason code. Uploaded after the writes, beside pass/1, which is uploaded before them and never rewritten. Nothing reads it to decide: the next pass derives every write again from GitHub. Ids and codes alone.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "pass",
+    "release",
+    "writes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "written/1"
+    },
+    "pass": {
+      "type": "string",
+      "pattern": "^p_[0-9A-Z]{6,26}$"
+    },
+    "release": {
+      "type": "string",
+      "pattern": "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "writes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "item",
+          "run",
+          "state",
+          "key",
+          "reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^w[1-9][0-9]{0,3}$"
+          },
+          "type": {
+            "enum": [
+              "dispatch_run",
+              "dispatch_approval",
+              "dispatch_successor",
+              "status_on_item",
+              "dequeue",
+              "tracking_issue",
+              "not_built"
+            ]
+          },
+          "item": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "repo",
+              "type",
+              "number"
+            ],
+            "properties": {
+              "repo": {
+                "type": "string",
+                "pattern": "^[^/]+/[^/]+$"
+              },
+              "type": {
+                "enum": [
+                  "pull_request",
+                  "issue"
+                ]
+              },
+              "number": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "run": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^r_[0-9A-Z]{6,26}$"
+          },
+          "state": {
+            "description": "applied and already_applied only on what was read back; sent for a dispatch, whose answer names no run",
+            "enum": [
+              "applied",
+              "already_applied",
+              "sent",
+              "superseded",
+              "refused",
+              "failed"
+            ]
+          },
+          "key": {
+            "description": "What was read back: a check run's id, a queue entry's or pull request's node id, an issue's number; null for a dispatch",
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Za-z0-9_=:-]{1,100}$"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-z_]{1,60}$"
+          }
+        }
+      }
+    }
+  }
+}
