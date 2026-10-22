@@ -1529,6 +1529,13 @@ class Acceptance(unittest.TestCase):
         self.assertEqual(self.read(closing_answer("o/r", 26, [36, 37], labelled=[37]), issue_timeline("o/r", 36, []),
                                    issue_timeline("o/r", 37, [label_event("labeled")])), (None, False))
 
+    def test_a_label_event_that_names_no_label_is_refused(self):
+        # It could be the contract label's placement or removal: refused, as timeline.label_events refuses it.
+        for label in (None, {}, {"name": ""}, {"name": 7}, "factory:contract"):
+            event = dict(label_event("labeled"), label=label)
+            with self.assertRaises(github.Unanswered, msg=label):
+                self.asked([event], listed=False)
+
     def test_an_issue_whose_labels_and_timeline_disagree_or_are_short_is_not_whole(self):
         # GitHub lists the label, but no event placed it (renamed into the name, or placed out of sight); or the
         # timeline says it stands and GitHub lists none.
@@ -1548,6 +1555,11 @@ class Acceptance(unittest.TestCase):
         many["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"][0]["labels"] \
             = {"totalCount": 51, "nodes": []}
         self.assertEqual(self.read(many), (None, False))
+        # A label count that is no count is not read whole, though True equals one.
+        boolean = closing_answer("o/r", 26, [36], labelled=[36])
+        boolean["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"][0][
+            "labels"]["totalCount"] = True
+        self.assertEqual(self.read(boolean), (None, False))
         for broken in ({"number": 0}, {"number": True}, {"number": "36"}, "36"):
             found = closing_answer("o/r", 26, [36])
             found["response"]["body"]["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"] = [broken]

@@ -71,7 +71,8 @@ def closing(transport, pull: dict) -> tuple:
         labels = node.get("labels") if isinstance(node.get("labels"), dict) else {}
         names = labels.get("nodes") if isinstance(labels.get("nodes"), list) else None
         counted = labels.get("totalCount")
-        if owned != repo or number in found or names is None or counted != len(names) \
+        if owned != repo or number in found or names is None or not isinstance(counted, int) \
+                or isinstance(counted, bool) or counted != len(names) \
                 or not all(isinstance(n, dict) and isinstance(n.get("name"), str) for n in names):
             whole = False
             continue
@@ -89,7 +90,9 @@ def placed(events: list, accounts: timeline.Accounts):
         if event.get("event") not in timeline.LABELS:
             continue
         label = event.get("label") if isinstance(event.get("label"), dict) else {}
-        if label.get("name") != terms.LABEL_CONTRACT:
+        if not isinstance(label.get("name"), str) or not label["name"]:
+            raise Unanswered("a label event names no label")
+        if label["name"] != terms.LABEL_CONTRACT:
             continue
         by = accounts.actor(event.get("actor"))
         person = gate.is_person(by) and not event.get("performed_via_github_app")
