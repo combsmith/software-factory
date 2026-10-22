@@ -224,7 +224,9 @@ class TheAct(unittest.TestCase):
 
     def test_an_approval_that_landed_is_recovered_and_nothing_is_written(self):  # section 3.6
         landed = dict(LANDED, id=5, node_id="PRR_landed")
-        done, ended, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [landed]}))
+        # The facts, read through the same token, show the approval standing: the Kernel wants no other.
+        stands = reads(facts(reviews=[review()]))
+        done, ended, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [landed]}), read=stands)
         self.assertEqual(effect(done), ("approve", "already_applied", "PRR_landed", None))
         self.assertEqual(fault(ended), (None, None))
         self.assertEqual(github.writes(), [])
@@ -239,11 +241,18 @@ class TheAct(unittest.TestCase):
             done, ended, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [other]}))
             self.assertEqual(effect(done)[1:3], ("applied", NODE), other)
             self.assertEqual(len(github.writes()), 1)
+        # A landed approval the Kernel does not read standing, the approver's write access lost among them, is no success:
+        # the Kernel would issue it again at every pass. It is the environment's, which the Run ceiling bounds (Muse).
+        lost = facts(reviews=[review(can_write=False)])
+        done, ended, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [landed]}), read=reads(lost))
+        self.assertEqual((effect(done)[1:], fault(ended), github.writes()),
+                         (("failed", None, "approval_not_standing"), ("environment", "approval_not_standing"), []))
         # Only the approver's own reviews of this commit are read: another person's later review, or the approver's of
         # another commit, leaves the approval standing (Argon's read).
         for after in (dict(landed, id=8, state="COMMENTED", user={"login": "don-petry"}),
                       dict(landed, id=8, state="CHANGES_REQUESTED", commit_id="f" * 40)):
-            done, _, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [landed, after]}))
+            done, _, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [landed, after]}),
+                                  read=stands)
             self.assertEqual((effect(done)[1:3], github.writes()), (("already_applied", "PRR_landed"), []), after)
         # An approval of the head read is recovered only for the content the Decision approved: otherwise the Kernel,
         # asked again, decides, and here wants nothing (Argon's read).
@@ -255,7 +264,7 @@ class TheAct(unittest.TestCase):
         later = dict(landed, id=6, node_id="PRR_later", state="CHANGES_REQUESTED")
         done, ended, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [landed, later]}))
         self.assertEqual((effect(done)[1:3], len(github.writes())), (("applied", NODE), 1))
-        done, _, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [later, landed]}))
+        done, _, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [later, landed]}), read=stands)
         self.assertEqual((effect(done)[1:3], github.writes()), (("already_applied", "PRR_landed"), []))
         # A list that cannot be read, or may be cut short, recovers nothing and writes nothing.
         for answer, want in (({"status": 200, "body": {}}, "facts_unreadable"),

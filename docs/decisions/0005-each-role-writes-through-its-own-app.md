@@ -43,4 +43,3 @@ GitHub does not count an approval from an author or a last pusher, so the approv
 | No Factory secret is readable by a workflow that runs on a Work item's branch | waiting on `.github/workflows/run.yml` |
 | The code owners file is the org's, word for word | `tests/test_tools.py::test_code_owners_are_the_orgs_word_for_word` |
 | A Role's change to the Lifecycle, the authority table, the gate, the brakes or `.github/` is refused unless a person approved it | waiting on `harness/apply.py` |
-| Every write the machine user makes matches an Effect the approving act recorded (I-33) | waiting on `controller/reconcile.py` |

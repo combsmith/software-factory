@@ -113,14 +113,21 @@ def job(record, run: str, read, port, config: dict, now: str) -> tuple:
         return _records(run, release, "refused", None, ("environment", "facts_unreadable"))
     # Recovered only for the content the Decision approved: an approval of the head read is this act's only while that
     # head carries the same content; otherwise the Kernel decides (Argon's read).
+    done = {"state": None}
     if facts.get("content_id") == decided["content_id"]:
         done = port.recover(item, head)
         if done["fault"] is not None:
             return _records(run, release, "refused", None, (done["fault"], done["reason"]))
-        if done["state"] == "already_applied":
-            return _records(run, release, "already_applied", done["key"], None)
     others, context = _left_out(runs, context, run, config["github_run"])
-    if not still_wanted(decided, decide(facts, others, context, config["kernel"], now)):
+    wanted = still_wanted(decided, decide(facts, others, context, config["kernel"], now))
+    if done["state"] == "already_applied":
+        # A landed approval is this act's success only once the Kernel reads it standing and wants no other. One the
+        # Kernel still wants, an approval by an approver who lost write access among them, does not stand: the
+        # environment's, so the Run ceiling bounds it, never a success at every pass (Muse's read).
+        if wanted:
+            return _records(run, release, "failed", None, ("environment", "approval_not_standing"))
+        return _records(run, release, "already_applied", done["key"], None)
+    if not wanted:
         return _records(run, release, "refused", None, ("superseded", "not_wanted"))
     back = port.approve(item, head)
     return _records(run, release, back["state"], back["key"],
