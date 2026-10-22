@@ -92,6 +92,39 @@ def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, conte
     return _decision(facts, state, reason, evidence, t.ACT, action=action, content_id=facts["content_id"])
 
 
+def _a_pull_request(item) -> bool:
+    """Whether `item` names a pull request whole: its repo, its type and its number, each as `facts/1` gives it."""
+    if not isinstance(item, dict) or item.get("type") != "pull_request":
+        return False
+    repo, number = item.get("repo"), item.get("number")
+    return isinstance(repo, str) and bool(repo) and isinstance(number, int) and not isinstance(number, bool) and number > 0
+
+
+def still_wanted(decided: dict, again: dict) -> bool:
+    """Whether an act or a Run may go ahead: the Decision it was started by, `decided`, against `again`, the Kernel asked
+    again on what it just read with its own Run left out of the records (I-38, issue 195). A Run is still wanted only if
+    the same Run is admitted, the same Role and Intent for the same content, as `kernel.issue.still_admitted` reads an
+    issue's. An approval is still wanted only if the approval is issued again, for the same item and content. So a Hold,
+    a Pause, a close, new content, a Run in flight, a writer's gate, a wait for a person and an approver who is now the
+    author each stop it. Anything else, or anything that cannot be read, is not wanted."""
+    if not isinstance(decided, dict) or not isinstance(again, dict) or not _a_pull_request(decided.get("item")) \
+            or not _a_pull_request(again.get("item")) or again.get("item") != decided.get("item"):
+        return False
+    admit = decided.get("admit")
+    if admit is not None:
+        # A Run named in part is no Run: an unreadable part never matches itself, and only an admission admits.
+        whole = isinstance(admit, dict) and all(isinstance(admit.get(part), str) and admit.get(part)
+                                                for part in ("role", "intent", "content_id"))
+        return (whole and decided.get("outcome") == t.ADMIT and again.get("outcome") == t.ADMIT
+                and again.get("admit") == admit)
+    content = decided.get("content_id")
+    if decided.get("outcome") != t.ACT or decided.get("action") != "issue_approval" or not isinstance(content, str) \
+            or not content:
+        return False
+    return (again.get("outcome") == t.ACT and again.get("action") == "issue_approval"
+            and again.get("content_id") == decided.get("content_id"))
+
+
 def stuck_runs(context: dict, config: dict, now: str) -> list:
     """The alerts of the whole scope a pass shows in the view: one for each unidentified Run listed for
     max_unnamed_run_seconds or more, by its run id, in the order listed, each run once however often it is listed. It
