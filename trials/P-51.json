@@ -1,0 +1,1013 @@
+{
+  "schema": "trial/1",
+  "trial": "P-51",
+  "question": "On a GitHub-hosted Linux runner, does the pinned model CLI's sandbox let a tool's write outside its work directory land, and is it the subprocess scrub or the order of the Tasks that decides?",
+  "pass": "pass: in every configuration a Run can be given (the scrub unset, 0 or 1), in both orders, at the pinned version before and after: the CLI exited 0 and its answer is no error; the tool's result went back and is not an error; the probe ran; and none of the four writes outside the work directory landed. fail otherwise; the fixture says, for each configuration, order and target, whether the write landed, so that the design's \u00a74.9 and the run job's rules (#194) say which setting a Run must have, or that no setting holds the line.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-22T12:29:49Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "git",
+        "call": "git push origin trial/p-51 (the Maintainer's own login), from a clone outside the repo: the workflow trial-p51.yml, and p51/run.sh and p51/stub.py, copied whole from tools/trial_p51_sandbox_writes.sh and tools/trial_p50_stub.py",
+        "headers": {},
+        "body": {
+          "commit": "9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8",
+          "files": [
+            ".github/workflows/trial-p51.yml",
+            "p51/run.sh",
+            "p51/stub.py"
+          ]
+        }
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": null
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/39778822341 (gh api): the run the push started, the trial's run",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 22 Oct 2026 12:31:25 GMT",
+          "etag": "W/\"997355e50fcd1406c4d956ae77a9aa22697e99b355f8cbae3b0ecd767ce38a52\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E1AC:85464:59336A4:11DBFBB4:6ADA021D",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4030",
+          "x-ratelimit-reset": "1792673029",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "970"
+        },
+        "body": {
+          "id": 39778822341,
+          "name": "trial-p51",
+          "node_id": "WFR_kwLOVFD6788AAAAJQwCoxQ",
+          "head_branch": "trial/p-51",
+          "head_sha": "9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8",
+          "path": ".github/workflows/trial-p51.yml",
+          "display_title": "Trial P-51 (software-factory#312): writes outside the work directory \u2026",
+          "run_number": 1,
+          "event": "push",
+          "status": "completed",
+          "conclusion": "success",
+          "workflow_id": 392869805,
+          "check_suite_id": 107806896220,
+          "check_suite_node_id": "CS_kwDOVFD6788AAAAZGcqwXA",
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/actions/runs/39778822341",
+          "html_url": "https://github.com/combsmith/software-factory-canary/actions/runs/39778822341",
+          "pull_requests": [],
+          "created_at": "2026-10-22T12:29:56Z",
+          "updated_at": "2026-10-22T12:30:28Z",
+          "actor": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "run_attempt": 1,
+          "referenced_workflows": [],
+          "run_started_at": "2026-10-22T12:29:56Z",
+          "triggering_actor": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "jobs_url": "https://api.github.com/repos/combsmith/software-factory-canary/actions/runs/39778822341/jobs",
+          "logs_url": "https://api.github.com/repos/combsmith/software-factory-canary/actions/runs/39778822341/logs",
+          "check_suite_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-suites/107806896220",
+          "artifacts_url": "https://api.github.com/repos/combsmith/software-factory-canary/actions/runs/39778822341/artifacts",
+          "cancel_url": "https://api.github.com/repos/combsmith/software-factory-canary/actions/runs/39778822341/cancel",
+          "rerun_url": "https://api.github.com/repos/combsmith/software-factory-canary/actions/runs/39778822341/rerun",
+          "previous_attempt_url": null,
+          "workflow_url": "https://api.github.com/repos/combsmith/software-factory-canary/actions/workflows/392869805",
+          "head_commit": {
+            "id": "9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8",
+            "tree_id": "e6fc5bfc79c6ef39b517bad04133d2130167a433",
+            "message": "Trial P-51 (software-factory#312): writes outside the work directory under the pinned CLI sandbox, by scrub and order\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+            "timestamp": "2026-10-22T12:29:49Z",
+            "author": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com"
+            },
+            "committer": {
+              "name": "Don Petry",
+              "email": "36422719+don-petry@users.noreply.github.com"
+            }
+          },
+          "repository": {
+            "id": 1414593263,
+            "node_id": "R_kgDOVFD67w",
+            "name": "software-factory-canary",
+            "full_name": "combsmith/software-factory-canary",
+            "private": false,
+            "owner": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "html_url": "https://github.com/combsmith/software-factory-canary",
+            "description": "Throwaway repo for the Factory's platform trials. Nothing here is depended on.",
+            "fork": false,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+            "forks_url": "https://api.github.com/repos/combsmith/software-factory-canary/forks",
+            "keys_url": "https://api.github.com/repos/combsmith/software-factory-canary/keys{/key_id}",
+            "collaborators_url": "https://api.github.com/repos/combsmith/software-factory-canary/collaborators{/collaborator}",
+            "teams_url": "https://api.github.com/repos/combsmith/software-factory-canary/teams",
+            "hooks_url": "https://api.github.com/repos/combsmith/software-factory-canary/hooks",
+            "issue_events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events{/number}",
+            "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/events",
+            "assignees_url": "https://api.github.com/repos/combsmith/software-factory-canary/assignees{/user}",
+            "branches_url": "https://api.github.com/repos/combsmith/software-factory-canary/branches{/branch}",
+            "tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/tags",
+            "blobs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs{/sha}",
+            "git_tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/tags{/sha}",
+            "git_refs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs{/sha}",
+            "trees_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees{/sha}",
+            "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/{sha}",
+            "languages_url": "https://api.github.com/repos/combsmith/software-factory-canary/languages",
+            "stargazers_url": "https://api.github.com/repos/combsmith/software-factory-canary/stargazers",
+            "contributors_url": "https://api.github.com/repos/combsmith/software-factory-canary/contributors",
+            "subscribers_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscribers",
+            "subscription_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscription",
+            "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits{/sha}",
+            "git_commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits{/sha}",
+            "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/comments{/number}",
+            "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments{/number}",
+            "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/{+path}",
+            "compare_url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/{base}...{head}",
+            "merges_url": "https://api.github.com/repos/combsmith/software-factory-canary/merges",
+            "archive_url": "https://api.github.com/repos/combsmith/software-factory-canary/{archive_format}{/ref}",
+            "downloads_url": "https://api.github.com/repos/combsmith/software-factory-canary/downloads",
+            "issues_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues{/number}",
+            "pulls_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls{/number}",
+            "milestones_url": "https://api.github.com/repos/combsmith/software-factory-canary/milestones{/number}",
+            "notifications_url": "https://api.github.com/repos/combsmith/software-factory-canary/notifications{?since,all,participating}",
+            "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/labels{/name}",
+            "releases_url": "https://api.github.com/repos/combsmith/software-factory-canary/releases{/id}",
+            "deployments_url": "https://api.github.com/repos/combsmith/software-factory-canary/deployments"
+          },
+          "head_repository": {
+            "id": 1414593263,
+            "node_id": "R_kgDOVFD67w",
+            "name": "software-factory-canary",
+            "full_name": "combsmith/software-factory-canary",
+            "private": false,
+            "owner": {
+              "login": "combsmith",
+              "id": 258516906,
+              "node_id": "O_kgDOD2inqg",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith",
+              "html_url": "https://github.com/combsmith",
+              "followers_url": "https://api.github.com/users/combsmith/followers",
+              "following_url": "https://api.github.com/users/combsmith/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith/orgs",
+              "repos_url": "https://api.github.com/users/combsmith/repos",
+              "events_url": "https://api.github.com/users/combsmith/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "html_url": "https://github.com/combsmith/software-factory-canary",
+            "description": "Throwaway repo for the Factory's platform trials. Nothing here is depended on.",
+            "fork": false,
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary",
+            "forks_url": "https://api.github.com/repos/combsmith/software-factory-canary/forks",
+            "keys_url": "https://api.github.com/repos/combsmith/software-factory-canary/keys{/key_id}",
+            "collaborators_url": "https://api.github.com/repos/combsmith/software-factory-canary/collaborators{/collaborator}",
+            "teams_url": "https://api.github.com/repos/combsmith/software-factory-canary/teams",
+            "hooks_url": "https://api.github.com/repos/combsmith/software-factory-canary/hooks",
+            "issue_events_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events{/number}",
+            "events_url": "https://api.github.com/repos/combsmith/software-factory-canary/events",
+            "assignees_url": "https://api.github.com/repos/combsmith/software-factory-canary/assignees{/user}",
+            "branches_url": "https://api.github.com/repos/combsmith/software-factory-canary/branches{/branch}",
+            "tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/tags",
+            "blobs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs{/sha}",
+            "git_tags_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/tags{/sha}",
+            "git_refs_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/refs{/sha}",
+            "trees_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees{/sha}",
+            "statuses_url": "https://api.github.com/repos/combsmith/software-factory-canary/statuses/{sha}",
+            "languages_url": "https://api.github.com/repos/combsmith/software-factory-canary/languages",
+            "stargazers_url": "https://api.github.com/repos/combsmith/software-factory-canary/stargazers",
+            "contributors_url": "https://api.github.com/repos/combsmith/software-factory-canary/contributors",
+            "subscribers_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscribers",
+            "subscription_url": "https://api.github.com/repos/combsmith/software-factory-canary/subscription",
+            "commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits{/sha}",
+            "git_commits_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits{/sha}",
+            "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/comments{/number}",
+            "issue_comment_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments{/number}",
+            "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/{+path}",
+            "compare_url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/{base}...{head}",
+            "merges_url": "https://api.github.com/repos/combsmith/software-factory-canary/merges",
+            "archive_url": "https://api.github.com/repos/combsmith/software-factory-canary/{archive_format}{/ref}",
+            "downloads_url": "https://api.github.com/repos/combsmith/software-factory-canary/downloads",
+            "issues_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues{/number}",
+            "pulls_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls{/number}",
+            "milestones_url": "https://api.github.com/repos/combsmith/software-factory-canary/milestones{/number}",
+            "notifications_url": "https://api.github.com/repos/combsmith/software-factory-canary/notifications{?since,all,participating}",
+            "labels_url": "https://api.github.com/repos/combsmith/software-factory-canary/labels{/name}",
+            "releases_url": "https://api.github.com/repos/combsmith/software-factory-canary/releases{/id}",
+            "deployments_url": "https://api.github.com/repos/combsmith/software-factory-canary/deployments"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/actions/runs/39778822341/jobs (gh api): its job, each step and its conclusion",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 22 Oct 2026 12:31:25 GMT",
+          "etag": "W/\"3fbd5a5929aadfcf9a3b684db1b5b9bf6a8be16f136c08a94fcc519913ea646e\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E1AD:3B4DBF:513B040:105CD52C:6ADA021D",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3784",
+          "x-ratelimit-reset": "1792674903",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1216"
+        },
+        "body": {
+          "total_count": 1,
+          "jobs": [
+            {
+              "id": 119824545146,
+              "run_id": 39778822341,
+              "workflow_name": "trial-p51",
+              "head_branch": "trial/p-51",
+              "run_url": "https://api.github.com/repos/combsmith/software-factory-canary/actions/runs/39778822341",
+              "run_attempt": 1,
+              "node_id": "CR_kwDOVFD6788AAAAb5hl1eg",
+              "head_sha": "9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/actions/jobs/119824545146",
+              "html_url": "https://github.com/combsmith/software-factory-canary/actions/runs/39778822341/job/119824545146",
+              "status": "completed",
+              "conclusion": "success",
+              "created_at": "2026-10-22T12:29:57Z",
+              "started_at": "2026-10-22T12:30:01Z",
+              "completed_at": "2026-10-22T12:30:27Z",
+              "name": "writes",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 1,
+                  "started_at": "2026-10-22T12:30:02Z",
+                  "completed_at": "2026-10-22T12:30:03Z"
+                },
+                {
+                  "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 2,
+                  "started_at": "2026-10-22T12:30:03Z",
+                  "completed_at": "2026-10-22T12:30:03Z"
+                },
+                {
+                  "name": "Install bubblewrap and socat, which the CLI's sandbox needs on Linux",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 3,
+                  "started_at": "2026-10-22T12:30:03Z",
+                  "completed_at": "2026-10-22T12:30:16Z"
+                },
+                {
+                  "name": "Install the CLI at the pin",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 4,
+                  "started_at": "2026-10-22T12:30:16Z",
+                  "completed_at": "2026-10-22T12:30:21Z"
+                },
+                {
+                  "name": "Allow unprivileged user namespaces, without which P-50 saw no tool run",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 5,
+                  "started_at": "2026-10-22T12:30:21Z",
+                  "completed_at": "2026-10-22T12:30:21Z"
+                },
+                {
+                  "name": "The Tasks, the scrub unset, 0 and 1",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 6,
+                  "started_at": "2026-10-22T12:30:21Z",
+                  "completed_at": "2026-10-22T12:30:23Z"
+                },
+                {
+                  "name": "The Tasks, the other way round",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 7,
+                  "started_at": "2026-10-22T12:30:23Z",
+                  "completed_at": "2026-10-22T12:30:25Z"
+                },
+                {
+                  "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 14,
+                  "started_at": "2026-10-22T12:30:25Z",
+                  "completed_at": "2026-10-22T12:30:25Z"
+                },
+                {
+                  "name": "Complete job",
+                  "status": "completed",
+                  "conclusion": "success",
+                  "number": 15,
+                  "started_at": "2026-10-22T12:30:25Z",
+                  "completed_at": "2026-10-22T12:30:25Z"
+                }
+              ],
+              "check_run_url": "https://api.github.com/repos/combsmith/software-factory-canary/check-runs/119824545146",
+              "labels": [
+                "ubuntu-24.04"
+              ],
+              "runner_id": 1000803223,
+              "runner_name": "GitHub Actions 1000803223",
+              "runner_group_id": 0,
+              "runner_group_name": "GitHub Actions"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/.github/workflows/trial-p51.yml?ref=9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8 (gh api): the workflow as it ran",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "3603",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 22 Oct 2026 12:31:26 GMT",
+          "etag": "\"1c676c163bab0e78ff43e2bd09a7b8237aa41bd4\"",
+          "last-modified": "Thu, 22 Oct 2026 12:29:49 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E1AE:77DF9:50368ED:1023E687:6ADA021E",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3783",
+          "x-ratelimit-reset": "1792674903",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1217"
+        },
+        "body": {
+          "name": "trial-p51.yml",
+          "path": ".github/workflows/trial-p51.yml",
+          "sha": "1c676c163bab0e78ff43e2bd09a7b8237aa41bd4",
+          "size": 1750,
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github/workflows/trial-p51.yml?ref=9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8",
+          "html_url": "https://github.com/combsmith/software-factory-canary/blob/9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8/.github/workflows/trial-p51.yml",
+          "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/1c676c163bab0e78ff43e2bd09a7b8237aa41bd4",
+          "download_url": "https://raw.githubusercontent.com/combsmith/software-factory-canary/9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8/.github/workflows/trial-p51.yml",
+          "type": "file",
+          "content": "IyBUcmlhbCBQLTUxIChzb2Z0d2FyZS1mYWN0b3J5LCBpc3N1ZSAzMTIpOiBv\nbiBhIEdpdEh1Yi1ob3N0ZWQgTGludXggcnVubmVyLCBkb2VzIHRoZSBwaW5u\nZWQgbW9kZWwgQ0xJJ3Mgc2FuZGJveCBsZXQgYQojIHRvb2wncyB3cml0ZSBv\ndXRzaWRlIGl0cyB3b3JrIGRpcmVjdG9yeSBsYW5kLCBhbmQgaXMgaXQgdGhl\nIHN1YnByb2Nlc3Mgc2NydWIgb3IgdGhlIG9yZGVyIHRoYXQgZGVjaWRlcz8g\nSXQgaG9sZHMgbm8KIyBzZWNyZXQgYW5kIG1heSBvbmx5IHJlYWQgdGhlIHJl\ncG9zaXRvcnkuIE5vIG1vZGVsIHJ1bnM6IHRoZSBDTEkncyBBUEkgaXMgYSBz\ndHViIG9uIHRoZSBydW5uZXIsIHA1MS9zdHViLnB5LCB3aXRoIGEKIyBkdW1t\neSBrZXkuIEl0IHJ1bnMgb25seSBvbiBhIHB1c2ggdG8gdHJpYWwvcC01MSB0\naGF0IGNoYW5nZXMgcDUxLyBvciB0aGlzIGZpbGUuIHA1MS9ydW4uc2ggYW5k\nIHA1MS9zdHViLnB5IGFyZQojIHNvZnR3YXJlLWZhY3RvcnkncyB0b29scy90\ncmlhbF9wNTFfc2FuZGJveF93cml0ZXMuc2ggYW5kIHRvb2xzL3RyaWFsX3A1\nMF9zdHViLnB5LCBjb3BpZWQgd2hvbGUuCm5hbWU6IHRyaWFsLXA1MQpvbjoK\nICBwdXNoOgogICAgYnJhbmNoZXM6IFt0cmlhbC9wLTUxXQogICAgcGF0aHM6\nIFsicDUxLyoqIiwgIi5naXRodWIvd29ya2Zsb3dzL3RyaWFsLXA1MS55bWwi\nXQpwZXJtaXNzaW9uczoge30Kam9iczoKICB3cml0ZXM6CiAgICBydW5zLW9u\nOiB1YnVudHUtMjQuMDQKICAgIHRpbWVvdXQtbWludXRlczogMjAKICAgIHBl\ncm1pc3Npb25zOgogICAgICBjb250ZW50czogcmVhZAogICAgc3RlcHM6CiAg\nICAgIC0gdXNlczogYWN0aW9ucy9jaGVja291dEAzZDNjNDJlNWFhYzViYTgw\nNTgyNWRhNzY0MTBjMTgxMjczYmE5MGIxICMgdjcuMC4xCiAgICAgICAgd2l0\naDoKICAgICAgICAgIHBlcnNpc3QtY3JlZGVudGlhbHM6IGZhbHNlCiAgICAg\nIC0gbmFtZTogSW5zdGFsbCBidWJibGV3cmFwIGFuZCBzb2NhdCwgd2hpY2gg\ndGhlIENMSSdzIHNhbmRib3ggbmVlZHMgb24gTGludXgKICAgICAgICBydW46\nIHN1ZG8gYXB0LWdldCB1cGRhdGUgLXEgJiYgc3VkbyBhcHQtZ2V0IGluc3Rh\nbGwgLXkgLXEgYnViYmxld3JhcCBzb2NhdAogICAgICAtIG5hbWU6IEluc3Rh\nbGwgdGhlIENMSSBhdCB0aGUgcGluCiAgICAgICAgcnVuOiBucG0gaW5zdGFs\nbCAtZyBAYW50aHJvcGljLWFpL2NsYXVkZS1jb2RlQDIuMS4zMDYKICAgICAg\nLSBuYW1lOiBBbGxvdyB1bnByaXZpbGVnZWQgdXNlciBuYW1lc3BhY2VzLCB3\naXRob3V0IHdoaWNoIFAtNTAgc2F3IG5vIHRvb2wgcnVuCiAgICAgICAgcnVu\nOiBzdWRvIHN5c2N0bCAtdyBrZXJuZWwuYXBwYXJtb3JfcmVzdHJpY3RfdW5w\ncml2aWxlZ2VkX3VzZXJucz0wCiAgICAgIC0gbmFtZTogVGhlIFRhc2tzLCB0\naGUgc2NydWIgdW5zZXQsIDAgYW5kIDEKICAgICAgICBydW46IGJhc2ggcDUx\nL3J1bi5zaCAiJFJVTk5FUl9URU1QL291dC0xIiBmb3J3YXJkICIkKGNvbW1h\nbmQgLXYgY2xhdWRlKSIgcDUxL3N0dWIucHkgJiYgY2F0ICIkUlVOTkVSX1RF\nTVAvb3V0LTEvY2hlY2tlZC1mb3J3YXJkLmpzb24iCiAgICAgIC0gbmFtZTog\nVGhlIFRhc2tzLCB0aGUgb3RoZXIgd2F5IHJvdW5kCiAgICAgICAgcnVuOiBi\nYXNoIHA1MS9ydW4uc2ggIiRSVU5ORVJfVEVNUC9vdXQtMiIgcmV2ZXJzZWQg\nIiQoY29tbWFuZCAtdiBjbGF1ZGUpIiBwNTEvc3R1Yi5weSAmJiBjYXQgIiRS\nVU5ORVJfVEVNUC9vdXQtMi9jaGVja2VkLXJldmVyc2VkLmpzb24iCg==\n",
+          "encoding": "base64",
+          "_links": {
+            "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/.github/workflows/trial-p51.yml?ref=9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8",
+            "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/1c676c163bab0e78ff43e2bd09a7b8237aa41bd4",
+            "html": "https://github.com/combsmith/software-factory-canary/blob/9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8/.github/workflows/trial-p51.yml"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/p51/run.sh?ref=9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8 (gh api): the script as it ran",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "18289",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 22 Oct 2026 12:31:26 GMT",
+          "etag": "\"fbcf46a89fedf9f1e6796268d899b173dfbbfc09\"",
+          "last-modified": "Thu, 22 Oct 2026 12:29:49 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E1B0:3416B:4CB5D91:F6E51C9:6ADA021E",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3782",
+          "x-ratelimit-reset": "1792674903",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1218"
+        },
+        "body": {
+          "name": "run.sh",
+          "path": "p51/run.sh",
+          "sha": "fbcf46a89fedf9f1e6796268d899b173dfbbfc09",
+          "size": 12505,
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p51/run.sh?ref=9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8",
+          "html_url": "https://github.com/combsmith/software-factory-canary/blob/9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8/p51/run.sh",
+          "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/fbcf46a89fedf9f1e6796268d899b173dfbbfc09",
+          "download_url": "https://raw.githubusercontent.com/combsmith/software-factory-canary/9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8/p51/run.sh",
+          "type": "file",
+          "content": "IyEvdXNyL2Jpbi9lbnYgYmFzaAojIFRyaWFsIFAtNTEgKGlzc3VlIDMxMik6\nIG9uIGEgR2l0SHViLWhvc3RlZCBMaW51eCBydW5uZXIsIGRvZXMgdGhlIHBp\nbm5lZCBtb2RlbCBDTEkncyBzYW5kYm94IGxldCBhIHRvb2wncyB3cml0ZSBv\ndXRzaWRlCiMgaXRzIHdvcmsgZGlyZWN0b3J5IGxhbmQsIGFuZCBpcyBpdCB0\naGUgc3VicHJvY2VzcyBzY3J1YiBvciB0aGUgb3JkZXIgb2YgdGhlIFRhc2tz\nIHRoYXQgZGVjaWRlcz8gSW4gUC01MCBhIHdyaXRlIHRvIHRoZQojIGhvbWUg\nZGlyZWN0b3J5IGxhbmRlZCB3aGVuZXZlciBDTEFVREVfQ09ERV9TVUJQUk9D\nRVNTX0VOVl9TQ1JVQiB3YXMgMSwgaW4gZWl0aGVyIG9yZGVyLCBhbmQgd2Fz\nIHJlZnVzZWQgd2hlbiBpdCB3YXMgMC4KIwojIFRoZSBwYXNzIGNvbmRpdGlv\nbiwgd3JpdHRlbiBiZWZvcmUgdGhlIHJ1bjoKIyAgIHBhc3M6IGluIGV2ZXJ5\nIGNvbmZpZ3VyYXRpb24gYSBSdW4gY2FuIGJlIGdpdmVuICh0aGUgc2NydWIg\ndW5zZXQsIDAgb3IgMSksIGluIGJvdGggb3JkZXJzLCBhdCB0aGUgcGlubmVk\nIHZlcnNpb24KIyAgIGJlZm9yZSBhbmQgYWZ0ZXI6IHRoZSBDTEkgZXhpdGVk\nIDAgYW5kIGl0cyBhbnN3ZXIgaXMgbm8gZXJyb3I7IHRoZSB0b29sJ3MgcmVz\ndWx0IHdlbnQgYmFjayBhbmQgaXMgbm90IGFuIGVycm9yOyB0aGUKIyAgIHBy\nb2JlIHJhbjsgYW5kIG5vbmUgb2YgdGhlIGZvdXIgd3JpdGVzIG91dHNpZGUg\ndGhlIHdvcmsgZGlyZWN0b3J5IGxhbmRlZC4KIyAgIGZhaWwgb3RoZXJ3aXNl\nOyB0aGUgZml4dHVyZSBzYXlzLCBmb3IgZWFjaCBjb25maWd1cmF0aW9uLCBv\ncmRlciBhbmQgdGFyZ2V0LCB3aGV0aGVyIHRoZSB3cml0ZSBsYW5kZWQsIHNv\nIHRoYXQgdGhlCiMgICBkZXNpZ24ncyDCpzQuOSBhbmQgdGhlIHJ1biBqb2In\ncyBydWxlcyAoIzE5NCkgc2F5IHdoaWNoIHNldHRpbmcgYSBSdW4gbXVzdCBo\nYXZlLCBvciB0aGF0IG5vIHNldHRpbmcgaG9sZHMgdGhlIGxpbmUuCiMgICBS\nZWNvcmRlZCwgZGVjaWRpbmcgbm90aGluZzogZWFjaCB3cml0ZSdzIGV4aXQg\nY29kZSBhcyB0aGUgcHJvYmUgc2F3IGl0LCB0aGUgcHJvYmUncyBQSUQgbmFt\nZXNwYWNlLCB3aGV0aGVyIGEgd3JpdGUKIyAgIGluIHRoZSB3b3JrIGRpcmVj\ndG9yeSBpdHNlbGYgbGFuZGVkLCBhcyBhIGNvbnRyb2wsIGFuZCB0aGUgQ0xJ\nJ3MgcmVxdWVzdHMgdG8gdGhlIHN0dWIgYnkgcGF0aCBhbmQgY291bnQgYWxv\nbmUuCiMKIyBXaGVyZSBpdCBydW5zLiBPbmx5IGluIHRoZSBjYW5hcnkncyB3\nb3JrZmxvdyB0cmlhbC1wNTEueW1sLCBvbiB1YnVudHUtMjQuMDQgd2l0aAoj\nIGtlcm5lbC5hcHBhcm1vcl9yZXN0cmljdF91bnByaXZpbGVnZWRfdXNlcm5z\nPTAgKGFzIHRoZSBydW5uZXIgc3RhbmRzLCBQLTUwIHNob3dlZCwgdGhlIHRv\nb2wgZG9lcyBub3QgcnVuKSwgd2l0aCBubwojIHNlY3JldCBhbmQgbm8gd3Jp\ndGUgZ3JhbnQ6IGBiYXNoIHA1MS9ydW4uc2ggT1VUIE9SREVSIENMSSBTVFVC\nYCwgb25jZSB3aXRoIE9SREVSICJmb3J3YXJkIiBhbmQgb25jZSAicmV2ZXJz\nZWQiLiBObwojIG1vZGVsIHJ1bnM6IHRoZSBDTEkncyBBTlRIUk9QSUNfQkFT\nRV9VUkwgaXMgU1RVQiwgUC01MCdzIHRvb2xzL3RyaWFsX3A1MF9zdHViLnB5\nLCBvbiAxMjcuMC4wLjEsIHdoaWNoIGFuc3dlcnMgb25lCiMgc2NyaXB0ZWQg\nY2FsbCB0byB0aGUgc2hlbGwgdG9vbCwgYHNoIC4vcHJvYmUuc2hgLCBhbmQg\ndGhlbiB0aGUgd29yZCBkb25lOyB0aGUga2V5IGlzIGEgZHVtbXkgdGhhdCBu\nYW1lcyBpdHNlbGYuIFRoaXMKIyByZXBvJ3MgdGVzdHMgcnVuIGl0IGFnYWlu\nc3QgYSBzdGFuZC1pbiBDTEksIHRoZSBzdHViIG9uIDEyNy4wLjAuMS4KIwoj\nIFdoYXQgaXQgYXNrcy4gVGhlIENMSSdzIHZlcnNpb24sIHdoaWNoIG11c3Qg\nYmUgUElOOyB0aGVuIHRoZSBzYW1lIFRhc2sgdGhyZWUgdGltZXMsIGVhY2gg\naW4gYSBmcmVzaCB3b3JrIGRpcmVjdG9yeSB3aXRoCiMgYSBjb25maWd1cmF0\naW9uIGRpcmVjdG9yeSBvZiBpdHMgb3duLCB1bmRlciB0aGUgc2FuZGJveCBz\nZXR0aW5ncyBTRVRUSU5HUzogInVuc2V0Iiwgd2l0aCBubwojIENMQVVERV9D\nT0RFX1NVQlBST0NFU1NfRU5WX1NDUlVCIGF0IGFsbDsgInBsYWluIiwgPTA7\nICJzY3J1YmJlZCIsID0xOyBpbiB0aGF0IG9yZGVyLCBvciBpbiB0aGUgcmV2\nZXJzZS4gR0lUSFVCX0FDVElPTlMKIyBpcyBzZXQsIGFzIGEgcnVuIGpvYidz\nIGlzLiBUaGUgcHJvYmUgdHJpZXMgZm91ciB3cml0ZXMgb3V0c2lkZSBpdHMg\nd29yayBkaXJlY3RvcnksIGVhY2ggdG8gYSBuYW1lIG1hZGUgZm9yIHRoaXMg\nVGFzazoKIyBhIGZpbGUgaW4gdGhlIGhvbWUgZGlyZWN0b3J5LCBhIGRvdGZp\nbGUgdGhlcmUsIGEgZmlsZSBpbiAvdG1wLCBhbmQgYSBmaWxlIGluIHRoZSB3\nb3JrIGRpcmVjdG9yeSdzIHBhcmVudDsgYW5kIG9uZSBpbgojIHRoZSB3b3Jr\nIGRpcmVjdG9yeSBpdHNlbGYsIGFzIGEgY29udHJvbC4gVGhpcyBzY3JpcHQs\nIG91dHNpZGUgdGhlIHNhbmRib3gsIGFza3Mgd2hldGhlciBlYWNoIGlzIHRo\nZXJlLCB0aGVuIGRlbGV0ZXMgaXQuCiMgT1VUIHJlY2VpdmVzIG9ubHkgY2hl\nY2tlZC1PUkRFUi5qc29uLCB3aGljaCB0aGUgd29ya2Zsb3cgcHJpbnRzIHRv\nIGl0cyBsb2cgZm9yIHRoZSBmaXh0dXJlLgpzZXQgLWV1byBwaXBlZmFpbApz\nZXQgK3gKZXhwb3J0IExDX0FMTD1DCgpQSU49Mi4xLjMwNgpBTExPV0VEX0hP\nU1Q9ZXhhbXBsZS5jb20KU0VUVElOR1M9J3sic2FuZGJveCI6IHsiZW5hYmxl\nZCI6IHRydWUsICJmYWlsSWZVbmF2YWlsYWJsZSI6IHRydWUsICJhdXRvQWxs\nb3dCYXNoSWZTYW5kYm94ZWQiOiBmYWxzZSwgImFsbG93VW5zYW5kYm94ZWRD\nb21tYW5kcyI6IGZhbHNlLCAibmV0d29yayI6IHsiYWxsb3dlZERvbWFpbnMi\nOiBbIiciJEFMTE9XRURfSE9TVCInIl19fSwgInBlcm1pc3Npb25zIjogeyJh\nbGxvdyI6IFsiQmFzaChzaCAuL3Byb2JlLnNoKSJdfX0nCk9QVElPTlM9Ii0t\nb3V0cHV0LWZvcm1hdCBqc29uIC0tbm8tc2Vzc2lvbi1wZXJzaXN0ZW5jZSAt\nLXN0cmljdC1tY3AtY29uZmlnIC0tZGlzYWJsZS1zbGFzaC1jb21tYW5kcyAt\nLXBlcm1pc3Npb24tcHJvbXB0cyBub25lIgpUT09MUz0iQmFzaCIKQUxMT1dF\nRD0iQmFzaChzaCAuL3Byb2JlLnNoKSIKVEFTSz0nVXNlIHlvdXIgc2hlbGwg\ndG9vbCBvbmNlLCB0byBydW4gZXhhY3RseSB0aGlzIGNvbW1hbmQgaW4gdGhl\nIGN1cnJlbnQgZGlyZWN0b3J5LCBhbmQgbm90aGluZyBlbHNlOiBzaCAuL3By\nb2JlLnNoClRoZW4gcmVwbHkgd2l0aCB0aGUgb25lIHdvcmQgZG9uZS4nCktF\nUFRfUkVTVUxUPSJ0eXBlIHN1YnR5cGUgaXNfZXJyb3IgbnVtX3R1cm5zIgpL\nRVk9ImR1bW15LXA1MS1ub3QtYS1rZXkiClRBUkdFVFM9ImhvbWUgZG90Zmls\nZSB0bXAgcGFyZW50IgoKdXNhZ2UoKSB7CiAgICBlY2hvICJ1c2FnZTogYmFz\naCBwNTEvcnVuLnNoIE9VVCBPUkRFUiBDTEkgU1RVQiwgT1JERVIgZm9yd2Fy\nZCBvciByZXZlcnNlZCIgPiYyCiAgICBleGl0IDIKfQpyZWZ1c2UoKSB7CiAg\nICBlY2hvICJ0cmlhbF9wNTE6ICQqIiA+JjIKICAgIGV4aXQgMgp9CltbICIk\nIyIgLWVxIDQgXV0gfHwgdXNhZ2UKY29tbWFuZCAtdiBweXRob24zID4vZGV2\nL251bGwgfHwgcmVmdXNlICJweXRob24zIGlzIG5lZWRlZCIKY2FzZSAiJDIi\nIGluIGZvcndhcmQpIG9yZGVyPSJ1bnNldCBwbGFpbiBzY3J1YmJlZCIgOzsg\ncmV2ZXJzZWQpIG9yZGVyPSJzY3J1YmJlZCBwbGFpbiB1bnNldCIgOzsKICAg\nICopIHJlZnVzZSAiT1JERVIgaXMgZm9yd2FyZCBvciByZXZlcnNlZCIgOzsg\nZXNhYwpbWyAhIC1lICIkMSIgXV0gfHwgcmVmdXNlICIkMSBleGlzdHM7IG5h\nbWUgYSBuZXcgZGlyZWN0b3J5Igpta2RpciAtcCAiJDEiCm91dD0kKGNkICIk\nMSIgJiYgcHdkIC1QKQpbWyAtZiAiJDMiICYmIC14ICIkMyIgXV0gfHwgcmVm\ndXNlICJubyBDTEkgYXQgJyQzJyIKY2xpPSQoY2QgIiQoZGlybmFtZSAiJDMi\nKSIgJiYgcHdkIC1QKS8kKGJhc2VuYW1lICIkMyIpCltbIC1mICIkNCIgXV0g\nfHwgcmVmdXNlICJubyBzdHViIGF0ICckNCciCnN0dWI9JChjZCAiJChkaXJu\nYW1lICIkNCIpIiAmJiBwd2QgLVApLyQoYmFzZW5hbWUgIiQ0IikKCnNjcmF0\nY2g9JChjZCAiJChta3RlbXAgLWQpIiAmJiBwd2QgLVApCmJhc2VfY2ZnPSIk\nc2NyYXRjaC9jZmciCm1rZGlyICIkYmFzZV9jZmciCnN0dWJfcGlkPQp0YXJn\nZXRzX29mKCkgeyAgICMgTkFNRTogdGhlIGZvdXIgcGF0aHMgb3V0c2lkZSBh\nIFRhc2sncyB3b3JrIGRpcmVjdG9yeSwgb25lIHRvIGEgbGluZSwgYXMgVEFS\nR0VUUyBuYW1lcyB0aGVtCiAgICBwcmludGYgJyVzXG4nICIkSE9NRS9wNTEt\nd3JpdGUtJCQtJDEiICIkSE9NRS8ucDUxLXdyaXRlLSQkLSQxIiAiL3RtcC9w\nNTEtd3JpdGUtJCQtJDEiICIkc2NyYXRjaC9wNTEtcGFyZW50LSQkLSQxIgp9\nCmZpbmlzaCgpIHsKICAgIFtbIC1uICIkc3R1Yl9waWQiIF1dICYmIGtpbGwg\nIiRzdHViX3BpZCIgMj4vZGV2L251bGwKICAgIGZvciBuYW1lIGluIHVuc2V0\nIHBsYWluIHNjcnViYmVkOyBkbwogICAgICAgIHRhcmdldHNfb2YgIiRuYW1l\nIiB8IHdoaWxlIElGUz0gcmVhZCAtciB0YXJnZXQ7IGRvIHJtIC1mICIkdGFy\nZ2V0IjsgZG9uZQogICAgZG9uZQogICAgcm0gLXJmICIkc2NyYXRjaCIKfQp0\ncmFwIGZpbmlzaCBFWElUCnRyYXAgJ2V4aXQgMTMwJyBJTlQgVEVSTQpmb3Ig\nbmFtZSBpbiB1bnNldCBwbGFpbiBzY3J1YmJlZDsgZG8KICAgIHRhcmdldHNf\nb2YgIiRuYW1lIiB8IHdoaWxlIElGUz0gcmVhZCAtciB0YXJnZXQ7IGRvIFtb\nICEgLWUgIiR0YXJnZXQiIF1dIHx8IHJlZnVzZSAiJHRhcmdldCBleGlzdHM7\nIHJlbW92ZSBpdCBmaXJzdCI7IGRvbmUKZG9uZQoKIyBUaGUgc3R1Yiwgb24g\nYSBwb3J0IG9mIGl0cyBvd24sIHdoaWNoIGl0IHByaW50cyBvbmNlIGl0IGxp\nc3RlbnM7IGl0IGlzIHJlYWQgdGhyb3VnaCBhIHBpcGUsIG5ldmVyIHBvbGxl\nZCBmb3IuCm1rZmlmbyAiJHNjcmF0Y2gvcG9ydC5maWZvIgooY2QgIiRzY3Jh\ndGNoIiAmJiBleGVjIHB5dGhvbjMgLUkgIiRzdHViIikgPiAiJHNjcmF0Y2gv\ncG9ydC5maWZvIiAyPiAiJHNjcmF0Y2gvc3R1Yi5lcnIiICYKc3R1Yl9waWQ9\nJCEKcG9ydD0KSUZTPSByZWFkIC1yIHBvcnQgPCAiJHNjcmF0Y2gvcG9ydC5m\naWZvIiB8fCB0cnVlCltbICIkcG9ydCIgPX4gXlswLTldezEsNX0kIF1dIHx8\nIHJlZnVzZSAidGhlIHN0dWIgZGlkIG5vdCBzYXkgaXRzIHBvcnQiCmhvc3Rf\ncGlkbnM9JChyZWFkbGluayAiL3Byb2MvJCQvbnMvcGlkIiAyPi9kZXYvbnVs\nbCB8fCBlY2hvIHVua25vd24pCm5vZGVfZGlyPSQoZGlybmFtZSAiJChjb21t\nYW5kIC12IG5vZGUgMj4vZGV2L251bGwgfHwgZWNobyAvdXNyL2Jpbi9ub2Rl\nKSIpCgojIFRoZSBwcm9iZSwgYXMgYSB0ZW1wbGF0ZTogQFRBUkdFVFNAIGlz\nIHNldCBpbiBhIFRhc2sncyBjb3B5IHRvIHRoZSBmb3VyIHBhdGhzLCBxdW90\nZWQuIEl0IHRyaWVzIGVhY2ggd3JpdGUgb25jZS4KY2F0ID4gIiRzY3JhdGNo\nL3Byb2JlLnRlbXBsYXRlIiA8PCdQUk9CRScKIyEvYmluL3NoCiMgUC01MSdz\nIHByb2JlOiBydW4gYnkgdGhlIG1vZGVsIENMSSdzIHNoZWxsIHRvb2wsIGlu\nc2lkZSBpdHMgc2FuZGJveCwgaW4gaXRzIHdvcmsgZGlyZWN0b3J5Lgpta2Rp\nciAtcCAuL3A1MQo6ID4gLi9wNTEvd3JpdGVzCmZvciB0YXJnZXQgaW4gQFRB\nUkdFVFNAOyBkbwogICAgdG91Y2ggIiR0YXJnZXQiIDI+L2Rldi9udWxsCiAg\nICBlY2hvICJleGl0PSQ/IiA+PiAuL3A1MS93cml0ZXMKZG9uZQp0b3VjaCAu\nL3A1MS9pbnNpZGUgMj4vZGV2L251bGwKZWNobyAiaW5zaWRlIGV4aXQ9JD8i\nID4gLi9wNTEvaW5zaWRlLWV4aXQKcmVhZGxpbmsgL3Byb2Mvc2VsZi9ucy9w\naWQgPiAuL3A1MS9waWRucyAyPi9kZXYvbnVsbCB8fCBlY2hvIHVua25vd24g\nPiAuL3A1MS9waWRucwplY2hvIGRvbmUgPiAuL3A1MS9yYW4KUFJPQkUKCnJ1\nbl9jbGkoKSB7ICAgIyBXT1JLIENGRyBbTkFNRT1WQUxVRSAuLi5dIC0tIEFS\nRy4uLgogICAgbG9jYWwgd29yaz0kMSBjZmc9JDIKICAgIGxvY2FsIC1hIGV4\ndHJhPSgpCiAgICBzaGlmdCAyCiAgICB3aGlsZSBbWyAiJDEiICE9ICItLSIg\nXV07IGRvCiAgICAgICAgZXh0cmErPSgiJDEiKQogICAgICAgIHNoaWZ0CiAg\nICBkb25lCiAgICBzaGlmdAogICAgIyBObyBzdGFuZGFyZCBpbnB1dCwgd2hp\nY2ggYSBDTEkgZ2l2ZW4gLXAgd291bGQgd2FpdCBvbiwgYW5kIGEgbGltaXQg\nb24gZWFjaCBydW4gd2hlcmUgdGhlIHN5c3RlbSBoYXMgb25lLgogICAgbG9j\nYWwgLWEgbGltaXQ9KCkKICAgIGNvbW1hbmQgLXYgdGltZW91dCA+L2Rldi9u\ndWxsICYmIGxpbWl0PSh0aW1lb3V0IDE4MCkKICAgIChjZCAiJHdvcmsiICYm\nIGV4ZWMgJHtsaW1pdFtAXSsiJHtsaW1pdFtAXX0ifSBlbnYgLWkgSE9NRT0i\nJEhPTUUiIFVTRVI9IiR7VVNFUjotfSIgTE9HTkFNRT0iJHtMT0dOQU1FOi19\nIiBTSEVMTD0vYmluL2Jhc2ggXAogICAgICAgIFBBVEg9IiRub2RlX2Rpcjov\ndXNyL2JpbjovYmluOi91c3Ivc2Jpbjovc2JpbiIgVE1QRElSPSIke1RNUERJ\nUjotL3RtcH0iIExBTkc9IiR7TEFORzotQy5VVEYtOH0iIFwKICAgICAgICBH\nSVRIVUJfQUNUSU9OUz10cnVlIENMQVVERV9DT05GSUdfRElSPSIkY2ZnIiBE\nSVNBQkxFX0FVVE9VUERBVEVSPTEgQ0xBVURFX0NPREVfRElTQUJMRV9OT05F\nU1NFTlRJQUxfVFJBRkZJQz0xIFwKICAgICAgICBBTlRIUk9QSUNfQkFTRV9V\nUkw9Imh0dHA6Ly8xMjcuMC4wLjE6JHBvcnQiIEFOVEhST1BJQ19BUElfS0VZ\nPSIkS0VZIiAke2V4dHJhW0BdKyIke2V4dHJhW0BdfSJ9ICIkY2xpIiAiJEAi\nIDwgL2Rldi9udWxsKQp9Cgp2ZXJzaW9uPSQocnVuX2NsaSAiJHNjcmF0Y2gi\nICIkYmFzZV9jZmciIC0tIC0tdmVyc2lvbiAyPi9kZXYvbnVsbCB8IGhlYWQg\nLW4gMSB8IGF3ayAne3ByaW50ICQxfScpIHx8IHZlcnNpb249CnBhcnRzPSgp\nCmZvciBuYW1lIGluICRvcmRlcjsgZG8KICAgIGNhc2UgIiRuYW1lIiBpbiB1\nbnNldCkgc2NydWI9KCkgOzsgcGxhaW4pIHNjcnViPShDTEFVREVfQ09ERV9T\nVUJQUk9DRVNTX0VOVl9TQ1JVQj0wKSA7OyBzY3J1YmJlZCkgc2NydWI9KENM\nQVVERV9DT0RFX1NVQlBST0NFU1NfRU5WX1NDUlVCPTEpIDs7IGVzYWMKICAg\nIHdvcms9IiRzY3JhdGNoL3dvcmstJG5hbWUiCiAgICB0YXNrX2NmZz0iJHNj\ncmF0Y2gvY2ZnLSRuYW1lIgogICAgbWtkaXIgIiR3b3JrIiAiJHRhc2tfY2Zn\nIgogICAgdGFyZ2V0c19vZiAiJG5hbWUiID4gIiRzY3JhdGNoL3RhcmdldHMt\nJG5hbWUiCiAgICBweXRob24zIC1JIC1jICcKaW1wb3J0IHNobGV4LCBzeXMK\ndGV4dCA9IG9wZW4oc3lzLmFyZ3ZbMV0pLnJlYWQoKQp0YXJnZXRzID0gb3Bl\nbihzeXMuYXJndlszXSkucmVhZCgpLnNwbGl0KCJcbiIpWzo0XQpvcGVuKHN5\ncy5hcmd2WzJdLCAidyIpLndyaXRlKHRleHQucmVwbGFjZSgiQFRBUkdFVFNA\nIiwgIiAiLmpvaW4oc2hsZXgucXVvdGUodCkgZm9yIHQgaW4gdGFyZ2V0cykp\nKScgXAogICAgICAgICIkc2NyYXRjaC9wcm9iZS50ZW1wbGF0ZSIgIiR3b3Jr\nL3Byb2JlLnNoIiAiJHNjcmF0Y2gvdGFyZ2V0cy0kbmFtZSIKICAgIGJlZm9y\nZT0kKHdjIC1sIDwgIiRzY3JhdGNoL3N0dWIubG9nIiB8IHRyIC1kICcgJykK\nICAgIGNvZGU9MAogICAgIyBzaGVsbGNoZWNrIGRpc2FibGU9U0MyMDg2ICAj\nIE9QVElPTlMgaXMgc3BsaXQgaW50byBpdHMgd29yZHMgb24gcHVycG9zZQog\nICAgcnVuX2NsaSAiJHdvcmsiICIkdGFza19jZmciICR7c2NydWJbQF0rIiR7\nc2NydWJbQF19In0gLS0gLXAgIiRUQVNLIiAtLXNldHRpbmdzICIkU0VUVElO\nR1MiICRPUFRJT05TIFwKICAgICAgICAtLXRvb2xzICIkVE9PTFMiIC0tYWxs\nb3dlZFRvb2xzICIkQUxMT1dFRCIgPiAiJHNjcmF0Y2gvcmF3LSRuYW1lIiAy\nPiAiJHNjcmF0Y2gvcmF3LSRuYW1lLmVyciIgfHwgY29kZT0kPwogICAgaWYg\nW1sgIiRjb2RlIiAtbmUgMCBdXTsgdGhlbgogICAgICAgIGVjaG8gInRyaWFs\nX3A1MTogJG5hbWUgZXhpdGVkICRjb2RlOyBpdHMgZmlyc3QgbGluZXMgb24g\nc3RhbmRhcmQgZXJyb3I6IiA+JjIKICAgICAgICBoZWFkIC1uIDIwICIkc2Ny\nYXRjaC9yYXctJG5hbWUuZXJyIiB8IGN1dCAtYzEtMzAwID4mMgogICAgICAg\nIGVjaG8gInRyaWFsX3A1MTogd2hhdCB0aGUgc3R1YiB3YXMgYXNrZWQgaW4g\ndGhhdCBUYXNrLCBieSBwYXRoIGFuZCBhbnN3ZXI6IiA+JjIKICAgICAgICBz\nZWQgLW4gIiQoKGJlZm9yZSArIDEpKSwkKChiZWZvcmUgKyAyMCkpcCIgIiRz\nY3JhdGNoL3N0dWIubG9nIiA+JjIKICAgIGZpCiAgICB0YWlsIC1uICIrJCgo\nYmVmb3JlICsgMSkpIiAiJHNjcmF0Y2gvc3R1Yi5sb2ciID4gIiRzY3JhdGNo\nL3N0dWItJG5hbWUubG9nIgogICAgcHl0aG9uMyAtSSAtYyAnCmltcG9ydCBq\nc29uLCBvcywgcmUsIHN5cwpyYXcsIGVyciwgc3R1Yl9sb2csIHdvcmssIHBh\ncnRfZmlsZSwgdGFyZ2V0c19maWxlID0gc3lzLmFyZ3ZbMTo3XQpjb2RlLCBu\nYW1lLCBob3N0X3BpZG5zLCBrZXB0X2tleXMsIG5hbWVzID0gaW50KHN5cy5h\ncmd2WzddKSwgc3lzLmFyZ3ZbOF0sIHN5cy5hcmd2WzldLCBzeXMuYXJndlsx\nMF0uc3BsaXQoKSwgc3lzLmFyZ3ZbMTFdLnNwbGl0KCkKZGVmIHJlYWQocGF0\naCk6CiAgICB0cnk6CiAgICAgICAgd2l0aCBvcGVuKG9zLnBhdGguam9pbih3\nb3JrLCAicDUxIiwgcGF0aCksIGVycm9ycz0icmVwbGFjZSIpIGFzIGY6CiAg\nICAgICAgICAgIHJldHVybiBmLnJlYWQoKQogICAgZXhjZXB0IE9TRXJyb3I6\nCiAgICAgICAgcmV0dXJuIE5vbmUKdGV4dCA9IG9wZW4ocmF3LCBlcnJvcnM9\nInJlcGxhY2UiKS5yZWFkKCkKdHJ5OgogICAgc2FpZCA9IGpzb24ubG9hZHMo\ndGV4dCkKZXhjZXB0IFZhbHVlRXJyb3I6CiAgICBzYWlkID0gTm9uZQppZiBp\nc2luc3RhbmNlKHNhaWQsIGxpc3QpOgogICAgZm91bmQgPSBbbSBmb3IgbSBp\nbiBzYWlkIGlmIGlzaW5zdGFuY2UobSwgZGljdCkgYW5kIG0uZ2V0KCJ0eXBl\nIikgPT0gInJlc3VsdCJdCiAgICBzYWlkID0gZm91bmRbLTFdIGlmIGZvdW5k\nIGVsc2UgTm9uZQpkZWYgcGxhaW4odmFsdWUpOgogICAgcmV0dXJuIGlzaW5z\ndGFuY2UodmFsdWUsIChib29sLCBpbnQpKSBvciBpc2luc3RhbmNlKHZhbHVl\nLCBzdHIpIGFuZCByZS5mdWxsbWF0Y2gociJbYS16X117MSwzMn0iLCB2YWx1\nZSkgaXMgbm90IE5vbmUKYW5zd2VyID0ge2s6IHNhaWRba10gZm9yIGsgaW4g\na2VwdF9rZXlzIGlmIGsgaW4gc2FpZCBhbmQgcGxhaW4oc2FpZFtrXSl9IGlm\nIGlzaW5zdGFuY2Uoc2FpZCwgZGljdCkgZWxzZSBOb25lCnN0dWIgPSBbanNv\nbi5sb2FkcyhsaW5lKSBmb3IgbGluZSBpbiBvcGVuKHN0dWJfbG9nKSBpZiBs\naW5lLnN0cmlwKCldCnJlcXVlc3RzID0ge30KZm9yIGxpbmUgaW4gc3R1YjoK\nICAgIGtleSA9ICIlcyAlcyIgJSAobGluZS5nZXQoInBhdGgiKSwgbGluZS5n\nZXQoImFuc3dlciIpKQogICAgcmVxdWVzdHNba2V5XSA9IHJlcXVlc3RzLmdl\ndChrZXksIDApICsgMQphc2tlZCA9IFtsLmdldCgibiIpIGZvciBsIGluIHN0\ndWIgaWYgbC5nZXQoImFuc3dlciIpID09ICJ0b29sX3VzZSJdCmJhY2sgPSBb\nbCBmb3IgbCBpbiBzdHViIGlmIGwuZ2V0KCJhbnN3ZXIiKSA9PSAidGV4dCIg\nYW5kIGwuZ2V0KCJyZXN1bHQiKSBpcyBUcnVlIGFuZCBhc2tlZCBhbmQgKGwu\nZ2V0KCJuIikgb3IgMCkgPiBhc2tlZFswXV0KZXJyb3JzID0gW2UgZm9yIGwg\naW4gYmFjayBmb3IgZSBpbiBsLmdldCgicmVzdWx0X2Vycm9yIikgb3IgW10g\naWYgaXNpbnN0YW5jZShlLCBib29sKV0Kd3JpdGVzLCBpbnNpZGUsIHBpZG5z\nLCByYW4gPSAocmVhZChwKSBmb3IgcCBpbiAoIndyaXRlcyIsICJpbnNpZGUt\nZXhpdCIsICJwaWRucyIsICJyYW4iKSkKZXhpdHMgPSBbaW50KGMpIGZvciBj\nIGluIHJlLmZpbmRhbGwociJeZXhpdD0oWzAtOV17MSwzfSkkIiwgd3JpdGVz\nIG9yICIiLCByZS5NKV0KdGFyZ2V0cyA9IG9wZW4odGFyZ2V0c19maWxlKS5y\nZWFkKCkuc3BsaXQoIlxuIilbOjRdCmxhbmRlZCA9IHtuOiBvcy5wYXRoLmxl\neGlzdHModCkgZm9yIG4sIHQgaW4gemlwKG5hbWVzLCB0YXJnZXRzKX0KcGlk\nbnMgPSAocGlkbnMgb3IgIiIpLnN0cmlwKCkKcGlkbnMgPSBwaWRucyBpZiBy\nZS5mdWxsbWF0Y2gociJwaWQ6XFtbMC05XXsxLDIwfVxdIiwgcGlkbnMpIGVs\nc2UgTm9uZQpmb3VuZCA9IHJlLmZ1bGxtYXRjaChyImluc2lkZSBleGl0PShb\nMC05XXsxLDN9KVxuPyIsIGluc2lkZSBvciAiIikKcGFydCA9IHsKICAgICJj\nb25maWd1cmF0aW9uIjogbmFtZSwgImV4aXQiOiBjb2RlLCAiYW5zd2VyIjog\nYW5zd2VyLAogICAgInN0ZGVyciI6IHsibGluZXMiOiBvcGVuKGVyciwgZXJy\nb3JzPSJyZXBsYWNlIikucmVhZCgpLmNvdW50KCJcbiIpfSwKICAgICJzdHVi\nIjogeyJyZXF1ZXN0cyI6IHJlcXVlc3RzLCAidG9vbF9jYWxsX2Fza2VkIjog\nYm9vbChhc2tlZCksICJyZXN1bHRfc2VudCI6IGJvb2woYmFjayksICJyZXN1\nbHRfaXNfZXJyb3IiOiBlcnJvcnMgb3IgTm9uZX0sCiAgICAicHJvYmVfcmFu\nIjogcmFuIGlzIG5vdCBOb25lIGFuZCByYW4uc3RyaXAoKSA9PSAiZG9uZSIs\nCiAgICAid3JpdGVzIjoge246IHsiZXhpdCI6IGV4aXRzW2ldIGlmIGkgPCBs\nZW4oZXhpdHMpIGVsc2UgTm9uZSwgImxhbmRlZCI6IGxhbmRlZFtuXX0gZm9y\nIGksIG4gaW4gZW51bWVyYXRlKG5hbWVzKX0sCiAgICAiaW5zaWRlIjogeyJl\neGl0IjogaW50KGZvdW5kLmdyb3VwKDEpKSBpZiBmb3VuZCBlbHNlIE5vbmUs\nICJsYW5kZWQiOiBvcy5wYXRoLmxleGlzdHMob3MucGF0aC5qb2luKHdvcmss\nICJwNTEiLCAiaW5zaWRlIikpfSwKICAgICJwaWRfbmFtZXNwYWNlIjogeyJv\nd24iOiBOb25lIGlmIHBpZG5zIGlzIE5vbmUgb3IgaG9zdF9waWRucyA9PSAi\ndW5rbm93biIgZWxzZSBwaWRucyAhPSBob3N0X3BpZG5zfSwKfQphbnN3ZXJl\nZCA9IGNvZGUgPT0gMCBhbmQgaXNpbnN0YW5jZShhbnN3ZXIsIGRpY3QpIGFu\nZCBhbnN3ZXIuZ2V0KCJpc19lcnJvciIpIGlzIEZhbHNlCnRvb2xfcmFuID0g\nYm9vbChiYWNrKSBhbmQgVHJ1ZSBub3QgaW4gZXJyb3JzCmhlbGQgPSBwYXJ0\nWyJwcm9iZV9yYW4iXSBhbmQgbGVuKGV4aXRzKSA9PSBsZW4obmFtZXMpIGFu\nZCBub3QgYW55KGxhbmRlZC52YWx1ZXMoKSkKcGFydFsiaG9sZHMiXSA9IHsi\nYW5zd2VyZWQiOiBhbnN3ZXJlZCwgInRvb2xfcmFuIjogdG9vbF9yYW4sICJw\ncm9iZV9yYW4iOiBwYXJ0WyJwcm9iZV9yYW4iXSwgImV2ZXJ5X3dyaXRlX2hl\nbGQiOiBoZWxkfQpwYXJ0WyJob2xkcyJdWyJwYXNzZXMiXSA9IGFsbChwYXJ0\nWyJob2xkcyJdLnZhbHVlcygpKQpqc29uLmR1bXAocGFydCwgb3BlbihwYXJ0\nX2ZpbGUsICJ3IiksIGluZGVudD0yKQonICIkc2NyYXRjaC9yYXctJG5hbWUi\nICIkc2NyYXRjaC9yYXctJG5hbWUuZXJyIiAiJHNjcmF0Y2gvc3R1Yi0kbmFt\nZS5sb2ciICIkd29yayIgIiRzY3JhdGNoL3BhcnQtJG5hbWUuanNvbiIgXAog\nICAgICAgICIkc2NyYXRjaC90YXJnZXRzLSRuYW1lIiAiJGNvZGUiICIkbmFt\nZSIgIiRob3N0X3BpZG5zIiAiJEtFUFRfUkVTVUxUIiAiJFRBUkdFVFMiCiAg\nICB0YXJnZXRzX29mICIkbmFtZSIgfCB3aGlsZSBJRlM9IHJlYWQgLXIgdGFy\nZ2V0OyBkbyBybSAtZiAiJHRhcmdldCI7IGRvbmUKICAgIHJtIC1yZiAiJHdv\ncmsiCiAgICBwYXJ0cys9KCIkc2NyYXRjaC9wYXJ0LSRuYW1lLmpzb24iKQpk\nb25lCmFmdGVyPSQocnVuX2NsaSAiJHNjcmF0Y2giICIkYmFzZV9jZmciIC0t\nIC0tdmVyc2lvbiAyPi9kZXYvbnVsbCB8IGhlYWQgLW4gMSB8IGF3ayAne3By\naW50ICQxfScpIHx8IGFmdGVyPQoKcHl0aG9uMyAtSSAtYyAnCmltcG9ydCBq\nc29uLCBzeXMKb3JkZXIsIHBpbiwgYmVmb3JlLCBhZnRlciwgb3V0ID0gc3lz\nLmFyZ3ZbMTo2XQpwYXJ0cyA9IFtqc29uLmxvYWQob3BlbihwKSkgZm9yIHAg\naW4gc3lzLmFyZ3ZbNjpdXQpwaW5uZWQgPSBiZWZvcmUgPT0gcGluIGFuZCBh\nZnRlciA9PSBwaW4KanNvbi5kdW1wKHsib3JkZXIiOiBvcmRlciwgInZlcnNp\nb24iOiB7InBpbm5lZCI6IHBpbiwgImJlZm9yZSI6IGJlZm9yZSwgImFmdGVy\nIjogYWZ0ZXJ9LCAiY29uZmlndXJhdGlvbnMiOiBwYXJ0cywKICAgICAgICAg\nICAiZXZlcnlfY29uZmlndXJhdGlvbl9wYXNzZXMiOiBwaW5uZWQgYW5kIGxl\nbihwYXJ0cykgPT0gMyBhbmQgYWxsKHBbImhvbGRzIl1bInBhc3NlcyJdIGZv\nciBwIGluIHBhcnRzKX0sCiAgICAgICAgICBvcGVuKG91dCwgInciKSwgaW5k\nZW50PTIpJyAiJDIiICIkUElOIiAiJHZlcnNpb24iICIkYWZ0ZXIiICIkb3V0\nL2NoZWNrZWQtJDIuanNvbiIgIiR7cGFydHNbQF19IgpoZWxkPSQocHl0aG9u\nMyAtSSAtYyAnaW1wb3J0IGpzb24sIHN5czsgcHJpbnQoanNvbi5sb2FkKG9w\nZW4oc3lzLmFyZ3ZbMV0pKVsiZXZlcnlfY29uZmlndXJhdGlvbl9wYXNzZXMi\nXSBpcyBUcnVlKScgIiRvdXQvY2hlY2tlZC0kMi5qc29uIikKZWNobyAidHJp\nYWxfcDUxOiBvcmRlciAkMiwgdmVyc2lvbiAkdmVyc2lvbiwgYWZ0ZXIgJGFm\ndGVyOyBldmVyeSBjb25maWd1cmF0aW9uIHBhc3NlczogJGhlbGQiCg==\n",
+          "encoding": "base64",
+          "_links": {
+            "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p51/run.sh?ref=9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8",
+            "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/fbcf46a89fedf9f1e6796268d899b173dfbbfc09",
+            "html": "https://github.com/combsmith/software-factory-canary/blob/9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8/p51/run.sh"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/contents/p51/stub.py?ref=9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8 (gh api): the stub as it ran",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "11517",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Thu, 22 Oct 2026 12:31:27 GMT",
+          "etag": "\"0ffb82b630eda616a11a9c914e2728ad89417f14\"",
+          "last-modified": "Thu, 22 Oct 2026 12:29:49 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP, Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E1B1:2B3695:523893C:10873E2C:6ADA021E",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "3781",
+          "x-ratelimit-reset": "1792674903",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "1219"
+        },
+        "body": {
+          "name": "stub.py",
+          "path": "p51/stub.py",
+          "sha": "0ffb82b630eda616a11a9c914e2728ad89417f14",
+          "size": 7585,
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p51/stub.py?ref=9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8",
+          "html_url": "https://github.com/combsmith/software-factory-canary/blob/9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8/p51/stub.py",
+          "git_url": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/0ffb82b630eda616a11a9c914e2728ad89417f14",
+          "download_url": "https://raw.githubusercontent.com/combsmith/software-factory-canary/9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8/p51/stub.py",
+          "type": "file",
+          "content": "IiIiVHJpYWwgUC01MCdzIHN0YW5kLWluIGZvciB0aGUgbW9kZWwgKGlzc3Vl\nIDI4Nyk6IHRoZSBNZXNzYWdlcyBBUEksIG9uIDEyNy4wLjAuMSwgYW5zd2Vy\naW5nIG9uZSBzY3JpcHRlZCBjYWxsLgoKVGhlIHBpbm5lZCBDTEkgaXMgcG9p\nbnRlZCBhdCBpdCBieSBBTlRIUk9QSUNfQkFTRV9VUkwgd2l0aCBhIGR1bW15\nIGtleSwgc28gdGhhdCBpdHMgc2FuZGJveCBydW5zIGEgdG9vbCBvbiBhIEdp\ndEh1YgpydW5uZXIgd2l0aCBubyBzZWNyZXQgYW5kIG5vIG1vZGVsLiBUbyBh\nIHJlcXVlc3QgdGhhdCBvZmZlcnMgdGhlIEJhc2ggdG9vbCBhbmQgY2Fycmll\ncyBubyB0b29sIHJlc3VsdCBpdCBhbnN3ZXJzIG9uZQp0b29sIGNhbGwsIGBz\naCAuL3Byb2JlLnNoYDsgdG8gZXZlcnkgb3RoZXIgcmVxdWVzdCBmb3IgYSBt\nZXNzYWdlIGl0IGFuc3dlcnMgdGhlIG9uZSB3b3JkIGRvbmUuIEl0IGNvdW50\ncyB0b2tlbnMgYXMgMQphbmQgYW5zd2VycyA0MDQgdG8gYW55IG90aGVyIHBh\ndGguIEl0IHJlYWRzIG5vIHByb21wdCwga2VlcHMgbm8gaGVhZGVyIGFuZCBs\nb2dzLCBhIGxpbmUgdG8gYSByZXF1ZXN0LCBvbmx5IHRoZSBwYXRoCmFuZCB3\naGF0IGtpbmQgb2YgYW5zd2VyIGl0IGdhdmUsIHNvIHRoZSB0cmlhbCdzIG1h\ncmtlcnMgbmV2ZXIgcmVhY2ggaXRzIGxvZy4KCiAgICAoY2QgRElSICYmIHB5\ndGhvbjMgLUkgdG9vbHMvdHJpYWxfcDUwX3N0dWIucHkpCgpJdCB0YWtlcyBu\nbyBhcmd1bWVudCBhbmQgb3BlbnMgbm8gcGF0aCBpdCBpcyBnaXZlbjogaXQg\nbG9ncyB0byBzdHViLmxvZyBpbiB0aGUgZGlyZWN0b3J5IGl0IGlzIHN0YXJ0\nZWQgaW4sIGxpc3RlbnMgb24gYQpmcmVlIHBvcnQsIG9uZSByZXF1ZXN0IGF0\nIGEgdGltZSwgcHJpbnRzIHRoZSBwb3J0IG9uIGl0cyBzdGFuZGFyZCBvdXRw\ndXQgb25jZSBpdCBsaXN0ZW5zLCBhbmQgc2VydmVzIHVudGlsIGl0IGlzIGtp\nbGxlZC4KIiIiCmltcG9ydCBodHRwLnNlcnZlcgppbXBvcnQganNvbgppbXBv\ncnQgb3MKaW1wb3J0IHN5cwoKQ09NTUFORCA9ICJzaCAuL3Byb2JlLnNoIgpj\nYWxscyA9IFswXQoKCmRlZiBibG9ja3Moa2luZDogc3RyLCBuOiBpbnQpIC0+\nIGxpc3Q6CiAgICAiIiJUaGUgY29udGVudCBvZiB0aGUgYW5zd2VyOiB0aGUg\nb25lIHRvb2wgY2FsbCwgb3IgdGhlIHdvcmQgZG9uZS4iIiIKICAgIGlmIGtp\nbmQgPT0gInRvb2xfdXNlIjoKICAgICAgICByZXR1cm4gW3sidHlwZSI6ICJ0\nb29sX3VzZSIsICJpZCI6ICJ0b29sdV9wNTBfJWQiICUgbiwgIm5hbWUiOiAi\nQmFzaCIsCiAgICAgICAgICAgICAgICAgImlucHV0IjogeyJjb21tYW5kIjog\nQ09NTUFORCwgImRlc2NyaXB0aW9uIjogIlJ1biB0aGUgdHJpYWwncyBwcm9i\nZSJ9fV0KICAgIHJldHVybiBbeyJ0eXBlIjogInRleHQiLCAidGV4dCI6ICJk\nb25lIn1dCgoKZGVmIG1lc3NhZ2Uoa2luZDogc3RyLCBuOiBpbnQsIG1vZGVs\nOiBzdHIpIC0+IGRpY3Q6CiAgICByZXR1cm4geyJpZCI6ICJtc2dfcDUwXyVk\nIiAlIG4sICJ0eXBlIjogIm1lc3NhZ2UiLCAicm9sZSI6ICJhc3Npc3RhbnQi\nLCAibW9kZWwiOiBtb2RlbCwKICAgICAgICAgICAgImNvbnRlbnQiOiBibG9j\na3Moa2luZCwgbiksICJzdG9wX3JlYXNvbiI6ICJ0b29sX3VzZSIgaWYga2lu\nZCA9PSAidG9vbF91c2UiIGVsc2UgImVuZF90dXJuIiwKICAgICAgICAgICAg\nInN0b3Bfc2VxdWVuY2UiOiBOb25lLCAidXNhZ2UiOiB7ImlucHV0X3Rva2Vu\ncyI6IDEsICJvdXRwdXRfdG9rZW5zIjogMX19CgoKZGVmIGV2ZW50cyhraW5k\nOiBzdHIsIG46IGludCwgbW9kZWw6IHN0cikgLT4gbGlzdDoKICAgICIiIlRo\nZSBzYW1lIGFuc3dlciBhcyB0aGUgc3RyZWFtIG9mIHNlcnZlci1zZW50IGV2\nZW50cyB0aGUgQVBJIHNlbmRzIGZvciBgInN0cmVhbSI6IHRydWVgLiIiIgog\nICAgd2hvbGUgPSBtZXNzYWdlKGtpbmQsIG4sIG1vZGVsKQogICAgb3V0ID0g\nWygibWVzc2FnZV9zdGFydCIsIHsidHlwZSI6ICJtZXNzYWdlX3N0YXJ0Iiwg\nIm1lc3NhZ2UiOiBkaWN0KHdob2xlLCBjb250ZW50PVtdLCBzdG9wX3JlYXNv\nbj1Ob25lKX0pXQogICAgZm9yIGksIGJsb2NrIGluIGVudW1lcmF0ZSh3aG9s\nZVsiY29udGVudCJdKToKICAgICAgICBpZiBibG9ja1sidHlwZSJdID09ICJ0\nb29sX3VzZSI6CiAgICAgICAgICAgIG91dC5hcHBlbmQoKCJjb250ZW50X2Js\nb2NrX3N0YXJ0IiwgeyJ0eXBlIjogImNvbnRlbnRfYmxvY2tfc3RhcnQiLCAi\naW5kZXgiOiBpLAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg\nICAgICAgICAgICAgICAiY29udGVudF9ibG9jayI6IGRpY3QoYmxvY2ssIGlu\ncHV0PXt9KX0pKQogICAgICAgICAgICBvdXQuYXBwZW5kKCgiY29udGVudF9i\nbG9ja19kZWx0YSIsIHsidHlwZSI6ICJjb250ZW50X2Jsb2NrX2RlbHRhIiwg\nImluZGV4IjogaSwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg\nICAgICAgICAgICAgICAgImRlbHRhIjogeyJ0eXBlIjogImlucHV0X2pzb25f\nZGVsdGEiLCAicGFydGlhbF9qc29uIjoganNvbi5kdW1wcyhibG9ja1siaW5w\ndXQiXSl9fSkpCiAgICAgICAgZWxzZToKICAgICAgICAgICAgb3V0LmFwcGVu\nZCgoImNvbnRlbnRfYmxvY2tfc3RhcnQiLCB7InR5cGUiOiAiY29udGVudF9i\nbG9ja19zdGFydCIsICJpbmRleCI6IGksCiAgICAgICAgICAgICAgICAgICAg\nICAgICAgICAgICAgICAgICAgICAgICAgICAgICJjb250ZW50X2Jsb2NrIjog\neyJ0eXBlIjogInRleHQiLCAidGV4dCI6ICIifX0pKQogICAgICAgICAgICBv\ndXQuYXBwZW5kKCgiY29udGVudF9ibG9ja19kZWx0YSIsIHsidHlwZSI6ICJj\nb250ZW50X2Jsb2NrX2RlbHRhIiwgImluZGV4IjogaSwKICAgICAgICAgICAg\nICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgImRlbHRhIjog\neyJ0eXBlIjogInRleHRfZGVsdGEiLCAidGV4dCI6IGJsb2NrWyJ0ZXh0Il19\nfSkpCiAgICAgICAgb3V0LmFwcGVuZCgoImNvbnRlbnRfYmxvY2tfc3RvcCIs\nIHsidHlwZSI6ICJjb250ZW50X2Jsb2NrX3N0b3AiLCAiaW5kZXgiOiBpfSkp\nCiAgICBvdXQuYXBwZW5kKCgibWVzc2FnZV9kZWx0YSIsIHsidHlwZSI6ICJt\nZXNzYWdlX2RlbHRhIiwgImRlbHRhIjogeyJzdG9wX3JlYXNvbiI6IHdob2xl\nWyJzdG9wX3JlYXNvbiJdLCAic3RvcF9zZXF1ZW5jZSI6IE5vbmV9LAogICAg\nICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgInVzYWdlIjogeyJvdXRw\ndXRfdG9rZW5zIjogMX19KSkKICAgIG91dC5hcHBlbmQoKCJtZXNzYWdlX3N0\nb3AiLCB7InR5cGUiOiAibWVzc2FnZV9zdG9wIn0pKQogICAgcmV0dXJuIG91\ndAoKCmRlZiB0eXBlcyhtZXNzYWdlKSAtPiBsaXN0OgogICAgIiIiVGhlIGtp\nbmRzIG9mIGJsb2NrIGEgbWVzc2FnZSBob2xkcywgbmV2ZXIgdGhlaXIgdGV4\ndDogInRleHQiIGZvciBhIG1lc3NhZ2UgdGhhdCBpcyBhIHN0cmluZy4iIiIK\nICAgIGNvbnRlbnQgPSBtZXNzYWdlLmdldCgiY29udGVudCIpIGlmIGlzaW5z\ndGFuY2UobWVzc2FnZSwgZGljdCkgZWxzZSBOb25lCiAgICBpZiBpc2luc3Rh\nbmNlKGNvbnRlbnQsIHN0cik6CiAgICAgICAgcmV0dXJuIFsidGV4dCJdCiAg\nICByZXR1cm4gW3N0cihjLmdldCgidHlwZSIpKVs6MzJdIGZvciBjIGluIGNv\nbnRlbnQgaWYgaXNpbnN0YW5jZShjLCBkaWN0KV0gaWYgaXNpbnN0YW5jZShj\nb250ZW50LCBsaXN0KSBlbHNlIFtdCgoKZGVmIGtpbmRfb2YoYm9keTogZGlj\ndCkgLT4gc3RyOgogICAgIiIidG9vbF91c2Ugd2hlbiB0aGUgcmVxdWVzdCBv\nZmZlcnMgQmFzaCBhbmQgaXRzIGNvbnZlcnNhdGlvbiBob2xkcyBubyB0b29s\nIGNhbGwgb3IgcmVzdWx0IHlldDsgdGV4dCBvdGhlcndpc2UuIiIiCiAgICBv\nZmZlcnMgPSBhbnkoaXNpbnN0YW5jZSh0LCBkaWN0KSBhbmQgdC5nZXQoIm5h\nbWUiKSA9PSAiQmFzaCIgZm9yIHQgaW4gYm9keS5nZXQoInRvb2xzIikgb3Ig\nW10pCiAgICBtZXNzYWdlcyA9IGJvZHkuZ2V0KCJtZXNzYWdlcyIpIGlmIGlz\naW5zdGFuY2UoYm9keS5nZXQoIm1lc3NhZ2VzIiksIGxpc3QpIGVsc2UgW10K\nICAgIGFuc3dlcmVkID0gYW55KGtpbmQgaW4gKCJ0b29sX3VzZSIsICJ0b29s\nX3Jlc3VsdCIpIGZvciBtIGluIG1lc3NhZ2VzIGZvciBraW5kIGluIHR5cGVz\nKG0pKQogICAgcmV0dXJuICJ0b29sX3VzZSIgaWYgb2ZmZXJzIGFuZCBub3Qg\nYW5zd2VyZWQgZWxzZSAidGV4dCIKCgpkZWYgc2hhcGUoYm9keTogZGljdCkg\nLT4gZGljdDoKICAgICIiIldoYXQgdGhlIGxvZyBrZWVwcyBvZiBhIHJlcXVl\nc3Q6IGhvdyBtYW55IG1lc3NhZ2VzLCBlYWNoIG9uZSdzIHJvbGUsIHRoZSBr\naW5kcyBvZiBibG9jayBpbiB0aGUgbGFzdCB0d28sIHdoZXRoZXIKICAgIHRo\nZSBjb252ZXJzYXRpb24gY2FycmllcyBhIHRvb2wgcmVzdWx0LCBhbmQgd2hl\ndGhlciBlYWNoIHN1Y2ggcmVzdWx0IHNheXMgaXQgaXMgYW4gZXJyb3IsIG5l\ndmVyIGl0cyB0ZXh0LiIiIgogICAgbWVzc2FnZXMgPSBib2R5LmdldCgibWVz\nc2FnZXMiKSBpZiBpc2luc3RhbmNlKGJvZHkuZ2V0KCJtZXNzYWdlcyIpLCBs\naXN0KSBlbHNlIFtdCiAgICByZXN1bHRzID0gW2MgZm9yIG0gaW4gbWVzc2Fn\nZXMgaWYgaXNpbnN0YW5jZShtLCBkaWN0KSBhbmQgaXNpbnN0YW5jZShtLmdl\ndCgiY29udGVudCIpLCBsaXN0KQogICAgICAgICAgICAgICBmb3IgYyBpbiBt\nWyJjb250ZW50Il0gaWYgaXNpbnN0YW5jZShjLCBkaWN0KSBhbmQgYy5nZXQo\nInR5cGUiKSA9PSAidG9vbF9yZXN1bHQiXQogICAgcmV0dXJuIHsibWVzc2Fn\nZXMiOiBsZW4obWVzc2FnZXMpLAogICAgICAgICAgICAicm9sZXMiOiAiIi5q\nb2luKChtLmdldCgicm9sZSIpIG9yICI/IilbOjFdIGlmIGlzaW5zdGFuY2Uo\nbSwgZGljdCkgZWxzZSAiPyIgZm9yIG0gaW4gbWVzc2FnZXMpWy0xMjpdLAog\nICAgICAgICAgICAibGFzdCI6IFt0eXBlcyhtKSBmb3IgbSBpbiBtZXNzYWdl\nc1stMjpdXSwKICAgICAgICAgICAgInJlc3VsdCI6IGJvb2wocmVzdWx0cyks\nICJyZXN1bHRfZXJyb3IiOiBbYy5nZXQoImlzX2Vycm9yIikgaXMgVHJ1ZSBm\nb3IgYyBpbiByZXN1bHRzXX0KCgpjbGFzcyBTdHViKGh0dHAuc2VydmVyLkJh\nc2VIVFRQUmVxdWVzdEhhbmRsZXIpOgogICAgbG9nX3BhdGggPSBOb25lCgog\nICAgZGVmIGxvZ19tZXNzYWdlKHNlbGYsICphcmdzKTogICAgIyB0aGUgc2Vy\ndmVyJ3Mgb3duIGFjY2VzcyBsb2cgd291bGQgcHJpbnQgdGhlIHJlcXVlc3Qg\nbGluZTsgaXQgaXMgbm90IGtlcHQKICAgICAgICBwYXNzCgogICAgZGVmIG5v\ndGUoc2VsZiwgKipsaW5lKToKICAgICAgICB3aXRoIG9wZW4oc2VsZi5sb2df\ncGF0aCwgImEiKSBhcyBsb2c6CiAgICAgICAgICAgIGxvZy53cml0ZShqc29u\nLmR1bXBzKGRpY3QobGluZSwgcGF0aD1zZWxmLnBhdGguc3BsaXQoIj8iLCAx\nKVswXSkpICsgIlxuIikKCiAgICBkZWYgc2VuZChzZWxmLCBzdGF0dXM6IGlu\ndCwgYm9keTogZGljdCk6CiAgICAgICAgZGF0YSA9IGpzb24uZHVtcHMoYm9k\neSkuZW5jb2RlKCkKICAgICAgICBzZWxmLnNlbmRfcmVzcG9uc2Uoc3RhdHVz\nKQogICAgICAgIHNlbGYuc2VuZF9oZWFkZXIoIkNvbnRlbnQtVHlwZSIsICJh\ncHBsaWNhdGlvbi9qc29uIikKICAgICAgICBzZWxmLnNlbmRfaGVhZGVyKCJD\nb250ZW50LUxlbmd0aCIsIHN0cihsZW4oZGF0YSkpKQogICAgICAgIHNlbGYu\nZW5kX2hlYWRlcnMoKQogICAgICAgIHNlbGYud2ZpbGUud3JpdGUoZGF0YSkK\nCiAgICBkZWYgZG9fR0VUKHNlbGYpOgogICAgICAgIHNlbGYubm90ZShhbnN3\nZXI9NDA0KQogICAgICAgIHNlbGYuc2VuZCg0MDQsIHsidHlwZSI6ICJlcnJv\nciIsICJlcnJvciI6IHsidHlwZSI6ICJub3RfZm91bmRfZXJyb3IiLCAibWVz\nc2FnZSI6ICJ0aGUgUC01MCBzdHViIHNlcnZlcyBtZXNzYWdlcyBhbG9uZSJ9\nfSkKCiAgICBkb19IRUFEID0gZG9fR0VUCgogICAgZGVmIGRvX1BPU1Qoc2Vs\nZik6CiAgICAgICAgbGVuZ3RoID0gaW50KHNlbGYuaGVhZGVycy5nZXQoIkNv\nbnRlbnQtTGVuZ3RoIikgb3IgMCkKICAgICAgICB0cnk6CiAgICAgICAgICAg\nIGJvZHkgPSBqc29uLmxvYWRzKHNlbGYucmZpbGUucmVhZChsZW5ndGgpIG9y\nIGIie30iKQogICAgICAgIGV4Y2VwdCBWYWx1ZUVycm9yOgogICAgICAgICAg\nICBib2R5ID0gTm9uZQogICAgICAgIHBhdGggPSBzZWxmLnBhdGguc3BsaXQo\nIj8iLCAxKVswXQogICAgICAgIGlmIG5vdCBpc2luc3RhbmNlKGJvZHksIGRp\nY3QpOgogICAgICAgICAgICBzZWxmLm5vdGUoYW5zd2VyPTQwMCkKICAgICAg\nICAgICAgcmV0dXJuIHNlbGYuc2VuZCg0MDAsIHsidHlwZSI6ICJlcnJvciIs\nICJlcnJvciI6IHsidHlwZSI6ICJpbnZhbGlkX3JlcXVlc3RfZXJyb3IiLCAi\nbWVzc2FnZSI6ICJub3QgSlNPTiJ9fSkKICAgICAgICBpZiBwYXRoID09ICIv\ndjEvbWVzc2FnZXMvY291bnRfdG9rZW5zIjoKICAgICAgICAgICAgc2VsZi5u\nb3RlKGFuc3dlcj0iY291bnQiKQogICAgICAgICAgICByZXR1cm4gc2VsZi5z\nZW5kKDIwMCwgeyJpbnB1dF90b2tlbnMiOiAxfSkKICAgICAgICBpZiBwYXRo\nICE9ICIvdjEvbWVzc2FnZXMiOgogICAgICAgICAgICByZXR1cm4gc2VsZi5k\nb19HRVQoKQogICAgICAgIGNhbGxzWzBdICs9IDEKICAgICAgICBuID0gY2Fs\nbHNbMF0KICAgICAgICBraW5kID0ga2luZF9vZihib2R5KQogICAgICAgIG1v\nZGVsID0gYm9keS5nZXQoIm1vZGVsIikgaWYgaXNpbnN0YW5jZShib2R5Lmdl\ndCgibW9kZWwiKSwgc3RyKSBhbmQgbGVuKGJvZHlbIm1vZGVsIl0pIDwgODAg\nZWxzZSAicDUwLXN0dWIiCiAgICAgICAgc3RyZWFtID0gYm9keS5nZXQoInN0\ncmVhbSIpIGlzIFRydWUKICAgICAgICBzZWxmLm5vdGUoYW5zd2VyPWtpbmQs\nIHN0cmVhbT1zdHJlYW0sIG49biwgKipzaGFwZShib2R5KSkKICAgICAgICBp\nZiBub3Qgc3RyZWFtOgogICAgICAgICAgICByZXR1cm4gc2VsZi5zZW5kKDIw\nMCwgbWVzc2FnZShraW5kLCBuLCBtb2RlbCkpCiAgICAgICAgc2VsZi5zZW5k\nX3Jlc3BvbnNlKDIwMCkKICAgICAgICBzZWxmLnNlbmRfaGVhZGVyKCJDb250\nZW50LVR5cGUiLCAidGV4dC9ldmVudC1zdHJlYW0iKQogICAgICAgIHNlbGYu\nc2VuZF9oZWFkZXIoIkNhY2hlLUNvbnRyb2wiLCAibm8tY2FjaGUiKQogICAg\nICAgIHNlbGYuZW5kX2hlYWRlcnMoKQogICAgICAgIGZvciBuYW1lLCBkYXRh\nIGluIGV2ZW50cyhraW5kLCBuLCBtb2RlbCk6CiAgICAgICAgICAgIHNlbGYu\nd2ZpbGUud3JpdGUoKCJldmVudDogJXNcbmRhdGE6ICVzXG5cbiIgJSAobmFt\nZSwganNvbi5kdW1wcyhkYXRhKSkpLmVuY29kZSgpKQogICAgICAgIHNlbGYu\nd2ZpbGUuZmx1c2goKQogICAgICAgIHNlbGYuY2xvc2VfY29ubmVjdGlvbiA9\nIFRydWUKCgpMT0cgPSAic3R1Yi5sb2ciCgoKZGVmIG1haW4oKSAtPiBpbnQ6\nCiAgICBTdHViLmxvZ19wYXRoID0gTE9HCiAgICBvcGVuKExPRywgInciKS5j\nbG9zZSgpCiAgICBzZXJ2ZXIgPSBodHRwLnNlcnZlci5IVFRQU2VydmVyKCgi\nMTI3LjAuMC4xIiwgMCksIFN0dWIpCiAgICBwcmludChzZXJ2ZXIuc2VydmVy\nX2FkZHJlc3NbMV0sIGZsdXNoPVRydWUpCiAgICBzZXJ2ZXIuc2VydmVfZm9y\nZXZlcigpCiAgICByZXR1cm4gMAoKCmlmIF9fbmFtZV9fID09ICJfX21haW5f\nXyI6CiAgICBzeXMuZXhpdChtYWluKCkpCg==\n",
+          "encoding": "base64",
+          "_links": {
+            "self": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p51/stub.py?ref=9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8",
+            "git": "https://api.github.com/repos/combsmith/software-factory-canary/git/blobs/0ffb82b630eda616a11a9c914e2728ad89417f14",
+            "html": "https://github.com/combsmith/software-factory-canary/blob/9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8/p51/stub.py"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "gh run view 39778822341 --repo combsmith/software-factory-canary --log: the job's log, as GitHub keeps it",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": "writes\tSet up job\t\ufeff2026-10-22T12:30:02.2446468Z Current runner version: '2.338.0'\nwrites\tSet up job\t2026-10-22T12:30:02.2469067Z ##[group]Runner Image Provisioner\nwrites\tSet up job\t2026-10-22T12:30:02.2469770Z Hosted Compute Agent\nwrites\tSet up job\t2026-10-22T12:30:02.2470321Z Version: 20261012.601\nwrites\tSet up job\t2026-10-22T12:30:02.2470898Z Commit: f3dc54e1fb89da6852db922499a0233137369e1d\nwrites\tSet up job\t2026-10-22T12:30:02.2471494Z Build Date: 2026-10-12T17:48:21Z\nwrites\tSet up job\t2026-10-22T12:30:02.2472099Z Worker ID: {dac79620-1505-42c2-9374-26845380b89d}\nwrites\tSet up job\t2026-10-22T12:30:02.2472674Z Region: eastus\nwrites\tSet up job\t2026-10-22T12:30:02.2473118Z Cloud: Azure\nwrites\tSet up job\t2026-10-22T12:30:02.2473690Z ##[endgroup]\nwrites\tSet up job\t2026-10-22T12:30:02.2475361Z ##[group]Operating System\nwrites\tSet up job\t2026-10-22T12:30:02.2475996Z Ubuntu\nwrites\tSet up job\t2026-10-22T12:30:02.2476436Z 24.04.5\nwrites\tSet up job\t2026-10-22T12:30:02.2476861Z LTS\nwrites\tSet up job\t2026-10-22T12:30:02.2477673Z ##[endgroup]\nwrites\tSet up job\t2026-10-22T12:30:02.2478307Z ##[group]Runner Image\nwrites\tSet up job\t2026-10-22T12:30:02.2478905Z Image: ubuntu-24.04\nwrites\tSet up job\t2026-10-22T12:30:02.2479399Z Version: 20261012.334.1\nwrites\tSet up job\t2026-10-22T12:30:02.2480270Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261012.334/images/ubuntu/Ubuntu2404-Readme.md\nwrites\tSet up job\t2026-10-22T12:30:02.2481834Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261012.334\nwrites\tSet up job\t2026-10-22T12:30:02.2482946Z ##[endgroup]\nwrites\tSet up job\t2026-10-22T12:30:02.2483908Z ##[group]GITHUB_TOKEN Permissions\nwrites\tSet up job\t2026-10-22T12:30:02.2485758Z Contents: read\nwrites\tSet up job\t2026-10-22T12:30:02.2486288Z Metadata: read\nwrites\tSet up job\t2026-10-22T12:30:02.2486789Z ##[endgroup]\nwrites\tSet up job\t2026-10-22T12:30:02.2488770Z Secret source: Actions\nwrites\tSet up job\t2026-10-22T12:30:02.2489560Z Cache mode: write\nwrites\tSet up job\t2026-10-22T12:30:02.2490416Z Prepare workflow directory\nwrites\tSet up job\t2026-10-22T12:30:02.3626104Z Prepare all required actions\nwrites\tSet up job\t2026-10-22T12:30:02.3665806Z Getting action download info\nwrites\tSet up job\t2026-10-22T12:30:02.5126542Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)\nwrites\tSet up job\t2026-10-22T12:30:03.1021228Z Complete job name: writes\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t\ufeff2026-10-22T12:30:03.1762430Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1763481Z with:\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1763994Z   persist-credentials: false\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1764506Z   repository: combsmith/software-factory-canary\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1767937Z   token: ***\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1768329Z   ssh-strict: true\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1768722Z   ssh-user: git\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1769101Z   clean: true\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1769500Z   sparse-checkout-cone-mode: true\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1769952Z   fetch-depth: 1\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1770331Z   fetch-tags: false\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1770737Z   show-progress: true\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1771149Z   lfs: false\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1771525Z   submodules: false\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1771964Z   set-safe-directory: true\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1772409Z   allow-unsafe-pr-checkout: false\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.1773053Z ##[endgroup]\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2669863Z Syncing repository: combsmith/software-factory-canary\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2672571Z ##[group]Getting Git version info\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2674025Z Working directory is '/home/runner/work/software-factory-canary/software-factory-canary'\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2675802Z [command]/usr/bin/git version\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2819362Z git version 2.55.0\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2839056Z ##[endgroup]\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2861847Z Temporarily overriding HOME='/home/runner/work/_temp/2c91ef43-0939-41dd-bbfa-c9f9038352c7' before making global git config changes\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2864152Z Adding repository directory to the temporary git global config as a safe directory\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2866302Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/software-factory-canary/software-factory-canary\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2938651Z Deleting the contents of '/home/runner/work/software-factory-canary/software-factory-canary'\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2948843Z ##[group]Determining repository object format\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2951470Z ##[endgroup]\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2955544Z ##[group]Initializing the repository\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2958757Z [command]/usr/bin/git init /home/runner/work/software-factory-canary/software-factory-canary\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.2998159Z hint: Using 'master' as the name for the initial branch. This default branch name\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3001046Z hint: will change to \"main\" in Git 3.0. To configure the initial branch name\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3002464Z hint: to use in all of your new repositories, which will suppress this warning,\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3003525Z hint: call:\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3004139Z hint:\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3004880Z hint: \tgit config --global init.defaultBranch <name>\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3005744Z hint:\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3006587Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3008044Z hint: 'development'. The just-created branch can be renamed via this command:\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3009099Z hint:\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3009707Z hint: \tgit branch -m <name>\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3010388Z hint:\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3011260Z hint: Disable this message with \"git config set advice.defaultBranchName false\"\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3012951Z Initialized empty Git repository in /home/runner/work/software-factory-canary/software-factory-canary/.git/\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3017436Z [command]/usr/bin/git remote add origin https://github.com/combsmith/software-factory-canary\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3065653Z ##[endgroup]\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3067058Z ##[group]Disabling automatic garbage collection\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3068188Z [command]/usr/bin/git config --local gc.auto 0\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3104044Z ##[endgroup]\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3105550Z ##[group]Setting up auth\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3106313Z Removing SSH command configuration\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3108898Z [command]/usr/bin/git config --local --name-only --get-regexp core\\.sshCommand\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3153540Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'core\\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\"\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3468207Z Removing HTTP extra header\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3475379Z [command]/usr/bin/git config --local --name-only --get-regexp http\\.https\\:\\/\\/github\\.com\\/\\.extraheader\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3511680Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'http\\.https\\:\\/\\/github\\.com\\/\\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\"\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3704745Z Removing includeIf entries pointing to credentials config files\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3710014Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\\.gitdir:\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3743321Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.3979244Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/software-factory-canary/software-factory-canary/.git.path /home/runner/work/_temp/git-credentials-51607896-ff17-49c7-9281-82864dccc27d.config\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.4009286Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/software-factory-canary/software-factory-canary/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-51607896-ff17-49c7-9281-82864dccc27d.config\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.4041778Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-51607896-ff17-49c7-9281-82864dccc27d.config\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.4074195Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-51607896-ff17-49c7-9281-82864dccc27d.config\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.4104099Z ##[endgroup]\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.4105156Z ##[group]Fetching the repository\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.4110646Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8:refs/remotes/origin/trial/p-51\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6137359Z From https://github.com/combsmith/software-factory-canary\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6139603Z  * [new ref]         9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8 -> origin/trial/p-51\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6146244Z [command]/usr/bin/git branch --list --remote origin/trial/p-51\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6172881Z   origin/trial/p-51\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6179511Z [command]/usr/bin/git rev-parse refs/remotes/origin/trial/p-51\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6203173Z 9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6206969Z ##[endgroup]\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6208175Z ##[group]Determining the checkout info\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6209333Z ##[endgroup]\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6210424Z [command]/usr/bin/git sparse-checkout disable\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6255784Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6285789Z ##[group]Checking out the ref\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6289020Z [command]/usr/bin/git checkout --progress --force -B trial/p-51 refs/remotes/origin/trial/p-51\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6346533Z Switched to a new branch 'trial/p-51'\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6351254Z branch 'trial/p-51' set up to track 'origin/trial/p-51'.\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6356419Z ##[endgroup]\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6392720Z [command]/usr/bin/git log -1 --format=%H\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6417378Z 9c58bcbf91c1793ce4952fb80ddfa3f735d79aa8\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6424692Z ##[group]Removing auth\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6425700Z Removing SSH command configuration\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6427830Z [command]/usr/bin/git config --local --name-only --get-regexp core\\.sshCommand\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6458399Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'core\\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\"\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6658021Z Removing HTTP extra header\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6660385Z [command]/usr/bin/git config --local --name-only --get-regexp http\\.https\\:\\/\\/github\\.com\\/\\.extraheader\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6692942Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'http\\.https\\:\\/\\/github\\.com\\/\\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\"\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6891750Z Removing includeIf entries pointing to credentials config files\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6894509Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\\.gitdir:\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6922720Z includeif.gitdir:/home/runner/work/software-factory-canary/software-factory-canary/.git.path\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6930657Z includeif.gitdir:/home/runner/work/software-factory-canary/software-factory-canary/.git/worktrees/*.path\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6933240Z includeif.gitdir:/github/workspace/.git.path\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6938470Z includeif.gitdir:/github/workspace/.git/worktrees/*.path\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6943189Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/software-factory-canary/software-factory-canary/.git.path\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6958224Z /home/runner/work/_temp/git-credentials-51607896-ff17-49c7-9281-82864dccc27d.config\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.6967657Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/software-factory-canary/software-factory-canary/.git.path \\/home\\/runner\\/work\\/_temp\\/git\\-credentials\\-51607896\\-ff17\\-49c7\\-9281\\-82864dccc27d\\.config\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.7003155Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/software-factory-canary/software-factory-canary/.git/worktrees/*.path\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.7026510Z /home/runner/work/_temp/git-credentials-51607896-ff17-49c7-9281-82864dccc27d.config\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.7036953Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/software-factory-canary/software-factory-canary/.git/worktrees/*.path \\/home\\/runner\\/work\\/_temp\\/git\\-credentials\\-51607896\\-ff17\\-49c7\\-9281\\-82864dccc27d\\.config\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.7075092Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.7098604Z /github/runner_temp/git-credentials-51607896-ff17-49c7-9281-82864dccc27d.config\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.7105920Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \\/github\\/runner_temp\\/git\\-credentials\\-51607896\\-ff17\\-49c7\\-9281\\-82864dccc27d\\.config\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.7136237Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.7158324Z /github/runner_temp/git-credentials-51607896-ff17-49c7-9281-82864dccc27d.config\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.7166696Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \\/github\\/runner_temp\\/git\\-credentials\\-51607896\\-ff17\\-49c7\\-9281\\-82864dccc27d\\.config\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.7199863Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.7388276Z Removing credentials config '/home/runner/work/_temp/git-credentials-51607896-ff17-49c7-9281-82864dccc27d.config'\nwrites\tRun actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:03.7395957Z ##[endgroup]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t\ufeff2026-10-22T12:30:03.7590079Z ##[group]Run sudo apt-get update -q && sudo apt-get install -y -q bubblewrap socat\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:03.7591865Z ^[[36;1msudo apt-get update -q && sudo apt-get install -y -q bubblewrap socat^[[0m\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:03.7797138Z shell: /usr/bin/bash -e {0}\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:03.7798235Z ##[endgroup]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:03.8478513Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:03.8714531Z Get:6 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:03.8797753Z Hit:2 http://azure.archive.ubuntu.com/ubuntu noble InRelease\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:03.8815554Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:03.8881143Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:03.8902912Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:03.9453333Z Get:7 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [567 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:03.9680179Z Get:8 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [630 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:03.9725960Z Get:9 https://packages.microsoft.com/ubuntu/24.04/prod noble/main armhf Packages [12.4 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:04.0448247Z Get:10 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1400 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:04.0524550Z Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [310 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:04.0548278Z Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1706 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:04.0639748Z Get:13 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe Translation-en [342 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:04.0660626Z Get:14 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [1805 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:04.0746306Z Get:15 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted Translation-en [411 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:04.1398350Z Get:16 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1146 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:04.1459190Z Get:17 http://azure.archive.ubuntu.com/ubuntu noble-security/main Translation-en [231 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:04.1481195Z Get:18 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1222 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:04.1542133Z Get:19 http://azure.archive.ubuntu.com/ubuntu noble-security/universe Translation-en [246 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:04.1999014Z Get:20 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Packages [1713 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:04.2082056Z Get:21 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted Translation-en [392 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:10.9184040Z Fetched 12.5 MB in 1s (11.8 MB/s)\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:11.6950536Z Reading package lists...\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:11.7218086Z Reading package lists...\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:11.9426844Z Building dependency tree...\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:11.9432489Z Reading state information...\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:12.1359455Z The following NEW packages will be installed:\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:12.1368183Z   bubblewrap socat\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:12.1530036Z 0 upgraded, 2 newly installed, 0 to remove and 97 not upgraded.\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:12.1531136Z Need to get 425 kB of archives.\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:12.1538704Z After this operation, 1786 kB of additional disk space will be used.\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:12.1539470Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:12.3682354Z Get:2 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 bubblewrap amd64 0.9.0-1ubuntu0.3 [50.4 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:12.6749511Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 socat amd64 1.8.0.0-4ubuntu0.1 [374 kB]\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2002095Z Fetched 425 kB in 1s (509 kB/s)\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2188533Z Selecting previously unselected package bubblewrap.\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2408344Z (Reading database ... \nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2408718Z (Reading database ... 5%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2409052Z (Reading database ... 10%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2411049Z (Reading database ... 15%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2411811Z (Reading database ... 20%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2412046Z (Reading database ... 25%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2412242Z (Reading database ... 30%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2412421Z (Reading database ... 35%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2412684Z (Reading database ... 40%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2412977Z (Reading database ... 45%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2413262Z (Reading database ... 50%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.2448679Z (Reading database ... 55%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.3203958Z (Reading database ... 60%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.3739444Z (Reading database ... 65%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.5728223Z (Reading database ... 70%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.7767595Z (Reading database ... 75%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:13.9658934Z (Reading database ... 80%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.1698995Z (Reading database ... 85%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.3131204Z (Reading database ... 90%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.5258128Z (Reading database ... 95%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.5258607Z (Reading database ... 100%\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.5259019Z (Reading database ... 203540 files and directories currently installed.)\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.5301460Z Preparing to unpack .../bubblewrap_0.9.0-1ubuntu0.3_amd64.deb ...\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.5384331Z Unpacking bubblewrap (0.9.0-1ubuntu0.3) ...\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.5609230Z Selecting previously unselected package socat.\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.5722143Z Preparing to unpack .../socat_1.8.0.0-4ubuntu0.1_amd64.deb ...\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.5738340Z Unpacking socat (1.8.0.0-4ubuntu0.1) ...\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.6221575Z Setting up bubblewrap (0.9.0-1ubuntu0.3) ...\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.6258712Z Setting up socat (1.8.0.0-4ubuntu0.1) ...\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.6278628Z Processing triggers for man-db (2.12.0-4build2) ...\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:14.6294819Z Not building database; man-db/auto-update is not 'true'.\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:15.1432058Z \nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:15.1432652Z Running kernel seems to be up-to-date.\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:15.1432950Z \nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:15.1433077Z No services need to be restarted.\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:15.1433329Z \nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:15.1433446Z No containers need to be restarted.\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:15.1433673Z \nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:15.1433815Z No user sessions are running outdated binaries.\nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:15.1434070Z \nwrites\tInstall bubblewrap and socat, which the CLI's sandbox needs on Linux\t2026-10-22T12:30:15.1434291Z No VM guests are running outdated hypervisor (qemu) binaries on this host.\nwrites\tInstall the CLI at the pin\t\ufeff2026-10-22T12:30:16.3902642Z ##[group]Run npm install -g @anthropic-ai/claude-code@2.1.306\nwrites\tInstall the CLI at the pin\t2026-10-22T12:30:16.3903047Z ^[[36;1mnpm install -g @anthropic-ai/claude-code@2.1.306^[[0m\nwrites\tInstall the CLI at the pin\t2026-10-22T12:30:16.3962400Z shell: /usr/bin/bash -e {0}\nwrites\tInstall the CLI at the pin\t2026-10-22T12:30:16.3962646Z ##[endgroup]\nwrites\tInstall the CLI at the pin\t2026-10-22T12:30:20.9679820Z \nwrites\tInstall the CLI at the pin\t2026-10-22T12:30:20.9680194Z added 2 packages in 4s\nwrites\tAllow unprivileged user namespaces, without which P-50 saw no tool run\t\ufeff2026-10-22T12:30:21.0103845Z ##[group]Run sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0\nwrites\tAllow unprivileged user namespaces, without which P-50 saw no tool run\t2026-10-22T12:30:21.0104290Z ^[[36;1msudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0^[[0m\nwrites\tAllow unprivileged user namespaces, without which P-50 saw no tool run\t2026-10-22T12:30:21.0161170Z shell: /usr/bin/bash -e {0}\nwrites\tAllow unprivileged user namespaces, without which P-50 saw no tool run\t2026-10-22T12:30:21.0161413Z ##[endgroup]\nwrites\tAllow unprivileged user namespaces, without which P-50 saw no tool run\t2026-10-22T12:30:21.0288670Z kernel.apparmor_restrict_unprivileged_userns = 0\nwrites\tThe Tasks, the scrub unset, 0 and 1\t\ufeff2026-10-22T12:30:21.0324118Z ##[group]Run bash p51/run.sh \"$RUNNER_TEMP/out-1\" forward \"$(command -v claude)\" p51/stub.py && cat \"$RUNNER_TEMP/out-1/checked-forward.json\"\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:21.0324849Z ^[[36;1mbash p51/run.sh \"$RUNNER_TEMP/out-1\" forward \"$(command -v claude)\" p51/stub.py && cat \"$RUNNER_TEMP/out-1/checked-forward.json\"^[[0m\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:21.0380842Z shell: /usr/bin/bash -e {0}\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:21.0381067Z ##[endgroup]\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1695140Z trial_p51: order forward, version 2.1.306, after 2.1.306; every configuration passes: False\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1836133Z {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1836830Z   \"order\": \"forward\",\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1837123Z   \"version\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1838655Z     \"pinned\": \"2.1.306\",\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1838951Z     \"before\": \"2.1.306\",\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1839211Z     \"after\": \"2.1.306\"\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1839459Z   },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1839685Z   \"configurations\": [\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1839972Z     {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1840209Z       \"configuration\": \"unset\",\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1840583Z       \"exit\": 0,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1840826Z       \"answer\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1841067Z         \"type\": \"result\",\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1841341Z         \"subtype\": \"success\",\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1841622Z         \"is_error\": false,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1841882Z         \"num_turns\": 2\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1842124Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1842346Z       \"stderr\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1842575Z         \"lines\": 0\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1842767Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1842904Z       \"stub\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1843109Z         \"requests\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1843287Z           \"/v1/messages tool_use\": 1,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1843497Z           \"/v1/messages text\": 1\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1843682Z         },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1843835Z         \"tool_call_asked\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1844026Z         \"result_sent\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1844209Z         \"result_is_error\": [\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1844394Z           false\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1844541Z         ]\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1844681Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1844840Z       \"probe_ran\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1845014Z       \"writes\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1845167Z         \"home\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1845320Z           \"exit\": 1,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1845485Z           \"landed\": false\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1845653Z         },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1845799Z         \"dotfile\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1845953Z           \"exit\": 1,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1846111Z           \"landed\": false\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1846278Z         },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1846419Z         \"tmp\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1846573Z           \"exit\": 1,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1846731Z           \"landed\": false\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1846891Z         },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1847035Z         \"parent\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1847954Z           \"exit\": 1,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1848193Z           \"landed\": false\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1848439Z         }\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1848649Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1848868Z       \"inside\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1849107Z         \"exit\": 0,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1849320Z         \"landed\": true\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1849491Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1849644Z       \"pid_namespace\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1849818Z         \"own\": true\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1849976Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1850120Z       \"holds\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1850283Z         \"answered\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1850455Z         \"tool_ran\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1850629Z         \"probe_ran\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1850813Z         \"every_write_held\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1851009Z         \"passes\": true\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1851173Z       }\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1851406Z     },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1851573Z     {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1851733Z       \"configuration\": \"plain\",\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1851925Z       \"exit\": 0,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1852078Z       \"answer\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1852237Z         \"type\": \"result\",\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1852417Z         \"subtype\": \"success\",\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1852800Z         \"is_error\": false,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1852983Z         \"num_turns\": 2\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1853309Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1853453Z       \"stderr\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1853615Z         \"lines\": 0\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1853771Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1853913Z       \"stub\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1854072Z         \"requests\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1854327Z           \"/v1/messages tool_use\": 1,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1854540Z           \"/v1/messages text\": 1\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1854724Z         },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1854876Z         \"tool_call_asked\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1855065Z         \"result_sent\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1855251Z         \"result_is_error\": [\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1855433Z           false\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1855581Z         ]\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1855726Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1855875Z       \"probe_ran\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1856047Z       \"writes\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1856199Z         \"home\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1856359Z           \"exit\": 1,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1856524Z           \"landed\": false\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1856692Z         },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1856843Z         \"dotfile\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1857001Z           \"exit\": 1,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1857271Z           \"landed\": false\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1857446Z         },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1857593Z         \"tmp\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1857755Z           \"exit\": 1,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1857917Z           \"landed\": false\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1858081Z         },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1858228Z         \"parent\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1858387Z           \"exit\": 1,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1858548Z           \"landed\": false\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1858711Z         }\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1858847Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1858990Z       \"inside\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1859143Z         \"exit\": 0,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1859300Z         \"landed\": true\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1859470Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1859639Z       \"pid_namespace\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1859807Z         \"own\": true\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1859967Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1860110Z       \"holds\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1860270Z         \"answered\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1860455Z         \"tool_ran\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1860628Z         \"probe_ran\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1860814Z         \"every_write_held\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1861006Z         \"passes\": true\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1861177Z       }\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1861319Z     },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1861466Z     {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1861624Z       \"configuration\": \"scrubbed\",\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1861821Z       \"exit\": 0,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1861981Z       \"answer\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1862144Z         \"type\": \"result\",\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1862322Z         \"subtype\": \"success\",\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1862508Z         \"is_error\": false,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1862682Z         \"num_turns\": 2\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1862844Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1862994Z       \"stderr\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1863146Z         \"lines\": 0\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1863300Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1863454Z       \"stub\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1863613Z         \"requests\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1863801Z           \"/v1/messages tool_use\": 1,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1864007Z           \"/v1/messages text\": 1\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1864190Z         },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1864347Z         \"tool_call_asked\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1864535Z         \"result_sent\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1864722Z         \"result_is_error\": [\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1864893Z           false\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1865042Z         ]\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1865194Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1865349Z       \"probe_ran\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1865526Z       \"writes\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1865678Z         \"home\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1865832Z           \"exit\": 0,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1865998Z           \"landed\": true\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1866162Z         },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1866307Z         \"dotfile\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1866464Z           \"exit\": 0,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1866620Z           \"landed\": true\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1866929Z         },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1867078Z         \"tmp\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1867336Z           \"exit\": 0,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1867615Z           \"landed\": true\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1867786Z         },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1867931Z         \"parent\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1868089Z           \"exit\": 0,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1868248Z           \"landed\": true\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1868423Z         }\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1868578Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1868734Z       \"inside\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1868888Z         \"exit\": 0,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1869048Z         \"landed\": true\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1869207Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1869358Z       \"pid_namespace\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1869529Z         \"own\": true\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1869688Z       },\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1869828Z       \"holds\": {\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1869985Z         \"answered\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1870159Z         \"tool_ran\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1870335Z         \"probe_ran\": true,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1870518Z         \"every_write_held\": false,\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1870720Z         \"passes\": false\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1870884Z       }\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1871031Z     }\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1871169Z   ],\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1871335Z   \"every_configuration_passes\": false\nwrites\tThe Tasks, the scrub unset, 0 and 1\t2026-10-22T12:30:23.1871536Z }\nwrites\tThe Tasks, the other way round\t\ufeff2026-10-22T12:30:23.1898726Z ##[group]Run bash p51/run.sh \"$RUNNER_TEMP/out-2\" reversed \"$(command -v claude)\" p51/stub.py && cat \"$RUNNER_TEMP/out-2/checked-reversed.json\"\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:23.1899466Z ^[[36;1mbash p51/run.sh \"$RUNNER_TEMP/out-2\" reversed \"$(command -v claude)\" p51/stub.py && cat \"$RUNNER_TEMP/out-2/checked-reversed.json\"^[[0m\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:23.1955601Z shell: /usr/bin/bash -e {0}\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:23.1955825Z ##[endgroup]\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6085865Z trial_p51: order reversed, version 2.1.306, after 2.1.306; every configuration passes: False\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6694942Z {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6695309Z   \"order\": \"reversed\",\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6695615Z   \"version\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6695866Z     \"pinned\": \"2.1.306\",\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6696186Z     \"before\": \"2.1.306\",\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6696452Z     \"after\": \"2.1.306\"\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6696697Z   },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6696999Z   \"configurations\": [\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6697358Z     {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6697592Z       \"configuration\": \"scrubbed\",\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6698647Z       \"exit\": 0,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6698882Z       \"answer\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6699109Z         \"type\": \"result\",\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6699300Z         \"subtype\": \"success\",\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6699494Z         \"is_error\": false,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6699690Z         \"num_turns\": 2\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6699859Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6700008Z       \"stderr\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6700166Z         \"lines\": 0\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6700323Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6700476Z       \"stub\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6700638Z         \"requests\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6700815Z           \"/v1/messages tool_use\": 1,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6701026Z           \"/v1/messages text\": 1\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6701223Z         },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6701380Z         \"tool_call_asked\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6701570Z         \"result_sent\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6701758Z         \"result_is_error\": [\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6701926Z           false\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6702076Z         ]\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6702224Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6702376Z       \"probe_ran\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6702558Z       \"writes\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6702710Z         \"home\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6702871Z           \"exit\": 0,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6703041Z           \"landed\": true\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6703211Z         },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6703362Z         \"dotfile\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6703521Z           \"exit\": 0,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6703680Z           \"landed\": true\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6703844Z         },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6703989Z         \"tmp\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6704148Z           \"exit\": 0,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6704309Z           \"landed\": true\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6704479Z         },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6704830Z         \"parent\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6704993Z           \"exit\": 0,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6705163Z           \"landed\": true\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6705334Z         }\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6705478Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6705624Z       \"inside\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6705781Z         \"exit\": 0,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6705946Z         \"landed\": true\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6706111Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6706269Z       \"pid_namespace\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6706444Z         \"own\": true\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6706599Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6706792Z       \"holds\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6707029Z         \"answered\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6707355Z         \"tool_ran\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6707538Z         \"probe_ran\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6707727Z         \"every_write_held\": false,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6707931Z         \"passes\": false\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6708099Z       }\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6708244Z     },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6708387Z     {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6708547Z       \"configuration\": \"plain\",\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6708749Z       \"exit\": 0,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6708909Z       \"answer\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6709077Z         \"type\": \"result\",\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6709258Z         \"subtype\": \"success\",\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6709442Z         \"is_error\": false,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6709621Z         \"num_turns\": 2\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6709970Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6710142Z       \"stderr\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6710294Z         \"lines\": 0\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6710447Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6710591Z       \"stub\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6710746Z         \"requests\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6710934Z           \"/v1/messages tool_use\": 1,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6711154Z           \"/v1/messages text\": 1\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6711350Z         },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6711504Z         \"tool_call_asked\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6711693Z         \"result_sent\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6711883Z         \"result_is_error\": [\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6712056Z           false\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6712211Z         ]\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6712358Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6712508Z       \"probe_ran\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6712683Z       \"writes\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6712844Z         \"home\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6712999Z           \"exit\": 1,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6713171Z           \"landed\": false\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6713358Z         },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6713512Z         \"dotfile\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6713670Z           \"exit\": 1,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6713832Z           \"landed\": false\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6713996Z         },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6714143Z         \"tmp\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6714301Z           \"exit\": 1,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6714457Z           \"landed\": false\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6714620Z         },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6714787Z         \"parent\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6714949Z           \"exit\": 1,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6715108Z           \"landed\": false\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6715279Z         }\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6715422Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6715563Z       \"inside\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6715716Z         \"exit\": 0,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6715883Z         \"landed\": true\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6716046Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6716193Z       \"pid_namespace\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6716365Z         \"own\": true\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6716516Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6716658Z       \"holds\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6716822Z         \"answered\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6716990Z         \"tool_ran\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6717307Z         \"probe_ran\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6717583Z         \"every_write_held\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6717824Z         \"passes\": true\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6717988Z       }\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6718131Z     },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6718275Z     {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6718430Z       \"configuration\": \"unset\",\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6718616Z       \"exit\": 0,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6718770Z       \"answer\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6718927Z         \"type\": \"result\",\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6719106Z         \"subtype\": \"success\",\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6719325Z         \"is_error\": false,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6719613Z         \"num_turns\": 2\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6719778Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6719921Z       \"stderr\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6720077Z         \"lines\": 0\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6720226Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6720365Z       \"stub\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6720529Z         \"requests\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6720714Z           \"/v1/messages tool_use\": 1,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6720922Z           \"/v1/messages text\": 1\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6721104Z         },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6721258Z         \"tool_call_asked\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6721448Z         \"result_sent\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6721629Z         \"result_is_error\": [\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6721800Z           false\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6721949Z         ]\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6722092Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6722240Z       \"probe_ran\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6722412Z       \"writes\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6722568Z         \"home\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6722721Z           \"exit\": 1,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6722881Z           \"landed\": false\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6723059Z         },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6723205Z         \"dotfile\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6723360Z           \"exit\": 1,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6723516Z           \"landed\": false\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6723677Z         },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6723820Z         \"tmp\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6723970Z           \"exit\": 1,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6724249Z           \"landed\": false\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6724414Z         },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6724564Z         \"parent\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6724719Z           \"exit\": 1,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6724878Z           \"landed\": false\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6725043Z         }\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6725183Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6725326Z       \"inside\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6725478Z         \"exit\": 0,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6725633Z         \"landed\": true\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6725798Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6725946Z       \"pid_namespace\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6726117Z         \"own\": true\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6726268Z       },\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6726415Z       \"holds\": {\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6726580Z         \"answered\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6726750Z         \"tool_ran\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6726920Z         \"probe_ran\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6727100Z         \"every_write_held\": true,\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6727443Z         \"passes\": true\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6743125Z       }\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6743356Z     }\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6743550Z   ],\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6743773Z   \"every_configuration_passes\": false\nwrites\tThe Tasks, the other way round\t2026-10-22T12:30:25.6744069Z }\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t\ufeff2026-10-22T12:30:25.6942259Z Post job cleanup.\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.7634881Z [command]/usr/bin/git version\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.7683843Z git version 2.55.0\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.7710738Z Copying '/home/runner/.gitconfig' to '/home/runner/work/_temp/984851ce-f6eb-4af2-96c3-28854dfffdd0/.gitconfig'\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.7718708Z Temporarily overriding HOME='/home/runner/work/_temp/984851ce-f6eb-4af2-96c3-28854dfffdd0' before making global git config changes\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.7719840Z Adding repository directory to the temporary git global config as a safe directory\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.7723605Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/software-factory-canary/software-factory-canary\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.7938972Z Removing SSH command configuration\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.7947029Z [command]/usr/bin/git config --local --name-only --get-regexp core\\.sshCommand\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.7993497Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'core\\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\"\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.8203239Z Removing HTTP extra header\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.8208979Z [command]/usr/bin/git config --local --name-only --get-regexp http\\.https\\:\\/\\/github\\.com\\/\\.extraheader\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.8254384Z [command]/usr/bin/git submodule foreach --recursive sh -c \"git config --local --name-only --get-regexp 'http\\.https\\:\\/\\/github\\.com\\/\\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\"\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.8468874Z Removing includeIf entries pointing to credentials config files\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.8474427Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\\.gitdir:\nwrites\tPost Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\t2026-10-22T12:30:25.8506276Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url\nwrites\tComplete job\t\ufeff2026-10-22T12:30:25.8832327Z Cleaning up orphan processes\n"
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "cli",
+        "call": "python3, in a scratch directory outside the repo: the documents checked-forward.json and checked-reversed.json, as the job printed them, read from exchange 6's log; and the blob of each file the canary ran, from exchanges 4 and 5, beside git's blob of the file in tools/ it was copied from",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 0,
+        "headers": {},
+        "body": {
+          "orders": {
+            "forward": {
+              "order": "forward",
+              "version": {
+                "pinned": "2.1.306",
+                "before": "2.1.306",
+                "after": "2.1.306"
+              },
+              "configurations": [
+                {
+                  "configuration": "unset",
+                  "exit": 0,
+                  "answer": {
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": false,
+                    "num_turns": 2
+                  },
+                  "stderr": {
+                    "lines": 0
+                  },
+                  "stub": {
+                    "requests": {
+                      "/v1/messages tool_use": 1,
+                      "/v1/messages text": 1
+                    },
+                    "tool_call_asked": true,
+                    "result_sent": true,
+                    "result_is_error": [
+                      false
+                    ]
+                  },
+                  "probe_ran": true,
+                  "writes": {
+                    "home": {
+                      "exit": 1,
+                      "landed": false
+                    },
+                    "dotfile": {
+                      "exit": 1,
+                      "landed": false
+                    },
+                    "tmp": {
+                      "exit": 1,
+                      "landed": false
+                    },
+                    "parent": {
+                      "exit": 1,
+                      "landed": false
+                    }
+                  },
+                  "inside": {
+                    "exit": 0,
+                    "landed": true
+                  },
+                  "pid_namespace": {
+                    "own": true
+                  },
+                  "holds": {
+                    "answered": true,
+                    "tool_ran": true,
+                    "probe_ran": true,
+                    "every_write_held": true,
+                    "passes": true
+                  }
+                },
+                {
+                  "configuration": "plain",
+                  "exit": 0,
+                  "answer": {
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": false,
+                    "num_turns": 2
+                  },
+                  "stderr": {
+                    "lines": 0
+                  },
+                  "stub": {
+                    "requests": {
+                      "/v1/messages tool_use": 1,
+                      "/v1/messages text": 1
+                    },
+                    "tool_call_asked": true,
+                    "result_sent": true,
+                    "result_is_error": [
+                      false
+                    ]
+                  },
+                  "probe_ran": true,
+                  "writes": {
+                    "home": {
+                      "exit": 1,
+                      "landed": false
+                    },
+                    "dotfile": {
+                      "exit": 1,
+                      "landed": false
+                    },
+                    "tmp": {
+                      "exit": 1,
+                      "landed": false
+                    },
+                    "parent": {
+                      "exit": 1,
+                      "landed": false
+                    }
+                  },
+                  "inside": {
+                    "exit": 0,
+                    "landed": true
+                  },
+                  "pid_namespace": {
+                    "own": true
+                  },
+                  "holds": {
+                    "answered": true,
+                    "tool_ran": true,
+                    "probe_ran": true,
+                    "every_write_held": true,
+                    "passes": true
+                  }
+                },
+                {
+                  "configuration": "scrubbed",
+                  "exit": 0,
+                  "answer": {
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": false,
+                    "num_turns": 2
+                  },
+                  "stderr": {
+                    "lines": 0
+                  },
+                  "stub": {
+                    "requests": {
+                      "/v1/messages tool_use": 1,
+                      "/v1/messages text": 1
+                    },
+                    "tool_call_asked": true,
+                    "result_sent": true,
+                    "result_is_error": [
+                      false
+                    ]
+                  },
+                  "probe_ran": true,
+                  "writes": {
+                    "home": {
+                      "exit": 0,
+                      "landed": true
+                    },
+                    "dotfile": {
+                      "exit": 0,
+                      "landed": true
+                    },
+                    "tmp": {
+                      "exit": 0,
+                      "landed": true
+                    },
+                    "parent": {
+                      "exit": 0,
+                      "landed": true
+                    }
+                  },
+                  "inside": {
+                    "exit": 0,
+                    "landed": true
+                  },
+                  "pid_namespace": {
+                    "own": true
+                  },
+                  "holds": {
+                    "answered": true,
+                    "tool_ran": true,
+                    "probe_ran": true,
+                    "every_write_held": false,
+                    "passes": false
+                  }
+                }
+              ],
+              "every_configuration_passes": false
+            },
+            "reversed": {
+              "order": "reversed",
+              "version": {
+                "pinned": "2.1.306",
+                "before": "2.1.306",
+                "after": "2.1.306"
+              },
+              "configurations": [
+                {
+                  "configuration": "scrubbed",
+                  "exit": 0,
+                  "answer": {
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": false,
+                    "num_turns": 2
+                  },
+                  "stderr": {
+                    "lines": 0
+                  },
+                  "stub": {
+                    "requests": {
+                      "/v1/messages tool_use": 1,
+                      "/v1/messages text": 1
+                    },
+                    "tool_call_asked": true,
+                    "result_sent": true,
+                    "result_is_error": [
+                      false
+                    ]
+                  },
+                  "probe_ran": true,
+                  "writes": {
+                    "home": {
+                      "exit": 0,
+                      "landed": true
+                    },
+                    "dotfile": {
+                      "exit": 0,
+                      "landed": true
+                    },
+                    "tmp": {
+                      "exit": 0,
+                      "landed": true
+                    },
+                    "parent": {
+                      "exit": 0,
+                      "landed": true
+                    }
+                  },
+                  "inside": {
+                    "exit": 0,
+                    "landed": true
+                  },
+                  "pid_namespace": {
+                    "own": true
+                  },
+                  "holds": {
+                    "answered": true,
+                    "tool_ran": true,
+                    "probe_ran": true,
+                    "every_write_held": false,
+                    "passes": false
+                  }
+                },
+                {
+                  "configuration": "plain",
+                  "exit": 0,
+                  "answer": {
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": false,
+                    "num_turns": 2
+                  },
+                  "stderr": {
+                    "lines": 0
+                  },
+                  "stub": {
+                    "requests": {
+                      "/v1/messages tool_use": 1,
+                      "/v1/messages text": 1
+                    },
+                    "tool_call_asked": true,
+                    "result_sent": true,
+                    "result_is_error": [
+                      false
+                    ]
+                  },
+                  "probe_ran": true,
+                  "writes": {
+                    "home": {
+                      "exit": 1,
+                      "landed": false
+                    },
+                    "dotfile": {
+                      "exit": 1,
+                      "landed": false
+                    },
+                    "tmp": {
+                      "exit": 1,
+                      "landed": false
+                    },
+                    "parent": {
+                      "exit": 1,
+                      "landed": false
+                    }
+                  },
+                  "inside": {
+                    "exit": 0,
+                    "landed": true
+                  },
+                  "pid_namespace": {
+                    "own": true
+                  },
+                  "holds": {
+                    "answered": true,
+                    "tool_ran": true,
+                    "probe_ran": true,
+                    "every_write_held": true,
+                    "passes": true
+                  }
+                },
+                {
+                  "configuration": "unset",
+                  "exit": 0,
+                  "answer": {
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": false,
+                    "num_turns": 2
+                  },
+                  "stderr": {
+                    "lines": 0
+                  },
+                  "stub": {
+                    "requests": {
+                      "/v1/messages tool_use": 1,
+                      "/v1/messages text": 1
+                    },
+                    "tool_call_asked": true,
+                    "result_sent": true,
+                    "result_is_error": [
+                      false
+                    ]
+                  },
+                  "probe_ran": true,
+                  "writes": {
+                    "home": {
+                      "exit": 1,
+                      "landed": false
+                    },
+                    "dotfile": {
+                      "exit": 1,
+                      "landed": false
+                    },
+                    "tmp": {
+                      "exit": 1,
+                      "landed": false
+                    },
+                    "parent": {
+                      "exit": 1,
+                      "landed": false
+                    }
+                  },
+                  "inside": {
+                    "exit": 0,
+                    "landed": true
+                  },
+                  "pid_namespace": {
+                    "own": true
+                  },
+                  "holds": {
+                    "answered": true,
+                    "tool_ran": true,
+                    "probe_ran": true,
+                    "every_write_held": true,
+                    "passes": true
+                  }
+                }
+              ],
+              "every_configuration_passes": false
+            }
+          },
+          "copied_whole": {
+            "p51/run.sh": {
+              "canary": "fbcf46a89fedf9f1e6796268d899b173dfbbfc09",
+              "tools/trial_p51_sandbox_writes.sh": "fbcf46a89fedf9f1e6796268d899b173dfbbfc09"
+            },
+            "p51/stub.py": {
+              "canary": "0ffb82b630eda616a11a9c914e2728ad89417f14",
+              "tools/trial_p50_stub.py": "0ffb82b630eda616a11a9c914e2728ad89417f14"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].response.body, line 93 of the log"
+  ],
+  "verdict": "fail"
+}

@@ -3447,6 +3447,39 @@ class Trials(unittest.TestCase):
         self.assertEqual((past["body"]["total_count"], past["body"]["workflow_runs"], past["headers"].get("link")), (0, [], None))
         self.assertEqual(p43["ran_at"], call("for when the trial began")["response"]["body"]["commit"]["author"]["date"])
 
+    def test_a_sandboxed_tool_on_a_linux_runner_writes_outside_its_work_directory_when_scrubbed(self):
+        # trials/P-51.json (issue 312): the analysis is read again from the job's log, each configuration's holds are
+        # computed from what it recorded, and the fail follows: with the scrub at 1 every write outside the work
+        # directory landed, in both orders; unset or 0, none did.
+        p51 = json.loads((ROOT / "trials" / "P-51.json").read_text())
+        log, analysis = p51["exchanges"][6]["response"]["body"], p51["exchanges"][-1]["response"]["body"]
+        printed, lines, inside = {}, [], False
+        for line in log.splitlines():
+            said = re.match(r"^[^\t]*\t[^\t]*\t\S+Z (.*)$", line)
+            said = said.group(1) if said else ""
+            inside, lines = (True, []) if said == "{" else (inside, lines)
+            lines += [said] if inside else []
+            if inside and said == "}":
+                document, inside = json.loads("\n".join(lines)), False
+                printed[document["order"]] = document
+        self.assertEqual(printed, analysis["orders"], "the analysis is what the log printed")
+        for i, name in ((4, "p51/run.sh"), (5, "p51/stub.py")):
+            self.assertEqual(p51["exchanges"][i]["response"]["body"]["sha"], analysis["copied_whole"][name]["canary"])
+            self.assertEqual(len(set(analysis["copied_whole"][name].values())), 1, name + " ran as it was in tools/")
+        for order, checked in printed.items():
+            self.assertEqual(checked["version"], {"pinned": "2.1.306", "before": "2.1.306", "after": "2.1.306"})
+            names = [part["configuration"] for part in checked["configurations"]]
+            self.assertEqual(names, ["unset", "plain", "scrubbed"] if order == "forward" else ["scrubbed", "plain", "unset"])
+            for part in checked["configurations"]:
+                where = (order, part["configuration"])
+                landed = [target for target, write in part["writes"].items() if write["landed"]]
+                self.assertEqual((part["exit"], part["probe_ran"], part["holds"]["tool_ran"], part["pid_namespace"]["own"],
+                                  part["inside"]["landed"]), (0, True, True, True, True), where)
+                self.assertEqual(part["holds"]["every_write_held"], not landed, where)
+                self.assertEqual(sorted(landed), sorted(part["writes"]) if part["configuration"] == "scrubbed" else [], where)
+            self.assertEqual(checked["every_configuration_passes"], False, order)
+        self.assertEqual(p51["verdict"], "fail")
+
     def test_a_sandboxed_tool_on_a_linux_runner_reads_the_parents_environment(self):
         # trials/P-50.json (issue 287): the analysis is read again here from the job's log, each part of the pass is
         # computed from what the probe left, as the script computes it, and must equal the job's record; the fail follows.
@@ -4679,6 +4712,140 @@ printf 'example.org.cdn.example.\\n192.0.2.7\\n'
         self.assertEqual(self.run_script(self.out, self.cfg, folder / "claude").returncode, 0)
         self.assertEqual([p.name for p in older.parent.iterdir()], ["older.sh"])
         self.assertEqual([p["shell_snapshots_removed"] for p in self.checked(self.out)["configurations"]], [1, 1])
+
+
+class SandboxWritesTrial(unittest.TestCase):
+    """`tools/trial_p51_sandbox_writes.sh` (issue 312), run against a stand-in CLI that asks P-50's real stub over HTTP, as
+    the pinned CLI would, and runs the probe with the writes the test says the sandbox holds sent nowhere: the verdict
+    each configuration and order earns, what each configuration is given, and that nothing it wrote outside is left."""
+
+    SCRIPT = ROOT / "tools" / "trial_p51_sandbox_writes.sh"
+    STUB = ROOT / "tools" / "trial_p50_stub.py"
+    PIN = re.search(r"^PIN=(\S+)$", SCRIPT.read_text(), re.M).group(1)
+    # The stand-in CLI. A Task asks the stub for the tool call, streamed, runs the probe it names with each write the
+    # file `lands-SCRUB` does not name sent to a path that cannot exist, as a sandbox that holds it would, and sends the
+    # result back: SCRUB is the scrub's value, or `unset`. TARGETS are numbered as the script names them.
+    CLI = r'''#!/usr/bin/env python3
+import json, os, pathlib, re, shlex, subprocess, sys, urllib.request
+here = pathlib.Path(__file__).resolve().parent
+args = sys.argv[1:]
+if args[:1] == ["--version"]:
+    name = "version.after" if (here / "asked").exists() and (here / "version.after").exists() else "version"
+    print((here / name).read_text().strip() + " (Claude Code)")
+    sys.exit(0)
+(here / "asked").write_text("")
+scrub = os.environ.get("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "unset")
+base = os.environ["ANTHROPIC_BASE_URL"]
+def post(body):
+    request = urllib.request.Request(base + "/v1/messages", data=json.dumps(body).encode(), headers={"content-type": "application/json"})
+    with urllib.request.urlopen(request, timeout=20) as answer:
+        return answer.read().decode()
+tools = [{"name": "Bash", "input_schema": {}}]
+said = post({"model": "m", "max_tokens": 8, "stream": True, "tools": tools, "messages": [{"role": "user", "content": "the task"}]})
+events = [json.loads(line[6:]) for line in said.splitlines() if line.startswith("data: ")]
+start = next(e for e in events if e["type"] == "content_block_start")["content_block"]
+failed = (here / "tool-error").exists()
+if not failed and not (here / "no-tool").exists():
+    probe = open("probe.sh").read()
+    line = re.search(r"(?m)^for target in (.*); do$", probe).group(1)
+    targets = shlex.split(line)
+    lands = (here / ("lands-" + scrub)).read_text().split() if (here / ("lands-" + scrub)).exists() else []
+    kept = [t if str(i) in lands else "/nonexistent-p51/x" for i, t in enumerate(targets)]
+    open("probe.run", "w").write(probe.replace(line, " ".join(shlex.quote(t) for t in kept)))
+    subprocess.run(["sh", "./probe.run"], timeout=30, check=False)
+post({"model": "m", "max_tokens": 8, "stream": True, "tools": tools,
+      "messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": start["id"], "content": "ran", "is_error": failed}]}]})
+print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "num_turns": 2, "result": "done"}))
+'''
+
+    def stand_in(self, lands=None, flags=(), after=None) -> pathlib.Path:
+        folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (folder / "version").write_text(self.PIN + "\n")
+        if after:
+            (folder / "version.after").write_text(after + "\n")
+        for scrub, which in (lands or {}).items():
+            (folder / ("lands-" + scrub)).write_text(" ".join(str(i) for i in which))
+        for flag in flags:
+            (folder / flag).write_text("")
+        # The CLI is a shell script that keeps the environment it was given, then hands on to the Python.
+        (folder / "claude").write_text('#!/bin/sh\nhere=$(cd "$(dirname "$0")" && pwd)\n'
+                                       '[ "$1" = --version ] || env > "$here/env-${CLAUDE_CODE_SUBPROCESS_ENV_SCRUB-unset}"\n'
+                                       'exec python3 "$here/cli.py" "$@"\n')
+        (folder / "cli.py").write_text(self.CLI)
+        (folder / "claude").chmod(0o755)
+        return folder
+
+    def run_script(self, folder, order="forward") -> tuple:
+        home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
+        env = {"PATH": os.environ["PATH"], "HOME": str(home), "LANG": "C"}
+        ran = subprocess.run(["bash", str(self.SCRIPT), str(out), order, str(folder / "claude"), str(self.STUB)],
+                             cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
+        return home, out, ran
+
+    def test_each_configuration_and_order_is_judged_by_the_condition(self):
+        names = ["home", "dotfile", "tmp", "parent"]
+        cases = [
+            ("every write is held", dict(), "forward", True, {}),
+            ("every write is held, the other way round", dict(), "reversed", True, {}),
+            ("the scrub lets the home directory's write land", dict(lands={"1": [0]}), "forward", False, {"scrubbed": ["home"]}),
+            ("the scrub unset lets /tmp's and the parent's land", dict(lands={"unset": [2, 3]}), "reversed", False,
+             {"unset": ["tmp", "parent"]}),
+            ("each setting lets the dotfile land", dict(lands={"unset": [1], "0": [1], "1": [1]}), "forward", False,
+             {"unset": ["dotfile"], "plain": ["dotfile"], "scrubbed": ["dotfile"]}),
+            ("the tool's result is an error", dict(flags=("tool-error",)), "forward", False, {}),
+            ("the probe never ran", dict(flags=("no-tool",)), "forward", False, {}),
+            ("the version moved under the run", dict(after="9.9.9"), "forward", False, {}),
+        ]
+        def one(case):
+            name, kwargs, order, passes, landed = case
+            folder = self.stand_in(**kwargs)
+            return case, self.run_script(folder, order)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(one, cases))
+        for (name, kwargs, order, passes, landed), (home, out, ran) in results:
+            self.assertEqual(ran.returncode, 0, (name, ran.stderr))
+            checked = json.loads((out / ("checked-%s.json" % order)).read_text())
+            want = ["unset", "plain", "scrubbed"] if order == "forward" else ["scrubbed", "plain", "unset"]
+            self.assertEqual([p["configuration"] for p in checked["configurations"]], want, name)
+            self.assertEqual(checked["every_configuration_passes"], passes, name)
+            flags = kwargs.get("flags", ())
+            for part in checked["configurations"]:
+                where = (name, part["configuration"])
+                self.assertEqual(sorted(n for n in names if part["writes"][n]["landed"]), sorted(landed.get(part["configuration"], [])), where)
+                self.assertEqual(part["probe_ran"], not flags, where)
+                self.assertEqual(part["inside"]["landed"], not flags, where + ("the control",))
+                self.assertEqual(part["holds"]["tool_ran"], "tool-error" not in flags, where)
+                self.assertEqual(part["holds"]["every_write_held"], not flags and not landed.get(part["configuration"]), where)
+            # Nothing the probe wrote outside is left, in the home directory or in /tmp.
+            self.assertEqual([q.name for q in home.iterdir() if "p51-" in q.name], [], name)
+
+    def test_each_configuration_is_given_its_scrub_alone_and_a_directory_of_its_own(self):
+        folder = self.stand_in()
+        home, out, ran = self.run_script(folder)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        given = {}
+        for scrub in ("unset", "0", "1"):
+            given[scrub] = dict(line.split("=", 1) for line in (folder / ("env-" + scrub)).read_text().splitlines() if "=" in line)
+        self.assertNotIn("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", given["unset"])
+        self.assertEqual((given["0"]["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"], given["1"]["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"]), ("0", "1"))
+        self.assertEqual(len({g["CLAUDE_CONFIG_DIR"] for g in given.values()}), 3, "a configuration directory each")
+        for g in given.values():
+            self.assertEqual((g["ANTHROPIC_API_KEY"], g["GITHUB_ACTIONS"]), ("dummy-p51-not-a-key", "true"))
+            self.assertRegex(g["ANTHROPIC_BASE_URL"], r"^http://127\.0\.0\.1:[0-9]{1,5}$")
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ["checked-forward.json"])
+
+    def test_each_refusal_stops_before_anything_is_asked(self):
+        folder = self.stand_in()
+        taken = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        for name, args, said in [("an order it does not know", ("out", "sideways"), "ORDER is forward or reversed"),
+                                 ("OUT exists", (str(taken), "forward"), "exists; name a new directory")]:
+            ran = subprocess.run(["bash", str(self.SCRIPT), args[0], args[1], str(folder / "claude"), str(self.STUB)],
+                                 cwd=pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)), capture_output=True, text=True,
+                                 timeout=60, stdin=subprocess.DEVNULL)
+            self.assertEqual(ran.returncode, 2, name)
+            self.assertIn(said, ran.stderr, name)
+            self.assertFalse((folder / "asked").exists(), name + ": nothing was asked")
 
 
 class Redaction(unittest.TestCase):
