@@ -6,7 +6,7 @@ this repo reaches the network. `pull.py` reads the facts of a pull request that 
 `records.py` the Factory's own run records, and `artifacts.py` a failed Run's outcome from its artifact. A port decides nothing
 and hands the Kernel no text: what it cannot read whole it says is short, and the title travels beside the facts.
 
-Not built yet, by the stories that hold their rules: items.py, acceptance.py, issues.py, settings.py, effects.py, usage.py.
+Not built yet, by the stories that hold their rules: items.py, acceptance.py, issues.py, settings.py, effects.py, usage.py, texts.py, identity.py.
 
 | Rule | Held by |
 |---|---|

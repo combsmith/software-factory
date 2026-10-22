@@ -10,7 +10,7 @@ import re
 from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-LOCAL = {"kernel", "tools", "sim", "tests", "adapters", "controller"}
+LOCAL = {"kernel", "tools", "sim", "tests", "adapters", "controller", "harness"}
 # The standard-library modules in use. A new one is added here on purpose, in the same change.
 STDLIB = {"__future__", "ast", "contextlib", "copy", "datetime", "hashlib", "io", "json", "os", "pathlib", "random", "re", "shlex",
           "shutil", "subprocess", "sys", "tempfile", "time", "typing", "unittest"}
@@ -32,6 +32,8 @@ STDLIB = STDLIB | {"importlib"}
 STDLIB = STDLIB | {"http"}
 # zipfile and zlib: adapters/artifacts.py opens a Run's artifact, a zip GitHub serves, of one file and bounded.
 STDLIB = STDLIB | {"zipfile", "zlib"}
+# uuid: harness/run.py names a Run's session before the call, so that its usage names it even when the CLI never answers.
+STDLIB = STDLIB | {"uuid"}
 # The network. Only the one transport reaches it, so a request to GitHub is made in one file a review can read whole;
 # everywhere else these are refused, the required check fetches nothing, and a test replays what a trial recorded.
 # A net, as the search for secrets is: a subprocess or importlib can still reach out, and review is the real guard.

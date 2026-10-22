@@ -1,0 +1,28 @@
+{
+  "schema": "harness/1",
+  "engine": {
+    "name": "claude-cli",
+    "version": "latest",
+    "model": "opus"
+  },
+  "limits": {
+    "standard": {
+      "turns": 10,
+      "repair_turns": 1,
+      "seconds": 600,
+      "cost_ceiling_usd": 1.0
+    },
+    "deep": {
+      "turns": 20,
+      "repair_turns": 2,
+      "seconds": 900,
+      "cost_ceiling_usd": 1.5
+    }
+  },
+  "texts": {
+    "characters": 60000
+  },
+  "advisory": [
+    "coderabbit"
+  ]
+}

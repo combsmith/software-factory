@@ -152,6 +152,33 @@
     },
     "result_schema": {
       "const": "result/1"
+    },
+    "omitted": {
+      "description": "What was left out of the Task's texts, and how much, for each kind of text, the part of a text's id before the colon (L-56). Optional: a Task that left nothing out may say so with an empty list or not at all.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "texts",
+          "characters"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "pattern": "^[a-z]+$"
+          },
+          "texts": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "characters": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
     }
   }
 }

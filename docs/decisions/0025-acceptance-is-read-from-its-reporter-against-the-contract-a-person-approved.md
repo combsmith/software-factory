@@ -82,5 +82,5 @@ P-37 was taken by decision 0023.
 | Under faults, nothing is admitted, converges, queues or merges unless a person approved the contract and the head still carries it, and every criterion passes from its kind's reporter | `tests/test_simulator.py::test_the_seeds_serve_items_with_an_acceptance_contract_and_without`, `tests/test_simulator.py::test_invariants_hold_under_faults` |
 | The port reads whether a contract exists from the issue the pull request closes, never the head; the approved contract at the commit of the newest approving review by a person; the digest over the contract and every path it protects; and each result's check | waiting on `adapters/acceptance.py` |
 | Whether an approval GitHub dismisses as stale stays on its commit, and who is recorded as dismissing it, is a platform fact, unverified until trial P-38 grounds it | `sim/grounding.py`, `tools/check_trials.py` |
-| `apply` refuses the implementing Role's change to a contract or a test it names (I-30) | waiting on `harness/` |
-| A reporter for `role`, `static`, `mutation` and `scenario` | waiting on `harness/` |
+| `apply` refuses the implementing Role's change to a contract or a test it names (I-30) | waiting on `harness/apply.py` |
+| A reporter for `role`, `static`, `mutation` and `scenario` | waiting on `roles/` |
