@@ -159,6 +159,15 @@ class TheAct(unittest.TestCase):
         for method, path, body in allowed:
             token.send({"method": method, "path": path, "body": body})
         self.assertEqual(len(github.log), len(allowed))
+        # The facts port's own reads go through as the ports send them: the first page with no cursor (CodeRabbit on PR
+        # 321), and the closing references' read with none at all.
+        pull = {"number": ITEM["number"], "base": {"repo": {"full_name": repo, "default_branch": "main"}, "ref": "main"}}
+        for port in (lambda t: threads.read(t, pull, None), lambda t: checks.read(t, pull),
+                     lambda t: acceptance.closing(t, pull)):
+            seen = GitHub({("POST", "/graphql"): {"status": 500, "body": {}}})
+            with self.assertRaises(Unanswered):
+                port(effects.Approving(seen, ITEM))
+            self.assertEqual([r["path"] for r in seen.log], ["/graphql"])
         # The facts port's queries of another pull request, or with more in them, are not this item's reads.
         for variables in ({"owner": owner, "name": name, "number": 43}, {"owner": "x", "name": name, "number": 42},
                           {"owner": owner, "name": name, "number": 42, "first": 1}):

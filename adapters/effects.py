@@ -233,7 +233,7 @@ class Approving:
         owner, name = self._item["repo"].split("/")
         return (isinstance(variables, dict) and set(variables) <= {"owner", "name", "number", "after"}
                 and variables.get("owner") == owner and variables.get("name") == name
-                and isinstance(variables.get("after", ""), str)
+                and (variables.get("after") is None or isinstance(variables["after"], str))
                 and variables.get("number") == self._item["number"])
 
     def send(self, req: dict) -> dict:
