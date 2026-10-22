@@ -3593,7 +3593,8 @@ class TheFactorysOwnRules(unittest.TestCase):
         return d
 
     def test_a_change_to_a_model_lenss_own_input_waits_for_a_person(self):  # issue 140
-        self.assertEqual(self.OWN, ["roles/pr-review.*", "roles/pr-review/", "config/rubric-pr-review.json", "harness/",
+        self.assertEqual(self.OWN, ["roles/pr-review.*", "roles/pr-review/", "config/rubric-pr-review.json",
+                                    "config/harness.json", "harness/",
                                     "config/hooks.json", "config/defaults.json", "tools/hooks/protected.py",
                                     "kernel/gate.py", "kernel/coverage.py", "config/authority.json"])
         self.assertEqual(CONFIG["model_lens_inputs"], self.OWN)
