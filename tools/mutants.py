@@ -78,6 +78,8 @@ JUDGING_SHAPE_TESTS = ("tests.test_tools.Workflows.test_the_judging_step_and_its
 SHARDS_TESTS = ("tests.test_tools.Workflows.test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix",)
 P13 = "tools/trial_p13_cli.sh"
 P13_TESTS = "tests.test_tools.TrialScript."
+P26 = "tools/trial_p26_sandbox.sh"
+P26_TESTS = "tests.test_tools.SandboxTrial."
 HOOK_TESTS = "tests.test_hooks.ProtectedPaths."
 BYPASS_TESTS = (HOOK_TESTS + "test_under_bypass_permissions_every_reason_is_told_as_it_would_be_asked",)
 SESSION_TESTS = (HOOK_TESTS + "test_a_command_that_runs_claude_code_with_no_one_asked_asks",
@@ -4210,6 +4212,44 @@ MUTANTS = ISSUE + [
     ("a message about who asked may carry a credential", "tools/check_trials.py",
      "    return [hidden(message) for message in out]\n", "    return out\n",
      ("tests.test_tools.Trials.test_a_credential_in_a_fixture_is_caught",)),
+    # Issue 188: P-26's script, run against a stand-in CLI, curl and ps.
+    ("P-26's CLI inherits the shell's environment", P26, '(cd "$work" && exec env -i HOME="$HOME"', '(cd "$work" && exec env HOME="$HOME"',
+     (P26_TESTS + "test_the_cli_is_given_only_the_named_environment_and_one_command",)),
+    ("P-26's model is given every tool", P26, ' $OPTIONS \\\n        --tools "$TOOLS" --allowedTools', ' $OPTIONS \\\n        --allowedTools',
+     (P26_TESTS + "test_the_cli_is_given_only_the_named_environment_and_one_command",)),
+    ("P-26's sandbox lets a command out", P26, '"allowUnsandboxedCommands": false', '"allowUnsandboxedCommands": true',
+     (P26_TESTS + "test_the_cli_is_given_only_the_named_environment_and_one_command",)),
+    ("P-26's probe reads the script that started the CLI", P26, '    [ -n "$above" ] && [ "$pid" = "$above" ] && break\n', '',
+     (P26_TESTS + "test_the_probe_reads_nothing_above_the_cli",)),
+    ("P-26's probe that knows no stop walks on", P26, '    [ -n "$above" ] || break\n', '',
+     (P26_TESTS + "test_the_probe_reads_nothing_above_the_cli",)),
+    ("P-26's sandboxed command is allowed for that alone", P26, '"autoAllowBashIfSandboxed": false', '"autoAllowBashIfSandboxed": true',
+     (P26_TESTS + "test_the_cli_is_given_only_the_named_environment_and_one_command",)),
+    ("P-26's fetch record keeps any name", P26, 'if found and found.group(1) in NAMES and found.group(1) not in fetches:',
+     'if found and found.group(1) not in fetches:', (P26_TESTS + "test_no_marker_and_no_model_text_reaches_out",)),
+    ("P-26's empty environment record is hidden", P26, 'recorded = part["probe_ran"] and (part["env"]["lines"] or 0) > 0',
+     'recorded = part["probe_ran"]', (P26_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
+    ("P-26's snapshots are kept", P26, '        find "$cfg/shell-snapshots" -type f -newer "$scratch/started" -exec rm -f {} +\n', '',
+     (P26_TESTS + "test_the_shell_snapshots_the_run_made_are_deleted",)),
+    ("P-26's environment is hidden if the tool's own is", P26,
+     'all(part[k]["seen"] is not None and not any(part[k]["seen"].values()) for k in ("env", "ancestors"))',
+     'all(part[k]["seen"] is not None and not any(part[k]["seen"].values()) for k in ("env",))',
+     (P26_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
+    ("P-26's denied host may answer around the proxy", P26,
+     ' and not answered(fetches.get("denied_around_proxy"))', '',
+     (P26_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
+    ("P-26's denied host may answer through the proxy", P26,
+     ' and not answered(fetches.get("denied_through_proxy"))', '',
+     (P26_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
+    ("P-26's denied host may answer at its address", P26,
+     '           and not answered(fetches.get("denied_by_address"))\n', '',
+     (P26_TESTS + "test_each_configuration_is_judged_by_the_condition",)),
+    ("P-26 asks the model with no address for the denied host", P26,
+     '[[ -n "$denied_address" ]] || refuse', '[[ -n "$denied_address" ]] || true',
+     (P26_TESTS + "test_each_refusal_stops_before_anything_is_asked",)),
+    ("P-26's probe tries the denied host by name alone", P26,
+     ' --resolve "$denied:443:$address"\n', '\n',
+     (P26_TESTS + "test_the_probe_tries_the_denied_host_at_the_address_looked_up_outside",)),
     # Issue 251: P-44's lane, one Run holding it and at most one waiting, kept by one function for both worlds.
     ("the lane keeps every waiting Run", "sim/world.py",
      '        older.update(status="completed", conclusion="cancelled", outcome="superseded")\n', '        pass\n', ("tests.test_simulator.Simulation.test_a_newer_run_cancels_the_one_waiting_in_each_world",)),
