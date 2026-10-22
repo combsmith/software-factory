@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 from adapters import github, identity
 from harness import shared
@@ -47,6 +48,7 @@ READS = ("read:facts.item", "read:facts.state", "read:facts.is_draft", "read:fac
          "read:facts.diff", "read:facts.last_pusher", "read:facts.label_events", "read:facts.last_push_at",
          "read:facts.last_writer_action_at", "read:facts.reviews", "read:facts.threads", "read:facts.checks",
          "read:facts.acceptance", "read:records.runs", "read:records.artifacts")
+THREAD = re.compile(r"PRRT_[A-Za-z0-9_-]+")
 # How a Result that did not complete ends, by its reason: the Role's fault, or the Factory's.
 THE_ROLES = ("result_invalid", "task_too_large")
 
@@ -87,8 +89,10 @@ def _superseded(task: dict, facts: dict, runs: list, context: dict, kernel: dict
         return "item_held"
     # This Run is left out of the Runs counted active too, as it is left out of the list.
     mine = [r for r in runs if r["run"] == task["run"] and r["status"] != "completed"]
-    if mine and isinstance(context.get("active_runs"), int):
-        context = dict(context, active_runs=max(context["active_runs"] - len(mine), 0))
+    # A count that cannot be this Run's, a flag or one under this Run's own, is left as read: the Kernel defers on it.
+    active = context.get("active_runs")
+    if mine and type(active) is int and active >= len(mine):
+        context = dict(context, active_runs=active - len(mine))
     if isinstance(context.get("unidentified_runs"), list):
         context = dict(context, unidentified_runs=[u for u in context["unidentified_runs"]
                                                    if not (isinstance(u, dict) and u.get("run") == github_run)])
@@ -162,6 +166,16 @@ def _dispositions(task: dict, result: dict, facts: dict, role: dict, authority: 
     for resolve in result["effects"].get("resolve_thread", ()):
         if resolve["thread"] in security and declined & set(_findings_of(facts, resolve["thread"])):
             return "security_finding_declined"
+    # A resolved thread is an accepted Disposition (section 3.8): only the owner of the thread's category resolves it,
+    # and only on its own decision, in this Result, to accept it.
+    accepted = {d["finding"] for d in result["dispositions"] if d.get("decision", {}).get("result") == "accepted"}
+    for resolve in result["effects"].get("resolve_thread", ()):
+        th = next(th for th in facts["threads"] if th["id"] == resolve["thread"])
+        owner = authority["categories"].get(th["category"], {}).get("owner")
+        if role["kind"] != DECIDES or role["name"] != owner:
+            return "resolve_not_yours"
+        if not accepted & set(_findings_of(facts, resolve["thread"])):
+            return "resolve_not_accepted"
     return None
 
 
@@ -210,9 +224,12 @@ def requests(task: dict, result: dict, head: str, role: dict, since: str = None)
                                  severity=raised[a["finding"]]["severity"]) for a in check["annotations"]]}))
     for resolve in result["effects"].get("resolve_thread", ()):
         out.append((resolve["id"], "resolve_thread", {"thread": resolve["thread"]}))
-    for index, comment in enumerate(result["effects"].get("comment", ())):
+    # A comment on the item is recovered by its place among the Run's comments on the item, and no other's.
+    index = 0
+    for comment in result["effects"].get("comment", ()):
         out.append((comment["id"], "comment", {"on": comment["on"], "body": comment["body"], "since": since,
                                                 "index": index}))
+        index += comment["on"] == "item"
     return out
 
 
@@ -239,7 +256,7 @@ def applied(task: dict, result: dict, written: list, role: dict, refused=None) -
         state, key, surfaces = back.get("state"), back.get("key"), back.get("surfaces") or {}
         refs = [ref for e, _, ref in posts(result["effects"]) if e == effect_id]
         if state in ("applied", "already_applied") and isinstance(key, str) and key and all(
-                isinstance(surfaces.get(ref), str) and surfaces[ref] for ref in refs):
+                _surface(kind, key, ref, surfaces.get(ref)) for ref in refs):
             effects.append({"id": effect_id, "type": kind, "state": state, "key": key, "reason": None})
             for ref in refs:
                 findings.append(_finding(task, role, raised[ref], kind, key, surfaces[ref]))
@@ -249,6 +266,14 @@ def applied(task: dict, result: dict, written: list, role: dict, refused=None) -
             effects.append({"id": effect_id, "type": kind, "state": "failed", "key": None, "reason": "not_read_back"})
     return {"schema": "applied/1", "run": task["run"], "release": task["release"], "effects": effects,
             "findings": findings}
+
+
+def _surface(kind: str, key: str, ref: str, at) -> bool:
+    """Whether a posted Finding's surface was read back: a review comment's thread, or an annotation on the check run
+    read back, keyed by that check run and the Finding's ref."""
+    if kind == "create_check_run":
+        return at == "%s:%s" % (key, ref)
+    return isinstance(at, str) and THREAD.fullmatch(at) is not None
 
 
 def _finding(task: dict, role: dict, raised: dict, kind: str, key: str, at: str) -> dict:
@@ -314,7 +339,12 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
                   "findings": []}
         return record, _ended(admit, ("environment", "result_unreadable"))
     facts, head, runs, context = read()
+    # When the Run began: its record's start, or, while it is listed before its name, its run's creation (decision
+    # 0036). Neither read, a comment on the item cannot be recovered, and is refused as unreadable.
     since = next((r["started_at"] for r in runs if r["run"] == admit["run"]), None)
+    if since is None and isinstance(context.get("unidentified_runs"), list):
+        since = next((u["created_at"] for u in context["unidentified_runs"]
+                      if isinstance(u, dict) and u.get("run") == config["github_run"]), None)
     why = refusal(admit, result, facts, runs, context, config["kernel"], now, role, config["rubric"],
                   config["authority"], config["github_run"])
     if why is not None:
@@ -336,6 +366,12 @@ def job(admit: dict, result, read, write, mint, role: dict, config: dict, now: s
             # A credential GitHub would not take ends every later write on it.
             if any(back.get("reason") == "token_refused" for _, _, back in written):
                 written.append((effect_id, kind, {"state": "refused", "reason": "token_refused"}))
+                continue
+            # A comment on the item is recovered by its place, so none is sent after one that was not written.
+            if kind == "comment" and req["on"] == "item" and any(
+                    k == "comment" and r["on"] == "item" and back.get("state") not in ("applied", "already_applied")
+                    for (e, k, back), (_, _, r) in zip(written, asked)):
+                written.append((effect_id, kind, {"state": "failed", "reason": "earlier_comment_unwritten"}))
                 continue
             try:
                 written.append((effect_id, kind, write(transport, kind, req)))

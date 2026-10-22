@@ -114,27 +114,40 @@ def granted(app: dict, needs: dict, names, kind: str) -> dict:
     return wanted
 
 
-def mint(as_app, app: dict, repo: str, wanted: dict) -> Token:
+def _asked(transport, req: dict, code: str) -> dict:
+    try:
+        return transport.send(req)
+    except github.Unanswered:
+        raise Refused(code) from None
+
+
+def mint(as_app, app: dict, repo: str, wanted: dict, as_token=None) -> Token:
     """An installation token of `app` for `repo` alone, with exactly `wanted`, asked through `as_app`, a transport that
     carries the App's JWT. GitHub adds `metadata: read` to every token; anything else it answers beyond what was asked,
-    another repo, or all of them, is refused."""
+    another repo, or all of them, is refused, and the token it made all the same is revoked first, through
+    `as_token(token)`, a transport that carries it."""
     if not isinstance(repo, str) or not REPO.fullmatch(repo) or not wanted:
         raise Refused("token_unreadable")
-    found = as_app.send(github.request("GET", "/repos/%s/installation" % repo))
+    found = _asked(as_app, github.request("GET", "/repos/%s/installation" % repo), "installation_unreadable")
     body = found.get("body")
     if (found.get("status") != 200 or not isinstance(body, dict) or type(body.get("id")) is not int
             or body.get("app_id") != app["app_id"]):
         raise Refused("installation_unreadable")
     asked = {"repositories": [repo.split("/")[1]], "permissions": dict(wanted)}
-    given = as_app.send(github.request("POST", "/app/installations/%d/access_tokens" % body["id"], body=asked))
+    given = _asked(as_app, github.request("POST", "/app/installations/%d/access_tokens" % body["id"], body=asked),
+                   "token_refused")
     token = given.get("body")
     if given.get("status") != 201 or not isinstance(token, dict):
         raise Refused("token_refused")
     value = token.get("token")
-    named = [r.get("full_name") for r in token.get("repositories", ()) if isinstance(r, dict)]
-    if (not isinstance(value, str) or not value or any(c.isspace() for c in value)
+    listed = token.get("repositories")
+    named = [r.get("full_name") for r in listed if isinstance(r, dict)] if isinstance(listed, list) else None
+    readable = isinstance(value, str) and value != "" and not any(c.isspace() for c in value)
+    if (not readable
             or token.get("permissions") != dict(wanted, metadata="read") or token.get("repository_selection") != "selected"
             or named != [repo]):
+        if readable and as_token is not None:
+            revoke(as_token(value))
         raise Refused("token_not_as_asked")
     return Token(value, repo, wanted)
 

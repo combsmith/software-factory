@@ -129,6 +129,10 @@ class Identity(unittest.TestCase):
         both = dict(APPS["needs"], **{"effect:comment": {"permission": "pull_requests", "level": "read"}})
         self.assertEqual(identity.permissions(review, both, ["comment", "submit_review"]), {"pull_requests": "write"})
         self.assertEqual(identity.permissions(review, both, ["comment"]), {"pull_requests": "read"})
+        for level in ("admin", None):
+            odd = dict(APPS["needs"], **{"effect:submit_review": {"permission": "pull_requests", "level": level}})
+            with self.assertRaisesRegex(identity.Refused, "^effect_not_grantable$"):
+                identity.permissions(review, odd, ["submit_review"])
         first = dict(APPS["needs"], **{"effect:submit_review": {"permission": "pull_requests", "level": "read"}})
         self.assertEqual(identity.permissions(review, first, ["comment", "submit_review"]), {"pull_requests": "write"})
 
@@ -151,6 +155,20 @@ class Identity(unittest.TestCase):
             with self.assertRaises(identity.Refused) as caught:
                 identity.mint(GitHub(*answers), review, REPO, {"pull_requests": "write"})
             self.assertNotIn(SECRET, str(caught.exception))
+        # No answer, or an id that is no number, is refused; a token made other than asked is revoked first.
+        for answers, code in (((), "installation_unreadable"), ((installation(),), "token_refused")):
+            with self.assertRaisesRegex(identity.Refused, "^%s$" % code):
+                identity.mint(GitHub(*answers), review, REPO, {"pull_requests": "write"})
+        odd = installation()
+        odd[1]["body"]["id"] = "172571064"
+        with self.assertRaisesRegex(identity.Refused, "^installation_unreadable$"):
+            identity.mint(GitHub(odd), review, REPO, {"pull_requests": "write"})
+        revoked = GitHub((("DELETE", "/installation/token"), {"status": 204, "headers": {}, "body": None}))
+        for wide in (minted(repository_selection="all"), minted(repositories=None)):
+            with self.assertRaisesRegex(identity.Refused, "^token_not_as_asked$"):
+                identity.mint(GitHub(installation(), wide), review, REPO, {"pull_requests": "write"},
+                              as_token=lambda value: revoked)
+        self.assertEqual([r["method"] for r in revoked.sent], ["DELETE", "DELETE"])
         for repo, wanted in (("combsmith", {"pull_requests": "write"}), ("a/b/c", {"pull_requests": "write"}),
                              (REPO, {})):
             with self.assertRaisesRegex(identity.Refused, "^token_unreadable$"):
@@ -272,6 +290,10 @@ class Apply(unittest.TestCase):
         self.assertIsNone(refused(context=listed(4242)))
         self.assertEqual(refused(context=listed(4242, 4243)), ("superseded", "not_admitted"))
         self.assertEqual(refused(context=listed(4242), github_run=4243), ("superseded", "not_admitted"))
+        # A count of active Runs that cannot be this Run's is left as read, and the Kernel defers on it (Argon's read).
+        for count in (True, -1, None):
+            self.assertEqual(refused(context=support.context(active_runs=count)), ("superseded", "not_admitted"), count)
+        self.assertIsNone(refused(context=support.context(active_runs=0)))
         # This Run, in progress, is left out of the Runs and of those counted active, or the Kernel admits nothing.
         self.assertIsNone(refused(context=support.context(active_runs=1)))
         full = support.context(active_runs=support.CONFIG["limits"]["org_max_active_runs"])
@@ -367,10 +389,24 @@ class Apply(unittest.TestCase):
         for outcome in ("declined", "deferred"):
             self.assertEqual(asked([{"finding": fid("PRRT_kw8"), "proposal": {"outcome": outcome}}], ["PRRT_kw8"],
                                    role=author), ("item", "security_finding_declined"))
-        self.assertIsNone(asked([{"finding": fid("PRRT_kw8"), "proposal": {"outcome": "fixed"}}], ["PRRT_kw8"],
-                                role=author))
-        self.assertIsNone(asked([{"finding": fid("PRRT_kw7"), "proposal": {"outcome": "declined"}}], ["PRRT_kw7"],
-                                role=author))
+        # A resolved thread is an accepted Disposition: only the owner of its category resolves it, and only on its
+        # own decision, in this Result, to accept it (section 3.8).
+        for dispositions, resolve, role, code in (
+                ([{"finding": fid("PRRT_kw8"), "proposal": {"outcome": "fixed"}}], ["PRRT_kw8"], author,
+                 "resolve_not_yours"),
+                ([], ["PRRT_kw8"], author, "resolve_not_yours"),
+                ([{"finding": fid("PRRT_kw7"), "proposal": {"outcome": "declined"}}], ["PRRT_kw7"], author,
+                 "resolve_not_yours"),
+                ([], ["PRRT_kw7"], ROLE, "resolve_not_accepted"),
+                ([{"finding": fid("PRRT_kw7"), "decision": {"result": "rejected"}}], ["PRRT_kw7"], ROLE,
+                 "resolve_not_accepted"),
+                ([{"finding": fid("PRRT_kw8"), "decision": {"result": "accepted"}}], ["PRRT_kw7"], ROLE,
+                 "resolve_not_accepted"),
+                ([], ["PRRT_kw9"], ROLE, "resolve_not_yours"),
+                ([{"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}], ["PRRT_kw7"],
+                 dict(ROLE, kind="reviewer"), "disposition_not_yours")):
+            self.assertEqual(asked(dispositions, resolve, role=role), ("item", code), (code, resolve))
+        self.assertIsNone(asked([{"finding": fid("PRRT_kw8"), "decision": {"result": "accepted"}}], ["PRRT_kw8"]))
         # A Finding the Task lists whose thread is not on the item is no Finding of this item's.
         astray = the_task(permitted_effects=task["permitted_effects"], findings=["f_0000"])
         self.assertEqual(refused(task=astray, facts=facts, role=author, res=result(dispositions=[
@@ -385,14 +421,21 @@ class Apply(unittest.TestCase):
             wide = the_task(permitted_effects=["submit_review", "create_check_run", "resolve_thread", "comment"])
             self.assertEqual(refused(task=wide, facts=facts, res=result(effects=dict(result()["effects"], **effects))),
                              ("item", "thread_not_on_item"))
-        wide = the_task(permitted_effects=["submit_review", "create_check_run", "resolve_thread", "comment"])
-        self.assertIsNone(refused(task=wide, facts=facts, res=result(effects=dict(
+        wide = the_task(permitted_effects=["submit_review", "create_check_run", "resolve_thread", "comment"],
+                        findings=[fid("PRRT_kw7")])
+        self.assertIsNone(refused(task=wide, facts=facts, res=result(dispositions=[
+            {"finding": fid("PRRT_kw7"), "decision": {"result": "accepted"}}], effects=dict(
             result()["effects"], resolve_thread=[{"id": "e5", "thread": "PRRT_kw7"}],
             comment=[{"id": "e6", "on": "PRRT_kw7", "body": "x"}, {"id": "e7", "on": "item", "body": "y"}]))))
 
     def test_an_effect_is_claimed_only_from_what_was_read_back(self):  # ruling 7, L-41
         task, res = the_task(), result()
+        record = apply.applied(task, res, read_back(task, res, e2={"surfaces": {"n2": "CR_other:n2"}}), ROLE)
+        self.assertEqual((record["effects"][1]["state"], record["effects"][1]["reason"]), ("failed", "not_read_back"))
+        self.assertEqual([f["surface"]["type"] for f in record["findings"]], ["thread"])
         for over, reason in (({"e1": {"key": None}}, "not_read_back"), ({"e1": {"key": ""}}, "not_read_back"),
+                             ({"e1": {"surfaces": {"n1": ""}}}, "not_read_back"),
+                             ({"e1": {"surfaces": {"n1": "a note"}}}, "not_read_back"),
                              ({"e1": {"surfaces": {}}}, "not_read_back"), ({"e1": {"state": None}}, "not_read_back"),
                              ({"e1": {"state": "failed", "reason": "github_refused"}}, "github_refused"),
                              ({"e1": {"state": "failed"}}, "not_read_back")):
@@ -401,6 +444,7 @@ class Apply(unittest.TestCase):
             self.assertEqual((record["effects"][0]["state"], record["effects"][0]["key"], record["effects"][0]["reason"]),
                              ("failed", None, reason), over)
             # Nothing it posted is claimed, and the Run ends as the Factory's fault.
+            self.assertNotIn("thread", [f["surface"]["type"] for f in record["findings"]])
             self.assertEqual([f["surface"]["type"] for f in record["findings"]], ["annotation"])
             self.assertEqual(apply.outcome(task, record)["outcome"], "environment")
             self.assertEqual(apply.outcome(task, record)["reason"], "effect_failed")
@@ -500,7 +544,14 @@ class RoleWrites(unittest.TestCase):
                                 (p43_review(user={"login": "someone"}), threads_of(rid, ("PRRT_kw7", rid))),
                                 (p43_review(), threads_of(rid)), (p43_review(), threads_of(rid, ("PRRT_kw7", rid), total=101)),
                                 (p43_review(), threads_of(rid, ("not a thread", rid))), (p43_review(), ok({"errors": [1]})),
-                                (p43_review(), ok(dict(threads_of(rid, ("PRRT_kw7", rid))["body"], errors=[1])))):
+                                (p43_review(), ok(dict(threads_of(rid, ("PRRT_kw7", rid))["body"], errors=[1]))),
+                                (p43_review(id=1), threads_of(rid, ("PRRT_kw7", rid))),
+                                (p43_review(), threads_of(rid, ("PRRT_kw7", rid), total=2)),
+                                (p43_review(), threads_of(rid, ("PRRT_kw7", rid),
+                                                          *[("PRRT_x%d" % n, 1) for n in range(100)])),
+                                (p43_review(), ok({"data": {"repository": {"pullRequest": {"reviewThreads": {
+                                    "totalCount": 1, "nodes": [{"id": "PRRT_kw7", "comments": {"nodes": [
+                                        {"databaseId": None, "pullRequestReview": {"databaseId": rid}}]}}]}}}}}))):
             hub = GitHub((("GET", PULL + "/reviews?per_page=100"), ok([])), (("POST", PULL + "/reviews"), ok(p43_review())),
                          (("GET", PULL + "/reviews/%d" % rid), ok(review)), (("POST", "/graphql"), threads))
             self.assertEqual(effects.role_write(hub, ITEM, "submit_review", review_request(), LOGIN),
@@ -537,7 +588,11 @@ class RoleWrites(unittest.TestCase):
         hub = GitHub((listed, ok([mine(9), mine(7)])), (("GET", "/repos/%s/issues/comments/7" % ITEM["repo"]), ok(mine(7))))
         self.assertEqual(effects.role_write(hub, ITEM, "comment", req(0), LOGIN),
                          {"state": "already_applied", "key": "IC_7", "surfaces": {}, "reason": None})
+        hub = GitHub((listed, ok([])), (("POST", ISSUE + "/comments"), ok(mine(9), 201)),
+                     (("GET", "/repos/%s/issues/comments/9" % ITEM["repo"]), ok(mine(10))))
+        self.assertEqual(effects.role_write(hub, ITEM, "comment", req(0), LOGIN)["state"], "sent")
         for answers, want in (((ok({}),), ("failed", "comments_unreadable")),
+                              ((ok([mine(n) for n in range(1, 101)]),), ("failed", "comments_unreadable")),
                               ((ok([]), ok(None, 403)), ("refused", "token_refused")),
                               ((ok([]), ok(mine(9), 200)), ("failed", "write_refused"))):
             calls = [listed, ("POST", ISSUE + "/comments")]
@@ -556,6 +611,7 @@ class RoleWrites(unittest.TestCase):
         listed = ("GET", "/repos/%s/commits/%s/check-runs?check_name=factory%%20%%2F%%20pr-review&per_page=100"
                   % (ITEM["repo"], HEAD))
         made = lambda **over: dict({"id": 77, "node_id": "CR_kwDOA7", "external_id": "%s:e2" % RUN, "head_sha": HEAD,
+                                    "name": "factory / pr-review", "status": "completed", "conclusion": "success",
                                     "app": {"slug": "combsmith-sf-pr-review"}, "output": {"annotations_count": 1}},
                                    **over)
         got = ("GET", "/repos/%s/check-runs/77" % ITEM["repo"])
@@ -577,7 +633,9 @@ class RoleWrites(unittest.TestCase):
         other = made(app={"slug": "coderabbitai"})
         hub = GitHub((listed, ok({"total_count": 2, "check_runs": [other, made()]})), (got, ok(made())))
         self.assertEqual(effects.role_write(hub, ITEM, "create_check_run", req, LOGIN)["state"], "already_applied")
+        full = {"total_count": 100, "check_runs": [made(id=n, external_id="r_01JA7Z:e%d" % n) for n in range(100)]}
         for answers, want in (((ok({"total_count": 2, "check_runs": [made()]}),), ("failed", "checks_unreadable")),
+                              ((ok(full),), ("failed", "checks_unreadable")),
                               ((ok({"total_count": 2, "check_runs": [made(), made(id=78)]}),), ("failed", "checked_twice")),
                               ((ok({"total_count": 0, "check_runs": []}), ok(None, 403)), ("refused", "token_refused")),
                               ((ok({"total_count": 0, "check_runs": []}), ok(made(), 200)), ("failed", "write_refused"))):
@@ -586,7 +644,8 @@ class RoleWrites(unittest.TestCase):
             self.assertEqual((back["state"], back["reason"]), want, want)
         # What was read back is not what was asked: sent, and nothing claimed.
         for wrong in (made(external_id="r_01JA7Z:e2"), made(head_sha="0" * 40), made(app={"slug": "other"}),
-                      made(output={"annotations_count": 0}), made(node_id="")):
+                      made(output={"annotations_count": 0}), made(node_id=""), made(id=78), made(name="gates"),
+                      made(status="in_progress"), made(conclusion="failure")):
             hub = GitHub((listed, ok({"total_count": 0, "check_runs": []})),
                          (("POST", "/repos/%s/check-runs" % ITEM["repo"]), ok(made(), 201)), (got, ok(wrong)))
             self.assertEqual(effects.role_write(hub, ITEM, "create_check_run", req, LOGIN)["state"], "sent", wrong)
@@ -633,7 +692,7 @@ class RoleWrites(unittest.TestCase):
                          {"checks": "write"})
 
     def test_a_role_token_sends_only_its_writes_on_its_one_item(self):  # ruling 6, I-35
-        permits, patterns = effects.role_permits(ITEM)
+        permits, patterns = effects.role_permits(ITEM, HEAD, "factory / pr-review", ["PRRT_kw7"])
         hub = GitHub()
         allowed = effects.Allowed(hub, permits, patterns)
         owner, name = ITEM["repo"].split("/")
@@ -670,6 +729,14 @@ class RoleWrites(unittest.TestCase):
                        "name": "factory / pr-review", "head_sha": "main", "external_id": "x", "status": "completed",
                        "conclusion": "success", "output": {}}),
                    github.request("GET", "/repos/combsmith/other/check-runs/77"),
+                   github.request("POST", "/graphql", body={"query": effects.RESOLVE,
+                                                            "variables": {"id": "PRRT_onAnotherPR"}}),
+                   github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
+                       "name": "gates", "head_sha": HEAD, "external_id": "x", "status": "completed",
+                       "conclusion": "failure", "output": {}}),
+                   github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
+                       "name": "factory / pr-review", "head_sha": "1" * 40, "external_id": "x", "status": "completed",
+                       "conclusion": "success", "output": {}}),
                    github.request("GET", PULL + "/reviews/5602757809/../../merge"),
                    github.request("GET", ISSUE + "/comments?since=yesterday&per_page=100"),
                    github.request("POST", ISSUE + "/comments", body={"body": "x", "extra": 1}),
@@ -689,12 +756,13 @@ class Job(unittest.TestCase):
     CONFIG = {"kernel": support.CONFIG, "rubric": RUBRIC, "authority": AUTHORITY, "github_run": 4242,
               "app": APPS["apps"]["pr-review"], "needs": APPS["needs"]}
 
-    def go(self, res, refusing=False, write=None, mint_refuses=None):
+    def go(self, res, refusing=False, write=None, mint_refuses=None, task=None, records=None, context=None):
         calls = {"mint": [], "revoke": 0, "written": []}
 
         def read():
             facts = support.facts(state="closed") if refusing else support.facts()
-            return facts, HEAD, runs(), support.context(active_runs=1)
+            return (facts, HEAD, runs() if records is None else records,
+                    support.context(active_runs=1) if context is None else context)
 
         def mint(wanted):
             calls["mint"].append(wanted)
@@ -710,7 +778,7 @@ class Job(unittest.TestCase):
                 return write(kind, req)
             surfaces = {c["finding"]: "PRRT_kw7" for c in req.get("comments", ())}
             return {"state": "applied", "key": "PRR_kwDOA7", "surfaces": surfaces}
-        record, ended = apply.job(the_task(), res, read, wrote, mint, ROLE, self.CONFIG, NOW)
+        record, ended = apply.job(task or the_task(), res, read, wrote, mint, ROLE, self.CONFIG, NOW)
         self.assertEqual(shared.errors(record, "applied"), [])
         self.assertEqual(shared.errors(ended, "outcome"), [])
         return record, ended, calls
@@ -768,6 +836,41 @@ class Job(unittest.TestCase):
         self.assertEqual([(e["state"], e["reason"]) for e in record["effects"]],
                          [("refused", "token_refused"), ("refused", "token_refused")])
         self.assertEqual((len(calls["written"]), ended["outcome"], ended["reason"]), (1, "environment", "effect_failed"))
+        # A comment carries when the Run began, from its record or, listed before its name, its run's creation; its
+        # place is among the Run's comments on the item; none is sent after one on the item that was not written.
+        talk = the_task(permitted_effects=["comment"])
+        said = result(findings=[], coverage=[dict(c, verdict="met", reason=None) if c["verdict"] == "finding" else c
+                                             for c in result()["coverage"]],
+                      effects={"comment": [{"id": "e1", "on": "PRRT_kw7", "body": "a"}, {"id": "e2", "on": "item", "body": "b"},
+                                           {"id": "e3", "on": "item", "body": "c"}]})
+        facts_threads = support.facts(threads=[support.thread("PRRT_kw7")])
+        cases = ((runs(), support.context(active_runs=1), "2026-10-11T12:58:00Z"),
+                 ([], support.context(active_runs=0, unidentified_runs=[
+                     {"run": 4242, "created_at": "2026-10-11T12:57:00Z", "status": "in_progress"}]), "2026-10-11T12:57:00Z"))
+        for records, context, since in cases:
+            got = []
+            def note(kind, req):
+                got.append(req)
+                return {"state": "applied", "key": "IC_%d" % len(got), "surfaces": {}}
+            orig = support.facts
+            support.facts = lambda **over: orig(**dict({"threads": facts_threads["threads"]}, **over))
+            try:
+                record, ended, calls = self.go(said, write=note, task=talk, records=records, context=context)
+            finally:
+                support.facts = orig
+            self.assertEqual([(r["on"], r["index"], r["since"]) for r in got],
+                             [("PRRT_kw7", 0, since), ("item", 0, since), ("item", 1, since)], since)
+        def first_fails(kind, req):
+            return {"state": "failed", "reason": "write_refused"} if req["on"] == "item" else \
+                {"state": "failed", "reason": "not_built"}
+        support.facts = lambda **over: orig(**dict({"threads": facts_threads["threads"]}, **over))
+        try:
+            record, ended, calls = self.go(said, write=first_fails, task=talk)
+        finally:
+            support.facts = orig
+        self.assertEqual([(e["id"], e["reason"]) for e in record["effects"]],
+                         [("e1", "not_built"), ("e2", "write_refused"), ("e3", "earlier_comment_unwritten")])
+        self.assertEqual(len(calls["written"]), 2)
         # A token that cannot be minted, or an Effect the App may not write, writes nothing.
         record, ended, calls = self.go(review_only, mint_refuses="token_refused")
         self.assertEqual((ended["outcome"], ended["reason"], calls["written"]), ("environment", "token_refused", []))

@@ -232,12 +232,14 @@ THREAD_ID = re.compile(r"PRRT_[A-Za-z0-9_-]+")
 SINCE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 
 
-def role_permits(item: dict) -> tuple:
+def role_permits(item: dict, head: str, name: str, threads) -> tuple:
     """`(permits, patterns)`: what a Role App's token may send on one item, for `Allowed`. A review on it, a comment
-    on it, a thread's resolution, and the reads that recover and read each back; nothing else, on no other item."""
+    on it, its check run, named `name`, on its head, `head`, the resolution of one of its threads, `threads`, and the
+    reads that recover and read each back; nothing else, on no other item."""
+    threads = frozenset(threads)
     repo, number = item["repo"], item["number"]
     pull, issue = "/repos/%s/pulls/%d" % (repo, number), "/repos/%s/issues/%d" % (repo, number)
-    owner, name = repo.split("/")
+    owner, repo_name = repo.split("/")
 
     def nothing(body) -> bool:
         return body is None
@@ -253,14 +255,15 @@ def role_permits(item: dict) -> tuple:
         if not isinstance(body, dict) or set(body) != {"query", "variables"}:
             return False
         if body["query"] == THREADS:
-            return body["variables"] == {"owner": owner, "name": name, "number": number}
+            return body["variables"] == {"owner": owner, "name": repo_name, "number": number}
         return (body["query"] in (THREAD, RESOLVE) and set(body["variables"]) == {"id"}
-                and isinstance(body["variables"]["id"], str) and THREAD_ID.fullmatch(body["variables"]["id"]) is not None)
+                and isinstance(body["variables"]["id"], str) and THREAD_ID.fullmatch(body["variables"]["id"]) is not None
+                and body["variables"]["id"] in threads)
     def check(body) -> bool:
         return (isinstance(body, dict) and set(body) == {"name", "head_sha", "external_id", "status", "conclusion",
                                                           "output"}
-                and body["status"] == "completed" and isinstance(body["head_sha"], str)
-                and SHA.fullmatch(body["head_sha"]) is not None)
+                and body["status"] == "completed" and body["name"] == name and body["head_sha"] == head
+                and isinstance(body["head_sha"], str) and SHA.fullmatch(body["head_sha"]) is not None)
     permits = {("GET", pull + "/reviews?per_page=100"): nothing, ("POST", pull + "/reviews"): review,
                ("POST", issue + "/comments"): comment, ("POST", "/graphql"): graphql,
                ("POST", "/repos/%s/check-runs" % repo): check}
@@ -389,6 +392,8 @@ def _check(transport, item: dict, req: dict, login: str) -> dict:
     back = _body(_sent(transport, request("GET", "/repos/%s/check-runs/%d" % (repo, cid))), 200) \
         if type(cid) is int else None
     if not (isinstance(back, dict) and back.get("id") == cid and back.get("external_id") == req["external_id"]
+            and back.get("name") == req["name"] and back.get("status") == "completed"
+            and back.get("conclusion") == req["conclusion"]
             and back.get("head_sha") == req["commit"] and isinstance(back.get("app"), dict)
             and back["app"].get("slug") == app and isinstance(back.get("output"), dict)
             and back["output"].get("annotations_count") == len(req["annotations"])
@@ -405,12 +410,14 @@ def _threads(transport, item: dict, review: int):
         "query": THREADS, "variables": {"owner": owner, "name": name, "number": item["number"]}})))
     try:
         threads = data["repository"]["pullRequest"]["reviewThreads"]
-        if threads["totalCount"] > 100:
+        if threads["totalCount"] > 100 or threads["totalCount"] != len(threads["nodes"]):
             return None
         opened = []
         for node in threads["nodes"]:
             first = node["comments"]["nodes"][0]
             if (first["pullRequestReview"] or {}).get("databaseId") == review:
+                if type(first["databaseId"]) is not int:
+                    return None
                 opened.append((first["databaseId"], node["id"]))
     except (KeyError, TypeError, IndexError):
         return None
