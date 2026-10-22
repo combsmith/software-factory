@@ -412,12 +412,15 @@ class EvalJob(unittest.TestCase):
         return github.Replay([home_file(i, d) for i, d in cases.items()])
 
     def test_a_set_of_no_case_ends_the_run_before_anything_is_read(self):
+        import os
         # Ruling 8: the set this repo holds today has no case; the run says so and makes nothing, not even the scratch.
         from harness import eval as job
         self.assertEqual(self.step_root(job.plan), "eval_set_empty")
         self.assertEqual(list(self.temp.iterdir()), [])
         for env, code in (({"RELEASE": "v0.1.0"}, "release_unreadable"), ({"RELEASE": None}, "release_unreadable"),
-                          ({"GITHUB_SHA": "a" * 39}, "commit_unreadable"), ({"RUNNER_TEMP": "."}, "scratch_unreadable"),
+                          ({"GITHUB_SHA": "a" * 39}, "commit_unreadable"),
+                          # A relative path is refused, even one to a directory that could be the scratch.
+                          ({"RUNNER_TEMP": os.path.relpath(str(self.temp))}, "scratch_unreadable"),
                           ({"RUNNER_TEMP": str(self.work)}, "scratch_in_workspace"),
                           ({"RUNNER_TEMP": str(self.work / "deeper")}, "scratch_in_workspace")):
             self.assertEqual(self.step(job.plan, env=env), code, env)
