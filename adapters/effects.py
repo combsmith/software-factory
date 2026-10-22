@@ -4,9 +4,9 @@ names and nothing else (design sections 3.6 and 4.9; #193's rulings for PR 2, po
 `apply` takes the pass's plan, `writes/1`, and the pass record it was planned from, and returns `written/1`: what each
 write did, as read back. Before anything is sent the plan is held to the record: the same pass and Release, ids in
 order, and every write but a last successor exactly the ones the record's Decisions call for, all of them, in their
-order, each dispatch under the run-name its Decision gives it, an approval's under the configuration's owner Role. A
-plan that is not the record's is refused whole, and nothing is sent (I-22). The successor alone is not in the record:
-it is a dispatch of the poller, which carries nothing.
+order, each dispatch under the run-name its Decision gives it, an approval's under the configuration's owner Role, and
+a successor exactly where the record says the pass decided one. A plan that is not the record's is refused whole, and
+nothing is sent (I-22).
 
 A dispatch is the pass job's own token's (`WORKFLOW_TOKEN`), whose account the records port counts a Run by (P-9;
 #196's ruling 10). Its transport may send nothing but a dispatch of the three workflow files the configuration names,
@@ -115,7 +115,10 @@ def _held(writes: dict, record: dict, owner_role: str) -> None:
     planned = writes["writes"]
     if [w["id"] for w in planned] != ["w%d" % (n + 1) for n in range(len(planned))]:
         raise Refused("the plan's ids are not w1, w2 and so on, in order")
-    if planned and planned[-1]["type"] == "dispatch_successor":
+    successor = bool(planned) and planned[-1]["type"] == "dispatch_successor"
+    if successor != (record.get("successor") is True):
+        raise Refused("a successor the record did not decide, or none where it did")
+    if successor:
         last = planned[-1]
         if any((last["item"], last["run"], last["name"], last["action"])):
             raise Refused("a successor that names an item, a Run or an act")
@@ -196,6 +199,9 @@ def refused_all(writes, record, reason: str) -> dict:
 def main(argv=None, environ=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     environ = os.environ if environ is None else environ
+    if len(argv) != 3 or not pathlib.Path(argv[2]).is_dir() or not os.access(argv[2], os.W_OK):
+        print("usage: python3 -m adapters.effects PASS WRITES OUT, OUT a folder it can write; nothing was sent")
+        return 2
     record, writes = (json.loads(pathlib.Path(p).read_text()) for p in argv[:2])
     config = json.loads((ROOT / "config" / "controller.json").read_text())
     owner_role = json.loads((ROOT / "config" / "defaults.json").read_text())["owner_role"]

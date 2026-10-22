@@ -135,10 +135,11 @@ class Effects(unittest.TestCase):
             self.assertEqual(len({json.dumps(r["body"], sort_keys=True) for r in counted.sent}), 3)
 
     def test_a_refused_token_ends_every_later_write_on_it(self):
-        got, replay = self.send(*self.dispatches(statuses=(401, 204, 204))[:1])
-        self.assertEqual([(w["state"], w["reason"]) for w in got["writes"][1:]],
-                         [("refused", "token_refused")] * 3)
-        self.assertEqual(replay._left, [])
+        for status in (401, 403):
+            got, replay = self.send(*self.dispatches(statuses=(status, 204, 204))[:1])
+            self.assertEqual([(w["state"], w["reason"]) for w in got["writes"][1:]],
+                             [("refused", "token_refused")] * 3, status)
+            self.assertEqual(replay._left, [])
 
     def test_nothing_is_dispatched_that_the_records_port_could_not_count(self):
         # I-34: while the configuration names no account for the workflow's own token, no Run and no approval is
@@ -236,6 +237,18 @@ class Effects(unittest.TestCase):
             self.assertEqual(len(replay._left), 3)
         with self.assertRaises(effects.Refused):
             effects.apply(plan, other, {"workflow": github.Replay(self.dispatches())}, controller(), OWNER)
+        # A successor exactly where the record says the pass decided one: added to a pass that decided none, or
+        # dropped from one that did, the plan is refused.
+        quiet = passed(reads(pulls=[pr(7)]))
+        self.assertIs(quiet["record"]["successor"], False)
+        added = writes_.plan(quiet)
+        added["writes"].append({"id": "w2", "type": "dispatch_successor", "item": None, "run": None, "name": None,
+                                "action": None})
+        dropped = copy.deepcopy(plan)
+        dropped["writes"].pop()
+        for bad, record in ((added, quiet["record"]), (dropped, o["record"])):
+            with self.assertRaises(effects.Refused):
+                effects.apply(bad, record, {"workflow": github.Replay(self.dispatches())}, controller(), OWNER)
         # An approval's run-name holds the configuration's owner Role, and no other.
         with self.assertRaises(effects.Refused):
             effects.apply(plan, o["record"], {"workflow": github.Replay(self.dispatches())}, controller(), "dev-lead")
@@ -275,6 +288,11 @@ class Effects(unittest.TestCase):
         self.assertEqual({(w["state"], w["reason"]) for w in unreadable["writes"]}, {("refused", "token_unreadable")})
         self.assertEqual({(w["state"], w["reason"]) for w in refused["writes"]}, {("refused", "plan_refused")})
         self.assertEqual(len(refused["writes"]), 4)
+        # A step given no folder it can write to sends nothing, and says so.
+        counted = Counted()
+        self.assertEqual(effects.main(["pass.json", "writes.json"], environ={}), 2)
+        self.assertEqual(effects.main(["pass.json", "writes.json", "/no/such/folder"], environ={}), 2)
+        self.assertEqual(counted.sent, [])
         # A pass whose only write is an act no write serves fails nothing.
         self.assertFalse(effects.failed({"writes": [{"state": "refused", "reason": "not_built"}]}))
         self.assertTrue(effects.failed({"writes": [{"state": "failed", "reason": "dispatch_unanswered"}]}))
