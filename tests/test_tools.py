@@ -4984,6 +4984,176 @@ esac
         self.assertFalse((ROOT / "never-made-p52").exists())
 
 
+class WindowTwoApps(unittest.TestCase):
+    """`tools/trial_window2.sh` (issues 185 and 250), run against a stand-in gh, curl and openssl that act out GitHub's
+    answers: each App runs only its own actions, the token is minted for the one repo and narrowed where the action
+    says, a refusal is kept as GitHub gave it, threads are resolved only where the action says, and the token is revoked
+    last, never reaching a command line."""
+
+    SCRIPT = ROOT / "tools" / "trial_window2.sh"
+    TOKEN = "ghs_" + "W" * 36
+    REPO = "combsmith/" + check_trials.CANARY
+    # The stand-in gh: GitHub's answer to each call, from the files beside it; it records each call and its token.
+    GH = r'''#!/usr/bin/env python3
+import json, os, pathlib, sys
+here = pathlib.Path(__file__).resolve().parent
+args = sys.argv[1:]
+with open(here / "calls", "a") as calls:
+    calls.write(json.dumps({"argv": args, "token": os.environ.get("GH_TOKEN")}) + "\n")
+def answer(status, body):
+    print("HTTP/2.0 %d X\nContent-Type: application/json\n" % status)
+    if body is not None:
+        print(json.dumps(body))
+    sys.exit(0 if status < 400 else 1)
+refused = lambda name: (here / ("refuse-" + name)).exists()
+if args[1] == "graphql":
+    query = next(a.split("=", 1)[1] for a in args if a.startswith("query="))
+    for word in ("enqueuePullRequest", "dequeuePullRequest", "enablePullRequestAutoMerge"):
+        if word in query:
+            if refused(word):
+                answer(200, {"errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]})
+            answer(200, {"data": {word: {"mergeQueueEntry": {"id": "MQE_1", "state": "QUEUED"}}}})
+    if "resolveReviewThread" in query:
+        answer(200, {"data": {"resolveReviewThread": {"thread": {"id": "x", "isResolved": True}}}})
+    if "mergeQueue" in query:
+        answer(200, {"data": {"repository": {"mergeQueue": {"entries": {"totalCount": 1, "nodes": []}}, "pullRequest": {"isInMergeQueue": True}}}})
+    def thread(n, login, kind, resolved=False):
+        return {"id": "PRRT_T%d" % n, "isResolved": resolved, "resolvedBy": None,
+                "comments": {"nodes": [{"databaseId": n, "author": {"login": login, "__typename": kind}, "body": "b"}]}}
+    nodes = [thread(1, "coderabbitai", "Bot"), thread(2, "combsmith-sf-pr-review", "Bot"), thread(3, "don-petry", "User"),
+             thread(4, "combsmith-sf-trial-author", "Bot"), thread(5, "combsmith-sf-trial-author", "Bot"),
+             thread(6, "combsmith-sf-trial-author", "Bot", resolved=True)]
+    answer(200, {"data": {"repository": {"pullRequest": {"reviewThreads": {"totalCount": 6, "pageInfo": {"hasNextPage": False}, "nodes": nodes}}}}})
+method = args[args.index("-X") + 1]
+path = next(a for a in args[2:] if not a.startswith("-") and a not in (method,) and not a.startswith(("Accept:", "X-GitHub")))
+repo = os.environ["STANDIN_REPO"]
+if path == "installation/token":
+    answer(204, None)
+if path == "repos/%s/pulls/7" % repo:
+    answer(200, {"number": 7, "state": "open", "node_id": os.environ.get("STANDIN_NODE", "PR_kwDOA7")})
+if path.endswith("/reviews") and method == "POST":
+    answer(200, {"id": 1})
+if "/dismissals" in path:
+    answer(403 if refused("dismiss") else 200, {"state": "DISMISSED"})
+if path.endswith("/reviews/99"):
+    answer(200, {"id": 99, "state": "DISMISSED"})
+if path.endswith("/check-runs"):
+    answer(201, {"id": 5, "name": "x"})
+if "/labels" in path:
+    answer(200, [])
+answer(404, {"message": "the stand-in does not know " + path})
+'''
+    CURL = r'''#!/usr/bin/env python3
+import json, pathlib, sys
+here = pathlib.Path(__file__).resolve().parent
+args = sys.argv[1:]
+sys.stdin.read()
+sent = args[args.index("--data-binary") + 1] if "--data-binary" in args else None
+with open(here / "curl-calls", "a") as calls:
+    calls.write(json.dumps({"argv": args, "sent": sent}) + "\n")
+url = args[-1]
+if url.endswith("/installation"):
+    print("HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n" + json.dumps({"id": 42}))
+elif url.endswith("/access_tokens"):
+    print("HTTP/2.0 201 Created\r\nContent-Type: application/json\r\n\r\n" + json.dumps({"token": "''' + "ghs_" + "W" * 36 + r'''", "permissions": json.loads(sent).get("permissions", {"pull_requests": "write"})}))
+'''
+    OPENSSL = r'''#!/bin/sh
+case "$1" in
+  base64) /usr/bin/base64 | tr -d '\n' ;;
+  dgst) cat > /dev/null; printf 'signature' ;;
+esac
+'''
+
+    def run_window(self, *args, refuse=(), **env) -> tuple:
+        bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        for name, text in (("gh", self.GH), ("curl", self.CURL), ("openssl", self.OPENSSL)):
+            (bin_ / name).write_text(text)
+            (bin_ / name).chmod(0o755)
+        for name in refuse:
+            (bin_ / ("refuse-" + name)).write_text("")
+        key = bin_ / "key.pem"
+        key.write_text("not a key: the stand-in openssl never reads it\n")
+        ran = subprocess.run(["bash", str(self.SCRIPT), args[0], args[1], str(key), self.REPO, *args[2:]],
+                             capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
+                             env={"PATH": "%s:/usr/bin:/bin" % bin_, "HOME": str(bin_), "LANG": "C", "STANDIN_REPO": self.REPO,
+                                  "TMPDIR": str(pathlib.Path(SCRATCH.name).resolve()), **env})
+        calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()] if (bin_ / "calls").exists() else []
+        minted = [json.loads(line) for line in (bin_ / "curl-calls").read_text().splitlines()] if (bin_ / "curl-calls").exists() else []
+        out = next((pathlib.Path(line.strip()) for line in ran.stdout.splitlines() if line.startswith("  /")), None)
+        return ran, calls, minted, out
+
+    def queries(self, calls) -> list:
+        """Each call as a word: a GraphQL mutation by its name, a GraphQL read as read, a REST call as METHOD PATH."""
+        said = []
+        for c in calls:
+            argv = c["argv"]
+            if argv[1] == "graphql":
+                query = next(a.split("=", 1)[1] for a in argv if a.startswith("query="))
+                said.append(query.split("{", 1)[1].strip().split("(")[0] if query.startswith("mutation") else "read")
+            else:
+                method = argv[argv.index("-X") + 1]
+                path = next(a for a in argv[2:] if not a.startswith("-") and a != method and not a.startswith(("Accept:", "X-GitHub")))
+                said.append(method + " " + path)
+        return said
+
+    def test_each_action_asks_what_it_says_with_one_token_for_the_repo_revoked_last(self):
+        cases = [
+            (("trial-author", "comments", "7", "p23/notes.md", "3"), ["GET repos/%s/pulls/7", "POST repos/%s/pulls/7/reviews"]),
+            (("pr-review", "enqueue", "7"), ["GET repos/%s/pulls/7", "enqueuePullRequest"]),
+            (("pr-review", "automerge", "7"), ["GET repos/%s/pulls/7", "enablePullRequestAutoMerge"]),
+            (("pr-review", "dequeue", "7", "pull_requests=write"), ["GET repos/%s/pulls/7", "dequeuePullRequest"]),
+            (("pr-review", "resolve", "7"), ["read", "resolveReviewThread", "resolveReviewThread", "resolveReviewThread",
+                                              "resolveReviewThread", "read"]),
+            (("pr-review", "burst", "7"), ["read", "resolveReviewThread", "resolveReviewThread", "read"]),
+            (("pr-review", "dismiss", "7", "99"), ["PUT repos/%s/pulls/7/reviews/99/dismissals", "GET repos/%s/pulls/7/reviews/99"]),
+            (("pr-review", "check", "a" * 40, "factory / review"), ["POST repos/%s/check-runs"]),
+            (("controller", "queue", "7", "metadata=read"), ["read"]),
+            (("controller", "label", "7", "factory:hold"), ["POST repos/%s/issues/7/labels", "DELETE repos/%s/issues/7/labels/factory:hold"]),
+        ]
+        for args, asked in cases:
+            ran, calls, minted, out = self.run_window(*args)
+            self.assertEqual(ran.returncode, 0, (args, ran.stderr))
+            self.assertEqual(self.queries(calls), [a % self.REPO if "%s" in a else a for a in asked] + ["DELETE installation/token"], args)
+            # One token, minted for the one repo and narrowed where the action narrows it, reaching gh by its environment.
+            body = json.loads(minted[1]["sent"])
+            self.assertEqual(body["repositories"], [check_trials.CANARY], args)
+            self.assertEqual(body.get("permissions"), dict(p.split("=") for p in args[3].split(",")) if args[1] in ("dequeue", "queue") else None, args)
+            self.assertEqual({c["token"] for c in calls}, {self.TOKEN}, args)
+            self.assertTrue(all(self.TOKEN not in " ".join(c["argv"]) for c in calls + minted), args)
+            self.assertNotIn(self.TOKEN, (out / "exchanges.json").read_text() + ran.stdout + ran.stderr, args)
+
+    def test_resolve_leaves_the_apps_own_threads_and_burst_resolves_the_trial_authors_alone(self):
+        for action, ids in (("resolve", ["PRRT_T1", "PRRT_T3", "PRRT_T4", "PRRT_T5"]), ("burst", ["PRRT_T4", "PRRT_T5"])):
+            ran, calls, minted, out = self.run_window("pr-review", action, "7")
+            self.assertEqual(ran.returncode, 0, ran.stderr)
+            sent = [next(a.split("=", 1)[1] for a in c["argv"] if a.startswith("id=")) for c in calls
+                    if any("resolveReviewThread" in a for a in c["argv"])]
+            self.assertEqual(sent, ids, action)
+
+    def test_a_refusal_is_kept_and_the_token_still_revoked(self):
+        for args, refuse in ((("pr-review", "dequeue", "7", "metadata=read"), "dequeuePullRequest"),
+                             (("pr-review", "dismiss", "7", "99"), "dismiss")):
+            ran, calls, minted, out = self.run_window(*args, refuse=(refuse,))
+            self.assertEqual(ran.returncode, 0, (args, ran.stderr))
+            exchanges = json.loads((out / "exchanges.json").read_text())["exchanges"]
+            said = json.dumps([e["response"] for e in exchanges])
+            self.assertTrue("FORBIDDEN" in said or '"status": 403' in said, args)
+            self.assertEqual(self.queries(calls)[-1], "DELETE installation/token", args)
+
+    def test_an_app_runs_only_its_own_actions_and_nothing_unshaped_is_sent(self):
+        for args in (("controller", "dismiss", "7", "99"), ("pr-review", "label", "7", "x"), ("reader", "queue", "7", "metadata=read"),
+                     ("trial-author", "enqueue", "7"), ("pr-review", "dequeue", "7", "pull_requests=write;rm"),
+                     ("pr-review", "check", "abc", "x"), ("controller", "label", "7", "a b")):
+            ran, calls, minted, out = self.run_window(*args)
+            self.assertEqual(ran.returncode, 2, args)
+            self.assertEqual((calls, minted), ([], []), args)
+        # A node id read that is not one is not sent; the run fails and the token is still revoked.
+        ran, calls, minted, out = self.run_window("pr-review", "enqueue", "7", STANDIN_NODE="../graphql")
+        self.assertNotEqual(ran.returncode, 0)
+        self.assertEqual([q for q in self.queries(calls) if q == "enqueuePullRequest"], [])
+        self.assertEqual(self.queries(calls)[-1], "DELETE installation/token")
+
+
 class Redaction(unittest.TestCase):
     """`tools/redact_trial.py` runs on the raw capture, outside the repo, before anyone reads it."""
 
