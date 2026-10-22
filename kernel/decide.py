@@ -99,11 +99,19 @@ def still_wanted(decided: dict, again: dict) -> bool:
     issue's. An approval is still wanted only if the approval is issued again, for the same item and content. So a Hold,
     a Pause, a close, new content, a Run in flight, a writer's gate, a wait for a person and an approver who is now the
     author each stop it. Anything else, or anything that cannot be read, is not wanted."""
-    if not isinstance(decided, dict) or not isinstance(again, dict) or again.get("item") != decided.get("item"):
+    if not isinstance(decided, dict) or not isinstance(again, dict) or not isinstance(decided.get("item"), dict) \
+            or again.get("item") != decided.get("item"):
         return False
-    if decided.get("admit") is not None:
-        return again.get("admit") == decided.get("admit")
-    if decided.get("outcome") != t.ACT or decided.get("action") != "issue_approval" or decided.get("content_id") is None:
+    admit = decided.get("admit")
+    if admit is not None:
+        # A Run named in part is no Run: an unreadable part never matches itself, and only an admission admits.
+        whole = isinstance(admit, dict) and all(isinstance(admit.get(part), str) and admit.get(part)
+                                                for part in ("role", "intent", "content_id"))
+        return (whole and decided.get("outcome") == t.ADMIT and again.get("outcome") == t.ADMIT
+                and again.get("admit") == admit)
+    content = decided.get("content_id")
+    if decided.get("outcome") != t.ACT or decided.get("action") != "issue_approval" or not isinstance(content, str) \
+            or not content:
         return False
     return (again.get("outcome") == t.ACT and again.get("action") == "issue_approval"
             and again.get("content_id") == decided.get("content_id"))

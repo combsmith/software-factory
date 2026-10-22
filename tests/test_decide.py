@@ -3769,9 +3769,6 @@ class NotYetHeld(unittest.TestCase):
     """Rules that are decided and that the Kernel does not hold yet. See `pending` in tests/support.py."""
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class StillWanted(unittest.TestCase):
     """Issue 195, ruling 4 (I-38): an act or a Run asks the Kernel again on what it just read before it writes, and
@@ -3804,11 +3801,34 @@ class StillWanted(unittest.TestCase):
             self.assertFalse(still_wanted(admitted, again), again["reason"])
         for admit in (dict(REVIEW_IT, role="dev-lead"), dict(REVIEW_IT, intent="fix-findings"), None):
             self.assertFalse(still_wanted(admitted, dict(admitted, admit=admit)), admit)
+        # The Decision's own act is read: an enqueue, or a deferral that names the approval, wants no approval, whatever
+        # the Kernel decides again (the fresh review).
+        enqueue = go(facts(reviews=APPROVED), REVIEWED)
+        self.assertEqual(enqueue["action"], "enqueue")
+        self.assertFalse(still_wanted(dict(enqueue, content_id=approval["content_id"]), approval))
+        for outcome in ("defer", "nothing", "hold", "admit"):
+            self.assertFalse(still_wanted(dict(approval, outcome=outcome), approval), outcome)
         # Neither an approval nor a Run: an enqueue, a deferral or nothing is never still wanted, even by its twin.
         for d in (go(facts(reviews=APPROVED), REVIEWED), go(facts(), ctx=context(paused=True)),
                   go(facts(label_events=[labelled("factory:hold")]))):
             self.assertFalse(still_wanted(d, d), d["reason"])
+        # An item or a Run that cannot be read wants nothing, even of its twin (Argon's read).
+        for d in (dict(approval, item=None), dict(admitted, item=None), dict(admitted, admit={}),
+                  dict(admitted, admit=dict(REVIEW_IT, content_id=None)), dict(admitted, admit=dict(REVIEW_IT, role=None)),
+                  dict(admitted, admit=dict(REVIEW_IT, intent=None)), dict(admitted, admit="pr-review"),
+                  dict(admitted, admit=dict(REVIEW_IT, role="")), dict(admitted, admit=dict(REVIEW_IT, content_id=7)),
+                  dict(approval, content_id=""), dict(approval, content_id=7)):
+            self.assertFalse(still_wanted(d, d), (d.get("admit"), d.get("content_id")))
+        # Only an admission admits, on either side, and only for its own item (Muse's read).
+        for outcome in ("hold", "defer", "nothing", "act"):
+            self.assertFalse(still_wanted(admitted, dict(admitted, outcome=outcome)), outcome)
+            self.assertFalse(still_wanted(dict(admitted, outcome=outcome), admitted), outcome)
+        self.assertFalse(still_wanted(admitted, dict(admitted, item=dict(admitted["item"], number=43))))
         # What cannot be read wants nothing.
         for bad in (None, [], "act", {}):
             self.assertFalse(still_wanted(approval, bad), bad)
             self.assertFalse(still_wanted(bad, approval), bad)
+
+if __name__ == "__main__":
+    unittest.main()
+
