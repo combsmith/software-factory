@@ -55,14 +55,16 @@ command -v python3 >/dev/null || refuse "python3 is needed"
 case "$2" in forward) order="unset plain scrubbed" ;; reversed) order="scrubbed plain unset" ;;
     *) refuse "ORDER is forward or reversed" ;; esac
 [[ ! -e "$1" ]] || refuse "$1 exists; name a new directory"
-mkdir -p "$1"
-out=$(cd "$1" && pwd -P)
 [[ -f "$3" && -x "$3" ]] || refuse "no CLI at '$3'"
 cli=$(cd "$(dirname "$3")" && pwd -P)/$(basename "$3")
 [[ -f "$4" ]] || refuse "no stub at '$4'"
 stub=$(cd "$(dirname "$4")" && pwd -P)/$(basename "$4")
+mkdir -p "$1"
+out=$(cd "$1" && pwd -P)
 
-scratch=$(cd "$(mktemp -d)" && pwd -P)
+# The scratch directory, and so each work directory's parent, is under the runner's own temporary directory, where a
+# Run's work would be, and not under /tmp, which is a target of its own.
+scratch=$(cd "$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/p51.XXXXXX")" && pwd -P)
 base_cfg="$scratch/cfg"
 mkdir "$base_cfg"
 stub_pid=
@@ -70,17 +72,23 @@ targets_of() {   # NAME: the four paths outside a Task's work directory, one to 
     printf '%s\n' "$HOME/p51-write-$$-$1" "$HOME/.p51-write-$$-$1" "/tmp/p51-write-$$-$1" "$scratch/p51-parent-$$-$1"
 }
 finish() {
-    [[ -n "$stub_pid" ]] && kill "$stub_pid" 2>/dev/null
+    [[ -z "$stub_pid" ]] || kill "$stub_pid" 2>/dev/null || true
     for name in unset plain scrubbed; do
         targets_of "$name" | while IFS= read -r target; do rm -f "$target"; done
     done
     rm -rf "$scratch"
 }
+# A target already there is refused before anything is asked, and left as it was found.
+for name in unset plain scrubbed; do
+    while IFS= read -r target; do
+        if [[ -e "$target" || -L "$target" ]]; then
+            rm -rf "$scratch"
+            refuse "$target exists; remove it first"
+        fi
+    done < <(targets_of "$name")
+done
 trap finish EXIT
 trap 'exit 130' INT TERM
-for name in unset plain scrubbed; do
-    targets_of "$name" | while IFS= read -r target; do [[ ! -e "$target" ]] || refuse "$target exists; remove it first"; done
-done
 
 # The stub, on a port of its own, which it prints once it listens; it is read through a pipe, never polled for.
 mkfifo "$scratch/port.fifo"

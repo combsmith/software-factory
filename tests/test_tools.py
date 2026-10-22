@@ -3452,7 +3452,7 @@ class Trials(unittest.TestCase):
         # computed from what it recorded, and the fail follows: with the scrub at 1 every write outside the work
         # directory landed, in both orders; unset or 0, none did.
         p51 = json.loads((ROOT / "trials" / "P-51.json").read_text())
-        log, analysis = p51["exchanges"][6]["response"]["body"], p51["exchanges"][-1]["response"]["body"]
+        log, analysis = p51["exchanges"][8]["response"]["body"], p51["exchanges"][-1]["response"]["body"]
         printed, lines, inside = {}, [], False
         for line in log.splitlines():
             said = re.match(r"^[^\t]*\t[^\t]*\t\S+Z (.*)$", line)
@@ -3463,7 +3463,7 @@ class Trials(unittest.TestCase):
                 document, inside = json.loads("\n".join(lines)), False
                 printed[document["order"]] = document
         self.assertEqual(printed, analysis["orders"], "the analysis is what the log printed")
-        for i, name in ((4, "p51/run.sh"), (5, "p51/stub.py")):
+        for i, name in ((6, "p51/run.sh"), (7, "p51/stub.py")):
             self.assertEqual(p51["exchanges"][i]["response"]["body"]["sha"], analysis["copied_whole"][name]["canary"])
             self.assertEqual(len(set(analysis["copied_whole"][name].values())), 1, name + " ran as it was in tools/")
         for order, checked in printed.items():
@@ -4755,7 +4755,7 @@ if not failed and not (here / "no-tool").exists():
     subprocess.run(["sh", "./probe.run"], timeout=30, check=False)
 post({"model": "m", "max_tokens": 8, "stream": True, "tools": tools,
       "messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": start["id"], "content": "ran", "is_error": failed}]}]})
-print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "num_turns": 2, "result": "done"}))
+print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "is-error").exists(), "num_turns": 2, "result": "done"}))
 '''
 
     def stand_in(self, lands=None, flags=(), after=None) -> pathlib.Path:
@@ -4778,7 +4778,7 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "nu
     def run_script(self, folder, order="forward") -> tuple:
         home = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
-        env = {"PATH": os.environ["PATH"], "HOME": str(home), "LANG": "C"}
+        env = {"PATH": os.environ["PATH"], "HOME": str(home), "LANG": "C", "TMPDIR": str(pathlib.Path(SCRATCH.name).resolve())}
         ran = subprocess.run(["bash", str(self.SCRIPT), str(out), order, str(folder / "claude"), str(self.STUB)],
                              cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=120, stdin=subprocess.DEVNULL)
         return home, out, ran
@@ -4796,7 +4796,9 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "nu
             ("the tool's result is an error", dict(flags=("tool-error",)), "forward", False, {}),
             ("the probe never ran", dict(flags=("no-tool",)), "forward", False, {}),
             ("the version moved under the run", dict(after="9.9.9"), "forward", False, {}),
+            ("the Task said it failed", dict(flags=("is-error",)), "forward", False, {}),
         ]
+        left = set(pathlib.Path("/tmp").glob("p51-write-*"))
         def one(case):
             name, kwargs, order, passes, landed = case
             folder = self.stand_in(**kwargs)
@@ -4810,15 +4812,18 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "nu
             self.assertEqual([p["configuration"] for p in checked["configurations"]], want, name)
             self.assertEqual(checked["every_configuration_passes"], passes, name)
             flags = kwargs.get("flags", ())
+            ran_probe = not set(flags) & {"tool-error", "no-tool"}
             for part in checked["configurations"]:
                 where = (name, part["configuration"])
+                self.assertEqual(part["holds"]["answered"], "is-error" not in flags, where)
                 self.assertEqual(sorted(n for n in names if part["writes"][n]["landed"]), sorted(landed.get(part["configuration"], [])), where)
-                self.assertEqual(part["probe_ran"], not flags, where)
-                self.assertEqual(part["inside"]["landed"], not flags, where + ("the control",))
+                self.assertEqual(part["probe_ran"], ran_probe, where)
+                self.assertEqual(part["inside"]["landed"], ran_probe, where + ("the control",))
                 self.assertEqual(part["holds"]["tool_ran"], "tool-error" not in flags, where)
-                self.assertEqual(part["holds"]["every_write_held"], not flags and not landed.get(part["configuration"]), where)
+                self.assertEqual(part["holds"]["every_write_held"], ran_probe and not landed.get(part["configuration"]), where)
             # Nothing the probe wrote outside is left, in the home directory or in /tmp.
             self.assertEqual([q.name for q in home.iterdir() if "p51-" in q.name], [], name)
+        self.assertEqual(set(pathlib.Path("/tmp").glob("p51-write-*")) - left, set(), "nothing is left in /tmp")
 
     def test_each_configuration_is_given_its_scrub_alone_and_a_directory_of_its_own(self):
         folder = self.stand_in()
