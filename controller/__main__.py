@@ -150,7 +150,7 @@ def write(out: dict, directory: str) -> None:
     files.update({os.path.join("view", "%s.json" % name): out["view"][name] for name in VIEW})
     os.mkdir(os.path.join(directory, "view"))
     for name, document in files.items():
-        made = os.open(os.path.join(directory, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+        made = os.open(os.path.join(directory, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with open(made, "w", encoding="utf-8") as f:
             f.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
 

@@ -754,6 +754,7 @@ class Entry(unittest.TestCase):
             named = ["pass.json", "writes.json"] + ["view/%s.json" % v for v in entry.VIEW]
             files = {n: json.loads(pathlib.Path(d, "out", n).read_text()) for n in named
                      if pathlib.Path(d, "out", n).is_file()}
+            self.modes = {n: pathlib.Path(d, "out", n).stat().st_mode & 0o777 for n in files}
         return code, printed.getvalue(), files, slept
 
     def test_the_entry_reads_through_the_ports_and_hands_the_pass_nothing_else(self):  # #193 ruling 10, #196 PR 2
@@ -783,6 +784,8 @@ class Entry(unittest.TestCase):
                                  "pull_requests": "read"})
         self.assertEqual({m for _, m, p in through[2:] if m != "GET"}, {"POST", "DELETE"})
         self.assertEqual({p for _, m, p in through[2:] if m == "POST"}, {"/graphql"})
+        # Each file it writes is its own user's alone to read.
+        self.assertEqual(set(self.modes.values()), {0o600})
         # Nothing it prints is a key, a token or GitHub's.
         self.assertNotIn(self.TOKEN, printed)
         # A Pause that cannot be read is unreadable; one GitHub holds as none is no Pause.
