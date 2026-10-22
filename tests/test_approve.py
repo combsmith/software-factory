@@ -85,7 +85,7 @@ DEFAULT = object()
 
 def act(github=None, rec=DEFAULT, read=None, run_id=RUN):
     github = GitHub() if github is None else github
-    port = approve.Port(effects.Approving(github, ITEM, HEAD), APPROVER)
+    port = approve.Port(github, APPROVER)
     config = {"approver": APPROVER, "kernel": CONFIG, "github_run": GITHUB_RUN, "release": "factory/v0.3.1"}
     done, ended = approve.job(record() if rec is DEFAULT else rec, run_id, reads() if read is None else read, port,
                               config, NOW)
@@ -161,9 +161,32 @@ class TheAct(unittest.TestCase):
             with self.assertRaises(Unanswered, msg=variables):
                 token.send({"method": "POST", "path": "/graphql",
                             "body": {"query": threads.QUERY, "variables": variables}})
-        # And the act's whole run sends exactly one write.
+        # GraphQL bodies with more in them, another repo's name or a cursor that is no text are not this item's reads.
+        for body in ({"query": threads.QUERY, "variables": {"owner": owner, "name": "other", "number": 42}},
+                     {"query": threads.QUERY, "variables": {"owner": owner, "name": name, "number": 42}, "x": 1},
+                     {"query": threads.QUERY, "variables": {"owner": owner, "name": name, "number": 42, "after": 5}}):
+            with self.assertRaises(Unanswered, msg=body):
+                token.send({"method": "POST", "path": "/graphql", "body": body})
+        # Each step's transport is narrowed to it: with no item, only who the token is; with no head, no write.
+        bare, reading = effects.Approving(github), effects.Approving(github, ITEM)
+        bare.send({"method": "GET", "path": "/user", "body": None})
+        for req in ({"method": "GET", "path": PULL + "/reviews?per_page=100", "body": None},
+                    {"method": "POST", "path": "/graphql", "body": {"query": threads.QUERY, "variables": {
+                        "owner": owner, "name": name, "number": 42}}}):
+            with self.assertRaises(Unanswered):
+                bare.send(req)
+        with self.assertRaises(Unanswered):
+            reading.send({"method": "POST", "path": PULL + "/reviews", "body": {"commit_id": HEAD, "event": "APPROVE"}})
+        # And the act's whole run sends exactly one write, the approval of the head it read, whatever head that is.
         _, _, github = act()
         self.assertEqual(len(github.writes()), 1)
+        other = "ab" * 20
+        landed = dict(LANDED, commit_id=other)
+        github = GitHub({("POST", PULL + "/reviews"): {"status": 200, "body": landed},
+                         ("GET", PULL + "/reviews/7"): {"status": 200, "body": landed}})
+        done, ended, github = act(github, read=reads(head=other))
+        self.assertEqual((github.writes(), effect(done)[1]),
+                         ([("POST", PULL + "/reviews", {"commit_id": other, "event": "APPROVE"})], "applied"))
 
     def test_a_run_no_decision_issued_an_approval_for_finds_none_and_writes_nothing(self):  # section 3.5
         admitted = record(runs=[])
@@ -172,7 +195,11 @@ class TheAct(unittest.TestCase):
         unreadable["pull_requests"][0]["decision"]["outcome"] = "approve it"
         enqueue = record(facts(reviews=[review()]))
         self.assertEqual(enqueue["pull_requests"][0]["decision"]["action"], "enqueue")
-        for rec, run_id in ((record(), "r_01JA7R"), (admitted, RUN), (unreadable, RUN), (enqueue, RUN),
+        twice = record()
+        twice["pull_requests"].append(dict(twice["pull_requests"][0], facts=dict(
+            twice["pull_requests"][0]["facts"], item=dict(ITEM, number=43))))
+        twice["pull_requests"][1]["decision"] = dict(twice["pull_requests"][1]["decision"], item=dict(ITEM, number=43))
+        for rec, run_id in ((record(), "r_01JA7R"), (admitted, RUN), (unreadable, RUN), (enqueue, RUN), (twice, RUN),
                             ({"schema": "pass/1"}, RUN), (None, RUN), (record(entry_run=None), RUN)):
             done, ended, github = act(rec=rec, run_id=run_id)
             self.assertEqual(fault(ended), ("superseded", "no_decision"), run_id)
@@ -208,6 +235,13 @@ class TheAct(unittest.TestCase):
             done, ended, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [other]}))
             self.assertEqual(effect(done)[1:3], ("applied", NODE), other)
             self.assertEqual(len(github.writes()), 1)
+        # The approver's latest review of the commit is the one that stands: a request for changes after it supersedes
+        # the approval, which is approved afresh (the fresh review).
+        later = dict(landed, id=6, node_id="PRR_later", state="CHANGES_REQUESTED")
+        done, ended, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [landed, later]}))
+        self.assertEqual((effect(done)[1:3], len(github.writes())), (("applied", NODE), 1))
+        done, _, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [later, landed]}))
+        self.assertEqual((effect(done)[1:3], github.writes()), (("already_applied", "PRR_landed"), []))
         # A list that cannot be read, or may be cut short, recovers nothing and writes nothing.
         for answer, want in (({"status": 200, "body": {}}, "facts_unreadable"),
                              ({"status": 200, "body": [dict(landed, state="COMMENTED")] * 100}, "facts_unreadable"),
@@ -220,7 +254,7 @@ class TheAct(unittest.TestCase):
 
     def test_the_act_approves_only_what_the_kernel_asked_again_still_wants(self):  # I-38, issue 195 ruling 4.5
         stopped = [reads(facts(label_events=[labelled("factory:hold")])), reads(facts(content_id="sha256:bbbb")),
-                   reads(ctx=context(paused=True)), reads(ctx=context(paused=None)), reads(facts(author=APPROVER)),
+                   reads(ctx=context(paused=True)), reads(facts(author=APPROVER)),
                    reads(facts(state="closed")),
                    reads(runs=REVIEWED + [run(role="dev-lead", intent="fix-findings", status="in_progress", name="r7",
                                               at="2026-10-11T12:40:00Z")]),
@@ -275,6 +309,11 @@ class TheAct(unittest.TestCase):
             (GitHub(), failing(KeyError("x")), ("environment", "facts_unreadable"), "refused"),
             (GitHub(), reads(head="not a commit"), ("environment", "facts_unreadable"), "refused"),
             (GitHub(), reads(head=None), ("environment", "facts_unreadable"), "refused"),
+            (GitHub(), failing(IndexError("x")), ("environment", "facts_unreadable"), "refused"),
+            (GitHub(), reads(ctx=context(paused=None)), ("environment", "facts_unreadable"), "refused"),
+            (GitHub(), reads(ctx=context(paused="true")), ("environment", "facts_unreadable"), "refused"),
+            (posting({"status": 201, "body": LANDED}), None, ("environment", "not_read_back"), "failed"),
+            (posting({"status": 200, "body": [LANDED]}), None, ("environment", "not_read_back"), "failed"),
             (posting({"status": 401, "body": {}}), None, ("environment", "token_refused"), "refused"),
             (posting({"status": 403, "body": {}}), None, ("environment", "token_refused"), "refused"),
             (posting({"status": 404, "body": {}}), None, ("environment", "token_refused"), "refused"),

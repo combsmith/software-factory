@@ -29,7 +29,6 @@ import re
 
 from adapters import effects
 from adapters.facts import Moved
-from adapters.github import Unanswered
 from harness import shared
 from kernel import terms as t
 from kernel.decide import decide, still_wanted
@@ -39,19 +38,21 @@ APPROVAL = "issue_approval"
 
 
 class Port:
-    """The effects port's approval through the approver's own transport, `effects.Approving`, as the job asks it."""
+    """The effects port's approval through the approver's own token, as the job asks it. Each step narrows the token's
+    transport to what it may send, `effects.Approving`: who the token is; then the item's reads; and the approval of the
+    commit the job just read, which only this step may write (decision 0055)."""
 
     def __init__(self, transport, login: str):
         self._transport, self._login = transport, login
 
     def whoami(self) -> dict:
-        return effects.approver_of(self._transport)
+        return effects.approver_of(effects.Approving(self._transport))
 
     def recover(self, item: dict, head: str) -> dict:
-        return effects.approval_of(self._transport, item, head, self._login)
+        return effects.approval_of(effects.Approving(self._transport, item), item, head, self._login)
 
     def approve(self, item: dict, head: str) -> dict:
-        return effects.approve(self._transport, item, head, self._login)
+        return effects.approve(effects.Approving(self._transport, item, head), item, head, self._login)
 
 
 def decision_of(record, run: str):
@@ -103,10 +104,11 @@ def job(record, run: str, read, port, config: dict, now: str) -> tuple:
         facts, head, runs, context = read()
     except Moved:
         return _records(run, release, "refused", None, ("superseded", "head_moved"))
-    except (Unanswered, OSError, ValueError, KeyError, TypeError):
+    except Exception:     # any read that failed is the environment's, never a Run that died with no outcome (ruling 6)
         return _records(run, release, "refused", None, ("environment", "facts_unreadable"))
+    # A Pause that cannot be read is a read that failed: the environment's, not a change under the act.
     if not isinstance(head, str) or SHA.fullmatch(head) is None or not isinstance(runs, list) \
-            or not isinstance(context, dict):
+            or not isinstance(context, dict) or context.get("paused") not in (True, False):
         return _records(run, release, "refused", None, ("environment", "facts_unreadable"))
     done = port.recover(item, head)
     if done["fault"] is not None:

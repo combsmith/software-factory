@@ -207,28 +207,33 @@ GONE = 404             # with 401 and 403, a token GitHub will not take for this
 
 
 class Approving:
-    """The approver's transport: the reads the act makes and the one write, and nothing else, refused before it leaves.
-    No path may climb out of the item's repo."""
+    """The approver's transport, narrowed to what one step may send, and anything else refused before it leaves. With
+    no item, it may ask only who the token is; with an item, also read that item's repo, the org's Pause and the facts
+    port's own GraphQL reads of that pull request; with the head the act just read as well, also write one review, the
+    approval of that commit and nothing else in it. No path may climb out of the item's repo."""
 
-    def __init__(self, transport, item: dict, head: str):
-        self._transport, self._item, self._head = transport, dict(item), head
-        self._repo = "/repos/%s/" % item["repo"]
-        self._pause = "/orgs/%s/actions/variables/FACTORY_PAUSED" % item["repo"].split("/")[0]
-        self._reviews = "/repos/%s/pulls/%d/reviews" % (item["repo"], item["number"])
+    def __init__(self, transport, item: dict = None, head: str = None):
+        self._transport, self._item, self._head = transport, dict(item) if item else None, head
+        if item:
+            self._repo = "/repos/%s/" % item["repo"]
+            self._pause = "/orgs/%s/actions/variables/FACTORY_PAUSED" % item["repo"].split("/")[0]
+            self._reviews = "/repos/%s/pulls/%d/reviews" % (item["repo"], item["number"])
 
     def _read(self, path) -> bool:
         if not isinstance(path, str) or ".." in path or "%2e" in path.lower() or "//" in path:
             return False
-        return path == "/user" or path == self._pause or path.startswith(self._repo)
+        return path == "/user" or (self._item is not None and (path == self._pause or path.startswith(self._repo)))
 
     def _query(self, body) -> bool:
         """One of the facts port's own reads of this pull request, its variables this item's and a page's cursor."""
-        if not isinstance(body, dict) or set(body) != {"query", "variables"} or body["query"] not in QUERIES:
+        if self._item is None or not isinstance(body, dict) or set(body) != {"query", "variables"} \
+                or body["query"] not in QUERIES:
             return False
         variables = body["variables"]
         owner, name = self._item["repo"].split("/")
         return (isinstance(variables, dict) and set(variables) <= {"owner", "name", "number", "after"}
                 and variables.get("owner") == owner and variables.get("name") == name
+                and isinstance(variables.get("after", ""), str)
                 and variables.get("number") == self._item["number"])
 
     def send(self, req: dict) -> dict:
@@ -237,7 +242,8 @@ class Approving:
             return self._transport.send(req)
         if method == "POST" and path == "/graphql" and self._query(body):
             return self._transport.send(req)
-        if method == "POST" and path == self._reviews and body == {"commit_id": self._head, "event": "APPROVE"}:
+        if method == "POST" and self._head is not None and path == self._reviews \
+                and body == {"commit_id": self._head, "event": "APPROVE"}:
             return self._transport.send(req)
         raise Unanswered("a request the approver's token may not send")
 
@@ -289,8 +295,11 @@ def approval_of(transport, item: dict, head: str, login: str) -> dict:
     if not isinstance(listed, list) or len(listed) >= 100:
         fault, reason = _trouble(answer, "facts_unreadable")
         return {"state": None, "key": None, "fault": fault, "reason": reason}
-    mine = [r for r in listed if _approval(r, head, login)]
-    if mine:
+    # The approver's latest review of this commit is the one that stands: a request for changes after an approval
+    # supersedes it (the fresh review).
+    mine = [r for r in listed if isinstance(r, dict) and r.get("commit_id") == head and isinstance(r.get("user"), dict)
+            and r["user"].get("login") == login]
+    if mine and _approval(mine[-1], head, login):
         return {"state": "already_applied", "key": mine[-1]["node_id"], "fault": None, "reason": None}
     return {"state": None, "key": None, "fault": None, "reason": None}
 
@@ -308,6 +317,9 @@ def approve(transport, item: dict, head: str, login: str) -> dict:
             return {"state": "refused", "key": None, "fault": "environment", "reason": "token_refused"}
         if status is None or status >= 500 or status == UNAVAILABLE:
             return {"state": "failed", "key": None, "fault": "environment", "reason": "github_unavailable"}
+        if 200 <= status < 300:
+            # GitHub took it and the answer cannot be read: the approval may stand, and nothing is claimed for it.
+            return {"state": "failed", "key": None, "fault": "environment", "reason": "not_read_back"}
         # Any other refusal is the item's, while the pull request is open at the commit; a head that moved or a close
         # is a change under the act.
         now = _answered(_asked(transport, request("GET", pull)), 200)
