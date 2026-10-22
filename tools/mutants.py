@@ -5771,6 +5771,15 @@ MUTANTS = ISSUE + [
     ("the poller's github may be named in another case", 'tools/check_workflows.py',
      'GITHUB_ANY = re.compile(r"(?<![./\\w-])github(?![\\w-])", re.I)     # the poller names none of it, its token neither',
      'GITHUB_ANY = re.compile(r"(?<![./\\w-])github(?![\\w-])")     # the poller names none of it, its token neither', ('tests.test_tools.Workflows.test_only_the_poller_runs_on_workflow_run',)),
+    ("the Run's shim may name the model's credential", 'tools/check_workflows.py',
+     'MODEL_WORKFLOWS = {EVAL_WORKFLOW, "run-jobs.yml"}',
+     'MODEL_WORKFLOWS = {EVAL_WORKFLOW, "run-jobs.yml", "run.yml"}', ('tests.test_tools.Workflows.test_no_step_sets_the_scrub_or_hands_the_model_a_tool_list',)),
+    ("the Run's jobs may not name the model's credential", 'tools/check_workflows.py',
+     'MODEL_WORKFLOWS = {EVAL_WORKFLOW, "run-jobs.yml"}',
+     'MODEL_WORKFLOWS = {EVAL_WORKFLOW, "run.yml"}', ('tests.test_tools.Workflows.test_no_step_sets_the_scrub_or_hands_the_model_a_tool_list',)),
+    ('a comment in pass.yml is read as an expression', 'tools/check_workflows.py',
+     '    if name in PASS_FILES and EVENT_READ.search(_uncommented(text)):',
+     '    if name in PASS_FILES and EVENT_READ.search(text):', ('tests.test_tools.Workflows.test_only_the_poller_runs_on_workflow_run',)),
 ]
 
 

@@ -2071,6 +2071,11 @@ class Workflows(unittest.TestCase):
         self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": called.replace(
             "BRANCH: ${{ github.event.workflow_run.head_branch }}", "WORKFLOW_TOKEN: ${{ github.token }}")}))),
             "pass.yml: it reads"))
+        # A whole-line comment in pass.yml is no read.
+        commented = "# It reads nothing of github.event.\n" + called.replace(
+            "BRANCH: ${{ github.event.workflow_run.head_branch }}", "WORKFLOW_TOKEN: ${{ github.token }}")
+        self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": commented}))),
+                                "pass.yml: it reads"))
         for whole in ("${{ github }}", "${{ toJSON(github) }}", "${{ GitHub.Event.action }}", "${{ github.token.x }}",
                       "${{ github.token['x'] }}"):
             problems = check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": called.replace(
@@ -2204,6 +2209,13 @@ class Workflows(unittest.TestCase):
                       clean.replace("permissions: {}\n", "permissions: {}\nenv:\n  ALLOWED_TOOLS: Bash\n"),
                       clean.replace("    steps:\n", "    env:\n      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: 1\n    steps:\n")):
             self.assertIn("model", {r for r, _ in check_workflows.lint(level)})
+        # The model's credential is named in eval.yml's run step and in the Run's jobs, run-jobs.yml; run.yml is a shim,
+        # and names no secret.
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/run-jobs.yml": clean}))),
+                                "names the model's credential"))
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/run.yml": clean}))),
+                               "run.yml: line"))
         # A tool list in a step that holds no model credential is no concern of this rule.
         self.assertNotIn("model", {r for r, _ in check_workflows.lint(clean.replace(
             "CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}", "OTHER: x") + "          TOOLS: a\n")})
