@@ -44,15 +44,23 @@ def cli_call(args: list, env: dict, timeout: float):
                               capture_output=True, text=True, check=False)
 
 
-def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotonic, session=None) -> str:
-    """Build the Task, run the Engine, and write the Result and its digest into OUT. Returns the digest."""
+def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotonic, session=None, base=None) -> str:
+    """Build the Task, run the Engine, and write the Result and its digest into OUT. Returns the digest.
+
+    The job reads and writes only inside the directory it runs in, `base`, by default the working directory: each path
+    is followed to where it really is, and one outside is refused before anything is opened, naming no path."""
+    inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
     record, run, facts, texts, role, findings, out = paths
-    out = pathlib.Path(out)
-    if out.exists():
-        raise task.Refused("%s exists; the Result is written into a new directory" % out)
+    real = [os.path.realpath(os.path.join(inside, p)) for p in (record, facts, texts, role, findings, out)]
+    if not all(path.startswith(inside + os.sep) for path in real):
+        raise task.Refused("a path the job was given is outside the directory it runs in")
+    record, facts, texts, role, findings, out = real
+    if os.path.lexists(out):
+        raise task.Refused("OUT exists; the Result is written into a new directory")
 
     def read(path):
-        return json.loads(pathlib.Path(path).read_text())
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
     admitted = read(record)
     if not isinstance(admitted, dict) or not isinstance(admitted.get("release"), str):
         raise task.Refused("the pass record is no pass/1")
@@ -62,9 +70,11 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
                         session or str(uuid.uuid4()))
     data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
     digest = "sha256:" + hashlib.sha256(data).hexdigest()
-    out.mkdir(parents=True)
-    (out / "result.json").write_bytes(data)
-    (out / "result.sha256").write_text(digest + "\n")
+    os.makedirs(out)
+    with open(os.path.join(out, "result.json"), "wb") as f:
+        f.write(data)
+    with open(os.path.join(out, "result.sha256"), "w", encoding="utf-8") as f:
+        f.write(digest + "\n")
     return digest
 
 

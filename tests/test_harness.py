@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -248,15 +249,15 @@ class Engine(unittest.TestCase):
         engined(cli)
         for call in cli.calls:
             self.assertEqual(sorted(call["env"]), sorted(["PATH", "LANG", "DISABLE_AUTOUPDATER", engine.SCRUB, "HOME",
-                                                          "TMPDIR", engine.TOKEN]))
-            self.assertEqual((call["env"][engine.SCRUB], call["env"][engine.TOKEN], call["env"]["PATH"]),
+                                                          "TMPDIR", engine.CREDENTIAL_NAME]))
+            self.assertEqual((call["env"][engine.SCRUB], call["env"][engine.CREDENTIAL_NAME], call["env"]["PATH"]),
                              ("1", TOKEN, "/usr/bin:/bin"))
             self.assertFalse(any(v in json.dumps(call) for v in ("a-github-token-not", "a-metered-key-not")))
         self.assertNotIn(TOKEN, json.dumps([c["args"] for c in cli.calls]))
 
     def test_no_credential_asks_nothing(self):  # issue 287
-        for job_env in ({k: v for k, v in JOB.items() if k != engine.TOKEN}, dict(JOB, **{engine.TOKEN: ""}),
-                        dict(JOB, **{engine.TOKEN: None})):
+        for job_env in ({k: v for k, v in JOB.items() if k != engine.CREDENTIAL_NAME}, dict(JOB, **{engine.CREDENTIAL_NAME: ""}),
+                        dict(JOB, **{engine.CREDENTIAL_NAME: None})):
             cli = CLI()
             r = engined(cli, job_env=job_env)
             self.assertEqual((r["status"], r["reason"], cli.calls), ("failed", "credential_missing", []))
@@ -405,7 +406,7 @@ class Job(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             where = pathlib.Path(d)
             paths = self.files(where, [text()])
-            digest = run.job(paths, JOB, run.configuration(), call=CLI(), clock=Clock(), session=SESSION)
+            digest = run.job(paths, JOB, run.configuration(), call=CLI(), clock=Clock(), session=SESSION, base=where)
             out = where / "out"
             self.assertEqual(sorted(p.name for p in out.iterdir()), ["result.json", "result.sha256"])
             data = (out / "result.json").read_bytes()
@@ -413,7 +414,20 @@ class Job(unittest.TestCase):
             self.assertEqual((out / "result.sha256").read_text(), digest + "\n")
             self.assertEqual(json.loads(data)["release"], RECORD["release"])
             with self.assertRaises(task.Refused):
-                run.job(paths, JOB, run.configuration(), call=CLI(), clock=Clock(), session=SESSION)
+                run.job(paths, JOB, run.configuration(), call=CLI(), clock=Clock(), session=SESSION, base=where)
+            # A path outside the directory the job runs in is refused before anything is opened, a link out among them.
+            with tempfile.TemporaryDirectory() as elsewhere:
+                outside = pathlib.Path(elsewhere) / "record.json"
+                outside.write_text((where / "record.json").read_text())
+                (where / "link.json").symlink_to(outside)
+                for i, given in ((0, str(outside)), (0, "../" + outside.name), (0, "link.json"), (6, elsewhere + "/out")):
+                    changed = list(paths)
+                    changed[i] = given
+                    changed[6] = changed[6] if i == 6 else str(where / ("out-%d" % len(given)))
+                    with self.assertRaises(task.Refused, msg=given):
+                        run.job(changed, JOB, run.configuration(), call=CLI(), clock=Clock(), session=SESSION,
+                                base=where)
+                self.assertFalse((pathlib.Path(elsewhere) / "out").exists())
 
     def test_the_log_carries_the_digest_alone(self):  # section 3.10
         import contextlib
@@ -422,8 +436,9 @@ class Job(unittest.TestCase):
             where = pathlib.Path(d)
             paths = self.files(where)
             printed, errors = io.StringIO(), io.StringIO()
-            original = run.cli_call
+            original, here = run.cli_call, pathlib.Path.cwd()
             run.cli_call = CLI()
+            os.chdir(where)
             try:
                 with contextlib.redirect_stdout(printed), contextlib.redirect_stderr(errors):
                     self.assertEqual(run.main(paths, JOB), 0)
@@ -431,14 +446,19 @@ class Job(unittest.TestCase):
                     self.assertEqual(run.main(paths[:3], JOB), 2)
             finally:
                 run.cli_call = original
+                os.chdir(here)
             digest = (where / "out" / "result.sha256").read_text().strip()
             self.assertEqual(printed.getvalue(), "result.json %s\n" % digest)
             self.assertNotIn("PROSE", errors.getvalue() + printed.getvalue())
             # A Run with no Decision writes nothing.
             paths[1] = "r_01JA7Z"
             paths[-1] = str(where / "other")
-            with contextlib.redirect_stderr(io.StringIO()):
-                self.assertEqual(run.main(paths, JOB), 1)
+            os.chdir(where)
+            try:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(run.main(paths, JOB), 1)
+            finally:
+                os.chdir(here)
             self.assertFalse((where / "other").exists())
 
     def test_the_cli_starts_in_an_empty_directory_with_only_its_environment(self):  # decision 0004

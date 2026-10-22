@@ -25,7 +25,7 @@ from harness import shared
 from tools.jsonschema_lite import validate
 
 ENGINE = "claude-cli"
-TOKEN = "CLAUDE_CODE_OAUTH_TOKEN"     # the one name the model credential is held under (issue 287)
+CREDENTIAL_NAME = "CLAUDE_CODE_OAUTH_TOKEN"     # the one name the model credential is held under (issue 287)
 SCRUB = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"
 # Every name the CLI is given, and its value where it is fixed. Nothing else of the job's environment reaches it.
 FIXED = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "DISABLE_AUTOUPDATER": "1", SCRUB: "1"}
@@ -77,7 +77,7 @@ def environment(job_env: dict) -> dict:
     """The CLI's whole environment: the fixed names, the passed ones, and the model credential under its one name."""
     env = dict(FIXED)
     env.update({name: job_env[name] for name in PASSED if name in job_env})
-    env[TOKEN] = job_env[TOKEN]
+    env[CREDENTIAL_NAME] = job_env[CREDENTIAL_NAME]
     return env
 
 
@@ -133,7 +133,7 @@ def version(cli: str, env: dict, call) -> str:
 def run(task: dict, cli: str, job_env: dict, config: dict, call, clock, session: str) -> dict:
     """The Result of one Task, `result/1`, validated: the Engine's, with what the Harness fills, or a failed one."""
     engine = config["engine"]
-    if not isinstance(job_env.get(TOKEN), str) or job_env[TOKEN] == "":
+    if not isinstance(job_env.get(CREDENTIAL_NAME), str) or job_env[CREDENTIAL_NAME] == "":
         return failed(task, "credential_missing", _usage(config, session, 0.0))
     env = environment(job_env)
     if version(cli, env, call) != engine["version"]:
