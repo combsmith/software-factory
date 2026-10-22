@@ -9,6 +9,8 @@ from tools.jsonschema_lite import validate
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCHEMAS = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
            for p in sorted((ROOT / "schemas").glob("*.schema.json"))}
+# Who wrote a text, as the facts name an actor.
+SCHEMAS["actor"] = {"$ref": "facts.schema.json#/$defs/actor"}
 
 
 def errors(value, kind: str) -> list:

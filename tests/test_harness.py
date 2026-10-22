@@ -165,6 +165,10 @@ class Task(unittest.TestCase):
         deep = built(role=manifest(tier="deep"))
         self.assertEqual((deep["tier"], deep["limits"]), ("deep", HARNESS["limits"]["deep"]))
         self.assertEqual((t["result_schema"], t["omitted"]), ("result/1", []))
+        self.assertEqual(built(findings=["f_9c1e", "f_2b7d"])["findings"], ["f_9c1e", "f_2b7d"])
+        for findings in (None, 1, {"f_9c1e": "x"}, "f_9c1e"):
+            with self.assertRaises(task.Refused, msg=repr(findings)):
+                built(findings=findings)
 
     def test_a_run_no_decision_admitted_finds_none_and_does_nothing(self):  # section 3.5
         moved = facts()
@@ -196,7 +200,14 @@ class Task(unittest.TestCase):
                             ({}, [{"id": "thread:T1", "by": None, "body": "hi"}]),
                             ({}, [{"id": "not an id", "by": MAINTAINER, "body": "hi"}]),
                             ({}, [{"id": "thread:T1", "by": MAINTAINER, "body": 5}]),
-                            ({}, [dict(text(), extra="x")]), ({}, "texts")):
+                            ({}, [dict(text(), extra="x")]), ({}, "texts"),
+                            ({}, [text(by={"kind": "user", "name": "don-petry", "can_write": True})]),
+                            ({}, [text(by={"kind": "human", "name": "don-petry"})]),
+                            ({"config": config(texts=dict(HARNESS["texts"], characters=10))},
+                             [text("thread:T1\n", body="x" * 50)]),
+                            ({"findings": ["not-a-finding"]}, ()),
+                            ({"config": config(texts=dict(HARNESS["texts"], characters=10))},
+                             [text(by={"kind": "human", "name": "two words", "can_write": True}, body="x" * 50)])):
             with self.assertRaises(task.Refused, msg=(sorted(over), texts)):
                 built(texts, **over)
 
@@ -314,6 +325,16 @@ class Task(unittest.TestCase):
         two = built([text("thread:T1", body="a" * 50), text("thread:T2", body="b" * 60)],
                     config=config(texts=dict(HARNESS["texts"], characters=40)))
         self.assertEqual(two["omitted"], [{"kind": "thread", "texts": 2, "characters": 110}])
+        # Each trust class is kept before the next, whatever the order given (Argon's read).
+        stranger_ = {"kind": "human", "name": "stranger", "can_write": False}
+        advisory = {"kind": "lens", "name": "coderabbit", "can_write": False}
+        role = {"kind": "app", "name": "combsmith-sf-controller[bot]", "can_write": True}
+        given = [text("thread:T1", by=stranger_, body="s" * 30), text("thread:T2", by=advisory, body="a" * 30),
+                 text("thread:T3", by=role, body="r" * 30)]
+        for room, want in ((30, ["thread:T3"]), (60, ["thread:T3", "thread:T2"]),
+                           (90, ["thread:T3", "thread:T2", "thread:T1"])):
+            got = built(given, config=config(texts=dict(HARNESS["texts"], characters=room)))
+            self.assertEqual([x["id"] for x in others(got)], want, room)
         # The Maintainer's word is kept before a stranger's, whatever the order given (the Claude review).
         stranger = {"kind": "human", "name": "stranger", "can_write": False}
         ranked = built([text("thread:T9", by=stranger, body="s" * 30), text("issue:body", body="m" * 60)],
@@ -429,6 +450,9 @@ class Engine(unittest.TestCase):
             odd = json.loads(answer())
             odd.update(total_cost_usd=cost)
             self.assertIsNone(engined(CLI(said=json.dumps(odd)))["usage"]["cost_usd"], cost)
+        free = json.loads(answer())
+        free.update(total_cost_usd=0.0)
+        self.assertEqual(engined(CLI(said=json.dumps(free)))["usage"]["cost_usd"], 0.0)       # nothing spent is a count
         self.assertEqual(engined(clock=Clock(100.0, 99.0))["usage"]["seconds"], 0.0)       # a clock that went back
         # A stream of messages: its last result is the answer.
         r = engined(CLI(said=json.dumps([{"type": "system"}, {"type": "result", "structured_output": {}},
@@ -538,6 +562,13 @@ class Job(unittest.TestCase):
                         run.job(changed, JOB, run.configuration(), call=CLI(), clock=Clock(), session=SESSION,
                                 base=where)
                 self.assertFalse((pathlib.Path(elsewhere) / "out").exists())
+            # An OUT that is a link to nowhere is not followed (Argon's read).
+            (where / "dangling").symlink_to(where / "target")
+            changed = list(paths)
+            changed[7] = "dangling"
+            with self.assertRaises(task.Refused):
+                run.job(changed, JOB, run.configuration(), call=CLI(), clock=Clock(), session=SESSION, base=where)
+            self.assertFalse((where / "target").exists())
 
     def test_the_log_carries_the_digest_alone(self):  # section 3.10
         import contextlib
@@ -597,6 +628,10 @@ class Job(unittest.TestCase):
         self.assertLessEqual(set(got["env"]) - set(env), {"__CF_USER_TEXT_ENCODING", "LC_CTYPE"})
         self.assertEqual((got["here"], got["stdin"]), ([], ""))
         self.assertNotEqual(pathlib.Path(got["cwd"]).resolve(), ROOT)
+        # Output that is not UTF-8 is read with what it cannot say replaced, and is then no answer (Argon's read).
+        done = run.cli_call([sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'\\xff{')"],
+                            {"PATH": "/usr/bin:/bin"}, 30)
+        self.assertEqual(done.stdout, "\ufffd{")
 
 
 if __name__ == "__main__":

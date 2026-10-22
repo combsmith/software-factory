@@ -20,7 +20,9 @@ ADMIT = "admit"
 # The order texts are kept in when not all fit: a person with the Maintainer's word first, then the Roles', then
 # advisory reviewers', then anyone else's, each kind in the order given, newest first as the reads give them (L-56).
 RANK = ("maintainer", "role", "advisory", "outside")
-TEXT_ID = re.compile(r"^[a-z]+:[A-Za-z0-9_-]+$")
+TEXT_ID = re.compile(r"[a-z]+:[A-Za-z0-9_-]+")
+# A writer's name as task/1 carries it in `source`.
+SOURCE = re.compile(r"[A-Za-z0-9-]+(\[bot\])?")
 # Where one file's part of a diff begins, as git writes it: the diff is cut only there, never inside a file.
 FILE_START = re.compile(r"(?=^diff --git )", re.M)
 
@@ -56,12 +58,12 @@ def trust(actor, config: dict) -> str:
 
 def readable_text(text) -> bool:
     """A text as the reads give one: an id of its kind, who wrote it as the facts name an actor, and its body. No read
-    gives a text of kind `diff`: the change is the Task's own text, built from the bytes the Decision admitted."""
+    gives a text of kind `diff`: the change is the Task's own text, built from the bytes the Decision admitted. A text
+    left out is held to this as one kept is, so a text no Task could carry is refused, not dropped unseen."""
     return (isinstance(text, dict) and set(text) == {"id", "by", "body"} and isinstance(text["id"], str)
-            and TEXT_ID.match(text["id"]) is not None and not text["id"].startswith("diff:")
-            and isinstance(text["body"], str)
-            and isinstance(text["by"], dict) and isinstance(text["by"].get("kind"), str)
-            and isinstance(text["by"].get("name"), str))
+            and TEXT_ID.fullmatch(text["id"]) is not None and not text["id"].startswith("diff:")
+            and isinstance(text["body"], str) and shared.errors(text["by"], "actor") == []
+            and SOURCE.fullmatch(text["by"]["name"]) is not None)
 
 
 def carried(body: str) -> int:
@@ -143,6 +145,8 @@ def build(record: dict, run: str, facts: dict, texts: list, role: dict, findings
         raise Refused("the facts of Run %s were read short" % run)
     if shared.errors(role, "role") or not isinstance(texts, list) or not all(readable_text(t) for t in texts):
         raise Refused("the manifest or the texts cannot be read")
+    if not isinstance(findings, list):
+        raise Refused("the findings cannot be read")
     if facts["item"] != entry["decision"]["item"] or facts["content_id"] != admit["content_id"]:
         raise Refused("the facts are not of the item and content Run %s was admitted for" % run)
     if role["name"] != admit["role"]:

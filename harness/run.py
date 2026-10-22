@@ -42,7 +42,7 @@ def cli_call(args: list, env: dict, timeout: float):
     """The CLI, started in an empty directory of its own, with nothing on its input and its answer captured."""
     with tempfile.TemporaryDirectory() as empty:
         return subprocess.run(args, env=env, timeout=timeout, cwd=empty, stdin=subprocess.DEVNULL,
-                              capture_output=True, text=True, check=False)
+                              capture_output=True, text=True, errors="replace", check=False)
 
 
 def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotonic, session=None, base=None) -> str:
@@ -52,12 +52,13 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
     is followed to where it really is, and one outside is refused before anything is opened, naming no path."""
     inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
     record, run, facts, diff, texts, role, findings, out = paths
+    # OUT is new, and not a link either: a link to nowhere would be followed and the Result written where it points.
+    if os.path.lexists(os.path.join(inside, out)):
+        raise task.Refused("OUT exists; the Result is written into a new directory")
     real = [os.path.realpath(os.path.join(inside, p)) for p in (record, facts, diff, texts, role, findings, out)]
     if not all(path.startswith(inside + os.sep) for path in real):
         raise task.Refused("a path the job was given is outside the directory it runs in")
     record, facts, diff, texts, role, findings, out = real
-    if os.path.lexists(out):
-        raise task.Refused("OUT exists; the Result is written into a new directory")
 
     def read(path):
         with open(path, encoding="utf-8") as f:
