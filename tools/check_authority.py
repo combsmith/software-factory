@@ -17,8 +17,22 @@ def _folded(name: str) -> str:
 
 
 def manifests(root: pathlib.Path = ROOT) -> dict:
-    """Each Role manifest in `roles/`, by its file's name."""
-    return {p.name[: -len(".json")]: json.loads(p.read_text()) for p in sorted((root / "roles").glob("*.json"))}
+    """Each Role manifest in `roles/`, by its file's name; one that cannot be read is None, and `team` says so."""
+    out = {}
+    for p in sorted((root / "roles").glob("*.json")):
+        try:
+            out[p.name[: -len(".json")]] = json.loads(p.read_text())
+        except (OSError, ValueError):
+            out[p.name[: -len(".json")]] = None
+    return out
+
+
+def _read(path: pathlib.Path):
+    """A JSON file, or None where it cannot be read."""
+    try:
+        return json.loads(path.read_text()) if path.is_file() else None
+    except (OSError, ValueError):
+        return None
 
 
 def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = ROOT) -> list:
@@ -29,6 +43,10 @@ def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = RO
     held to `role/1`."""
     problems = []
     cats = authority["categories"]
+    unread = sorted(stem for stem, m in roles.items() if not isinstance(m, dict))
+    for stem in unread:
+        problems.append("roles/%s.json cannot be read as a manifest" % stem)
+    roles = {stem: m for stem, m in roles.items() if isinstance(m, dict)}
     for stem, m in sorted(roles.items()):
         name = m.get("name")
         if name != stem:
@@ -37,7 +55,10 @@ def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = RO
             problems.append("roles/%s.json is held to no schema; add it to LIVE in tools/check_examples.py" % stem)
         owns = set(m.get("owns", ()))
         named = {c for c, entry in cats.items() if entry.get("owner") == name}
-        if m.get("kind") == "owner" and owns != named:
+        # A Role the table names an owner is an owner, owning exactly what the table names (Argon's read).
+        if named and m.get("kind") != "owner":
+            problems.append("%s is named the owner of %s by the authority table, and is no owner" % (name, sorted(named)))
+        if (m.get("kind") == "owner" or named) and owns != named:
             problems.append("%s owns %s, and the authority table names it the owner of %s; they must agree"
                             % (name, sorted(owns), sorted(named)))
         if m.get("kind") != "owner" and owns:
@@ -50,21 +71,21 @@ def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = RO
                                     "nothing and spends from shadow" % (name, i.get("name"), i.get("budget_class")))
         effects = sorted({e for i in intents for e in i.get("permitted_effects", ())})
         app = next((entry for entry in apps["apps"].values() if entry.get("name") == m.get("app")), None)
-        if effects and app is None:
+        if (effects or "app" in m) and app is None:
             problems.append("%s permits %s and names no App of config/apps.json to write them through"
                             % (name, effects))
         for effect in effects if app is not None else ():
             need = "effect:" + effect
             grant = apps["needs"].get(need, {})
-            held = app["permissions"].get(grant.get("permission"), {}) if "permission" in grant else {}
+            grants = app.get("permissions") if isinstance(app.get("permissions"), dict) else {}
+            held = grants.get(grant.get("permission"), {}) if "permission" in grant else {}
             if need not in held.get("needs", ()):
                 problems.append("%s permits %s, beyond the ceiling of its App %s; grant it, or permit it no more"
                                 % (name, effect, m.get("app")))
         for i in intents:
             if i.get("budget_class") != "gate":
                 continue
-            path = root / (i.get("evals", "") + "/cases.json")
-            found = json.loads(path.read_text()) if path.is_file() else None
+            found = _read(root / (i.get("evals", "") + "/cases.json"))
             if not isinstance(found, dict) or (found.get("role"), found.get("intent")) != (name, i.get("name")):
                 problems.append("%s's Intent %s spends from gate and names no eval set of its own at %s"
                                 % (name, i.get("name"), i.get("evals")))
