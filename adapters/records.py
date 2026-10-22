@@ -148,28 +148,32 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
 
 def known(previous: list) -> dict:
     """The outcomes the pass records before this one read, each by its Run id and when its attempt started, from the
-    records `controller/pass_.earlier` placed before the pass, the Factory's own, last two at most (#285's ruling).
+    records `controller/pass_.earlier` placed before the pass, held to `pass/1` by `controller/reads.previous_records`,
+    the Factory's own, last two at most (#285's ruling).
 
     An outcome is written once, by its attempt's final step, so one that named a fault is that attempt's for good; a
     re-run starts again, at another time, and is read afresh. A Run that left none is kept as none only once two passes
-    in a row read none for that attempt, so an outcome GitHub listed late is read the pass after; until then it is
-    read again. A key either record holds twice is kept by neither, and nothing is kept from a record that is not a
-    `pass/1` record's runs."""
+    in a row read none for that attempt and each read its list whole, its count of active Runs a count: a list read
+    short may have read none where there was one, and an outcome GitHub listed late is read the pass after. A key
+    either record lists twice, whatever its status, is kept by neither, and nothing is kept from a record that is not
+    a `pass/1` record's runs."""
     def read(record) -> dict:
         runs_ = record.get("runs") if isinstance(record, dict) else None
         if not isinstance(runs_, list):
             return {}
-        found, twice = {}, set()
+        context = record.get("context") if isinstance(record.get("context"), dict) else {}
+        whole = type(context.get("active_runs")) is int
+        found, listed = {}, []
         for r in runs_:
-            if not (isinstance(r, dict) and r.get("status") == "completed"
-                    and r.get("conclusion") not in (None, "success") and r.get("outcome") in CONCLUDED | {None}
-                    and isinstance(r.get("run"), str) and isinstance(r.get("started_at"), str)):
+            if not (isinstance(r, dict) and isinstance(r.get("run"), str) and isinstance(r.get("started_at"), str)):
                 continue
-            key = (r["run"], r["started_at"])
-            if key in found:
-                twice.add(key)
-            found[key] = r["outcome"]
-        return {k: v for k, v in found.items() if k not in twice}
+            listed.append((r["run"], r["started_at"]))
+            outcome = r.get("outcome")
+            if not (r.get("status") == "completed" and r.get("conclusion") not in (None, "success")
+                    and (outcome in CONCLUDED if isinstance(outcome, str) else outcome is None and whole)):
+                continue
+            found[(r["run"], r["started_at"])] = outcome
+        return {k: v for k, v in found.items() if listed.count(k) == 1}
     records_ = list(previous[-2:]) if isinstance(previous, list) else []
     last = read(records_[-1]) if records_ else {}
     before = read(records_[-2]) if len(records_) == 2 else {}
@@ -184,7 +188,7 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
 
     `outcome` is the fault a completed Run that did not succeed names in its artifact, and null on every other record
     and on one that left none. `kept` is what `known` read from the pass records before: an outcome held there is not
-    read again, for a row that names when its attempt started, and once in this list. Each outcome read is stamped
+    read again, for a row that names when its attempt started, and once in this list, whatever its status. Each outcome read is stamped
     beside the list's reads, `read` `outcome`: one stamp for each Run's read, its artifacts listed and, where an
     outcome is listed, downloaded, so the pass record says how many outcomes a pass read. Nothing calls `known` until
     the pass's entry, the effects port's next part (#193), hands it the records it placed."""
@@ -206,10 +210,10 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
                 record, unidentified = found
                 if record is not None:
                     records.append(record)
+                    key = (record["run"], record["started_at"])
+                    attempts[key] = attempts.get(key, 0) + 1
                     if record["status"] == "completed" and record["conclusion"] != "success":
                         failed.append((record, row["id"], bool(row.get("run_started_at"))))
-                        key = (record["run"], record["started_at"])
-                        attempts[key] = attempts.get(key, 0) + 1
                 if unidentified is not None:
                     unnamed.append(unidentified)
         return records, unnamed, reads, whole, [(r, i, timed and attempts[(r["run"], r["started_at"])] == 1)

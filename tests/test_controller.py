@@ -277,12 +277,15 @@ class Context(unittest.TestCase):
         unread = reads()
         unread["pull_requests"][0]["facts"]["complete"]["runs"] = False
         self.assertEqual(decisions(passed(unread))[0]["outcome"], "defer")
-        # A list that holds what is not a run record, an id that is not GitHub's or a read with no date is not a list.
+        # A list that holds what is not a run record, an id that is not GitHub's or a read with no date is not a list,
+        # nor is one with no read of the list itself: an outcome read alone is not one (#285).
         for change in ({"runs": [{}]}, {"runs": [dict(run(), status="done")]}, {"unidentified": ["abc"]},
                        {"unidentified": [""]}, {"unidentified": [39086879694]},
                        {"reads": [{"read": "runs", "date": "yesterday", "age": 0}]},
                        {"reads": [{"read": "runs", "date": NOW, "age": -1}]}, {"reads": [{"read": "facts", "date": NOW, "age": 0}]},
-                       {"reads": [{"read": "runs", "date": NOW, "age": True}]}):
+                       {"reads": [{"read": "runs", "date": NOW, "age": True}]},
+                       {"reads": [{"read": "runs", "date": NOW, "age": 0}, {"read": "facts", "date": NOW, "age": 0}]},
+                       {"reads": [{"read": "outcome", "date": NOW, "age": 0}]}, {"reads": []}):
             odd = reads()
             odd["records"].update(change)
             out = passed(odd)

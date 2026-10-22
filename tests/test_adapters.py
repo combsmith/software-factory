@@ -870,7 +870,8 @@ class Records(unittest.TestCase):
     def test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt(self):
         # #285's ruling: an outcome is written once by its attempt's final step, so one a pass record read is kept by
         # its Run id and when its attempt started, and not read again; one that is not there is kept as none once two
-        # passes in a row read none. N failed Runs cost N reads, then only those with none, then none (L-52).
+        # passes in a row read none, each reading its list whole. N failed Runs cost N reads, then only those with
+        # none, then none (L-52).
         done = {"status": "completed", "conclusion": "failure"}
         rows = listing("P-17", 3, rows=done)
         template = rows["response"]["body"]["workflow_runs"][0]
@@ -884,39 +885,65 @@ class Records(unittest.TestCase):
 
         def stamped(got):
             return len([r for r in got["reads"] if r["read"] == "outcome"])
+
+        def record(got):
+            # What the pass record keeps of a read: its runs, and a count of active Runs only when it was whole.
+            return {"runs": got["runs"], "context": {"active_runs": 0 if got["complete"] else None}}
         first, _ = self.read(rows, *outcomes(0), *outcomes(1), *outcomes(2))
         self.assertEqual(([r["outcome"] for r in first["runs"]], stamped(first)), (["item", "item", None], 3))
-        record1 = {"runs": first["runs"]}
         # The pass after: the two faults kept, the one with none read again.
-        second, _ = self.read(rows, *outcomes(2), kept=records.known([record1]))
+        second, _ = self.read(rows, *outcomes(2), kept=records.known([record(first)]))
         self.assertEqual(([r["outcome"] for r in second["runs"]], stamped(second), second["complete"]),
                          (["item", "item", None], 1, True))
         # And the pass after that, two in a row having read none: nothing read.
-        third, _ = self.read(rows, kept=records.known([record1, {"runs": second["runs"]}]))
+        both = [record(first), record(second)]
+        third, _ = self.read(rows, kept=records.known(both))
         self.assertEqual(([r["outcome"] for r in third["runs"]], stamped(third)), (["item", "item", None], 0))
+        self.assertEqual(records.known([{"runs": []}] + both), records.known(both))
         # A re-run is another attempt, started at another time: read afresh.
         rerun = copy.deepcopy(rows)
         rerun["response"]["body"]["workflow_runs"][0]["run_started_at"] = "2026-10-21T09:00:00Z"
-        fresh, _ = self.read(rerun, *outcomes(0), kept=records.known([record1, {"runs": second["runs"]}]))
+        fresh, _ = self.read(rerun, *outcomes(0), kept=records.known(both))
         self.assertEqual(stamped(fresh), 1)
-        # A row that names no start of its attempt, or one listed twice, is read afresh whatever is kept.
+        # A row that names no start of its attempt, or a key listed twice, is read afresh whatever is kept, and so is
+        # one listed twice once as a fault and once as a Run still running.
         untimed = copy.deepcopy(rows)
         untimed["response"]["body"]["workflow_runs"][0]["run_started_at"] = None
         untimed["response"]["body"]["workflow_runs"][0]["created_at"] = "2026-10-21T00:00:00Z"
-        got, _ = self.read(untimed, *outcomes(0), kept=records.known([record1, {"runs": second["runs"]}]))
+        got, _ = self.read(untimed, *outcomes(0), kept=records.known(both))
         self.assertEqual(stamped(got), 1)
         twice = copy.deepcopy(rows)
         twice["response"]["body"]["workflow_runs"][1] = dict(twice["response"]["body"]["workflow_runs"][0], id=799)
-        got, _ = self.read(twice, *outcomes(0), *stored(canary(), 799, faulted[0]),
-                           kept=records.known([record1, {"runs": second["runs"]}]))
+        got, _ = self.read(twice, *outcomes(0), *stored(canary(), 799, faulted[0]), kept=records.known(both))
         self.assertEqual(stamped(got), 2)
-        # Kept by neither: a key a record holds twice; a Run that succeeded or is not done; a fault no outcome names; and
-        # a record that is no pass record's runs.
-        doubled = {"runs": first["runs"] + first["runs"][:1]}
+        running = copy.deepcopy(twice)
+        running["response"]["body"]["workflow_runs"][1].update(status="in_progress", conclusion=None)
+        got, _ = self.read(running, *outcomes(0), kept=records.known(both))
+        self.assertEqual(stamped(got), 1)
+        # An outcome list that cannot be read is stamped all the same, and leaves the list not whole: none read short
+        # is never kept, however many passes read it so.
+        short = copy.deepcopy(outcomes(2))
+        short[0]["response"]["body"]["total_count"] = 2
+        lost, _ = self.read(rows, *short, kept=records.known(both[:1]))
+        self.assertEqual((lost["runs"][2]["outcome"], lost["complete"], stamped(lost)), (None, False, 1))
+        again, _ = self.read(rows, *short, kept=records.known([record(lost)]))
+        self.assertNotIn(("r_000002Z", "2026-10-21T02:00:00Z"), records.known([record(lost), record(again)]))
+        self.assertNotIn(("r_000002Z", "2026-10-21T02:00:00Z"), records.known([record(lost), record(second)]))
+        self.assertEqual(records.known([record(second), record(lost)]), records.known([record(lost)]))
+        # A fault is kept from one record; none from one record alone, or after a fault, is not.
+        self.assertIn(("r_000000Z", "2026-10-21T00:00:00Z"), records.known([record(lost)]))
+        faulted_then_none = dict(record(second), runs=[dict(second["runs"][2], outcome="item")])
+        self.assertEqual(records.known([faulted_then_none, record(second)]), {
+            ("r_000000Z", "2026-10-21T00:00:00Z"): "item", ("r_000001Z", "2026-10-21T01:00:00Z"): "item"})
+        # Kept by neither: a key a record holds twice; a Run that succeeded or is not done; a fault no outcome names,
+        # or one that is not a name; one that names no Run or no start; and a record that is no pass record's runs.
+        doubled = record(first)
+        doubled["runs"] = first["runs"] + [dict(first["runs"][0], status="in_progress", conclusion=None, outcome=None)]
         self.assertNotIn(("r_000000Z", "2026-10-21T00:00:00Z"), records.known([doubled]))
-        for change in ({"conclusion": "success"}, {"status": "in_progress"}, {"outcome": "late"}, {"run": None}):
-            self.assertEqual(records.known([{"runs": [dict(first["runs"][0], **change)]}]), {}, change)
-        self.assertEqual((records.known(None), records.known({"runs": first["runs"]}), records.known([{"runs": None}]),
+        for change in ({"conclusion": "success"}, {"status": "in_progress"}, {"outcome": "late"}, {"outcome": []},
+                       {"run": None}, {"started_at": None}):
+            self.assertEqual(records.known([dict(record(first), runs=[dict(first["runs"][0], **change)])]), {}, change)
+        self.assertEqual((records.known(None), records.known(record(first)), records.known([{"runs": None}]),
                           records.known([{"runs": ["x"]}])), ({}, {}, {}, {}))
 
     def test_a_status_or_a_conclusion_github_would_not_give_a_run_makes_the_list_short(self):
