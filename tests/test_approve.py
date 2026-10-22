@@ -136,7 +136,10 @@ class TheAct(unittest.TestCase):
                                                   "{ id } } }", "variables": {}}),
                    ("GET", "/repos/combsmith/other/pulls/42", None),
                    ("GET", "/repos/%s/../other/pulls/1" % repo, None), ("GET", "/repos/%s/%%2e%%2e/x" % repo, None),
-                   ("GET", "/repos/%s//pulls/42" % repo, None),
+                   ("GET", "/repos/%s//pulls/42" % repo, None), ("GET", "/repos/%s/%%2E%%2E/x" % repo, None),
+                   ("POST", "/graphql", {"query": "mutation { resolveReviewThread(input: {threadId: \"T\"}) { thread "
+                                                  "{ id } } }", "variables": {"owner": repo.split("/")[0],
+                                                                             "name": repo.split("/")[1], "number": 42}}),
                    ("GET", "/orgs/combsmith/members", None), ("GET", "https://example.com/repos/%s/pulls/42" % repo, None)]
         for method, path, body in refused:
             with self.assertRaises(Unanswered, msg=(method, path, body)):
@@ -236,6 +239,17 @@ class TheAct(unittest.TestCase):
             done, ended, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [other]}))
             self.assertEqual(effect(done)[1:3], ("applied", NODE), other)
             self.assertEqual(len(github.writes()), 1)
+        # Only the approver's own reviews of this commit are read: another person's later review, or the approver's of
+        # another commit, leaves the approval standing (Argon's read).
+        for after in (dict(landed, id=8, state="COMMENTED", user={"login": "don-petry"}),
+                      dict(landed, id=8, state="CHANGES_REQUESTED", commit_id="f" * 40)):
+            done, _, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [landed, after]}))
+            self.assertEqual((effect(done)[1:3], github.writes()), (("already_applied", "PRR_landed"), []), after)
+        # An approval of the head read is recovered only for the content the Decision approved: otherwise the Kernel,
+        # asked again, decides, and here wants nothing (Argon's read).
+        done, ended, github = act(at(PULL + "/reviews?per_page=100", {"status": 200, "body": [landed]}),
+                                  read=reads(facts(content_id="sha256:bbbb")))
+        self.assertEqual((fault(ended), github.writes()), (("superseded", "not_wanted"), []))
         # The approver's latest review of the commit is the one that stands: a request for changes after it supersedes
         # the approval, which is approved afresh (the fresh review).
         later = dict(landed, id=6, node_id="PRR_later", state="CHANGES_REQUESTED")

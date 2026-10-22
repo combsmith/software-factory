@@ -111,11 +111,14 @@ def job(record, run: str, read, port, config: dict, now: str) -> tuple:
             or not isinstance(runs, list) \
             or not isinstance(context, dict) or context.get("paused") not in (True, False):
         return _records(run, release, "refused", None, ("environment", "facts_unreadable"))
-    done = port.recover(item, head)
-    if done["fault"] is not None:
-        return _records(run, release, "refused", None, (done["fault"], done["reason"]))
-    if done["state"] == "already_applied":
-        return _records(run, release, "already_applied", done["key"], None)
+    # Recovered only for the content the Decision approved: an approval of the head read is this act's only while that
+    # head carries the same content; otherwise the Kernel decides (Argon's read).
+    if facts.get("content_id") == decided["content_id"]:
+        done = port.recover(item, head)
+        if done["fault"] is not None:
+            return _records(run, release, "refused", None, (done["fault"], done["reason"]))
+        if done["state"] == "already_applied":
+            return _records(run, release, "already_applied", done["key"], None)
     others, context = _left_out(runs, context, run, config["github_run"])
     if not still_wanted(decided, decide(facts, others, context, config["kernel"], now)):
         return _records(run, release, "refused", None, ("superseded", "not_wanted"))
