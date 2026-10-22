@@ -4247,7 +4247,7 @@ MUTANTS = ISSUE + [
      '    causes |= {"capacity_unreadable"} if context["active_runs"] is None else set()\n',
      '', ('tests.test_controller.Feed.test_one_cause_raises_one_alert',)),
     ('every Run the item had is an attempt', 'controller/feed.py',
-     '[r for r in mine if r["status"] == "completed" and r["conclusion"] != "success"\n                 and r["outcome"] == "item" and',
+     '[r for r in mine if r["status"] == "completed" and r["conclusion"] != "success"\n                 and (r["outcome"] == "item" or (r["outcome"] is None and r["conclusion"] in t.RAN_AND_DIED))\n                 and',
      '[r for r in mine if', ('tests.test_controller.Feed.test_next_actor_and_the_decision_required_are_read_from_the_feed_table_alone',)),
     ('an attempt before a person acted still counts', 'controller/feed.py',
      '(since is None or r["started_at"] > since)',
