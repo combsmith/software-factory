@@ -1,4 +1,4 @@
-# 0060. A Role's manifest is held to the authority table and its App's ceiling
+# 0059. A Role's manifest is held to the authority table and its App's ceiling
 
 Status: accepted. Taken as working rulings on 2026-10-22, which the Maintainer may overturn in review, for "Harness: run and apply for the review Intent, and the model holds no credential that can write" (issue 194), its third pull request, ruling 8. It adds to `docs/decisions/0054-apply-writes-a-roles-effects-with-a-token-narrowed-to-them-and-claims-only-what-it-reads-back.md`, whose `apply` reads a Role's kind and name.
 

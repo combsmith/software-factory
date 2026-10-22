@@ -41,7 +41,7 @@ def configuration(root: pathlib.Path = ROOT) -> dict:
 def instructions(root: pathlib.Path, the_task: dict) -> str:
     """What the model is told before the Task, from the Release's own files by the admitted Role's name and never from
     the item: the Role's instructions, `roles/<role>/prompt.md`, and the rubric its Intent's Result covers,
-    `config/rubric-<role>.json`, where one names this Intent (decision 0060). Both are a model Lens's inputs (decision
+    `config/rubric-<role>.json`, where one names this Intent (decision 0059). Both are a model Lens's inputs (decision
     0052). A Role with no instructions in the Release has no Task."""
     prompt = root / "roles" / the_task["role"] / "prompt.md"
     if not prompt.is_file():

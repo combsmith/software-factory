@@ -36,7 +36,7 @@ def _read(path: pathlib.Path):
 
 
 def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = ROOT) -> list:
-    """Section 5.4's checks over every Role manifest (issue 194's ruling 8, decision 0060): each category one owner, the
+    """Section 5.4's checks over every Role manifest (issue 194's ruling 8, decision 0059): each category one owner, the
     one the authority table names, whose `owns` is exactly what it names; each permitted Effect within the ceiling of
     the Role's own App, which no other Role shares (L-44); every Intent of class `gate` naming an eval set of its own
     Role and Intent; a shadow's Intents writing nothing and spending from `shadow`; each manifest named as its file and

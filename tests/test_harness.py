@@ -400,7 +400,7 @@ class Engine(unittest.TestCase):
         prompt = args[args.index("-p") + 1]
         self.assertEqual(prompt, engine.PROMPT + engine.TASK + json.dumps(built(), sort_keys=True))
 
-    def test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task(self):  # 0060
+    def test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task(self):  # 0059
         # Word for word: the fixed instruction, the Role's instructions and its Intent's rubric, as the Release holds
         # them, read by the admitted Role's name, then the Task.
         the_task = built()
@@ -565,7 +565,7 @@ class Job(unittest.TestCase):
             paths = self.files(where, [text()])
             cli = CLI()
             digest = run.job(paths, JOB, run.configuration(), call=cli, clock=Clock(), session=SESSION, base=where)
-            # The job tells the CLI the Role's instructions from the Release, by the admitted Role's name (0060).
+            # The job tells the CLI the Role's instructions from the Release, by the admitted Role's name (0059).
             told = cli.asked()[0]["args"][cli.asked()[0]["args"].index("-p") + 1]
             self.assertIn(engine.ROLE + (ROOT / "roles" / "pr-review" / "prompt.md").read_text(encoding="utf-8"), told)
             out = where / "out"
