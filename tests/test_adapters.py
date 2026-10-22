@@ -491,6 +491,10 @@ class Diff(unittest.TestCase):
             pull.diff(github.Replay([gone]), data, PINNED_BASE)
         with self.assertRaises(github.Unanswered):
             pull.diff(compared("P-29.base", 2, data, "main"), data, "main")
+        # A fork's head is compared in the base repo, which holds both commits, never in the fork (Muse on PR 284).
+        fork = copy.deepcopy(data)
+        fork["head"]["repo"] = dict(fork["head"]["repo"], full_name="someone/fork", id=1)
+        self.assertEqual(pull.diff(compared("P-29.base", 2, fork), fork, PINNED_BASE)["content_id"], at_head["content_id"])
 
     def test_the_content_is_the_hash_of_the_diff_as_github_served_it(self):
         # trials/P-29.base.json: the hash taken as each diff arrived is the one the port computes.
@@ -610,10 +614,12 @@ class ChangedPaths(unittest.TestCase):
             pull.changed_paths(github.Replay([as_compare(exchanges("P-29.truncated")[13], elsewhere)]), data, PINNED_BASE)
         with self.assertRaises(github.Unanswered):           # the pull request's own list is never read
             pull.changed_paths(replay("P-29.truncated", 13), data, PINNED_BASE)
-        broken = as_compare(exchanges("P-29.truncated")[13], data)
-        broken["response"] = dict(broken["response"], body={"files": "none"})
-        with self.assertRaises(github.Unanswered):
-            pull.changed_paths(github.Replay([broken]), data, PINNED_BASE)
+        # A compare whose files are not a list, or are not there at all, is refused, never read as none (Muse on PR 284).
+        for answered in ({"files": "none"}, {}):
+            broken = as_compare(exchanges("P-29.truncated")[13], data)
+            broken["response"] = dict(broken["response"], body=answered)
+            with self.assertRaises(github.Unanswered):
+                pull.changed_paths(github.Replay([broken]), data, PINNED_BASE)
 
     def test_a_rename_or_a_copy_gives_both_names_and_one_without_its_old_name_is_short(self):
         data = body("P-29.truncated", 12)
