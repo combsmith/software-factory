@@ -121,6 +121,7 @@ jobs:
 # in any case, but its token, which is the pass job's own; outside comments. A path such as .github/workflows/ is no
 # read of it. The poller and the pass it calls read nothing of the run that woke them.
 EVENT_READ = re.compile(r"(?<![./\w-])github(?![\w-])(?!\.token(?![\w.\[]))", re.I)
+GITHUB_ANY = re.compile(r"(?<![./\w-])github(?![\w-])", re.I)     # the poller names none of it, its token neither
 PASS_JOB, PASS_FILES = "pass", ("poller.yml", "pass.yml")
 # The id GitHub gives the App GitHub Actions: it reports every job in every workflow of the repo.
 ACTIONS_APP = 15368
@@ -381,10 +382,11 @@ def lint(text: str) -> list:
     for e in entries:
         if e["path"][-1:] == ["env"] and e["key"].upper() == SCRUB:
             found.append(("model", "a step sets %s, which only the Engine sets, with --tools \"\"" % SCRUB))
-        if MODEL_SECRET.search(e["value"]) and e["path"][-1:] == ["env"]:
-            given = [x for x in entries if x["step"] == e["step"] and x["path"] == e["path"]]
-            if any(TOOLS.search(x["key"]) or TOOLS.search(x["value"]) for x in given):
-                found.append(("model", "the step that holds the model's credential is handed a tool list"))
+    # A step's environment is its own, its job's and its workflow's, merged: in a workflow that names the model's
+    # credential, no env: at any level is handed a tool list.
+    if any(MODEL_SECRET.search(e["value"]) for e in entries):
+        if any(e["path"][-1:] == ["env"] and (TOOLS.search(e["key"]) or TOOLS.search(e["value"])) for e in entries):
+            found.append(("model", "the workflow that holds the model's credential hands an env: a tool list"))
     for job in jobs:
         inside = {e["key"]: e for e in under("jobs", job["key"])}
         calls = inside.get("uses", {}).get("value", "")
@@ -416,8 +418,9 @@ def lint(text: str) -> list:
 
 
 def _uncommented(text: str) -> str:
-    """The text with its comments left out: each line from its first ` #`, or whole where it starts with `#`."""
-    return "\n".join("" if line.lstrip().startswith("#") else line.split(" #")[0] for line in text.split("\n"))
+    """The text with its whole-line comments left out. A ` #` within a line may sit inside a quoted value, so the rest
+    of such a line is read as written, and a trailing comment that names the context is refused with it."""
+    return "\n".join("" if line.lstrip().startswith("#") else line for line in text.split("\n"))
 
 
 def _shim(text: str, entries: list, top: dict, jobs: list) -> list:
@@ -435,7 +438,8 @@ def _shim(text: str, entries: list, top: dict, jobs: list) -> list:
         if "concurrency" in inside and not calls_run and (set(held) != {"group", "cancel-in-progress"} or not held["group"]
                                         or held["cancel-in-progress"] != "false"):
             whys.append("job %s holds no group of its own that waits, never cancelling the run in progress" % job["key"])
-        if "with" in inside and inside["with"]["value"]:
+        given = [e for e in entries if e["path"] == ["jobs", job["key"], "with"]]
+        if "with" in inside and (inside["with"]["value"] or not given):
             whys.append("job %s passes its inputs on in one line, not one input to a line" % job["key"])
         if "uses" in inside and not RELEASE.match(inside["uses"]["value"]):
             whys.append("job %s calls %s, not a file of the Release at its channel" % (job["key"], inside["uses"]["value"]))
@@ -458,7 +462,7 @@ def _wake(text: str, entries: list, top: dict) -> list:
         whys.append("it wakes on its own end")
     if any(e["path"][:2] == ["on", "workflow_dispatch"] for e in entries):
         whys.append("it takes an input")
-    if EVENT_READ.search(_uncommented(text)):
+    if GITHUB_ANY.search(_uncommented(text)):
         whys.append("it reads the run that woke it")
     return whys
 

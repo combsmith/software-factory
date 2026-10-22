@@ -1970,6 +1970,8 @@ class Workflows(unittest.TestCase):
             "needs": POLLER.replace("    uses:", "    needs:\n      - other\n    uses:"),
             "inputs in one line": POLLER + "    with: main\n",
             "a group of none": POLLER.replace("      group: sf-poller\n", ""),
+            "a group with no name": POLLER.replace("      group: sf-poller\n", "      group:\n"),
+            "a bare with": POLLER + "    with:\n",
             "a pass cancelled": POLLER.replace("cancel-in-progress: false", "cancel-in-progress: true"),
         }
         for why, text in broken.items():
@@ -1986,6 +1988,9 @@ class Workflows(unittest.TestCase):
         called = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n  workflow_call:\n").replace(
             "  checks:\n", "  checks:\n    environment: factory-run\n", 1)
         self.assertNotIn("shim", {rule for rule, _ in check_workflows.lint(called)})
+        # Called and something else: the something else runs the file with the key too.
+        both = called.replace("on:\n  workflow_call:\n", "on:\n  workflow_call:\n  push:\n    branches:\n      - main\n")
+        self.assertIn("shim", {rule for rule, _ in check_workflows.lint(both)})
 
     def test_every_shim_calls_one_channel(self):
         # Decision 0006 and L-46: every shim names the one channel, factory/v0-next, never a branch, a commit or another.
@@ -2035,6 +2040,7 @@ class Workflows(unittest.TestCase):
                                                    "  pass:\n    if: github.event.workflow_run.conclusion == 'success'\n"
                                                    "    permissions:"),
             "no workflow named": POLLER.replace("    workflows:\n      - factory\n      - ci\n      - sf-run\n", ""),
+            "an empty list of workflows": POLLER.replace("      - factory\n      - ci\n      - sf-run\n", ""),
             "a branch filter": POLLER.replace("    types:\n", "    branches:\n      - main\n    types:\n"),
         }
         # The run that woke it is read in no form an expression can write: by an index, in another case, or whole.
@@ -2046,9 +2052,15 @@ class Workflows(unittest.TestCase):
         for why, text in broken.items():
             self.assertIn("wake", {rule for rule, _ in check_workflows.lint(text)}, why)
         # A comment is no read: the poller may say, in a comment, what it does not read.
-        noted = "# The poller reads nothing of github.event.\n" + POLLER.replace(
-            "  pass:\n", "  pass:  # nor github['event']\n")
+        noted = "# The poller reads nothing of github.event.\n" + POLLER.replace("  pass:\n", "  pass:\n    # nor github['event']\n")
         self.assertEqual([r for r, _ in check_workflows.lint(noted) if r == "wake"], [])
+        # A ` #` inside a quoted value is no comment: what follows it is read.
+        quoted = POLLER.replace("  pass:\n    permissions:", "  pass:\n    if: \"' #' == ' #' && github.event.action == 'x'\"\n"
+                                "    permissions:")
+        self.assertIn("wake", {r for r, _ in check_workflows.lint(quoted)})
+        # The poller names its token neither: the pass it calls holds it.
+        self.assertIn("wake", {r for r, _ in check_workflows.lint(POLLER.replace(
+            "  pass:\n    permissions:", "  pass:\n    if: github.token != ''\n    permissions:"))})
         # Nor does the pass it calls read it: pass.yml is the poller's own job.
         called = ("name: sf-pass\non:\n  workflow_call:\npermissions: {}\njobs:\n  pass:\n    runs-on: ubuntu-24.04\n"
                   "    timeout-minutes: 15\n    permissions:\n      actions: write\n      contents: read\n    steps:\n"
@@ -2059,7 +2071,8 @@ class Workflows(unittest.TestCase):
         self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": called.replace(
             "BRANCH: ${{ github.event.workflow_run.head_branch }}", "WORKFLOW_TOKEN: ${{ github.token }}")}))),
             "pass.yml: it reads"))
-        for whole in ("${{ github }}", "${{ toJSON(github) }}"):
+        for whole in ("${{ github }}", "${{ toJSON(github) }}", "${{ GitHub.Event.action }}", "${{ github.token.x }}",
+                      "${{ github.token['x'] }}"):
             problems = check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": called.replace(
                 "${{ github.event.workflow_run.head_branch }}", whole)})))
             self.assertTrue(caught(problems, "pass.yml: it reads the run that woke the poller"), whole)
@@ -2186,6 +2199,11 @@ class Workflows(unittest.TestCase):
         for line in ("          claude_code_subprocess_env_scrub: 1\n", "          ARGS: --allowedTools Bash\n",
                      "          CLAUDE_TOOLS: Read\n"):
             self.assertIn("model", {r for r, _ in check_workflows.lint(clean + line)}, line)
+        # A step's environment is merged from its job's and its workflow's: a tool list there is handed to it too.
+        for level in (clean.replace("    steps:\n", "    env:\n      ALLOWED_TOOLS: Bash\n    steps:\n"),
+                      clean.replace("permissions: {}\n", "permissions: {}\nenv:\n  ALLOWED_TOOLS: Bash\n"),
+                      clean.replace("    steps:\n", "    env:\n      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: 1\n    steps:\n")):
+            self.assertIn("model", {r for r, _ in check_workflows.lint(level)})
         # A tool list in a step that holds no model credential is no concern of this rule.
         self.assertNotIn("model", {r for r, _ in check_workflows.lint(clean.replace(
             "CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}", "OTHER: x") + "          TOOLS: a\n")})
