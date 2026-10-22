@@ -57,7 +57,7 @@ def view(record: dict, before: list, titles: dict, feed: dict) -> dict:
         mine = [r for r in record["runs"] if r["item"] == d["item"]]
         intents = sorted({r["intent"] for r in mine})
         # An attempt is a completed Run that failed by a fault of the item, since a person with write access last acted,
-        # as the brakes count it (I-23): one that ran and left no outcome among them (decision 0046). Another Run is
+        # as the brakes count it (I-23): one that ran and left no outcome among them (decision 0049). Another Run is
         # among the item's `runs`, never its attempts.
         since = facts.get("last_writer_action_at")
         tried = [r for r in mine if r["status"] == "completed" and r["conclusion"] != "success"

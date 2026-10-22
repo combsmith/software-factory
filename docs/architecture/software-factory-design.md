@@ -880,7 +880,7 @@ cost is not known exactly; its duration is the estimate.
 
 A pass reads `outcome.json` only for Runs that did not succeed, which are few. A killed Run has no
 outcome file; one that ran, its conclusion `failure` or `timed_out`, is read as `item`, an attempt,
-whatever other Runs are failing as (decision 0046, issue 286): the facts give no window to judge an
+whatever other Runs are failing as (decision 0049, issue 286): the facts give no window to judge an
 outage by, and the automatic pause stops admission on the Runs that did write `environment`. That a
 job killed at its timeout concludes `timed_out` waits on P-18. A Run `cancelled` with no outcome is
 no attempt: it is read as `superseded`, and so is a job that never started, `startup_failure`, which

@@ -1,6 +1,6 @@
 # 0029. A reviewing Run that leaves a criterion uncovered has not reported
 
-Status: replaced by `docs/decisions/0046-a-reviewing-run-that-leaves-a-criterion-uncovered-has-not-reported-and-one-that-ran-and-left-no-outcome-is-an-attempt.md`,
+Status: replaced by `docs/decisions/0049-a-reviewing-run-that-leaves-a-criterion-uncovered-has-not-reported-and-one-that-ran-and-left-no-outcome-is-an-attempt.md`,
 which holds the rule in force and its boundaries.
 
 ## Decision

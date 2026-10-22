@@ -1,5 +1,5 @@
 """A Run's outcome, `outcome/1`, read from its artifact, for a Run that did not succeed and for no other (design section
-3.10, decisions 0039 and 0046).
+3.10, decisions 0039 and 0049).
 
 The outcome is the artifact named `outcome` the run lists, a zip of one file, `outcome.json`, a few bytes long. It is
 downloaded through the transport's one redirect, to GitHub's artifact storage (decision 0045, the Maintainer's ruling on
@@ -8,7 +8,7 @@ and the bytes read out of it. Its digest, where the listing gives one, is checke
 to `outcome/1` and must name the Run whose artifact it is.
 
 A Run that left no outcome, as a killed one does, is read whole with none, and so is one whose outcome is past its
-retention: that is a fact, and what it means is the Kernel's (decision 0046 and design section 3.10). An outcome not yet
+retention: that is a fact, and what it means is the Kernel's (decision 0049 and design section 3.10). An outcome not yet
 listed just after its Run completed reads the same, until the next pass lists it: a failed Run then counts as an
 attempt for that pass, on the safe side. What cannot be read, two of the name,
 a zip of anything else, or a file that is not `outcome/1` of this Run, is not whole: the Kernel defers, and never reads

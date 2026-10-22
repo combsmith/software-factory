@@ -473,7 +473,7 @@ class Feed(unittest.TestCase):
         self.assertEqual((items["items"][1]["runs"], items["items"][1]["sources"]), (1, ["r_01JA6Z"]))
         self.assertEqual(out["view"]["meta"]["reaches_back_to"], "2026-10-11T12:05:00Z")
         # Attempts are counted as the brakes count them: completed Runs that failed by a fault of the item, or ran and
-        # left no outcome (decision 0046), since a person with write access last acted (Codex's read). Every Run is
+        # left no outcome (decision 0049), since a person with write access last acted (Codex's read). Every Run is
         # among `runs`.
         tried = [run("r_00000A", number=6, intent="fix-findings", role="dev-lead", conclusion="failure", outcome="item"),
                  run("r_00000B", number=6, intent="fix-findings", role="dev-lead", conclusion="failure",

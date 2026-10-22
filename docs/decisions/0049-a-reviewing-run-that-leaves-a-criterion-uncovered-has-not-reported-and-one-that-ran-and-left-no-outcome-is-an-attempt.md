@@ -1,4 +1,4 @@
-# 0046. A reviewing Run that leaves a criterion uncovered has not reported, and one that ran and left no outcome is an attempt
+# 0049. A reviewing Run that leaves a criterion uncovered has not reported, and one that ran and left no outcome is an attempt
 
 Status: accepted. Replaces `docs/decisions/0029-a-reviewing-run-that-leaves-a-criterion-uncovered-has-not-reported.md`,
 and keeps all of it but its rule on a review Run that failed with no outcome, by the working ruling on
