@@ -273,7 +273,7 @@ def role_permits(item: dict, head: str, name: str, threads) -> tuple:
                ("POST", "/repos/%s/check-runs" % repo): check}
     patterns = [("GET", re.compile(re.escape(pull) + r"/reviews/[1-9][0-9]{0,18}"), nothing),
                 ("GET", re.compile(r"/repos/%s/check-runs/[1-9][0-9]{0,18}" % re.escape(repo)), nothing),
-                ("GET", re.compile(r"/repos/%s/commits/[0-9a-f]{40}/check-runs\?check_name=[A-Za-z0-9%%._-]+&per_page=100"
+                ("GET", re.compile(r"/repos/%s/commits/[0-9a-f]{40}/check-runs\?check_name=[A-Za-z0-9%%._-]+&filter=all&per_page=100"
                                    % re.escape(repo)), nothing),
                 ("GET", re.compile(r"/repos/%s/issues/comments/[1-9][0-9]{0,18}" % re.escape(repo)), nothing),
                 ("GET", re.compile(re.escape(issue) + r"/comments\?since=%s&per_page=100" % SINCE.pattern), nothing)]
@@ -380,7 +380,7 @@ def _check(transport, item: dict, req: dict, login: str) -> dict:
     if len(req["annotations"]) > ANNOTATIONS:
         return _back("failed", None, reason="too_many_annotations")
     repo, app = item["repo"], login[: -len("[bot]")] if login.endswith("[bot]") else login
-    listed = _body(_sent(transport, request("GET", "/repos/%s/commits/%s/check-runs?check_name=%s&per_page=100" % (
+    listed = _body(_sent(transport, request("GET", "/repos/%s/commits/%s/check-runs?check_name=%s&filter=all&per_page=100" % (
         repo, req["commit"], urllib.parse.quote(req["name"], safe="")))), 200)
     runs = listed.get("check_runs") if isinstance(listed, dict) else None
     if not isinstance(runs, list) or listed.get("total_count") != len(runs) or len(runs) >= 100:

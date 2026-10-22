@@ -143,7 +143,9 @@ def _effects(task: dict, result: dict, facts: dict):
         if kind == "create_check_run" and gates(finding):
             return "finding_gates"
         # A posted Finding is placed on lines: a whole file is no place a review comment or an annotation can be.
-        if "location" not in finding or "start_line" not in finding["location"]:
+        # A range is read from its first line to its last: one that ends before it starts has no place.
+        where = finding.get("location", {})
+        if "start_line" not in where or where.get("end_line", where["start_line"]) < where["start_line"]:
             return "finding_has_no_place"
     return None
 

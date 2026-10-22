@@ -5725,7 +5725,7 @@ MUTANTS = ISSUE + [
      '        if kind == "create_check_run" and gates(finding):\n',
      '        if False:\n', ('tests.test_apply.Apply.test_effects_the_task_does_not_permit_or_findings_posted_other_than_once_write_nothing',)),
     ('a Finding with no place is posted', 'harness/apply.py',
-     '        if "location" not in finding or "start_line" not in finding["location"]:\n',
+     '        if "start_line" not in where or where.get("end_line", where["start_line"]) < where["start_line"]:\n',
      '        if False:\n', ('tests.test_apply.Apply.test_effects_the_task_does_not_permit_or_findings_posted_other_than_once_write_nothing',)),
     ('a security Finding gates only when it is major', 'harness/apply.py',
      '    return finding["category"] == "security" or finding["severity"]',
@@ -6035,8 +6035,8 @@ MUTANTS = ISSUE + [
      '    if len(effects.get("submit_review", ())) > 1:\n',
      '    if False:\n', ('tests.test_apply.Apply.test_effects_the_task_does_not_permit_or_findings_posted_other_than_once_write_nothing',)),
     ('a Finding on a whole file is placed on a line', 'harness/apply.py',
-     ' or "start_line" not in finding["location"]:\n',
-     ':\n', ('tests.test_apply.Apply.test_effects_the_task_does_not_permit_or_findings_posted_other_than_once_write_nothing',)),
+     '        if "start_line" not in where or ',
+     '        if ', ('tests.test_apply.Apply.test_effects_the_task_does_not_permit_or_findings_posted_other_than_once_write_nothing',)),
     ('a token not revoked ends the Run as if it were', 'harness/apply.py',
      '    if revoked is not True:\n',
      '    if False:\n', ('tests.test_apply.Job.test_nothing_is_minted_for_a_refused_result_and_the_token_is_revoked_whatever_happens',)),
@@ -6072,6 +6072,13 @@ MUTANTS = ISSUE + [
     ('a comment with no Run start is sent', 'harness/apply.py',
      '    if since is None and any(kind == "comment" and req["on"] == "item" for _, kind, req in asked):\n',
      '    if False:\n', ('tests.test_apply.Job.test_nothing_is_minted_for_a_refused_result_and_the_token_is_revoked_whatever_happens',)),
+    # Codex's third read of #194's PR 2.
+    ('a Finding on a reversed range is placed', 'harness/apply.py',
+     ' or where.get("end_line", where["start_line"]) < where["start_line"]:\n',
+     ':\n', ('tests.test_apply.Apply.test_effects_the_task_does_not_permit_or_findings_posted_other_than_once_write_nothing',)),
+    ('a check run is recovered from the latest runs alone', 'adapters/effects.py',
+     '"/repos/%s/commits/%s/check-runs?check_name=%s&filter=all&per_page=100" % (',
+     '"/repos/%s/commits/%s/check-runs?check_name=%s&per_page=100" % (', ('tests.test_apply.RoleWrites.test_a_check_run_is_made_once_complete_and_read_back_with_its_annotations',)),
 ]
 
 

@@ -345,6 +345,8 @@ class Apply(unittest.TestCase):
             ({"findings": [{k: v for k, v in n1.items() if k != "location"}, n2]}, "finding_has_no_place"),
             ({"findings": [n1, {k: v for k, v in n2.items() if k != "location"}]}, "finding_has_no_place"),
             ({"findings": [dict(n1, location={"path": "kernel/decide.py"}), n2]}, "finding_has_no_place"),
+            ({"findings": [dict(n1, location={"path": "kernel/decide.py", "start_line": 94, "end_line": 88}), n2]},
+             "finding_has_no_place"),
             ({"effects": {"submit_review": [review, dict(review, id="e3", comments=[])], "create_check_run": [check]}},
              "review_twice"))
         for over, code in cases:
@@ -634,7 +636,7 @@ class RoleWrites(unittest.TestCase):
 
     def test_a_check_run_is_made_once_complete_and_read_back_with_its_annotations(self):  # sections 3.6, 4.3
         req = apply.requests(the_task(), result(), HEAD, ROLE)[1][2]
-        listed = ("GET", "/repos/%s/commits/%s/check-runs?check_name=factory%%20%%2F%%20pr-review&per_page=100"
+        listed = ("GET", "/repos/%s/commits/%s/check-runs?check_name=factory%%20%%2F%%20pr-review&filter=all&per_page=100"
                   % (ITEM["repo"], HEAD))
         made = lambda **over: dict({"id": 77, "node_id": "CR_kwDOA7", "external_id": "%s:e2" % RUN, "head_sha": HEAD,
                                     "name": "factory / pr-review", "status": "completed", "conclusion": "success",
@@ -737,7 +739,7 @@ class RoleWrites(unittest.TestCase):
                     "name": "factory / pr-review", "head_sha": HEAD, "external_id": "%s:e2" % RUN, "status": "completed",
                     "conclusion": "success", "output": {}}),
                 github.request("GET", "/repos/%s/check-runs/77" % ITEM["repo"]),
-                github.request("GET", "/repos/%s/commits/%s/check-runs?check_name=factory%%20%%2F%%20pr-review&per_page=100"
+                github.request("GET", "/repos/%s/commits/%s/check-runs?check_name=factory%%20%%2F%%20pr-review&filter=all&per_page=100"
                                % (ITEM["repo"], HEAD))]
         for req in fine:
             with self.assertRaisesRegex(github.Unanswered, "nothing left"):      # it reached the fake
