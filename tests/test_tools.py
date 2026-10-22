@@ -3650,6 +3650,10 @@ exit 9
 """
     VALID = {"schema": "result/1", "run": "r_p13", "status": "completed",
              "dispositions": [{"finding": "f_9c1e", "decision": {"result": "accepted"}}]}
+    # The keys under which a kept field may hold a string, pinned here on its own: the ones the run at 2.1.306 found holding
+    # one, and tool_name, reached only when a tool is refused (issue 247). Naming another is a change to this test.
+    STRING_KEYS = ["type", "subtype", "stop_reason", "tool_name", "service_tier", "inference_geo", "speed", "canonicalModel",
+                   "provider", "costBasis"]
     # What the script keeps of the Task's answer, pinned here on its own: widening KEPT_RESULT is a change to this test.
     KEPT = ["type", "subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms", "total_cost_usd", "usage",
             "modelUsage", "stop_reason", "permission_denials", "structured_output"]
@@ -3659,14 +3663,16 @@ exit 9
              "invalid": "THIS-PROSE-5 in a structured output that does not validate",
              "in_usage": "THIS-PROSE-6 in a string under the counts", "in_code": "THIS-PROSE-7 where a code should be",
              "tabbed": "THIS-PROSE-8\tset\tapart\tby\ttabs", "as_key": "THIS-PROSE-9 as a key",
-             "long": "THIS-PROSE-10-" + "z" * 90, "stderr": "THIS-PROSE-11 the model said on standard error"}
+             "long": "THIS-PROSE-10-" + "z" * 90, "stderr": "THIS-PROSE-11 the model said on standard error",
+             "under_model": "THIS-PROSE-12-a-word-under-model"}
 
     def answer(self, output=None, **extra) -> dict:
         said = {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1, "duration_ms": 5,
                 "total_cost_usd": 0.1, "usage": {"input_tokens": 1, "output_tokens": 2, "evil.provider": "LEAKED-DOTTED-KEY",
                                                 "provider": ["LEAKWORD1", "LEAKWORD2"]},
                 "modelUsage": {"m": {"inputTokens": 1, "note": self.PROSE["in_usage"], "fallback": None, "provider": "firstParty",
-                                     "note2": "LEAK-ONE-WORD", "canonicalModel": self.PROSE["long"]},
+                                     "note2": "LEAK-ONE-WORD", "canonicalModel": self.PROSE["long"],
+                                     "model": self.PROSE["under_model"]},
                                "sk-" + "ant-" + "api03-NEVER-SEEN": {"inputTokens": 2}, self.PROSE["as_key"]: 3},
                 "stop_reason": self.PROSE["in_code"], "subtype": self.PROSE["tabbed"], "result": self.PROSE["result"],
                 "a_new_field": self.PROSE["added"], "stats": {"note": self.PROSE["nested"]},
@@ -3892,6 +3898,8 @@ exit 9
             if isinstance(answer, dict):
                 kept = json.loads(texts["clean-3"])
                 self.assertEqual(re.search(r'^KEPT_RESULT="([^"]*)"$', self.SCRIPT.read_text(), re.M).group(1).split(), self.KEPT)
+                self.assertEqual(re.search(r'^STRING_KEYS="([^"]*)"$', self.SCRIPT.read_text(), re.M).group(1).split(),
+                                 self.STRING_KEYS)
                 allowed = set(self.KEPT)
                 self.assertTrue(set(kept) <= allowed, (name, set(kept) - allowed))
                 self.assertNotIn("subtype", kept, name)
@@ -3901,10 +3909,11 @@ exit 9
                 self.assertNotIn("LEAKED-DOTTED-KEY", "".join(texts.values()), name)
                 self.assertNotIn("LEAKWORD", "".join(texts.values()), name)
                 self.assertEqual(kept["usage"], {"input_tokens": 1, "output_tokens": 2, "provider": []}, name)
-                self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.modelUsage.m.note2", "$.modelUsage.m.canonicalModel", "$.stop_reason", "$.modelUsage.<key>")],
+                self.assertEqual([t for t in checked["model_text_removed"] if t["field"] in ("$.modelUsage.m.note", "$.modelUsage.m.note2", "$.modelUsage.m.canonicalModel", "$.modelUsage.m.model", "$.stop_reason", "$.modelUsage.<key>")],
                                  [{"field": "$.modelUsage.m.note", "characters": len(self.PROSE["in_usage"])},
                                   {"field": "$.modelUsage.m.note2", "characters": len("LEAK-ONE-WORD")},
                                   {"field": "$.modelUsage.m.canonicalModel", "characters": len(self.PROSE["long"])},
+                                  {"field": "$.modelUsage.m.model", "characters": len(self.PROSE["under_model"])},
                                   {"field": "$.modelUsage.<key>", "characters": len(self.PROSE["as_key"])},
                                   {"field": "$.stop_reason", "characters": len(self.PROSE["in_code"])}], name)
                 self.assertNotIn("stop_reason", kept, name)

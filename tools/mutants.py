@@ -4000,6 +4000,8 @@ MUTANTS = ISSUE + [
     ("prose set apart by tabs is a code", P13, 'return not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", text)',
      'return " " in text.strip() or len(text) > 64',
      (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
+    ("a word under model is a code", P13, 'canonicalModel provider costBasis"\n', 'canonicalModel provider costBasis model"\n',
+     (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
     ("a word under any key is a code", P13, 'if isinstance(value, str) and (prose(value) or key not in string_keys):',
      "if isinstance(value, str) and prose(value):", (P13_TESTS + "test_no_model_text_reaches_out_whether_or_not_the_output_validates",)),
     ("a long word is a code", P13, 'return not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", text)', 'return not re.fullmatch(r"[A-Za-z0-9_.:-]+", text)',
