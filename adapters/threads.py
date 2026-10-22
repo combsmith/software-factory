@@ -84,8 +84,17 @@ def thread(node: dict, accounts: timeline.Accounts) -> dict:
             "severity": None, "resolved_by": resolved_by, "opened_at": opened_at}
 
 
-def read(transport, pull: dict, accounts: timeline.Accounts) -> tuple:
-    """Every review thread of the pull request, and whether they were read whole."""
+def read(transport, pull: dict, accounts: timeline.Accounts, kept=None) -> tuple:
+    """Every review thread of the pull request, and whether they were read whole. `kept`, where given, keeps each node
+    as GitHub gave it, and the same whole, for reconciliation (`adapters/seen.py`)."""
+    nodes = []
+    found, whole = _read(transport, pull, accounts, nodes)
+    if kept is not None:
+        kept["threads"] = (nodes, whole)
+    return found, whole
+
+
+def _read(transport, pull: dict, accounts: timeline.Accounts, nodes: list) -> tuple:
     owner, name = pull["base"]["repo"]["full_name"].split("/")
     found, after, total, ids, cursors = [], None, None, [], set()
     while True:
@@ -106,6 +115,7 @@ def read(transport, pull: dict, accounts: timeline.Accounts) -> tuple:
             if not isinstance(node, dict):
                 raise Unanswered("a review thread is not one GitHub gives")
             found.append(thread(node, accounts))
+            nodes.append(node)
             ids.append(found[-1]["id"])
         if page.get("hasNextPage") is False:
             return found, len(ids) == total and len(set(ids)) == len(ids)

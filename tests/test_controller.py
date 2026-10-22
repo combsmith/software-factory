@@ -521,7 +521,7 @@ class Feed(unittest.TestCase):
                              (reads(pulls=[], pause={"org": "maybe", "repos": {}}), ["pause_unreadable"]),
                              (reads(pulls=[], runs=[fault]), ["capacity"]),
                              (reads(pulls=[], unidentified=["1"]), ["run_unidentified"]),
-                             (reads(pulls=[], complete=False), ["capacity_unreadable"]),
+                             (reads(pulls=[], complete=False), ["capacity_unreadable", "reconciliation_unreadable"]),
                              (reads(pulls=[], records_=False), ["capacity_unreadable", "reconciliation_unreadable",
                                                                  "run_unidentified"])):
             self.assertEqual(passed(read)["alerts"], raised, raised)
@@ -536,9 +536,14 @@ class Feed(unittest.TestCase):
                          (["write_unmatched"], ["write_unmatched"], ["write_unmatched"]))
         named = [a for a in out["view"]["meta"]["alerts"] if a["alert"] == "write_unmatched"]
         self.assertEqual([a["key"] for a in named], ["PRR_0", "PRR_1", "PRR_2"])
-        self.assertEqual(out["record"]["reconciled"], out["view"]["meta"]["alerts"])
+        self.assertEqual(out["record"]["reconciliation"], out["view"]["meta"]["alerts"])
         rebuilt = pass_.rebuild([out["record"]], {}, config())
         self.assertEqual(rebuilt[0]["meta"]["alerts"], out["view"]["meta"]["alerts"])
+        # Two writes GitHub gives no key for, a label added and taken off, are named once, and the pass is not refused.
+        labels = [{"by": "controller", "kind": "label", "item": support.ITEM, "key": None, "at": at}
+                  for at in ("2026-10-12T00:10:00Z", "2026-10-12T00:20:00Z")]
+        out = passed(reads(seen=dict(SEEN, writes=labels)))
+        self.assertEqual((out["alerts"], len(out["record"]["reconciliation"])), (["write_unmatched"], 1))
         # Matched, nothing is raised; what was seen or recorded that cannot be read raises the one alert that says so.
         done = {"schema": "applied/1", "run": "r_01JA7Q", "release": "factory/v0.3.1", "findings": [],
                 "effects": [{"id": "e1", "type": "approve", "state": "applied", "key": "PRR_0", "reason": None}]}

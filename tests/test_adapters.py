@@ -1102,6 +1102,10 @@ class Artifacts(unittest.TestCase):
                                (done, "outcome.json"), ([done], "applied.json")):
             self.assertEqual(read(record, member), (None, False), (member, record if isinstance(record, list) else
                                                                     record.get("run")))
+        # A record as large as applied/1 may be is read; one larger is not read at all.
+        text = json.dumps(done)
+        self.assertEqual(read(text + " " * (artifacts.APPLIED_MOST - len(text))), (done, True))
+        self.assertEqual(read(text + " " * (artifacts.APPLIED_MOST - len(text) + 1)), (None, False))
 
     RUN = "r_01JA6Z"
 
@@ -1927,6 +1931,13 @@ class Threads(unittest.TestCase):
         self.assertTrue(found)
 
 
+def p26_checks_nodes(exchange: dict) -> list:
+    """The check runs a checks answer lists."""
+    pr = exchange["response"]["body"]["data"]["repository"]["pullRequest"]
+    contexts = pr["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+    return [n for n in contexts if n["__typename"] == "CheckRun"]
+
+
 class Snapshot(unittest.TestCase):
     NOW = "2026-10-18T03:00:00Z"
 
@@ -1960,6 +1971,25 @@ class Snapshot(unittest.TestCase):
                                            "diff": True, "changed_paths": True, "runs": True, "timeline": True})
         self.assertIsNone(got["acceptance"])
         self.assertNotIn(title, json.dumps(got))
+
+    def test_a_snapshot_keeps_its_reads_for_reconciliation_only_once_it_is_whole(self):  # decision 0061
+        # Reconciliation reads what the snapshot read, as GitHub gave it, so no read is made twice; a snapshot refused
+        # keeps nothing, and reconciliation of that pull request is short.
+        router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
+        kept = {}
+        facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                       lambda: self.NOW, kept)
+        self.assertEqual(sorted(kept), ["check_runs", "events", "reviews", "threads"])
+        self.assertTrue(all(isinstance(v[0], list) and v[1] is True for v in kept.values()))
+        self.assertEqual(kept["events"][0], exchanges("P-28")[4]["response"]["body"])
+        self.assertEqual(len(kept["check_runs"][0]), len([n for n in p26_checks_nodes(self.sequence(1)[7])]))
+        self.assertTrue(kept["check_runs"][0] and all(n["__typename"] == "CheckRun" for n in kept["check_runs"][0]))
+        router = Router(github.Replay(self.sequence(12)), {"don-petry": "admin"})
+        kept = {}
+        with self.assertRaises(facts.Moved):
+            facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                           lambda: self.NOW, kept)
+        self.assertEqual(kept, {})
 
     def test_a_snapshot_whose_closing_issue_asks_for_a_contract_is_not_read_whole_on_it(self):
         seq = self.sequence(1)

@@ -172,7 +172,7 @@ def rebuild(records: list, titles: dict, config: dict) -> list:
     """The feed's two files as each pass record left them, rebuilt from the records alone (decision 0002)."""
     return feed_.rebuild(records, titles, config["feed"],
                          lambda r: pull_request.unnamed_scope(r["context"], config["kernel"], r["now"])["alerts"]
-                         + r.get("reconciled", []))
+                         + r.get("reconciliation", []))
 
 
 def _run_name(item: dict, intent: str, role: str, content: str, run: str) -> str:
@@ -262,14 +262,15 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     cleared = len(before) >= 2 and gap(before[-1]["now"], before[-2]["now"]) and not raised
     # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and
     # one for a reconciliation that is short (I-33, decision 0061).
-    found = reconcile_.reconcile(reads.get("seen"), reads.get("effects"), runs if listed else None, before, rules["accounts"])
+    found = reconcile_.reconcile(reads.get("seen"), reads.get("effects"), runs if listed and whole else None, before,
+                                 rules["accounts"])
     alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, automatic is not None,
                             bool(left_out), raised, unnamed, reconcile_.alerts(found))
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}
-    record["reconciled"] = reconcile_.entries(found)
-    feed = feed_.view(record, before, titles, config["feed"], unnamed["alerts"] + record["reconciled"])
+    record["reconciliation"] = reconcile_.entries(found)
+    feed = feed_.view(record, before, titles, config["feed"], unnamed["alerts"] + record["reconciliation"])
     feed["health"] = health_.health(record, before, pause, automatic is not None, alerts, reads.get("usage"), rules)
     # A successor only for an item due at the pass's end: an act made here, whose next Decision is due at once, and not
     # one the pass before made too, which did not take. A Run's end starts the next pass itself, and a pass deferred by

@@ -171,11 +171,14 @@ def _dismissals(timeline: list) -> dict:
     return found
 
 
-def reviews(transport, pull: dict, timeline: list, accounts: Accounts, base_head: str) -> tuple:
+def reviews(transport, pull: dict, timeline: list, accounts: Accounts, base_head: str, kept=None) -> tuple:
     """Every submitted review, with who submitted it, its state as GitHub holds it now, its commit and that commit's
-    content id, and, from the timeline, who dismissed it and what it was before. Whether the list was read whole."""
+    content id, and, from the timeline, who dismissed it and what it was before. Whether the list was read whole.
+    `kept`, where given, keeps the list as GitHub gave it, for reconciliation (`adapters/seen.py`)."""
     repo = pull["base"]["repo"]["full_name"]
     listed, whole = _pages(transport, "/repos/%s/pulls/%d/reviews?per_page=%d" % (repo, pull["number"], PAGE))
+    if kept is not None:
+        kept["reviews"] = (listed, whole)
     dismissals = _dismissals(timeline)
     contents, found = {}, []
     for review in listed:

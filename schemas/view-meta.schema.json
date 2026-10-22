@@ -74,6 +74,17 @@
             "enqueue",
             "dequeue",
             "merge",
+            "close",
+            "reopen",
+            "dismissal",
+            "rename",
+            "ready",
+            "draft",
+            "auto_merge",
+            "retarget",
+            "force_push",
+            "branch_deleted",
+            "lock",
             "push",
             "dispatch"
           ]

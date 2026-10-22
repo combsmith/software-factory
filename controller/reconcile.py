@@ -7,15 +7,16 @@ Effect (I-33)", issue 306, with the Maintainer's answers).
 - `effects`: the Effects the Factory recorded in the window, `{"applied": [applied/1], "written": [written/1], "whole"}`,
   or None;
 - `runs`: the run records the pass read, held to their schema, each a dispatch the pass job's token made; None where
-  the list could not be read;
+  the list could not be read whole. Dispatches are reconciled only once `accounts.workflow_token` is set (ruling 2);
 - `before`: the pass records before this one, whose Decisions say whether a merge had an approval standing;
 - `accounts`: the configuration's accounts, by which each identity is told.
 
 It returns `{"unmatched": [...], "override": [...], "short": bool}`. A write with no matching Effect is unmatched,
 whatever it was: the machine user's approvals with no `approve` Effect among them, the Maintainer's own in the browser
 included ("Alarm on all of them", the Maintainer, 2026-10-22). A merge whose item no pass before read as converged or
-queued is an Override, reported as information. Reconciliation is short, never silent, when what was seen or what was
-recorded cannot be read whole, or when an identity's account is not known, since its writes cannot be told.
+queued in the last pass before it is an Override, reported as information. Reconciliation is short, never silent, when
+what was seen or what was recorded cannot be read whole, or when an identity's account is not known, since its writes
+cannot be told.
 """
 from __future__ import annotations
 
@@ -28,9 +29,11 @@ WRITTEN = "written"
 MATCHES = {
     "approver": {"approval": (APPLIED, "approve")},
     "role": {"review": (APPLIED, "submit_review"), "comment": (APPLIED, "comment"),
-             "check_run": (APPLIED, "create_check_run"), "resolution": (APPLIED, "resolve_thread")},
+             "check_run": (APPLIED, "create_check_run")},
     "controller": {"check_run": (WRITTEN, "status_on_item"), "dequeue": (WRITTEN, "dequeue")},
 }
+# A write GitHub gives no key for, an event of the timeline, is matched by its item: each recorded once.
+BY_ITEM = ("dequeue",)
 DISPATCHES = ("dispatch_run", "dispatch_approval")
 # A Decision that says the item had what a merge needs: an approval of its content standing, read by the Kernel.
 MERGEABLE = ("converged", "queued")
@@ -51,20 +54,24 @@ def _identities(accounts) -> tuple:
     return found, known
 
 
-def _keys(effects: dict) -> dict:
-    """The keys of every Effect recorded as landed, by where it was recorded and its type."""
-    out = {}
+def _keys(effects: dict) -> tuple:
+    """`(keys, items)`: the key of every Effect recorded as landed, by where it was recorded and its type; and of a
+    write matched by its item, how many were recorded on each."""
+    keys, items = {}, {}
     for done in effects["applied"]:
         for e in done["effects"]:
             if e["state"] in LANDED and e["key"] is not None:
-                out.setdefault((APPLIED, e["type"]), set()).add(e["key"])
+                keys.setdefault((APPLIED, e["type"]), set()).add(e["key"])
     for done in effects["written"]:
         for w in done["writes"]:
-            if w["state"] in LANDED:
-                # A write is matched by the key read back, and an act on an item by its item too.
-                found = out.setdefault((WRITTEN, w["type"]), set())
-                found.update(([w["key"]] if w["key"] is not None else []) + ([key(w["item"])] if w["item"] else []))
-    return out
+            if w["state"] not in LANDED:
+                continue
+            if w["type"] in BY_ITEM:
+                if w["item"]:
+                    items[(w["type"], key(w["item"]))] = items.get((w["type"], key(w["item"])), 0) + 1
+            elif w["key"] is not None:
+                keys.setdefault((WRITTEN, w["type"]), set()).add(w["key"])
+    return keys, items
 
 
 def _dispatched(effects: dict) -> set:
@@ -84,7 +91,7 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
     readable = seen is not None and not errors(seen, "seen")
     recorded = _readable(effects)
     short = not (readable and seen["whole"] is True and recorded and effects.get("whole") is True and known)
-    keys = _keys(effects) if recorded else {}
+    keys, items = _keys(effects) if recorded else ({}, {})
     unmatched, override = [], []
     for w in seen["writes"] if readable else []:
         kind = identities.get(w["by"])
@@ -93,23 +100,32 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
             # nobody's that can be told, and raises nothing (ruling 3).
             continue
         where = MATCHES.get(kind, {}).get(w["kind"])
-        landed = where is not None and (w["key"] if w["key"] is not None else key(w["item"])) in keys.get(where, set())
+        if where is not None and where[1] in BY_ITEM:
+            slot = (where[1], key(w["item"]) if w["item"] else None)
+            landed = items.get(slot, 0) > 0
+            items[slot] = items.get(slot, 0) - 1
+        else:
+            landed = where is not None and w["key"] is not None and w["key"] in keys.get(where, set())
         if not landed:
             unmatched.append({"by": w["by"], "kind": w["kind"], "item": w["item"], "key": w["key"]})
-    if readable and recorded:
+    # The pass job's token is an identity once its account is set; until then no dispatch is reconciled (ruling 2).
+    token = isinstance(accounts, dict) and isinstance(accounts.get("workflow_token"), dict)
+    if token and readable and recorded:
         since = seen["since"]
         dispatched = _dispatched(effects)
         for r in runs if isinstance(runs, list) else []:
             if r["started_at"] >= since and r["run"] not in dispatched:
                 unmatched.append({"by": "workflow_token", "kind": "dispatch", "item": r["item"], "key": r["run"]})
-    if not isinstance(runs, list):
+    if token and not isinstance(runs, list):
         short = True
-    last = {}
-    for record in before if isinstance(before, list) else []:
-        for e in record["pull_requests"]:
-            last[key(e["facts"]["item"])] = e["decision"]["state"]
     for m in seen["merged"] if readable else []:
-        state = last.get(key(m["item"]))
+        # What the last pass before the merge read of the item: a pass after it reads it merged.
+        state = None
+        for record in before if isinstance(before, list) else []:
+            if record["now"] < m["at"]:
+                for e in record["pull_requests"]:
+                    if key(e["facts"]["item"]) == key(m["item"]):
+                        state = e["decision"]["state"]
         if state is not None and state not in MERGEABLE:
             override.append({"item": m["item"]})
     return {"unmatched": unmatched, "override": override, "short": short}
@@ -123,8 +139,12 @@ def alerts(found: dict) -> list:
 
 
 def entries(found: dict) -> list:
-    """What the view says of a reconciliation, ids and codes alone: each unmatched write, and each Override."""
-    out = [{"alert": "write_unmatched", "by": u["by"], "write": u["kind"],
-            "item": key(u["item"]) if u["item"] is not None else None, "key": u["key"]} for u in found["unmatched"]]
-    out += [{"alert": "merged_by_override", "item": key(o["item"])} for o in found["override"]]
+    """What the view says of a reconciliation, ids and codes alone: each unmatched write, and each Override, once each,
+    since two writes GitHub gives no key for read the same."""
+    out = []
+    for e in [{"alert": "write_unmatched", "by": u["by"], "write": u["kind"],
+               "item": key(u["item"]) if u["item"] is not None else None, "key": u["key"]} for u in found["unmatched"]] \
+            + [{"alert": "merged_by_override", "item": key(o["item"])} for o in found["override"]]:
+        if e not in out:
+            out.append(e)
     return out

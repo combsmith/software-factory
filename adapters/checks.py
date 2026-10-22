@@ -39,7 +39,7 @@ QUERY = """query FactsChecks($owner: String!, $name: String!, $number: Int!, $af
                   __typename
                   ... on StatusContext { id }
                   ... on CheckRun {
-                    id name conclusion status completedAt
+                    id name conclusion status startedAt completedAt
                     checkSuite { app { databaseId } workflowRun { file { path } } }
                   }
                 }
@@ -77,9 +77,18 @@ def check(node: dict) -> dict:
     return {"name": name, "app_id": app, "workflow": path, "conclusion": word.lower(), "completed_at": done}
 
 
-def read(transport, pull: dict) -> dict:
+def read(transport, pull: dict, kept=None) -> dict:
     """The head's check runs and whether they were read whole, whether the pull request is in the merge queue, and
-    every page is of the head the pull request's first read named."""
+    every page is of the head the pull request's first read named. `kept`, where given, keeps each check run's node as
+    GitHub gave it, and the same whole, for reconciliation (`adapters/seen.py`)."""
+    runs = []
+    found = _read(transport, pull, runs)
+    if kept is not None:
+        kept["check_runs"] = (runs, found["complete"])
+    return found
+
+
+def _read(transport, pull: dict, runs: list) -> dict:
     owner, name = pull["base"]["repo"]["full_name"].split("/")
     found, after, queue, seen, total, ids, cursors = [], None, None, 0, None, [], set()
     while True:
@@ -114,6 +123,7 @@ def read(transport, pull: dict) -> dict:
             ids.append(node.get("id"))
             if node.get("__typename") == "CheckRun":
                 found.append(check(node))
+                runs.append(node)
             elif node.get("__typename") != "StatusContext":
                 raise Unanswered("a context GitHub does not give: %r" % (node.get("__typename"),))
         if page.get("hasNextPage") is False:

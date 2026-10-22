@@ -7,6 +7,14 @@
     "maintainer": {
       "login": "don-petry",
       "id": 36422719
+    },
+    "approver": {
+      "id": 281750570,
+      "type": "User",
+      "login": "donpetry-bot"
+    },
+    "roles": {
+      "pr-review": null
     }
   },
   "home": {

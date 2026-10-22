@@ -21,6 +21,8 @@ URL = "https://github.com/combsmith/software-factory/pull/42"
 ACCOUNTS = json.loads((ROOT / "config" / "controller.json").read_text())["accounts"]
 KNOWN = dict(ACCOUNTS, controller={"id": 5000001, "type": "Bot", "login": "combsmith-sf-controller[bot]"},
              roles={"pr-review": {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[bot]"}})
+# The pass job's token's account, once it is set: dispatches are reconciled from then on (ruling 2).
+TOKEN = dict(KNOWN, workflow_token={"id": 5000003, "type": "Bot"})
 
 
 def wrote(by, kind, key=None, item=ITEM, at="2026-10-11T12:00:00Z") -> dict:
@@ -71,8 +73,7 @@ class Matching(unittest.TestCase):
         rows = [(wrote("approver", "approval", "PRR_a"), applied(("approve", "PRR_a", "applied"))),
                 (wrote("pr-review", "review", "PRR_r"), applied(("submit_review", "PRR_r", "applied"))),
                 (wrote("pr-review", "comment", "IC_c"), applied(("comment", "IC_c", "already_applied"))),
-                (wrote("pr-review", "check_run", "CR_c"), applied(("create_check_run", "CR_c", "applied"))),
-                (wrote("pr-review", "resolution", "PRRT_t"), applied(("resolve_thread", "PRRT_t", "applied")))]
+                (wrote("pr-review", "check_run", "CR_c"), applied(("create_check_run", "CR_c", "applied")))]
         for write, done in rows:
             found = check(seen(write), recorded([done]))
             self.assertEqual((found["unmatched"], found["short"]), ([], False), write)
@@ -85,33 +86,50 @@ class Matching(unittest.TestCase):
                 found = check(seen(write), other)
                 self.assertEqual(kinds(found), [(write["by"], write["kind"])], (write, other))
                 self.assertEqual(reconcile.alerts(found), ["write_unmatched"])
+            # A write whose key cannot be read is matched to nothing, whatever was recorded on its item.
+            self.assertEqual(kinds(check(seen(dict(write, key=None)), recorded([done]))), [(write["by"], write["kind"])])
 
     def test_the_controllers_writes_are_matched_to_what_the_pass_recorded(self):  # decision 0051
         status = written(("status_on_item", ITEM, None, "CR_s", "applied"))
         self.assertEqual(check(seen(wrote("controller", "check_run", "CR_s")), recorded(written_=[status]))["unmatched"],
                          [])
+        # A status is matched by its key alone: a check run on the item whose key cannot be read, or another, alarms.
+        for other in (None, "CR_t"):
+            self.assertEqual(kinds(check(seen(wrote("controller", "check_run", other)), recorded(written_=[status]))),
+                             [("controller", "check_run")], other)
         dequeue = written(("dequeue", ITEM, None, "PR_node", "applied"))
         self.assertEqual(check(seen(wrote("controller", "dequeue")), recorded(written_=[dequeue]))["unmatched"], [])
+        # A dequeue GitHub gives no key for is matched by its item, one recorded for each: a second alarms.
+        twice = seen(wrote("controller", "dequeue"), wrote("controller", "dequeue", at="2026-10-11T12:05:00Z"))
+        self.assertEqual(kinds(check(twice, recorded(written_=[dequeue]))), [("controller", "dequeue")])
+        self.assertEqual(check(twice, recorded(written_=[dequeue, dequeue]))["unmatched"], [])
         # A status the pass recorded as failed or refused landed nothing the pass can claim: its write is unmatched.
         for state in ("failed", "refused", "superseded"):
             not_landed = written(("status_on_item", ITEM, None, "CR_s", state))
             self.assertEqual(kinds(check(seen(wrote("controller", "check_run", "CR_s")), recorded(written_=[not_landed]))),
                              [("controller", "check_run")], state)
-        # A dequeue recorded for another item, an enqueue or a label, which no write serves yet, and a merge alarm.
+            not_landed = written(("dequeue", ITEM, None, "PR_node", state))
+            self.assertEqual(kinds(check(seen(wrote("controller", "dequeue")), recorded(written_=[not_landed]))),
+                             [("controller", "dequeue")], state)
+        # A dequeue recorded for another item, or of no item; an enqueue or a label, which no write serves yet; a merge,
+        # and an act on the timeline no write makes, alarm.
         self.assertEqual(kinds(check(seen(wrote("controller", "dequeue", item=OTHER)), recorded(written_=[dequeue]))),
                          [("controller", "dequeue")])
-        for kind in ("enqueue", "label", "merge", "review", "approval"):
+        self.assertEqual(kinds(check(seen(wrote("controller", "dequeue", item=None)), recorded(written_=[dequeue]))),
+                         [("controller", "dequeue")])
+        for kind in ("enqueue", "label", "merge", "review", "approval", "close", "dismissal", "force_push"):
             self.assertEqual(kinds(check(seen(wrote("controller", kind)), recorded(written_=[dequeue]))),
                              [("controller", kind)], kind)
 
     def test_a_write_no_identity_may_make_alarms_whatever_was_recorded(self):  # decision 0005
         # The machine user only approves: a push, a review that is not an approval, a comment or a resolution alarms,
-        # and so does a Role's act on the timeline.
+        # and so does a Role's act on the timeline, or a resolution GitHub names a Role for.
         everything = recorded([applied(("approve", "K", "applied"), ("submit_review", "K", "applied"),
                                        ("comment", "K", "applied"), ("resolve_thread", "K", "applied"))])
         for write in (wrote("approver", "push", "K"), wrote("approver", "review", "K"), wrote("approver", "comment", "K"),
                       wrote("approver", "resolution", "K"), wrote("pr-review", "label"), wrote("pr-review", "merge"),
-                      wrote("pr-review", "approval", "K")):
+                      wrote("pr-review", "approval", "K"), wrote("pr-review", "resolution", "K"),
+                      wrote("approver", "dismissal"), wrote("approver", "close")):
             self.assertEqual(kinds(check(seen(write), everything)), [(write["by"], write["kind"])], write)
 
     def test_every_machine_user_approval_with_no_record_alarms_the_maintainers_own_included(self):
@@ -127,6 +145,11 @@ class Matching(unittest.TestCase):
         self.assertEqual(len(reconcile.entries(found)), 6)
         self.assertEqual(reconcile.entries(found)[0], {"alert": "write_unmatched", "by": "approver", "write": "approval",
                                                        "item": URL, "key": "PRR_0"})
+        # Two writes GitHub gives no key for read the same, and are named once: the view holds each entry once.
+        found = check(seen(wrote("controller", "label"), wrote("controller", "label", at="2026-10-11T12:01:00Z")))
+        self.assertEqual(len(found["unmatched"]), 2)
+        self.assertEqual(reconcile.entries(found), [{"alert": "write_unmatched", "by": "controller", "write": "label",
+                                                     "item": URL, "key": None}])
 
     def test_a_resolution_github_names_no_resolver_for_raises_nothing(self):  # ruling 3
         self.assertEqual(check(seen(wrote("unattributed", "resolution", "PRRT_x")))["unmatched"], [])
@@ -134,13 +157,20 @@ class Matching(unittest.TestCase):
     def test_a_dispatch_is_matched_by_its_run_to_the_pass_that_sent_it(self):  # decision 0051
         r = run(name="r_01JA7Q", at="2026-10-11T12:00:00Z")
         sent = written(("dispatch_run", ITEM, "r_01JA7Q", None, "sent"))
-        self.assertEqual(check(seen(), recorded(written_=[sent]), records(r))["unmatched"], [])
-        self.assertEqual(kinds(check(seen(), recorded(), records(r))), [("workflow_token", "dispatch")])
-        # A run started before the window is the reconciliation of an earlier pass.
+        self.assertEqual(check(seen(), recorded(written_=[sent]), records(r), accounts=TOKEN)["unmatched"], [])
+        self.assertEqual(kinds(check(seen(), recorded(), records(r), accounts=TOKEN)), [("workflow_token", "dispatch")])
+        # A run started at the window's start is in it; one before it is the reconciliation of an earlier pass.
+        self.assertEqual(kinds(check(seen(), recorded(), records(run(name="r_01JA7S", at=SINCE)), accounts=TOKEN)),
+                         [("workflow_token", "dispatch")])
         old = run(name="r_01JA7R", at="2026-10-10T12:00:00Z")
-        self.assertEqual(check(seen(), recorded(), records(old))["unmatched"], [])
+        self.assertEqual(check(seen(), recorded(), records(old), accounts=TOKEN)["unmatched"], [])
         refused = written(("dispatch_run", ITEM, "r_01JA7Q", None, "refused"))
-        self.assertEqual(kinds(check(seen(), recorded(written_=[refused]), records(r))), [("workflow_token", "dispatch")])
+        self.assertEqual(kinds(check(seen(), recorded(written_=[refused]), records(r), accounts=TOKEN)),
+                         [("workflow_token", "dispatch")])
+        # Until the pass job's token's account is set, no dispatch is reconciled, and run records not read leave
+        # nothing short (ruling 2).
+        self.assertEqual(check(seen(), recorded(), records(r))["unmatched"], [])
+        self.assertIs(check(seen(), recorded(), None)["short"], False)
 
 
 class Short(unittest.TestCase):
@@ -148,9 +178,11 @@ class Short(unittest.TestCase):
         whole = check(seen())
         self.assertEqual((whole["short"], reconcile.alerts(whole)), (False, []))
         bad_applied = dict(applied(("approve", "K", "applied")), effects="none")
+        bad_written = dict(written(("dequeue", ITEM, None, None, "applied")), writes="none")
         for found in (check(None), check(seen(whole=False)), check({"schema": "seen/1"}),
                       check(seen(), None), check(seen(), recorded(whole=False)), check(seen(), recorded([bad_applied])),
-                      check(seen(), recorded(), None),
+                      check(seen(), recorded(written_=[bad_written])),
+                      check(seen(), recorded(), None, accounts=TOKEN),
                       check(seen(), accounts=ACCOUNTS), check(seen(), accounts=dict(KNOWN, approver=None)),
                       check(seen(), accounts=dict(KNOWN, roles={"pr-review": None})), check(seen(), accounts=None)):
             self.assertTrue(found["short"])
@@ -164,20 +196,32 @@ class Override(unittest.TestCase):
     def test_a_merge_no_pass_read_as_mergeable_is_an_override_reported_as_information(self):  # decision 0007
         before = json.loads((ROOT / "examples" / "pass.json").read_text())
         before["pull_requests"][0]["facts"]["item"] = dict(ITEM)
+        before["now"] = "2026-10-11T12:00:00Z"
         merge = {"item": ITEM, "at": "2026-10-11T12:30:00Z"}
-        for state, want in (("verifying", [{"item": ITEM}]), ("held", [{"item": ITEM}]), ("converged", []),
-                            ("queued", [])):
+
+        def at(state, now=before["now"]) -> dict:
             prior = copy.deepcopy(before)
             prior["pull_requests"][0]["decision"]["state"] = state
-            found = check(seen(merged=[merge]), before=[prior])
+            prior["now"] = now
+            return prior
+
+        for state, want in (("verifying", [{"item": ITEM}]), ("held", [{"item": ITEM}]), ("converged", []),
+                            ("queued", [])):
+            found = check(seen(merged=[merge]), before=[at(state)])
             self.assertEqual(found["override"], want, state)
             self.assertEqual(reconcile.alerts(found), [])
+        # The last pass before the merge is read: not a pass after it, which reads the item as it is once merged, nor
+        # an earlier one.
+        self.assertEqual(check(seen(merged=[merge]), before=[at("queued"), at("verifying", "2026-10-11T13:00:00Z")])
+                         ["override"], [])
+        self.assertEqual(check(seen(merged=[merge]), before=[at("verifying", "2026-10-11T11:00:00Z"), at("queued")])
+                         ["override"], [])
+        self.assertEqual(check(seen(merged=[merge]), before=[at("queued", "2026-10-11T11:00:00Z"), at("verifying")])
+                         ["override"], [{"item": ITEM}])
         # A merge of an item no pass read, or with no pass before, is nobody's to report.
-        self.assertEqual(check(seen(merged=[dict(merge, item=OTHER)]), before=[before])["override"], [])
+        self.assertEqual(check(seen(merged=[dict(merge, item=OTHER)]), before=[at("verifying")])["override"], [])
         self.assertEqual(check(seen(merged=[merge]))["override"], [])
-        prior = copy.deepcopy(before)
-        prior["pull_requests"][0]["decision"]["state"] = "verifying"
-        self.assertEqual(reconcile.entries(check(seen(merged=[merge]), before=[prior])),
+        self.assertEqual(reconcile.entries(check(seen(merged=[merge]), before=[at("verifying")])),
                          [{"alert": "merged_by_override", "item": URL}])
 
 
@@ -187,9 +231,9 @@ ROLE = {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[bot]"}
 PERSON = {"id": 36422719, "type": "User", "login": "don-petry"}
 IDENTITIES = {(281750570, "User"): "approver", (5000001, "Bot"): "controller", (5000002, "Bot"): "pr-review"}
 APPS = {5364130: "controller", 5364144: "pr-review"}
-HEAD = "c0ffee" + "0" * 34
-PULL = "/repos/%s/pulls/%d" % (ITEM["repo"], ITEM["number"])
 ISSUE = "/repos/%s/issues/%d" % (ITEM["repo"], ITEM["number"])
+COMMENTS = ("GET", ISSUE + "/comments?since=%s&per_page=100" % SINCE)
+ACTIVITY = ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=week&per_page=100" % ITEM["repo"])
 AT, EARLY = "2026-10-11T12:00:00Z", "2026-10-10T12:00:00Z"
 
 
@@ -197,19 +241,12 @@ class GitHub:
     """A stand-in GitHub, answering each request by method and path, else a 404; an answer of None is no answer."""
 
     def __init__(self, over=None):
-        self.answers = {
-            ("GET", PULL + "/reviews?per_page=100"): [],
-            ("GET", ISSUE + "/comments?since=%s&per_page=100" % SINCE): [],
-            ("GET", ISSUE + "/timeline?per_page=100"): [],
-            ("POST", "/graphql"): {"data": {"repository": {"pullRequest": {"reviewThreads": {
-                "totalCount": 0, "pageInfo": {"hasNextPage": False}, "nodes": []}}}}},
-            ("GET", "/repos/%s/commits/%s/check-runs?per_page=100" % (ITEM["repo"], HEAD)): {"total_count": 0,
-                                                                                           "check_runs": []},
-            ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=day&per_page=100" % ITEM["repo"]): [],
-        }
+        self.answers = {COMMENTS: [], ("GET", ISSUE + "/timeline?per_page=100"): [], ACTIVITY: []}
         self.answers.update(over or {})
+        self.asked = []
 
     def send(self, req):
+        self.asked.append((req["method"], req["path"]))
         found = self.answers.get((req["method"], req["path"]), "missing")
         if found is None:
             raise Unanswered("no answer")
@@ -220,20 +257,29 @@ class GitHub:
         return {"status": 200, "headers": {}, "body": copy.deepcopy(found)}
 
 
-def threads_answer(*nodes, more=False) -> dict:
-    return {"data": {"repository": {"pullRequest": {"reviewThreads": {
-        "totalCount": len(nodes), "pageInfo": {"hasNextPage": more}, "nodes": list(nodes)}}}}}
+def check_run(app, ident, at=AT) -> dict:
+    """A check run's node as the facts port's checks read keeps it."""
+    return {"__typename": "CheckRun", "id": ident, "startedAt": at, "checkSuite": {"app": {"databaseId": app}}}
 
 
-def port(over=None) -> tuple:
-    return seen_.read(GitHub(over), ITEM, HEAD, IDENTITIES, APPS, SINCE)
+def kept(**parts) -> dict:
+    """What `adapters/facts.snapshot` keeps of a pull request: each read as GitHub gave it, and whether it was whole."""
+    out = {name: ([], True) for name in seen_.PARTS}
+    out.update({name: (value, True) if isinstance(value, list) else value for name, value in parts.items()})
+    return out
+
+
+def port(parts=NOTHING, over=None, item=ITEM) -> tuple:
+    return seen_.read(GitHub(over), item, kept() if parts is NOTHING else parts, IDENTITIES, APPS, SINCE)
 
 
 class SeenPort(unittest.TestCase):
     def test_each_identitys_writes_are_read_by_its_account_never_its_login(self):  # ruling 2
         reviews = [{"user": APPROVER, "state": "APPROVED", "node_id": "PRR_a", "submitted_at": AT},
                    {"user": APPROVER, "state": "COMMENTED", "node_id": "PRR_b", "submitted_at": AT},
-                   {"user": ROLE, "state": "COMMENTED", "node_id": "PRR_r", "submitted_at": AT},
+                   {"user": APPROVER, "state": "DISMISSED", "node_id": "PRR_d", "submitted_at": AT},
+                   {"user": APPROVER, "state": "PENDING", "node_id": "PRR_q"},
+                   {"user": ROLE, "state": "COMMENTED", "node_id": "PRR_r", "submitted_at": SINCE},
                    {"user": dict(PERSON, login="donpetry-bot"), "state": "APPROVED", "node_id": "PRR_p", "submitted_at": AT},
                    {"user": dict(APPROVER, type="Bot"), "state": "APPROVED", "node_id": "PRR_x", "submitted_at": AT},
                    {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_old", "submitted_at": EARLY}]
@@ -241,61 +287,76 @@ class SeenPort(unittest.TestCase):
                                                                                 "created_at": AT}]
         events = [{"event": "labeled", "actor": CONTROLLER, "created_at": AT},
                   {"event": "removed_from_merge_queue", "actor": CONTROLLER, "created_at": AT},
+                  {"event": "review_dismissed", "actor": APPROVER, "created_at": AT},
+                  {"event": "closed", "actor": ROLE, "created_at": AT},
                   {"event": "merged", "actor": PERSON, "created_at": AT},
                   {"event": "commented", "actor": CONTROLLER, "created_at": AT},
                   {"event": "labeled", "actor": PERSON, "created_at": AT}]
-        threads_ = threads_answer({"id": "PRRT_n", "isResolved": True, "resolvedBy": None},
-                                  {"id": "PRRT_a", "isResolved": True, "resolvedBy": {"login": "donpetry-bot",
-                                                                                      "databaseId": 281750570}},
-                                  {"id": "PRRT_p", "isResolved": True, "resolvedBy": {"login": "don-petry",
-                                                                                      "databaseId": 36422719}},
-                                  {"id": "PRRT_o", "isResolved": False, "resolvedBy": None})
-        runs = {"total_count": 3, "check_runs": [{"app": {"id": 5364144}, "node_id": "CR_r", "started_at": AT},
-                                                  {"app": {"id": 5364130}, "node_id": "CR_c", "started_at": AT},
-                                                  {"app": {"id": 15368}, "node_id": "CR_x", "started_at": AT}]}
-        writes, merged, whole = port({("GET", PULL + "/reviews?per_page=100"): reviews,
-                                      ("GET", ISSUE + "/comments?since=%s&per_page=100" % SINCE): comments,
-                                      ("GET", ISSUE + "/timeline?per_page=100"): events,
-                                      ("POST", "/graphql"): threads_,
-                                      ("GET", "/repos/%s/commits/%s/check-runs?per_page=100" % (ITEM["repo"], HEAD)): runs})
+        threads_ = [{"id": "PRRT_n", "isResolved": True, "resolvedBy": None},
+                    {"id": "PRRT_a", "isResolved": True, "resolvedBy": {"login": "donpetry-bot", "databaseId": 281750570}},
+                    {"id": "PRRT_p", "isResolved": True, "resolvedBy": {"login": "don-petry", "databaseId": 36422719}},
+                    {"id": "PRRT_o", "isResolved": False, "resolvedBy": None}]
+        runs = [check_run(5364144, "CR_r"), check_run(5364130, "CR_c"), check_run(15368, "CR_x")]
+        writes, merged, whole = port(kept(reviews=reviews, events=events, threads=threads_, check_runs=runs),
+                                     {COMMENTS: comments})
         self.assertTrue(whole)
         self.assertEqual([(w["by"], w["kind"], w["key"]) for w in writes],
                          [("approver", "approval", "PRR_a"), ("approver", "review", "PRR_b"),
-                          ("pr-review", "review", "PRR_r"), ("controller", "comment", "IC_c"),
-                          ("controller", "label", None), ("controller", "dequeue", None),
-                          ("unattributed", "resolution", "PRRT_n"), ("approver", "resolution", "PRRT_a"),
-                          ("pr-review", "check_run", "CR_r"), ("controller", "check_run", "CR_c")])
+                          ("approver", "approval", "PRR_d"), ("pr-review", "review", "PRR_r"),
+                          ("controller", "comment", "IC_c"), ("controller", "label", None),
+                          ("controller", "dequeue", None), ("approver", "dismissal", None),
+                          ("pr-review", "close", None), ("unattributed", "resolution", "PRRT_n"),
+                          ("approver", "resolution", "PRRT_a"), ("pr-review", "check_run", "CR_r"),
+                          ("controller", "check_run", "CR_c")])
         # A merge by anyone is read for an Override; and what was seen is seen/1.
         self.assertEqual(merged, [{"item": ITEM, "at": AT}])
         out = seen_.seen([(writes, merged, whole)], SINCE)
         self.assertEqual(validate(out, SCHEMAS["seen"], schemas=SCHEMAS), [])
 
+    def test_no_read_the_facts_port_made_is_made_twice(self):  # ruling 3
+        github = GitHub()
+        seen_.read(github, ITEM, kept(), IDENTITIES, APPS, SINCE)
+        self.assertEqual(github.asked, [COMMENTS])
+        # An issue's timeline is read here, since no snapshot reads it; it has no reviews, threads or check runs.
+        github = GitHub({("GET", ISSUE + "/timeline?per_page=100"): [
+            {"event": "labeled", "actor": CONTROLLER, "created_at": AT}]})
+        writes, _, whole = seen_.read(github, dict(ITEM, type="issue"), None, IDENTITIES, APPS, SINCE)
+        self.assertEqual((github.asked, [(w["by"], w["kind"]) for w in writes], whole),
+                         ([("GET", ISSUE + "/timeline?per_page=100"), COMMENTS], [("controller", "label")], True))
+
     def test_a_list_that_cannot_be_read_whole_leaves_what_was_seen_short(self):  # ruling 5
         self.assertIs(port()[2], True)
-        reviews = [{"user": ROLE, "state": "COMMENTED", "node_id": "PRR_%d" % i, "submitted_at": AT} for i in range(100)]
-        for over in ({("GET", PULL + "/reviews?per_page=100"): reviews},
-                     {("GET", PULL + "/reviews?per_page=100"): {"status": 500, "body": {}}},
-                     {("GET", PULL + "/reviews?per_page=100"): None},
-                     {("GET", PULL + "/reviews?per_page=100"): [{"user": ROLE, "state": "COMMENTED", "node_id": "P",
-                                                                 "submitted_at": "yesterday"}]},
-                     {("GET", PULL + "/reviews?per_page=100"): [{"user": ROLE, "state": "COMMENTED", "node_id": None,
-                                                                 "submitted_at": AT}]},
-                     {("GET", ISSUE + "/comments?since=%s&per_page=100" % SINCE): {"status": 403, "body": {}}},
-                     {("GET", ISSUE + "/timeline?per_page=100"): {"status": 404, "body": {}}},
-                     {("POST", "/graphql"): threads_answer(more=True)},
-                     {("POST", "/graphql"): {"status": 502, "body": {}}},
-                     {("GET", "/repos/%s/commits/%s/check-runs?per_page=100" % (ITEM["repo"], HEAD)): {
-                         "total_count": 2, "check_runs": []}}):
-            self.assertIs(port(over)[2], False, over)
+        bad = {"reviews": [{"user": ROLE, "state": "COMMENTED", "node_id": "P", "submitted_at": "yesterday"}],
+               "events": [{"event": "labeled", "actor": CONTROLLER, "created_at": "yesterday"}],
+               "check_runs": [check_run(5364144, "CR_r", at=None)]}
+        keyless = {"reviews": [{"user": ROLE, "state": "COMMENTED", "node_id": None, "submitted_at": AT}],
+                   "threads": [{"id": None, "isResolved": True, "resolvedBy": None}],
+                   "check_runs": [check_run(5364144, "CR r")]}
+        for parts in [None, {}, dict(kept(), threads=None), dict(kept(), events=([], False)),
+                      dict(kept(), reviews=([], False)), dict(kept(), check_runs=([], False)),
+                      dict(kept(), threads=([], False)),
+                      kept(threads=[{"id": "PRRT_u", "isResolved": True, "resolvedBy": {"login": "x"}}])] \
+                + [kept(**{name: value}) for name, value in bad.items()] \
+                + [kept(**{name: value}) for name, value in keyless.items()]:
+            self.assertIs(port(parts)[2], False, parts)
+        for answer in ({"status": 403, "body": {}}, None, [{"user": CONTROLLER, "node_id": "IC", "created_at": "x"}],
+                       [{"user": CONTROLLER, "node_id": None, "created_at": AT}]):
+            self.assertIs(port(over={COMMENTS: answer})[2], False, answer)
+        # A pull request whose snapshot kept nothing is short, and its comments are still read.
+        writes, _, whole = port(None, {COMMENTS: [{"user": CONTROLLER, "node_id": "IC_c", "created_at": AT}]})
+        self.assertEqual(([(w["by"], w["kind"]) for w in writes], whole), ([("controller", "comment")], False))
 
     def test_the_machine_users_pushes_are_read_from_the_repos_activity(self):  # decision 0005
-        path = ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=day&per_page=100" % ITEM["repo"])
         entries = [{"id": 7, "actor": APPROVER, "timestamp": AT}, {"id": 8, "actor": PERSON, "timestamp": AT},
-                   {"id": 9, "actor": APPROVER, "timestamp": EARLY}]
-        writes, whole = seen_.pushes(GitHub({path: entries}), ITEM["repo"], APPROVER, SINCE)
+                   {"id": 9, "actor": APPROVER, "timestamp": EARLY}, {"id": 10, "actor": APPROVER, "timestamp": SINCE}]
+        writes, whole = seen_.pushes(GitHub({ACTIVITY: entries}), ITEM["repo"], APPROVER, SINCE)
         self.assertEqual(([(w["by"], w["kind"], w["key"], w["item"]) for w in writes], whole),
-                         ([("approver", "push", "7", None)], True))
-        self.assertIs(seen_.pushes(GitHub({path: {"status": 500, "body": {}}}), ITEM["repo"], APPROVER, SINCE)[1], False)
+                         ([("approver", "push", "7", None), ("approver", "push", "10", None)], True))
+        for answer in ({"status": 500, "body": {}}, None, [{"id": 7, "actor": APPROVER, "timestamp": "x"}],
+                       [{"id": None, "actor": APPROVER, "timestamp": AT}], [{"id": True, "actor": APPROVER,
+                                                                             "timestamp": AT}],
+                       [{"id": i + 1, "actor": PERSON, "timestamp": AT} for i in range(100)]):
+            self.assertIs(seen_.pushes(GitHub({ACTIVITY: answer}), ITEM["repo"], APPROVER, SINCE)[1], False, answer)
 
     def test_seen_is_whole_only_when_every_part_was(self):
         whole, short = ([], [], True), ([], [], False)
