@@ -23,8 +23,6 @@ import sys
 import tempfile
 import time
 import unittest
-import urllib.error
-import urllib.request
 from unittest import mock
 
 from kernel import decide as decide_module, derive, issue, terms
@@ -3387,39 +3385,50 @@ class Trials(unittest.TestCase):
         self.assertEqual(p43["ran_at"], call("for when the trial began")["response"]["body"]["commit"]["author"]["date"])
 
     def test_a_sandboxed_tool_on_a_linux_runner_reads_the_parents_environment(self):
-        # trials/P-50.json (issue 287): each part of the pass is computed here from what the probe left, as the script
-        # computes it, and must equal the job's record; the fail follows, in both attempts of the same commit.
+        # trials/P-50.json (issue 287): the analysis is read again here from the job's log, each part of the pass is
+        # computed from what the probe left, as the script computes it, and must equal the job's record; the fail follows.
         p50 = json.loads((ROOT / "trials" / "P-50.json").read_text())
-        analysis = p50["exchanges"][-1]["response"]["body"]
-        for name, copied in analysis["copied_whole"].items():
-            self.assertEqual(len(set(copied.values())), 1, name + " ran as it is in tools/")
-        for attempt in ("attempt_1", "attempt_2"):
-            phases = analysis[attempt]
-            self.assertEqual(sorted(phases), ["as-is", "userns"], attempt)
-            for phase, checked in phases.items():
-                self.assertEqual(checked["version"], {"pinned": "2.1.306", "before": "2.1.306", "after": "2.1.306"})
-                for part in checked["configurations"]:
-                    where = (attempt, phase, part["configuration"])
-                    ran = part["probe_ran"] and (part["env"]["lines"] or 0) > 0
-                    hidden = ran and not any(part["env"]["seen"].values()) and not any(part["ancestors"]["seen"].values())
-                    held = ran and part["write_outside_the_work_directory"]["landed"] is False
-                    self.assertEqual((part["holds"]["environment_hidden"], part["holds"]["sandbox_held_the_write"]), (hidden, held), where)
-                    self.assertEqual(part["stub"]["requests"], {"/v1/messages tool_use": 1, "/v1/messages text": 1}, where)
-                    self.assertEqual((part["exit"], part["answer"]["is_error"]), (0, False), where)
-                    if phase == "as-is":
-                        # As the runner stands the probe never ran, though the CLI answered and the stub was sent a result.
-                        self.assertEqual(part["probe_ran"], False, where)
-                    else:
-                        # With user namespaces the tool is in a PID namespace of its own, the CLI out of its sight, and
-                        # holds the parent marker itself, and in the processes above it that it can read.
-                        self.assertEqual((part["pid_namespace"]["own"], part["env"]["seen"]["parent"],
-                                          part["ancestors"]["seen"]["parent"], hidden), (True, True, True, False), where)
-                        self.assertEqual(part["env"]["seen"]["listed"], part["configuration"] == "plain", where)
-                self.assertEqual(checked["some_configuration_passes"], False, (attempt, phase))
-            # The write outside the work directory was held in the plain Task and landed in the scrubbed one, which
-            # ran second, both times.
-            self.assertEqual([p["write_outside_the_work_directory"]["landed"] for p in phases["userns"]["configurations"]],
-                             [False, True], attempt)
+        log, analysis = p50["exchanges"][16]["response"]["body"], p50["exchanges"][-1]["response"]["body"]
+        printed, lines, inside = {}, [], False
+        for line in log.splitlines():
+            said = re.match(r"^[^\t]*\t[^\t]*\t\S+Z (.*)$", line)
+            said = said.group(1) if said else ""
+            inside, lines = (True, []) if said == "{" else (inside, lines)
+            lines += [said] if inside else []
+            if inside and said == "}":
+                document, inside = json.loads("\n".join(lines)), False
+                printed[document["phase"]] = document
+        self.assertEqual(printed, analysis["phases"], "the analysis is what the log printed")
+        for i, name in ((14, "p50/run.sh"), (15, "p50/stub.py")):
+            self.assertEqual(p50["exchanges"][i]["response"]["body"]["sha"], analysis["copied_whole"][name]["canary"])
+            self.assertEqual(len(set(analysis["copied_whole"][name].values())), 1, name + " ran as it was in tools/")
+        self.assertEqual(sorted(printed), ["as-is", "userns", "userns-reversed"])
+        for phase, checked in printed.items():
+            self.assertEqual(checked["version"], {"pinned": "2.1.306", "before": "2.1.306", "after": "2.1.306"})
+            order = [part["configuration"] for part in checked["configurations"]]
+            self.assertEqual(order, ["scrubbed", "plain"] if phase == "userns-reversed" else ["plain", "scrubbed"])
+            for part in checked["configurations"]:
+                where = (phase, part["configuration"])
+                ran = part["probe_ran"] and (part["env"]["lines"] or 0) > 0
+                hidden = ran and part["ancestors"]["stopped"] in ("above", "zero", "no-status") \
+                    and not any(part["env"]["seen"].values()) and not any(part["ancestors"]["seen"].values())
+                held = ran and part["write_outside_the_work_directory"]["landed"] is False
+                self.assertEqual((part["holds"]["environment_hidden"], part["holds"]["sandbox_held_the_write"]), (hidden, held), where)
+                self.assertEqual((part["exit"], part["answer"]["is_error"], part["holds"]["tool_ran"]), (0, False, True), where)
+                if phase == "as-is":
+                    # As the runner stands the tool's result came back an error and the probe never ran, though the
+                    # CLI exited 0 with failIfUnavailable set.
+                    self.assertEqual((part["probe_ran"], part["stub"]["result_is_error"]), (False, [True]), where)
+                    continue
+                # With user namespaces the tool is in a PID namespace of its own, the CLI out of its sight; it holds the
+                # parent marker, as does the one process above it that it could read, and the next refuses.
+                self.assertEqual((part["pid_namespace"]["own"], part["env"]["seen"]["parent"], part["ancestors"]["seen"]["parent"]),
+                                 (True, True, True), where)
+                self.assertEqual((part["ancestors"]["read_exits"], part["ancestors"]["stopped"]), ([0, 2], "zero"), where)
+                self.assertEqual(part["env"]["seen"]["listed"], part["configuration"] == "plain", where)
+                # The write outside the work directory lands when the scrub is on, whichever Task runs first.
+                self.assertEqual(part["write_outside_the_work_directory"]["landed"], part["configuration"] == "scrubbed", where)
+            self.assertEqual(checked["some_configuration_passes"], False, phase)
         self.assertEqual(p50["verdict"], "fail")
 
     def test_the_sandbox_limits_connections_and_passes_the_environment(self):
@@ -4060,7 +4069,7 @@ command = json.loads("".join(e["delta"].get("partial_json", "") for e in events 
 assert start["type"] == "tool_use" and start["name"] == "Bash" and command == "sh ./probe.sh", (start, command)
 assert [e["type"] for e in events][-1] == "message_stop"
 if not (here / "no-tool").exists():
-    probe = open("probe.sh").read().replace("/proc/", str(here / "proc") + "/")
+    probe = open("probe.sh").read().replace('"/proc/$$/status"', '"/proc/self/status"').replace("/proc/", str(here / "proc") + "/")
     if (here / "confined").exists():
         probe = re.sub(r"(?m)^outside=.*$", "outside=/nonexistent-p50/x", probe)
     open("probe.run", "w").write(probe)
@@ -4077,6 +4086,8 @@ if not (here / "no-tool").exists():
     above = re.search(r"(?m)^above=([0-9]+)$", probe).group(1)
     chain = (("self", "100", env), ("100", "1", env), ("1", "50" if leaks else "0", env))
     chain += (("50", above, dict(os.environ)), (above, "0", {"THE_SCRIPT": "1"})) if leaks else ()
+    if (here / "long").exists():
+        chain = (("self", "1000", env),) + tuple((str(1000 + i), str(1001 + i), {"QUIET": "1"}) for i in range(14))
     for pid, parent, given in chain:
         (proc / pid).mkdir(parents=True, exist_ok=True)
         (proc / pid / "status").write_text("Name:\tx\nPPid:\t%s\n" % parent)
@@ -4085,8 +4096,11 @@ if not (here / "no-tool").exists():
     if not (proc / "self" / "ns" / "pid").is_symlink():
         os.symlink("pid:[4026599999]", proc / "self" / "ns" / "pid")
     subprocess.run(["sh", "./probe.run"], env=env, timeout=30, check=False)
-post({"model": "m", "max_tokens": 8, "stream": True, "tools": [{"name": "Bash", "input_schema": {}}],
-      "messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": start["id"], "content": "ran"}]}]})
+if not (here / "no-result").exists():
+    post({"model": "m", "max_tokens": 8, "stream": True, "tools": [{"name": "Bash", "input_schema": {}}],
+          "messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": start["id"], "content": "ran",
+                                                     "is_error": (here / "no-tool").exists()}]},
+                       {"role": "user", "content": [{"type": "text", "text": "a reminder after the result"}]}]})
 print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "is-error").exists(), "num_turns": 2,
                   "result": "done", "usage": {"input_tokens": 1}}))
 '''
@@ -4142,6 +4156,10 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "i
              [(True, True, True), (True, True, True)]),
             ("the version moved under the run", dict(hides=("markers", "markers"), after="9.9.9"), False,
              [(True, True, True), (True, True, True)]),
+            ("the tool's result never came back", dict(hides=("markers", "markers"), flags=("confined", "no-result")), False,
+             [(True, True, True), (True, True, True)]),
+            ("the walk reaches its cap", dict(hides=("markers", "markers"), flags=("confined", "long")), False,
+             [(False, True, True), (False, True, True)]),
         ]
         outs = self.run_each({name: kwargs for name, kwargs, *_ in cases})
         for name, kwargs, passes, holds in cases:
@@ -4153,13 +4171,18 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "i
             self.assertEqual(checked["some_configuration_passes"], passes, name)
             for part in checked["configurations"]:
                 self.assertEqual(part["holds"]["answered"], "is-error" not in kwargs.get("flags", ()), name)
-                self.assertEqual(part["holds"]["tool_ran"], True, name)
+                self.assertEqual(part["holds"]["tool_ran"], "no-result" not in kwargs.get("flags", ()), name)
                 self.assertEqual(part["probe_ran"], "no-tool" not in kwargs.get("flags", ()), name)
-        # The walk: the probe's shell and the top of its namespace, or the CLI's process too where it is above.
+        # The walk: from the probe shell's parent to the top of its namespace, or to the CLI's process and no further
+        # where it is above.
         quiet, leaky = (json.loads((outs[n][1] / "checked-as-is.json").read_text())["configurations"][0]
                         for n in ("the sandbox hides everything", "the CLI's own process is above the probe"))
-        self.assertEqual((quiet["ancestors"]["read_exits"], quiet["pid_namespace"]["processes_visible"]), ([0, 0], 2))
-        self.assertEqual((leaky["ancestors"]["read_exits"], leaky["ancestors"]["seen"]), ([0, 0, 0], {"parent": True, "listed": True}))
+        self.assertEqual((quiet["ancestors"]["read_exits"], quiet["ancestors"]["stopped"], quiet["pid_namespace"]["processes_visible"]),
+                         ([0, 0], "zero", 2))
+        self.assertEqual((leaky["ancestors"]["read_exits"], leaky["ancestors"]["stopped"], leaky["ancestors"]["seen"]),
+                         ([0, 0, 0], "above", {"parent": True, "listed": True}))
+        self.assertEqual([e["seen"] for e in leaky["ancestors"]["each"]],
+                         [{"parent": False, "listed": False}] * 2 + [{"parent": True, "listed": True}])
         self.assertEqual(quiet["pid_namespace"]["own"] in (True, None), True)
 
     def test_the_cli_is_given_the_stub_a_dummy_key_and_the_markers_alone(self):
@@ -4179,13 +4202,25 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "i
             self.assertNotIn("GH_TOKEN", given)
             markers += [given["P50_PARENT_MARKER"], given["ANTHROPIC_CUSTOM_HEADERS"].split(": ", 1)[1]]
         self.assertEqual(len(set(markers)), 4, "a fresh marker for each name and each Task")
-        written = "".join(p.read_text() for p in out.rglob("*") if p.is_file()) + ran.stdout + ran.stderr
+        written = (out / "checked-as-is.json").read_text() + ran.stdout + ran.stderr
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ["checked-as-is.json"])
         for marker in markers:
             self.assertNotIn(marker, written)
         checked = json.loads((out / "checked-as-is.json").read_text())
         self.assertEqual(checked["configurations"][0]["stub"]["requests"],
                          {"/v1/messages text": 2, "/v1/messages tool_use": 1})
         self.assertEqual(checked["configurations"][0]["answer"], {"type": "result", "subtype": "success", "is_error": False, "num_turns": 2})
+
+    def test_the_reversed_phase_runs_the_scrubbed_task_first_each_in_a_configuration_of_its_own(self):
+        folder = self.stand_in(hides=("none", "markers"))
+        out = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "out"
+        ran = self.run_script(out, folder, phase="userns-reversed")
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        checked = json.loads((out / "checked-userns-reversed.json").read_text())
+        self.assertEqual([p["configuration"] for p in checked["configurations"]], ["scrubbed", "plain"])
+        dirs = {scrub: dict(line.split("=", 1) for line in (folder / ("env-" + scrub)).read_text().splitlines() if "=" in line)["CLAUDE_CONFIG_DIR"]
+                for scrub in "01"}
+        self.assertNotEqual(dirs["0"], dirs["1"], "each Task a configuration directory of its own")
 
     def test_a_task_that_fails_says_why_in_the_log_without_its_markers(self):
         folder = self.stand_in(flags=("confined", "fails"))
@@ -4198,42 +4233,55 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": (here / "i
         self.assertEqual([p["exit"] for p in checked["configurations"]], [3, 3])
         self.assertFalse(checked["some_configuration_passes"])
 
+    CLIENT = r'''
+import json, sys, urllib.error, urllib.request
+base, said = sys.argv[1], []
+for path, body in json.loads(sys.stdin.read()):
+    request = urllib.request.Request(base + path, data=json.dumps(body).encode(),
+                                     headers={"content-type": "application/json", "x-secret": "NEVER-LOGGED"})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as answer:
+            said.append([answer.status, json.loads(answer.read().decode())])
+    except urllib.error.HTTPError as refused:
+        said.append([refused.code, None])
+print(json.dumps(said))
+'''
+
     def test_the_stub_answers_one_tool_call_and_keeps_no_header(self):
         folder = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
-        stub = subprocess.Popen([sys.executable, "-I", str(self.STUB), str(folder / "port"), str(folder / "log")],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            for _ in range(100):
-                if (folder / "port").exists():
-                    break
-                time.sleep(0.05)
-            base = "http://127.0.0.1:" + (folder / "port").read_text()
-            def post(path, body):
-                request = urllib.request.Request(base + path, data=json.dumps(body).encode(),
-                                                 headers={"content-type": "application/json", "x-secret": "NEVER-LOGGED"})
-                with urllib.request.urlopen(request, timeout=10) as answer:
-                    return answer.read().decode()
-            tools = [{"name": "Bash"}]
-            plain = json.loads(post("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": "NEVER-LOGGED"}]}))
-            self.assertEqual((plain["stop_reason"], plain["content"][0]["input"]["command"]), ("tool_use", "sh ./probe.sh"))
-            after = json.loads(post("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": [{"type": "tool_result"}]}]}))
-            self.assertEqual((after["stop_reason"], after["content"]), ("end_turn", [{"type": "text", "text": "done"}]))
-            self.assertEqual(json.loads(post("/v1/messages", {"messages": []}))["content"][0]["text"], "done")
-            self.assertEqual(json.loads(post("/v1/messages/count_tokens?beta=true", {})), {"input_tokens": 1})
-            with self.assertRaises(urllib.error.HTTPError) as refused:
-                post("/v1/other", {})
-            self.assertEqual(refused.exception.code, 404)
-            log = (folder / "log").read_text()
-            self.assertNotIn("NEVER-LOGGED", log)
-            self.assertEqual([json.loads(line)["answer"] for line in log.splitlines()], ["tool_use", "text", "text", "count", 404])
-        finally:
-            stub.kill()
-            stub.wait()
+        with subprocess.Popen([sys.executable, "-I", str(self.STUB), str(folder / "port"), str(folder / "log")],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True) as stub:
+            try:
+                port = stub.stdout.readline().strip()
+                self.assertEqual(port, (folder / "port").read_text())
+                tools = [{"name": "Bash"}]
+                asks = [("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": "NEVER-LOGGED"}]}),
+                        ("/v1/messages", {"tools": tools, "messages": [{"role": "user", "content": [{"type": "tool_result", "is_error": True}]}]}),
+                        ("/v1/messages", {"messages": []}),
+                        ("/v1/messages/count_tokens?beta=true", {}),
+                        ("/v1/other", {})]
+                ran = subprocess.run([sys.executable, "-I", "-c", self.CLIENT, "http://127.0.0.1:" + port], input=json.dumps(asks),
+                                     capture_output=True, text=True, timeout=60)
+                said = json.loads(ran.stdout)
+            finally:
+                stub.kill()
+        plain, after, bare, count, other = said
+        self.assertEqual((plain[1]["stop_reason"], plain[1]["content"][0]["input"]["command"]), ("tool_use", "sh ./probe.sh"))
+        self.assertEqual((after[1]["stop_reason"], after[1]["content"]), ("end_turn", [{"type": "text", "text": "done"}]))
+        self.assertEqual(bare[1]["content"][0]["text"], "done")
+        self.assertEqual(count, [200, {"input_tokens": 1}])
+        self.assertEqual(other, [404, None])
+        log = (folder / "log").read_text()
+        self.assertNotIn("NEVER-LOGGED", log)
+        lines = [json.loads(line) for line in log.splitlines()]
+        self.assertEqual([line["answer"] for line in lines], ["tool_use", "text", "text", "count", 404])
+        self.assertEqual([(line.get("result"), line.get("result_error")) for line in lines[:3]],
+                         [(False, []), (True, [True]), (False, [])])
 
     def test_each_refusal_stops_before_anything_is_asked(self):
         folder = self.stand_in()
         taken = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
-        for name, args, said in [("a phase it does not know", ("out", "later"), "PHASE is as-is or userns"),
+        for name, args, said in [("a phase it does not know", ("out", "later"), "PHASE is as-is, userns or userns-reversed"),
                                  ("OUT exists", (str(taken), "as-is"), "exists; name a new directory")]:
             ran = subprocess.run(["bash", str(self.SCRIPT), args[0], args[1], str(folder / "claude"), str(self.STUB)],
                                  cwd=pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)), capture_output=True, text=True,

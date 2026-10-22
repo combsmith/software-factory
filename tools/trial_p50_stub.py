@@ -8,16 +8,15 @@ and what kind of answer it gave, so the trial's markers never reach its log.
 
     python3 -I tools/trial_p50_stub.py PORT_FILE LOG_FILE
 
-It listens on a free port, writes the port to PORT_FILE once it listens, and serves until it is killed.
+It listens on a free port, one request at a time, writes the port to PORT_FILE and to its standard output once it
+listens, and serves until it is killed.
 """
 import http.server
 import json
 import os
 import sys
-import threading
 
 COMMAND = "sh ./probe.sh"
-lock = threading.Lock()
 calls = [0]
 
 
@@ -74,11 +73,15 @@ def kind_of(body: dict) -> str:
 
 
 def shape(body: dict) -> dict:
-    """What the log keeps of a request: how many messages, each one's role, and the kinds of block in the last two."""
+    """What the log keeps of a request: how many messages, each one's role, the kinds of block in the last two, whether
+    the conversation carries a tool result, and whether each such result says it is an error, never its text."""
     messages = body.get("messages") if isinstance(body.get("messages"), list) else []
+    results = [c for m in messages if isinstance(m, dict) and isinstance(m.get("content"), list)
+               for c in m["content"] if isinstance(c, dict) and c.get("type") == "tool_result"]
     return {"messages": len(messages),
             "roles": "".join((m.get("role") or "?")[:1] if isinstance(m, dict) else "?" for m in messages)[-12:],
-            "last": [types(m) for m in messages[-2:]]}
+            "last": [types(m) for m in messages[-2:]],
+            "result": bool(results), "result_error": [c.get("is_error") is True for c in results]}
 
 
 class Stub(http.server.BaseHTTPRequestHandler):
@@ -88,7 +91,7 @@ class Stub(http.server.BaseHTTPRequestHandler):
         pass
 
     def note(self, **line):
-        with lock, open(self.log_path, "a") as log:
+        with open(self.log_path, "a") as log:
             log.write(json.dumps(dict(line, path=self.path.split("?", 1)[0])) + "\n")
 
     def send(self, status: int, body: dict):
@@ -120,9 +123,8 @@ class Stub(http.server.BaseHTTPRequestHandler):
             return self.send(200, {"input_tokens": 1})
         if path != "/v1/messages":
             return self.do_GET()
-        with lock:
-            calls[0] += 1
-            n = calls[0]
+        calls[0] += 1
+        n = calls[0]
         kind = kind_of(body)
         model = body.get("model") if isinstance(body.get("model"), str) and len(body["model"]) < 80 else "p50-stub"
         stream = body.get("stream") is True
@@ -143,10 +145,11 @@ def main(argv: list) -> int:
     port_file, log_file = argv
     Stub.log_path = log_file
     open(log_file, "w").close()
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Stub)
+    server = http.server.HTTPServer(("127.0.0.1", 0), Stub)
     with open(port_file + ".part", "w") as f:
         f.write(str(server.server_address[1]))
     os.replace(port_file + ".part", port_file)
+    print(server.server_address[1], flush=True)
     server.serve_forever()
     return 0
 

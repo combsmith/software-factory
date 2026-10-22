@@ -50,7 +50,7 @@ KEPT_RESULT="type subtype is_error num_turns"
 KEY="dummy-p50-not-a-key"
 
 usage() {
-    echo "usage: bash p50/run.sh OUT PHASE CLI STUB" >&2
+    echo "usage: bash p50/run.sh OUT PHASE CLI STUB, PHASE as-is, userns or userns-reversed" >&2
     exit 2
 }
 refuse() {
@@ -59,7 +59,8 @@ refuse() {
 }
 [[ "$#" -eq 4 ]] || usage
 command -v python3 >/dev/null || refuse "python3 is needed"
-case "$2" in as-is | userns) phase=$2 ;; *) refuse "PHASE is as-is or userns" ;; esac
+case "$2" in as-is | userns) phase=$2; order="plain scrubbed" ;; userns-reversed) phase=$2; order="scrubbed plain" ;;
+    *) refuse "PHASE is as-is, userns or userns-reversed" ;; esac
 [[ ! -e "$1" ]] || refuse "$1 exists; name a new directory"
 mkdir -p "$1"
 out=$(cd "$1" && pwd -P)
@@ -83,7 +84,7 @@ trap finish EXIT
 trap 'exit 130' INT TERM
 
 # The stub, on a port of its own; it writes the port once it listens.
-python3 -I "$stub" "$scratch/port" "$scratch/stub.log" &
+python3 -I "$stub" "$scratch/port" "$scratch/stub.log" > /dev/null 2> "$scratch/stub.err" &
 stub_pid=$!
 for _ in $(seq 1 50); do [[ -s "$scratch/port" ]] && break; sleep 0.1; done
 [[ -s "$scratch/port" ]] || refuse "the stub did not start"
@@ -102,21 +103,29 @@ outside=@OUTSIDE@
 case "$above" in "" | *[!0-9]*) above= ;; esac
 mkdir -p ./p50
 env > ./p50/env.raw 2>/dev/null
-: > ./p50/ancestors.raw
 : > ./p50/ancestors.codes
 readlink /proc/self/ns/pid > ./p50/pidns 2>/dev/null || echo unknown > ./p50/pidns
 ls -d /proc/[0-9]* 2>/dev/null | wc -l | tr -d ' ' > ./p50/processes
-pid=$(awk '/^PPid:/ {print $2}' /proc/self/status 2>/dev/null)
+# Up from the parent of the probe's own shell, to the CLI and no further: above is the script that started the CLI,
+# outside the sandbox (with `timeout` before the CLI, its process is the CLI's parent, and holds the script's own
+# environment). In a PID namespace of its own the walk stops at its first process, whose parent is 0. Each process's
+# environment is kept apart, and the walk says why it stopped: above, zero, cap, or no status to read.
+pid=$(awk '/^PPid:/ {print $2}' "/proc/$$/status" 2>/dev/null)
 n=0
-# Up from the probe's shell, to the CLI and no further: above is the script that started the CLI, outside the sandbox.
-# In a PID namespace of its own the walk stops at its first process, whose parent is 0.
-while [ "$n" -lt 12 ] && [ -n "$pid" ] && [ "$pid" -gt 0 ]; do
-    [ -n "$above" ] && [ "$pid" = "$above" ] && break
-    tr '\0' '\n' < "/proc/$pid/environ" >> ./p50/ancestors.raw 2>/dev/null
-    echo "read=$?" >> ./p50/ancestors.codes
-    pid=$(awk '/^PPid:/ {print $2}' "/proc/$pid/status" 2>/dev/null)
-    n=$((n + 1))
+stop=
+while [ -z "$stop" ]; do
+    if [ -z "$pid" ]; then stop=no-status
+    elif [ "$pid" -le 0 ]; then stop=zero
+    elif [ -n "$above" ] && [ "$pid" = "$above" ]; then stop=above
+    elif [ "$n" -ge 12 ]; then stop=cap
+    else
+        n=$((n + 1))
+        tr '\0' '\n' < "/proc/$pid/environ" > "./p50/ancestor-$n.raw" 2>/dev/null
+        echo "read=$?" >> ./p50/ancestors.codes
+        pid=$(awk '/^PPid:/ {print $2}' "/proc/$pid/status" 2>/dev/null)
+    fi
 done
+echo "$stop" > ./p50/stop
 touch "$outside" 2>/dev/null
 echo "write_outside exit=$?" > ./p50/write
 echo done > ./p50/ran
@@ -145,10 +154,12 @@ run_cli() {   # WORK [NAME=VALUE ...] -- ARG...
 
 version=$(run_cli "$scratch" -- --version 2>/dev/null | head -n 1 | awk '{print $1}') || version=
 parts=()
-for name in plain scrubbed; do
+for name in $order; do
     case "$name" in plain) scrub=0 ;; scrubbed) scrub=1 ;; esac
     work="$scratch/work-$name"
     mkdir "$work"
+    cfg="$scratch/cfg-$name"
+    mkdir "$cfg"
     python3 -I -c '
 import shlex, sys
 text = open(sys.argv[1]).read()
@@ -167,7 +178,7 @@ open(sys.argv[2], "w").write(text)' "$scratch/probe.template" "$work/probe.sh" "
     # log is how a stub the CLI does not accept is seen. Nothing of it is kept in OUT.
     if [[ "$code" -ne 0 ]]; then
         echo "trial_p50: $name exited $code; its first lines on standard error, the markers taken out:" >&2
-        head -n 20 "$scratch/raw-$name.err" | cut -c1-300 | sed -e "s/$parent_marker/<marker>/g" -e "s/$listed_marker/<marker>/g" >&2
+        head -n 20 "$scratch/raw-$name.err" | sed -e "s/$parent_marker/<marker>/g" -e "s/$listed_marker/<marker>/g" | cut -c1-300 >&2
         echo "trial_p50: what the stub was asked in that Task, by path and answer:" >&2
         sed -n "$((before + 1)),$((before + 20))p" "$scratch/stub.log" >&2
     fi
@@ -200,14 +211,22 @@ if isinstance(said, list):
     said = found[-1] if found else None
 answer = None
 if isinstance(said, dict):
-    answer = {k: said[k] for k in kept_keys if k in said and (not isinstance(said[k], str) or re.fullmatch(r"[a-z_]{1,32}", said[k]))}
+    def plain(value):
+        return isinstance(value, (bool, int)) or isinstance(value, str) and re.fullmatch(r"[a-z_]{1,32}", value) is not None
+    answer = {k: said[k] for k in kept_keys if k in said and plain(said[k])}
 stub = [json.loads(line) for line in open(stub_log) if line.strip()]
 requests = {}
 for line in stub:
     key = "%s %s" % (line.get("path"), line.get("answer"))
     requests[key] = requests.get(key, 0) + 1
-env, ancestors, codes, pidns, processes, write, ran = (read(p) for p in ("env.raw", "ancestors.raw", "ancestors.codes", "pidns", "processes", "write", "ran"))
-reads = [int(c) for c in re.findall(r"^read=([0-9]{1,3})$", codes or "", re.M)]
+env, codes, pidns, processes, write, ran, stop = (read(p) for p in ("env.raw", "ancestors.codes", "pidns", "processes", "write", "ran", "stop"))
+reads = [int(c) for c in re.findall(r"^read=([0-9]{1,3})$", codes or "", re.M)][:12]
+each = [read("ancestor-%d.raw" % n) for n in range(1, len(reads) + 1)]
+stop = (stop or "").strip()
+stop = stop if stop in ("above", "zero", "cap", "no-status") else None
+# The tool call was asked for, and a later request carried its result back: the stub logs each request in order.
+asked = [l.get("n") for l in stub if l.get("answer") == "tool_use"]
+back = [l for l in stub if l.get("answer") == "text" and l.get("result") is True and asked and (l.get("n") or 0) > asked[0]]
 pidns = (pidns or "").strip()
 pidns = pidns if re.fullmatch(r"pid:\[[0-9]{1,20}\]", pidns) else None
 found = re.fullmatch(r"write_outside exit=([0-9]{1,3})\n?", write or "")
@@ -216,13 +235,13 @@ part = {
     "configuration": name, "subprocess_env_scrub": scrub, "exit": code,
     "answer": answer,
     "stderr": {"lines": lines(open(err, errors="replace").read())},
-    "stub": {"requests": requests, "tool_call_asked": any(l.get("answer") == "tool_use" for l in stub),
-             "result_sent": any(l.get("answer") == "text" and l.get("path") == "/v1/messages" for l in stub)
-             and any(l.get("answer") == "tool_use" for l in stub)},
+    "stub": {"requests": requests, "tool_call_asked": bool(asked), "result_sent": bool(back),
+             "result_is_error": [e for l in back for e in l.get("result_error") or [] if isinstance(e, bool)] or None},
     "probe_ran": ran is not None and ran.strip() == "done",
     "env": {"lines": lines(env), "seen": seen(env)},
-    "ancestors": {"processes_read": len(reads) if len(reads) <= 12 else None, "read_exits": reads[:12], "lines": lines(ancestors),
-                  "seen": seen(ancestors)},
+    "ancestors": {"processes_read": len(reads), "read_exits": reads, "stopped": stop,
+                  "each": [{"lines": lines(t), "seen": seen(t)} for t in each],
+                  "seen": None if ran is None else {k: any((seen(t) or {}).get(k, False) for t in each) for k in markers}},
     "pid_namespace": {"own": None if pidns is None or host_pidns == "unknown" else pidns != host_pidns,
                       "processes_visible": int(processes) if (processes or "").strip().isdigit() else None},
     "write_outside_the_work_directory": {"exit": int(found.group(1)) if found else None, "landed": os.path.lexists(outside)},
@@ -230,9 +249,10 @@ part = {
 recorded = part["probe_ran"] and (part["env"]["lines"] or 0) > 0
 answered = code == 0 and isinstance(answer, dict) and answer.get("is_error") is False
 held = recorded and part["write_outside_the_work_directory"]["landed"] is False
-hidden = recorded and all(part[k]["seen"] is not None and not any(part[k]["seen"].values()) for k in ("env", "ancestors"))
+# A walk cut short at its cap has not read up to the CLI, so it shows nothing hidden.
+hidden = recorded and stop in ("above", "zero", "no-status") and all(part[k]["seen"] is not None and not any(part[k]["seen"].values()) for k in ("env", "ancestors"))
 listed_hidden = recorded and all(part[k]["seen"] is not None and not part[k]["seen"]["listed"] for k in ("env", "ancestors"))
-part["holds"] = {"answered": answered, "tool_ran": part["stub"]["tool_call_asked"] and part["stub"]["result_sent"],
+part["holds"] = {"answered": answered, "tool_ran": part["stub"]["result_sent"],
                  "sandbox_held_the_write": held, "environment_hidden": hidden, "listed_hidden": listed_hidden}
 part["holds"]["passes"] = all(part["holds"][k] for k in ("answered", "tool_ran", "sandbox_held_the_write", "environment_hidden"))
 json.dump(part, open(part_file, "w"), indent=2)
