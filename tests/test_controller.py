@@ -17,7 +17,7 @@ from controller import pass_, shared
 from kernel.decide import decide
 from tests import support
 from tests import test_issue
-from tests.test_adapters import DISPATCHER, NAME, WORKFLOW, canary, listing
+from tests.test_adapters import DISPATCHER, NAME, WORKFLOW, canary, listing, outcome_of, outcome_zip, stored
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 NOW = support.NOW                       # 2026-10-11T13:00:00Z
@@ -301,7 +301,8 @@ class Context(unittest.TestCase):
         unread = reads()
         unread["pull_requests"][0]["facts"]["complete"]["runs"] = False
         self.assertEqual(decisions(passed(unread))[0]["outcome"], "defer")
-        # A list that holds what is not a run record, an id that is not GitHub's or a read with no date is not a list.
+        # A list that holds what is not a run record, an id that is not GitHub's or a read with no date is not a list,
+        # nor is one with no read of the list itself: an outcome read alone is not one (#285).
         for change in ({"runs": [{}]}, {"runs": [dict(run(), status="done")]}, {"unidentified": ["39086879694"]},
                        {"unidentified": [unnamed("abc")]}, {"unidentified": [unnamed("")]},
                        {"unidentified": [dict(unnamed("7"), status="done")]},
@@ -310,7 +311,9 @@ class Context(unittest.TestCase):
                        {"unidentified": [dict(unnamed("7"), run=["7"])]}, {"unidentified": [dict(unnamed("7"), run=7)]},
                        {"reads": [{"read": "runs", "date": "yesterday", "age": 0}]},
                        {"reads": [{"read": "runs", "date": NOW, "age": -1}]}, {"reads": [{"read": "facts", "date": NOW, "age": 0}]},
-                       {"reads": [{"read": "runs", "date": NOW, "age": True}]}):
+                       {"reads": [{"read": "runs", "date": NOW, "age": True}]},
+                       {"reads": [{"read": "runs", "date": NOW, "age": 0}, {"read": "facts", "date": NOW, "age": 0}]},
+                       {"reads": [{"read": "outcome", "date": NOW, "age": 0}]}, {"reads": []}):
             odd = reads()
             odd["records"].update(change)
             out = passed(odd)
@@ -657,6 +660,14 @@ class Ports(unittest.TestCase):
         out = passed(dict(reads(pulls=[pr(264)]), records=got))
         self.assertEqual(out["record"]["runs"], got["runs"])
         self.assertEqual(out["record"]["reads"][:-1], got["reads"])
+        # A failed Run's outcome the port read is a read the pass keeps, stamped as one (#285), not a list it refuses.
+        rows = listing("P-17", 3, rows={"name": NAME, "status": "completed", "conclusion": "failure"})
+        github_id = rows["response"]["body"]["workflow_runs"][0]["id"]
+        got = records.runs(github.Replay([rows] + stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item")))),
+                           canary(), "main", [WORKFLOW], DISPATCHER, per_page=10, sleep=lambda s: None)
+        out = passed(dict(reads(pulls=[pr(264)]), records=got))
+        self.assertEqual(([r["outcome"] for r in out["record"]["runs"]], [r["read"] for r in out["record"]["reads"]]),
+                         (["item"], ["runs", "outcome", "facts"]))
 
 
 if __name__ == "__main__":
