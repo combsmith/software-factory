@@ -1,8 +1,9 @@
 # Must be rejected. A step that only exits installs nothing and runs nothing, so the rule install refuses it; the tick probe of trial P-8 (issue 25) was spared by name and held to its hash while it ran, and is gone.
 name: tick-probe
 on:
-  schedule:
-    - cron: '2,17,32,47 * * * *'
+  push:
+    branches:
+      - main
 permissions: {}
 jobs:
   tick:

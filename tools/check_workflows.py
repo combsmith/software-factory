@@ -33,10 +33,17 @@ RULES = {
             "or quoted key, and no key written twice in one mapping",
     "pin": "an action is pinned to a full commit hash with its version beside it; one of the org's own "
            "reusable workflows, to its channel tag; nothing local but a reusable workflow",
-    "target": "a workflow runs only on pull_request, merge_group, push, schedule, workflow_dispatch or "
-              "workflow_call, and never on pull_request_target",
+    "target": "a workflow runs only on pull_request, merge_group, push, schedule, workflow_dispatch, workflow_run "
+              "or workflow_call, and never on pull_request_target",
     "permissions": "permissions are declared at the top and grant nothing that can write; never read-all or write-all; "
-                   "and no job is granted security-events: write, with which an upload could stand for CodeQL's verdict",
+                   "no job is granted a write but the pass job its actions: write, and none security-events: write, "
+                   "with which an upload could stand for CodeQL's verdict",
+    "shim": "a workflow on schedule, workflow_dispatch or workflow_run runs the default branch's file, so it is a "
+            "shim: each job calls one file of the Release at its channel, with a concurrency group and permissions, "
+            "an if: and with: values that pass its inputs on, and nothing else; and only a workflow on workflow_call "
+            "alone names an environment",
+    "wake": "a workflow on workflow_run wakes on the completion alone of the workflows it names, never its own, takes "
+            "no input and reads nothing of the run that woke it",
     "expression": "an expression stands only as the whole of a value under env:, with: or secrets:, or in if:",
     "length": "a run: block is at most ten lines",
     "install": "a run: line is `make <target>` or `python3 -m <module>` and nothing else, so nothing is "
@@ -49,7 +56,27 @@ RULES = {
     "credentials": "every checkout sets persist-credentials: false",
     "soft": "no step or job continues on error",
 }
-EVENTS = {"pull_request", "merge_group", "push", "schedule", "workflow_dispatch", "workflow_call"}
+EVENTS = {"pull_request", "merge_group", "push", "schedule", "workflow_dispatch", "workflow_run", "workflow_call"}
+# The entry shim (issue 196's ruling 3): a workflow on these events runs the default branch's own file, which no Release
+# holds and no channel rolls back, so it calls the Release and holds nothing else.
+SHIM_EVENTS = {"schedule", "workflow_dispatch", "workflow_run"}
+SHIM_TOP = {"name", "on", "permissions", "jobs", "run-name"}
+SHIM_JOB = {"uses", "permissions", "concurrency", "if", "with"}
+SHIM_NEEDS = {"uses", "permissions", "concurrency"}
+# The one channel every shim calls (decision 0006), the Release's tag, never a local path, which would run main's copy.
+RELEASE = re.compile(r"^combsmith/software-factory/\.github/workflows/[\w.-]+\.yml@factory/v0-next$")
+# Each shim, held word for word by a hash taken with the pins left out, as EXEMPT holds ci.yml: a change to one fails
+# until the same pull request records its new hash, and `.github/` is the Maintainer's to approve. None is live yet.
+SHIMS = {}
+# A workflow held by a shape check of its own, which it is spared these rules for: the eval job judges main's own
+# commit, so it runs main's file on a dispatch, and eval_problems holds every line of it (issue 309).
+SHAPED = {"eval.yml": ("shim",)}
+# The one workflow that wakes on another's end, and the one job granted a write (issue 196's ruling 4).
+WAKES = "poller.yml"
+# The github context read in any form an expression can write it: by a dot or an index, in any case, or whole. A path
+# such as .github/workflows/ is no read of it. The poller and the pass it calls read nothing of the run that woke them.
+EVENT_READ = re.compile(r"(?<![./\w-])github\s*[.\[]|tojson\(\s*github\s*\)", re.I)
+PASS_JOB, PASS_FILES = "pass", ("poller.yml", "pass.yml")
 # The id GitHub gives the App GitHub Actions: it reports every job in every workflow of the repo.
 ACTIONS_APP = 15368
 # A workflow that cannot be written within a rule. It is exempt from the rules named and from no other,
@@ -250,9 +277,11 @@ def lint(text: str) -> list:
             any(e["value"] not in ("read", "none") for e in granted) or \
             any(e["key"] == "permissions" and e["value"] not in ("", "{}") for e in entries):
         found.append(("permissions", "no top-level permissions, one that can write, or read-all or write-all"))
-    if any(e["path"][-1:] == ["permissions"] and e["key"] == "security-events" and e["value"] == "write"
-           for e in entries):
-        found.append(("permissions", "a job is granted security-events: write"))
+    # A job's grant may write in one place: the pass job's actions: write, which starts the Runs and the successor.
+    for e in entries:
+        if len(e["path"]) == 3 and e["path"][0] == "jobs" and e["path"][2] == "permissions" and \
+                e["value"] not in ("read", "none") and (e["path"][1], e["key"], e["value"]) != (PASS_JOB, "actions", "write"):
+            found.append(("permissions", "job %s is granted %s: %s" % (e["path"][1], e["key"], e["value"])))
 
     for e in entries:
         key, value = e["key"], e["value"]
@@ -292,6 +321,12 @@ def lint(text: str) -> list:
         inside = {e["key"]: e for e in under("jobs", job["key"])}
         if "steps" in inside and not inside.get("timeout-minutes", {}).get("value", "").isdigit():
             found.append(("timeout", "job %s has no timeout-minutes" % job["key"]))
+        if "environment" in inside and events != {"workflow_call"}:
+            found.append(("shim", "job %s names an environment in a workflow that is not called alone" % job["key"]))
+    if events & SHIM_EVENTS:
+        found += [("shim", why) for why in _shim(text, entries, top, jobs)]
+    if "workflow_run" in events:
+        found += [("wake", why) for why in _wake(text, entries, top)]
 
     by_line = {e["line"]: e for e in entries}
     for number, raw in enumerate(text.split("\n"), 1):
@@ -307,6 +342,44 @@ def lint(text: str) -> list:
             if (name is None and not keyed) or (name and PERSONAL.search(name)):
                 found.append(("token", "line %d names a personal token, or every secret at once" % number))
     return sorted(set(found))
+
+
+def _shim(text: str, entries: list, top: dict, jobs: list) -> list:
+    """Why a workflow on a shim's events is not a shim: something above its jobs but the name, the events, the grant
+    and a run's name; or a job that holds anything but its call, its grant, its concurrency group, an if: and the
+    inputs it passes on, each `${{ inputs.<the same name> }}`; or one that calls anything but a file of the Release."""
+    whys = ["it holds %s above its jobs" % key for key in sorted(set(top) - SHIM_TOP)]
+    for job in jobs:
+        inside = {e["key"]: e for e in entries if e["path"] == ["jobs", job["key"]]}
+        if set(inside) - SHIM_JOB or not SHIM_NEEDS <= set(inside):
+            whys.append("job %s holds %s, not a call, its grant and its concurrency alone"
+                        % (job["key"], ", ".join(sorted(inside))))
+        if "with" in inside and inside["with"]["value"]:
+            whys.append("job %s passes its inputs on in one line, not one input to a line" % job["key"])
+        if "uses" in inside and not RELEASE.match(inside["uses"]["value"]):
+            whys.append("job %s calls %s, not a file of the Release at its channel" % (job["key"], inside["uses"]["value"]))
+        for e in entries:
+            if e["path"] == ["jobs", job["key"], "with"] and e["value"] != "${{ inputs.%s }}" % e["key"]:
+                whys.append("job %s passes %s something but the input of that name" % (job["key"], e["key"]))
+    return whys
+
+
+def _wake(text: str, entries: list, top: dict) -> list:
+    """Why a workflow on workflow_run would wake on more than a completion of the workflows it names: its own end,
+    every stage of a run, an input, or anything it reads of the run that woke it."""
+    whys = []
+    keys = {e["key"]: e for e in entries if e["path"] == ["on", "workflow_run"]}
+    names = _listed(text, keys["workflows"]) if "workflows" in keys else None
+    types = _listed(text, keys["types"]) if "types" in keys else None
+    if set(keys) != {"workflows", "types"} or not names or types != ["completed"]:
+        whys.append("it wakes on more than the completion of the workflows it names")
+    if names and top.get("name", {}).get("value") in names:
+        whys.append("it wakes on its own end")
+    if any(e["path"][:2] == ["on", "workflow_dispatch"] for e in entries):
+        whys.append("it takes an input")
+    if EVENT_READ.search(text):
+        whys.append("it reads the run that woke it")
+    return whys
 
 
 def _listed(text: str, entry: dict):
@@ -582,6 +655,8 @@ def eval_problems(text: str) -> list:
     if events != {"workflow_dispatch"} or sorted((e["key"], e["value"]) for e in inputs if len(e["path"]) == 4) != \
             [("required", "true"), ("type", "string")] or [e["key"] for e in inputs if len(e["path"]) == 3] != ["release"]:
         problems.append("runs on workflow_dispatch alone, with one input, release, a required string")
+    if [e["key"] for e in entries if e["path"] == ["jobs"]] != [EVAL_JOB]:
+        problems.append("it holds the job %s and no other" % EVAL_JOB)
     inside = {e["key"]: e for e in entries if e["path"] == ["jobs", EVAL_JOB]}
     if set(inside) != EVAL_JOB_KEYS or inside["environment"]["value"] != EVAL_ENVIRONMENT:
         problems.append("its job has exactly %s, and runs on the environment %s"
@@ -607,6 +682,31 @@ def eval_problems(text: str) -> list:
                 problems.append("its %s step is given under %s: %s, exactly" % (kind, under, EVAL_GIVEN[kind].get(under, {})))
             if under in step and (step[under]["value"] or under not in EVAL_GIVEN[kind]):
                 problems.append("its %s step has a %s: it is not given" % (kind, under))
+    return problems
+
+
+def shim_problems(name: str, text: str) -> list:
+    """What is wrong with one live workflow by its file's name: a shim not held word for word by its hash in SHIMS, a
+    workflow that wakes on another's end that is not the poller, or the pass job anywhere but the poller and the pass."""
+    entries, bad = read(text)
+    if bad:
+        return []
+    events = {e["key"] for e in entries if e["path"] == ["on"]}
+    events |= {e["value"] for e in entries if not e["path"] and e["key"] == "on" and e["value"]}
+    problems = []
+    if events & SHIM_EVENTS and name not in SHAPED:
+        held = SHIMS.get(name)
+        if held is None or hashlib.sha256(PIN.sub("@PIN", text).encode()).hexdigest() != held:
+            problems.append("a shim is held word for word, and this one is not in SHIMS or has changed; if the change "
+                            "is meant, record its new hash in SHIMS")
+    if "workflow_run" in events and name != WAKES:
+        problems.append("only %s wakes on another workflow's end" % WAKES)
+    if any(e["path"] == [] and e["key"] == "run-name" for e in entries) and name != "run.yml":
+        problems.append("only run.yml names its run, by the run-name the pass gave it")
+    if name in PASS_FILES and EVENT_READ.search(text):
+        problems.append("it reads the run that woke the poller, which says nothing a fork could not write")
+    if any(e["path"] == ["jobs"] and e["key"] == PASS_JOB for e in entries) and name not in PASS_FILES:
+        problems.append("the job %s is reserved for %s, the one job granted a write" % (PASS_JOB, " and ".join(PASS_FILES)))
     return problems
 
 
@@ -709,6 +809,7 @@ def run(root: pathlib.Path = ROOT) -> list:
     for path in live + sorted((root / "examples" / "workflows").glob("*.y*ml")):
         text = raw(path)
         spared, held = EXEMPT.get(path.name, ((), None)) if path in live else ((), None)
+        spared = tuple(spared) + (SHAPED.get(path.name, ()) if path in live else ())
         if path in live and path.name == SCAN:
             problems += ["%s: %s" % (path.relative_to(root), p) for p in scan_problems(text)]
         if held and hashlib.sha256(PIN.sub("@PIN", text).encode()).hexdigest() != held:
@@ -717,6 +818,8 @@ def run(root: pathlib.Path = ROOT) -> list:
         for rule, message in lint(text):
             if rule not in spared:
                 problems.append("%s: [%s] %s. The rule: %s" % (path.relative_to(root), rule, message, RULES[rule]))
+    for path in live:
+        problems += ["%s: %s" % (path.relative_to(root), p) for p in shim_problems(path.name, raw(path))]
     # The eval job's name is reserved (docs/standards/workflows.md): the job `eval` lives in eval.yml and nowhere else,
     # since it alone will hold the held-out home's read token (design §4.9).
     for path in live:
