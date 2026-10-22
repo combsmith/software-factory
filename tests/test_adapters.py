@@ -868,34 +868,56 @@ class Records(unittest.TestCase):
             self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, False), conclusion)
 
     def test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt(self):
-        # #285's ruling: an outcome is written once by its attempt's final step, so one the pass before read is kept
-        # by its Run id and when its attempt started, and not read again; each outcome read is stamped in the reads.
-        done = {"name": NAME, "status": "completed", "conclusion": "failure"}
-        failed = listing("P-17", 3, rows=done)
-        row = failed["response"]["body"]["workflow_runs"][0]
-        github_id, started = row["id"], row.get("run_started_at") or row["created_at"]
-        read, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item"))))
-        self.assertEqual(read["runs"][0]["outcome"], "item")
-        self.assertEqual([r["read"] for r in read["reads"]], ["runs", "outcome"])
-        # Kept: no artifact is read, and nothing is stamped but the list.
-        kept = records.known({"runs": read["runs"]})
-        self.assertEqual(kept, {("r_01JA6Z", started): "item"})
-        again, _ = self.read(failed, kept=kept)
-        self.assertEqual((again["runs"][0]["outcome"], again["complete"], [r["read"] for r in again["reads"]]),
-                         ("item", True, ["runs"]))
+        # #285's ruling: an outcome is written once by its attempt's final step, so one a pass record read is kept by
+        # its Run id and when its attempt started, and not read again; one that is not there is kept as none once two
+        # passes in a row read none. N failed Runs cost N reads, then only those with none, then none (L-52).
+        done = {"status": "completed", "conclusion": "failure"}
+        rows = listing("P-17", 3, rows=done)
+        template = rows["response"]["body"]["workflow_runs"][0]
+        names = [NAME.replace("r_01JA6Z", "r_%06dZ" % n) for n in range(3)]
+        rows["response"]["body"].update(total_count=3, workflow_runs=[
+            dict(template, id=700 + n, name=names[n], run_started_at="2026-10-21T0%d:00:00Z" % n) for n in range(3)])
+        faulted = [outcome_zip(outcome_of("r_%06dZ" % n, "item")) for n in range(2)]
+
+        def outcomes(n):
+            return stored(canary(), 700 + n, faulted[n]) if n < 2 else [stored(canary(), 702, None)[0]]
+
+        def stamped(got):
+            return len([r for r in got["reads"] if r["read"] == "outcome"])
+        first, _ = self.read(rows, *outcomes(0), *outcomes(1), *outcomes(2))
+        self.assertEqual(([r["outcome"] for r in first["runs"]], stamped(first)), (["item", "item", None], 3))
+        record1 = {"runs": first["runs"]}
+        # The pass after: the two faults kept, the one with none read again.
+        second, _ = self.read(rows, *outcomes(2), kept=records.known([record1]))
+        self.assertEqual(([r["outcome"] for r in second["runs"]], stamped(second), second["complete"]),
+                         (["item", "item", None], 1, True))
+        # And the pass after that, two in a row having read none: nothing read.
+        third, _ = self.read(rows, kept=records.known([record1, {"runs": second["runs"]}]))
+        self.assertEqual(([r["outcome"] for r in third["runs"]], stamped(third)), (["item", "item", None], 0))
         # A re-run is another attempt, started at another time: read afresh.
-        rerun = listing("P-17", 3, rows=dict(done, run_started_at="2026-10-21T03:00:00Z"))
-        fresh, _ = self.read(rerun, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "environment"))),
-                             kept=kept)
-        self.assertEqual((fresh["runs"][0]["outcome"], [r["read"] for r in fresh["reads"]]),
-                         ("environment", ["runs", "outcome"]))
-        # Not kept: a Run that left none, whose outcome may be listed later; one that succeeded; one not completed; a
-        # fault the outcome does not name; and a record that is not one.
-        for change in ({"outcome": None}, {"conclusion": "success"}, {"status": "in_progress"},
-                       {"outcome": "late"}, {"run": None}):
-            self.assertEqual(records.known({"runs": [dict(read["runs"][0], **change)]}), {}, change)
-        self.assertEqual((records.known(None), records.known({"runs": None}), records.known({"runs": ["x"]})),
-                         ({}, {}, {}))
+        rerun = copy.deepcopy(rows)
+        rerun["response"]["body"]["workflow_runs"][0]["run_started_at"] = "2026-10-21T09:00:00Z"
+        fresh, _ = self.read(rerun, *outcomes(0), kept=records.known([record1, {"runs": second["runs"]}]))
+        self.assertEqual(stamped(fresh), 1)
+        # A row that names no start of its attempt, or one listed twice, is read afresh whatever is kept.
+        untimed = copy.deepcopy(rows)
+        untimed["response"]["body"]["workflow_runs"][0]["run_started_at"] = None
+        untimed["response"]["body"]["workflow_runs"][0]["created_at"] = "2026-10-21T00:00:00Z"
+        got, _ = self.read(untimed, *outcomes(0), kept=records.known([record1, {"runs": second["runs"]}]))
+        self.assertEqual(stamped(got), 1)
+        twice = copy.deepcopy(rows)
+        twice["response"]["body"]["workflow_runs"][1] = dict(twice["response"]["body"]["workflow_runs"][0], id=799)
+        got, _ = self.read(twice, *outcomes(0), *stored(canary(), 799, faulted[0]),
+                           kept=records.known([record1, {"runs": second["runs"]}]))
+        self.assertEqual(stamped(got), 2)
+        # Kept by neither: a key a record holds twice; a Run that succeeded or is not done; a fault no outcome names; and
+        # a record that is no pass record's runs.
+        doubled = {"runs": first["runs"] + first["runs"][:1]}
+        self.assertNotIn(("r_000000Z", "2026-10-21T00:00:00Z"), records.known([doubled]))
+        for change in ({"conclusion": "success"}, {"status": "in_progress"}, {"outcome": "late"}, {"run": None}):
+            self.assertEqual(records.known([{"runs": [dict(first["runs"][0], **change)]}]), {}, change)
+        self.assertEqual((records.known(None), records.known({"runs": first["runs"]}), records.known([{"runs": None}]),
+                          records.known([{"runs": ["x"]}])), ({}, {}, {}, {}))
 
     def test_a_status_or_a_conclusion_github_would_not_give_a_run_makes_the_list_short(self):
         self.assertEqual(self.read(listing("P-17", 3, rows={"name": NAME, "status": "waiting"}))[0]["runs"][0]["status"],

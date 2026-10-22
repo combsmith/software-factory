@@ -17,7 +17,7 @@ from controller import pass_, shared
 from kernel.decide import decide
 from tests import support
 from tests import test_issue
-from tests.test_adapters import DISPATCHER, NAME, WORKFLOW, canary, listing
+from tests.test_adapters import DISPATCHER, NAME, WORKFLOW, canary, listing, outcome_of, outcome_zip, stored
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 NOW = support.NOW                       # 2026-10-11T13:00:00Z
@@ -621,6 +621,14 @@ class Ports(unittest.TestCase):
         out = passed(dict(reads(pulls=[pr(264)]), records=got))
         self.assertEqual(out["record"]["runs"], got["runs"])
         self.assertEqual(out["record"]["reads"][:-1], got["reads"])
+        # A failed Run's outcome the port read is a read the pass keeps, stamped as one (#285), not a list it refuses.
+        rows = listing("P-17", 3, rows={"name": NAME, "status": "completed", "conclusion": "failure"})
+        github_id = rows["response"]["body"]["workflow_runs"][0]["id"]
+        got = records.runs(github.Replay([rows] + stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item")))),
+                           canary(), "main", [WORKFLOW], DISPATCHER, per_page=10, sleep=lambda s: None)
+        out = passed(dict(reads(pulls=[pr(264)]), records=got))
+        self.assertEqual(([r["outcome"] for r in out["record"]["runs"]], [r["read"] for r in out["record"]["reads"]]),
+                         (["item"], ["runs", "outcome", "facts"]))
 
 
 if __name__ == "__main__":

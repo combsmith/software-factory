@@ -29,8 +29,9 @@ def run_records(records) -> tuple:
 
 
 def _read(entry) -> bool:
-    """One read of the list, as the pass record keeps it: `runs`, a date and an age in whole seconds."""
-    return (isinstance(entry, dict) and set(entry) == {"read", "date", "age"} and entry["read"] == "runs"
+    """One read of the list, as the pass record keeps it: `runs`, or `outcome` for a Run's outcome the records port
+    read (#285), a date and an age in whole seconds."""
+    return (isinstance(entry, dict) and set(entry) == {"read", "date", "age"} and entry["read"] in ("runs", "outcome")
             and moment(entry["date"]) is not None and type(entry["age"]) is int and entry["age"] >= 0)
 
 

@@ -40,10 +40,10 @@ def _listed(transport, repo: str, github_id: int, seen=None):
     `seen`, where given, is handed the list's answer, so the caller can record what the read cost."""
     answer = transport.send(request("GET", "/repos/%s/actions/runs/%d/artifacts?name=%s&per_page=100"
                                     % (repo, github_id, NAME)))
-    if seen is not None:
-        seen(answer)
     if answer["status"] != 200 or not isinstance(answer["body"], dict):
         raise Unanswered("the artifacts of run %d answered %d" % (github_id, answer["status"]))
+    if seen is not None:
+        seen(answer)
     listed, total = answer["body"].get("artifacts"), answer["body"].get("total_count")
     if not isinstance(listed, list) or not isinstance(total, int) or isinstance(total, bool) or total != len(listed):
         return False
