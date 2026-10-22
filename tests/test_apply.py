@@ -749,10 +749,10 @@ class RoleWrites(unittest.TestCase):
                                                                     "comments": []}),
                    github.request("PUT", PULL + "/merge", body={}),
                    github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
-                       "name": "factory / pr-review", "head_sha": HEAD, "external_id": "x", "status": "in_progress",
+                       "name": "factory / pr-review", "head_sha": HEAD, "external_id": "%s:e2" % RUN, "status": "in_progress",
                        "conclusion": "success", "output": {}}),
                    github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
-                       "name": "factory / pr-review", "head_sha": "main", "external_id": "x", "status": "completed",
+                       "name": "factory / pr-review", "head_sha": "main", "external_id": "%s:e2" % RUN, "status": "completed",
                        "conclusion": "success", "output": {}}),
                    github.request("GET", "/repos/combsmith/other/check-runs/77"),
                    github.request("POST", PULL + "/reviews", body={"commit_id": "0" * 40, "event": "COMMENT", "body": "",
@@ -766,10 +766,10 @@ class RoleWrites(unittest.TestCase):
                    github.request("POST", "/graphql", body={"query": effects.RESOLVE,
                                                             "variables": {"id": "PRRT_onAnotherPR"}}),
                    github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
-                       "name": "gates", "head_sha": HEAD, "external_id": "x", "status": "completed",
-                       "conclusion": "failure", "output": {}}),
+                       "name": "gates", "head_sha": HEAD, "external_id": "%s:e2" % RUN, "status": "completed",
+                       "conclusion": "success", "output": {}}),
                    github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body={
-                       "name": "factory / pr-review", "head_sha": "1" * 40, "external_id": "x", "status": "completed",
+                       "name": "factory / pr-review", "head_sha": "1" * 40, "external_id": "%s:e2" % RUN, "status": "completed",
                        "conclusion": "success", "output": {}}),
                    github.request("GET", PULL + "/reviews/5602757809/../../merge"),
                    github.request("GET", ISSUE + "/comments?since=yesterday&per_page=100"),
@@ -783,7 +783,16 @@ class RoleWrites(unittest.TestCase):
         for req in refused:
             with self.assertRaisesRegex(github.Unanswered, "may not send"):
                 allowed.send(req)
-        self.assertEqual(len(hub.sent), len(fine))
+        # Each key of a check run is held on its own: the body the port sends, and that body with one key changed.
+        good = {"name": "factory / pr-review", "head_sha": HEAD, "external_id": "%s:e2" % RUN, "status": "completed",
+                "conclusion": "success", "output": {}}
+        with self.assertRaisesRegex(github.Unanswered, "nothing left"):
+            allowed.send(github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body=good))
+        for key, value in (("name", "gates"), ("head_sha", "1" * 40), ("head_sha", "main"), ("status", "in_progress"),
+                           ("conclusion", "failure"), ("external_id", "anything")):
+            with self.assertRaisesRegex(github.Unanswered, "may not send", msg=key):
+                allowed.send(github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body=dict(good, **{key: value})))
+        self.assertEqual(len(hub.sent), len(fine) + 1)      # and the good check run
 
 
 class Job(unittest.TestCase):
