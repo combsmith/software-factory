@@ -8,7 +8,7 @@ import re
 import unittest
 
 from kernel import derive
-from kernel.decide import decide, stuck_runs, unnamed_scope
+from kernel.decide import decide, still_wanted, stuck_runs, unnamed_scope
 from tests.support import (COMMIT, CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, REPORTER, ROOT,
                            changed, config, context, contract, evidence, facts, labelled, review, run, thread,
                            unlabelled)
@@ -3703,6 +3703,30 @@ class TheFactorysOwnRules(unittest.TestCase):
         self.assertTrue(derive.judged_by_a_person(dict(f, reviews=[review(kind="human", name="a-colleague")])))
         self.assertFalse(derive.judged_by_a_person(f))
 
+    def test_an_approval_of_a_change_to_a_model_lenss_inputs_is_still_wanted_only_while_a_judge_approves(self):
+        # Issue 195, ruling 7: the approving act asks the Kernel again on what it just read, so the wait for a person
+        # binds as the act starts. An approval decided while a judge's approval stood is no longer wanted once a person
+        # dismisses it, or once a push puts a listed path in the change; the Factory's own approval never stands in.
+        judge = review(kind="human", name="a-colleague")
+        f = changing(**AGENT, changed_paths=["kernel/gate.py"])
+        decided = go(dict(f, reviews=[judge]), REVIEWED)
+        self.assertEqual((decided["outcome"], decided["action"]), ("act", "issue_approval"))
+        self.assertTrue(still_wanted(decided, go(dict(f, reviews=[judge]), REVIEWED)))
+        dismissed = review(kind="human", name="a-colleague", state="dismissed", dismissed_by=COLLEAGUE,
+                           dismissed_from="approved")
+        for again in (go(dict(f, reviews=[dismissed]), REVIEWED),
+                      go(f, REVIEWED + [run(role="pr-review", intent="issue-approval", name="r9",
+                                            at="2026-10-11T12:30:00Z")])):
+            self.assertEqual(again["reason"], "model_lens_input_needs_person")
+            self.assertFalse(still_wanted(decided, again))
+        # The machine user's approval landed beside the dismissal: whether it waits for a person (#308) or is enqueued,
+        # no second approval is wanted.
+        self.assertFalse(still_wanted(decided, go(dict(f, reviews=[dismissed, review()]), REVIEWED)))
+        # A change off the list, approved, then pushed onto it: the same content id stands for neither, and the push
+        # waits for a person whatever it is.
+        plain = changing(**AGENT, changed_paths=["docs/notes.md"])
+        self.assertFalse(still_wanted(go(plain, REVIEWED), go(f, REVIEWED)))
+
     def test_the_list_is_the_configurations_never_the_change(self):  # issue 140, decision 0020
         # A change that takes the manifest off the list in config/hooks.json still waits: the list is the base branch's.
         f = changing(**AGENT, changed_paths=["docs/hooks-notes.md", "roles/pr-review.json"])
@@ -3747,3 +3771,44 @@ class NotYetHeld(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StillWanted(unittest.TestCase):
+    """Issue 195, ruling 4 (I-38): an act or a Run asks the Kernel again on what it just read before it writes, and
+    goes ahead only if that wants the same thing for the same item and content."""
+
+    def test_a_run_or_an_approval_is_still_wanted_only_for_the_same_content(self):  # I-38
+        approval = go(facts(), REVIEWED)
+        self.assertEqual((approval["outcome"], approval["action"]), ("act", "issue_approval"))
+        self.assertTrue(still_wanted(approval, go(facts(), REVIEWED)))
+        # A Hold, a Pause, a Run in flight, new content, an approver who is now the author, or an approval that landed
+        # since: the Kernel, asked again, no longer issues this approval.
+        for again in (go(facts(label_events=[labelled("factory:hold")]), REVIEWED),
+                      go(facts(), REVIEWED, ctx=context(paused=True)),
+                      go(facts(), REVIEWED + [run(status="in_progress", name="r2", at="2026-10-11T12:30:00Z")]),
+                      go(facts(content_id="sha256:bbbb"), REVIEWED),
+                      go(facts(author="donpetry-bot"), REVIEWED),
+                      go(facts(reviews=APPROVED), REVIEWED)):
+            self.assertFalse(still_wanted(approval, again), (again["reason"], again["outcome"]))
+        # Each part of the approval is read: the act, the action, the content and the item.
+        for part in ({"outcome": "nothing"}, {"action": "enqueue"}, {"content_id": "sha256:bbbb"},
+                     {"item": dict(approval["item"], number=43)}):
+            self.assertFalse(still_wanted(approval, dict(approval, **part)), part)
+        self.assertFalse(still_wanted(dict(approval, content_id=None), dict(approval, content_id=None)))
+        # A Run admitted is still wanted only if the same Run is admitted again: the same Role, Intent and content.
+        admitted = go(facts(), [])
+        self.assertEqual(admitted["admit"], REVIEW_IT)
+        self.assertTrue(still_wanted(admitted, go(facts(), [])))
+        for again in (go(facts(content_id="sha256:bbbb"), []), go(facts(), REVIEWED),
+                      go(facts(label_events=[labelled("factory:hold")]), [])):
+            self.assertFalse(still_wanted(admitted, again), again["reason"])
+        for admit in (dict(REVIEW_IT, role="dev-lead"), dict(REVIEW_IT, intent="fix-findings"), None):
+            self.assertFalse(still_wanted(admitted, dict(admitted, admit=admit)), admit)
+        # Neither an approval nor a Run: an enqueue, a deferral or nothing is never still wanted, even by its twin.
+        for d in (go(facts(reviews=APPROVED), REVIEWED), go(facts(), ctx=context(paused=True)),
+                  go(facts(label_events=[labelled("factory:hold")]))):
+            self.assertFalse(still_wanted(d, d), d["reason"])
+        # What cannot be read wants nothing.
+        for bad in (None, [], "act", {}):
+            self.assertFalse(still_wanted(approval, bad), bad)
+            self.assertFalse(still_wanted(bad, approval), bad)

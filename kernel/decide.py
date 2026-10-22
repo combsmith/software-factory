@@ -92,6 +92,23 @@ def _act(facts: dict, state: str, reason: str, evidence: list, mine: list, conte
     return _decision(facts, state, reason, evidence, t.ACT, action=action, content_id=facts["content_id"])
 
 
+def still_wanted(decided: dict, again: dict) -> bool:
+    """Whether an act or a Run may go ahead: the Decision it was started by, `decided`, against `again`, the Kernel asked
+    again on what it just read with its own Run left out of the records (I-38, issue 195). A Run is still wanted only if
+    the same Run is admitted, the same Role and Intent for the same content, as `kernel.issue.still_admitted` reads an
+    issue's. An approval is still wanted only if the approval is issued again, for the same item and content. So a Hold,
+    a Pause, a close, new content, a Run in flight, a writer's gate, a wait for a person and an approver who is now the
+    author each stop it. Anything else, or anything that cannot be read, is not wanted."""
+    if not isinstance(decided, dict) or not isinstance(again, dict) or again.get("item") != decided.get("item"):
+        return False
+    if decided.get("admit") is not None:
+        return again.get("admit") == decided.get("admit")
+    if decided.get("outcome") != t.ACT or decided.get("action") != "issue_approval" or decided.get("content_id") is None:
+        return False
+    return (again.get("outcome") == t.ACT and again.get("action") == "issue_approval"
+            and again.get("content_id") == decided.get("content_id"))
+
+
 def stuck_runs(context: dict, config: dict, now: str) -> list:
     """The alerts of the whole scope a pass shows in the view: one for each unidentified Run listed for
     max_unnamed_run_seconds or more, by its run id, in the order listed, each run once however often it is listed. It

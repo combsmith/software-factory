@@ -887,6 +887,31 @@ ISSUE = [
 ]
 
 MUTANTS = ISSUE + [
+    # Issue 195, ruling 4: an act or a Run asks the Kernel again before it writes (I-38).
+    ("an act or a Run is still wanted for another item", "kernel/decide.py",
+     '    if not isinstance(decided, dict) or not isinstance(again, dict) or again.get("item") != decided.get("item"):\n',
+     '    if not isinstance(decided, dict) or not isinstance(again, dict):\n', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
+    ("a Run is still wanted whatever is admitted again", "kernel/decide.py",
+     '        return again.get("admit") == decided.get("admit")\n    if decided.get("outcome")',
+     '        return True\n    if decided.get("outcome")', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
+    ("anything decided is still wanted", "kernel/decide.py",
+     '"issue_approval" or decided.get("content_id") is None:\n        return False\n',
+     '"issue_approval" or decided.get("content_id") is None:\n        return True\n', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
+    ("an approval of no content is still wanted", "kernel/decide.py",
+     ' or decided.get("action") != "issue_approval" or decided.get("content_id") is None:\n',
+     ' or decided.get("action") != "issue_approval":\n', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
+    ("an approval is still wanted whatever the Kernel decides again", "kernel/decide.py",
+     '    return (again.get("outcome") == t.ACT and again.get("action") == "issue_approval"\n            and again.get("content_id") == decided.get("content_id"))\n',
+     '    return True\n', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
+    ("an approval is still wanted for other content", "kernel/decide.py",
+     ' == "issue_approval"\n            and again.get("content_id") == decided.get("content_id"))\n',
+     ' == "issue_approval")\n', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
+    ("an approval is still wanted as another act", "kernel/decide.py",
+     '    return (again.get("outcome") == t.ACT and again.get("action") == "issue_approval"\n',
+     '    return (again.get("outcome") == t.ACT\n', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
+    ("an approval is still wanted whatever the outcome", "kernel/decide.py",
+     '    return (again.get("outcome") == t.ACT and again.get("action") == "issue_approval"\n',
+     '    return (again.get("action") == "issue_approval"\n', ("tests.test_decide.StillWanted", "tests.test_decide.TheFactorysOwnRules")),
     # Decision 0037: a person-only State is left by a person, or by a stranger's change left to a person.
     ("the platform leaves a State only a person leaves", "tools/check_lifecycle.py",
      'tr["by"] not in ("human", STRANGER):', 'tr["by"] not in ("human", STRANGER, "platform"):', LIFECYCLE_TESTS),
