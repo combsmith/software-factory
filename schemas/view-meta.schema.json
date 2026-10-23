@@ -9,7 +9,8 @@
     "release",
     "written_at",
     "reaches_back_to",
-    "alerts"
+    "alerts",
+    "reconciliation"
   ],
   "properties": {
     "schema": {
@@ -50,6 +51,88 @@
             "type": "string",
             "pattern": "^[0-9]+$"
           }
+        }
+      }
+    },
+    "reconciliation": {
+      "description": "What reconciliation found, each once: one alert, write_unmatched, is raised for all of them however many there are (decision 0061). Each entry is in the pass record too, so a rebuilt view says the same",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "description": "One thing reconciliation found, ids and codes alone (decision 0061): a write a Factory identity made that no Effect recorded, write_unmatched, by whom, what, on which item and its key; or a merge read as an Override, merged_by_override, its item, with by and key null and write merge",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alert",
+        "by",
+        "write",
+        "item",
+        "key"
+      ],
+      "properties": {
+        "alert": {
+          "enum": [
+            "write_unmatched",
+            "merged_by_override"
+          ]
+        },
+        "by": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z][a-z_-]{0,60}[a-z]$"
+        },
+        "write": {
+          "enum": [
+            "review",
+            "approval",
+            "comment",
+            "check_run",
+            "resolution",
+            "label",
+            "enqueue",
+            "dequeue",
+            "merge",
+            "close",
+            "reopen",
+            "dismissal",
+            "rename",
+            "ready",
+            "draft",
+            "auto_merge",
+            "retarget",
+            "force_push",
+            "branch_deleted",
+            "branch_restored",
+            "review_request",
+            "assignment",
+            "branch_created",
+            "lock",
+            "push",
+            "other",
+            "dispatch"
+          ]
+        },
+        "item": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(pull|issues)/[1-9][0-9]*$"
+        },
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Za-z0-9_=:-]{1,100}$"
         }
       }
     }

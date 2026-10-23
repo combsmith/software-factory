@@ -29,7 +29,8 @@
         "approver",
         "lenses",
         "agents",
-        "dependencies"
+        "dependencies",
+        "roles"
       ],
       "properties": {
         "workflow_token": {
@@ -218,6 +219,38 @@
               "id": {
                 "type": "integer",
                 "minimum": 1
+              }
+            }
+          }
+        },
+        "roles": {
+          "description": "Each Role App's bot account, by id, type and login, keyed by its name in config/apps.json, every one named: a Role left out could not be told; null until a trial records it, and while one is, reconciliation is short (decision 0061)",
+          "type": "object",
+          "required": [
+            "pr-review"
+          ],
+          "additionalProperties": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "type",
+              "login"
+            ],
+            "properties": {
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "type": {
+                "const": "Bot"
+              },
+              "login": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*\\[bot\\]$"
               }
             }
           }

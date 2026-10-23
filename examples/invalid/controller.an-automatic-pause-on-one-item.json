@@ -19,7 +19,10 @@
         "login": "dependabot[bot]",
         "id": 49699333
       }
-    ]
+    ],
+    "roles": {
+      "pr-review": null
+    }
   },
   "home": {
     "repo": "combsmith/software-factory",

@@ -47,9 +47,10 @@ def age(entry: dict, record: dict, before: list) -> float:
     return round(seconds(record["now"], since) / 3600.0, 2)
 
 
-def view(record: dict, before: list, titles: dict, feed: dict, alerts: list) -> dict:
+def view(record: dict, before: list, titles: dict, feed: dict, alerts: list, reconciliation=()) -> dict:
     """The feed's two files: every open item the pass decided on, and when and from what the feed was written, with the
-    alerts of the whole scope, one to a Run unnamed past the window (issue 270)."""
+    alerts of the whole scope, one to a Run unnamed past the window (issue 270), and what reconciliation found, each
+    once (decision 0061)."""
     items = []
     for entry in record["pull_requests"] + record["issues"]:
         facts, d = entry["facts"], entry["decision"]
@@ -73,7 +74,8 @@ def view(record: dict, before: list, titles: dict, feed: dict, alerts: list) -> 
             "untrusted": {"title": titles.get(key(d["item"]), "")}})
     reach = min([r["started_at"] for r in record["runs"]] or [record["now"]])
     meta = {"schema": "view-meta/1", "pass": record["pass"], "release": record["release"],
-            "written_at": record["now"], "reaches_back_to": reach, "alerts": [dict(a) for a in alerts]}
+            "written_at": record["now"], "reaches_back_to": reach, "alerts": [dict(a) for a in alerts],
+            "reconciliation": [dict(e) for e in reconciliation]}
     listed = {"schema": "view-items/1", "pass": record["pass"], "release": record["release"], "items": items}
     return {"meta": checked(meta, "view-meta"), "items": checked(listed, "view-items")}
 
@@ -82,6 +84,8 @@ def rebuild(records: list, titles: dict, feed: dict, alerts_of) -> list:
     """The view as each pass record leaves it, rebuilt from the records alone, oldest first. A record holds no title,
     so the titles are the ones read with the rebuild: a title changed since a pass is the one thing a rebuild shows
     otherwise, and it is untrusted text that decides nothing. `alerts_of` gives a record's alerts of the whole scope,
-    as the Kernel reads them from that record's context and time (issue 270)."""
+    as the Kernel reads them from that record's context and time (issue 270); what reconciliation found is the
+    record's own (decision 0061)."""
     ordered = sorted(records, key=lambda r: r["now"])
-    return [view(r, [e for e in ordered if e["now"] < r["now"]], titles, feed, alerts_of(r)) for r in ordered]
+    return [view(r, [e for e in ordered if e["now"] < r["now"]], titles, feed, alerts_of(r), r.get("reconciliation", []))
+            for r in ordered]

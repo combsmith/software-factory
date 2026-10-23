@@ -17,7 +17,10 @@ is refused whole, so that nothing is dispatched from a pass that cannot be repla
 - `pull_requests` and `issues`: `[{"facts", "title"}]`, the title beside the facts and never in them;
 - `facts_reads`: each facts read's `{"date", "age"}`;
 - `usage`: what was read of the window's job-minutes and GraphQL points, by `factory_job_minutes`, `org_job_minutes`
-  and `graphql_points_peak_hour`, each missing until a port reads it.
+  and `graphql_points_peak_hour`, each missing until a port reads it;
+- `seen`: what `adapters/seen.py` read of each Factory identity's writes, `seen/1`, or None;
+- `effects`: the Effects recorded in the window, `{"applied": [applied/1], "written": [written/1], "whole"}`, or None;
+  reconciliation matches the one to the other (`controller/reconcile.py`, decision 0061).
 
 `config` holds `kernel`, the Kernel's configuration; `lifecycles`, each Work item's; `feed`, `config/feed.json`;
 `controller`, `config/controller.json`; and `release`, the Release that runs. `previous` is the pass records before this
@@ -31,6 +34,7 @@ import datetime
 from controller import feed as feed_
 from controller import health as health_
 from controller import reads as reads_
+from controller import reconcile as reconcile_
 from controller.shared import Refused, checked, key, moment, seconds, text
 from kernel import decide as pull_request
 from kernel import issue
@@ -221,12 +225,17 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             out.append({"facts": facts, "decision": d, "run": mint("r") if minted else None})
         return out
 
+    # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and
+    # one for a reconciliation that is short (I-33, decision 0061). What it found is in the record before it is checked.
+    found = reconcile_.reconcile(reads.get("seen"), reads.get("effects"), runs if listed and whole else None, before,
+                                 rules["accounts"])
     record = {"schema": "pass/1", "pass": mint("p"), "release": config["release"], "now": now,
               "started_by": started_by(reads.get("started"), rules["accounts"]), "context": context, "runs": runs,
               "reads": (copy.deepcopy(records["reads"]) if listed else [])
               + [dict(r, read="facts") if isinstance(r, dict) else r for r in reads.get("facts_reads") or []],
               "pull_requests": asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"]),
-              "issues": asked(issues, issue.decide, config["lifecycles"]["issue"])}
+              "issues": asked(issues, issue.decide, config["lifecycles"]["issue"]),
+              "reconciliation": reconcile_.entries(found)}
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]
@@ -256,11 +265,11 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     raised = bool(before) and gap(now, before[-1]["now"])
     cleared = len(before) >= 2 and gap(before[-1]["now"], before[-2]["now"]) and not raised
     alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, automatic is not None,
-                            bool(left_out), raised, unnamed)
+                            bool(left_out), raised, unnamed, reconcile_.alerts(found))
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}
-    feed = feed_.view(record, before, titles, config["feed"], unnamed["alerts"])
+    feed = feed_.view(record, before, titles, config["feed"], unnamed["alerts"], record["reconciliation"])
     feed["health"] = health_.health(record, before, pause, automatic is not None, alerts, reads.get("usage"), rules)
     # A successor only for an item due at the pass's end: an act made here, whose next Decision is due at once, and not
     # one the pass before made too, which did not take. A Run's end starts the next pass itself, and a pass deferred by

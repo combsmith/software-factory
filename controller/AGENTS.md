@@ -1,9 +1,9 @@
 # controller/
 
-The Controller. `pass_.py` is one pass as a function of what it read, the configuration, `now`, the pass records before it and a mint for ids: it builds the context, asks the Kernel about every item through `kernel.decide` and
-`kernel.issue.decide`, and returns the pass record, the Runs to dispatch by their run-names, the acts, the view's three files, the alerts and whether a successor starts. It reads no clock, writes nothing and decides nothing itself.
-`reads.py` holds what it reads to the schemas, `feed.py` and `health.py` write the view, `writes.py` plans the writes, and `shared.py` holds the schemas and the time format. `__main__.py` is the entry the pass job runs (decision 0060).
-Not built yet, by the stories that hold their rules: reconcile.py, relay.py, backpressure.py, notify.py.
+The Controller. `pass_.py` is one pass as a function of what it read, the configuration, `now`, the pass records before it and a mint for ids: it builds the context, asks the Kernel about every item through `kernel.decide` and `kernel.issue.decide`, and
+returns the pass record, the Runs to dispatch by their run-names, the acts, the view's three files, the alerts and whether a successor starts. It reads no clock, writes nothing and decides nothing itself. `reads.py` holds what it reads to the schemas,
+`feed.py` and `health.py` write the view, `writes.py` plans the writes, and `shared.py` holds the schemas and the time format. `__main__.py` is the entry the pass job runs (decision 0060). `reconcile.py` matches writes to Effects.
+Not built yet, by the stories that hold their rules: relay.py, backpressure.py, notify.py.
 
 | Rule | Held by |
 |---|---|

@@ -43,10 +43,13 @@ def _utc() -> str:
 
 
 def snapshot(transport, repo: str, number: int, identities: dict, accounts: timeline.Accounts, runs_whole: bool,
-             clock=_utc) -> tuple:
+             clock=_utc, kept=None) -> tuple:
     """`(facts/1, title)` for one pull request. `identities` gives the class's accounts (`adapters/pull.own`),
     `accounts` who acted, `runs_whole` whether the pass read the run records whole, and `clock` the time after the last
-    read."""
+    read. `kept`, where given, is filled with what GitHub gave the timeline, reviews, threads and check runs reads,
+    each with whether it was whole, once the snapshot is whole: reconciliation reads them, so no read is made twice
+    (`adapters/seen.py`, decision 0061)."""
+    raw = {}
     first = pull.read(transport, repo, number)
     own, title = pull.own(first, identities)
     branch = pull.base(transport, first)
@@ -54,12 +57,13 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
     content = pull.diff(transport, first, branch["head"])
     paths = pull.changed_paths(transport, first, branch["head"])
     events, timeline_whole = timeline.events(transport, first)
-    reviews, reviews_whole = timeline.reviews(transport, first, events, accounts, branch["head"])
+    raw["events"] = (events, timeline_whole)
+    reviews, reviews_whole = timeline.reviews(transport, first, events, accounts, branch["head"], raw)
     writer = timeline.since_writer(events, accounts)
     labels = timeline.label_events(events, accounts)
-    read = checks.read(transport, first)
+    read = checks.read(transport, first, raw)
     contract, contract_whole = acceptance.read(transport, first, accounts)
-    found, threads_whole = threads.read(transport, first, accounts)
+    found, threads_whole = threads.read(transport, first, accounts, raw)
     if pusher is not None and pushed_at is None:
         raise Unanswered("the head's push names its pusher but no time that can be read")
     if not pull.unchanged(transport, first):
@@ -90,4 +94,6 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
     problems = validate(facts, SCHEMA)
     if problems:
         raise Unanswered("the snapshot does not hold to facts/1: %s" % problems[0])
+    if kept is not None:
+        kept.update(raw)
     return facts, title

@@ -34,6 +34,13 @@ ZIPPED = 64 * 1024         # bytes the zip may be, as listed and as downloaded
 HELD = 4 * 1024            # bytes the file may be, as the zip says and as read out of it
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 SCHEMA = json.loads((pathlib.Path(__file__).resolve().parent.parent / "schemas" / "outcome.schema.json").read_text())
+# The record a Run's `apply`, or the approving act, uploads: what it wrote, as read back, which reconciliation matches
+# each write a Factory identity made to (decision 0061). Larger than an outcome: it holds each Finding posted.
+APPLIED = "applied"
+APPLIED_MEMBER = "applied.json"
+APPLIED_MOST = 256 * 1024
+SCHEMAS = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
+           for p in sorted((pathlib.Path(__file__).resolve().parent.parent / "schemas").glob("*.schema.json"))}
 
 
 def _listed(transport, repo: str, github_id: int, seen=None, name: str = NAME):
@@ -109,3 +116,20 @@ def outcome(transport, repo: str, github_id: int, run: str, seen=None) -> tuple:
     if not isinstance(record, dict) or validate(record, SCHEMA) or record["run"] != run or record["outcome"] is None:
         return None, False
     return record["outcome"], True
+
+
+def applied(transport, repo: str, github_id: int, run: str, seen=None) -> tuple:
+    """`(applied/1, whole)` of the Run GitHub numbers `github_id` and the Factory names `run`: None and whole for a Run
+    that uploaded none, as one that wrote nothing or was killed; None and not whole for one that cannot be read, is not
+    `applied/1` or is another Run's, so that reconciliation is short and never matches a write to it (decision 0061).
+    Read as the outcome is: bounded at every step, its digest checked."""
+    held, whole = read(transport, repo, github_id, seen, APPLIED, APPLIED_MEMBER, APPLIED_MOST, APPLIED_MOST)
+    if held is None:
+        return None, whole
+    try:
+        record = json.loads(held.decode("utf-8"))
+    except ValueError:
+        return None, False
+    if not isinstance(record, dict) or validate(record, SCHEMAS["applied"], schemas=SCHEMAS) or record["run"] != run:
+        return None, False
+    return record, True
