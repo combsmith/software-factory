@@ -1,0 +1,26 @@
+# Must be rejected. The poller reads nothing of the run that woke it: a fork can name its own run as any workflow.
+name: sf-poller
+on:
+  schedule:
+    - cron: "13 * * * *"
+    - cron: "33 * * * *"
+    - cron: "53 * * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - factory
+      - ci
+      - sf-run
+    types:
+      - completed
+permissions: {}
+jobs:
+  pass:
+    if: github.event.workflow_run.conclusion == 'success'
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: sf-poller
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next

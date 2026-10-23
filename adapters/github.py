@@ -7,7 +7,8 @@ answer and on a recorded one.
 never from the environment, sets a timeout on every request, bounds every answer, and keeps no body anywhere but in the
 answer it returns. One redirect is followed, and one only (decision 0045, the Maintainer's ruling on #192): an
 artifact's download, `download(path)`, from that endpoint alone, to GitHub's artifact storage alone, over HTTPS, with
-no token sent there and its body bounded far tighter. The address it is sent to carries a signature, and is never put
+no token sent there and its body bounded far tighter: 64 KiB, or 1 MiB for a pass record, the one artifact its reader
+asks the wider bound for (decision 0045's row of #196). The address it is sent to carries a signature, and is never put
 in an error or kept. A body that is not JSON is text decoded without loss, so its bytes are what any hash is taken over. `Replay`
 answers from a fixture's exchanges in the order they were recorded, each once, matched by method, path, Accept and the
 whole body, a GraphQL query's variables among it, and refuses anything else: it never answers with an empty default
@@ -37,6 +38,8 @@ STORAGE = re.compile(r"productionresultssa(?:[0-9]|1[0-9])\.blob\.core\.windows\
 # The path an artifact's storage serves it under (the Maintainer's answer of 2026-10-21 on #192).
 STORED_UNDER = "/actions-results/"
 STORED = 64 * 1024              # bytes an artifact's download may hold: an outcome is a few bytes, zipped
+PASSED = 1024 * 1024            # bytes a pass record's download may hold, zipped: its facts for every open item
+BOUNDS = (STORED, PASSED)       # the only bounds a download is asked under
 REDIRECTS = {301, 302, 303, 307, 308}
 
 
@@ -57,9 +60,11 @@ class Redirected(Unanswered):
 EXTRA = {"Cache-Control", "If-None-Match"}
 
 
-def request(method: str, path: str, accept: str = JSON, body=None, headers=None, follow: bool = False) -> dict:
+def request(method: str, path: str, accept: str = JSON, body=None, headers=None, follow: bool = False,
+            bound=None) -> dict:
     """A request by its method and its path from the API's root, with its query, its Accept, a JSON body or none, and
-    at most the headers `EXTRA` names, each one line. `follow` is an artifact's download alone: see `download`."""
+    at most the headers `EXTRA` names, each one line. `follow` is an artifact's download alone, and `bound` the bytes it
+    may hold, one of `BOUNDS`, `STORED` unless asked: see `download`."""
     if method not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
         raise Unanswered("a request needs an HTTP method, not %r" % (method,))
     parts = urllib.parse.urlsplit(path)
@@ -73,13 +78,19 @@ def request(method: str, path: str, accept: str = JSON, body=None, headers=None,
     if follow is not False:
         if follow is not True or method != "GET" or body is not None or extra or not ARTIFACT.fullmatch(path):
             raise Unanswered("only an artifact's download follows its redirect, a GET of %s alone" % ARTIFACT.pattern)
-        built["follow"] = True
+        bound = STORED if bound is None else bound
+        if type(bound) is not int or bound not in BOUNDS:
+            raise Unanswered("an artifact's download is bounded at %s bytes alone" % " or ".join(map(str, BOUNDS)))
+        built["follow"], built["bound"] = True, bound
+    elif bound is not None:
+        raise Unanswered("only an artifact's download is asked under a bound of its own")
     return built
 
 
-def download(path: str) -> dict:
-    """The request for an artifact's zip, whose one redirect the transport follows to `storage`."""
-    return request("GET", path, follow=True)
+def download(path: str, bound: int = STORED) -> dict:
+    """The request for an artifact's zip, whose one redirect the transport follows to `storage`, its answers bounded at
+    `bound` bytes: `STORED`, or `PASSED` for a pass record's alone."""
+    return request("GET", path, follow=True, bound=bound)
 
 
 def storage(url) -> str:
@@ -155,7 +166,7 @@ class Live:
 
     def send(self, req: dict) -> dict:
         req = request(req["method"], req["path"], req["accept"], req["body"], req.get("headers"),
-                      req.get("follow", False))
+                      req.get("follow", False), req.get("bound"))
         url = "https://%s%s" % (HOST, req["path"])
         if urllib.parse.urlsplit(url).netloc != HOST:
             raise Unanswered("a request goes to %s alone" % HOST)
@@ -166,14 +177,14 @@ class Live:
         if data is not None:
             headers["Content-Type"] = "application/json"
         sent = urllib.request.Request(url, data=data, headers=headers, method=req["method"])
-        answer, moved = self._open(sent, STORED if req.get("follow") else LARGEST)
+        answer, moved = self._open(sent, req["bound"] if req.get("follow") else LARGEST)
         if answer is not None:
             return answer
         if not req.get("follow"):
             raise Unanswered("GitHub answered a redirect; the transport follows none")
-        # The artifact at the storage address: no token, no header of the API's, no redirect, `STORED` bytes at most.
+        # The artifact at the storage address: no token, no header of the API's, no redirect, its bound at most.
         fetched = urllib.request.Request(storage(moved), headers={"User-Agent": "software-factory"}, method="GET")
-        answer, moved = self._open(fetched, STORED)
+        answer, moved = self._open(fetched, req["bound"])
         if answer is None:
             raise Unanswered("the artifact's storage answered a redirect; the transport follows none")
         return answer
@@ -244,7 +255,7 @@ class Replay:
 
     def send(self, req: dict) -> dict:
         req = request(req["method"], req["path"], req["accept"], req["body"], req.get("headers"),
-                      req.get("follow", False))
+                      req.get("follow", False), req.get("bound"))
         want = (req["method"], req["path"], req["accept"], _body(req["body"]))
         if self._left and self._left[0][0] == want:
             asked, answer = self._left.pop(0)
@@ -258,8 +269,8 @@ class Replay:
                 asked, answer = self._left.pop(0)
                 if answer["status"] in REDIRECTS:
                     raise Unanswered("the artifact's storage answered a redirect; the transport follows none")
-            if req.get("follow") and isinstance(answer.get("body"), str) and len(raw(answer["body"])) > STORED:
-                raise Unanswered("an answer over %d bytes; it is refused, not cut short" % STORED)
+            if req.get("follow") and isinstance(answer.get("body"), str) and len(raw(answer["body"])) > req["bound"]:
+                raise Unanswered("an answer over %d bytes; it is refused, not cut short" % req["bound"])
             return {"status": answer["status"], "headers": dict(answer.get("headers") or {}),
                     "body": answer.get("body")}
         raise Unanswered("the fixture holds no answer, next, to %s %s (%s)" % want[:3])

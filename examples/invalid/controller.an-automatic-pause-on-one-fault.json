@@ -9,10 +9,17 @@
       "id": 36422719
     },
     "approver": {
-      "id": 281750570,
-      "type": "User",
-      "login": "donpetry-bot"
+      "login": "donpetry-bot",
+      "id": 281750570
     },
+    "lenses": [],
+    "agents": [],
+    "dependencies": [
+      {
+        "login": "dependabot[bot]",
+        "id": 49699333
+      }
+    ],
     "roles": {
       "pr-review": null
     }

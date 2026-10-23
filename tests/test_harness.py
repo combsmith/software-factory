@@ -398,8 +398,30 @@ class Engine(unittest.TestCase):
         self.assertEqual(cli.asked()[0]["timeout"], HARNESS["limits"]["standard"]["seconds"])
         # The Task is the prompt's data, after the fixed instruction.
         prompt = args[args.index("-p") + 1]
-        self.assertTrue(prompt.startswith(engine.PROMPT))
-        self.assertEqual(json.loads(prompt[len(engine.PROMPT):]), built())
+        self.assertEqual(prompt, engine.PROMPT + engine.TASK + json.dumps(built(), sort_keys=True))
+
+    def test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task(self):  # 0059
+        # Word for word: the fixed instruction, the Role's instructions and its Intent's rubric, as the Release holds
+        # them, read by the admitted Role's name, then the Task.
+        the_task = built()
+        told = run.instructions(ROOT, the_task)
+        prompt_md = (ROOT / "roles" / "pr-review" / "prompt.md").read_text(encoding="utf-8")
+        rubric = json.loads((ROOT / "config" / "rubric-pr-review.json").read_text())
+        self.assertEqual(told, engine.ROLE + prompt_md + engine.RUBRIC + json.dumps(rubric, sort_keys=True))
+        cli = CLI()
+        engine.run(the_task, "/opt/claude", JOB, HARNESS, cli, Clock(), SESSION, told)
+        args = cli.asked()[0]["args"]
+        self.assertEqual(args[args.index("-p") + 1],
+                         engine.PROMPT + engine.ROLE + prompt_md + engine.RUBRIC + json.dumps(rubric, sort_keys=True)
+                         + engine.TASK + json.dumps(the_task, sort_keys=True))
+        # A rubric of another Intent is not the Task's to cover; a Role with no instructions in the Release has no Task.
+        self.assertEqual(run.instructions(ROOT, dict(the_task, intent="adjudicate-findings")), engine.ROLE + prompt_md)
+        with self.assertRaises(task.Refused):
+            run.instructions(ROOT, dict(the_task, role="dev-lead"))
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "roles" / "pr-review").mkdir(parents=True)
+            (pathlib.Path(d) / "roles" / "pr-review" / "prompt.md").write_text("Review it.")
+            self.assertEqual(run.instructions(pathlib.Path(d), the_task), engine.ROLE + "Review it.")
 
     def test_the_cli_is_handed_result_1_resolved_and_narrowed(self):  # decision 0038
         cli = CLI()
@@ -520,6 +542,10 @@ class Engine(unittest.TestCase):
                      record=record(admit=dict(REVIEW, content_id=content)))
         self.assertEqual((full["omitted"], len(full["texts"])), ([], 2))
         self.assertEqual(engined(CLI(), full)["status"], "completed")
+        # With the Role's instructions and rubric before it, as the run job tells the CLI.
+        cli = CLI()
+        r = engine.run(full, "/opt/claude", JOB, HARNESS, cli, Clock(), SESSION, run.instructions(ROOT, full))
+        self.assertEqual((r["status"], len(cli.asked())), ("completed", 1))
 
 
 class Job(unittest.TestCase):
@@ -537,7 +563,11 @@ class Job(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             where = pathlib.Path(d)
             paths = self.files(where, [text()])
-            digest = run.job(paths, JOB, run.configuration(), call=CLI(), clock=Clock(), session=SESSION, base=where)
+            cli = CLI()
+            digest = run.job(paths, JOB, run.configuration(), call=cli, clock=Clock(), session=SESSION, base=where)
+            # The job tells the CLI the Role's instructions from the Release, by the admitted Role's name (0059).
+            told = cli.asked()[0]["args"][cli.asked()[0]["args"].index("-p") + 1]
+            self.assertIn(engine.ROLE + (ROOT / "roles" / "pr-review" / "prompt.md").read_text(encoding="utf-8"), told)
             out = where / "out"
             self.assertEqual(sorted(p.name for p in out.iterdir()), ["result.json", "result.sha256"])
             data = (out / "result.json").read_bytes()

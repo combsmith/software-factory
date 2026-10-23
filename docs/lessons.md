@@ -246,7 +246,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-44 Agents acted as the Maintainer
 **Failure.** Agents ran as the owner's account, so the Maintainer could not review an agent's pull requests and the agent skipped the Maintainer's requests as its own. When one Role took its identity from a shared variable, it committed as the review-only machine user: "dev-lead regressed to committing as donpetry-bot (review-only machine user) instead of don-petry" (issue 1316).
 **Rule.** Each Role declares its own App, and no two share one.
-**Check.** waiting on `roles/`
+**Check.** `tests/test_tools.py::test_each_role_writes_through_its_own_app`
 
 ### L-45 A merged fix was not what ran
 **Failure.** Twice in one week a fix merged and the failure went on, because agents ran from a tag that had not moved. A whole class of change never arrived at all: "Script-only changes never reach the fleet" (issue 1592).
@@ -291,7 +291,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-53 The list itself was cut off, and nothing said so
 **Failure.** The list of workflow runs stops at 1,000 for a query, however it is paged. A query over the resource limit came back as a success with no data, and a whole repo was read as having no pull requests.
 **Rule.** A list read short is unreadable. The list of Runs and the list of items each say whether they are whole, as the facts of one item do.
-**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `examples/invalid/facts.no-completeness-for-runs.json` for the list of Runs; `examples/invalid/facts.no-completeness-for-timeline.json` for the timeline the acts are counted from; the list of items is waiting on `adapters/items.py`
+**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `examples/invalid/facts.no-completeness-for-runs.json` for the list of Runs; `examples/invalid/facts.no-completeness-for-timeline.json` for the timeline the acts are counted from; the list of open pull requests, `tests/test_adapters.py::test_open_pull_requests_are_whole_only_if_each_was_read`
 
 ### L-54 A wrong fix cleared a gate
 **Failure.** A fix added a new test and broke an existing one without editing it. Nobody ran the suite against the state before the fix, and an outside reviewer marked the thread addressed on the strength of the reply.

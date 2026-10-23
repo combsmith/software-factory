@@ -206,7 +206,8 @@ def identities(accounts: dict) -> tuple:
     for code, account in [("approver", accounts.get("approver")), ("controller", accounts.get("controller"))] + sorted(
             (accounts.get("roles") or {}).items()):
         if isinstance(account, dict):
-            found[(account["id"], account["type"])] = code
+            # The machine user is a User, as the configuration records it by login and id alone.
+            found[(account["id"], account.get("type", "User"))] = code
         else:
             known = False
     return found, known
