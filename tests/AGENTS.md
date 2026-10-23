@@ -4,7 +4,8 @@
 with builders of its own, and `test_coverage.py` each of a reviewing Result's coverage. `test_tools.py` makes every
 check fail. `test_simulator.py` runs the seeded simulation of a pull request, and `test_issue_simulator.py` that of an issue. `test_transitions.py` finds every change of State the Kernel can
 make, and who makes it, and holds each to the Lifecycle. `test_hooks.py` feeds each session hook a
-violation and a clean case. `support.py` builds ordinary inputs.
+violation and a clean case. `test_harness.py` drives the `run` job against a stand-in CLI, and `test_apply.py` the
+`apply` job and the identity port against a fake GitHub. `support.py` builds ordinary inputs.
 The page `docs/standards/tests.md` shows each of these by example.
 
 | Rule | Held by |

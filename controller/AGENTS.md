@@ -28,10 +28,13 @@ Not built yet, by the stories that hold their rules: reconcile.py, relay.py, bac
 | A pass reads no sooner than three minutes after the last began to read | `tests/test_controller.py::test_a_pass_reads_no_sooner_than_three_minutes_after_the_last_pass_began_to_read` |
 | A successor starts only for an act due at the end, not one the pass before made, and never while a Run is unidentified | `tests/test_controller.py::test_a_successor_starts_only_for_an_item_due_at_the_end` |
 | `started_by` is read from the run, an account by its type and id; one held as null is no one's | `tests/test_controller.py::test_started_by_is_read_from_the_run_and_an_account_by_its_type_and_id` |
-| One cause raises one alert | `tests/test_controller.py::test_one_cause_raises_one_alert` |
+| One cause raises one alert, and the pass record keeps them | `tests/test_controller.py::test_one_cause_raises_one_alert`, `tests/test_controller.py::test_the_pass_record_keeps_its_alerts_for_the_tracking_issue` |
 | Who acts next and what is asked come from `config/feed.json` alone | `tests/test_controller.py::test_next_actor_and_the_decision_required_are_read_from_the_feed_table_alone` |
 | A view rebuilt from the pass records is the view written pass by pass | `tests/test_controller.py::test_a_view_rebuilt_from_the_records_equals_the_view_written_pass_by_pass` |
 | Health shows decision 0011's thresholds, null where a figure was not read | `tests/test_controller.py::test_the_three_thresholds_of_decision_0011_are_computed_and_shown` |
 | Health shows the last pass, the chain and what started each pass | `tests/test_controller.py::test_health_carries_the_last_pass_the_chain_and_what_started_the_passes` |
-| The writes a pass plans go in their order: the acts no write serves yet, the dispatches in the record's order, the successor last | `tests/test_effects.py::test_the_writes_go_in_their_order` |
+| The writes a pass plans go in their order: the acts no write serves yet, the dispatches in the record's order, the tracking issue, the successor | `tests/test_effects.py::test_the_writes_go_in_their_order` |
+| No dispatch is sent unless the Pause, read again before it, is exactly `false` on the org and on each repo acted in | `tests/test_effects.py::test_no_act_or_run_is_sent_unless_the_pause_reads_exactly_not_paused_on_every_scope` |
+| One tracking issue, the App's by its account: opened with the Maintainer assigned, edited as its causes change, closed when clear | `tests/test_effects.py::test_one_tracking_issue_is_opened_once_edited_in_place_and_closed_when_clear` |
+| Two open tracking issues are written to by no one, and a person's own Pause opens none | `tests/test_effects.py::test_a_second_open_tracking_issue_is_never_written`, `tests/test_effects.py::test_the_persons_own_pause_opens_no_tracking_issue` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

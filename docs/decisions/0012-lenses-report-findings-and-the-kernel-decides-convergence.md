@@ -41,6 +41,6 @@ comments, and waited for reviewers that never answered.
 | Rounds between author and owner are bounded, and the bound ends in a Hold | `tests/test_decide.py::test_rounds_are_bounded` |
 | Every category of Finding has exactly one owner | `tools/check_authority.py` |
 | A rubric is data with a schema | `schemas/rubric.schema.json`, `tools/check_examples.py` |
-| A reviewing Result reports on every criterion that applies | waiting on `harness/apply.py` |
-| With an acceptance contract, every criterion has passing evidence on the current content | waiting on `harness/apply.py` |
+| A reviewing Result reports on every criterion that applies | `tests/test_apply.py::test_an_uncovered_result_writes_nothing` |
+| With an acceptance contract, every criterion has passing evidence on the current content | waiting on `adapters/contract.py` |
 | No manifest names another Role's output as a trigger | waiting on `roles/` |

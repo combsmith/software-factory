@@ -23,7 +23,9 @@
       "additionalProperties": false,
       "required": [
         "workflow_token",
-        "relay"
+        "relay",
+        "controller",
+        "maintainer"
       ],
       "properties": {
         "workflow_token": {
@@ -69,6 +71,54 @@
                 "Bot",
                 "User"
               ]
+            }
+          }
+        },
+        "controller": {
+          "description": "The Controller's App's bot account, by id, type and login, as GitHub records it as an issue's author; null until a trial records it, and while it is, no tracking issue is written",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "login"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "type": {
+              "const": "Bot"
+            },
+            "login": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]*\\[bot\\]$"
+            }
+          }
+        },
+        "maintainer": {
+          "description": "The Maintainer, by login and account id, whom the tracking issue assigns once, when it opens (#193, the Maintainer's point (d))",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "login",
+            "id"
+          ],
+          "properties": {
+            "login": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 1
             }
           }
         }

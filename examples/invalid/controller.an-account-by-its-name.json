@@ -2,7 +2,12 @@
   "schema": "controller/1",
   "accounts": {
     "workflow_token": null,
-    "relay": "sf-relay[bot]"
+    "relay": "sf-relay[bot]",
+    "controller": null,
+    "maintainer": {
+      "login": "don-petry",
+      "id": 36422719
+    }
   },
   "home": {
     "repo": "combsmith/software-factory",
