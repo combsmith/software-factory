@@ -145,7 +145,8 @@ def entries(found: dict) -> list:
     out = []
     for e in [{"alert": "write_unmatched", "by": u["by"], "write": u["kind"],
                "item": key(u["item"]) if u["item"] is not None else None, "key": u["key"]} for u in found["unmatched"]] \
-            + [{"alert": "merged_by_override", "item": key(o["item"])} for o in found["override"]]:
+            + [{"alert": "merged_by_override", "by": None, "write": "merge", "item": key(o["item"]), "key": None}
+               for o in found["override"]]:
         if e not in out:
             out.append(e)
     return out

@@ -228,7 +228,7 @@ class Override(unittest.TestCase):
         self.assertEqual(check(seen(merged=[dict(merge, item=OTHER)]), before=[at("verifying")])["override"], [])
         self.assertEqual(check(seen(merged=[merge]))["override"], [])
         self.assertEqual(reconcile.entries(check(seen(merged=[merge]), before=[at("verifying")])),
-                         [{"alert": "merged_by_override", "item": URL}])
+                         [{"alert": "merged_by_override", "by": None, "write": "merge", "item": URL, "key": None}])
 
 
 APPROVER = {"id": 281750570, "type": "User", "login": "donpetry-bot"}
@@ -295,6 +295,7 @@ class SeenPort(unittest.TestCase):
                   {"event": "removed_from_merge_queue", "actor": CONTROLLER, "created_at": AT},
                   {"event": "review_dismissed", "actor": APPROVER, "created_at": AT},
                   {"event": "closed", "actor": ROLE, "created_at": AT},
+                  {"event": "review_requested", "actor": ROLE, "created_at": AT},
                   {"event": "merged", "actor": PERSON, "created_at": AT},
                   {"event": "commented", "actor": CONTROLLER, "created_at": AT},
                   {"event": "labeled", "actor": PERSON, "created_at": AT}]
@@ -311,7 +312,8 @@ class SeenPort(unittest.TestCase):
                           ("approver", "approval", "PRR_d"), ("pr-review", "review", "PRR_r"),
                           ("controller", "comment", "IC_c"), ("controller", "label", None),
                           ("controller", "dequeue", None), ("approver", "dismissal", None),
-                          ("pr-review", "close", None), ("unattributed", "resolution", "PRRT_n"),
+                          ("pr-review", "close", None), ("pr-review", "review_request", None),
+                          ("unattributed", "resolution", "PRRT_n"),
                           ("approver", "resolution", "PRRT_a"), ("pr-review", "check_run", "CR_r"),
                           ("controller", "check_run", "CR_c")])
         # A merge by anyone is read for an Override; and what was seen is seen/1.
@@ -346,6 +348,8 @@ class SeenPort(unittest.TestCase):
                 + [kept(**{name: value}) for name, value in keyless.items()]:
             self.assertIs(port(parts)[2], False, parts)
         unreadable = {"login": "combsmith-sf-controller[bot]"}
+        for actor in (unreadable, dict(CONTROLLER, type="Organization"), dict(CONTROLLER, id=0)):
+            self.assertIs(port(over={COMMENTS: [{"user": actor, "node_id": "IC_u", "created_at": AT}]})[2], False, actor)
         for parts in (kept(reviews=[{"user": unreadable, "state": "APPROVED", "node_id": "PRR_u", "submitted_at": AT}]),
                       kept(events=[{"event": "labeled", "actor": unreadable, "created_at": AT}]),
                       kept(events=[{"event": "labeled", "actor": CONTROLLER, "created_at": "2026-13-01T00:00:00Z"}])):
@@ -390,6 +394,11 @@ class SeenPort(unittest.TestCase):
         apps = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]
         self.assertEqual((ACCOUNTS["approver"]["login"], ACCOUNTS["approver"]["id"]), (defaults["approver"], 281750570))
         self.assertEqual(set(ACCOUNTS["roles"]), set(apps) - {"controller", "reader"})
+        # A Role left out of the configuration could not be told at all: the configuration names every one.
+        conf = json.loads((ROOT / "config" / "controller.json").read_text())
+        self.assertEqual(validate(conf, SCHEMAS["controller"], schemas=SCHEMAS), [])
+        self.assertNotEqual(validate(dict(conf, accounts=dict(ACCOUNTS, roles={})), SCHEMAS["controller"],
+                                     schemas=SCHEMAS), [])
 
 
 class CommentsGrant(unittest.TestCase):

@@ -38,8 +38,9 @@ EVENTS = {"labeled": "label", "unlabeled": "label", "added_to_merge_queue": "enq
           "removed_from_merge_queue": "dequeue", "merged": "merge", "closed": "close", "reopened": "reopen",
           "review_dismissed": "dismissal", "renamed": "rename", "ready_for_review": "ready",
           "convert_to_draft": "draft", "auto_merge_enabled": "auto_merge", "base_ref_changed": "retarget",
-          "head_ref_force_pushed": "force_push", "head_ref_deleted": "branch_deleted", "locked": "lock",
-          "unlocked": "lock"}
+          "head_ref_force_pushed": "force_push", "head_ref_deleted": "branch_deleted",
+          "head_ref_restored": "branch_restored", "review_requested": "review_request",
+          "review_request_removed": "review_request", "locked": "lock", "unlocked": "lock"}
 
 
 def _pages(transport, path: str) -> tuple:
@@ -51,9 +52,9 @@ def _pages(transport, path: str) -> tuple:
 
 
 def _readable(actor) -> bool:
-    """Whether an account can be told: by an id and a type GitHub gives."""
+    """Whether an account can be told: by a positive id and a type GitHub gives an actor, a User or a Bot."""
     return isinstance(actor, dict) and isinstance(actor.get("id"), int) and not isinstance(actor.get("id"), bool) \
-        and isinstance(actor.get("type"), str)
+        and actor["id"] > 0 and actor.get("type") in ("User", "Bot")
 
 
 def _who(actor, identities: dict):

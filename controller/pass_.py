@@ -171,8 +171,7 @@ def wait_before_reading(previous, now: str, config: dict) -> int:
 def rebuild(records: list, titles: dict, config: dict) -> list:
     """The feed's two files as each pass record left them, rebuilt from the records alone (decision 0002)."""
     return feed_.rebuild(records, titles, config["feed"],
-                         lambda r: pull_request.unnamed_scope(r["context"], config["kernel"], r["now"])["alerts"]
-                         + r.get("reconciliation", []))
+                         lambda r: pull_request.unnamed_scope(r["context"], config["kernel"], r["now"])["alerts"])
 
 
 def _run_name(item: dict, intent: str, role: str, content: str, run: str) -> str:
@@ -270,7 +269,7 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}
-    feed = feed_.view(record, before, titles, config["feed"], unnamed["alerts"] + record["reconciliation"])
+    feed = feed_.view(record, before, titles, config["feed"], unnamed["alerts"], record["reconciliation"])
     feed["health"] = health_.health(record, before, pause, automatic is not None, alerts, reads.get("usage"), rules)
     # A successor only for an item due at the pass's end: an act made here, whose next Decision is due at once, and not
     # one the pass before made too, which did not take. A Run's end starts the next pass itself, and a pass deferred by

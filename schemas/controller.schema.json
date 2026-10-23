@@ -151,8 +151,11 @@
           }
         },
         "roles": {
-          "description": "Each Role App's bot account, by id, type and login, keyed by its name in config/apps.json; null until a trial records it, and while one is, reconciliation is short (decision 0061)",
+          "description": "Each Role App's bot account, by id, type and login, keyed by its name in config/apps.json, every one named: a Role left out could not be told; null until a trial records it, and while one is, reconciliation is short (decision 0061)",
           "type": "object",
+          "required": [
+            "pr-review"
+          ],
           "additionalProperties": {
             "type": [
               "object",

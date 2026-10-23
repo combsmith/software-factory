@@ -534,11 +534,11 @@ class Feed(unittest.TestCase):
         out = passed(reads(seen=dict(SEEN, writes=approvals)))
         self.assertEqual((out["alerts"], out["record"]["alerts"], out["view"]["health"]["alerts"]),
                          (["write_unmatched"], ["write_unmatched"], ["write_unmatched"]))
-        named = [a for a in out["view"]["meta"]["alerts"] if a["alert"] == "write_unmatched"]
-        self.assertEqual([a["key"] for a in named], ["PRR_0", "PRR_1", "PRR_2"])
-        self.assertEqual(out["record"]["reconciliation"], out["view"]["meta"]["alerts"])
+        named = out["view"]["meta"]["reconciliation"]
+        self.assertEqual([(a["alert"], a["key"]) for a in named], [("write_unmatched", "PRR_%d" % i) for i in range(3)])
+        self.assertEqual((out["record"]["reconciliation"], out["view"]["meta"]["alerts"]), (named, []))
         rebuilt = pass_.rebuild([out["record"]], {}, config())
-        self.assertEqual(rebuilt[0]["meta"]["alerts"], out["view"]["meta"]["alerts"])
+        self.assertEqual(rebuilt[0]["meta"]["reconciliation"], named)
         # Two writes GitHub gives no key for, a label added and taken off, are named once, and the pass is not refused.
         labels = [{"by": "controller", "kind": "label", "item": support.ITEM, "key": None, "at": at}
                   for at in ("2026-10-12T00:10:00Z", "2026-10-12T00:20:00Z")]

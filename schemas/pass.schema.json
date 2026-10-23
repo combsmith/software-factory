@@ -163,7 +163,7 @@
       "type": "array",
       "uniqueItems": true,
       "items": {
-        "$ref": "view-meta.schema.json#/$defs/alert"
+        "$ref": "view-meta.schema.json#/$defs/entry"
       }
     }
   },

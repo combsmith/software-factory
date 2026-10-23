@@ -9,7 +9,8 @@
     "release",
     "written_at",
     "reaches_back_to",
-    "alerts"
+    "alerts",
+    "reconciliation"
   ],
   "properties": {
     "schema": {
@@ -32,35 +33,60 @@
       "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
     },
     "alerts": {
-      "description": "The alerts of the whole scope the pass found, by ids and codes alone: for each counted Run listed unnamed for max_unnamed_run_seconds or more, run_unnamed and its run id, until a person deletes the run (issue 270), written from kernel.decide.unnamed_scope; for each write a Factory identity made that no Effect recorded, write_unmatched, by whom, what and its key; and for each merge read as an Override, merged_by_override and its item (decision 0061). One alert is raised for all of them however many there are",
+      "description": "The alerts of the whole scope the pass found, one to a cause however many items it touches: for each counted Run listed unnamed for max_unnamed_run_seconds or more, the alert run_unnamed and its run id, until a person deletes the run (issue 270). Written from kernel.decide.unnamed_scope",
       "type": "array",
       "uniqueItems": true,
       "items": {
-        "$ref": "#/$defs/alert"
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "alert",
+          "run"
+        ],
+        "properties": {
+          "alert": {
+            "const": "run_unnamed"
+          },
+          "run": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          }
+        }
+      }
+    },
+    "reconciliation": {
+      "description": "What reconciliation found, each once: one alert, write_unmatched, is raised for all of them however many there are (decision 0061). Each entry is in the pass record too, so a rebuilt view says the same",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/entry"
       }
     }
   },
   "$defs": {
-    "alert": {
+    "entry": {
+      "description": "One thing reconciliation found, ids and codes alone (decision 0061): a write a Factory identity made that no Effect recorded, write_unmatched, by whom, what, on which item and its key; or a merge read as an Override, merged_by_override, its item, with by and key null and write merge",
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "alert"
+        "alert",
+        "by",
+        "write",
+        "item",
+        "key"
       ],
       "properties": {
         "alert": {
           "enum": [
-            "run_unnamed",
             "write_unmatched",
             "merged_by_override"
           ]
         },
-        "run": {
-          "type": "string",
-          "pattern": "^[0-9]+$"
-        },
         "by": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^[a-z][a-z_-]{0,60}[a-z]$"
         },
         "write": {
@@ -84,6 +110,8 @@
             "retarget",
             "force_push",
             "branch_deleted",
+            "branch_restored",
+            "review_request",
             "lock",
             "push",
             "dispatch"

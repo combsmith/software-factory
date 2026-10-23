@@ -60,6 +60,8 @@
               "retarget",
               "force_push",
               "branch_deleted",
+              "branch_restored",
+              "review_request",
               "lock",
               "push"
             ]
