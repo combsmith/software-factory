@@ -43,4 +43,4 @@ comments, and waited for reviewers that never answered.
 | A rubric is data with a schema | `schemas/rubric.schema.json`, `tools/check_examples.py` |
 | A reviewing Result reports on every criterion that applies | `tests/test_apply.py::test_an_uncovered_result_writes_nothing` |
 | With an acceptance contract, every criterion has passing evidence on the current content | waiting on `adapters/contract.py` |
-| No manifest names another Role's output as a trigger | waiting on `roles/` |
+| No manifest names another Role's output as a trigger | role/1 has no field for a trigger: `examples/invalid/role.a-trigger-on-another-roles-output.json` |

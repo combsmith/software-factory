@@ -38,6 +38,23 @@ def configuration(root: pathlib.Path = ROOT) -> dict:
     return {"maintainer": hooks["maintainer"]["login"], "roles": roles, "approver": defaults["approver"], "harness": json.loads((root / "config" / "harness.json").read_text())}
 
 
+def instructions(root: pathlib.Path, the_task: dict) -> str:
+    """What the model is told before the Task, from the Release's own files by the admitted Role's name and never from
+    the item: the Role's instructions, `roles/<role>/prompt.md`, and the rubric its Intent's Result covers,
+    `config/rubric-<role>.json`, where one names this Intent (decision 0059). Both are a model Lens's inputs (decision
+    0052). A Role with no instructions in the Release has no Task."""
+    prompt = root / "roles" / the_task["role"] / "prompt.md"
+    if not prompt.is_file():
+        raise task.Refused("the Role has no instructions in the Release")
+    told = engine.ROLE + prompt.read_text(encoding="utf-8")
+    rubric = root / "config" / ("rubric-%s.json" % the_task["role"])
+    if rubric.is_file():
+        held = json.loads(rubric.read_text(encoding="utf-8"))
+        if isinstance(held, dict) and held.get("intent") == the_task["intent"]:
+            told += engine.RUBRIC + json.dumps(held, sort_keys=True)
+    return told
+
+
 def cli_call(args: list, env: dict, timeout: float):
     """The CLI, started in an empty directory of its own, with nothing on its input and its answer captured."""
     with tempfile.TemporaryDirectory() as empty:
@@ -71,7 +88,7 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
         change = f.read()
     the_task = task.build(admitted, run, read(facts), read(texts), read(role), read(findings), config, change)
     result = engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], call or cli_call, clock,
-                        session or str(uuid.uuid4()))
+                        session or str(uuid.uuid4()), instructions(ROOT, the_task))
     data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
     digest = "sha256:" + hashlib.sha256(data).hexdigest()
     os.makedirs(out)

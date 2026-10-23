@@ -45,5 +45,5 @@ back, so a claim in `applied/1` is never the model's word.
 | What `apply` reads again is read-only, and within the App's grant for each need | `tests/test_apply.py::test_what_apply_reads_again_is_read_only_and_within_the_apps_grant` |
 | The review Role's App is granted what `apply` reads again, not held yet | `tests/test_apply.py::test_the_role_app_is_granted_what_apply_reads_again` |
 | The review Role's App is granted `checks` to write its check run, not held yet | `tests/test_apply.py::test_the_role_app_is_granted_checks_to_write_its_check_run` |
-| The `apply` step reads the item again live and writes `applied/1` and `outcome/1` | waiting on `.github/workflows/run.yml` |
+| The `apply` step reads the item again live and writes `applied/1` and `outcome/1` | waiting on `.github/workflows/run-jobs.yml` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

@@ -37,6 +37,8 @@ from tools.jsonschema_lite import SchemaError, validate
 
 ROOT = check_authority.ROOT
 GOOD = (ROOT / "examples" / "workflows" / "verify.yml").read_text()
+# The poller's shim, as issue 196's ruling 4 gives it in full: the shape the rules shim and wake hold.
+POLLER = 'name: sf-poller\non:\n  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n  workflow_dispatch:\n  workflow_run:\n    workflows:\n      - factory\n      - ci\n      - sf-run\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n    permissions:\n      actions: write\n      contents: read\n    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n'
 STEP = "      - run: make verify\n"
 
 
@@ -788,6 +790,156 @@ class Authority(unittest.TestCase):
         # A schema with no category on a thread is a problem reported, not one raised.
         del facts["properties"]["threads"]["items"]["properties"]["category"]
         self.assertTrue(caught(check_authority.run(self.table, facts=facts), "a thread in the facts carries no category"))
+
+    def team(self, roles=None, apps=None):
+        """The team checks alone, on the manifests given, or the repo's."""
+        from tools.check_examples import LIVE
+        roles = check_authority.manifests() if roles is None else roles
+        apps = json.loads((ROOT / "config" / "apps.json").read_text()) if apps is None else apps
+        return check_authority.team(roles, self.table, apps, LIVE)
+
+    def review(self, **over) -> dict:
+        m = json.loads((ROOT / "roles" / "pr-review.json").read_text())
+        m.update(over)
+        return m
+
+    def test_the_repos_roles_hold_to_the_team_checks(self):  # issue 194, ruling 8
+        self.assertEqual(self.team(), [])
+        self.assertEqual(sorted(check_authority.manifests()), ["pr-review"])
+        # The check the verify step runs reads the team too.
+        self.assertTrue(caught(check_authority.run(self.table, roles={"pr-review": self.review(name="x")}),
+                               "roles/pr-review.json names the Role 'x'"))
+
+    def test_a_manifest_is_named_as_its_file_and_held_to_role_1(self):  # decision 0039
+        problems = self.team({"pr-review": self.review(name="dev-lead"), "qa-lead": self.review(name="qa-lead",
+                                                                                                kind="shadow")})
+        self.assertTrue(caught(problems, "roles/pr-review.json names the Role 'dev-lead'"))
+        self.assertTrue(caught(problems, "roles/qa-lead.json is held to no schema; add it to LIVE"))
+        # Held to role/1 itself: LIVE names its schema, and the manifest says it (Muse's read).
+        from tools.check_examples import LIVE
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        for live, manifest in ((dict(LIVE, **{"roles/pr-review.json": "authority"}), self.review()),
+                               (LIVE, self.review(schema="role/999"))):
+            self.assertTrue(caught(check_authority.team({"pr-review": manifest}, self.table, apps, live),
+                                   "roles/pr-review.json is held to no schema"))
+
+    def test_an_owner_owns_what_the_authority_table_names_and_each_category_has_one(self):  # section 5.4
+        fewer = self.review(owns=self.review()["owns"][1:])
+        self.assertTrue(caught(self.team({"pr-review": fewer}), "pr-review owns"))
+        self.assertTrue(caught(self.team({"pr-review": self.review(kind="reviewer")}),
+                               "only an owner owns a category"))
+        # The table's owner is an owner, owning what it names, whatever its manifest says (Argon's read).
+        quiet = self.team({"pr-review": self.review(kind="reviewer", owns=[])})
+        self.assertTrue(caught(quiet, "pr-review is named the owner of"))
+        self.assertTrue(caught(quiet, "pr-review owns [], and the authority table names it the owner of"))
+        self.assertTrue(caught(self.team({}), "functional's owner pr-review has no manifest in roles/"))
+        twin = self.review(name="pr-review-two", app="combsmith-sf-other", owns=["security"])
+        self.assertTrue(caught(self.team({"pr-review": self.review(), "pr-review-two": twin}),
+                               "security is owned by ['pr-review', 'pr-review-two']"))
+
+    def test_each_permitted_effect_is_within_the_ceiling_of_its_roles_own_app(self):  # section 5.4, decision 0005
+        wide = self.review(intents=[dict(self.review()["intents"][0], permitted_effects=["submit_review",
+                                                                                         "create_check_run"])])
+        self.assertTrue(caught(self.team({"pr-review": wide}), "pr-review permits create_check_run, beyond the ceiling"))
+        self.assertTrue(caught(self.team({"pr-review": self.review(app="combsmith-sf-nobody")}),
+                               "names no App of config/apps.json"))
+        # An App named is one that exists, whether or not the Role writes yet (Argon's read).
+        silent = self.review(intents=[dict(self.review()["intents"][0], permitted_effects=[])],
+                             app="combsmith-sf-nobody")
+        self.assertTrue(caught(self.team({"pr-review": silent}), "names no App of config/apps.json"))
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        apps["apps"]["pr-review"]["permissions"]["pull_requests"]["needs"].remove("effect:submit_review")
+        self.assertTrue(caught(self.team(apps=apps), "pr-review permits submit_review, beyond the ceiling"))
+        # A need listed under a grant below its level is beyond the ceiling (Muse's read).
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        apps["apps"]["pr-review"]["permissions"]["pull_requests"]["level"] = "read"
+        self.assertTrue(caught(self.team(apps=apps), "pr-review permits submit_review, beyond the ceiling"))
+        # Granted and mapped, it is within the ceiling.
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        apps["needs"]["effect:create_check_run"] = {"permission": "checks", "level": "write"}
+        apps["apps"]["pr-review"]["permissions"]["checks"] = {"level": "write", "needs": ["effect:create_check_run"]}
+        self.assertEqual(self.team({"pr-review": wide}, apps), [])
+
+    def test_an_intent_of_class_gate_names_an_eval_set_of_its_own(self):  # section 5.4
+        for evals in ("evals/nothing-here", "evals/context"):
+            gate = self.review(intents=[dict(self.review()["intents"][0], evals=evals)])
+            self.assertTrue(caught(self.team({"pr-review": gate}), "names no eval set of its own"), evals)
+        other = self.review(intents=[dict(self.review()["intents"][0], name="adjudicate-findings")])
+        self.assertTrue(caught(self.team({"pr-review": other}), "Intent adjudicate-findings spends from gate"))
+        # Another Role's set of the same Intent is not this Role's, and a set that cannot be read is none (Argon's
+        # and CodeRabbit's reads).
+        from tools.check_examples import LIVE
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "evals" / "theirs").mkdir(parents=True)
+            (pathlib.Path(d) / "evals" / "theirs" / "cases.json").write_text(json.dumps(
+                {"schema": "eval-set/1", "role": "qa-lead", "intent": "review-change", "count": 0, "cases": []}))
+            (pathlib.Path(d) / "evals" / "broken").mkdir()
+            (pathlib.Path(d) / "evals" / "broken" / "cases.json").write_text("{not json")
+            for evals in ("evals/theirs", "evals/broken"):
+                gate = self.review(intents=[dict(self.review()["intents"][0], evals=evals)])
+                self.assertTrue(caught(check_authority.team({"pr-review": gate}, self.table, apps, LIVE, pathlib.Path(d)),
+                                       "names no eval set of its own"), evals)
+
+    def test_a_shadow_writes_nothing_and_spends_from_shadow(self):  # decision 0039
+        shadow = self.review(name="qa-lead", kind="shadow", owns=[], app="combsmith-sf-qa-lead")
+        live = {"pr-review": self.review(), "qa-lead": shadow}
+        from tools.check_examples import LIVE
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        problems = check_authority.team(live, self.table, apps, dict(LIVE, **{"roles/qa-lead.json": "role"}))
+        self.assertTrue(caught(problems, "qa-lead is a shadow, and its Intent review-change writes"))
+        # Each half on its own: a shadow that writes, or one that spends from gate (Argon's read).
+        for intent in (dict(shadow["intents"][0], budget_class="shadow"),
+                       dict(shadow["intents"][0], permitted_effects=[])):
+            one = dict(shadow, intents=[intent])
+            del one["app"]
+            self.assertTrue(caught(check_authority.team({"pr-review": self.review(), "qa-lead": one}, self.table, apps,
+                                                        dict(LIVE, **{"roles/qa-lead.json": "role"})), "qa-lead is a shadow"))
+        quiet = dict(shadow, intents=[dict(shadow["intents"][0], permitted_effects=[], budget_class="shadow")])
+        del quiet["app"]
+        self.assertEqual(check_authority.team({"pr-review": self.review(), "qa-lead": quiet}, self.table, apps,
+                                              dict(LIVE, **{"roles/qa-lead.json": "role"})), [])
+
+    def test_what_cannot_be_read_is_reported_never_raised(self):  # CodeRabbit's read
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "roles").mkdir()
+            (pathlib.Path(d) / "roles" / "broken.json").write_text("{not json")
+            read = check_authority.manifests(pathlib.Path(d))
+        self.assertEqual(read, {"broken": None})
+        self.assertTrue(caught(self.team(dict(read, **{"pr-review": self.review()})),
+                               "roles/broken.json cannot be read as a manifest"))
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        del apps["apps"]["pr-review"]["permissions"]
+        self.assertTrue(caught(self.team(apps=apps), "pr-review permits submit_review, beyond the ceiling"))
+
+    def test_a_writer_spends_from_gate_and_no_role_is_named_for_no_one(self):  # the Claude review
+        # An Intent that writes spends from gate, so it is held to an eval set before it writes.
+        off = self.review(intents=[dict(self.review()["intents"][0], budget_class="shadow", evals="evals/nothing")])
+        self.assertTrue(caught(self.team({"pr-review": off}), "an Intent that writes spends from gate"))
+        # The table reads `human` and `none` as no Role, so no manifest is named either.
+        from tools.check_examples import LIVE
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        quiet = {"intents": [dict(self.review()["intents"][0], permitted_effects=[], budget_class="shadow")]}
+        for word in ("human", "none"):
+            one = self.review(name=word, kind="shadow", owns=[], **quiet)
+            del one["app"]
+            self.assertTrue(caught(check_authority.team({"pr-review": self.review(), word: one}, self.table, apps,
+                                                        dict(LIVE, **{"roles/%s.json" % word: "role"})),
+                                   "which the authority table reads as no Role"), word)
+        # The Controller's App and the reader's are no Role's.
+        for app in ("combsmith-sf-controller", "combsmith-sf-reader"):
+            one = self.review(name="dev-lead", kind="author", owns=[], app=app, **quiet)
+            self.assertTrue(caught(check_authority.team({"pr-review": self.review(), "dev-lead": one}, self.table, apps,
+                                                        dict(LIVE, **{"roles/dev-lead.json": "role"})), "which is no Role's App"), app)
+
+    def test_each_role_writes_through_its_own_app(self):  # L-44
+        other = self.review(name="qa-lead", kind="shadow", owns=[],
+                            intents=[dict(self.review()["intents"][0], permitted_effects=[], budget_class="shadow")])
+        from tools.check_examples import LIVE
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        problems = check_authority.team({"pr-review": self.review(), "qa-lead": other}, self.table, apps,
+                                        dict(LIVE, **{"roles/qa-lead.json": "role"}))
+        self.assertTrue(caught(problems, "['pr-review', 'qa-lead'] write through one App, combsmith-sf-pr-review"))
 
     def test_a_raised_finding_with_a_category_nobody_owns_is_caught(self):  # decision 0038
         result = json.loads((ROOT / "schemas" / "result.schema.json").read_text())
@@ -1946,6 +2098,278 @@ class Workflows(unittest.TestCase):
             if line and not line.startswith("#"):
                 self.assertRegex(line, r"^[0-9a-f]{40}:[^:]+:[a-z0-9-]+:[0-9]+$", line)
 
+    def test_a_shim_holds_no_step_and_calls_the_release_at_its_channel(self):
+        # Issue 196's ruling 3: a workflow on schedule, workflow_dispatch or workflow_run runs the default branch's
+        # file, so each job calls one file of the Release at its channel, with its grant and its concurrency group, an
+        # if: and with: values that pass its inputs on, and nothing else; only a called workflow names an environment.
+        self.assertEqual(check_workflows.lint(POLLER), [])
+        call = "    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n"
+        broken = {
+            "a step": POLLER.replace(call, "    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    steps:\n"
+                                           "      - run: python3 -m controller\n"),
+            "main's copy": POLLER.replace(call, "    uses: ./.github/workflows/pass.yml\n"),
+            "another repo's file": POLLER.replace("combsmith/software-factory/", "combsmith/other/"),
+            "a secret handed on": POLLER + "    secrets:\n      KEY: ${{ secrets.KEY }}\n",
+            "an env above the jobs": POLLER.replace("permissions: {}\n", "permissions: {}\nenv:\n  A: b\n"),
+            "no concurrency": POLLER.replace("    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n", ""),
+            "no grant": POLLER.replace("    permissions:\n      actions: write\n      contents: read\n", ""),
+            "an environment": POLLER.replace("    uses:", "    environment: factory-poller\n    uses:"),
+            "an input renamed": POLLER + "    with:\n      item: ${{ inputs.other }}\n",
+            "a value written in": POLLER + "    with:\n      item: main\n",
+            "a timeout": POLLER.replace("    uses:", "    timeout-minutes: 15\n    uses:"),
+            "needs": POLLER.replace("    uses:", "    needs:\n      - other\n    uses:"),
+            "inputs in one line": POLLER + "    with: main\n",
+            "a group of none": POLLER.replace("      group: sf-poller\n", ""),
+            "a group with no name": POLLER.replace("      group: sf-poller\n", "      group:\n"),
+            "a bare with": POLLER + "    with:\n",
+            "a pass cancelled": POLLER.replace("cancel-in-progress: false", "cancel-in-progress: true"),
+        }
+        for why, text in broken.items():
+            self.assertIn("shim", {rule for rule, _ in check_workflows.lint(text)}, why)
+        # Each of the three events makes a shim alone: a dispatch, a schedule and another's end.
+        for event in ("  workflow_dispatch:\n", "  schedule:\n    - cron: '17 3 * * *'\n", "  workflow_run:\n"):
+            alone = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n" + event)
+            self.assertIn("shim", {rule for rule, _ in check_workflows.lint(alone)}, event)
+        passed_on = POLLER + "    with:\n      item: ${{ inputs.item }}\n"
+        self.assertEqual([r for r, _ in check_workflows.lint(passed_on) if r == "shim"], [])
+        # An environment is a called workflow's alone: named on a push's job or a pull request's, it is refused.
+        pushed = GOOD.replace("  checks:\n", "  checks:\n    environment: factory-run\n", 1)
+        self.assertIn("shim", {rule for rule, _ in check_workflows.lint(pushed)})
+        called = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on:\n  workflow_call:\n").replace(
+            "  checks:\n", "  checks:\n    environment: factory-run\n", 1)
+        self.assertNotIn("shim", {rule for rule, _ in check_workflows.lint(called)})
+        # Called and something else: the something else runs the file with the key too.
+        both = called.replace("on:\n  workflow_call:\n", "on:\n  workflow_call:\n  push:\n    branches:\n      - main\n")
+        self.assertIn("shim", {rule for rule, _ in check_workflows.lint(both)})
+
+    def test_every_shim_calls_one_channel(self):
+        # Decision 0006 and L-46: every shim names the one channel, factory/v0-next, never a branch, a commit or another.
+        for ref in ("main", "factory/v0-stable", "factory/v1-next", "3d3c42e5aac5ba805825da76410c181273ba90b1"):
+            text = POLLER.replace("@factory/v0-next", "@" + ref)
+            self.assertIn("shim", {rule for rule, _ in check_workflows.lint(text)}, ref)
+
+    def test_a_shim_is_held_word_for_word(self):
+        # A shim is held by its hash, as ci.yml is: one not in SHIMS, or changed since its hash was recorded, fails.
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        problems = check_workflows.run(tree(dict(base, **{".github/workflows/poller.yml": POLLER})))
+        self.assertTrue(caught(problems, "poller.yml: a shim is held word for word"), problems)
+        held = hashlib.sha256(check_workflows.PIN.sub("@PIN", POLLER).encode()).hexdigest()
+        # A shim's events written as one scalar are its events still: such a file is held too.
+        scalar = GOOD.replace("on:\n  pull_request:\n  merge_group:\n", "on: workflow_dispatch\n")
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/x.yml": scalar}))),
+                               "x.yml: a shim is held word for word"))
+        # Only the Run's shim names its run.
+        named = POLLER.replace("name: sf-poller\n", "name: sf-poller\nrun-name: x\n")
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/poller.yml": named}))),
+                               "poller.yml: only run.yml names its run"))
+        with mock.patch.dict(check_workflows.SHIMS, {"poller.yml": held}):
+            self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/poller.yml": POLLER}))),
+                                    "poller.yml"))
+            moved = POLLER.replace("13 * * * *", "14 * * * *")
+            self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/poller.yml": moved}))),
+                                   "poller.yml: a shim is held word for word"))
+            # Held under its own name alone: the same text under another is refused.
+            self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/tick.yml": POLLER}))),
+                                   "tick.yml: a shim is held word for word"))
+
+    def test_only_the_poller_runs_on_workflow_run(self):
+        # Decision 0043 and issue 196's ruling 4: the poller alone wakes on another workflow's end, on its completion
+        # alone, never its own; it takes no input and reads nothing of the run that woke it.
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        held = hashlib.sha256(check_workflows.PIN.sub("@PIN", POLLER).encode()).hexdigest()
+        with mock.patch.dict(check_workflows.SHIMS, {"other.yml": held}):
+            problems = check_workflows.run(tree(dict(base, **{".github/workflows/other.yml": POLLER})))
+        self.assertTrue(caught(problems, "other.yml: only poller.yml wakes on another workflow's end"), problems)
+        broken = {
+            "its own end": POLLER.replace("      - sf-run\n", "      - sf-run\n      - sf-poller\n"),
+            "every stage": POLLER.replace("    types:\n      - completed\n", ""),
+            "a request": POLLER.replace("      - completed\n", "      - requested\n"),
+            "an input": POLLER.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n      item:\n"
+                                                                  "        type: string\n"),
+            "the run that woke it": POLLER.replace("  pass:\n    permissions:",
+                                                   "  pass:\n    if: github.event.workflow_run.conclusion == 'success'\n"
+                                                   "    permissions:"),
+            "no workflow named": POLLER.replace("    workflows:\n      - factory\n      - ci\n      - sf-run\n", ""),
+            "an empty list of workflows": POLLER.replace("      - factory\n      - ci\n      - sf-run\n", ""),
+            "a branch filter": POLLER.replace("    types:\n", "    branches:\n      - main\n    types:\n"),
+        }
+        # The run that woke it is read in no form an expression can write: by an index, in another case, or whole.
+        for read in ("github['event'].workflow_run.conclusion == 'success'", "GitHub.Event.workflow_run.conclusion == 'x'",
+                     "contains(toJSON(github), 'success')", "github .event.action == 'completed'",
+                     "(github).event.workflow_run.conclusion == 'success'", "contains(format('{0}', github), 'x')",
+                     "github.token.x == 'y'"):
+            broken[read] = POLLER.replace("  pass:\n    permissions:", "  pass:\n    if: %s\n    permissions:" % read)
+        for why, text in broken.items():
+            self.assertIn("wake", {rule for rule, _ in check_workflows.lint(text)}, why)
+        # A comment is no read: the poller may say, in a comment, what it does not read.
+        noted = "# The poller reads nothing of github.event.\n" + POLLER.replace("  pass:\n", "  pass:\n    # nor github['event']\n")
+        self.assertEqual([r for r, _ in check_workflows.lint(noted) if r == "wake"], [])
+        # A ` #` inside a quoted value is no comment: what follows it is read.
+        quoted = POLLER.replace("  pass:\n    permissions:", "  pass:\n    if: \"' #' == ' #' && github.event.action == 'x'\"\n"
+                                "    permissions:")
+        self.assertIn("wake", {r for r, _ in check_workflows.lint(quoted)})
+        # The poller names its token neither: the pass it calls holds it.
+        self.assertIn("wake", {r for r, _ in check_workflows.lint(POLLER.replace(
+            "  pass:\n    permissions:", "  pass:\n    if: github.token != ''\n    permissions:"))})
+        # Nor does the pass it calls read it: pass.yml is the poller's own job.
+        called = ("name: sf-pass\non:\n  workflow_call:\npermissions: {}\njobs:\n  pass:\n    runs-on: ubuntu-24.04\n"
+                  "    timeout-minutes: 15\n    permissions:\n      actions: write\n      contents: read\n    steps:\n"
+                  "      - run: python3 -m controller\n        env:\n"
+                  "          BRANCH: ${{ github.event.workflow_run.head_branch }}\n")
+        problems = check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": called})))
+        self.assertTrue(caught(problems, "pass.yml: it reads the run that woke the poller"), problems)
+        self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": called.replace(
+            "BRANCH: ${{ github.event.workflow_run.head_branch }}", "WORKFLOW_TOKEN: ${{ github.token }}")}))),
+            "pass.yml: it reads"))
+        # A whole-line comment in pass.yml is no read.
+        commented = "# It reads nothing of github.event.\n" + called.replace(
+            "BRANCH: ${{ github.event.workflow_run.head_branch }}", "WORKFLOW_TOKEN: ${{ github.token }}")
+        self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": commented}))),
+                                "pass.yml: it reads"))
+        for whole in ("${{ github }}", "${{ toJSON(github) }}", "${{ GitHub.Event.action }}", "${{ github.token.x }}",
+                      "${{ github.token['x'] }}"):
+            problems = check_workflows.run(tree(dict(base, **{".github/workflows/pass.yml": called.replace(
+                "${{ github.event.workflow_run.head_branch }}", whole)})))
+            self.assertTrue(caught(problems, "pass.yml: it reads the run that woke the poller"), whole)
+
+    def test_the_pass_job_alone_is_granted_a_write(self):
+        # Issue 196's ruling 4: only the pass job is granted a write, its actions: write, which starts the Runs and the
+        # successor; the job id pass is the poller's and the pass's alone.
+        self.assertEqual([r for r, _ in check_workflows.lint(POLLER) if r == "permissions"], [])
+        for grant in ("      contents: write\n", "      pull-requests: write\n", "      id-token: write\n"):
+            self.assertIn("permissions", {r for r, _ in check_workflows.lint(
+                POLLER.replace("      contents: read\n", grant))}, grant)
+        elsewhere = GOOD.replace("    permissions:\n      contents: read\n",
+                                 "    permissions:\n      actions: write\n      contents: read\n", 1)
+        self.assertIn("permissions", {r for r, _ in check_workflows.lint(elsewhere)})
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        named = GOOD.replace("  checks:\n", "  pass:\n", 1).replace("      - checks\n", "      - pass\n")
+        problems = check_workflows.run(tree(dict(base, **{".github/workflows/other.yml": named})))
+        self.assertTrue(caught(problems, "other.yml: the job pass is reserved for poller.yml and pass.yml"), problems)
+
+    def test_a_runs_lane_is_its_item_on_the_job_and_cancels_nothing_running(self):
+        # Issue 196's ruling 6 and decision 0003: the job that calls the Run's jobs holds one concurrency group for each
+        # Work item, exactly ${{ inputs.item }}, on the job, and never cancels a Run in progress.
+        run = check_workflows.RUN_SHIM % 41898282
+        self.assertEqual(check_workflows.lint(run), [])
+        lane = "    concurrency:\n      group: ${{ inputs.item }}\n      cancel-in-progress: false\n"
+        broken = {
+            "a Run cancelled": run.replace("cancel-in-progress: false", "cancel-in-progress: true"),
+            "one lane for all": run.replace("group: ${{ inputs.item }}", "group: sf-run"),
+            "a lane per Run": run.replace("group: ${{ inputs.item }}", "group: ${{ inputs.name }}"),
+            "no group": run.replace("      group: ${{ inputs.item }}\n", ""),
+            "the lane at the top": run.replace(lane, "").replace("permissions: {}\n", "permissions: {}\n"
+                                                                  "concurrency:\n  group: ${{ inputs.item }}\n"),
+        }
+        for why, text in broken.items():
+            self.assertIn("lane", {rule for rule, _ in check_workflows.lint(text)}, why)
+        # The poller's group is its own, a name: it calls the pass, not the Run's jobs, and holds no item's lane.
+        self.assertEqual([r for r, _ in check_workflows.lint(POLLER) if r == "lane"], [])
+        # The three places an expression stands whole beyond env:, with: and secrets:, and none with text around it.
+        for text in (run.replace("run-name: ${{ inputs.name }}", "run-name: Run ${{ inputs.name }}"),
+                     run.replace("run-name: ${{ inputs.name }}", "run-name: ${{ inputs.item }}"),
+                     run.replace("group: ${{ inputs.item }}", "group: lane-${{ inputs.item }}"),
+                     POLLER.replace("group: sf-poller", "group: ${{ github.ref }}"),
+                     run.replace("permissions: {}\n", "permissions: {}\nconcurrency:\n  group: ${{ inputs.item }}\n"),
+                     GOOD.replace("      - run: make verify\n", "      - run: make verify\n        outputs:\n"
+                                  "          d: ${{ steps.a.outputs.b }}\n", 1)):
+            self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text)})
+        outputs = GOOD.replace("    timeout-minutes: 25\n", "    timeout-minutes: 25\n    outputs:\n"
+                               "      digest: ${{ steps.run.outputs.digest }}\n", 1)
+        self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs)})
+        self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
+            "${{ steps.run.outputs.digest }}", "${{ github.event.pull_request.title }}"))})
+
+    def run_tree(self, text: str, account) -> list:
+        config = json.loads((ROOT / "config" / "controller.json").read_text())
+        config["accounts"]["workflow_token"] = account
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD,
+                "config/controller.json": json.dumps(config)}
+        held = hashlib.sha256(check_workflows.PIN.sub("@PIN", text).encode()).hexdigest()
+        with mock.patch.dict(check_workflows.SHIMS, {"run.yml": held}):
+            return [p for p in check_workflows.run(tree(dict(base, **{".github/workflows/run.yml": text})))
+                    if p.startswith(".github/workflows/run.yml")]
+
+    def test_every_run_dispatch_carries_an_item_and_the_poller_takes_none(self):
+        # Decision 0036: a Run is dispatched with three required inputs, its name, its item and its pass, so every Role
+        # dispatch carries an item; the poller takes none (the rule wake).
+        token = {"type": "Bot", "id": 41898282}
+        run = check_workflows.RUN_SHIM % 41898282
+        self.assertEqual(self.run_tree(run, token), [])
+        item = "      item:\n        required: true\n        type: string\n"
+        for why, text in (("no item", run.replace(item, "")),
+                          ("an item left optional", run.replace(item, item.replace("required: true", "required: false"))),
+                          ("an input more", run.replace(item, item + "      extra:\n        type: string\n"))):
+            self.assertTrue(self.run_tree(text, token), why)
+        self.assertIn("wake", {r for r, _ in check_workflows.lint(POLLER.replace(
+            "  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n      item:\n        type: string\n"))})
+
+    def test_a_run_starts_only_from_the_poller_and_never_under_a_pause(self):
+        # Ruling 6 and I-34: the Run's shim starts its jobs only when the dispatcher is the pass's own token, by the
+        # account controller/1 names for it, and only while no Pause of the repo or the org is set. While controller/1
+        # names no such account, no run.yml is right.
+        token = {"type": "Bot", "id": 41898282}
+        run = check_workflows.RUN_SHIM % 41898282
+        condition = ("    if: github.actor_id == '41898282' && github.run_attempt == '1' && "
+                     "(vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')\n")
+        self.assertIn(condition, run)
+        for why, text in (("another dispatcher", run.replace("41898282", "41898283")),
+                          ("no Pause", run.replace(condition, "    if: github.actor_id == '41898282' && github.run_attempt == '1'\n")),
+                          ("a re-run", run.replace(" && github.run_attempt == '1'", "")),
+                          ("any value but true", run.replace("(vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')",
+                                                             "vars.FACTORY_PAUSED != 'true'")),
+                          ("either", run.replace("' && github", "' || github")),
+                          ("no condition", run.replace(condition, "")),
+                          ("a trailing word", run.replace("cancel-in-progress: false", "cancel-in-progress: false # x"))):
+            self.assertTrue(self.run_tree(text, token), why)
+        for account in (None, {"type": "Bot", "id": 41898283}, {"type": "Bot", "id": "41898282"},
+                        {"type": "Bot", "id": True}, "41898282"):
+            self.assertTrue(self.run_tree(run, account), account)
+        # A configuration that cannot be read names no dispatcher.
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD,
+                "config/controller.json": "{not json", ".github/workflows/run.yml": run}
+        held = hashlib.sha256(check_workflows.PIN.sub("@PIN", run).encode()).hexdigest()
+        with mock.patch.dict(check_workflows.SHIMS, {"run.yml": held}):
+            self.assertTrue(caught(check_workflows.run(tree(base)), "run.yml: config/controller.json names no account"))
+            # And the Run's jobs are called from run.yml alone.
+            elsewhere = dict(base, **{"config/controller.json": (ROOT / "config" / "controller.json").read_text()})
+            del elsewhere[".github/workflows/run.yml"]
+            other = GOOD.replace("  checks:\n", "  lane:\n    permissions:\n      contents: read\n    concurrency:\n"
+                                 "      group: ${{ inputs.item }}\n      cancel-in-progress: false\n"
+                                 "    uses: combsmith/software-factory/.github/workflows/run-jobs.yml@factory/v0-next\n"
+                                 "  checks:\n", 1)
+            problems = check_workflows.run(tree(dict(elsewhere, **{".github/workflows/other.yml": other})))
+            self.assertTrue(caught(problems, "other.yml: only run.yml calls the Run's jobs"), problems)
+        self.assertEqual(self.run_tree("# The Run's shim.\n" + run, token), [])
+
+    def test_no_step_sets_the_scrub_or_hands_the_model_a_tool_list(self):
+        # Decision 0050: the scrub is the Engine's to set, beside --tools "", and a step can pass the CLI no argument;
+        # and the step that holds the model's credential is handed no tool list, by a name or a value.
+        for name in ("model.a-scrub-set-by-the-step.yml", "model.a-tool-list-beside-the-credential.yml"):
+            text = (ROOT / "examples" / "workflows" / "invalid" / name).read_text()
+            self.assertEqual({r for r, _ in check_workflows.lint(text)}, {"model"}, name)
+        clean = (ROOT / "examples" / "workflows" / "invalid" / "model.a-scrub-set-by-the-step.yml").read_text().replace(
+            "          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: 1\n", "")
+        self.assertEqual(check_workflows.lint(clean), [])
+        for line in ("          claude_code_subprocess_env_scrub: 1\n", "          ARGS: --allowedTools Bash\n",
+                     "          CLAUDE_TOOLS: Read\n"):
+            self.assertIn("model", {r for r, _ in check_workflows.lint(clean + line)}, line)
+        # A step's environment is merged from its job's and its workflow's: a tool list there is handed to it too.
+        for level in (clean.replace("    steps:\n", "    env:\n      ALLOWED_TOOLS: Bash\n    steps:\n"),
+                      clean.replace("permissions: {}\n", "permissions: {}\nenv:\n  ALLOWED_TOOLS: Bash\n"),
+                      clean.replace("    steps:\n", "    env:\n      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: 1\n    steps:\n")):
+            self.assertIn("model", {r for r, _ in check_workflows.lint(level)})
+        # The model's credential is named in eval.yml's run step and in the Run's jobs, run-jobs.yml; run.yml is a shim,
+        # and names no secret.
+        base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
+        self.assertFalse(caught(check_workflows.run(tree(dict(base, **{".github/workflows/run-jobs.yml": clean}))),
+                                "names the model's credential"))
+        self.assertTrue(caught(check_workflows.run(tree(dict(base, **{".github/workflows/run.yml": clean}))),
+                               "run.yml: line"))
+        # A tool list in a step that holds no model credential is no concern of this rule.
+        self.assertNotIn("model", {r for r, _ in check_workflows.lint(clean.replace(
+            "CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}", "OTHER: x") + "          TOOLS: a\n")})
+
     def test_an_exempt_workflow_is_held_word_for_word(self):
         scan = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
         base = {"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD}
@@ -2138,7 +2562,7 @@ class Workflows(unittest.TestCase):
             "a failure swallowed in shell": (GOOD.replace(STEP, "      - run: make verify || true\n"), "install"),
             "read-all": (GOOD.replace("permissions: {}", "permissions: read-all"), "permissions"),
             "write-all on a job": (GOOD.replace("      contents: read\n", "      write-all\n"), "form"),
-            "woken by another workflow": (GOOD.replace("  merge_group:\n", "  merge_group:\n  workflow_run:\n"), "target"),
+            "woken by another workflow": (GOOD.replace("  merge_group:\n", "  merge_group:\n  workflow_run:\n"), "wake"),
             "every thirty minutes": (GOOD.replace("  merge_group:\n", '  merge_group:\n  schedule:\n    - cron: "0,30 * * * *"\n'), "cron"),
             "a runner from a matrix": (GOOD.replace("ubuntu-24.04", "${{ matrix.os }}"), "runner"),
             "a runner in a list": (GOOD.replace("    runs-on: ubuntu-24.04\n", "    runs-on:\n      - ubuntu-latest\n"), "runner"),
@@ -2162,7 +2586,7 @@ class Workflows(unittest.TestCase):
             "a comment naming a banned event": GOOD.replace("  pull_request:\n", "  pull_request:    # never pull_request_target\n"),
             "a secret whose name holds the letters": GOOD.replace(STEP, STEP + "        env:\n          K: ${{ secrets.RELAY_DISPATCH_KEY }}\n"),
             "the org's reusable at its channel": GOOD.replace("  verify:\n", "  shield:\n    uses: combsmith/.github/.github/workflows/agent-shield-reusable.yml@agent-shield/v2-stable\n  verify:\n"),
-            "an off-zero schedule": GOOD.replace("  merge_group:\n", "  merge_group:\n  schedule:\n    - cron: '17,47 * * * *'\n"),
+            "an off-zero schedule": POLLER.replace('"13 * * * *"', "'17,47 * * * *'"),
             "indented by four": "\n".join((len(l) - len(l.lstrip(" "))) * " " + l for l in GOOD.split("\n")),
         }
         for name, text in fine.items():

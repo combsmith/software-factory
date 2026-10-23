@@ -246,7 +246,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-44 Agents acted as the Maintainer
 **Failure.** Agents ran as the owner's account, so the Maintainer could not review an agent's pull requests and the agent skipped the Maintainer's requests as its own. When one Role took its identity from a shared variable, it committed as the review-only machine user: "dev-lead regressed to committing as donpetry-bot (review-only machine user) instead of don-petry" (issue 1316).
 **Rule.** Each Role declares its own App, and no two share one.
-**Check.** waiting on `roles/`
+**Check.** `tests/test_tools.py::test_each_role_writes_through_its_own_app`
 
 ### L-45 A merged fix was not what ran
 **Failure.** Twice in one week a fix merged and the failure went on, because agents ran from a tag that had not moved. A whole class of change never arrived at all: "Script-only changes never reach the fleet" (issue 1592).
