@@ -62,8 +62,11 @@
               "branch_deleted",
               "branch_restored",
               "review_request",
+              "assignment",
+              "branch_created",
               "lock",
-              "push"
+              "push",
+              "other"
             ]
           },
           "item": {

@@ -40,7 +40,15 @@ EVENTS = {"labeled": "label", "unlabeled": "label", "added_to_merge_queue": "enq
           "convert_to_draft": "draft", "auto_merge_enabled": "auto_merge", "base_ref_changed": "retarget",
           "head_ref_force_pushed": "force_push", "head_ref_deleted": "branch_deleted",
           "head_ref_restored": "branch_restored", "review_requested": "review_request",
-          "review_request_removed": "review_request", "locked": "lock", "unlocked": "lock"}
+          "review_request_removed": "review_request", "assigned": "assignment", "unassigned": "assignment",
+          "locked": "lock", "unlocked": "lock"}
+# The timeline's events that are no write to the item by their actor, or are read elsewhere: any other a Factory
+# identity made is `other`, keyed by its event's name, so that an event GitHub adds alarms rather than going unread.
+NOT_WRITES = {"commented", "reviewed", "committed", "mentioned", "subscribed", "unsubscribed", "cross-referenced",
+              "referenced", "line-commented", "commit-commented"}
+# What the repo's activity names each write to a branch.
+ACTIVITY = {"push": "push", "force_push": "force_push", "branch_creation": "branch_created",
+            "branch_deletion": "branch_deleted", "pr_merge": "merge", "merge_queue_merge": "merge"}
 
 
 def _pages(transport, path: str) -> tuple:
@@ -113,16 +121,21 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         whole &= at is not False and _key(c.get("node_id")) is not None
         add(by, "comment", _key(c.get("node_id")), at or None)
     for e in map(_object, parts["events"]):
-        kind = EVENTS.get(e.get("event"))
-        at = _at(e.get("created_at"), since) if kind else None
-        if kind is None or at is None:
+        name = e.get("event")
+        kind = EVENTS.get(name)
+        if kind is None:
+            if name in NOT_WRITES or _who(e.get("actor"), identities) is None:
+                continue
+            kind = "other"
+        at = _at(e.get("created_at"), since)
+        if at is None:
             continue
         whole &= at is not False and _readable(e.get("actor"))
         if kind == "merge" and at:
             merged.append({"item": dict(item), "at": at})
         by = _who(e.get("actor"), identities)
         if by is not None:
-            add(by, kind, None, at or None)
+            add(by, kind, _key(name) if kind == "other" else None, at or None)
     for t in map(_object, parts["threads"]):
         if t.get("isResolved") is not True:
             continue
@@ -147,9 +160,10 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
 
 
 def pushes(transport, repo: str, approver: dict, since: str) -> tuple:
-    """`(writes, whole)`: each push the machine user made to any branch of `repo` in the last week, from the repo's
-    activity, as P-47 reads a branch's (`contents: read`), and kept from `since`. Every one is a write the machine user
-    may not make. The activity is asked for by the machine user's login, as GitHub takes it, and each entry held to its
+    """`(writes, whole)`: each write the machine user made to any branch of `repo` in the last week, from the repo's
+    activity, as P-47 reads a branch's (`contents: read`), and kept from `since`, each of the kind its activity names
+    it: a push, a force push, a branch made or deleted, or a merge, which a served item's timeline names too. Every one
+    is a write the machine user may not make; an activity of a type not known is `other`, and leaves the read short. The activity is asked for by the machine user's login, as GitHub takes it, and each entry held to its
     account's id; a login renamed and not recorded reads none."""
     try:
         answer = transport.send(request("GET", "/repos/%s/activity?actor=%s&time_period=week&per_page=%d" % (
@@ -169,8 +183,9 @@ def pushes(transport, repo: str, approver: dict, since: str) -> tuple:
             continue
         ident = a.get("id")
         key = str(ident) if isinstance(ident, int) and not isinstance(ident, bool) and ident > 0 else None
-        whole &= at is not False and key is not None
-        writes.append({"by": "approver", "kind": "push", "item": None, "key": key, "at": at or None})
+        kind = ACTIVITY.get(a.get("activity_type"), "other")
+        whole &= at is not False and key is not None and a.get("activity_type") in ACTIVITY
+        writes.append({"by": "approver", "kind": kind, "item": None, "key": key, "at": at or None})
     return writes, bool(whole)
 
 

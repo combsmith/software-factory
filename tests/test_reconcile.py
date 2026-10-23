@@ -296,6 +296,10 @@ class SeenPort(unittest.TestCase):
                   {"event": "review_dismissed", "actor": APPROVER, "created_at": AT},
                   {"event": "closed", "actor": ROLE, "created_at": AT},
                   {"event": "review_requested", "actor": ROLE, "created_at": AT},
+                  {"event": "assigned", "actor": CONTROLLER, "created_at": AT},
+                  {"event": "milestoned", "actor": CONTROLLER, "created_at": AT},
+                  {"event": "mentioned", "actor": CONTROLLER, "created_at": AT},
+                  {"event": "milestoned", "actor": PERSON, "created_at": AT},
                   {"event": "merged", "actor": PERSON, "created_at": AT},
                   {"event": "commented", "actor": CONTROLLER, "created_at": AT},
                   {"event": "labeled", "actor": PERSON, "created_at": AT}]
@@ -313,6 +317,7 @@ class SeenPort(unittest.TestCase):
                           ("controller", "comment", "IC_c"), ("controller", "label", None),
                           ("controller", "dequeue", None), ("approver", "dismissal", None),
                           ("pr-review", "close", None), ("pr-review", "review_request", None),
+                          ("controller", "assignment", None), ("controller", "other", "milestoned"),
                           ("unattributed", "resolution", "PRRT_n"),
                           ("approver", "resolution", "PRRT_a"), ("pr-review", "check_run", "CR_r"),
                           ("controller", "check_run", "CR_c")])
@@ -363,15 +368,26 @@ class SeenPort(unittest.TestCase):
         self.assertEqual(([(w["by"], w["kind"]) for w in writes], whole), ([("controller", "comment")], False))
 
     def test_the_machine_users_pushes_are_read_from_the_repos_activity(self):  # decision 0005
-        entries = [{"id": 7, "actor": APPROVER, "timestamp": AT}, {"id": 8, "actor": PERSON, "timestamp": AT},
-                   {"id": 9, "actor": APPROVER, "timestamp": EARLY}, {"id": 10, "actor": APPROVER, "timestamp": SINCE}]
+        entries = [{"id": 7, "actor": APPROVER, "timestamp": AT, "activity_type": "push"},
+                   {"id": 8, "actor": PERSON, "timestamp": AT, "activity_type": "push"},
+                   {"id": 9, "actor": APPROVER, "timestamp": EARLY, "activity_type": "push"},
+                   {"id": 10, "actor": APPROVER, "timestamp": SINCE, "activity_type": "force_push"},
+                   {"id": 11, "actor": APPROVER, "timestamp": AT, "activity_type": "pr_merge"},
+                   {"id": 12, "actor": APPROVER, "timestamp": AT, "activity_type": "branch_creation"}]
         writes, whole = seen_.pushes(GitHub({ACTIVITY: entries}), ITEM["repo"], APPROVER, SINCE)
+        # Each is named by the kind its activity gives, never a push for all.
         self.assertEqual(([(w["by"], w["kind"], w["key"], w["item"]) for w in writes], whole),
-                         ([("approver", "push", "7", None), ("approver", "push", "10", None)], True))
-        for answer in ({"status": 500, "body": {}}, None, [{"id": 7, "actor": APPROVER, "timestamp": "x"}],
-                       [{"id": None, "actor": APPROVER, "timestamp": AT}], [{"id": True, "actor": APPROVER,
-                                                                             "timestamp": AT}],
-                       [{"id": 7, "actor": {"login": "donpetry-bot"}, "timestamp": AT}],
+                         ([("approver", "push", "7", None), ("approver", "force_push", "10", None),
+                           ("approver", "merge", "11", None), ("approver", "branch_created", "12", None)], True))
+        # An activity of a type not known is the machine user's write all the same, and leaves the read short.
+        writes, whole = seen_.pushes(GitHub({ACTIVITY: [dict(entries[0], activity_type="branch_rename")]}),
+                                     ITEM["repo"], APPROVER, SINCE)
+        self.assertEqual(([w["kind"] for w in writes], whole), (["other"], False))
+        for answer in ({"status": 500, "body": {}}, None,
+                       [{"id": 7, "actor": APPROVER, "timestamp": "x", "activity_type": "push"}],
+                       [{"id": None, "actor": APPROVER, "timestamp": AT, "activity_type": "push"}],
+                       [{"id": True, "actor": APPROVER, "timestamp": AT, "activity_type": "push"}],
+                       [{"id": 7, "actor": {"login": "donpetry-bot"}, "timestamp": AT, "activity_type": "push"}],
                        [{"id": i + 1, "actor": PERSON, "timestamp": AT} for i in range(100)]):
             self.assertIs(seen_.pushes(GitHub({ACTIVITY: answer}), ITEM["repo"], APPROVER, SINCE)[1], False, answer)
 
