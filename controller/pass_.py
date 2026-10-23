@@ -226,12 +226,17 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             out.append({"facts": facts, "decision": d, "run": mint("r") if minted else None})
         return out
 
+    # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and
+    # one for a reconciliation that is short (I-33, decision 0061). What it found is in the record before it is checked.
+    found = reconcile_.reconcile(reads.get("seen"), reads.get("effects"), runs if listed and whole else None, before,
+                                 rules["accounts"])
     record = {"schema": "pass/1", "pass": mint("p"), "release": config["release"], "now": now,
               "started_by": started_by(reads.get("started"), rules["accounts"]), "context": context, "runs": runs,
               "reads": (copy.deepcopy(records["reads"]) if listed else [])
               + [dict(r, read="facts") if isinstance(r, dict) else r for r in reads.get("facts_reads") or []],
               "pull_requests": asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"]),
-              "issues": asked(issues, issue.decide, config["lifecycles"]["issue"])}
+              "issues": asked(issues, issue.decide, config["lifecycles"]["issue"]),
+              "reconciliation": reconcile_.entries(found)}
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]
@@ -260,16 +265,11 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     # The first pass after six hours with none raises the not-run alert, and the next pass clears it (decision 0043).
     raised = bool(before) and gap(now, before[-1]["now"])
     cleared = len(before) >= 2 and gap(before[-1]["now"], before[-2]["now"]) and not raised
-    # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and
-    # one for a reconciliation that is short (I-33, decision 0061).
-    found = reconcile_.reconcile(reads.get("seen"), reads.get("effects"), runs if listed and whole else None, before,
-                                 rules["accounts"])
     alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, automatic is not None,
                             bool(left_out), raised, unnamed, reconcile_.alerts(found))
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}
-    record["reconciliation"] = reconcile_.entries(found)
     feed = feed_.view(record, before, titles, config["feed"], unnamed["alerts"] + record["reconciliation"])
     feed["health"] = health_.health(record, before, pause, automatic is not None, alerts, reads.get("usage"), rules)
     # A successor only for an item due at the pass's end: an act made here, whose next Decision is due at once, and not

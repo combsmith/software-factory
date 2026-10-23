@@ -544,6 +544,11 @@ class Feed(unittest.TestCase):
                   for at in ("2026-10-12T00:10:00Z", "2026-10-12T00:20:00Z")]
         out = passed(reads(seen=dict(SEEN, writes=labels)))
         self.assertEqual((out["alerts"], len(out["record"]["reconciliation"])), (["write_unmatched"], 1))
+        # What reconciliation found is held to pass/1 with the record, before anything is dispatched: an entry the
+        # record cannot hold refuses the pass whole (CodeRabbit's read).
+        odd = [dict(labels[0], item=dict(support.ITEM, repo="combsmith/software factory"))]
+        with self.assertRaises(pass_.Refused):
+            passed(reads(seen=dict(SEEN, writes=odd)))
         # Matched, nothing is raised; what was seen or recorded that cannot be read raises the one alert that says so.
         done = {"schema": "applied/1", "run": "r_01JA7Q", "release": "factory/v0.3.1", "findings": [],
                 "effects": [{"id": "e1", "type": "approve", "state": "applied", "key": "PRR_0", "reason": None}]}
