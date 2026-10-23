@@ -25,7 +25,7 @@ import re
 import zipfile
 import zlib
 
-from adapters.github import Unanswered, download, raw, request
+from adapters.github import PASSED, STORED, Unanswered, download, raw, request
 from tools.jsonschema_lite import validate
 
 NAME = "outcome"           # the artifact a Run's final step uploads
@@ -36,11 +36,11 @@ DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 SCHEMA = json.loads((pathlib.Path(__file__).resolve().parent.parent / "schemas" / "outcome.schema.json").read_text())
 
 
-def _listed(transport, repo: str, github_id: int, seen=None):
-    """The one artifact named `outcome` the run lists, None if it lists none, or False if the list cannot be read.
-    `seen`, where given, is handed the list's answer, so the caller can record what the read cost."""
+def _listed(transport, repo: str, github_id: int, seen=None, name: str = NAME):
+    """The one artifact named `name`, `outcome` unless asked, the run lists, None if it lists none, or False if the list
+    cannot be read. `seen`, where given, is handed the list's answer, so the caller can record what the read cost."""
     answer = transport.send(request("GET", "/repos/%s/actions/runs/%d/artifacts?name=%s&per_page=100"
-                                    % (repo, github_id, NAME)))
+                                    % (repo, github_id, name)))
     if answer["status"] != 200 or not isinstance(answer["body"], dict):
         raise Unanswered("the artifacts of run %d answered %d" % (github_id, answer["status"]))
     if seen is not None:
@@ -48,50 +48,62 @@ def _listed(transport, repo: str, github_id: int, seen=None):
     listed, total = answer["body"].get("artifacts"), answer["body"].get("total_count")
     if not isinstance(listed, list) or not isinstance(total, int) or isinstance(total, bool) or total != len(listed):
         return False
-    named = [a for a in listed if isinstance(a, dict) and a.get("name") == NAME]
+    named = [a for a in listed if isinstance(a, dict) and a.get("name") == name]
     if len(named) != len(listed) or len(named) > 1:
         return False
     return named[0] if named else None
 
 
-def _member(zipped: bytes):
-    """The bytes of the zip's one file, `outcome.json`, or None if the zip holds anything else or cannot be read."""
+def _member(zipped: bytes, member: str = MEMBER, held: int = HELD):
+    """The bytes of the zip's one file, `member`, `outcome.json` unless asked, at most `held` of them, or None if the zip
+    holds anything else or cannot be read."""
     try:
         with zipfile.ZipFile(io.BytesIO(zipped)) as archive:
             files = archive.infolist()
             # One file, by name, stored or deflated, and no larger than the bound as the zip gives it, or it is never
             # opened. An encrypted one Python refuses to open, and a zip that under-states the file fails its check.
-            if len(files) != 1 or files[0].filename != MEMBER \
+            if len(files) != 1 or files[0].filename != member \
                     or files[0].compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED) \
-                    or files[0].file_size > HELD:
+                    or files[0].file_size > held:
                 return None
-            with archive.open(files[0]) as member:
-                held = member.read(HELD)
+            with archive.open(files[0]) as opened:
+                return opened.read(held)
     except (zipfile.BadZipFile, zlib.error, EOFError, OSError, ValueError, NotImplementedError, RuntimeError):
         return None
-    return held
 
 
-def outcome(transport, repo: str, github_id: int, run: str, seen=None) -> tuple:
-    """`(outcome, whole)` of the Run GitHub numbers `github_id` and the Factory names `run`: the fault its outcome
-    names, None for a Run that left none, and whether it was read whole. `seen` is handed the list's answer."""
-    found = _listed(transport, repo, github_id, seen)
+def read(transport, repo: str, github_id: int, seen=None, name: str = NAME, member: str = MEMBER,
+         zipped_most: int = ZIPPED, held_most: int = HELD) -> tuple:
+    """`(bytes, whole)` of the one file of the one artifact named `name` the run GitHub numbers `github_id` lists, read
+    in the bounds given: None and whole for a run that lists none, or one past its retention; None and not whole for
+    what cannot be read. `outcome`'s bounds unless asked; a wider `zipped_most` is downloaded under `PASSED`."""
+    found = _listed(transport, repo, github_id, seen, name)
     if found is None or (found and found.get("expired") is True):
         return None, True
     ident, size, digest = (found or {}).get("id"), (found or {}).get("size_in_bytes"), (found or {}).get("digest")
     if not found or found.get("expired") is not False or not isinstance(ident, int) or isinstance(ident, bool) \
-            or ident < 1 or not isinstance(size, int) or isinstance(size, bool) or not 0 < size <= ZIPPED \
+            or ident < 1 or not isinstance(size, int) or isinstance(size, bool) or not 0 < size <= zipped_most \
             or (digest is not None and not (isinstance(digest, str) and DIGEST.fullmatch(digest))):
         return None, False
-    answer = transport.send(download("/repos/%s/actions/artifacts/%d/zip" % (repo, ident)))
+    bound = STORED if zipped_most <= STORED else PASSED
+    answer = transport.send(download("/repos/%s/actions/artifacts/%d/zip" % (repo, ident), bound))
     if answer["status"] != 200 or not isinstance(answer["body"], str):
         raise Unanswered("the artifact of run %d answered %d" % (github_id, answer["status"]))
     zipped = raw(answer["body"])
     if len(zipped) != size or (digest is not None and digest != "sha256:" + hashlib.sha256(zipped).hexdigest()):
         return None, False
-    held = _member(zipped)
+    held = _member(zipped, member, held_most)
+    return held, held is not None
+
+
+def outcome(transport, repo: str, github_id: int, run: str, seen=None) -> tuple:
+    """`(outcome, whole)` of the Run GitHub numbers `github_id` and the Factory names `run`: the fault its outcome
+    names, None for a Run that left none, and whether it was read whole. `seen` is handed the list's answer."""
+    held, whole = read(transport, repo, github_id, seen)
+    if held is None:
+        return None, whole
     try:
-        record = json.loads(held.decode("utf-8")) if held is not None else None
+        record = json.loads(held.decode("utf-8"))
     except ValueError:
         record = None
     if not isinstance(record, dict) or validate(record, SCHEMA) or record["run"] != run or record["outcome"] is None:

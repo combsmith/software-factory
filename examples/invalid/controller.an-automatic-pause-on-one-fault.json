@@ -7,7 +7,19 @@
     "maintainer": {
       "login": "don-petry",
       "id": 36422719
-    }
+    },
+    "approver": {
+      "login": "donpetry-bot",
+      "id": 281750570
+    },
+    "lenses": [],
+    "agents": [],
+    "dependencies": [
+      {
+        "login": "dependabot[bot]",
+        "id": 49699333
+      }
+    ]
   },
   "home": {
     "repo": "combsmith/software-factory",

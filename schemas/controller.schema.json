@@ -25,7 +25,11 @@
         "workflow_token",
         "relay",
         "controller",
-        "maintainer"
+        "maintainer",
+        "approver",
+        "lenses",
+        "agents",
+        "dependencies"
       ],
       "properties": {
         "workflow_token": {
@@ -119,6 +123,102 @@
             "id": {
               "type": "integer",
               "minimum": 1
+            }
+          }
+        },
+        "approver": {
+          "description": "The machine user, the approver config/defaults.json names, by login and account id, a User: its acts are the Factory's, and its approval stands only while it can write; null until a trial records it",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "login",
+            "id"
+          ],
+          "properties": {
+            "login": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "lenses": {
+          "description": "Each model Lens's App's bot account, by the Lens's name, as GitHub records it as a thread's author; empty until a trial records one, and while a Lens has none, nothing its App does is read as that Lens's",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "lens",
+              "login",
+              "id"
+            ],
+            "properties": {
+              "lens": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,60}$"
+              },
+              "login": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*\\[bot\\]$"
+              },
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "agents": {
+          "description": "The bot accounts of the Factory's own Role Apps that author pull requests, as the class `agent` reads them; empty until a trial records one, and while it is, no pull request is the Factory's own",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "login",
+              "id"
+            ],
+            "properties": {
+              "login": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*\\[bot\\]$"
+              },
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "dependencies": {
+          "description": "The bot accounts whose pull requests are of the class `dependency`, each by login and account id",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "login",
+              "id"
+            ],
+            "properties": {
+              "login": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*\\[bot\\]$"
+              },
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              }
             }
           }
         }

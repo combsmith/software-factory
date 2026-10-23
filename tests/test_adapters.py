@@ -16,7 +16,8 @@ import pathlib
 import unittest
 import zipfile
 
-from adapters import acceptance, artifacts, checks, effects, facts, github, heldout, pull, records, threads, timeline
+from adapters import acceptance, artifacts, checks, effects, facts, github, heldout, items, passes, pull, records, threads, \
+    timeline
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -2345,6 +2346,190 @@ class Contract(unittest.TestCase):
             answer["response"]["body"]["errors"] = copy.deepcopy(refused)
             with self.assertRaises(github.Unanswered, msg=port):
                 read(github.Replay([answer]))
+
+
+HOME = "combsmith/software-factory"
+POLLER = "poller.yml"
+
+
+def a_pass(ident: int, **change) -> dict:
+    """A completed pass, the row `trials/P-17.json` lists a run as, made a run of the poller's file on the home repo."""
+    row = copy.deepcopy(exchanges("P-17")[4]["response"]["body"]["workflow_runs"][0])
+    row.update(id=ident, path=".github/workflows/%s" % POLLER, event="schedule", status="completed",
+               conclusion="success", head_branch="main")
+    row["repository"] = dict(row["repository"], full_name=HOME)
+    row["head_repository"] = dict(row["head_repository"], full_name=HOME)
+    row.update(change)
+    return row
+
+
+def passes_listed(rows: list, total=None) -> dict:
+    """The poller's completed runs, newest first, in the answer `trials/P-17.json` recorded for a list of runs."""
+    found = copy.deepcopy(exchanges("P-17")[4])
+    found["request"] = dict(found["request"], call="GET /repos/%s/actions/workflows/%s/runs?branch=main&status=completed"
+                            "&per_page=%d" % (HOME, POLLER, passes.PAGE), headers={"Cache-Control": "no-cache"})
+    found["response"]["body"] = {"total_count": len(rows) if total is None else total, "workflow_runs": rows}
+    return found
+
+
+def a_record(now: str) -> dict:
+    return dict(json.loads((ROOT / "examples" / "pass.json").read_text()), now=now)
+
+
+def pass_stored(github_id: int, zipped, ident: int = 9, **listed) -> list:
+    """A pass's artifact listed and downloaded, as `stored` gives an outcome's, under the pass's own names."""
+    found = stored(HOME, github_id, zipped, ident, **listed)
+    found[0]["request"]["call"] = found[0]["request"]["call"].replace("name=outcome", "name=pass")
+    for artifact in found[0]["response"]["body"]["artifacts"]:
+        artifact["name"] = passes.NAME
+    return found
+
+
+def pass_zip(record) -> bytes:
+    return outcome_zip(record, passes.MEMBER)
+
+
+class PassRecords(unittest.TestCase):
+    OWN = 1
+
+    def read(self, *found):
+        return passes.records(github.Replay([e for f in found for e in (f if isinstance(f, list) else [f])]),
+                              HOME, "main", POLLER, self.OWN)
+
+    def test_the_last_two_pass_records_are_read(self):
+        last, before = a_record("2026-10-11T12:57:00Z"), a_record("2026-10-11T12:54:00Z")
+        rows = [a_pass(self.OWN), a_pass(30), a_pass(20, conclusion="failure"), a_pass(10), a_pass(5)]
+        got = self.read(passes_listed(rows), pass_stored(30, None), pass_stored(20, pass_zip(last)),
+                        pass_stored(10, pass_zip(before)))
+        self.assertEqual(got, [before, last])
+        # Runs that are not passes of the poller, from the default branch, of this repo, completed, are passed over.
+        others = [a_pass(40, path=".github/workflows/run.yml"), a_pass(41, head_branch="other"),
+                  a_pass(42, status="in_progress"), a_pass(43, event="push"),
+                  a_pass(44, repository={"full_name": "a/fork"}), a_pass(45, head_repository={"full_name": "a/fork"}),
+                  a_pass(46, repository=HOME), a_pass(47, head_repository=None)]
+        got = self.read(passes_listed(others + [a_pass(10)]), pass_stored(10, pass_zip(before)))
+        self.assertEqual(got, [before])
+        # No pass before this one is none, and a record past its retention ends the reading.
+        self.assertEqual(self.read(passes_listed([a_pass(self.OWN)])), [])
+        self.assertEqual(self.read(passes_listed([a_pass(20), a_pass(10)]), pass_stored(20, pass_zip(last), expired=True)),
+                         [])
+
+    def test_unreadable_pass_records_are_none(self):
+        last = pass_zip(a_record("2026-10-11T12:57:00Z"))
+        self.assertIsNone(self.read(passes_listed([a_pass(20)]), pass_stored(20, last, size_in_bytes=len(last) + 1)))
+        self.assertIsNone(self.read(passes_listed([a_pass(20)]), pass_stored(20, outcome_zip({}, "other.json"))))
+        self.assertIsNone(self.read(passes_listed([a_pass(20)]), pass_stored(20, pass_zip(b"not json"))))
+        self.assertIsNone(self.read(passes_listed([a_pass(20)], total=0), pass_stored(20, last)))
+        self.assertIsNone(self.read(passes_listed([dict(a_pass(20), id=True)])))
+        # A page read through with fewer than two found, while GitHub counts more, is not every pass.
+        self.assertIsNone(self.read(passes_listed([a_pass(20)], total=passes.PAGE + 1), pass_stored(20, last)))
+        unanswered = passes_listed([])
+        unanswered["response"]["status"] = 502
+        self.assertIsNone(self.read(unanswered))
+        self.assertIsNone(passes.records(github.Replay([]), HOME, "main", POLLER, self.OWN))
+
+    def test_a_pass_record_alone_is_downloaded_under_a_wider_bound(self):
+        sent = Recording(github.Replay([passes_listed([a_pass(20)])]
+                                       + pass_stored(20, pass_zip(a_record("2026-10-11T12:57:00Z")))))
+        passes.records(sent, HOME, "main", POLLER, self.OWN)
+        self.assertEqual([r.get("bound") for r in sent.sent if r.get("follow")], [github.PASSED])
+        self.assertEqual(github.download("/repos/o/r/actions/artifacts/9/zip")["bound"], github.STORED)
+        for bound in (github.STORED + 1, github.PASSED + 1, True, "1048576"):
+            with self.assertRaises(github.Unanswered, msg=bound):
+                github.download("/repos/o/r/actions/artifacts/9/zip", bound)
+        with self.assertRaises(github.Unanswered):
+            github.request("GET", "/repos/o/r/actions/runs/1", bound=github.PASSED)
+        # Over 64 KiB zipped, a record is read under the pass's bound and refused under any other.
+        big = {"status": 200, "headers": {}, "body": "z" * (github.STORED + 1)}
+        listed = pass_stored(20, b"z" * (github.STORED + 1))
+        listed[-1]["response"] = big
+        self.assertEqual(github.Replay(listed[1:]).send(
+            github.download("/repos/%s/actions/artifacts/9/zip" % HOME, github.PASSED))["status"], 200)
+        with self.assertRaises(github.Unanswered):
+            github.Replay(listed[1:]).send(github.download("/repos/%s/actions/artifacts/9/zip" % HOME))
+        # The zip's file is read out to 8 MiB and no further, whatever the zip says.
+        self.assertIsNone(artifacts._member(pass_zip(b"x" * (passes.HELD + 1)), passes.MEMBER, passes.HELD))
+        self.assertEqual(len(artifacts._member(pass_zip(b"x" * passes.HELD), passes.MEMBER, passes.HELD)), passes.HELD)
+
+    @pending
+    def test_a_pass_record_a_trial_downloaded_is_read_as_the_port_reads_it(self):
+        # No trial has recorded a pass's artifact yet: the first pass that uploads one, read back by the next, records it.
+        found = [(name.stem, at) for name in sorted((ROOT / "trials").glob("P-*.json"))
+                 for at, e in enumerate(json.loads(name.read_text()).get("exchanges", []))
+                 if "artifacts?name=pass" in str((e.get("request") or {}).get("call"))]
+        self.assertTrue(found)
+
+    def test_a_pass_is_started_by_its_own_run(self):
+        recorded = copy.deepcopy(exchanges("P-9")[10])
+        repo, ident = recorded["response"]["body"]["repository"]["full_name"], recorded["response"]["body"]["id"]
+        got = passes.started(github.Replay([recorded]), repo, str(ident))
+        self.assertEqual(got, {"event": "workflow_dispatch", "actor": {"id": MAINTAINER, "type": "User"}, "attempt": 1})
+        for change in ({"id": ident + 1}, {"repository": {"full_name": "a/fork"}}, {"repository": repo}, {"run_attempt": 0},
+                       {"run_attempt": True}, {"event": None}):
+            varied = copy.deepcopy(recorded)
+            varied["response"]["body"].update(change)
+            self.assertIsNone(passes.started(github.Replay([varied]), repo, str(ident)), change)
+        varied = copy.deepcopy(recorded)
+        varied["response"]["body"]["actor"] = {"id": "1", "type": "User"}
+        self.assertEqual(passes.started(github.Replay([varied]), repo, str(ident))["actor"], None)
+        for bad in ("", "0", "1/../2", "1?x=2", 1, None):
+            sent = Recording(github.Replay([]))
+            self.assertIsNone(passes.started(sent, repo, bad), bad)
+            self.assertEqual(sent.sent, [], bad)
+        self.assertIsNone(passes.started(github.Replay([]), repo, str(ident)))
+
+
+def open_page(numbers: list, total=None, more: bool = False, after=None, cursor="Y3Vyc29y", repo=HOME) -> dict:
+    """A page of open pull requests, in the answer's shape `trials/P-32.json` recorded, asked as the items port asks."""
+    found = copy.deepcopy(exchanges("P-32")[1])
+    owner, name = repo.split("/")
+    found["request"] = dict(found["request"], call="POST /graphql",
+                            body={"query": items.QUERY, "variables": {"owner": owner, "name": name, "after": after}})
+    shape = found["response"]["body"]["data"]["repository"]
+    found["response"]["body"] = {"data": {"repository": {
+        "nameWithOwner": shape["nameWithOwner"],
+        "pullRequests": {"totalCount": len(numbers) if total is None else total,
+                         "pageInfo": {"hasNextPage": more, "endCursor": cursor},
+                         "nodes": [{"number": n} for n in numbers]}}}}
+    return found
+
+
+class Items(unittest.TestCase):
+    def read(self, *pages):
+        return items.open_pull_requests(github.Replay(list(pages)), HOME)
+
+    def test_open_pull_requests_are_whole_only_if_each_was_read(self):  # L-53
+        self.assertEqual(self.read(open_page([216])), ([216], True))
+        self.assertEqual(self.read(open_page([])), ([], True))
+        self.assertEqual(self.read(open_page([1, 2], total=3, more=True, cursor="c1"), open_page([3], total=3, after="c1")),
+                         ([1, 2, 3], True))
+        # A count that moved, a pull request read twice, or fewer read than counted is not the whole.
+        self.assertEqual(self.read(open_page([1, 2], total=3, more=True, cursor="c1"), open_page([3], total=4, after="c1"))[1],
+                         False)
+        self.assertEqual(self.read(open_page([1, 2], total=3, more=True, cursor="c1"), open_page([2], total=3, after="c1"))[1],
+                         False)
+        self.assertEqual(self.read(open_page([1], total=2))[1], False)
+        self.assertEqual(self.read(open_page([1], more=True, cursor=None))[1], False)
+        self.assertEqual(self.read(open_page([0]))[1], False)
+        self.assertEqual(self.read(open_page([True]))[1], False)
+        broken = open_page([1])
+        broken["response"]["body"]["data"]["repository"]["pullRequests"]["pageInfo"] = {}
+        self.assertEqual(self.read(broken)[1], False)
+        # A page past the most read is never the whole.
+        many = [open_page([n], total=items.PAGES, more=True, after=None if n == 1 else "c%d" % (n - 1), cursor="c%d" % n)
+                for n in range(1, items.PAGES + 1)]
+        self.assertEqual(self.read(*many)[1], False)
+
+    def test_open_pull_requests_of_another_repo_or_with_errors_are_refused(self):
+        other = open_page([1])
+        other["response"]["body"]["data"]["repository"]["nameWithOwner"] = "a/fork"
+        erred = open_page([1])
+        erred["response"]["body"]["errors"] = [{"type": "RATE_LIMITED"}]
+        failed = open_page([1])
+        failed["response"]["status"] = 502
+        for answer in (other, erred, failed):
+            with self.assertRaises(github.Unanswered):
+                self.read(answer)
 
 
 if __name__ == "__main__":
