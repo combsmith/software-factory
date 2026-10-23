@@ -31,7 +31,7 @@ RELAY = {"id": 900001, "type": "User"}        # a relay's account, as one would 
 def config(**controller) -> dict:
     """What a pass is given: the Kernel's configuration, with issues served, each Work item's Lifecycle, the feed's
     table, the Controller's own, here with both accounts known, and the Release."""
-    c = dict(copy.deepcopy(CONTROLLER), accounts={"workflow_token": dict(TOKEN), "relay": dict(RELAY)})
+    c = dict(copy.deepcopy(CONTROLLER), accounts=dict(CONTROLLER["accounts"], workflow_token=dict(TOKEN), relay=dict(RELAY)))
     c.update(controller)
     kernel = {k: v for k, v in copy.deepcopy(support.CONFIG).items() if k != "lifecycle"}
     kernel["issues"] = test_issue.config()["issues"]
@@ -194,7 +194,8 @@ class Record(unittest.TestCase):
             with self.assertRaises(pass_.Refused, msg=change):
                 passed(dict(reads(), **change))
         # A pass told nothing it can read of what started it or when to wait is no pass.
-        for broken in ({"read_gap_seconds": 0}, {"accounts": {"workflow_token": {"id": None, "type": None}, "relay": None}},
+        for broken in ({"read_gap_seconds": 0},
+                       {"accounts": dict(CONTROLLER["accounts"], workflow_token={"id": None, "type": None}, relay=None)},
                        {"schema": "controller/2"}):
             with self.assertRaises(pass_.Refused, msg=broken):
                 passed(cfg=config(**broken))
@@ -481,10 +482,11 @@ class Chain(unittest.TestCase):
         for attempt in (2, 0, True, None, "1"):
             self.assertEqual(start("schedule", attempt=attempt), "dispatch", attempt)
         # An account the configuration holds as null is no one's: until a trial records it, none is named.
-        held = config(accounts={"workflow_token": None, "relay": None})
+        held = config(accounts=dict(CONTROLLER["accounts"], workflow_token=None, relay=None))
         self.assertEqual(start("watch", RELAY, cfg=held), "public")
         self.assertEqual(start("workflow_dispatch", TOKEN, cfg=held), "dispatch")
-        self.assertEqual(CONTROLLER["accounts"], {"workflow_token": None, "relay": None})
+        self.assertEqual(CONTROLLER["accounts"], {"workflow_token": None, "relay": None, "controller": None,
+                                                  "maintainer": {"login": "don-petry", "id": 36422719}})
         self.assertEqual(passed(dict(reads(), started=None))["record"]["started_by"], "dispatch")
 
 
@@ -654,6 +656,11 @@ class Feed(unittest.TestCase):
 
 
 class Ports(unittest.TestCase):
+    def test_the_pass_record_keeps_its_alerts_for_the_tracking_issue(self):  # issue 193
+        out = passed(reads(pulls=[pr(7)], records_=False))
+        self.assertEqual(out["record"]["alerts"], sorted(out["alerts"]))
+        self.assertTrue(out["record"]["alerts"])
+
     def test_the_pass_reads_what_the_records_port_gives(self):  # issue 192
         got = records.runs(github.Replay([listing("P-17", 3, rows={"name": NAME})]), canary(), "main", [WORKFLOW],
                            DISPATCHER, per_page=10, sleep=lambda s: None)

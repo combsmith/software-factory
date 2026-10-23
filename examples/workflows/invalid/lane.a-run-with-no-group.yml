@@ -1,0 +1,28 @@
+# Must be rejected. A concurrency with no group holds no lane at all.
+name: sf-run
+run-name: ${{ inputs.name }}
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        required: true
+        type: string
+      item:
+        required: true
+        type: string
+      pass:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  lane:
+    if: github.actor_id == '41898282' && github.run_attempt == '1' && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
+    permissions:
+      contents: read
+    concurrency:
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/run-jobs.yml@factory/v0-next
+    with:
+      name: ${{ inputs.name }}
+      item: ${{ inputs.item }}
+      pass: ${{ inputs.pass }}

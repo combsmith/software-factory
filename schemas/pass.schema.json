@@ -136,6 +136,25 @@
     "successor": {
       "description": "Whether the pass starts a successor, as it decided at its end: the one write a pass makes that no Decision in it calls for, held by the effects port to this. Absent in a record written before the effects port",
       "type": "boolean"
+    },
+    "alerts": {
+      "description": "The pass's alerts, as its health gives them, sorted: what the tracking issue reports, less a Pause a person set (#193's ruling 8). Absent in a record written before the tracking issue",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "paused",
+          "pause_unreadable",
+          "capacity",
+          "capacity_unreadable",
+          "concurrency",
+          "run_unidentified",
+          "runs_unnamed",
+          "environment",
+          "facts_unreadable",
+          "not_run"
+        ]
+      }
     }
   },
   "$defs": {
