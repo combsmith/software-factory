@@ -46,10 +46,35 @@ on:
 ```
 
 poller.yml alone runs on `workflow_run`: it wakes when a workflow of this repo ends, on the completion alone of those
-it names, never its own, and reads nothing of the run that woke it, the `github` context by a dot, an index or whole, in any case (decision 0043); nor does the pass it calls. Its
+it names, never its own, and reads nothing of the run that woke it: it names the `github` context in no form, in any case, outside a whole-line comment (decision 0043). The pass it calls names it only for its own token, `github.token`. Its
 dispatch takes no input. Its schedule is three lines an hour, none at minute 0. Its job, `pass`, is the one job
 anywhere granted a write, `actions: write`, which starts the Runs and the successor with the job's own token (§4.9,
-P-9); the id `pass` is poller.yml's and pass.yml's alone.
+P-9); the id `pass` is poller.yml's and pass.yml's alone. Every shim's job holds a group of its own that waits,
+never cancelling the run in progress.
 
 Org standard: none; the org's workflows do not wake on another's end.
 Held by: `examples/workflows/invalid/wake.reads-the-run-that-woke-it.yml`, `examples/workflows/invalid/wake.woken-by-its-own-end.yml`, `examples/workflows/invalid/wake.a-poller-that-takes-inputs.yml`, `examples/workflows/invalid/wake.on-every-stage-of-a-run.yml`, `examples/workflows/invalid/permissions.actions-write-beyond-the-pass.yml`, `tests/test_tools.py::test_only_the_poller_runs_on_workflow_run`, `tests/test_tools.py::test_the_pass_job_alone_is_granted_a_write`
+
+## The Run's shim
+
+```yaml
+jobs:
+  lane:
+    if: github.actor_id == '41898282' && github.run_attempt == '1' && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
+    concurrency:
+      group: ${{ inputs.item }}
+      cancel-in-progress: false
+```
+
+run.yml is held to the Run's shim as `RUN_SHIM` in `tools/check_workflows.py` gives it, word for word: three required
+inputs, `name`, `item` and `pass`, so every Role dispatch carries an item (decision 0036); its run named by `name`; and one
+job, `lane`, that starts the Run's jobs only when the dispatcher is the pass's own token, by the account
+`config/controller.json` names for it, on the run's first attempt alone, since a re-run keeps the dispatcher's id
+though a person started it, and while the Pause is unset or exactly `false` (decision 0003). While the configuration
+names no such account, no run.yml is right, and no file but run.yml calls the Run's jobs. One lane per Work item, never
+a name written in, and a newer Run waits: it never cancels the one in progress. A job that calls the Run's jobs holds its item's lane on the
+job, so it holds from `run` to `apply`. An expression may stand whole as the run's name, `${{ inputs.name }}`, the lane,
+`${{ inputs.item }}`, or a job's output of one of its steps, and in no other new place.
+
+Org standard: none; the org's workflows run no Run.
+Held by: `examples/workflows/invalid/lane.cancels-the-run-in-progress.yml`, `examples/workflows/invalid/lane.one-lane-for-every-item.yml`, `examples/workflows/invalid/lane.a-run-with-no-group.yml`, `examples/workflows/invalid/expression.text-around-the-run-name.yml`, `tests/test_tools.py::test_a_runs_lane_is_its_item_on_the_job_and_cancels_nothing_running`, `tests/test_tools.py::test_every_run_dispatch_carries_an_item_and_the_poller_takes_none`, `tests/test_tools.py::test_a_run_starts_only_from_the_poller_and_never_under_a_pause`
