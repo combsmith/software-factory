@@ -791,6 +791,156 @@ class Authority(unittest.TestCase):
         del facts["properties"]["threads"]["items"]["properties"]["category"]
         self.assertTrue(caught(check_authority.run(self.table, facts=facts), "a thread in the facts carries no category"))
 
+    def team(self, roles=None, apps=None):
+        """The team checks alone, on the manifests given, or the repo's."""
+        from tools.check_examples import LIVE
+        roles = check_authority.manifests() if roles is None else roles
+        apps = json.loads((ROOT / "config" / "apps.json").read_text()) if apps is None else apps
+        return check_authority.team(roles, self.table, apps, LIVE)
+
+    def review(self, **over) -> dict:
+        m = json.loads((ROOT / "roles" / "pr-review.json").read_text())
+        m.update(over)
+        return m
+
+    def test_the_repos_roles_hold_to_the_team_checks(self):  # issue 194, ruling 8
+        self.assertEqual(self.team(), [])
+        self.assertEqual(sorted(check_authority.manifests()), ["pr-review"])
+        # The check the verify step runs reads the team too.
+        self.assertTrue(caught(check_authority.run(self.table, roles={"pr-review": self.review(name="x")}),
+                               "roles/pr-review.json names the Role 'x'"))
+
+    def test_a_manifest_is_named_as_its_file_and_held_to_role_1(self):  # decision 0039
+        problems = self.team({"pr-review": self.review(name="dev-lead"), "qa-lead": self.review(name="qa-lead",
+                                                                                                kind="shadow")})
+        self.assertTrue(caught(problems, "roles/pr-review.json names the Role 'dev-lead'"))
+        self.assertTrue(caught(problems, "roles/qa-lead.json is held to no schema; add it to LIVE"))
+        # Held to role/1 itself: LIVE names its schema, and the manifest says it (Muse's read).
+        from tools.check_examples import LIVE
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        for live, manifest in ((dict(LIVE, **{"roles/pr-review.json": "authority"}), self.review()),
+                               (LIVE, self.review(schema="role/999"))):
+            self.assertTrue(caught(check_authority.team({"pr-review": manifest}, self.table, apps, live),
+                                   "roles/pr-review.json is held to no schema"))
+
+    def test_an_owner_owns_what_the_authority_table_names_and_each_category_has_one(self):  # section 5.4
+        fewer = self.review(owns=self.review()["owns"][1:])
+        self.assertTrue(caught(self.team({"pr-review": fewer}), "pr-review owns"))
+        self.assertTrue(caught(self.team({"pr-review": self.review(kind="reviewer")}),
+                               "only an owner owns a category"))
+        # The table's owner is an owner, owning what it names, whatever its manifest says (Argon's read).
+        quiet = self.team({"pr-review": self.review(kind="reviewer", owns=[])})
+        self.assertTrue(caught(quiet, "pr-review is named the owner of"))
+        self.assertTrue(caught(quiet, "pr-review owns [], and the authority table names it the owner of"))
+        self.assertTrue(caught(self.team({}), "functional's owner pr-review has no manifest in roles/"))
+        twin = self.review(name="pr-review-two", app="combsmith-sf-other", owns=["security"])
+        self.assertTrue(caught(self.team({"pr-review": self.review(), "pr-review-two": twin}),
+                               "security is owned by ['pr-review', 'pr-review-two']"))
+
+    def test_each_permitted_effect_is_within_the_ceiling_of_its_roles_own_app(self):  # section 5.4, decision 0005
+        wide = self.review(intents=[dict(self.review()["intents"][0], permitted_effects=["submit_review",
+                                                                                         "create_check_run"])])
+        self.assertTrue(caught(self.team({"pr-review": wide}), "pr-review permits create_check_run, beyond the ceiling"))
+        self.assertTrue(caught(self.team({"pr-review": self.review(app="combsmith-sf-nobody")}),
+                               "names no App of config/apps.json"))
+        # An App named is one that exists, whether or not the Role writes yet (Argon's read).
+        silent = self.review(intents=[dict(self.review()["intents"][0], permitted_effects=[])],
+                             app="combsmith-sf-nobody")
+        self.assertTrue(caught(self.team({"pr-review": silent}), "names no App of config/apps.json"))
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        apps["apps"]["pr-review"]["permissions"]["pull_requests"]["needs"].remove("effect:submit_review")
+        self.assertTrue(caught(self.team(apps=apps), "pr-review permits submit_review, beyond the ceiling"))
+        # A need listed under a grant below its level is beyond the ceiling (Muse's read).
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        apps["apps"]["pr-review"]["permissions"]["pull_requests"]["level"] = "read"
+        self.assertTrue(caught(self.team(apps=apps), "pr-review permits submit_review, beyond the ceiling"))
+        # Granted and mapped, it is within the ceiling.
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        apps["needs"]["effect:create_check_run"] = {"permission": "checks", "level": "write"}
+        apps["apps"]["pr-review"]["permissions"]["checks"] = {"level": "write", "needs": ["effect:create_check_run"]}
+        self.assertEqual(self.team({"pr-review": wide}, apps), [])
+
+    def test_an_intent_of_class_gate_names_an_eval_set_of_its_own(self):  # section 5.4
+        for evals in ("evals/nothing-here", "evals/context"):
+            gate = self.review(intents=[dict(self.review()["intents"][0], evals=evals)])
+            self.assertTrue(caught(self.team({"pr-review": gate}), "names no eval set of its own"), evals)
+        other = self.review(intents=[dict(self.review()["intents"][0], name="adjudicate-findings")])
+        self.assertTrue(caught(self.team({"pr-review": other}), "Intent adjudicate-findings spends from gate"))
+        # Another Role's set of the same Intent is not this Role's, and a set that cannot be read is none (Argon's
+        # and CodeRabbit's reads).
+        from tools.check_examples import LIVE
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "evals" / "theirs").mkdir(parents=True)
+            (pathlib.Path(d) / "evals" / "theirs" / "cases.json").write_text(json.dumps(
+                {"schema": "eval-set/1", "role": "qa-lead", "intent": "review-change", "count": 0, "cases": []}))
+            (pathlib.Path(d) / "evals" / "broken").mkdir()
+            (pathlib.Path(d) / "evals" / "broken" / "cases.json").write_text("{not json")
+            for evals in ("evals/theirs", "evals/broken"):
+                gate = self.review(intents=[dict(self.review()["intents"][0], evals=evals)])
+                self.assertTrue(caught(check_authority.team({"pr-review": gate}, self.table, apps, LIVE, pathlib.Path(d)),
+                                       "names no eval set of its own"), evals)
+
+    def test_a_shadow_writes_nothing_and_spends_from_shadow(self):  # decision 0039
+        shadow = self.review(name="qa-lead", kind="shadow", owns=[], app="combsmith-sf-qa-lead")
+        live = {"pr-review": self.review(), "qa-lead": shadow}
+        from tools.check_examples import LIVE
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        problems = check_authority.team(live, self.table, apps, dict(LIVE, **{"roles/qa-lead.json": "role"}))
+        self.assertTrue(caught(problems, "qa-lead is a shadow, and its Intent review-change writes"))
+        # Each half on its own: a shadow that writes, or one that spends from gate (Argon's read).
+        for intent in (dict(shadow["intents"][0], budget_class="shadow"),
+                       dict(shadow["intents"][0], permitted_effects=[])):
+            one = dict(shadow, intents=[intent])
+            del one["app"]
+            self.assertTrue(caught(check_authority.team({"pr-review": self.review(), "qa-lead": one}, self.table, apps,
+                                                        dict(LIVE, **{"roles/qa-lead.json": "role"})), "qa-lead is a shadow"))
+        quiet = dict(shadow, intents=[dict(shadow["intents"][0], permitted_effects=[], budget_class="shadow")])
+        del quiet["app"]
+        self.assertEqual(check_authority.team({"pr-review": self.review(), "qa-lead": quiet}, self.table, apps,
+                                              dict(LIVE, **{"roles/qa-lead.json": "role"})), [])
+
+    def test_what_cannot_be_read_is_reported_never_raised(self):  # CodeRabbit's read
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "roles").mkdir()
+            (pathlib.Path(d) / "roles" / "broken.json").write_text("{not json")
+            read = check_authority.manifests(pathlib.Path(d))
+        self.assertEqual(read, {"broken": None})
+        self.assertTrue(caught(self.team(dict(read, **{"pr-review": self.review()})),
+                               "roles/broken.json cannot be read as a manifest"))
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        del apps["apps"]["pr-review"]["permissions"]
+        self.assertTrue(caught(self.team(apps=apps), "pr-review permits submit_review, beyond the ceiling"))
+
+    def test_a_writer_spends_from_gate_and_no_role_is_named_for_no_one(self):  # the Claude review
+        # An Intent that writes spends from gate, so it is held to an eval set before it writes.
+        off = self.review(intents=[dict(self.review()["intents"][0], budget_class="shadow", evals="evals/nothing")])
+        self.assertTrue(caught(self.team({"pr-review": off}), "an Intent that writes spends from gate"))
+        # The table reads `human` and `none` as no Role, so no manifest is named either.
+        from tools.check_examples import LIVE
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        quiet = {"intents": [dict(self.review()["intents"][0], permitted_effects=[], budget_class="shadow")]}
+        for word in ("human", "none"):
+            one = self.review(name=word, kind="shadow", owns=[], **quiet)
+            del one["app"]
+            self.assertTrue(caught(check_authority.team({"pr-review": self.review(), word: one}, self.table, apps,
+                                                        dict(LIVE, **{"roles/%s.json" % word: "role"})),
+                                   "which the authority table reads as no Role"), word)
+        # The Controller's App and the reader's are no Role's.
+        for app in ("combsmith-sf-controller", "combsmith-sf-reader"):
+            one = self.review(name="dev-lead", kind="author", owns=[], app=app, **quiet)
+            self.assertTrue(caught(check_authority.team({"pr-review": self.review(), "dev-lead": one}, self.table, apps,
+                                                        dict(LIVE, **{"roles/dev-lead.json": "role"})), "which is no Role's App"), app)
+
+    def test_each_role_writes_through_its_own_app(self):  # L-44
+        other = self.review(name="qa-lead", kind="shadow", owns=[],
+                            intents=[dict(self.review()["intents"][0], permitted_effects=[], budget_class="shadow")])
+        from tools.check_examples import LIVE
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        problems = check_authority.team({"pr-review": self.review(), "qa-lead": other}, self.table, apps,
+                                        dict(LIVE, **{"roles/qa-lead.json": "role"}))
+        self.assertTrue(caught(problems, "['pr-review', 'qa-lead'] write through one App, combsmith-sf-pr-review"))
+
     def test_a_raised_finding_with_a_category_nobody_owns_is_caught(self):  # decision 0038
         result = json.loads((ROOT / "schemas" / "result.schema.json").read_text())
         raised = result["$defs"]["raised"]["properties"]

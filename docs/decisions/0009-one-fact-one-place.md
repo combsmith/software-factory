@@ -22,4 +22,4 @@ correct on the day it is made.
 | Every data file under `config/` and `lifecycle/` is validated against a schema | `tools/check_examples.py` |
 | The review standard is the rubric, and no page restates it | `tools/check_context.py` |
 | A path or a test named in a document exists | `tools/check_context.py` |
-| A generated table that is stale fails the required check | waiting on `roles/` |
+| A generated table that is stale fails the required check | waiting on `roles/team.md` |
