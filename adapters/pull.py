@@ -235,6 +235,17 @@ def diff(transport, pull: dict, base_head: str) -> dict:
             "complete": whole}
 
 
+def change(transport, pull: dict, base_head: str) -> bytes:
+    """The bytes of the diff `diff` reads, by the same compare pinned to the head of the pull request's read, as GitHub
+    sent them, so that their sha256 is the content id; refused for a diff GitHub would not serve, or one that is not
+    text. A Run is given these bytes, and only once they hash to the content its Decision admitted (`harness/task.py`)."""
+    answer = transport.send(request("GET", _compare(pull, base_head), accept=DIFF))
+    text = _ok(answer, "the diff")
+    if not isinstance(text, str) or not text:
+        raise Unanswered("the diff is not text")
+    return raw(text)
+
+
 def changed_paths(transport, pull: dict, base_head: str) -> dict:
     """`changed_paths` and `complete.changed_paths`: every file the head commit changes against its merge base, from the
     same compare as the diff, pinned to the head of the pull request's first read (issue 284), each by its path and,

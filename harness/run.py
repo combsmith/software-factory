@@ -1,6 +1,10 @@
 """The `run` job: one Task, one call of the Engine, one Result (design sections 2.3 and 3.10, issue 194).
 
     python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT
+    python3 -m harness.run TASK OUT
+
+The second form is the workflow's: TASK is the folder `python3 -m harness.read` wrote, holding each of the first
+form's files by its name, the Run id among them in `run`.
 
 RECORD is the pass record the Run was admitted in, RUN its Run id, FACTS the item's facts as the Run reads them, DIFF the
 bytes of the pull request's diff as GitHub served them, empty for an issue, TEXTS
@@ -16,13 +20,14 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
 import time
 import uuid
 
-from harness import engine, task
+from harness import engine, steps, task
 from kernel.coverage import readable_rubric
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -113,19 +118,38 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
                             session, told)
     data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
     digest = "sha256:" + hashlib.sha256(data).hexdigest()
-    os.makedirs(out)
-    with open(os.path.join(out, "result.json"), "wb") as f:
-        f.write(data)
-    with open(os.path.join(out, "result.sha256"), "w", encoding="utf-8") as f:
-        f.write(digest + "\n")
+    # The Result is its own user's alone to read, as every step's files are (`harness/steps.py`).
+    os.makedirs(out, 0o700)
+    steps.write(out, "result.json", data)
+    steps.write(out, "result.sha256", (digest + "\n").encode())
     return digest
 
 
+RUN_ID = re.compile(r"r_[0-9A-Z]{6,26}")
+
+
+def from_folder(folder: str, out: str, base=None) -> list:
+    """The first form's arguments from the folder `harness.read` wrote: its files by name, and the Run id it holds."""
+    inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
+    real = os.path.realpath(os.path.join(inside, folder))
+    if not real.startswith(inside + os.sep):
+        raise task.Refused("a path the job was given is outside the directory it runs in")
+    with open(os.path.join(real, "run"), encoding="utf-8") as f:
+        run = f.read().strip()
+    if not RUN_ID.fullmatch(run):
+        raise task.Refused("the Run id cannot be read")
+    named = [os.path.join(folder, n) for n in ("record.json", "facts.json", "diff", "texts.json", "role.json",
+                                               "findings.json")]
+    return [named[0], run] + named[1:] + [out]
+
+
 def main(argv: list, job_env: dict) -> int:
-    if len(argv) != 8:
-        print("usage: python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT", file=sys.stderr)
+    if len(argv) not in (2, 8):
+        print("usage: python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT, or TASK OUT", file=sys.stderr)
         return 2
     try:
+        if len(argv) == 2:
+            argv = from_folder(argv[0], argv[1])
         digest = job(argv, job_env, configuration())
     except (task.Refused, OSError, ValueError) as err:
         print("harness.run: %s" % type(err).__name__, file=sys.stderr)

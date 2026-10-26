@@ -369,12 +369,12 @@ class Examples(unittest.TestCase):
             loose = copy.deepcopy(schemas[kind])
             loose["required"].remove("schema")
             self.assertTrue(caught(check_examples._envelope(kind, loose), "does not require its schema field"))
-        self.assertTrue(caught(check_examples._envelope("verdict", {"type": "object"}), "is in no class of ENVELOPE"))
+        self.assertTrue(caught(check_examples._envelope("unclassed", {"type": "object"}), "is in no class of ENVELOPE"))
         # From the front door: a schema in no class, and a class naming a kind with no schema.
-        root = clone({"schemas/verdict.schema.json": '{"type": "object", "additionalProperties": false}'})
-        self.assertTrue(caught(check_examples.run(root), "schema verdict is in no class of ENVELOPE"))
-        with mock.patch.dict(check_examples.ENVELOPE, {"verdict": "part"}):
-            self.assertTrue(caught(check_examples.run(), "ENVELOPE names verdict, and there is no such schema"))
+        root = clone({"schemas/unclassed.schema.json": '{"type": "object", "additionalProperties": false}'})
+        self.assertTrue(caught(check_examples.run(root), "schema unclassed is in no class of ENVELOPE"))
+        with mock.patch.dict(check_examples.ENVELOPE, {"unclassed": "part"}):
+            self.assertTrue(caught(check_examples.run(), "ENVELOPE names unclassed, and there is no such schema"))
 
     def test_text_is_let_through_only_untrusted_or_in_a_body(self):  # decision 0039
         marked = {"type": "object", "additionalProperties": False, "required": ["untrusted"],
@@ -554,10 +554,10 @@ class Examples(unittest.TestCase):
             self.assertTrue(validate(cfg, schema), reading)
 
     def test_a_schema_with_no_example_and_a_data_file_with_no_schema_are_caught(self):
-        root = clone({"schemas/verdict.schema.json": '{"type": "object", "additionalProperties": false}',
+        root = clone({"schemas/unclassed.schema.json": '{"type": "object", "additionalProperties": false}',
                       "config/extra.json": "{}", "examples/invalid/nothing.x.json": "{}"})
         problems = check_examples.run(root)
-        self.assertTrue(caught(problems, "schema verdict has no example"))
+        self.assertTrue(caught(problems, "schema unclassed has no example"))
         self.assertTrue(caught(problems, "config/extra.json is validated against no schema"))
         broken = check_examples.run(clone({"examples/facts.json": '{"schema": "facts/1", "schema": "facts/1"}',
                                            "schemas/rubric.schema.json": "{not json"}))

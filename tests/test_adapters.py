@@ -2040,6 +2040,13 @@ class Snapshot(unittest.TestCase):
         self.assertIsNone(got["acceptance"])
         self.assertNotIn(title, json.dumps(got))
 
+    def test_a_snapshot_hands_back_its_head(self):  # #193's ruling 10
+        router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
+        got, title, head = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}),
+                                          True, lambda: self.NOW, with_head=True)
+        self.assertEqual(head, self.sequence(1)[0]["response"]["body"]["head"]["sha"])
+        self.assertNotIn(head, json.dumps(got))
+
     def test_a_snapshot_keeps_its_reads_for_reconciliation_only_once_it_is_whole(self):  # decision 0061
         # Reconciliation reads what the snapshot read, as GitHub gave it, so no read is made twice; a snapshot refused
         # keeps nothing, and reconciliation of that pull request is short.

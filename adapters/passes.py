@@ -44,13 +44,17 @@ def _repo(value):
     return value.get("full_name") if isinstance(value, dict) else None
 
 
-def _is_pass(row, repo: str, branch: str, poller: str, own: int) -> bool:
-    """Whether a listed run is a completed pass of this repo's poller from its default branch, other than this one."""
+def _is_run_of(row, repo: str, branch: str, poller: str) -> bool:
+    """Whether a listed run is one of this repo's poller from its default branch, by an event that starts a pass."""
     path, _, ref = str(row.get("path", "")).partition("@")
     return (path == ".github/workflows/%s" % poller and ref in ("", "refs/heads/" + branch)
-            and row.get("event") in EVENTS and row.get("head_branch") == branch and row.get("status") == "completed"
-            and _repo(row.get("repository")) == repo
-            and _repo(row.get("head_repository")) == repo and row.get("id") != own)
+            and row.get("event") in EVENTS and row.get("head_branch") == branch
+            and _repo(row.get("repository")) == repo and _repo(row.get("head_repository")) == repo)
+
+
+def _is_pass(row, repo: str, branch: str, poller: str, own: int) -> bool:
+    """Whether a listed run is a completed pass of this repo's poller from its default branch, other than this one."""
+    return _is_run_of(row, repo, branch, poller) and row.get("status") == "completed" and row.get("id") != own
 
 
 def _expired(seen: list) -> bool:
@@ -101,6 +105,39 @@ def records(transport, repo: str, branch: str, poller: str, own: int):
         if len(found) < WANTED and total > len(listed):
             return None
     return list(reversed(found))
+
+
+PASS_ID = re.compile(r"p_[0-9A-Z]{6,26}")
+
+
+def find(transport, repo: str, branch: str, poller: str, pass_id: str):
+    """The pass record named `pass_id`, as its JSON, from the poller's runs newest first, one page, whatever their
+    status, since a Run may start before the pass that dispatched it ends; None if it is not among them. What cannot
+    be read, the list or a pass's artifact, raises `Unanswered`: a read that failed is the environment's, never a Run
+    that no Decision admitted. A Run is started from the record it names, and from nothing else (design section 3.5)."""
+    if not isinstance(pass_id, str) or not PASS_ID.fullmatch(pass_id):
+        return None
+    answer = transport.send(request(
+        "GET", "/repos/%s/actions/workflows/%s/runs?branch=%s&per_page=%d" % (repo, poller, branch, PAGE),
+        headers={"Cache-Control": "no-cache"}))
+    body = answer["body"] if answer["status"] == 200 and isinstance(answer["body"], dict) else {}
+    listed = body.get("workflow_runs")
+    if not isinstance(listed, list):
+        raise Unanswered("the poller's runs cannot be read")
+    for row in listed:
+        if not isinstance(row, dict) or not _id(row.get("id")) or not _is_run_of(row, repo, branch, poller):
+            continue
+        held, whole = artifacts.read(transport, repo, row["id"], name=NAME, member=MEMBER, zipped_most=PASSED,
+                                     held_most=HELD)
+        if not whole:
+            raise Unanswered("a pass's record cannot be read")
+        try:
+            record = json.loads(held.decode("utf-8")) if held is not None else None
+        except ValueError:
+            raise Unanswered("a pass's record is not JSON") from None
+        if isinstance(record, dict) and record.get("pass") == pass_id:
+            return record
+    return None
 
 
 def started(transport, repo: str, run_id):

@@ -28,7 +28,7 @@ COVERAGE_AGAINST = ("config/rubric-pr-review.json", "examples/finding.json", "ex
 # reference, and carries nothing; a data file a person edits carries `schema`, its path being its identity and the commit
 # its Release. A document's class names its identity.
 ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied": ("document", "run"),
-            "outcome": ("document", "run"), "pass": ("document", "pass"), "writes": ("document", "pass"),
+            "outcome": ("document", "run"), "verdict": ("document", "run"), "pass": ("document", "pass"), "writes": ("document", "pass"),
             "written": ("document", "pass"), "view-meta": ("document", "pass"),
             "view-items": ("document", "pass"), "health": ("document", "pass"),
             "eval-report": ("document", "commit"),

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "verdict/1: what the `verify` job found of one Run's Result: the digest it took the Result by, which must be the one `run` reported, and the checks it ran on the Run's code, `not_run` for an Intent that pushes nothing (#196's ruling 7, L-54); it holds no field of the Result.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run",
+    "release",
+    "digest",
+    "checks"
+  ],
+  "properties": {
+    "schema": {
+      "const": "verdict/1"
+    },
+    "run": {
+      "type": "string",
+      "pattern": "^r_[0-9A-Z]{6,26}$"
+    },
+    "release": {
+      "type": "string",
+      "pattern": "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "checks": {
+      "enum": [
+        "not_run"
+      ]
+    }
+  }
+}
