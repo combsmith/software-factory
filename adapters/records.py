@@ -154,11 +154,18 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
     except ValueError:
         return None
     record = dict(parts, status=status, conclusion=conclusion, outcome=None, started_at=started)
-    # Which attempt it is, where GitHub says: a re-run is a person's and runs nothing (decision 0058), so
-    # reconciliation reads only a first attempt as a dispatch (issue 329).
+    # When it was dispatched, which a re-run keeps, and whether the pass job's own token re-ran it: reconciliation reads
+    # the dispatch by the one, and a re-run by that token as a write no Effect records (decision 0063).
+    created = row.get("created_at")
+    try:
+        datetime.datetime.strptime(str(created), "%Y-%m-%dT%H:%M:%SZ")
+        record["dispatched_at"] = created
+    except ValueError:
+        pass
     attempt = row.get("run_attempt")
-    if isinstance(attempt, int) and not isinstance(attempt, bool) and attempt >= 1:
-        record["attempt"] = attempt
+    if isinstance(attempt, int) and not isinstance(attempt, bool) and attempt > 1:
+        again = row.get("triggering_actor") if isinstance(row.get("triggering_actor"), dict) else {}
+        record["rerun_by_dispatcher"] = (again.get("id"), again.get("type")) == dispatcher
     return (record, None)
 
 

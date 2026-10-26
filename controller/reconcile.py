@@ -115,9 +115,12 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
         since = seen["since"]
         dispatched = _dispatched(effects) if recorded else set()
         for r in runs if isinstance(runs, list) else []:
-            # A re-run is a person's and runs nothing (decision 0058): only a first attempt is a dispatch.
-            if r["started_at"] >= since and r.get("attempt", 1) == 1 and r["run"] not in dispatched:
+            # A dispatch is read by when its run was made, which a re-run keeps; a re-run runs nothing (decision
+            # 0058), and one the pass job's own token made is a write no Effect records (decision 0063).
+            if r.get("dispatched_at", r["started_at"]) >= since and r["run"] not in dispatched:
                 unmatched.append({"by": "workflow_token", "kind": "dispatch", "item": r["item"], "key": r["run"]})
+            if r.get("rerun_by_dispatcher") is True and r["started_at"] >= since:
+                unmatched.append({"by": "workflow_token", "kind": "rerun", "item": r["item"], "key": r["run"]})
     if token and not isinstance(runs, list):
         short = True
     for m in seen["merged"] if readable else []:

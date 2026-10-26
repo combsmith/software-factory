@@ -878,12 +878,23 @@ class Records(unittest.TestCase):
                                         "role": "pr-review", "content_id": "sha256:5d0c", "status": "queued",
                                         "conclusion": None, "outcome": None,
                                         "started_at": second["response"]["body"]["workflow_runs"][0]["run_started_at"],
-                                        "attempt": second["response"]["body"]["workflow_runs"][0]["run_attempt"]}])
-        # A re-run is numbered as GitHub numbers it; an attempt GitHub does not give is left out (issue 329).
-        for attempt, want in ((2, {"attempt": 2}), (None, {}), (0, {}), (True, {}), ("2", {})):
-            again = listing("P-17", 10, total=1, rows={"name": NAME, "run_attempt": attempt})
+                                        "dispatched_at": second["response"]["body"]["workflow_runs"][0]["created_at"]}])
+        # A re-run says whether the pass job's own token, the dispatcher, re-ran it; a first attempt says nothing, and
+        # a time of the dispatch GitHub does not give is left out (decision 0063).
+        row = second["response"]["body"]["workflow_runs"][0]
+        for change, want in (({"run_attempt": 2, "triggering_actor": dict(row["actor"])}, {"rerun_by_dispatcher": True}),
+                             ({"run_attempt": 2, "triggering_actor": {"id": row["actor"]["id"] + 1, "type": "User"}},
+                              {"rerun_by_dispatcher": False}),
+                             ({"run_attempt": 2, "triggering_actor": None}, {"rerun_by_dispatcher": False}),
+                             ({"run_attempt": 1, "triggering_actor": dict(row["actor"])}, {}),
+                             ({"run_attempt": True}, {}), ({"run_attempt": "2"}, {})):
+            again = listing("P-17", 10, total=1, rows=dict({"name": NAME}, **change))
             got, _ = self.read(listing("P-17", 9, total=1), again, per_page=1)
-            self.assertEqual({k: v for k, v in got["runs"][0].items() if k == "attempt"}, want, attempt)
+            self.assertEqual({k: v for k, v in got["runs"][0].items() if k == "rerun_by_dispatcher"}, want, change)
+        for created in ("yesterday", None):
+            again = listing("P-17", 10, total=1, rows={"name": NAME, "created_at": created})
+            got, _ = self.read(listing("P-17", 9, total=1), again, per_page=1)
+            self.assertNotIn("dispatched_at", got["runs"][0], created)
 
     def test_only_a_dispatch_of_a_role_workflow_from_the_default_branch_in_this_repo_counts(self):
         # Decision 0003 and I-34: another workflow, event, branch, ref, repo or dispatcher, a fork's pull request and a

@@ -24,14 +24,16 @@ a write the Factory recorded, a check run's conclusion changed among them, keeps
 from __future__ import annotations
 
 import datetime
+import email.utils
 import re
 
-from adapters import timeline
+from adapters import threads, timeline
 from adapters.github import Unanswered, request
 
 LEFT = "left"      # what `kept` is for an item the pass before served that is no longer open: nothing kept, read here
 # GitHub's periods of a repo's activity, each by its days, shortest first: the one asked covers the window.
 PERIODS = (("day", 1), ("week", 7), ("month", 28), ("quarter", 89), ("year", 364))
+MARGIN = 1 / 24     # a day's hour: a period is asked only if it covers the window an hour over, for clocks apart
 PAGE = 100          # the activity is read once: a list as long as a page may be cut short
 AT = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z")
 KEY = re.compile(r"[A-Za-z0-9_=:-]{1,100}")
@@ -82,6 +84,10 @@ def _at(text, since: str):
     return text if text >= since else None
 
 
+def _positive(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
 def _key(value):
     return value if isinstance(value, str) and KEY.fullmatch(value) else None
 
@@ -90,17 +96,57 @@ def _object(value) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _threads(transport, item: dict) -> tuple:
+    """A pull request's review threads as GitHub gives each node, and whether they were read whole: one page."""
+    owner, name = item["repo"].split("/")
+    try:
+        answer = transport.send(request("POST", "/graphql", body={"query": threads.QUERY, "variables": {
+            "owner": owner, "name": name, "number": item["number"], "after": None}}))
+    except Unanswered:
+        return [], False
+    pr = (((_object(answer.get("body")).get("data") or {}).get("repository") or {}).get("pullRequest")) or {}
+    listed = _object(_object(pr).get("reviewThreads")) if answer.get("status") == 200 else {}
+    nodes = listed.get("nodes") if isinstance(listed.get("nodes"), list) else None
+    if nodes is None:
+        return [], False
+    return nodes, listed.get("totalCount") == len(nodes) and _object(listed.get("pageInfo")).get("hasNextPage") is False
+
+
+def _check_runs(transport, item: dict) -> tuple:
+    """The check runs on a pull request's head as the checks read keeps each, and whether they were read whole."""
+    try:
+        pulled = transport.send(request("GET", "/repos/%s/pulls/%d" % (item["repo"], item["number"])))
+        head = _object(_object(pulled.get("body")).get("head")).get("sha") if pulled.get("status") == 200 else None
+        if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{40}", head):
+            return [], False
+        answer = transport.send(request("GET", "/repos/%s/commits/%s/check-runs?per_page=%d" % (item["repo"], head,
+                                                                                               PAGE)))
+    except Unanswered:
+        return [], False
+    body = _object(answer.get("body")) if answer.get("status") == 200 else {}
+    runs = body.get("check_runs") if isinstance(body.get("check_runs"), list) else None
+    if runs is None:
+        return [], False
+    kept = [{"id": _object(r).get("node_id"), "startedAt": _object(r).get("started_at"),
+             "checkSuite": {"app": {"databaseId": _object(_object(r).get("app")).get("id")}}} for r in runs]
+    return kept, body.get("total_count") == len(runs) < PAGE
+
+
 def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) -> tuple:
     """`(writes, merged, whole)` for one served item. `kept` is what the snapshot of `adapters/facts.py` kept of a
     pull request, or None where it kept nothing; an issue's is not read. For an item the pass before served that is no
     longer open, a pull request merged or closed between the passes, `kept` is `LEFT`: no snapshot reads it, so its
-    timeline is read here, and with it its close or its merge (decision 0061's follow-up, issue 329). Its reviews,
-    threads and check runs are not read: a stated limit."""
+    timeline, reviews, threads and the check runs on its head are read here, and with them its close or its merge
+    (decision 0063). One whose timeline names no close is not one that left, and what was seen of it is short."""
     repo, number = item["repo"], item["number"]
     issue = "/repos/%s/issues/%d" % (repo, number)
     writes, merged = [], []
     if item["type"] == "pull_request" and kept != LEFT:
         parts = dict(kept) if isinstance(kept, dict) else {}
+    elif item["type"] == "pull_request":
+        parts = {"events": _pages(transport, issue + "/timeline?per_page=%d" % PAGE),
+                 "reviews": _pages(transport, "/repos/%s/pulls/%d/reviews?per_page=%d" % (repo, number, PAGE)),
+                 "threads": _threads(transport, item), "check_runs": _check_runs(transport, item)}
     else:
         parts = {"events": _pages(transport, issue + "/timeline?per_page=%d" % PAGE), "reviews": ([], True),
                  "threads": ([], True), "check_runs": ([], True)}
@@ -110,6 +156,8 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         got = parts.get(name)
         whole &= isinstance(got, tuple) and len(got) == 2 and isinstance(got[0], list) and got[1] is True
         parts[name] = got[0] if isinstance(got, tuple) and len(got) == 2 and isinstance(got[0], list) else []
+    if kept == LEFT and item["type"] == "pull_request":
+        whole &= any(_object(e).get("event") in ("closed", "merged") for e in parts["events"])
 
     def add(by, kind, key, at):
         writes.append({"by": by, "kind": kind, "item": dict(item), "key": key, "at": at})
@@ -119,7 +167,9 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
     for e in map(_object, parts["events"]):
         if e.get("event") == "review_dismissed":
             dismissed = _object(e.get("dismissed_review"))
-            before[dismissed.get("review_id")] = dismissed.get("state")
+            ident, state = dismissed.get("review_id"), dismissed.get("state")
+            if _positive(ident) and isinstance(state, str):
+                before[ident] = state
 
     for r in map(_object, parts["reviews"]):
         whole &= _readable(r.get("user"))
@@ -130,7 +180,7 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         if state == "DISMISSED":
             # A dismissed review is what it was before it was dismissed: a Role's review is matched as one, and an
             # approval as an approval. One whose state before cannot be read leaves what was seen short.
-            state = DISMISSED.get(before.get(r.get("id")))
+            state = DISMISSED.get(before.get(r.get("id"))) if _positive(r.get("id")) else None
             whole &= state is not None
         whole &= at is not False and _key(r.get("node_id")) is not None
         add(by, "approval" if state in ("APPROVED", None) else "review", _key(r.get("node_id")), at or None)
@@ -143,6 +193,9 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         add(by, "comment", _key(c.get("node_id")), at or None)
     for e in map(_object, parts["events"]):
         name = e.get("event")
+        if not isinstance(name, str):
+            whole = False
+            continue
         kind = EVENTS.get(name)
         if kind is None and name in NOT_WRITES:
             continue
@@ -189,13 +242,27 @@ def _utc() -> str:
 
 
 def _period(since: str, now: str):
-    """GitHub's shortest period of a repo's activity that covers `since`, or None if none does."""
+    """GitHub's shortest period of a repo's activity that covers `since` at `now`, an hour over, or None if none does,
+    or `now` is before `since`, or either cannot be read."""
     try:
         days = (datetime.datetime.strptime(now, "%Y-%m-%dT%H:%M:%SZ")
                 - datetime.datetime.strptime(since, "%Y-%m-%dT%H:%M:%SZ")).total_seconds() / 86400
     except (TypeError, ValueError):
         return None
-    return next((name for name, most in PERIODS if days <= most), None)
+    if days < 0:
+        return None
+    return next((name for name, most in PERIODS if days + MARGIN <= most), None)
+
+
+def _dated(answer: dict):
+    """The answer's own time, from GitHub's `Date`, or None if it gives none that can be read."""
+    try:
+        when = email.utils.parsedate_to_datetime(str(_object(answer.get("headers")).get("date")))
+    except (TypeError, ValueError, IndexError):
+        return None
+    if when is None or when.tzinfo is None:
+        return None
+    return when.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def pushes(transport, repo: str, approver: dict, since: str, clock=_utc) -> tuple:
@@ -205,7 +272,8 @@ def pushes(transport, repo: str, approver: dict, since: str, clock=_utc) -> tupl
     is a write the machine user may not make; an activity of a type not known is `other`, and leaves the read short.
     The activity is asked for by the machine user's login, as GitHub takes it, and each entry held to its account's
     id; a login renamed and not recorded reads none. The period asked is GitHub's shortest that covers `since` at
-    `clock`'s time; a window older than a year is read for the year, and short."""
+    `clock`'s time, an hour over; a window older than a year, or a clock before `since`, is read for the year, and
+    short; and a period GitHub's own `Date` says falls short of the window leaves the read short too."""
     period = _period(since, clock())
     try:
         answer = transport.send(request("GET", "/repos/%s/activity?actor=%s&time_period=%s&per_page=%d" % (
@@ -214,6 +282,13 @@ def pushes(transport, repo: str, approver: dict, since: str, clock=_utc) -> tupl
         answer = {}
     found = answer.get("body") if answer.get("status") == 200 else None
     whole = isinstance(found, list) and len(found) < PAGE and period is not None
+    # GitHub's own time decides what its period covered, where its answer gives it: a period shorter than the one GitHub
+    # would need leaves the read short.
+    said = _dated(answer)
+    if said is not None:
+        needed = _period(since, said)
+        names = [name for name, _ in PERIODS]
+        whole &= needed is not None and period is not None and names.index(needed) <= names.index(period)
     writes = []
     for a in map(_object, found if isinstance(found, list) else []):
         actor = a.get("actor")
@@ -244,15 +319,18 @@ def seen(parts: list, since: str) -> dict:
 def identities(accounts: dict) -> tuple:
     """`(identities, known)` from the configuration's accounts: each writing identity's `(id, type)` and its code, and
     whether every one is known."""
-    found, known = {}, True
+    found, known, twice = {}, True, set()
     for code, account in [("approver", accounts.get("approver")), ("controller", accounts.get("controller"))] + sorted(
             (accounts.get("roles") or {}).items()):
         if isinstance(account, dict):
             # The machine user is a User, as the configuration records it by login and id alone. Two identities of one
             # account could not be told apart: neither is known.
             told = (account["id"], account.get("type", "User"))
-            known &= told not in found
+            if told in found or told in twice:
+                twice.add(told)
             found[told] = code
         else:
             known = False
-    return found, known
+    for told in twice:
+        del found[told]
+    return found, known and not twice
