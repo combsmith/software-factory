@@ -7320,6 +7320,9 @@ MUTANTS = ISSUE + [
     ("a key named in another case is named nowhere", 'tools/check_workflows.py',
      'r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY", re.I)', 'r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY")',
      ('tests.test_tools.Workflows.test_a_key_and_its_environment_are_named_by_their_one_file',)),
+    ('apply runs on no commit', 'tools/check_workflows.py',
+     "    if: always() && needs.run.outputs.commit != ''\n",
+     '    if: always()\n', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome',)),
 ]
 
 

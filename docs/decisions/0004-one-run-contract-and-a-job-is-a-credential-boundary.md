@@ -28,5 +28,5 @@ to do is to ask, in a form a schema can refuse.
 | A Result's schema has no field for a commit, a Role, an actor or a content id | `examples/invalid/result.carries-a-commit-hash.json`, `examples/invalid/disposition.names-who-decided.json` |
 | `apply` re-reads the Work item before any Effect, and writes nothing if it is held, paused, closed or changed | `tests/test_apply.py::test_a_change_under_the_run_writes_nothing_and_is_superseded` |
 | `apply` refuses a change under `.github/`, to code owners, or to a Consumer's setup and test commands, unless a manifest permits it and a person approved | waiting on `harness/push.py`, the fix Intent's push |
-| `run` and `verify` declare no permissions and use no cache | `tests/test_tools.py::test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome` |
+| `run` and `verify` declare no permissions and use no cache | `tests/test_tools.py::test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome`; each is granted `contents: read` alone, which on this public repo grants nothing a reader lacks |
 | A Run that reads text from an outsider or a third-party reviewer has no shell and no network tool | `tests/test_harness.py::test_the_cli_is_given_no_tool` |

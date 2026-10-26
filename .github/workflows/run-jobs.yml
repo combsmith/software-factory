@@ -94,7 +94,7 @@ jobs:
     needs:
       - run
       - verify
-    if: always()
+    if: always() && needs.run.outputs.commit != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: factory-apply

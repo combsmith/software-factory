@@ -2613,7 +2613,8 @@ class Workflows(unittest.TestCase):
             "a cache in verify": good.replace("      - name: Verify the Result\n",
                                               "      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n"
                                               "        with:\n          path: x\n          key: y\n      - name: Verify the Result\n"),
-            "apply skipped when run fails": good.replace("      - verify\n    if: always()\n", "      - verify\n"),
+            "apply skipped when run fails": good.replace("    if: always() && needs.run.outputs.commit != ''\n", ""),
+            "apply on no commit": good.replace("    if: always() && needs.run.outputs.commit != ''\n", "    if: always()\n"),
             "an outcome a failure skips": good.replace("      - name: Leave the Run's outcome\n        if: always()\n",
                                                        "      - name: Leave the Run's outcome\n"),
             "the item's code checked out": good.replace("          ref: factory/v0-next\n",
@@ -2680,6 +2681,7 @@ class Workflows(unittest.TestCase):
                                                           "          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}\n"
                                                           "          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}\n"),
                           "the item's code": good.replace("          ref: factory/v0-next\n", "          ref: ${{ inputs.item }}\n"),
+                          "no outcome step": good.replace("        run: python3 -m harness.outcome\n", ""),
                           "an outcome a failure skips": good.replace("      - if: always()\n        uses: actions/upload-artifact@"
                                                                      "cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n"
                                                                      "        with:\n          name: outcome",

@@ -270,7 +270,7 @@ jobs:
     needs:
       - run
       - verify
-    if: always()
+    if: always() && needs.run.outputs.commit != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: factory-apply
@@ -354,13 +354,18 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: applied
-          path: approved/applied.json
+          path: applied/applied.json
           if-no-files-found: ignore
+      - name: Leave the Run's outcome
+        if: always()
+        env:
+          NAME: ${{ inputs.name }}
+        run: python3 -m harness.outcome
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: outcome
-          path: approved/outcome.json
+          path: outcome/outcome.json
           if-no-files-found: error
 """
 # Each key and the environment it lives in, by the one file that may name them (decision 0035): no other workflow names

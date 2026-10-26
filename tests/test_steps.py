@@ -146,14 +146,14 @@ class WorkflowForm(unittest.TestCase):
         self.assertEqual(steps.given([], {}, ("NAME",), ("applied", "outcome")), [None, "applied", "outcome"])
         seen = []
         for module, folders in ((read, ["task"]), (verify, ["result", "verdict"]), (apply_step, ["result", "applied"]),
-                                (outcome, ["applied", "outcome"]), (approve_step, ["approved"])):
+                                (outcome, ["applied", "outcome"]), (approve_step, ["applied"])):
             with tempfile.TemporaryDirectory() as d:
                 with unittest.mock.patch.object(steps, "given", lambda a, e, i, f: seen.append((module, list(f))) or
                                                 (_ for _ in ()).throw(steps.Stop("seen"))):
                     ran(module.step, [], env, d)
         self.assertEqual(seen, [(m, f) for m, f in ((read, ["task"]), (verify, ["result", "verdict"]),
                                                     (apply_step, ["result", "applied"]), (outcome, ["applied", "outcome"]),
-                                                    (approve_step, ["approved"]))])
+                                                    (approve_step, ["applied"]))])
 
     def test_run_hands_on_the_digest_alone_as_its_steps_output(self):
         with tempfile.TemporaryDirectory() as d:
