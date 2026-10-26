@@ -2659,6 +2659,9 @@ class Workflows(unittest.TestCase):
                                "CLI_CHECKSUMS holds no checksum for it"))
         with mock.patch.dict(check_workflows.CLI_CHECKSUMS, {"2.1.307": "1" * 64}):
             self.assertTrue(caught(check_workflows.run_jobs_problems(good, moved), "it is not the Run's three jobs"))
+            # The pin, the workflow's version and its checksum moved together pass.
+            together = good.replace('"2.1.306"', '"2.1.307"').replace(check_workflows.CLI_CHECKSUMS["2.1.306"], "1" * 64)
+            self.assertEqual(check_workflows.run_jobs_problems(together, moved), [])
         none = tree({"config/harness.json": "{}"})
         self.assertTrue(caught(check_workflows.run_jobs_problems(good, none), "names no Engine pin"))
 
