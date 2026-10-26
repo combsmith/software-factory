@@ -66,7 +66,7 @@ def _account(author, kind=None):
 
 
 def _resolver(by, author, accounts: timeline.Accounts):
-    """Who resolved a thread, as `facts/1` holds an actor, or None where it cannot be told (decision 0066, issue 331).
+    """Who resolved a thread, as `facts/1` holds an actor, or None where it cannot be told (decision 0068, issue 331).
 
     GraphQL's `resolvedBy` is typed a User whoever resolved it, an App among them (trials/P-49.json), so its type is
     never read. Its account id is matched to the thread's own comment author, whose type GraphQL gives; failing that,

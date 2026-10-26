@@ -331,7 +331,7 @@ class SeenPort(unittest.TestCase):
                   {"event": "labeled", "actor": PERSON, "created_at": AT}]
         threads_ = [{"id": "PRRT_n", "isResolved": True, "resolvedBy": None},
                     {"id": "PRRT_a", "isResolved": True, "resolvedBy": {"login": "donpetry-bot", "databaseId": 281750570}},
-                    # A Role App's resolution, which GraphQL types a User: told by its account id (decision 0066).
+                    # A Role App's resolution, which GraphQL types a User: told by its account id (decision 0068).
                     {"id": "PRRT_r", "isResolved": True, "resolvedBy": {"login": "combsmith-sf-pr-review[bot]",
                                                                         "databaseId": 5000002}},
                     {"id": "PRRT_p", "isResolved": True, "resolvedBy": {"login": "don-petry", "databaseId": 36422719}},
