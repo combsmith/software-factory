@@ -7238,6 +7238,10 @@ MUTANTS = ISSUE + [
     ("an issue's Run is read as a pull request's", 'harness/read.py',
      '    if parts["item"]["type"] != "pull_request":\n        raise Stop("issue_not_built")\n',
      '', ('tests.test_steps.Reader.test_the_reader_fails_closed',)),
+    ('a pull request that moved under apply is the environment', 'harness/apply_step.py',
+     '                done = _ended(parts["run"], release, ("superseded", "head_moved"))',
+     '                done = _ended(parts["run"], release, ("environment", "facts_unreadable"))',
+     ('tests.test_steps.Apply.test_apply_reads_with_reads',)),
 ]
 
 
