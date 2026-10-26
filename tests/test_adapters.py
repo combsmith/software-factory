@@ -1750,6 +1750,18 @@ def issue_timeline(repo: str, number: int, events, more: bool = False) -> dict:
     return found
 
 
+def issue_answer(repo: str, number: int, labelled: bool = False, pull: bool = False, status: int = 200) -> dict:
+    """An issue's REST read, `GET /repos/{repo}/issues/{n}`, its number and labels, asked as the port asks the issue a
+    pull request is bound to; `pull`, an issue that is a pull request, as GitHub lists one among its issues."""
+    found = copy.deepcopy(exchanges("P-28")[4])
+    found["request"]["call"] = "GET /repos/%s/issues/%d" % (repo, number)
+    body = {"number": number, "labels": [{"name": "factory:contract"}] if labelled else [{"name": "bug"}]}
+    if pull:
+        body["pull_request"] = {"url": "https://api.github.com/repos/%s/pulls/%d" % (repo, number)}
+    found["response"].update(status=status, body=body, headers=dict(found["response"]["headers"], link=""))
+    return found
+
+
 def label_event(action: str, actor=PERSON, label: str = "factory:contract", at: str = "2026-10-21T16:00:00Z",
                 via=None) -> dict:
     login, account, kind = actor
@@ -1759,10 +1771,85 @@ def label_event(action: str, actor=PERSON, label: str = "factory:contract", at: 
 
 class Acceptance(unittest.TestCase):
     PULL = {"number": 26, "base": {"ref": "main", "repo": {"full_name": "o/r", "default_branch": "main"}}}
+    OPENER = (12, "Bot")      # a fixture App of the Role that opens pull requests; no Role does in slice 1
+    OPENED = dict(PULL, user={"login": "combsmith-sf-dev-lead[bot]", "id": 12, "type": "Bot"},
+                  head={"ref": "factory-work/issue-36-1", "repo": {"full_name": "o/r"}})
 
-    def read(self, *found, pull=None):
+    def read(self, *found, pull=None, opener=None):
         router = Router(github.Replay(list(found)), {"don-petry": "admin", "reader": "read"})
-        return acceptance.read(router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}))
+        return acceptance.read(router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}), opener)
+
+    def opened(self, *found, ref="factory-work/issue-36-1", user=None, repo="o/r", opener=OPENER):
+        """What the pull request the opener's App opened on branch `ref` reads as."""
+        pull = dict(self.OPENED, head={"ref": ref, "repo": {"full_name": repo}})
+        if user is not None:
+            pull["user"] = user
+        return self.read(*found, pull=pull, opener=opener)
+
+    def test_a_pull_request_the_factory_opens_is_bound_to_the_issue_its_branch_names(self):  # issue 295
+        asks = [label_event("labeled")]
+        # Its closing references may leave the bound issue out: the ask is read from the issue its branch names.
+        self.assertEqual(self.opened(closing_answer("o/r", 26, []), issue_answer("o/r", 36),
+                                     issue_timeline("o/r", 36, [])), (None, True))
+        self.assertEqual(self.opened(closing_answer("o/r", 26, []), issue_answer("o/r", 36, labelled=True),
+                                     issue_timeline("o/r", 36, asks)), (None, False))
+        # Or name it, and nothing is read twice.
+        self.assertEqual(self.opened(closing_answer("o/r", 26, [36]), issue_timeline("o/r", 36, [])), (None, True))
+        self.assertEqual(self.opened(closing_answer("o/r", 26, [36], labelled=[36]), issue_timeline("o/r", 36, asks)),
+                         (None, False))
+        # Removing "Closes" removes no ask: the issue its branch names still asks.
+        self.assertEqual(self.opened(closing_answer("o/r", 26, []), issue_answer("o/r", 36, labelled=True),
+                                     issue_timeline("o/r", 36, asks)), (None, False))
+        # The bound issue's labels and timeline must agree, as a closing issue's must.
+        self.assertEqual(self.opened(closing_answer("o/r", 26, []), issue_answer("o/r", 36, labelled=True),
+                                     issue_timeline("o/r", 36, [])), (None, False))
+        # A bound issue that is a pull request, or that cannot be read, is refused, its timeline never read.
+        for answer in (issue_answer("o/r", 36, pull=True), issue_answer("o/r", 36, status=404)):
+            with self.assertRaises(github.Unanswered):
+                self.opened(closing_answer("o/r", 26, []), answer, issue_timeline("o/r", 36, []))
+        odd = issue_answer("o/r", 36)
+        odd["response"]["body"]["labels"] = [{"name": None}]
+        with self.assertRaises(github.Unanswered):
+            self.opened(closing_answer("o/r", 26, []), odd)
+
+    def test_closing_references_that_name_another_issue_than_the_bound_one_are_not_whole(self):  # issue 295
+        for issues in ([37], [36, 37], [37, 36]):
+            self.assertEqual(self.opened(closing_answer("o/r", 26, issues)), (None, False), issues)
+        # Nor are closing references read short.
+        self.assertEqual(self.opened(closing_answer("o/r", 26, [36], total=11)), (None, False))
+        self.assertEqual(self.opened(closing_answer("o/r", 26, [36], elsewhere="o/other")), (None, False))
+
+    def test_a_branch_of_another_shape_binds_nothing_and_the_openers_pull_request_is_not_whole(self):  # issue 295
+        for ref in ("factory-work/issue-036-1", "factory-work/issue-36-01", "factory-work/issue-0-1",
+                    "factory-work/issue-36-0", "factory-work/issue-36", "factory-work/issue-36-1-2",
+                    "factory-work/issue-36-1/x", "factory-work/issue-36-1\n", " factory-work/issue-36-1",
+                    "factory/issue-36-1", "factory-work/issue-\u0663-1", "", None, 36):
+            self.assertEqual(self.opened(ref=ref), (None, False), ref)
+        # Nor does a branch of the Factory's shape in another repo.
+        self.assertEqual(self.opened(repo="o/fork"), (None, False))
+        self.assertEqual(self.read(pull=dict(self.OPENED, head={"ref": "factory-work/issue-36-1"}),
+                                   opener=self.OPENER), (None, False))
+        # The count is any whole number from 1.
+        self.assertEqual(self.opened(closing_answer("o/r", 26, [36]), issue_timeline("o/r", 36, []),
+                                     ref="factory-work/issue-36-12"), (None, True))
+
+    def test_a_pull_request_no_opener_opened_keeps_its_closing_references(self):  # issue 295, decision 0047
+        # A person's, on a branch of the Factory's shape or not, and every one in slice 1, where no Role opens one: the
+        # issues it closes say what it serves, and the branch says nothing.
+        person = {"login": "don-petry", "id": MAINTAINER, "type": "User"}
+        for user, opener in ((person, self.OPENER), (None, None), ({"login": "x", "id": 12, "type": "User"},
+                                                                   self.OPENER)):
+            self.assertEqual(self.opened(closing_answer("o/r", 26, []), user=user, opener=opener), (None, True))
+            self.assertEqual(self.opened(closing_answer("o/r", 26, [37]), issue_timeline("o/r", 37, []), user=user,
+                                         opener=opener), (None, True))
+            self.assertEqual(self.opened(closing_answer("o/r", 26, [37], labelled=[37]),
+                                         issue_timeline("o/r", 37, [label_event("labeled")]), user=user,
+                                         opener=opener), (None, False))
+        # Where the Role that opens pull requests is named but its App cannot be told, one on a branch of that shape
+        # could be the Factory's: not whole. Any other keeps its closing references.
+        self.assertEqual(self.opened(user=person, opener=acceptance.UNTOLD), (None, False))
+        self.assertEqual(self.opened(closing_answer("o/r", 26, []), ref="fix/x", user=person,
+                                     opener=acceptance.UNTOLD), (None, True))
 
     def asked(self, events, listed=True):
         """What one closing issue with these label events, and the label GitHub lists or not, reads as."""
@@ -2093,6 +2180,16 @@ class Snapshot(unittest.TestCase):
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                                 lambda: self.NOW)
+        self.assertEqual((got["acceptance"], got["complete"]["acceptance"]), (None, False))
+
+    def test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch(self):  # issue 295
+        # Told that the App that opens pull requests is this one's author, the snapshot reads its branch, which is no
+        # branch of the Factory's: not whole on its contract, and the closing references are not read.
+        author = body("P-29.base", 1)["user"]
+        seq = [e for e in self.sequence(1) if "/graphql" not in e["request"]["call"] or "Closing" not in json.dumps(e)]
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, opener=(author["id"], author["type"]))
         self.assertEqual((got["acceptance"], got["complete"]["acceptance"]), (None, False))
 
     def test_the_bases_head_and_a_pushs_time_are_read_or_refused(self):
