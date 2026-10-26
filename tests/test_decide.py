@@ -1037,7 +1037,7 @@ class Content(unittest.TestCase):
         d = go(facts(diff=dict(facts()["diff"], characters=bound)), REVIEWED)
         self.assertEqual(d["outcome"], "act")
         unread = {k: v for k, v in facts()["diff"].items() if k != "characters"}
-        for diff in (dict(unread, characters=bound + 1), unread, dict(unread, characters=str(bound)),
+        for diff in (dict(unread, characters=bound + 1), unread, dict(unread, characters=str(bound)), dict(unread, characters=-1),
                      dict(unread, characters=True), dict(unread, characters=float(bound))):
             for runs in ((), REVIEWED):
                 d = go(facts(diff=diff), runs)

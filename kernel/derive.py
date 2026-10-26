@@ -996,7 +996,7 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # whole, is held as too large, never reviewed in part (issue 327).
     characters = facts["diff"].get("characters")
     if not isinstance(characters, int) or isinstance(characters, bool) \
-            or characters > config["limits"]["max_diff_characters"]:
+            or not 0 <= characters <= config["limits"]["max_diff_characters"]:
         return {"state": t.HELD, "reason": "too_large", "evidence": []}
     # A review that cannot be read could be a writer's request for changes. It is read before anything
     # admits a Run or converges: an unreadable fact never yields an action (I-13), only a stop.
