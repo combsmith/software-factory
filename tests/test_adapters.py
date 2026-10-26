@@ -625,6 +625,11 @@ class Diff(unittest.TestCase):
             got = pull.diff(github.Replay([as_compare(exchange, data)]), data, PINNED_BASE)
             self.assertEqual(got["content_id"], "sha256:" + hashlib.sha256(sent).hexdigest())
             self.assertIs(got["complete"], True)
+            # No Task carries it, so its length is not given and the Kernel holds it (issue 327, the review's read).
+            self.assertNotIn("characters", got["diff"])
+            with self.assertRaises(task.Refused):
+                task.diff_of(sent, {"item": {"type": "pull_request"}, "last_pusher": "x"},
+                             {"content_id": got["content_id"]}, {"max_diff_characters": 60000})
             ids.append(got["content_id"])
         self.assertNotEqual(*ids)
 

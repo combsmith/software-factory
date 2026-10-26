@@ -97,7 +97,7 @@
           "type": "boolean"
         },
         "characters": {
-          "description": "How long the whole diff is as a Task carries it, escaped as JSON, counted from the bytes the content id is the digest of. Absent where the diff was not read whole; a pull request whose count is absent or past the configuration's max_diff_characters is held too large (issue 327)",
+          "description": "How long the whole diff is as a Task carries it, escaped as JSON, counted from the bytes the content id is the digest of. Absent where GitHub would not serve the diff or its bytes are no UTF-8, which no Task carries; a pull request whose count is absent or past the configuration's max_diff_characters is held too large (issue 327)",
           "type": "integer",
           "minimum": 0
         }
