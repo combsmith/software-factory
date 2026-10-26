@@ -102,6 +102,9 @@ class Matching(unittest.TestCase):
                          ("pr-review", records(dict(mine, role="dev-lead")))):
             found = check(seen(wrote(by, "resolution", "PRRT_t")), recorded([done]), runs, accounts=accounts)
             self.assertEqual(kinds(found), [(by, "resolution")], (by, runs))
+        # Run records not read whole bind no resolution to its Role: reconciliation is short, and calls none unmatched.
+        found = check(seen(wrote("pr-review", "resolution", "PRRT_t")), recorded([done]), None, accounts=accounts)
+        self.assertEqual((found["unmatched"], found["short"]), ([], True))
 
     def test_the_controllers_writes_are_matched_to_what_the_pass_recorded(self):  # decision 0051
         status = written(("status_on_item", ITEM, None, "CR_s", "applied"))

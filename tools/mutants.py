@@ -1041,6 +1041,12 @@ MUTANTS = ISSUE + [
      'APPLIED_MEMBER, ZIPPED, APPLIED_MOST)',
      'APPLIED_MEMBER, APPLIED_MOST, APPLIED_MOST)', ("tests.test_adapters",)),
     # Issue 331: a thread's resolver typed by its account, never by resolvedBy's type (P-49, P-53).
+    ('a resolution is called unmatched when no Role can be bound', 'controller/reconcile.py',
+     '            short, landed = True, True\n',
+     '            short, landed = True, False\n', ("tests.test_reconcile",)),
+    ('run records not read leave a resolution whole', 'controller/reconcile.py',
+     '            short, landed = True, True\n',
+     '            landed = True\n', ("tests.test_reconcile",)),
     ("a resolution is matched to any Role's record", 'controller/reconcile.py',
      'keys.get((APPLIED, RESOLVE, w["by"]), set())',
      'set().union(*[v for k, v in keys.items() if k[:2] == (APPLIED, RESOLVE)])', ("tests.test_reconcile",)),

@@ -112,6 +112,10 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
             slot = (where[1], key(w["item"]) if w["item"] else None)
             landed = items.get(slot, 0) > 0
             items[slot] = items.get(slot, 0) - 1
+        elif where == (APPLIED, RESOLVE) and not isinstance(runs, list):
+            # Run records not read whole bind no recorded resolution to its Role: what was seen is short, and the
+            # resolution is not called unmatched for it.
+            short, landed = True, True
         elif where == (APPLIED, RESOLVE):
             landed = w["key"] is not None and w["key"] in keys.get((APPLIED, RESOLVE, w["by"]), set())
         else:
