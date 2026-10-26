@@ -262,34 +262,29 @@ class Tags(unittest.TestCase):
 
 
 class Plan(unittest.TestCase):
-    def planned(self, *values):
-        with tempfile.TemporaryDirectory() as scratch:
-            paths = []
-            for n, value in enumerate(values):
-                path = pathlib.Path(scratch) / ("%d.json" % n)
-                path.write_text(value if isinstance(value, str) else json.dumps(value))
-                paths.append(str(path))
-            out = io.StringIO()
-            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-                code = move.main(["plan"] + paths)
+    def planned(self, reads, rings=move.RINGS):
+        out = io.StringIO()
+        text = reads if isinstance(reads, str) else json.dumps(reads)
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = move.main(["plan"], io.StringIO(text), rings)
         return code, out.getvalue()
 
     def test_the_plan_is_printed_from_what_was_read_and_nothing_is_written(self):
-        self.assertEqual(self.planned(cutting(), REFS, OPEN),
+        reads = {"step": cutting(), "refs": REFS, "facts": OPEN}
+        self.assertEqual(self.planned(reads),
                          (0, json.dumps({"writes": [["create", "factory/v0.3.0", D], ["move", NEXT, D]]}) + "\n"))
-        self.assertEqual(self.planned(cutting(), REFS, dict(OPEN, gate="eval_set_empty")),
+        self.assertEqual(self.planned(dict(reads, facts=dict(OPEN, gate="eval_set_empty"))),
                          (1, json.dumps({"refused": cut.EVAL_GATE_CLOSED}) + "\n"))
-        self.assertEqual(self.planned(cutting(), "{", OPEN), (1, json.dumps({"refused": cut.STEP_UNREADABLE}) + "\n"))
-        with tempfile.TemporaryDirectory() as scratch, contextlib.redirect_stdout(io.StringIO()) as out:
-            files = []
-            for n, value in enumerate((cutting(), REFS, OPEN)):
-                files.append(pathlib.Path(scratch) / ("%d.json" % n))
-                files[-1].write_text(json.dumps(value))
-            self.assertEqual(move.main(["plan"] + [str(f) for f in files], rings=pathlib.Path(scratch) / "none.json"), 1)
-        self.assertEqual(out.getvalue(), json.dumps({"refused": cut.NOT_A_CHANNEL}) + "\n")
+        for odd in ("{", "[]", dict(reads, refs=None)):
+            with self.subTest(reads=odd):
+                self.assertEqual(self.planned(odd), (1, json.dumps({"refused": cut.STEP_UNREADABLE}) + "\n"))
+        with tempfile.TemporaryDirectory() as scratch:
+            self.assertEqual(self.planned(reads, pathlib.Path(scratch) / "none.json"),
+                             (1, json.dumps({"refused": cut.NOT_A_CHANNEL}) + "\n"))
+        # It is given its reads on standard input, and opens no path it is given (SonarCloud's S2083 and S8707).
         with contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(move.main(["cut", "a", "b", "c"]), 2)
-            self.assertEqual(move.main(["plan", "a"]), 2)
+            self.assertEqual(move.main(["cut"], io.StringIO("{}")), 2)
+            self.assertEqual(move.main(["plan", "reads.json"], io.StringIO("{}")), 2)
 
 
 class Rings(unittest.TestCase):
@@ -356,7 +351,8 @@ class Skill(unittest.TestCase):
             with self.subTest(command=command):
                 words = shlex.split(command)
                 self.assertEqual(words[:3], ["python3", "-m", "release.move"])
-                self.assertEqual((words[3], len(words[4:])), ("plan", 3))
+                self.assertEqual(words[3:5], ["plan", "<"])
+                self.assertEqual(len(words), 6)
         for command in dispatches:
             with self.subTest(command=command):
                 words = shlex.split(command)

@@ -1,9 +1,11 @@
-"""`python3 -m release.move plan STEP REFS FACTS`: the plan of one step, from what was read (rulings 4′ and 5′).
+"""`python3 -m release.move plan < READS`: the plan of one step, from what was read (rulings 4′ and 5′).
 
-Each argument is a JSON file: the step asked (`release/cut.py`'s), the refs `adapters/tags.py` read, and the facts of
-the commit asked about. The Channels a step may move are those `release/rings.json` declares. It prints `{"writes": [...]}` and exits 0, or `{"refused": code}` and exits 1, and writes
-nothing. A file it cannot read is refused, `step_unreadable`. The run that sends the writes, reads each back and
-records the Deployment is `release.yml`'s, the next pull request's.
+READS, on standard input, is one JSON object: `step`, the step asked (`release/cut.py`'s), `refs`, the refs
+`adapters/tags.py` read, and `facts`, the facts of the commit asked about. It opens no path it is given (SonarCloud's
+S2083 and S8707), as `tools/redact_trial.py` opens none. The Channels a step may move are those `release/rings.json`
+declares. It prints `{"writes": [...]}` and exits 0, or `{"refused": code}` and exits 1, and writes nothing. Reads
+that cannot be read are refused, `step_unreadable`. The run that sends the writes, reads each back and records the
+Deployment is the release workflow's, a later pull request's.
 """
 from __future__ import annotations
 
@@ -14,13 +16,12 @@ import sys
 from release import cut
 
 RINGS = pathlib.Path(__file__).resolve().parent / "rings.json"
-USAGE = "usage: python3 -m release.move plan STEP REFS FACTS"
+USAGE = "usage: python3 -m release.move plan < READS"
 
 
-def _read(path: str):
+def _rings(path: pathlib.Path):
     try:
-        with open(path, encoding="utf-8") as handle:
-            return json.load(handle)
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 
@@ -33,12 +34,16 @@ def channels(rings) -> frozenset:
     return frozenset(c.get("tag") for c in found.values())
 
 
-def main(argv, rings=RINGS) -> int:
-    if len(argv) != 4 or argv[0] != "plan":
+def main(argv, stdin=None, rings=RINGS) -> int:
+    if list(argv) != ["plan"]:
         print(USAGE, file=sys.stderr)
         return 2
-    step, refs, facts = (_read(path) for path in argv[1:])
-    writes, refused = cut.plan(step, refs, facts, channels(_read(str(rings))))
+    try:
+        reads = json.loads((sys.stdin if stdin is None else stdin).read())
+    except ValueError:
+        reads = None
+    reads = reads if isinstance(reads, dict) else {}
+    writes, refused = cut.plan(reads.get("step"), reads.get("refs"), reads.get("facts"), channels(_rings(rings)))
     if refused:
         print(json.dumps({"refused": refused}))
         return 1
