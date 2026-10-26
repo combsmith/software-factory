@@ -807,8 +807,8 @@ class Authority(unittest.TestCase):
         self.assertEqual(self.team(), [])
         self.assertEqual(sorted(check_authority.manifests()), ["pr-review"])
         # The check the verify step runs reads the team too.
-        self.assertTrue(caught(check_authority.run(self.table, roles={"pr-review": self.review(name="x")}),
-                               "roles/pr-review.json names the Role 'x'"))
+        self.assertTrue(caught(check_authority.run(self.table, roles={"pr-review": self.review(name="another-role")}),
+                               "roles/pr-review.json names the Role 'another-role'"))
 
     def test_a_manifest_is_named_as_its_file_and_held_to_role_1(self):  # decision 0039
         problems = self.team({"pr-review": self.review(name="dev-lead"), "qa-lead": self.review(name="qa-lead",
@@ -818,10 +818,16 @@ class Authority(unittest.TestCase):
         # Held to role/1 itself: LIVE names its schema, and the manifest says it (Muse's read).
         from tools.check_examples import LIVE
         apps = json.loads((ROOT / "config" / "apps.json").read_text())
-        for live, manifest in ((dict(LIVE, **{"roles/pr-review.json": "authority"}), self.review()),
-                               (LIVE, self.review(schema="role/999"))):
-            self.assertTrue(caught(check_authority.team({"pr-review": manifest}, self.table, apps, live),
-                                   "roles/pr-review.json is held to no schema"))
+        self.assertTrue(caught(check_authority.team({"pr-review": self.review()}, self.table, apps,
+                                                    dict(LIVE, **{"roles/pr-review.json": "authority"})),
+                               "roles/pr-review.json is held to no schema"))
+        # A manifest of another shape is a problem, never a traceback, and nothing else is read from it (issue 330).
+        for over in ({"schema": "role/999"}, {"owns": "security"}, {"intents": {}}, {"name": 7}, {"app": ["x"]},
+                     {"intents": [dict(self.review()["intents"][0], evals=None)]},
+                     {"intents": [dict(self.review()["intents"][0], permitted_effects="submit_review")]}):
+            problems = check_authority.team({"pr-review": self.review(**over)}, self.table, apps, LIVE)
+            self.assertTrue(caught(problems, "roles/pr-review.json does not hold to role/1"), over)
+            self.assertTrue(caught(problems, "functional's owner pr-review has no manifest in roles/"), over)
 
     def test_an_owner_owns_what_the_authority_table_names_and_each_category_has_one(self):  # section 5.4
         fewer = self.review(owns=self.review()["owns"][1:])
