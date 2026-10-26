@@ -304,12 +304,12 @@ class Effects(unittest.TestCase):
             original = effects.Live
             effects.Live = Recorded
             try:
-                self.assertEqual(effects.main(argv, environ={"CONTROLLER_TOKEN": "c", "WORKFLOW_TOKEN": "w"}, base=tmp), 1)
+                self.assertEqual(effects.main(argv, environ={"WORKFLOW_TOKEN": "w"}, base=tmp, mint=lambda environ, config: (Recorded("c"), lambda: True)), 1)
                 refused = json.loads((folder / "written.json").read_text())
                 self.assertEqual(sent, [])
                 # The record's own plan reads the Pause and the open issues, with the Controller's token alone.
                 (folder / "writes.json").write_text(json.dumps(writes_.plan(o)))
-                self.assertEqual(effects.main(argv, environ={"CONTROLLER_TOKEN": "c", "WORKFLOW_TOKEN": "w"}, base=tmp), 1)
+                self.assertEqual(effects.main(argv, environ={"WORKFLOW_TOKEN": "w"}, base=tmp, mint=lambda environ, config: (Recorded("c"), lambda: True)), 1)
             finally:
                 effects.Live = original
         self.assertEqual({(w["state"], w["reason"]) for w in refused["writes"]}, {("refused", "plan_refused")})

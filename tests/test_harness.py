@@ -630,6 +630,9 @@ class Job(unittest.TestCase):
             data = (out / "result.json").read_bytes()
             self.assertEqual(digest, "sha256:" + hashlib.sha256(data).hexdigest())
             self.assertEqual((out / "result.sha256").read_text(), digest + "\n")
+            # The Result is its own user's alone, its folder too, as every step's files are.
+            self.assertEqual({(out / n).stat().st_mode & 0o777 for n in ("result.json", "result.sha256")}, {0o600})
+            self.assertEqual(out.stat().st_mode & 0o777, 0o700)
             self.assertEqual(json.loads(data)["release"], RECORD["release"])
             with self.assertRaises(task.Refused):
                 run.job(paths, JOB, run.configuration(), call=CLI(), clock=Clock(), session=SESSION, base=where)
