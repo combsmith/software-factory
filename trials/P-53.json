@@ -1,0 +1,633 @@
+{
+  "schema": "trial/1",
+  "trial": "P-53",
+  "question": "Does a pull request's timeline, read as GitHub's REST issue timeline and as GraphQL timelineItems of every item type, name who resolved a review thread, by account id and type; and does it link a reply whose thread's first comment was deleted to that comment or to its review?",
+  "pass": "By the Factory Builder's ruling on issue 331: read-only, by the Maintainer's gh login, on the canary's pull request 55, P-49's, whose thread PRRT_kwDOVFD6786vbPoG the trial-author App resolved and whose thread PRRT_kwDOVFD6786vbPrK lost its first comment 4354811408 (of review 5622401522) under reply 4354811614 (of review 5622401749). Read the REST issue timeline, every page, and GraphQL timelineItems, every page and every item type. Pass if both are read whole and say: (1) whether any item names the first thread's resolution, and if so its actor's account id and type; and (2) whether any item links reply 4354811614, or its review, to the deleted comment or to review 5622401522. This trial records behaviour; it fails only if a read cannot say these things.",
+  "repo": "combsmith/software-factory-canary",
+  "ran_at": "2026-10-26T04:36:24Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/issues/55/timeline?per_page=100 (gh api): the issue timeline of P-49's pull request, every event, as the Maintainer",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 26 Oct 2026 04:36:56 GMT",
+          "etag": "W/\"40c812e9b4e5362161d183046edfafdf42e9b728165b35c218abbe777c5b20b8\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F3C9:3F3782:13B863C:412036A:6ADED8E8",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4442",
+          "x-ratelimit-reset": "1792990361",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "558"
+        },
+        "body": [
+          {
+            "sha": "efa1a2b35997026ba612194ea7cdc7a5a783afb8",
+            "node_id": "C_kwDOVFD679oAKGVmYTFhMmIzNTk5NzAyNmJhNjEyMTk0ZWE3Y2RjN2E1YTc4M2FmYjg",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/efa1a2b35997026ba612194ea7cdc7a5a783afb8",
+            "html_url": "https://github.com/combsmith/software-factory-canary/commit/efa1a2b35997026ba612194ea7cdc7a5a783afb8",
+            "author": {
+              "name": "combsmith-sf-trial-author[bot]",
+              "email": "344141469+combsmith-sf-trial-author[bot]@users.noreply.github.com",
+              "date": "2026-10-23T00:05:42Z"
+            },
+            "committer": {
+              "name": "GitHub",
+              "email": "noreply@github.com",
+              "date": "2026-10-23T00:05:42Z"
+            },
+            "tree": {
+              "sha": "048f707026c7e4598c79b6dc6e82c3fa2c150a68",
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/048f707026c7e4598c79b6dc6e82c3fa2c150a68"
+            },
+            "message": "Trial: trial-notes/p-49.md, added by the trial-author App",
+            "parents": [
+              {
+                "sha": "fc7f25958fee6339ffaf2e80eb1264ff7249f788",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/fc7f25958fee6339ffaf2e80eb1264ff7249f788",
+                "html_url": "https://github.com/combsmith/software-factory-canary/commit/fc7f25958fee6339ffaf2e80eb1264ff7249f788"
+              }
+            ],
+            "verification": {
+              "verified": true,
+              "reason": "valid",
+              "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq2qTXCRC1aQ7uu5UhlAAA1esQAFc2s4x+/Y1iQ4I8I87pzZQT\nqav6DeD3uMzURYQZZyAfpjJ09ts9evtskOGKGkwjRneH1E8jUlLoYcgGUl29W2DF\nrhqAm9YSwURUwavSvrQYnjlvQlV+V940WhvFVLjwSqjV6BG1hLOegJqNogidkeD+\nK+3ldG2Ivpmew+xuu4WcJvX4SZh09atlNX2ljo+OzMMqXdHBlicDWheOQKsyxTyF\nPEiyLj0vFgux3RAylVRsbEYgByRjVnLdlfREZXIzd2mJPJXoOUfN+HZOH1JkZ0v7\nZAYs0xdEwTAyXn7rtaZaAZhyPQ32ixUZSv3+CoWSHBPZtT8VsVhaF/jJPKR8cjwe\nHZ//WS9beiBOWR5Wi7nfGsROJLuVpEzpCc+4X/brLphq9e04LZBy8qRomptqmgpk\nx/Hx8g0BbkUzMgz2+5UytPjwhKB6r3/1zinD9TdfF93zd11arAdrbMIj5myopK1K\nJdE7l6KXMv3OHRPK0/jOyw1B9mOfD0Wnt4Pr4t6YjWzFPJuJtL75RfM+/krjGOEv\nCAaQeCQDOsusg+PCBnAS5lwxO8fLA97Tc3na8RV2sjgiLc1xruKGoxI6i4GlOYFs\nysh3SEbS8kBK4iE3t4toKDEnBQaUqSaVBs1I/nL5L/N9UrpvjM6cmu/gYklAVedN\nBOSLapjzmmhcQIlIR1nG\n=8qvS\n-----END PGP SIGNATURE-----\n",
+              "payload": "tree 048f707026c7e4598c79b6dc6e82c3fa2c150a68\nparent fc7f25958fee6339ffaf2e80eb1264ff7249f788\nauthor combsmith-sf-trial-author[bot] <344141469+combsmith-sf-trial-author[bot]@users.noreply.github.com> 1792713942 -0500\ncommitter GitHub <noreply@github.com> 1792713942 -0500\n\nTrial: trial-notes/p-49.md, added by the trial-author App",
+              "verified_at": "2026-10-23T00:05:43Z"
+            },
+            "event": "committed"
+          },
+          {
+            "id": 34005117547,
+            "node_id": "RRE_lADOVFD6788AAAABZP__888AAAAH6tzqaw",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34005117547",
+            "actor": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "id": 344141469,
+              "node_id": "BOT_kgDOFIMunQ",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D",
+              "html_url": "https://github.com/apps/combsmith-sf-trial-author",
+              "followers_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "review_requested",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-23T00:05:45Z",
+            "review_requester": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "id": 344141469,
+              "node_id": "BOT_kgDOFIMunQ",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D",
+              "html_url": "https://github.com/apps/combsmith-sf-trial-author",
+              "followers_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "requested_team": {
+              "name": "org-leads",
+              "id": 17372736,
+              "node_id": "T_kwDOD2inqs4BCRZA",
+              "slug": "org-leads",
+              "description": "Code owners team for review enforcement across all org repos (machine user + humans)",
+              "privacy": "closed",
+              "notification_setting": "notifications_enabled",
+              "url": "https://api.github.com/organizations/258516906/team/17372736",
+              "html_url": "https://github.com/orgs/combsmith/teams/org-leads",
+              "members_url": "https://api.github.com/organizations/258516906/team/17372736/members{/member}",
+              "repositories_url": "https://api.github.com/organizations/258516906/team/17372736/repos",
+              "type": "organization",
+              "organization_id": 258516906,
+              "permission": "maintain",
+              "permissions": {
+                "admin": false,
+                "maintain": true,
+                "push": true,
+                "triage": true,
+                "pull": true
+              },
+              "access_source": "organization",
+              "parent": null
+            },
+            "performed_via_github_app": null
+          },
+          {
+            "id": 5622401062,
+            "node_id": "PRR_kwDOVFD6788AAAABTx8IJg",
+            "user": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "id": 344141469,
+              "node_id": "BOT_kgDOFIMunQ",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D",
+              "html_url": "https://github.com/apps/combsmith-sf-trial-author",
+              "followers_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "body": "A platform trial (issue 282): the first review thread, which the App resolves.",
+            "commit_id": "efa1a2b35997026ba612194ea7cdc7a5a783afb8",
+            "state": "commented",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/55#pullrequestreview-5622401062",
+            "pull_request_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/55",
+            "_links": {
+              "html": {
+                "href": "https://github.com/combsmith/software-factory-canary/pull/55#pullrequestreview-5622401062"
+              },
+              "pull_request": {
+                "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/55"
+              }
+            },
+            "submitted_at": "2026-10-23T00:05:47Z",
+            "updated_at": "2026-10-23T00:05:47Z",
+            "author_association": "CONTRIBUTOR",
+            "event": "reviewed"
+          },
+          {
+            "id": 5622401522,
+            "node_id": "PRR_kwDOVFD6788AAAABTx8J8g",
+            "user": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "id": 344141469,
+              "node_id": "BOT_kgDOFIMunQ",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D",
+              "html_url": "https://github.com/apps/combsmith-sf-trial-author",
+              "followers_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "body": "A platform trial (issue 282): the second review thread, whose first comment is deleted.",
+            "commit_id": "efa1a2b35997026ba612194ea7cdc7a5a783afb8",
+            "state": "commented",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/55#pullrequestreview-5622401522",
+            "pull_request_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/55",
+            "_links": {
+              "html": {
+                "href": "https://github.com/combsmith/software-factory-canary/pull/55#pullrequestreview-5622401522"
+              },
+              "pull_request": {
+                "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/55"
+              }
+            },
+            "submitted_at": "2026-10-23T00:05:51Z",
+            "updated_at": "2026-10-23T00:05:51Z",
+            "author_association": "CONTRIBUTOR",
+            "event": "reviewed"
+          },
+          {
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6354097650",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/55#issuecomment-6354097650",
+            "issue_url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/55",
+            "id": 6354097650,
+            "node_id": "IC_kwDOVFD6788AAAABervV8g",
+            "user": {
+              "login": "coderabbitai[bot]",
+              "id": 136622811,
+              "node_id": "BOT_kgDOCCSy2w",
+              "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+              "html_url": "https://github.com/apps/coderabbitai",
+              "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "created_at": "2026-10-23T00:05:52Z",
+            "updated_at": "2026-10-23T00:05:52Z",
+            "body": "<!-- coderabbit-ai-generated:v1 -->\n\n<!-- This is an auto-generated comment: summarize by coderabbit.ai -->\n<!-- This is an auto-generated comment: skip review by coderabbit.ai -->\n\n> [!IMPORTANT]\n> ## Review skipped\n> \n> Bot user detected.\n> \n> To trigger a single review, invoke the `@coderabbitai review` command.\n> \n> <details>\n> <summary><strong>\u2699\ufe0f Run configuration</strong></summary>\n> <dl>\n> <dd>\n> \n> - **Source mode**: Auto\n> - **Repository**: Unavailable\n> - **Branch**: Unavailable\n> - **File**: No configuration file from this repository applied\n> - **Commit**: Unavailable\n> - **Layers**: Organization UI\n> - **Review profile**: ASSERTIVE\n> - **Plan**: Advanced\n> - **Run ID**: `aa390fd8-5c70-4ff4-af8e-b16d5aa33b4d`\n> \n> </dd>\n> </dl>\n> </details>\n> \n> You can disable this status message by setting the `reviews.review_status` to `false` in the CodeRabbit configuration file.\n> \n> Use the checkbox below for a quick retry:\n> - [ ] <!-- {\"checkboxId\":\"e9bb8d72-00e8-4f67-9cb2-caf3b22574fe\"} --> \ud83d\udd0d Trigger review\n\n<!-- end of auto-generated comment: skip review by coderabbit.ai -->\n\n<!-- autopilot:start -->\n- [ ] <!-- {\"checkboxId\":\"2708ad07-9f24-4260-9c11-7dc76a49f2e3\"} --> <strong title=\"Keep fixing CodeRabbit findings and required CI, and resolving merge conflicts\">Autofix</strong> \u00b7 Keep fixing CodeRabbit findings and required CI, and resolving merge conflicts\n<!-- autopilot:end -->\n<!-- tips_start -->\n\n\n\nThanks for using [CodeRabbit](https://coderabbit.ai?utm_source=oss&utm_medium=github&utm_campaign=combsmith/software-factory-canary&utm_content=55)! It's free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out.\n\n<details>\n<summary><strong>\u2764\ufe0f Share</strong></summary>\n<dl>\n<dd>\n\n- [X](https://twitter.com/intent/tweet?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A&url=https%3A//coderabbit.ai)\n- [Mastodon](https://mastodon.social/share?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A%20https%3A%2F%2Fcoderabbit.ai)\n- [Reddit](https://www.reddit.com/submit?title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&text=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code.%20Check%20it%20out%3A%20https%3A//coderabbit.ai)\n- [LinkedIn](https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fcoderabbit.ai&mini=true&title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&summary=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code)\n\n</dd>\n</dl>\n</details>\n\n\n<sub>Comment `@coderabbitai help` to get the list of available commands.</sub>\n\n<!-- tips_end -->",
+            "author_association": "NONE",
+            "reactions": {
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/comments/6354097650/reactions",
+              "total_count": 0,
+              "+1": 0,
+              "-1": 0,
+              "laugh": 0,
+              "hooray": 0,
+              "confused": 0,
+              "heart": 0,
+              "rocket": 0,
+              "eyes": 0
+            },
+            "performed_via_github_app": {
+              "id": 347564,
+              "client_id": "Iv1.6aaafe4fe882736b",
+              "slug": "coderabbitai",
+              "node_id": "A_kwHOB96YWc4ABU2s",
+              "owner": {
+                "login": "coderabbitai",
+                "id": 132028505,
+                "node_id": "O_kgDOB96YWQ",
+                "avatar_url": "https://avatars.githubusercontent.com/u/132028505?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/coderabbitai",
+                "html_url": "https://github.com/coderabbitai",
+                "followers_url": "https://api.github.com/users/coderabbitai/followers",
+                "following_url": "https://api.github.com/users/coderabbitai/following{/other_user}",
+                "gists_url": "https://api.github.com/users/coderabbitai/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/coderabbitai/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/coderabbitai/subscriptions",
+                "organizations_url": "https://api.github.com/users/coderabbitai/orgs",
+                "repos_url": "https://api.github.com/users/coderabbitai/repos",
+                "events_url": "https://api.github.com/users/coderabbitai/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/coderabbitai/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "coderabbitai",
+              "description": "# Transforming Code Reviews with AI\r\n\r\n## Features\r\n\r\n**Automated Reviews**: Continuous reviews of the pull requests including incremental commits. \r\n\r\n**Summarization**: Generates high-level summary and a technical walkthrough of the PR changes.\u00a0\r\n\r\n**Line-by-line review**: Provides line-by-line suggestions committable with one click.\r\n\r\n**Codebase verification**:  Verifies the impact on the overall codebase and identifies missing changes.\r\n\r\n**Insights into your code**:  Ask any questions on your codebase within the pull request \r\n\r\n**Chat about your code** : Chat with the bot around your code.\u00a0The more you chat, the smarter it gets.\r\n\r\n**Issue Validation**:  Validates the PR against the linked issues and identifies other related issues\u00a0\r\n\r\n\r\n\r\n",
+              "external_url": "https://coderabbit.ai?utm_source=cr_app&utm_medium=github",
+              "html_url": "https://github.com/apps/coderabbitai",
+              "created_at": "2023-06-14T15:47:27Z",
+              "updated_at": "2026-10-22T09:20:52Z",
+              "permissions": {
+                "actions": "read",
+                "checks": "write",
+                "contents": "write",
+                "discussions": "read",
+                "issues": "write",
+                "members": "read",
+                "merge_queues": "read",
+                "metadata": "read",
+                "pull_requests": "write",
+                "statuses": "write",
+                "workflows": "write"
+              },
+              "events": [
+                "issues",
+                "issue_comment",
+                "label",
+                "membership",
+                "merge_group",
+                "organization",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "pull_request_review_thread",
+                "release",
+                "repository",
+                "team"
+              ]
+            },
+            "minimized": null,
+            "event": "commented",
+            "actor": {
+              "login": "coderabbitai[bot]",
+              "id": 136622811,
+              "node_id": "BOT_kgDOCCSy2w",
+              "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+              "html_url": "https://github.com/apps/coderabbitai",
+              "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            }
+          },
+          {
+            "id": 5622401749,
+            "node_id": "PRR_kwDOVFD6788AAAABTx8K1Q",
+            "user": {
+              "login": "combsmith-sf-trial-author[bot]",
+              "id": 344141469,
+              "node_id": "BOT_kgDOFIMunQ",
+              "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D",
+              "html_url": "https://github.com/apps/combsmith-sf-trial-author",
+              "followers_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/followers",
+              "following_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/following{/other_user}",
+              "gists_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/subscriptions",
+              "organizations_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/orgs",
+              "repos_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/repos",
+              "events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/received_events",
+              "type": "Bot",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "body": null,
+            "commit_id": "efa1a2b35997026ba612194ea7cdc7a5a783afb8",
+            "state": "commented",
+            "html_url": "https://github.com/combsmith/software-factory-canary/pull/55#pullrequestreview-5622401749",
+            "pull_request_url": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/55",
+            "_links": {
+              "html": {
+                "href": "https://github.com/combsmith/software-factory-canary/pull/55#pullrequestreview-5622401749"
+              },
+              "pull_request": {
+                "href": "https://api.github.com/repos/combsmith/software-factory-canary/pulls/55"
+              }
+            },
+            "submitted_at": "2026-10-23T00:05:53Z",
+            "updated_at": "2026-10-23T00:05:53Z",
+            "author_association": "CONTRIBUTOR",
+            "event": "reviewed"
+          },
+          {
+            "id": 34005294787,
+            "node_id": "CE_lADOVFD6788AAAABZP__888AAAAH6t-eww",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34005294787",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "closed",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-23T00:08:53Z",
+            "state_reason": null,
+            "intent": null,
+            "performed_via_github_app": null
+          },
+          {
+            "id": 34005296451,
+            "node_id": "HRDE_lADOVFD6788AAAABZP__888AAAAH6t-lQw",
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/issues/events/34005296451",
+            "actor": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "event": "head_ref_deleted",
+            "commit_id": null,
+            "commit_url": null,
+            "created_at": "2026-10-23T00:08:55Z",
+            "performed_via_github_app": null
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): timelineItems of P-49's pull request, every item type, as the Maintainer",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query($owner: String!, $name: String!, $number: Int!, $after: String) {\n  repository(owner: $owner, name: $name) {\n    pullRequest(number: $number) {\n      timelineItems(first: 100, after: $after) {\n        totalCount\n        pageInfo { hasNextPage endCursor }\n        nodes {\n          __typename\n          ... on Node { id }\n          ... on PullRequestReview {\n            databaseId state createdAt\n            author { __typename login ... on Bot { databaseId } ... on User { databaseId } }\n            comments(first: 20) { totalCount nodes { databaseId createdAt replyTo { databaseId } author { __typename login } } }\n          }\n          ... on PullRequestReviewThread {\n            isResolved\n            resolvedBy { __typename login databaseId }\n            comments(first: 20) { totalCount nodes { databaseId replyTo { databaseId } author { __typename login } } }\n          }\n          ... on ClosedEvent { createdAt actor { __typename login ... on Bot { databaseId } ... on User { databaseId } } }\n        }\n      }\n    }\n  }\n}\n",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "number": 55,
+            "after": null
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 26 Oct 2026 04:36:57 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "F3D0:3C9D8:1476DF7:43DA919:6ADED8E9",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4618",
+          "x-ratelimit-reset": "1792990115",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "382"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "timelineItems": {
+                  "totalCount": 8,
+                  "pageInfo": {
+                    "hasNextPage": false,
+                    "endCursor": "Y3Vyc29yOnYyOpPPAAABoWYW1dgBqzM0MDA1Mjk2NDUx"
+                  },
+                  "nodes": [
+                    {
+                      "__typename": "PullRequestCommit",
+                      "id": "PURC_lADOVFD6788AAAABKJTb7toAKGVmYTFhMmIzNTk5NzAyNmJhNjEyMTk0ZWE3Y2RjN2E1YTc4M2FmYjg"
+                    },
+                    {
+                      "__typename": "ReviewRequestedEvent",
+                      "id": "RRE_lADOVFD6788AAAABZP__888AAAAH6tzqaw"
+                    },
+                    {
+                      "__typename": "PullRequestReview",
+                      "id": "PRR_kwDOVFD6788AAAABTx8IJg",
+                      "databaseId": 5622401062,
+                      "state": "COMMENTED",
+                      "createdAt": "2026-10-23T00:05:47Z",
+                      "author": {
+                        "__typename": "Bot",
+                        "login": "combsmith-sf-trial-author",
+                        "databaseId": 344141469
+                      },
+                      "comments": {
+                        "totalCount": 1,
+                        "nodes": [
+                          {
+                            "databaseId": 4354811044,
+                            "createdAt": "2026-10-23T00:05:47Z",
+                            "replyTo": null,
+                            "author": {
+                              "__typename": "Bot",
+                              "login": "combsmith-sf-trial-author"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "__typename": "PullRequestReview",
+                      "id": "PRR_kwDOVFD6788AAAABTx8J8g",
+                      "databaseId": 5622401522,
+                      "state": "COMMENTED",
+                      "createdAt": "2026-10-23T00:05:51Z",
+                      "author": {
+                        "__typename": "Bot",
+                        "login": "combsmith-sf-trial-author",
+                        "databaseId": 344141469
+                      },
+                      "comments": {
+                        "totalCount": 0,
+                        "nodes": []
+                      }
+                    },
+                    {
+                      "__typename": "IssueComment",
+                      "id": "IC_kwDOVFD6788AAAABervV8g"
+                    },
+                    {
+                      "__typename": "PullRequestReview",
+                      "id": "PRR_kwDOVFD6788AAAABTx8K1Q",
+                      "databaseId": 5622401749,
+                      "state": "COMMENTED",
+                      "createdAt": "2026-10-23T00:05:53Z",
+                      "author": {
+                        "__typename": "Bot",
+                        "login": "combsmith-sf-trial-author",
+                        "databaseId": 344141469
+                      },
+                      "comments": {
+                        "totalCount": 1,
+                        "nodes": [
+                          {
+                            "databaseId": 4354811614,
+                            "createdAt": "2026-10-23T00:05:53Z",
+                            "replyTo": null,
+                            "author": {
+                              "__typename": "Bot",
+                              "login": "combsmith-sf-trial-author"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "__typename": "ClosedEvent",
+                      "id": "CE_lADOVFD6788AAAABZP__888AAAAH6t-eww",
+                      "createdAt": "2026-10-23T00:08:53Z",
+                      "actor": {
+                        "__typename": "User",
+                        "login": "don-petry",
+                        "databaseId": 36422719
+                      }
+                    },
+                    {
+                      "__typename": "HeadRefDeletedEvent",
+                      "id": "HRDE_lADOVFD6788AAAABZP__888AAAAH6t-lQw"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization"
+  ],
+  "verdict": "pass"
+}
