@@ -1862,10 +1862,14 @@ class MakeLeavesNothing(unittest.TestCase):
             time.sleep(0.1)
 
     def gone(self, pid: int) -> bool:
+        """Whether the process has ended: no longer there, or a zombie that a container's first process never reaps."""
         for _ in range(50):
             try:
                 os.kill(pid, 0)
             except ProcessLookupError:
+                return True
+            state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+            if not state or state.startswith("Z"):
                 return True
             time.sleep(0.1)
         return False
