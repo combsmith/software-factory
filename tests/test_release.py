@@ -238,6 +238,43 @@ class Tags(unittest.TestCase):
         held["exchanges"][0]["response"]["body"] = [{"ref": "refs/tags/factory/v0.1.0", "note": "ghp_" + "x" * 36}]
         self.assertTrue(check_release.fixture_problems(held, "refs.read.json"))
 
+    def test_each_page_github_links_is_read_and_only_this_lists(self):
+        # GitHub may page the list, thirty to a page: each next page is read by its link, held to this list's own.
+        def page(path, body, link=None):
+            asked = github.request("GET", path)
+            return {"request": {"via": "rest", "call": "GET %s" % asked["path"], "headers": {"accept": asked["accept"]},
+                                "body": None},
+                    "response": {"status": 200, "headers": {"Link": link} if link else {}, "body": body}}
+        first = tags.path(REPO)
+        nxt = "/repositories/1234/git/matching-refs/tags/factory?page=%d"
+        link = lambda n, host="https://api.github.com": '<%s%s>; rel="next", <%s%s>; rel="last"' % (
+            host, nxt % n, host, nxt % 3)
+        three = [page(first, [ref("factory/v0.1.0")], link(2)), page(nxt % 2, [ref("factory/v0.2.0", B)], link(3)),
+                 page(nxt % 3, [ref(NEXT, B)])]
+        self.assertEqual(tags.read(github.Replay(three), REPO), {"factory/v0.1.0": A, "factory/v0.2.0": B, NEXT: B})
+        named = [page(first, [ref("factory/v0.1.0")], '<https://api.github.com/repos/%s/git/matching-refs/tags/factory'
+                                                      '?per_page=30&page=2>; rel="next"' % REPO),
+                 page("/repos/%s/git/matching-refs/tags/factory?per_page=30&page=2" % REPO, [ref(NEXT, A)])]
+        self.assertEqual(tags.read(github.Replay(named), REPO), {"factory/v0.1.0": A, NEXT: A})
+        # Each refused next page is one GitHub would answer, so that reading it is what a test would see.
+        heads = "/repositories/1234/git/matching-refs/heads/main?page=2"
+        for why, link_, then in (("another host", link(2, "https://evil.example"), nxt % 2),
+                                 ("another list", '<https://api.github.com%s>; rel="next"' % heads, heads),
+                                 ("a page skipped", link(3), nxt % 3),
+                                 ("the same page again", '<https://api.github.com%s>; rel="next"' % (nxt % 1), nxt % 1),
+                                 ("a next with no link", 'rel="next"', nxt % 2)):
+            with self.subTest(why=why):
+                answered_ = [page(first, [ref("factory/v0.1.0")], link_), page(then, [ref(NEXT, A)])]
+                self.assertIsNone(tags.read(github.Replay(answered_), REPO))
+        # A name on two pages is no whole read, and nor is a list longer than MOST_PAGES pages.
+        twice = [page(first, [ref("factory/v0.1.0")], link(2)), page(nxt % 2, [ref("factory/v0.1.0", B)])]
+        self.assertIsNone(tags.read(github.Replay(twice), REPO))
+        most = tags.MOST_PAGES
+        endless = [page(first, [], link(2))] + [page(nxt % n, [], '<https://api.github.com%s>; rel="next"' % (nxt % (n + 1)))
+                                                for n in range(2, most + 1)] + [page(nxt % (most + 1), [])]
+        self.assertIsNone(tags.read(github.Replay(endless), REPO))
+        self.assertEqual(tags.read(github.Replay(endless[:-1][:-1] + [page(nxt % most, [])]), REPO), {})
+
     def test_tags_are_read_whole_or_not_at_all(self):
         for body, status, headers in (
                 ([ref("factory/v0.1.0", kind="tag")], 200, None),

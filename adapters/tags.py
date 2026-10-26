@@ -1,7 +1,8 @@
 """The Factory's tags, read as GitHub holds them: every ref under `refs/tags/factory/`, read through the one transport
 (decision 0044; #197's rulings 2, 4 and 7). It hands back `{name: commit}`, each name without `refs/tags/`, or None
-when the refs were not answered whole: an answer not a list of refs, a list GitHub says has another page, a name given
-twice, or a tag that is not lightweight, whose sha is not its commit. It decides nothing: which name is a Release or a
+when the refs were not answered whole: an answer not a list of refs, a next page that is not this list's next, more
+than MOST_PAGES of them, a name given twice, or a tag that is not lightweight, whose sha is not its commit. GitHub may
+page the list, thirty to a page; each next page is read by the link GitHub gives for it, held to this list's own. It decides nothing: which name is a Release or a
 Channel is `release/current.py`'s. It reads no file at any tag, so a rollback runs nothing of what it rolls back."""
 from __future__ import annotations
 
@@ -13,6 +14,11 @@ PREFIX = "refs/tags/factory/"
 SHA = re.compile(r"[0-9a-f]{40}")
 REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}")
 NEXT_PAGE = re.compile(r'rel="next"')
+NEXT_LINK = re.compile(r'<https://api\.github\.com(/[^<>\s]*)>;\s*rel="next"')
+# This list's own next page, by the repo's name or its id, as GitHub writes a link: page 2 and after, nothing else.
+PAGED = re.compile(r"/(?:repos/[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}|repositories/[1-9][0-9]{0,11})"
+                   r"/git/matching-refs/tags/factory\?(?:per_page=[1-9][0-9]{0,2}&)?page=([1-9][0-9]{0,3})")
+MOST_PAGES = 40     # 1,200 tags at thirty to a page: a list longer than that is not read whole
 
 
 def path(repo: str) -> str:
@@ -20,19 +26,16 @@ def path(repo: str) -> str:
     return "/repos/%s/git/matching-refs/tags/factory" % repo
 
 
-def read(transport, repo: str):
-    """Every `factory/` tag of `repo` and the commit it names, or None when they were not all read."""
-    if transport is None or not isinstance(repo, str) or not REPO.fullmatch(repo) or repo.split("/")[1] in (".", ".."):
-        return None
+def _page(transport, asked: str, refs: dict):
+    """The next page's path after reading `asked` into `refs`, "" when it was the last, or None when not read whole."""
     try:
-        answer = transport.send(request("GET", path(repo)))
+        answer = transport.send(request("GET", asked))
     except Unanswered:
         return None
     body = answer["body"]
     headers = {str(k).lower(): str(v) for k, v in (answer.get("headers") or {}).items()}
-    if answer["status"] != 200 or not isinstance(body, list) or NEXT_PAGE.search(headers.get("link", "")):
+    if answer["status"] != 200 or not isinstance(body, list):
         return None
-    refs = {}
     for ref in body:
         if not isinstance(ref, dict) or not isinstance(ref.get("ref"), str) or not isinstance(ref.get("object"), dict):
             return None
@@ -43,4 +46,23 @@ def read(transport, repo: str):
                 or not SHA.fullmatch(target["sha"]):
             return None
         refs[name] = target["sha"]
-    return refs
+    link = headers.get("link", "")
+    if not NEXT_PAGE.search(link):
+        return ""
+    found = NEXT_LINK.search(link)
+    return found.group(1) if found else None
+
+
+def read(transport, repo: str):
+    """Every `factory/` tag of `repo` and the commit it names, or None when they were not all read."""
+    if transport is None or not isinstance(repo, str) or not REPO.fullmatch(repo) or repo.split("/")[1] in (".", ".."):
+        return None
+    refs, asked = {}, path(repo)
+    for number in range(2, MOST_PAGES + 2):
+        asked = _page(transport, asked, refs)
+        if asked == "":
+            return refs
+        paged = PAGED.fullmatch(asked) if asked else None
+        if paged is None or int(paged.group(1)) != number:
+            return None
+    return None

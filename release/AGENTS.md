@@ -21,4 +21,5 @@ Not built yet, by the stories that hold their rules: promote.py, cutover.py.
 | No repo and Intent family is served by two Channels | `examples/invalid/rings.a-repo-on-two-channels.json` |
 | A Release reaches `stable` only with Runs behind it, each Effect read back, and an eval for each changed Intent | `examples/invalid/rings.promotion-with-no-runs.json`, `examples/invalid/rings.promotion-without-evals.json` |
 | The tags are read whole or not at all, and nothing is read at any tag | `tests/test_release.py::test_tags_are_read_whole_or_not_at_all`, `tests/test_release.py::test_a_move_reads_refs_and_nothing_at_any_tag` |
+| Each page GitHub links is read, of this list alone and to a bound | `tests/test_release.py::test_each_page_github_links_is_read_and_only_this_lists` |
 | A fixture holds no credential, and no header a trial's fixture drops | `tests/test_release.py::test_the_refs_github_answered_are_read_as_the_port_reads_them` |
