@@ -69,14 +69,28 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
         return _ended(parts["run"], release, ("environment", str(err)))
     revoked = False
     try:
-        record = passes.find(reading, home, config["controller"]["home"]["branch"],
-                             config["controller"]["workflows"]["poller"], pass_id)
-        role = steps.read_json(steps.ROOT, os.path.join("roles", "%s.json" % parts["role"]))
         try:
-            admit = apply.admitted(record, parts["run"], role, [])
-        except task.Refused:
+            record = passes.find(reading, home, config["controller"]["home"]["branch"],
+                                 config["controller"]["workflows"]["poller"], pass_id)
+        except Unanswered:
+            record = False
+        role = steps.read_json(steps.ROOT, os.path.join("roles", "%s.json" % parts["role"]))
+        admit = None
+        if record is False:
+            done = _ended(parts["run"], release, ("environment", "record_unreadable"))
+        elif record is None:
             done = _ended(parts["run"], release, ("superseded", "no_decision"))
-            admit = None
+        else:
+            try:
+                read_.decided(record, parts, config["kernel"]["owner_role"])
+                admit = apply.admitted(record, parts["run"], role, [])
+            except Stop as stop:
+                # A record that is no pass record is the environment's; a Decision of another item, Intent or
+                # content than the run-name's is no Decision of this Run.
+                why = ("environment", stop.code) if stop.code == "record_unreadable" else ("superseded", "no_decision")
+                done = _ended(parts["run"], release, why)
+            except task.Refused:
+                done = _ended(parts["run"], release, ("superseded", "no_decision"))
         try:
             with open(steps.inside(base, os.path.join(found, "result.json")), "rb") as f:
                 result = apply.taken(f.read(), environ.get("RUN_DIGEST"))

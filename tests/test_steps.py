@@ -4,6 +4,7 @@ Controller's token minted from its key in the effects step. Each step is driven 
 workflow will call it; nothing here reaches the network, and each test reads and writes in a scratch folder alone."""
 from __future__ import annotations
 
+import base64
 import contextlib
 import copy
 import hashlib
@@ -59,9 +60,13 @@ class Shared(unittest.TestCase):
             self.assertEqual(os.stat(folder).st_mode & 0o777, 0o700)
             with self.assertRaises(FileExistsError):
                 steps.write(folder, "a.json", {})
-            for taken in ("out", "../elsewhere", "/tmp"):
+            for taken in ("out", "/tmp"):
                 with self.assertRaises(steps.Stop, msg=taken):
                     steps.new_folder(d, taken)
+            # A path that climbs out is refused before anything is made, wherever it would land.
+            for out in ("../elsewhere", "inner/../../elsewhere", "/etc/passwd"):
+                with self.assertRaisesRegex(steps.Stop, "^path_outside$", msg=out):
+                    steps.inside(d, out)
             os.symlink(os.path.join(d, "nowhere"), os.path.join(d, "link"))
             with self.assertRaises(steps.Stop):
                 steps.new_folder(d, "link")
@@ -124,17 +129,25 @@ class Reader(unittest.TestCase):
                 run.from_folder("task", "result", d)
 
     def test_the_reader_fails_closed(self):
-        other = copy.deepcopy(RECORD)
-        for e in other["pull_requests"]:
-            if e["run"] == RUN:
-                e["decision"]["admit"]["intent"] = "fix-findings"
+        def varied(change):
+            record = copy.deepcopy(RECORD)
+            for e in record["pull_requests"]:
+                if e["run"] == RUN:
+                    change(e["decision"])
+            return record
+        other = varied(lambda d: d["admit"].update(intent="fix-findings"))
+        elsewhere = varied(lambda d: d["item"].update(number=43))
+        moved = varied(lambda d: d["admit"].update(content_id="sha256:" + "0" * 64))
         for change, want in (({"record": None}, "record_not_found"), ({"record": other}, "not_the_decision"),
+                             ({"record": elsewhere}, "not_the_decision"), ({"record": moved}, "not_the_decision"),
+                             ({"record": {"pass": PASS}}, "record_unreadable"),
+                             ({"record": None, "revoked": False}, "token_not_revoked"),
                              ({"first": "a" * 40}, "head_moved"), ({"change": DIFF + b"+c\n"}, "content_moved"),
                              ({"revoked": False}, "token_not_revoked"), ({"environ": {}}, "key_unreadable")):
             code, printed, files, _, calls = self.go(**change)
             self.assertEqual((code, printed, files), (1, want + "\n", []), change)
             # A key read is always revoked, whatever stopped the reads.
-            self.assertEqual(calls["revoked"], 1 if change != {"environ": {}} else 0, change)
+            self.assertEqual(calls["revoked"], 0 if change == {"environ": {}} else 1, change)
         for argv, want in (([NAME, "%s#43" % HOME, PASS, "task"], "item_not_the_run_names"),
                            (["not a run-name", ITEM, PASS, "task"], "run_name_unreadable"),
                            ([NAME, ITEM, "p_bad", "task"], "pass_unreadable"),
@@ -154,7 +167,25 @@ class PassFound(unittest.TestCase):
         self.assertEqual(passes.find(replay, HOME, "main", "poller.yml", "p_0000AAA"), record)
         replay = github.Replay([listed] + pass_stored(30, pass_zip(other)) + pass_stored(20, pass_zip(record)))
         self.assertIsNone(passes.find(replay, HOME, "main", "poller.yml", "p_0000CCC"))
-        self.assertIsNone(passes.find(github.Replay([]), HOME, "main", "poller.yml", "p_0000AAA"))
+        # A record over 64 KiB zipped is found, under the pass record's own bound (decision 0060).
+        big = dict(record, filler=base64.b64encode(os.urandom(90 * 1024)).decode())
+        zipped = pass_zip(big)
+        self.assertGreater(len(zipped), github.STORED)
+        found = github.Replay([dict(listed, response=dict(listed["response"], body={"total_count": 1,
+                                                                                   "workflow_runs": [a_pass(20)]}))]
+                              + pass_stored(20, zipped))
+        self.assertEqual(passes.find(found, HOME, "main", "poller.yml", "p_0000AAA"), big)
+        # What cannot be read raises, the environment's, never a Run with no Decision: the list, or a pass's artifact.
+        with self.assertRaises(github.Unanswered):
+            passes.find(github.Replay([]), HOME, "main", "poller.yml", "p_0000AAA")
+        alone = copy.deepcopy(listed)
+        alone["response"]["body"] = {"total_count": 1, "workflow_runs": [a_pass(30)]}
+        for broken in (pass_stored(30, pass_zip(other), size_in_bytes=1), pass_stored(30, pass_zip(b"not json"))):
+            with self.assertRaises(github.Unanswered):
+                passes.find(github.Replay([alone] + broken), HOME, "main", "poller.yml", "p_0000AAA")
+        for answer in ({"status": 502, "headers": {}, "body": None}, {"status": 200, "headers": {}, "body": {}}):
+            with self.assertRaises(github.Unanswered, msg=answer):
+                passes.find(github.Replay([dict(listed, response=answer)]), HOME, "main", "poller.yml", "p_0000AAA")
         for bad in ("", "p_x", None, "p_0000AAA/../x"):
             sent = Recording(github.Replay([]))
             self.assertIsNone(passes.find(sent, HOME, "main", "poller.yml", bad), bad)
@@ -190,8 +221,8 @@ NEEDS = json.dumps({"run": {"result": "success", "outputs": {}}, "verify": {"res
 
 
 class Apply(unittest.TestCase):
-    def go(self, environ=None, record=RECORD, job=None, mint_refuses=None, revoked=True):
-        calls = {"minted": [], "revoked": 0, "job": []}
+    def go(self, environ=None, record=RECORD, job=None, mint_refuses=None, revoked=True, result=None, a_job=None):
+        calls = {"minted": [], "revoked": 0, "job": [], "granted": []}
 
         def from_key(app, repo, wanted, key, now, connect):
             calls["minted"].append((app["name"], wanted))
@@ -203,20 +234,30 @@ class Apply(unittest.TestCase):
                 return revoked
             return "the read transport", revoke
 
-        def a_job(admit, result, read_, write, mint, role, config, now):
+        def recorded(admit, result, read_, write, mint, role, config, now):
             calls["job"].append((admit, result, config))
+            if a_job:
+                return a_job(admit, result, read_, write, mint, role, config, now)
             return job(admit) if job else apply_step._ended(admit["run"], admit["release"], (None, None))
+        def find(*a):
+            if record is github.Unanswered:
+                raise github.Unanswered("no answer")
+            return copy.deepcopy(record)
         env = {"RELEASE": RELEASE, "NEEDS": NEEDS, apply_step.KEY: "k", "RUN_DIGEST": "sha256:" + "0" * 64,
                "GITHUB_RUN_ID": "4242"}
         env.update(environ or {})
         # The pr-review App as the Maintainer expands it for the re-read (decision 0054): every read apply names, at read.
         def granted(app, needs, names, kind):
+            calls["granted"].append((tuple(names), kind))
             return {needs[n]["permission"]: "read" for n in names if "permission" in needs.get(n, {})}
         with tempfile.TemporaryDirectory() as d, \
                 unittest.mock.patch.object(identity, "from_key", from_key), \
                 unittest.mock.patch.object(identity, "granted", granted), \
-                unittest.mock.patch.object(passes, "find", lambda *a: copy.deepcopy(record)), \
-                unittest.mock.patch.object(apply_step.apply, "job", a_job):
+                unittest.mock.patch.object(passes, "find", find), \
+                unittest.mock.patch.object(apply_step.apply, "job", recorded):
+            if result is not None:
+                os.mkdir(os.path.join(d, "result"))
+                pathlib.Path(d, "result", "result.json").write_bytes(result)
             code, printed = ran(apply_step.step, [NAME, ITEM, PASS, "result", "applied"],
                                 {k: v for k, v in env.items() if v is not None}, d)
             folder = pathlib.Path(d, "applied")
@@ -237,6 +278,8 @@ class Apply(unittest.TestCase):
         self.assertEqual((code, ended["outcome"]), (0, None), printed)
         (name, wanted), = calls["minted"]
         self.assertEqual((name, set(wanted.values())), ("combsmith-sf-pr-review", {"read"}))
+        # Its token is asked for apply's reads, as reads, and nothing else.
+        self.assertEqual(calls["granted"], [(apply_step.apply.READS, "read")])
         (admit, result, config), = calls["job"]
         self.assertEqual((admit["run"], admit["content_id"], result), (RUN, CONTENT, None))
         self.assertEqual((config["github_run"], config["app"]["name"]), ("4242", "combsmith-sf-pr-review"))
@@ -244,21 +287,74 @@ class Apply(unittest.TestCase):
         self.assertEqual(self.go(revoked=False)[2]["reason"], "token_not_revoked")
         code, _, ended, calls = self.go(mint_refuses="read_not_granted")
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("environment", "read_not_granted", []))
+        # The Result is the one `run` reported, by its digest, and none of other bytes.
+        data = (json.dumps(json.loads((ROOT / "examples" / "result.json").read_text())) + "\n").encode()
+        digest = "sha256:" + hashlib.sha256(data).hexdigest()
+        _, _, _, calls = self.go({"RUN_DIGEST": digest}, result=data)
+        self.assertEqual(calls["job"][0][1], json.loads(data))
+        _, _, _, calls = self.go(result=data)
+        self.assertIsNone(calls["job"][0][1])
+        # A record that cannot be read is the environment's; a Decision of another item, no Decision of this Run's.
+        code, _, ended, calls = self.go(record=github.Unanswered)
+        self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("environment", "record_unreadable", []))
+        elsewhere = copy.deepcopy(RECORD)
+        for e in elsewhere["pull_requests"]:
+            if e["run"] == RUN:
+                e["decision"]["item"]["number"] = 43
+        code, _, ended, calls = self.go(record=elsewhere)
+        self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("superseded", "no_decision", []))
         # No Decision for this Run: superseded, and the job is never asked.
         code, _, ended, calls = self.go(record=None)
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"], calls["revoked"]),
                          ("superseded", "no_decision", [], 1))
+
+    def test_apply_writes_through_its_roles_allowlist_on_the_item_read_again(self):
+        # The job's callbacks, as `apply` calls them: the item read again through the read token; a write token minted
+        # from the key with what the Effects need; and each write held to the Role's allowlist on the admitted item.
+        seen = {"reread": [], "role_write": []}
+        facts = dict(support.facts(), threads=[support.thread("T1")])
+
+        def a_job(admit, result, read_, write, mint, role, config, now):
+            read_()
+            transport, revoke = mint({"pull_requests": "write"})
+            write(transport, "comment", {"on": "item"})
+            revoke()
+            return apply_step._ended(admit["run"], admit["release"], (None, None))
+
+        def item(transport, config, number, now, clock):
+            seen["reread"].append((transport, number))
+            return facts, HEAD, [], support.context()
+
+        def role_write(transport, item_, kind, req, login):
+            seen["role_write"].append((transport, item_, kind, login))
+            return {"state": "applied", "key": "IC_x"}
+        with unittest.mock.patch.object(reread, "item", item), \
+                unittest.mock.patch.object(effects, "role_write", role_write):
+            code, printed, ended, calls = self.go(job=None, a_job=a_job)
+        self.assertEqual((code, ended["outcome"]), (0, None), printed)
+        self.assertEqual(seen["reread"], [("the read transport", 42)])
+        self.assertEqual([wanted for _, wanted in calls["minted"]][1], {"pull_requests": "write"})
+        (transport, item_, kind, login), = seen["role_write"]
+        self.assertIsInstance(transport, effects.Allowed)
+        self.assertEqual((item_, kind, login), (dict(support.ITEM), "comment", "combsmith-sf-pr-review[bot]"))
+        # Held: the allowlist refuses a write on another item.
+        with self.assertRaises(github.Unanswered):
+            transport.send(github.request("POST", "/repos/%s/issues/43/comments" % HOME, body={"body": "x"}))
 
     def test_the_last_step_leaves_the_outcome(self):
         kept = {"schema": "outcome/1", "run": RUN, "release": RELEASE, "outcome": "item", "reason": "uncovered"}
         with tempfile.TemporaryDirectory() as d:
             os.mkdir(os.path.join(d, "applied"))
             pathlib.Path(d, "applied", "outcome.json").write_text(json.dumps(kept))
-            self.assertEqual(ran(outcome.step, [NAME, "applied", "o1"], {"RELEASE": RELEASE}, d)[0], 0)
+            # A Run that did not succeed concludes so, by its code, once its outcome is written.
+            self.assertEqual(ran(outcome.step, [NAME, "applied", "o1"], {"RELEASE": RELEASE}, d), (1, "uncovered\n"))
             self.assertEqual(json.loads(pathlib.Path(d, "o1", "outcome.json").read_text()), kept)
+            os.mkdir(os.path.join(d, "fine"))
+            pathlib.Path(d, "fine", "outcome.json").write_text(json.dumps(dict(kept, outcome=None, reason=None)))
+            self.assertEqual(ran(outcome.step, [NAME, "fine", "o0"], {"RELEASE": RELEASE}, d), (0, "outcome none\n"))
             for folder, release in (("nothing", RELEASE), ("applied", "factory/v0.3.2")):
                 out = "o-%s-%s" % (folder, release[-1])
-                self.assertEqual(ran(outcome.step, [NAME, folder, out], {"RELEASE": release}, d)[0], 0)
+                self.assertEqual(ran(outcome.step, [NAME, folder, out], {"RELEASE": release}, d), (1, "apply_failed\n"))
                 said = json.loads(pathlib.Path(d, out, "outcome.json").read_text())
                 self.assertEqual((said["run"], said["outcome"], said["reason"]), (RUN, "environment", "apply_failed"))
             self.assertEqual(ran(outcome.step, ["not a name", "applied", "o3"], {"RELEASE": RELEASE}, d),
@@ -269,12 +365,20 @@ class Approve(unittest.TestCase):
     def test_the_approver_holds_to_its_item(self):
         seen = []
 
+        reread_through = []
+
         def a_job(record, run_, read_, port, config, now):
             seen.append((record, run_, port, config))
+            read_()
             return approve_step.approve._records(run_, config["release"], "applied", "PRR_x", None)
+
+        def item(transport, *a):
+            reread_through.append(transport)
+            return None
         with tempfile.TemporaryDirectory() as d, \
                 unittest.mock.patch.object(passes, "find", lambda transport, *a: (seen.append(transport), RECORD)[1]), \
-                unittest.mock.patch.object(approve_step.approve, "job", a_job):
+                unittest.mock.patch.object(approve_step.approve, "job", a_job), \
+                unittest.mock.patch.object(reread, "item", item):
             code, printed = ran(approve_step.step, [NAME, ITEM, PASS, "approved"],
                                 {"RELEASE": RELEASE, approve_step.TOKEN: "t", "GITHUB_RUN_ID": "9"}, d,
                                 lambda: 0, lambda token: ("live", token))
@@ -282,10 +386,29 @@ class Approve(unittest.TestCase):
             done = json.loads(pathlib.Path(d, "approved", "applied.json").read_text())
         found, (record, run_, port, config) = seen
         self.assertIsInstance(found, effects.Approving)
+        # The item is read again through the approver's token held to its item, too.
+        self.assertEqual([type(t) for t in reread_through], [effects.Approving])
         self.assertEqual((record, run_, config["approver"], config["github_run"]), (RECORD, RUN, "donpetry-bot", "9"))
         self.assertEqual(done["effects"][0]["state"], "applied")
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(ran(approve_step.step, [NAME, ITEM, PASS, "o"], {}, d), (1, "release_unreadable\n"))
+        # A record that cannot be read, or a Decision not the run-name's: nothing asked, and the step fails by its code.
+        elsewhere = copy.deepcopy(RECORD)
+        for e in elsewhere["pull_requests"]:
+            if e["run"] == RUN:
+                e["decision"]["item"]["number"] = 43
+
+        def unread(*a):
+            raise github.Unanswered("no answer")
+        for found, want in ((unread, "record_unreadable"), (lambda *a: elsewhere, "not_the_decision")):
+            asked = []
+            with tempfile.TemporaryDirectory() as d, \
+                    unittest.mock.patch.object(passes, "find", found), \
+                    unittest.mock.patch.object(approve_step.approve, "job", lambda *a: asked.append(a)):
+                code, printed = ran(approve_step.step, [NAME, ITEM, PASS, "o"],
+                                    {"RELEASE": RELEASE, approve_step.TOKEN: "t"}, d, lambda: 0, lambda token: "live")
+                ended = json.loads(pathlib.Path(d, "o", "outcome.json").read_text())
+            self.assertEqual((code, printed, ended["reason"], asked), (1, want + "\n", want, []), want)
 
 
 class Diff(unittest.TestCase):

@@ -11,6 +11,7 @@ own to check: its `checks` are `not_run`, never `passed` (L-54). The checks for 
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import sys
@@ -35,7 +36,10 @@ def step(argv: list, environ: dict, base) -> str:
         raise Stop("result_unreadable") from None
     if "sha256:" + hashlib.sha256(data).hexdigest() != reported:
         raise Stop("result_not_the_runs")
-    result = steps.read_json(base, os.path.join(found, "result.json"))
+    try:
+        result = json.loads(data.decode("utf-8"))
+    except ValueError:
+        raise Stop("result_unreadable") from None
     if shared.errors(result, "result"):
         raise Stop("result_unreadable")
     verdict = {"schema": "verdict/1", "run": result["run"], "release": result["release"], "digest": reported,

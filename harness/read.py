@@ -26,7 +26,7 @@ import time
 from adapters import facts as facts_, identity, passes, pull, records, timeline
 from adapters.github import Live, Unanswered
 from controller import configuration
-from harness import steps, task
+from harness import approve, shared, steps, task
 from harness.steps import Stop
 
 APP = "reader"
@@ -58,6 +58,26 @@ def asked(name: str, item: str, pass_id: str, home: str) -> dict:
     return parts
 
 
+def decided(record, parts: dict, owner_role: str) -> dict:
+    """The Decision the run-name names in `record`: an admission of the run-name's item, Intent, Role and content, or
+    an act issuing the approval of its item and content under the owner Role; Stop `not_the_decision` otherwise. A Run
+    dispatched by hand with another Run's id finds none. A record that is no `pass/1` is `record_unreadable`."""
+    if shared.errors(record, "pass"):
+        raise Stop("record_unreadable")
+    if parts["intent"] == approve.APPROVAL:
+        act = approve.decision_of(record, parts["run"])
+        if act is None or act["item"] != parts["item"] or act["content_id"] != parts["content_id"] \
+                or parts["role"] != owner_role:
+            raise Stop("not_the_decision")
+        return act
+    entry = task.decision_of(record, parts["run"])
+    admit = entry["decision"].get("admit") if entry else None
+    if admit is None or entry["decision"]["item"] != parts["item"] or \
+            (admit["intent"], admit["role"], admit["content_id"]) != (parts["intent"], parts["role"], parts["content_id"]):
+        raise Stop("not_the_decision")
+    return admit
+
+
 def reads(transport, config: dict, parts: dict, pass_id: str, clock) -> dict:
     """Each file the step writes, by its name, read through `transport`."""
     controller = config["controller"]
@@ -65,11 +85,9 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock) -> dict:
     record = passes.find(transport, home, branch, controller["workflows"]["poller"], pass_id)
     if record is None:
         raise Stop("record_not_found")
-    entry = task.decision_of(record, parts["run"])
-    admit = entry["decision"].get("admit") if entry else None
-    if admit is None or entry["decision"]["item"] != parts["item"] or \
-            (admit["intent"], admit["role"], admit["content_id"]) != (parts["intent"], parts["role"], parts["content_id"]):
-        raise Stop("not_the_decision")
+    admit = decided(record, parts, config["kernel"]["owner_role"])
+    if "intent" not in admit:
+        raise Stop("not_the_decision")       # an approval is the approving act's, and runs no Task
     identities, approver, lenses, factory = facts_.accounts_of(controller)
     who = timeline.Accounts(transport, home, approver, lenses, factory)
     number = parts["item"]["number"]
@@ -97,15 +115,17 @@ def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
                                               environ.get(KEY), int(clock()), connect)
     except identity.Refused as err:
         raise Stop(str(err)) from None
+    utc = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(clock())))
     try:
-        utc = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(clock())))
-        try:
-            found = reads(transport, config, parts, pass_id, utc)
-        except Unanswered:
+        found = reads(transport, config, parts, pass_id, utc)
+    except BaseException as err:
+        # The token is revoked whatever stopped the reads, and one GitHub did not revoke is the step's one code.
+        if revoke() is not True:
+            raise Stop("token_not_revoked") from None
+        if isinstance(err, Unanswered):
             raise Stop("facts_unreadable") from None
-    finally:
-        revoked = revoke()
-    if revoked is not True:
+        raise
+    if revoke() is not True:
         raise Stop("token_not_revoked")
     for name_ in FILES:
         steps.write(folder, name_, found[name_])

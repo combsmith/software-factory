@@ -7,7 +7,9 @@ NAME, ITEM and PASS are the Run's three inputs, OUT a new folder. The approver's
 credential, and every request it sends is held by the effects port's `Approving` to the item's own repo and reads, and
 to the one approval: the pass record is found by PASS among the poller's runs, and the item read again
 (`harness/reread.py`), through it. No key is minted and none revoked: the token is the machine user's own. OUT holds
-`applied.json` and `outcome.json`; a token that cannot be read writes nothing and ends `environment`."""
+`applied.json` and `outcome.json`; a token that cannot be read writes nothing and ends `environment`. A Run whose
+outcome names a fault fails the step, by its code, after both are written, so that the run concludes as it ended and
+the pass reads its outcome; the uploads after it run whatever failed."""
 from __future__ import annotations
 
 import os
@@ -37,8 +39,17 @@ def written(argv: list, environ: dict, clock, connect) -> tuple:
     except Unanswered:
         return approve._records(parts["run"], release, "refused", None, ("environment", "approver_unreadable"))
     approving = effects.Approving(transport, parts["item"])
-    record = passes.find(approving, home, config["controller"]["home"]["branch"],
-                         config["controller"]["workflows"]["poller"], pass_id)
+    try:
+        record = passes.find(approving, home, config["controller"]["home"]["branch"],
+                             config["controller"]["workflows"]["poller"], pass_id)
+    except Unanswered:
+        return approve._records(parts["run"], release, "refused", None, ("environment", "record_unreadable"))
+    try:
+        if record is not None:
+            read_.decided(record, parts, config["kernel"]["owner_role"])
+    except Stop as stop:
+        why = ("environment", stop.code) if stop.code == "record_unreadable" else ("superseded", "not_the_decision")
+        return approve._records(parts["run"], release, "refused", None, why)
     told = {"approver": config["kernel"]["approver"],
             "kernel": dict(config["kernel"], lifecycle=config["lifecycles"]["pull_request"]),
             "github_run": environ.get("GITHUB_RUN_ID"), "release": release}
@@ -56,7 +67,10 @@ def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
         raise Stop("records_unreadable")
     steps.write(folder, "applied.json", done)
     steps.write(folder, "outcome.json", ended)
-    return "approval %s, outcome %s" % (done["effects"][0]["state"], ended["outcome"] or "none")
+    # A Run that did not succeed must conclude so, or the pass never reads its outcome (section 3.10).
+    if ended["outcome"] is not None:
+        raise Stop(ended["reason"] or ended["outcome"])
+    return "approval %s" % done["effects"][0]["state"]
 
 
 if __name__ == "__main__":

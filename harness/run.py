@@ -27,7 +27,7 @@ import tempfile
 import time
 import uuid
 
-from harness import engine, task
+from harness import engine, steps, task
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CLI = "CLAUDE_CLI"
@@ -96,11 +96,10 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
                         session or str(uuid.uuid4()), instructions(ROOT, the_task))
     data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
     digest = "sha256:" + hashlib.sha256(data).hexdigest()
-    os.makedirs(out)
-    with open(os.path.join(out, "result.json"), "wb") as f:
-        f.write(data)
-    with open(os.path.join(out, "result.sha256"), "w", encoding="utf-8") as f:
-        f.write(digest + "\n")
+    # The Result is its own user's alone to read, as every step's files are (`harness/steps.py`).
+    os.makedirs(out, 0o700)
+    steps.write(out, "result.json", data)
+    steps.write(out, "result.sha256", (digest + "\n").encode())
     return digest
 
 
