@@ -1,8 +1,8 @@
 {
   "schema": "trial/1",
   "trial": "P-53",
-  "question": "Does a pull request's timeline, read as GitHub's REST issue timeline and as GraphQL timelineItems of every item type, name who resolved a review thread, by account id and type; and does it link a reply whose thread's first comment was deleted to that comment or to its review?",
-  "pass": "By the Factory Builder's ruling on issue 331: read-only, by the Maintainer's gh login, on the canary's pull request 55, P-49's, whose thread PRRT_kwDOVFD6786vbPoG the trial-author App resolved and whose thread PRRT_kwDOVFD6786vbPrK lost its first comment 4354811408 (of review 5622401522) under reply 4354811614 (of review 5622401749). Read the REST issue timeline, every page, and GraphQL timelineItems, every page and every item type. Pass if both are read whole and say: (1) whether any item names the first thread's resolution, and if so its actor's account id and type; and (2) whether any item links reply 4354811614, or its review, to the deleted comment or to review 5622401522. This trial records behaviour; it fails only if a read cannot say these things.",
+  "question": "Does a pull request's timeline, read as GitHub's REST issue timeline and as GraphQL timelineItems of every item type, name who resolved a review thread, by account id and type; and does it link a reply whose thread's first comment was deleted to that comment or to its review; and does the repo's permission read of the login GraphQL's resolvedBy gives answer the account's id and type, a Bot for an App's bot and a User for a person?",
+  "pass": "By the Factory Builder's ruling on issue 331: read-only, by the Maintainer's gh login, on the canary's pull request 55, P-49's, whose thread PRRT_kwDOVFD6786vbPoG the trial-author App resolved and whose thread PRRT_kwDOVFD6786vbPrK lost its first comment 4354811408 (of review 5622401522) under reply 4354811614 (of review 5622401749). Read the REST issue timeline, every page, and GraphQL timelineItems, every page and every item type. Pass if both are read whole and say: (1) whether any item names the first thread's resolution, and if so its actor's account id and type; and (2) whether any item links reply 4354811614, or its review, to the deleted comment or to review 5622401522. Then, by the Factory Builder's ruling on issue 331, read the canary's permission of the login resolvedBy gives the App's resolution in P-49, combsmith-sf-trial-author[bot], and of the Maintainer, don-petry, as the threads port reads a person's write access. Pass too only if each answers a user with an id and a type: (3) whether the bot's id is resolvedBy's databaseId, 344141469, and its type a Bot, and the Maintainer's a User. This trial records behaviour; it fails only if a read cannot say these things.",
   "repo": "combsmith/software-factory-canary",
   "ran_at": "2026-10-26T04:36:24Z",
   "exchanges": [
@@ -623,11 +623,147 @@
           }
         }
       }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/collaborators/combsmith-sf-trial-author%5Bbot%5D/permission (gh api): the trial-author App's bot, by the login P-49's resolvedBy gives, as the Maintainer",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 26 Oct 2026 05:01:09 GMT",
+          "etag": "W/\"c74339608a61437cebf8b911111191dd2b87337efc9984e0c3de8f8627cc78fb\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F83F:3C53D7:25A4C38:7B04913:6ADEDE95",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4989",
+          "x-ratelimit-reset": "1792994201",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "11"
+        },
+        "body": {
+          "permission": "none",
+          "user": {
+            "login": "combsmith-sf-trial-author[bot]",
+            "id": 344141469,
+            "node_id": "BOT_kgDOFIMunQ",
+            "avatar_url": "https://avatars.githubusercontent.com/u/258516906?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D",
+            "html_url": "https://github.com/apps/combsmith-sf-trial-author",
+            "followers_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/followers",
+            "following_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/following{/other_user}",
+            "gists_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/subscriptions",
+            "organizations_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/orgs",
+            "repos_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/repos",
+            "events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/combsmith-sf-trial-author%5Bbot%5D/received_events",
+            "type": "Bot",
+            "user_view_type": "public",
+            "site_admin": false,
+            "permissions": {
+              "admin": false,
+              "maintain": false,
+              "push": false,
+              "triage": false,
+              "pull": false
+            },
+            "role_name": ""
+          },
+          "role_name": ""
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/collaborators/don-petry/permission (gh api): the Maintainer, as the Maintainer",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 26 Oct 2026 05:01:09 GMT",
+          "etag": "W/\"dddb4707225692e6cbb88a070e2956879f27a856f4db790196c9689a9426daa1\"",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "F841:A633F:257FF54:7AAC8C1:6ADEDE95",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4988",
+          "x-ratelimit-reset": "1792994201",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "12"
+        },
+        "body": {
+          "permission": "admin",
+          "user": {
+            "login": "don-petry",
+            "id": 36422719,
+            "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+            "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/don-petry",
+            "html_url": "https://github.com/don-petry",
+            "followers_url": "https://api.github.com/users/don-petry/followers",
+            "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+            "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+            "organizations_url": "https://api.github.com/users/don-petry/orgs",
+            "repos_url": "https://api.github.com/users/don-petry/repos",
+            "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/don-petry/received_events",
+            "type": "User",
+            "user_view_type": "public",
+            "site_admin": false,
+            "permissions": {
+              "admin": true,
+              "maintain": true,
+              "push": true,
+              "triage": true,
+              "pull": true
+            },
+            "role_name": "admin"
+          },
+          "role_name": "admin"
+        }
+      }
     }
   ],
   "removed": [
     "exchanges[0].request.headers.authorization",
-    "exchanges[1].request.headers.authorization"
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization"
   ],
   "verdict": "pass"
 }
