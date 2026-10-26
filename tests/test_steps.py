@@ -148,7 +148,15 @@ class Reader(unittest.TestCase):
             self.assertEqual((code, printed, files), (1, want + "\n", []), change)
             # A key read is always revoked, whatever stopped the reads.
             self.assertEqual(calls["revoked"], 0 if change == {"environ": {}} else 1, change)
+        # The reader's token is its App's reads alone, whatever else the App were granted.
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        app = copy.deepcopy(apps["apps"]["reader"])
+        app["permissions"]["pull_requests"] = dict(app["permissions"]["pull_requests"], level="write",
+                                                   needs=app["permissions"]["pull_requests"]["needs"] + ["effect:comment"])
+        self.assertEqual(set(read.wanted({"app": app, "needs": apps["needs"]}).values()), {"read"})
+        issue_name = "sf %s#7 investigate-issue dev-lead sha256:aaaa r_000002A" % HOME
         for argv, want in (([NAME, "%s#43" % HOME, PASS, "task"], "item_not_the_run_names"),
+                           ([issue_name, "%s#7" % HOME, PASS, "task"], "issue_not_built"),
                            (["not a run-name", ITEM, PASS, "task"], "run_name_unreadable"),
                            ([NAME, ITEM, "p_bad", "task"], "pass_unreadable"),
                            ([NAME.replace(HOME, "a/fork"), "a/fork#42", PASS, "task"], "item_not_home")):
@@ -303,6 +311,10 @@ class Apply(unittest.TestCase):
                 e["decision"]["item"]["number"] = 43
         code, _, ended, calls = self.go(record=elsewhere)
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("superseded", "no_decision", []))
+        # A Run of another Release than the pass that admitted it writes nothing.
+        code, _, ended, calls = self.go({"RELEASE": "factory/v0.3.2"})
+        self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("environment", "release_differs", []))
+        self.assertEqual(self.go({"RELEASE": "v1"})[:3], (1, "release_unreadable\n", None))
         # No Decision for this Run: superseded, and the job is never asked.
         code, _, ended, calls = self.go(record=None)
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"], calls["revoked"]),
@@ -400,7 +412,8 @@ class Approve(unittest.TestCase):
 
         def unread(*a):
             raise github.Unanswered("no answer")
-        for found, want in ((unread, "record_unreadable"), (lambda *a: elsewhere, "not_the_decision")):
+        for found, want in ((unread, "record_unreadable"), (lambda *a: elsewhere, "not_the_decision"),
+                            (lambda *a: dict(RECORD, release="factory/v0.3.2"), "release_differs")):
             asked = []
             with tempfile.TemporaryDirectory() as d, \
                     unittest.mock.patch.object(passes, "find", found), \
@@ -497,6 +510,20 @@ class Reread(unittest.TestCase):
             got = reread.item("t", config, 42, support.NOW, lambda: support.NOW)
         self.assertEqual(got[:3], (facts, HEAD, listed["runs"]))
         self.assertEqual((got[3]["paused"], got[3]["active_runs"], got[3]["passes_since"]), (False, 1, None))
+        # The Pause is read again, on the org and the item's repo, and a Pause or one unreadable is the context's.
+        asked = []
+
+        def runs(transport, repo, branch, workflows, dispatcher, **k):
+            asked.append(workflows)
+            return copy.deepcopy(listed)
+        for paused, want in (({"org": "true", "repos": {HOME: None}}, True), ({"org": None, "repos": {HOME: "true"}}, True),
+                             ({"org": None, "repos": {HOME: "maybe"}}, None)):
+            with unittest.mock.patch.object(reread.records, "runs", runs), \
+                    unittest.mock.patch.object(reread.facts_, "snapshot", lambda *a, **k: (facts, "t", HEAD)), \
+                    unittest.mock.patch.object(reread.pause_, "read", lambda transport, org, repos: (
+                        asked.append((org, list(repos))), paused)[1]):
+                self.assertIs(reread.item("t", config, 42, support.NOW, lambda: support.NOW)[3]["paused"], want, paused)
+        self.assertEqual(asked[:2], [["run.yml", "approve.yml"], ("combsmith", [HOME])])
 
 
 if __name__ == "__main__":

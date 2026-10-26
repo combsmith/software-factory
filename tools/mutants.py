@@ -7216,6 +7216,28 @@ MUTANTS = ISSUE + [
     ("a Run's record is found under the outcome's bound", 'adapters/passes.py',
      'held, whole = artifacts.read(transport, repo, row["id"], name=NAME, member=MEMBER, zipped_most=PASSED,\n                                     held_most=HELD)\n        if not whole:\n            raise',
      'held, whole = artifacts.read(transport, repo, row["id"], name=NAME, member=MEMBER, zipped_most=artifacts.ZIPPED,\n                                     held_most=HELD)\n        if not whole:\n            raise', ('tests.test_steps.PassFound.test_a_runs_record_is_found',)),
+    # Muse on #196 PR 2b-1.
+    ("apply writes under another Release than its pass's", 'harness/apply_step.py',
+     '        elif record.get("release") != release:',
+     '        elif False:', ('tests.test_steps.Apply.test_apply_reads_with_reads',)),
+    ('apply takes a Release of any form', 'harness/apply_step.py',
+     '    if not isinstance(release, str) or not configuration.RELEASE.fullmatch(release):\n        raise Stop("release_unreadable")\n    why = needs_met',
+     '    why = needs_met', ('tests.test_steps.Apply.test_apply_reads_with_reads',)),
+    ("the approving act approves under another Release than its pass's", 'harness/approve_step.py',
+     'if record is not None and record.get("release") != release:',
+     'if False:', ('tests.test_steps.Approve.test_the_approver_holds_to_its_item',)),
+    ('the re-read reads no Pause', 'harness/reread.py',
+     '    paused = pause_.read(transport, home.split("/")[0], [home])\n',
+     '    paused = {"org": "false", "repos": {home: "false"}}\n', ('tests.test_steps.Reread.test_the_item_is_read_again',)),
+    ('the re-read lists no approval Run', 'harness/reread.py',
+     '[controller["workflows"]["run"], controller["workflows"]["approval"]]',
+     '[controller["workflows"]["run"]]', ('tests.test_steps.Reread.test_the_item_is_read_again',)),
+    ("the reader's token may write", 'harness/read.py',
+     ' if n.startswith("read:")]',
+     ']', ('tests.test_steps.Reader.test_the_reader_fails_closed',)),
+    ("an issue's Run is read as a pull request's", 'harness/read.py',
+     '    if parts["item"]["type"] != "pull_request":\n        raise Stop("issue_not_built")\n',
+     '', ('tests.test_steps.Reader.test_the_reader_fails_closed',)),
 ]
 
 

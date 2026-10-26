@@ -44,6 +44,8 @@ def written(argv: list, environ: dict, clock, connect) -> tuple:
                              config["controller"]["workflows"]["poller"], pass_id)
     except Unanswered:
         return approve._records(parts["run"], release, "refused", None, ("environment", "record_unreadable"))
+    if record is not None and record.get("release") != release:
+        return approve._records(parts["run"], release, "refused", None, ("environment", "release_differs"))
     try:
         if record is not None:
             read_.decided(record, parts, config["kernel"]["owner_role"])

@@ -80,6 +80,9 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
             done = _ended(parts["run"], release, ("environment", "record_unreadable"))
         elif record is None:
             done = _ended(parts["run"], release, ("superseded", "no_decision"))
+        elif record.get("release") != release:
+            # A Run of another Release than the pass that admitted it: its files are not the ones it was decided under.
+            done = _ended(parts["run"], release, ("environment", "release_differs"))
         else:
             try:
                 read_.decided(record, parts, config["kernel"]["owner_role"])
