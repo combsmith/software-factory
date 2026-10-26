@@ -196,6 +196,11 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 **Rule.** A mutant is killed only by a test that fails on it, fails again when run alone on it, and passes when run alone on the unbroken code, in the same copy. A failure short of that runs the suite once more, and a second is `FLAKY`, which fails the run. A test timed by the wall clock is marked `@wall_clock` and skipped in the mutation run.
 **Check.** `tests/test_tools.py::test_a_mutant_whose_only_failure_is_unrelated_survives`, `tests/test_tools.py::test_a_test_that_fails_on_the_unbroken_code_too_kills_nothing`, `tests/test_tools.py::test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check`, `tests/test_tools.py::test_every_test_timed_by_the_wall_clock_is_marked_and_skipped_when_mutating`, `tools/mutants.py`
 
+### L-61 A hook killed for its time filled the disk
+**Failure.** The stop hook's `make verify` outlasted the hook's time under four builders' load and was killed at every stop, so the suite's temporary folders, each holding the run's copies of the repo, were never removed. They filled the Maintainer's disk, and every builder's checks then failed for want of space.
+**Rule.** A hook's run leaves nothing behind, killed or not: it runs in a process group and a temporary folder of its own, both ended when it ends. A test's copy of the repo goes when the test ends. A verify that could not finish is not started again for a while; CI runs it.
+**Check.** `tests/test_hooks.py::test_a_run_killed_for_its_time_leaves_the_temporary_folder_as_it_found_it`, `tests/test_hooks.py::test_a_verify_that_did_not_finish_is_not_started_again_for_a_while`, `tests/test_tools.py::test_a_copy_of_the_repo_is_removed_when_the_test_that_made_it_ends`
+
 ## Workflows
 
 ### L-35 What ran was whatever a tag pointed at that day
