@@ -29,7 +29,7 @@ WRITTEN = "written"
 MATCHES = {
     "approver": {"approval": (APPLIED, "approve")},
     "role": {"review": (APPLIED, "submit_review"), "comment": (APPLIED, "comment"),
-             "check_run": (APPLIED, "create_check_run")},
+             "check_run": (APPLIED, "create_check_run"), "resolution": (APPLIED, "resolve_thread")},
     "controller": {"check_run": (WRITTEN, "status_on_item"), "dequeue": (WRITTEN, "dequeue")},
 }
 # A write GitHub gives no key for, an event of the timeline, is matched by its item: each recorded once.

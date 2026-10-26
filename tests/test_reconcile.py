@@ -73,7 +73,8 @@ class Matching(unittest.TestCase):
         rows = [(wrote("approver", "approval", "PRR_a"), applied(("approve", "PRR_a", "applied"))),
                 (wrote("pr-review", "review", "PRR_r"), applied(("submit_review", "PRR_r", "applied"))),
                 (wrote("pr-review", "comment", "IC_c"), applied(("comment", "IC_c", "already_applied"))),
-                (wrote("pr-review", "check_run", "CR_c"), applied(("create_check_run", "CR_c", "applied")))]
+                (wrote("pr-review", "check_run", "CR_c"), applied(("create_check_run", "CR_c", "applied"))),
+                (wrote("pr-review", "resolution", "PRRT_t"), applied(("resolve_thread", "PRRT_t", "applied")))]
         for write, done in rows:
             found = check(seen(write), recorded([done]))
             self.assertEqual((found["unmatched"], found["short"]), ([], False), write)
@@ -128,7 +129,7 @@ class Matching(unittest.TestCase):
                                        ("comment", "K", "applied"), ("resolve_thread", "K", "applied"))])
         for write in (wrote("approver", "push", "K"), wrote("approver", "review", "K"), wrote("approver", "comment", "K"),
                       wrote("approver", "resolution", "K"), wrote("pr-review", "label"), wrote("pr-review", "merge"),
-                      wrote("pr-review", "approval", "K"), wrote("pr-review", "resolution", "K"),
+                      wrote("pr-review", "approval", "K"),
                       wrote("approver", "dismissal"), wrote("approver", "close")):
             self.assertEqual(kinds(check(seen(write), everything)), [(write["by"], write["kind"])], write)
 
@@ -330,6 +331,9 @@ class SeenPort(unittest.TestCase):
                   {"event": "labeled", "actor": PERSON, "created_at": AT}]
         threads_ = [{"id": "PRRT_n", "isResolved": True, "resolvedBy": None},
                     {"id": "PRRT_a", "isResolved": True, "resolvedBy": {"login": "donpetry-bot", "databaseId": 281750570}},
+                    # A Role App's resolution, which GraphQL types a User: told by its account id (decision 0066).
+                    {"id": "PRRT_r", "isResolved": True, "resolvedBy": {"login": "combsmith-sf-pr-review[bot]",
+                                                                        "databaseId": 5000002}},
                     {"id": "PRRT_p", "isResolved": True, "resolvedBy": {"login": "don-petry", "databaseId": 36422719}},
                     {"id": "PRRT_o", "isResolved": False, "resolvedBy": None}]
         runs = [check_run(5364144, "CR_r"), check_run(5364130, "CR_c"), check_run(15368, "CR_x")]
@@ -345,7 +349,7 @@ class SeenPort(unittest.TestCase):
                           ("pr-review", "close", None), ("pr-review", "review_request", None),
                           ("controller", "assignment", None), ("controller", "other", "milestoned"),
                           ("unattributed", "resolution", "PRRT_n"),
-                          ("approver", "resolution", "PRRT_a"), ("pr-review", "check_run", "CR_r"),
+                          ("approver", "resolution", "PRRT_a"), ("pr-review", "resolution", "PRRT_r"), ("pr-review", "check_run", "CR_r"),
                           ("controller", "check_run", "CR_c")])
         # A merge by anyone is read for an Override; and what was seen is seen/1.
         self.assertEqual(merged, [{"item": ITEM, "at": AT}])

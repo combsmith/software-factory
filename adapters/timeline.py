@@ -7,7 +7,8 @@ name's spelling (decision 0005, L-57): `machine_user` is the User the caller nam
 `lens` is a Bot the caller names as a Lens's App, read as that Lens's name; any other Bot is `app`; any other User is
 `human`. A User's write access is read from the repository's collaborator permission, `admin`, `maintain` or `write`,
 never `triage`, once a login for the snapshot and never from an association (the Maintainer's ruling on #222); the
-machine user's too, since its approval stands only while it can write. An App's is never asked. A User whose login
+machine user's too, since its approval stands only while it can write. An App's write access is never asked; the same
+read types a thread's resolver by its id where its comments cannot (decision 0066). A User whose login
 ends `[bot]`, or is no login GitHub gives, is refused: the read was wrong.
 
 The timeline and the reviews are read page by page, following the `link` header's next page, and are whole only when
@@ -71,9 +72,11 @@ class Accounts:
         if login not in self.answers:
             path = "/repos/%s/collaborators/%s/permission" % (self.repo, urllib.parse.quote(login, safe=""))
             answer = self.transport.send(request("GET", path))
-            if answer["status"] != 200 or not isinstance(answer["body"], dict):
-                raise Unanswered("the permission of %s answered %d" % (login, answer["status"]))
-            self.answers[login] = answer["body"]
+            # An answer that failed is kept too, so a login is asked once however often it appears.
+            ok = answer["status"] == 200 and isinstance(answer["body"], dict)
+            self.answers[login] = answer["body"] if ok else answer["status"]
+        if not isinstance(self.answers[login], dict):
+            raise Unanswered("the permission of %s answered %s" % (login, self.answers[login]))
         return self.answers[login]
 
     def _can_write(self, login: str) -> bool:

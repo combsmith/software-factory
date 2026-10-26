@@ -2028,16 +2028,38 @@ class Threads(unittest.TestCase):
                                        (("don-petry", MAINTAINER), None, {"don-petry": "missing"}),
                                        (("don-petry", MAINTAINER), {"don-petry": (MAINTAINER, "Organization")}, None),
                                        (("someone", 77), None, None),
-                                       (("don-petry", None), None, None), (("don-petry", True), None, None)):
+                                       (("don-petry", None), None, None), (("don-petry", True), None, None),
+                                       ((None, 77), None, None),
+                                       (("don-petry", MAINTAINER), None, {"don-petry": "owner"})):
             th, _ = self.resolved(by, users=users, permissions=permissions)
             self.assertEqual((th["resolved"], th["resolved_by"]), (True, None), by)
             self.assertTrue(derive.unreadable_thread(th, ["coderabbit"], facts_, config), by)
+        # An id that is no account's, True among them, is never matched to an author of id 1, as True == 1 would.
+        th, _ = self.resolved(("someone", True), opened=("someone", 1, "User"), permissions={"someone": "admin"})
+        self.assertEqual(th["resolved_by"], None)
+
+    def test_an_account_is_typed_by_the_permission_read_held_to_its_id(self):  # issue 331, decision 0066
+        # The permission read answers the account, its id and type (trials/P-53.json): a type is taken only for the id
+        # asked, never for a read that failed, another id, or a type GitHub does not give an account.
+        router = Router(github.Replay([]), {"don-petry": "admin", "gone": "missing"},
+                        users={"odd": (5, "Organization")})
+        accounts = timeline.Accounts(router, "o/r", MACHINE, {})
+        self.assertEqual([accounts.typed("don-petry", MAINTAINER), accounts.typed("combsmith-sf-trial-author[bot]", 344141469)],
+                         ["User", "Bot"])
+        for login, ident in (("gone", 1), ("don-petry", MAINTAINER + 1), ("odd", 5), (None, MAINTAINER),
+                             ("don-petry", True), ("don-petry", 0)):
+            self.assertIsNone(accounts.typed(login, ident), (login, ident))
 
     def test_a_resolver_is_read_once_a_login_whatever_it_resolved(self):  # issue 331: the cost
         nodes = [thread_node("PRRT_%d" % i, LENS, resolved_by=("don-petry", MAINTAINER)) for i in range(3)]
         router = Router(github.Replay([threads_answer("o/r", 26, nodes)]), {"don-petry": "admin"})
         got, whole = threads.read(router, Threads.PULL, timeline.Accounts(router, "o/r", MACHINE, {}))
         self.assertEqual((whole, [t["resolved_by"]["kind"] for t in got], router.asked), (True, ["human"] * 3, ["don-petry"]))
+        # A read that failed is asked once too.
+        nodes = [thread_node("PRRT_%d" % i, LENS, resolved_by=("don-petry", MAINTAINER)) for i in range(3)]
+        router = Router(github.Replay([threads_answer("o/r", 26, nodes)]), {"don-petry": "missing"})
+        got, whole = threads.read(router, Threads.PULL, timeline.Accounts(router, "o/r", MACHINE, {}))
+        self.assertEqual((whole, [t["resolved_by"] for t in got], router.asked), (True, [None] * 3, ["don-petry"]))
 
     @pending
     def test_a_thread_a_trial_recorded_is_read_as_the_port_reads_it(self):

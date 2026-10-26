@@ -84,7 +84,11 @@ def _resolver(by, author, accounts: timeline.Accounts):
     kind = accounts.typed(by.get("login"), ident)
     if kind is None:
         return None
-    return accounts.actor({"login": by["login"], "id": ident, "type": kind})
+    try:
+        return accounts.actor({"login": by["login"], "id": ident, "type": kind})
+    except Unanswered:
+        # An account typed but not read whole, its access among it: the resolver alone is unread.
+        return None
 
 
 def thread(node: dict, accounts: timeline.Accounts) -> dict:
