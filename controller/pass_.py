@@ -46,7 +46,7 @@ SCHEDULE, OWN_REPO, DISPATCHED = "schedule", "workflow_run", "workflow_dispatch"
 PAUSED, NOT_PAUSED = "true", "false"
 CAPACITY, ENVIRONMENT = health_.CAPACITY, health_.ENVIRONMENT
 NOT_RUN = "not_run"
-__all__ = ["Refused", "run", "rebuild", "wait_before_reading"]
+__all__ = ["Refused", "run", "rebuild", "wait_before_reading", "context_of"]
 
 
 def earlier(previous, now: str):
@@ -154,6 +154,27 @@ def passes_since(before: list, previous, now: str, gap: int):
     return oldest if moment(oldest) is not None else None
 
 
+def context_of(records, pause_read, repos, rules: dict, now: str, before=(), previous=None) -> tuple:
+    """`(listed, whole, runs, pause, automatic, capacity, context)`: the context the Kernel is given, from the records
+    port's list, the Pause as read and the repos it is read for, and the pass records before, as one pass builds it.
+    `apply` and the approving act build it so too, from their own reads and no records before, so that `passes_since`
+    is unreadable, which defers nothing (decision 0043)."""
+    listed, whole = reads_.run_records(records)
+    runs = copy.deepcopy(records["runs"]) if listed else []
+    pause = human_pause(pause_read, repos)
+    automatic = automatic_pause(runs, now, rules["automatic_pause"]) if whole else None
+    capacity = capacity_until(runs, now, rules["capacity_window_seconds"]) if whole else None
+    # Not whole, the count of active Runs is null and defers every Run, so a deferral the list may hide holds too.
+    context = {
+        "paused": pause[0],
+        "active_runs": len([r for r in runs if r["status"] != "completed"]) if whole else None,
+        "model_deferred_until": max([u for u in (capacity, automatic) if u is not None], default=None),
+        "passes_since": passes_since(list(before), previous, now, rules["not_run_seconds"]),
+        "unidentified_runs": list(records["unidentified"]) if listed else None,
+    }
+    return listed, whole, runs, pause, automatic, capacity, context
+
+
 def wait_before_reading(previous, now: str, config: dict) -> int:
     """Seconds to wait before this pass reads: none sooner than the gap after the last pass's read began, whatever
     started it (decision 0043). If the records cannot be read, the whole gap."""
@@ -198,19 +219,8 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     repos = {e["facts"]["item"]["repo"] for e in pulls + issues}
 
     records = reads.get("records")
-    listed, whole = reads_.run_records(records)
-    runs = copy.deepcopy(records["runs"]) if listed else []
-    pause = human_pause(reads.get("pause"), repos)
-    automatic = automatic_pause(runs, now, rules["automatic_pause"]) if whole else None
-    capacity = capacity_until(runs, now, rules["capacity_window_seconds"]) if whole else None
-    # Not whole, the count of active Runs is null and defers every Run, so a deferral the list may hide holds too.
-    context = {
-        "paused": pause[0],
-        "active_runs": len([r for r in runs if r["status"] != "completed"]) if whole else None,
-        "model_deferred_until": max([u for u in (capacity, automatic) if u is not None], default=None),
-        "passes_since": passes_since(before, previous, now, rules["not_run_seconds"]),
-        "unidentified_runs": list(records["unidentified"]) if listed else None,
-    }
+    listed, whole, runs, pause, automatic, capacity, context = context_of(records, reads.get("pause"), repos, rules,
+                                                                           now, before, previous)
 
     def asked(entries: list, decide, lifecycle: dict) -> list:
         kernel = dict(config["kernel"], lifecycle=lifecycle)

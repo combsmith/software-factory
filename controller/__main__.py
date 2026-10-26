@@ -27,10 +27,10 @@ import sys
 import time
 
 from adapters import facts as facts_, identity, items, passes, pause as pause_, records, timeline
+from adapters.facts import accounts_of as accounts, dispatcher_of as dispatcher
 from adapters.github import Live, Unanswered
-from controller import pass_, reads as reads_, writes as writes_
+from controller import configuration as configured, pass_, reads as reads_, writes as writes_
 from controller.shared import Refused
-from tools.hooks import protected
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 APP = "controller"
@@ -49,49 +49,15 @@ class Stop(Exception):
         self.code = code
 
 
-def _json(root: pathlib.Path, *parts):
-    return json.loads(root.joinpath(*parts).read_text())
-
-
 def configuration(root: pathlib.Path, release: str) -> dict:
-    """What `pass_.run` is told: the Kernel's configuration as the Kernel's tests give it, each Lifecycle, the feed's
-    table, `controller/1` and the Release; and, beside them, the Controller's App and the needs it is read under."""
-    kernel = dict(_json(root, "config", "defaults.json"),
-                  protected_paths=protected.protected_paths(root / "config" / "hooks.json"))
-    kernel["model_lens_inputs"] = protected.model_lens_inputs(kernel["required_lenses"]["model"],
-                                                              root / "config" / "hooks.json")
-    apps = _json(root, "config", "apps.json")
-    return {"kernel": kernel, "release": release, "controller": _json(root, "config", "controller.json"),
-            "feed": _json(root, "config", "feed.json"),
-            "lifecycles": {"pull_request": _json(root, "lifecycle", "pull_request.json"),
-                           "issue": _json(root, "lifecycle", "issue.json")},
-            "app": apps["apps"][APP], "needs": apps["needs"]}
+    """What `pass_.run` is told, with the Controller's App and the needs it is read under (`controller/configuration.py`)."""
+    return configured.load(root, release, APP)
 
 
 def wanted(config: dict) -> dict:
     """The permissions the pass's token is minted with: every read the Controller's App is granted, and no write."""
     names = [n for grant in config["app"]["permissions"].values() for n in grant["needs"] if n.startswith("read:")]
     return identity.granted(config["app"], config["needs"], names, "read")
-
-
-def accounts(controller: dict) -> tuple:
-    """`(identities, approver, lenses, factory)`, each account by its id and type as `controller/1` holds it: the
-    class's accounts for `adapters/pull.own`, and who acted for `adapters/timeline.Accounts`."""
-    held = controller["accounts"]
-    bots = lambda entries: {(a["id"], "Bot") for a in entries}
-    maintainer = {(held["maintainer"]["id"], "User")} if held["maintainer"] else set()
-    identities = {"agent": bots(held["agents"]), "maintainer": maintainer, "dependency": bots(held["dependencies"])}
-    approver = (held["approver"]["id"], "User") if held["approver"] else (0, "User")
-    lenses = {(a["id"], "Bot"): a["lens"] for a in held["lenses"]}
-    factory = bots(held["agents"]) | set(lenses) | ({(held["controller"]["id"], "Bot")} if held["controller"] else set())
-    return identities, approver, lenses, factory
-
-
-def dispatcher(controller: dict) -> tuple:
-    """The pass's token's account, by id and type, which alone dispatches a Run; with none held, no account GitHub gives,
-    id 0, so that no run is a Run."""
-    token = controller["accounts"]["workflow_token"]
-    return (token["id"], token["type"]) if token else (0, "Bot")
 
 
 def mint_id(prefix: str) -> str:

@@ -296,7 +296,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-54 A wrong fix cleared a gate
 **Failure.** A fix added a new test and broke an existing one without editing it. Nobody ran the suite against the state before the fix, and an outside reviewer marked the thread addressed on the strength of the reply.
 **Rule.** `verify` compares with the head the Run started from. A test that passed and now fails applies no Effect, and a repo with no test command is recorded as not run, never as passed.
-**Check.** waiting on `harness/verify.py`
+**Check.** An Intent that pushes nothing is recorded `not_run`: `tests/test_steps.py::test_verify_takes_the_results_digest`; the comparison with the head a Run started from is waiting on `harness/push.py`
 
 ### L-55 A forced push destroyed the Maintainer's commit
 **Failure.** A push leased against a ref that an earlier fetch in the same run had refreshed. The lease passed, and the push discarded a commit the Maintainer had made to steer the work.

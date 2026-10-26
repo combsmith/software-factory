@@ -43,8 +43,9 @@ def _utc() -> str:
 
 
 def snapshot(transport, repo: str, number: int, identities: dict, accounts: timeline.Accounts, runs_whole: bool,
-             clock=_utc, kept=None) -> tuple:
-    """`(facts/1, title)` for one pull request. `identities` gives the class's accounts (`adapters/pull.own`),
+             clock=_utc, kept=None, with_head: bool = False) -> tuple:
+    """`(facts/1, title)` for one pull request, or `(facts/1, title, head)` `with_head`: the head commit its first read
+    gave, which the snapshot is held to, beside the facts and never in them (#193's ruling 10). `identities` gives the class's accounts (`adapters/pull.own`),
     `accounts` who acted, `runs_whole` whether the pass read the run records whole, and `clock` the time after the last
     read. `kept`, where given, is filled with what GitHub gave the timeline, reviews, threads and check runs reads,
     each with whether it was whole, once the snapshot is whole: reconciliation reads them, so no read is made twice
@@ -96,4 +97,24 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
         raise Unanswered("the snapshot does not hold to facts/1: %s" % problems[0])
     if kept is not None:
         kept.update(raw)
-    return facts, title
+    return (facts, title, str(first["head"]["sha"])) if with_head else (facts, title)
+
+
+def accounts_of(controller: dict) -> tuple:
+    """`(identities, approver, lenses, factory)`, each account by its id and type as `controller/1` holds it: the
+    class's accounts for `adapters/pull.own`, and who acted for `adapters/timeline.Accounts`."""
+    held = controller["accounts"]
+    bots = lambda entries: {(a["id"], "Bot") for a in entries}
+    maintainer = {(held["maintainer"]["id"], "User")} if held["maintainer"] else set()
+    identities = {"agent": bots(held["agents"]), "maintainer": maintainer, "dependency": bots(held["dependencies"])}
+    approver = (held["approver"]["id"], "User") if held["approver"] else (0, "User")
+    lenses = {(a["id"], "Bot"): a["lens"] for a in held["lenses"]}
+    factory = bots(held["agents"]) | set(lenses) | ({(held["controller"]["id"], "Bot")} if held["controller"] else set())
+    return identities, approver, lenses, factory
+
+
+def dispatcher_of(controller: dict) -> tuple:
+    """The pass's token's account, by id and type, which alone dispatches a Run; with none held, no account GitHub gives,
+    id 0, so that no run is a Run."""
+    token = controller["accounts"]["workflow_token"]
+    return (token["id"], token["type"]) if token else (0, "Bot")
