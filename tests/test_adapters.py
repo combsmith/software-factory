@@ -1841,7 +1841,8 @@ class Acceptance(unittest.TestCase):
         # issues it closes say what it serves, and the branch says nothing.
         person = {"login": "don-petry", "id": MAINTAINER, "type": "User"}
         for user, opener in ((person, self.OPENER), (None, None), ({"login": "x", "id": 12, "type": "User"},
-                                                                   self.OPENER)):
+                                                                   self.OPENER),
+                             ({"login": "another-app[bot]", "id": 99, "type": "Bot"}, self.OPENER)):
             self.assertEqual(self.opened(closing_answer("o/r", 26, []), user=user, opener=opener), (None, True))
             self.assertEqual(self.opened(closing_answer("o/r", 26, [37]), issue_timeline("o/r", 37, []), user=user,
                                          opener=opener), (None, True))
