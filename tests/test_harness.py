@@ -431,12 +431,14 @@ class Engine(unittest.TestCase):
         the_task = built()
         rubric = json.loads((ROOT / "config" / "rubric-pr-review.json").read_text())
         for given in (None, dict(rubric, intent="adjudicate-findings"), dict(rubric, role="qa-lead"),
-                      dict(rubric, criteria=[]), "{not json"):
+                      dict(rubric, criteria=[]), "{not json", b"\xff\xfe{"):
             with tempfile.TemporaryDirectory() as d:
                 (pathlib.Path(d) / "roles" / "pr-review").mkdir(parents=True)
                 (pathlib.Path(d) / "roles" / "pr-review" / "prompt.md").write_text("Review it.")
                 (pathlib.Path(d) / "config").mkdir()
-                if given is not None:
+                if isinstance(given, bytes):        # no UTF-8 at all (Muse's read)
+                    (pathlib.Path(d) / "config" / "rubric-pr-review.json").write_bytes(given)
+                elif given is not None:
                     (pathlib.Path(d) / "config" / "rubric-pr-review.json").write_text(
                         given if isinstance(given, str) else json.dumps(given))
                 with self.assertRaises(run.RubricUnreadable, msg=repr(given)[:40]):

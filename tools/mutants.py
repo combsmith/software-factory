@@ -7055,6 +7055,10 @@ MUTANTS = ISSUE + [
     ('a manifest of another shape is read', 'tools/check_authority.py',
      '        if wrong:\n',
      '        if False:\n', ('tests.test_tools.Authority.test_a_manifest_is_named_as_its_file_and_held_to_role_1',)),
+    # Muse's read of #330.
+    ('a rubric of no UTF-8 stops the job', 'harness/run.py',
+     '    except (OSError, ValueError):\n        held = None\n',
+     '    except (OSError, json.JSONDecodeError):\n        held = None\n', ('tests.test_harness.Engine.test_a_review_whose_rubric_cannot_be_read_is_never_asked',)),
 ]
 
 
