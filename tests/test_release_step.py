@@ -10,6 +10,7 @@ import copy
 import hashlib
 import io
 import json
+import pathlib
 import unittest
 import zipfile
 
@@ -26,6 +27,7 @@ SET = {"schema": "eval-set/1", "role": "pr-review", "intent": "review-change", "
        "cases": [{"id": "synthetic-early-return", "sha256": "a" * 64}]}
 SET_BYTES = (json.dumps(SET, indent=2) + "\n").encode()
 EVAL_RUN = 4242
+MAIN = "e" * 40     # main's head, read by its ref
 
 
 def ex(method, path, status, body, sent=None, headers=None, via="rest"):
@@ -53,9 +55,15 @@ def zipped(document) -> bytes:
     return held.getvalue()
 
 
-def compared(commit=D, status="ahead"):
-    return ex("GET", "/repos/%s/compare/%s...main" % (REPO, commit), 200,
-              {"status": status, "merge_base_commit": {"sha": commit}})
+def main_ref(sha=MAIN, **change):
+    return ex("GET", "/repos/%s/git/ref/heads/main" % REPO, 200,
+              dict({"ref": "refs/heads/main", "object": {"sha": sha, "type": "commit"}}, **change))
+
+
+def compared(commit=D, status="ahead", base=None):
+    """main's head read by its ref, then the commit compared with it."""
+    return [main_ref(), ex("GET", "/repos/%s/compare/%s...%s?per_page=1" % (REPO, commit, MAIN), 200,
+                           {"status": status, "merge_base_commit": {"sha": commit if base is None else base}})]
 
 
 def verify_runs(commit=D, conclusion="success", app=candidate.ACTIONS_APP, more=()):
@@ -71,11 +79,16 @@ def manifest(commit=D, data=SET_BYTES, status=200):
                "content": base64.b64encode(data).decode()})
 
 
-def eval_runs(commit=D, runs=None):
-    runs = [{"id": EVAL_RUN, "run_number": 7, "head_sha": commit, "conclusion": "success",
-             "path": ".github/workflows/eval.yml"}] if runs is None else runs
+def run_of(commit=D, **change):
+    return dict({"id": EVAL_RUN, "run_number": 7, "head_sha": commit, "conclusion": "success",
+                 "event": "workflow_dispatch", "path": ".github/workflows/eval.yml"}, **change)
+
+
+def eval_runs(commit=D, runs=None, total=None):
+    runs = [run_of(commit)] if runs is None else runs
     return ex("GET", "/repos/%s/actions/workflows/eval.yml/runs?head_sha=%s&event=workflow_dispatch&status=success"
-                     "&per_page=100" % (REPO, commit), 200, {"total_count": len(runs), "workflow_runs": runs})
+                     "&per_page=100" % (REPO, commit), 200,
+              {"total_count": len(runs) if total is None else total, "workflow_runs": runs})
 
 
 def report_download(document, ident=9):
@@ -93,20 +106,23 @@ def gate_reads(commit=D, document=None):
 
 
 def facts_reads(commit=D, document=None):
-    return [compared(commit), verify_runs(commit)] + gate_reads(commit, document)
+    return compared(commit) + [verify_runs(commit)] + gate_reads(commit, document)
 
 
 class Candidate(unittest.TestCase):
     def test_the_facts_of_a_commit_on_main_verified_and_judged(self):
         facts = candidate.facts(github.Replay(facts_reads()), REPO, D, VERSION)
         self.assertEqual(facts, {"commit": D, "on_main": True, "verified": True, "gate": "pass", "release": VERSION})
-        self.assertTrue(candidate.on_main(github.Replay([compared(status="identical")]), REPO, D))
-        for odd in (compared(status="diverged"), compared(status="behind"),
-                    ex("GET", "/repos/%s/compare/%s...main" % (REPO, D), 200, {"status": "ahead",
-                                                                               "merge_base_commit": {"sha": A}}),
-                    ex("GET", "/repos/%s/compare/%s...main" % (REPO, D), 404, {"message": "Not Found"})):
-            with self.subTest(compare=odd["response"]):
-                self.assertFalse(candidate.on_main(github.Replay([odd]), REPO, D))
+        self.assertTrue(candidate.on_main(github.Replay(compared(status="identical")), REPO, D))
+        missing = [main_ref(), dict(compared()[1], response={"status": 404, "headers": {}, "body": {"message": "x"}})]
+        for odd in (compared(status="diverged"), compared(status="behind"), compared(base=A), missing,
+                    [dict(compared()[0], response=dict(compared()[0]["response"], body={"status": "ahead"}))],
+                    [main_ref(ref="refs/tags/main")], [main_ref(object={"sha": MAIN, "type": "tag"})],
+                    [main_ref(object="bad")], [main_ref(sha="main")],
+                    [main_ref(), dict(compared()[1], response=dict(compared()[1]["response"],
+                                                                     body={"status": "ahead", "merge_base_commit": "x"}))]):
+            with self.subTest(reads=odd):
+                self.assertFalse(candidate.on_main(github.Replay(odd), REPO, D))
         self.assertFalse(candidate.on_main(github.Replay([]), REPO, D))
 
     def test_verify_counts_only_as_github_actions_one_success_on_the_commit(self):
@@ -125,6 +141,11 @@ class Candidate(unittest.TestCase):
                 self.assertFalse(candidate.verified(github.Replay([odd]), REPO, D))
         self.assertFalse(candidate.verified(github.Replay([]), REPO, D))
         self.assertTrue(candidate.verified(github.Replay([verify_runs()]), REPO, D))
+        for change in ({"head_sha": A}, {"status": "in_progress"}, {"app": "x"}):
+            with self.subTest(change=change):
+                answered = verify_runs()
+                answered["response"]["body"]["check_runs"][0].update(change)
+                self.assertFalse(candidate.verified(github.Replay([answered]), REPO, D))
 
     def test_the_eval_gate_is_closed_by_anything_not_read_whole_or_not_passed(self):
         # Ruling 4″: anything but the eval job's own `pass`, for this commit and this Release, keeps the gate closed,
@@ -139,10 +160,13 @@ class Candidate(unittest.TestCase):
              "eval_set_unreadable"),
             ([manifest(data=empty)] + [eval_runs()] + report_download(report()), "another_set"),
             ([manifest(), eval_runs(runs=[])], "eval_not_run"),
-            ([manifest(), eval_runs(runs=[{"id": EVAL_RUN, "run_number": 7, "head_sha": A, "conclusion": "success",
-                                            "path": ".github/workflows/eval.yml"}])], "eval_not_run"),
-            ([manifest(), eval_runs(runs=[{"id": EVAL_RUN, "run_number": 7, "head_sha": D, "conclusion": "success",
-                                            "path": ".github/workflows/other.yml"}])], "eval_not_run"),
+            ([manifest(), eval_runs(runs=[run_of(head_sha=A)])], "eval_not_run"),
+            ([manifest(), eval_runs(runs=[run_of(path=".github/workflows/other.yml")])], "eval_not_run"),
+            ([manifest(), eval_runs(total=2)], "eval_not_run"),
+            ([manifest(), eval_runs(runs=[run_of(conclusion="failure")])], "eval_not_run"),
+            ([manifest(), eval_runs(runs=[run_of(event="push")])], "eval_not_run"),
+            ([manifest(data=b"[" * 60000)], "eval_set_unreadable"),
+            (gate_reads(document="[" * 60000), "report_unreadable"),
             (gate_reads(document=report(release="factory/v0.2.9")), "another_release"),
             (gate_reads(document=report(commit=A)), "another_commit"),
             (gate_reads(document=report(verdict="fail")), "case_failed"),
@@ -156,6 +180,9 @@ class Candidate(unittest.TestCase):
                 self.assertEqual(cut.plan({"command": "cut", "channel": NEXT, "version": VERSION, "commit": D}, REFS,
                                           {"commit": D, "on_main": True, "verified": True, "gate": said,
                                            "release": VERSION}, frozenset({NEXT})), ([], cut.EVAL_GATE_CLOSED))
+        # Of two dispatches on the commit, the later is read.
+        later = [manifest(), eval_runs(runs=[run_of(id=1, run_number=3), run_of(run_number=9)])] + report_download(report())
+        self.assertEqual(candidate.gate(github.Replay(later), REPO, D, VERSION), "pass")
         # A commit or a repo that is not one asks nothing, and closes the gate.
         for commit, repo in (("main", REPO), (D.upper(), REPO), (D, "combsmith/.."), (None, REPO)):
             with self.subTest(commit=commit, repo=repo):
@@ -179,6 +206,7 @@ class Writes(unittest.TestCase):
         # Nothing is sent for a Release that exists, a Release moved, a Channel created as a Release, or a name of
         # neither; and an answer not of the ref and commit asked is no write.
         for planned, refs in ((("create", "factory/v0.1.0", D), REFS), (("move", "factory/v0.1.0", D), REFS),
+                              (("move", "factory/v0-stable", D), REFS), (("move", "factory/v0-stable", D), {}),
                               (("create", NEXT, D), {}), (("create", "factory/x", D), {}), (("delete", NEXT, D), REFS),
                               (("move", NEXT, "main"), REFS), (("move", NEXT), REFS), (("move", NEXT, D), None)):
             with self.subTest(planned=planned):
@@ -210,7 +238,12 @@ class Writes(unittest.TestCase):
         for answers in ([dict(made, response=dict(made["response"], status=202))], [made],
                         [dict(made, response=dict(made["response"], body={"id": 77, "sha": A,
                                                                            "environment": "factory-next"})), status],
-                        [made, dict(status, response=dict(status["response"], body={"state": "failure"}))]):
+                        [made, dict(status, response=dict(status["response"], body={"state": "failure"}))],
+                        [dict(made, response=dict(made["response"], body={"id": 77, "sha": D, "environment": "other"})),
+                         status],
+                        [dict(made, response=dict(made["response"], body={"id": 0, "sha": D,
+                                                                           "environment": "factory-next"})), status],
+                        [made, dict(status, response=dict(status["response"], status=200))]):
             with self.subTest(answers=len(answers)):
                 self.assertIsNone(deployments.record(github.Replay(answers), REPO, D, VERSION))
 
@@ -233,6 +266,11 @@ def cut_reads(document=None):
                   sent={"state": "success", "environment": "factory-next"})])
 
 
+class Failing:
+    def send(self, req):
+        raise RecursionError("what GitHub answered")
+
+
 class Step(unittest.TestCase):
     def run_step(self, environ, answers):
         replay, tokens = github.Replay(answers), []
@@ -253,25 +291,34 @@ class Step(unittest.TestCase):
         return done, code, tokens, replay
 
     def test_a_cut_creates_the_release_moves_next_reads_each_back_and_records_the_deployment(self):
-        env = {"RELEASE_COMMAND": "cut", "RELEASE_VERSION": VERSION, "RELEASE_COMMIT": D, "RELEASE_TOKEN": "the token"}
+        env = {"RELEASE_COMMAND": "cut", "RELEASE_VERSION": VERSION, "RELEASE_CUT_COMMIT": D, "RELEASE_TOKEN": "the token"}
         done, code, tokens, replay = self.run_step(env, cut_reads())
         self.assertEqual((done, code, tokens), ({"writes": [["create", VERSION, D], ["move", NEXT, D]],
                                                  "deployments": [77]}, None, ["the token"]))
         self.assertEqual(replay._left, [])
 
     def test_a_closed_gate_writes_nothing(self):
-        env = {"RELEASE_COMMAND": "cut", "RELEASE_VERSION": VERSION, "RELEASE_COMMIT": D, "RELEASE_TOKEN": "t"}
+        env = {"RELEASE_COMMAND": "cut", "RELEASE_VERSION": VERSION, "RELEASE_CUT_COMMIT": D, "RELEASE_TOKEN": "t"}
         reads = [refs_read(REFS)] + facts_reads(D, report(verdict="fail"))
         done, code, _, replay = self.run_step(env, reads)
         self.assertEqual((done, code, replay._left), ({"writes": [], "deployments": []}, cut.EVAL_GATE_CLOSED, []))
 
     def test_a_write_not_read_back_stops_the_step_there(self):
-        env = {"RELEASE_COMMAND": "cut", "RELEASE_VERSION": VERSION, "RELEASE_COMMIT": D, "RELEASE_TOKEN": "t"}
+        env = {"RELEASE_COMMAND": "cut", "RELEASE_VERSION": VERSION, "RELEASE_CUT_COMMIT": D, "RELEASE_TOKEN": "t"}
         answers = cut_reads()
         unchanged = answers.index(refs_read(dict(REFS, **{VERSION: D})))
         answers[unchanged] = refs_read(REFS)
-        done, code, _, _ = self.run_step(env, answers[:unchanged + 1])
-        self.assertEqual((done, code), ({"writes": [], "deployments": []}, "not_read_back"))
+        done, code, _, _ = self.run_step(env, answers[:unchanged + 1] + [refs_read(REFS)])
+        self.assertEqual((done, code), ({"writes": [], "deployments": [], "sent": ["create", VERSION, D]},
+                                        "not_read_back"))
+        # A read that had not caught up is read once more, and the step goes on.
+        caught = answers[:unchanged + 1] + cut_reads()[unchanged:]
+        done, code, _, _ = self.run_step(env, caught)
+        self.assertEqual((done["writes"], code), ([["create", VERSION, D], ["move", NEXT, D]], None))
+        # A Release read back on a commit another Release also names is not read back as the one planned.
+        twice = cut_reads()[:unchanged] + [refs_read(dict(REFS, **{VERSION: D, "factory/v0.3.1": D}))] * 2
+        done, code, _, _ = self.run_step(env, twice)
+        self.assertEqual(code, "not_read_back")
         refused = copy.deepcopy(cut_reads())
         refused[refused.index(refs_read(dict(REFS, **{VERSION: D}))) - 1]["response"]["status"] = 422
         done, code, _, _ = self.run_step(env, refused[:len(facts_reads()) + 2])
@@ -298,6 +345,28 @@ class Step(unittest.TestCase):
         self.assertEqual((done, code, replay._left), ({"writes": [["move", NEXT, A]], "deployments": [78]}, None, []))
         self.assertEqual(len(self.asked), len(answers), "a rollback asks nothing of the commit it moves to")
 
+    def test_a_move_forward_reads_the_facts_of_the_release_it_moves_to(self):
+        # Forward to an existing Release, through the gate judged for that Release at its commit (ruling 9′'s step 5).
+        env = {"RELEASE_COMMAND": "move", "RELEASE_TO": "factory/v0.2.0", "RELEASE_TOKEN": "t"}
+        refs = dict(REFS, **{NEXT: A})
+        forward = dict(refs, **{NEXT: B})
+        answers = ([refs_read(refs)] + facts_reads(B, report(commit=B, release="factory/v0.2.0"))
+                   + [ex("PATCH", "/repos/%s/git/refs/tags/%s" % (REPO, NEXT), 200,
+                         {"ref": "refs/tags/" + NEXT, "object": {"sha": B}}, sent={"sha": B, "force": True}),
+                      refs_read(forward),
+                      ex("POST", "/repos/%s/deployments" % REPO, 201, {"id": 79, "sha": B, "environment": "factory-next"},
+                         sent={"ref": B, "task": "deploy", "auto_merge": False, "required_contexts": [],
+                               "environment": "factory-next", "description": "factory/v0.2.0",
+                               "transient_environment": False, "production_environment": False}),
+                      ex("POST", "/repos/%s/deployments/79/statuses" % REPO, 201, {"state": "success"},
+                         sent={"state": "success", "environment": "factory-next"})])
+        done, code, _, replay = self.run_step(env, answers)
+        self.assertEqual((done, code, replay._left), ({"writes": [["move", NEXT, B]], "deployments": [79]}, None, []))
+        # The gate judged for another Release than the one moved to keeps it shut.
+        shut = [refs_read(refs)] + facts_reads(B, report(commit=B, release=VERSION))
+        done, code, _, _ = self.run_step(env, shut)
+        self.assertEqual((done["writes"], code), ([], cut.EVAL_GATE_CLOSED))
+
     def test_a_step_that_cannot_be_read_asks_nothing(self):
         for env, code in (({"RELEASE_COMMAND": "delete", "RELEASE_TOKEN": "t"}, cut.STEP_UNREADABLE),
                           ({"RELEASE_COMMAND": "rollback"}, "token_unreadable"),
@@ -308,6 +377,10 @@ class Step(unittest.TestCase):
         done, said, _, _ = self.run_step({"RELEASE_COMMAND": "rollback", "RELEASE_TOKEN": "t"},
                                          [refs_read(REFS, status=500)])
         self.assertEqual(said, "refs_unreadable")
+        # A token the transport refuses asks nothing.
+        refused = move.run({"RELEASE_COMMAND": "rollback", "RELEASE_TOKEN": "bad token"},
+                           lambda token: github.Live(token))
+        self.assertEqual(refused, ({"writes": [], "deployments": []}, "token_unreadable"))
         # The ring file and the home come from the Release's own data; with neither, nothing is asked.
         self.assertEqual(move.run({"RELEASE_COMMAND": "rollback", "RELEASE_TOKEN": "t"}, None, rings={}),
                          ({"writes": [], "deployments": []}, cut.STEP_UNREADABLE))
@@ -318,7 +391,7 @@ class Step(unittest.TestCase):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = move.main(["step"], environ={"RELEASE_COMMAND": "cut", "RELEASE_VERSION": VERSION,
-                                                "RELEASE_COMMIT": D, "RELEASE_TOKEN": "the token"},
+                                                "RELEASE_CUT_COMMIT": D, "RELEASE_TOKEN": "the token"},
                              connect=lambda token: github.Replay(cut_reads()))
         self.assertEqual((code, json.loads(out.getvalue())),
                          (0, {"writes": [["create", VERSION, D], ["move", NEXT, D]], "deployments": [77]}))
@@ -327,6 +400,22 @@ class Step(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             code = move.main(["step"], environ={"RELEASE_COMMAND": "rollback"}, connect=lambda token: None)
         self.assertEqual((code, json.loads(out.getvalue())["refused"]), (1, "token_unreadable"))
+        # Whatever else stops the step prints one code and no traceback; a ring file that cannot be read moves nothing.
+        out = io.StringIO()
+
+        def broken(token):
+            raise RecursionError("what GitHub answered")
+        with contextlib.redirect_stdout(out):
+            code = move.main(["step"], environ={"RELEASE_COMMAND": "rollback", "RELEASE_TOKEN": "t"},
+                             connect=lambda token: Failing())
+        self.assertEqual((code, json.loads(out.getvalue())), (1, {"writes": [], "deployments": [],
+                                                                  "refused": "step_failed"}))
+        self.assertNotIn("what GitHub answered", out.getvalue())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = move.main(["step"], rings=pathlib.Path("/nonexistent/rings.json"),
+                             environ={"RELEASE_COMMAND": "rollback", "RELEASE_TOKEN": "t"}, connect=broken)
+        self.assertEqual((code, json.loads(out.getvalue())["refused"]), (1, cut.STEP_UNREADABLE))
 
 
 if __name__ == "__main__":

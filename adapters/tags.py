@@ -5,8 +5,8 @@ twice, or a tag that is not lightweight, whose sha is not its commit. It decides
 Channel is `release/current.py`'s. It reads no file at any tag, so a rollback runs nothing of what it rolls back.
 
 `write` sends one of `release/cut.py`'s writes, through the token it is given, the release App's alone: a Release
-created, never one that exists, and a Channel created the first time and moved with `force` after, by the refs read
-before it. It says whether GitHub answered the write as made; whether the ref now names the commit is the read after it."""
+created, never one that exists, and `next`, the one Channel a step moves, created the first time and moved with `force`
+after, by the refs read before it; `stable` is never written here. It says whether GitHub answered the write as made; whether the ref now names the commit is the read after it."""
 from __future__ import annotations
 
 import re
@@ -66,9 +66,9 @@ def write(transport, repo: str, planned, refs) -> bool:
         return False
     if kind == "create" and current.version(name) and name not in refs:
         req, wanted = request("POST", "/repos/%s/git/refs" % repo, body={"ref": "refs/tags/" + name, "sha": commit}), 201
-    elif kind == "move" and current.channel(name) and name not in refs:
+    elif kind == "move" and current.channel(name)[1:] == ("next",) and name not in refs:
         req, wanted = request("POST", "/repos/%s/git/refs" % repo, body={"ref": "refs/tags/" + name, "sha": commit}), 201
-    elif kind == "move" and current.channel(name):
+    elif kind == "move" and current.channel(name)[1:] == ("next",):
         req, wanted = request("PATCH", "/repos/%s/git/refs/tags/%s" % (repo, name),
                               body={"sha": commit, "force": True}), 200
     else:

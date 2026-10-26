@@ -9,11 +9,11 @@ S2083 and S8707), as `tools/redact_trial.py` opens none. It prints `{"writes": [
 `{"refused": code}` and exits 1, and writes nothing. Reads that cannot be read are refused, `step_unreadable`.
 
 `step`, the release job's one step after the token's mint and the checkout, is given its inputs by its environment:
-`RELEASE_COMMAND` (`cut`, `move` or `rollback`), `RELEASE_VERSION` and `RELEASE_COMMIT` for a cut, `RELEASE_TO` for a
+`RELEASE_COMMAND` (`cut`, `move` or `rollback`), `RELEASE_VERSION` and `RELEASE_CUT_COMMIT` for a cut, `RELEASE_TO` for a
 move or a rollback, and `RELEASE_TOKEN`, the release App's token. Through that token alone it reads the `factory/`
 tags, and, but for a rollback, the commit's facts (`adapters/candidate.py`); plans; sends each write and reads the
-tags again after it, stopping at the first that is not read back on its commit; and records a Deployment of each move of
-`next` once read back. A rollback reads no fact and passes no gate, so it works while the Factory is broken. It prints
+tags again after it, once more if need be, stopping at the first not read back on its commit as the one Release planned;
+and records a Deployment of each move of `next` once read back. A rollback reads no fact and passes no gate, so it works while the Factory is broken. It prints
 what it did, by codes alone, and exits 0, or 1 with the code that stopped it. Nothing here reads a file at any tag.
 
 The Channels a step may move are those `release/rings.json` declares, and `next` is the one a step moves.
@@ -31,6 +31,7 @@ RINGS = ROOT / "release" / "rings.json"
 CONTROLLER = ROOT / "config" / "controller.json"
 USAGE = "usage: python3 -m release.move plan < READS, or python3 -m release.move step"
 COMMANDS = ("cut", "move", "rollback")
+READ = object()       # read the Release's own file
 
 
 def _json(path: pathlib.Path):
@@ -66,23 +67,38 @@ def asked(environ: dict, channel) -> dict:
     command = environ.get("RELEASE_COMMAND")
     if command == "cut":
         return {"command": "cut", "channel": channel, "version": environ.get("RELEASE_VERSION"),
-                "commit": environ.get("RELEASE_COMMIT")}
+                "commit": environ.get("RELEASE_CUT_COMMIT")}
     return {"command": command, "channel": channel, "to": environ.get("RELEASE_TO") or None}
 
 
-def run(environ: dict, connect, rings=None, controller=None) -> tuple:
+def branch(controller) -> str:
+    """The branch a Release is cut from: the Controller's home branch."""
+    found = (controller.get("home") or {}).get("branch") if isinstance(controller, dict) else None
+    return found if isinstance(found, str) else "main"
+
+
+def _named(after, write, released) -> bool:
+    """Whether the refs read after `write` hold it: its name on its commit, and that commit one Release's, `released`."""
+    return after is not None and after.get(write[1]) == write[2] and current.resolve(write[2], after) == released
+
+
+def run(environ: dict, connect, rings=READ, controller=READ) -> tuple:
     """`(done, None)` for the step the environment asks, sent and read back, or `(done, code)` with what was done before
     the code that stopped it. `connect` makes the transport from the token."""
     from adapters import candidate, deployments, tags
-    rings = _json(RINGS) if rings is None else rings
-    repo, channel = home(_json(CONTROLLER) if controller is None else controller), next_channel(rings)
+    rings = _json(RINGS) if rings is READ else rings
+    controller = _json(CONTROLLER) if controller is READ else controller
+    repo, channel = home(controller), next_channel(rings)
     token = environ.get("RELEASE_TOKEN")
     done = {"writes": [], "deployments": []}
     if environ.get("RELEASE_COMMAND") not in COMMANDS or repo is None or channel is None:
         return done, cut.STEP_UNREADABLE
     if not isinstance(token, str) or not token:
         return done, "token_unreadable"
-    transport = connect(token)
+    try:
+        transport = connect(token)
+    except Exception:      # a token the transport refuses: nothing was asked, and nothing of it is said
+        return done, "token_unreadable"
     refs = tags.read(transport, repo)
     if refs is None:
         return done, "refs_unreadable"
@@ -92,21 +108,24 @@ def run(environ: dict, connect, rings=None, controller=None) -> tuple:
     else:
         name = step["version"] if step["command"] == "cut" else step["to"]
         commit = step["commit"] if step["command"] == "cut" else refs.get(step["to"])
-        facts = candidate.facts(transport, repo, commit, name)
+        facts = candidate.facts(transport, repo, commit, name, branch(controller))
     writes, refused = cut.plan(step, refs, facts, channels(rings))
     if refused:
         return done, refused
+    # The Release every write is of: the version cut, or the one the Channel moves to, by the refs read before.
+    released = writes[0][1] if writes[0][0] == "create" else current.resolve(writes[0][2], refs)
     for write in writes:
-        released = current.resolve(write[2], refs) if write[0] == "move" else write[1]
         if not tags.write(transport, repo, write, refs):
             return done, "write_unanswered"
         after = tags.read(transport, repo)
-        if after is None or after.get(write[1]) != write[2]:
+        if not _named(after, write, released):
+            after = tags.read(transport, repo)      # once more, for a read that had not yet caught up with the write
+        if not _named(after, write, released):
+            done["sent"] = list(write)
             return done, "not_read_back"
         refs = after
         done["writes"].append(list(write))
         if write[0] == "move":
-            released = released or current.resolve(write[2], refs)
             ident = deployments.record(transport, repo, write[2], released)
             if ident is None:
                 return done, "deployment_unrecorded"
@@ -119,7 +138,10 @@ def main(argv, stdin=None, rings=RINGS, environ=None, connect=None) -> int:
         if connect is None:
             from adapters.github import Live
             connect = Live
-        done, refused = run(dict(environ if environ is not None else {}), connect, _json(rings))
+        try:
+            done, refused = run(dict(environ if environ is not None else {}), connect, _json(rings))
+        except Exception:      # one code, and no traceback, which could quote what GitHub answered
+            done, refused = {"writes": [], "deployments": []}, "step_failed"
         print(json.dumps(dict(done, refused=refused) if refused else done))
         return 1 if refused else 0
     if list(argv) != ["plan"]:

@@ -3,7 +3,7 @@ rulings 4, 4″ and 4′): whether it is on `main`, whether `verify` concluded s
 for the Release asked. It hands `release/cut.py` its facts, `{commit, on_main, verified, gate, release}`, and decides
 nothing: the rules are the cut's, and the verdict the eval job's own, `harness.eval.verdict`.
 
-Each fact fails closed. A comparison that cannot be read is not on `main`; a `verify` that cannot be read, or that more
+Each fact fails closed. A comparison that cannot be read is not on `main`, read by its branch's ref; a `verify` that cannot be read, or that more
 than one App reports, did not pass. The gate reads the eval job's one successful dispatch on the commit, its
 `eval-report` artifact, and the set's manifest at that commit, through the transport, never a file of the checkout. Any
 of them not read whole, and any verdict but `pass`, closes the gate with its code, which `cut.plan` reads as
@@ -34,15 +34,25 @@ def _repo(repo) -> bool:
     return isinstance(repo, str) and REPO.fullmatch(repo) is not None and repo.split("/")[1] not in (".", "..")
 
 
-def on_main(transport, repo: str, commit: str) -> bool:
-    """Whether `commit` is `main` or one of its ancestors, by GitHub's comparison of it with `main`."""
+def _dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def on_main(transport, repo: str, commit: str, branch: str = "main") -> bool:
+    """Whether `commit` is the head of `branch` or one of its ancestors: the branch's head read by its ref, never a name
+    a tag could share, then GitHub's comparison of the commit with that head."""
     try:
-        answer = transport.send(request("GET", "/repos/%s/compare/%s...main" % (repo, commit)))
+        answer = transport.send(request("GET", "/repos/%s/git/ref/heads/%s" % (repo, branch)))
+        head = _dict(_dict(answer["body"]).get("object")) if answer["status"] == 200 else {}
+        if _dict(answer["body"]).get("ref") != "refs/heads/" + branch or head.get("type") != "commit" \
+                or not cut.sha(head.get("sha")):
+            return False
+        answer = transport.send(request("GET", "/repos/%s/compare/%s...%s?per_page=1" % (repo, commit, head["sha"])))
     except Unanswered:
         return False
-    body = answer["body"]
-    return answer["status"] == 200 and isinstance(body, dict) and body.get("status") in ON_MAIN \
-        and (body.get("merge_base_commit") or {}).get("sha") == commit
+    body = _dict(answer["body"])
+    return answer["status"] == 200 and body.get("status") in ON_MAIN \
+        and _dict(body.get("merge_base_commit")).get("sha") == commit
 
 
 def verified(transport, repo: str, commit: str) -> bool:
@@ -57,7 +67,7 @@ def verified(transport, repo: str, commit: str) -> bool:
     if not isinstance(runs, list) or body.get("total_count") != len(runs):
         return False
     ours = [r for r in runs if isinstance(r, dict) and r.get("name") == VERIFY]
-    if len(ours) != 1 or len(runs) != 1 or (ours[0].get("app") or {}).get("id") != ACTIONS_APP:
+    if len(ours) != 1 or len(runs) != 1 or _dict(ours[0].get("app")).get("id") != ACTIONS_APP:
         return False
     return ours[0].get("head_sha") == commit and ours[0].get("status") == "completed" \
         and ours[0].get("conclusion") == "success"
@@ -93,7 +103,7 @@ def _run(transport, repo: str, commit: str):
     if not isinstance(runs, list) or body.get("total_count") != len(runs):
         return None
     done = [r for r in runs if isinstance(r, dict) and r.get("head_sha") == commit and r.get("conclusion") == "success"
-            and r.get("path") == ".github/workflows/%s" % EVAL_WORKFLOW]
+            and r.get("event") == "workflow_dispatch" and r.get("path") == ".github/workflows/%s" % EVAL_WORKFLOW]
     if len(done) != len(runs) or not done:
         return None
     ident = max(done, key=lambda r: r.get("run_number") if type(r.get("run_number")) is int else -1).get("id")
@@ -112,16 +122,17 @@ def gate(transport, repo: str, commit: str, release: str) -> str:
         data, whole = artifacts.read(transport, repo, ident, name=REPORT, member=MEMBER, zipped_most=STORED,
                                      held_most=STORED)
         document = json.loads(data.decode("utf-8")) if whole and data is not None else None
-    except (Unanswered, ValueError):
-        document = None
-    if document is None:
+        if document is None:
+            return UNREAD
+        return eval_gate.verdict(document, found[0], found[1], commit, release)
+    except (Unanswered, ValueError, RecursionError):
         return UNREAD
-    return eval_gate.verdict(document, found[0], found[1], commit, release)
 
 
-def facts(transport, repo: str, commit, release) -> dict:
+def facts(transport, repo: str, commit, release, branch: str = "main") -> dict:
     """The facts `cut.plan` reads of the commit asked about. Nothing is asked of a commit or repo that is not one."""
     if not (cut.sha(commit) and _repo(repo)):
         return {"commit": commit, "on_main": False, "verified": False, "gate": UNREAD, "release": release}
-    return {"commit": commit, "on_main": on_main(transport, repo, commit), "verified": verified(transport, repo, commit),
+    return {"commit": commit, "on_main": on_main(transport, repo, commit, branch),
+            "verified": verified(transport, repo, commit),
             "gate": gate(transport, repo, commit, release), "release": release}

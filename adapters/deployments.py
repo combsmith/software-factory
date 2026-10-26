@@ -1,7 +1,8 @@
 """A move of `next`, recorded as GitHub keeps a deployment, through the one transport (decision 0044; #197's ruling
 4′): one Deployment of the commit to the environment `factory-next`, described by the Release's name, and its status
 `success` once the Channel was read back on it. It decides nothing, and is asked only after the move was read back.
-It hands back the Deployment's id, or None when either write was not answered as GitHub answers it."""
+It hands back the Deployment's id, or None when either write was not answered as GitHub answers it. A Deployment made
+whose status was not is left as GitHub holds it, with no status; the step stops there, and a run again makes another."""
 from __future__ import annotations
 
 from adapters.github import Unanswered, request
@@ -17,7 +18,8 @@ def record(transport, repo: str, commit: str, release: str):
         answer = transport.send(request("POST", "/repos/%s/deployments" % repo, body=made))
         body = answer["body"]
         ident = body.get("id") if answer["status"] == 201 and isinstance(body, dict) else None
-        if type(ident) is not int or ident < 1 or body.get("sha") != commit or body.get("environment") != ENVIRONMENT:
+        if type(ident) is not int or ident < 1 or body.get("sha") != commit \
+                or body.get("environment") != ENVIRONMENT:
             return None
         answer = transport.send(request("POST", "/repos/%s/deployments/%d/statuses" % (repo, ident),
                                         body={"state": "success", "environment": ENVIRONMENT}))

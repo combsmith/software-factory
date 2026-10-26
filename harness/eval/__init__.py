@@ -62,7 +62,7 @@ def held(data: bytes) -> tuple:
     the commit it judges, through the transport. Held to `eval-set/1`; Stop otherwise."""
     try:
         found = json.loads(data.decode("utf-8"))
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError, RecursionError):
         raise Stop("eval_set_unreadable") from None
     if _errors(found, "eval-set") or found["count"] != len(found["cases"]) or \
             len({c["id"] for c in found["cases"]}) != len(found["cases"]):
