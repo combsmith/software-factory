@@ -1,4 +1,4 @@
-# 0062. A Run's steps each read with their own credential and revoke it, and every Run leaves its outcome
+# 0064. A Run's steps each read with their own credential and revoke it, and every Run leaves its outcome
 
 Status: accepted. A working ruling of 2026-10-25 for "Workflows: the frozen entry shim, the poller, the Run's three jobs and the nudge, each held to its shape" (issue 196), its PR 2b-1, the steps its workflow files run, with the Maintainer's answers of 2026-10-21 on rulings 7 and 8. The Maintainer may overturn it in review. It adds to `docs/decisions/0054-apply-writes-a-roles-effects-with-a-token-narrowed-to-them-and-claims-only-what-it-reads-back.md`, whose `apply` step it wires, to `docs/decisions/0055-the-approving-act-holds-the-machine-users-token-alone-approves-the-commit-it-re-read-and-says-whose-fault-each-failure-was.md`, whose act it wires, and to `docs/decisions/0060-the-pass-entry-reads-through-the-ports-with-a-token-of-reads-and-the-last-two-pass-records.md`, whose reads the steps share.
 
