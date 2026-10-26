@@ -62,8 +62,7 @@ def programs(*names: str) -> str:
 
 
 def environment(path: str, **extra: str) -> dict:
-    env = {"PATH": path, "HOME": HOME, "GIT_CONFIG_NOSYSTEM": "1", "FAKE_GH_USER": WHO["login"],
-           "TMPDIR": tempfile.gettempdir()}
+    env = {"PATH": path, "HOME": HOME, "GIT_CONFIG_NOSYSTEM": "1", "FAKE_GH_USER": WHO["login"]}
     env.update(extra)
     return env
 
@@ -74,7 +73,9 @@ def hook(module: str, payload, path: str, **extra: str) -> subprocess.CompletedP
     elsewhere = folder()
     (elsewhere / "json.py").write_text("raise SystemExit(7)\n")
     return subprocess.run([sys.executable, "-I", str(HOOKS / (module + ".py"))], cwd=elsewhere, input=stdin,
-                          capture_output=True, text=True, env=environment(path, **extra), timeout=60)
+                          capture_output=True, text=True, timeout=60,
+                          # A hook's run makes its folder where this run's do, where the sweep looks (issue 344).
+                          env=environment(path, **dict({"TMPDIR": tempfile.gettempdir()}, **extra)))
 
 
 CONFIG = """[core]
