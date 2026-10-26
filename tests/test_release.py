@@ -220,7 +220,7 @@ class Tags(unittest.TestCase):
         tree = ast.parse((ROOT / "adapters" / "tags.py").read_text())
         imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
         imported |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
-        self.assertEqual(imported, {"__future__", "re", "adapters.github"})
+        self.assertEqual(imported, {"__future__", "re", "adapters.github", "release"})
         self.assertEqual(check_release.run(), [])
 
     def test_the_refs_github_answered_are_read_as_the_port_reads_them(self):
