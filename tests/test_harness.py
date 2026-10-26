@@ -421,7 +421,44 @@ class Engine(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             (pathlib.Path(d) / "roles" / "pr-review").mkdir(parents=True)
             (pathlib.Path(d) / "roles" / "pr-review" / "prompt.md").write_text("Review it.")
-            self.assertEqual(run.instructions(pathlib.Path(d), the_task), engine.ROLE + "Review it.")
+            # An Intent that covers no rubric is told none.
+            self.assertEqual(run.instructions(pathlib.Path(d), dict(the_task, intent="adjudicate-findings")),
+                             engine.ROLE + "Review it.")
+
+    def test_a_review_whose_rubric_cannot_be_read_is_never_asked(self):  # issue 330, decision 0049
+        # A reviewing Intent's rubric that is missing, of another Role or Intent, no rubric, or no JSON is refused
+        # before the CLI is started.
+        the_task = built()
+        rubric = json.loads((ROOT / "config" / "rubric-pr-review.json").read_text())
+        for given in (None, dict(rubric, intent="adjudicate-findings"), dict(rubric, role="qa-lead"),
+                      dict(rubric, criteria=[]), "{not json", b"\xff\xfe{"):
+            with tempfile.TemporaryDirectory() as d:
+                (pathlib.Path(d) / "roles" / "pr-review").mkdir(parents=True)
+                (pathlib.Path(d) / "roles" / "pr-review" / "prompt.md").write_text("Review it.")
+                (pathlib.Path(d) / "config").mkdir()
+                if isinstance(given, bytes):        # no UTF-8 at all (Muse's read)
+                    (pathlib.Path(d) / "config" / "rubric-pr-review.json").write_bytes(given)
+                elif given is not None:
+                    (pathlib.Path(d) / "config" / "rubric-pr-review.json").write_text(
+                        given if isinstance(given, str) else json.dumps(given))
+                with self.assertRaises(run.RubricUnreadable, msg=repr(given)[:40]):
+                    run.instructions(pathlib.Path(d), the_task)
+        self.assertEqual(run.REVIEWING, ("review-change",))
+        # The run job writes a failed Result, the Factory's fault, and never asks the CLI.
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as release:
+            where = pathlib.Path(d)
+            (pathlib.Path(release) / "roles" / "pr-review").mkdir(parents=True)
+            (pathlib.Path(release) / "roles" / "pr-review" / "prompt.md").write_text("Review it.")
+            paths = Job().files(where)
+            cli, original = CLI(), run.ROOT
+            run.ROOT = pathlib.Path(release)
+            try:
+                run.job(paths, JOB, run.configuration(original), call=cli, clock=Clock(), session=SESSION, base=where)
+            finally:
+                run.ROOT = original
+            result = json.loads((where / "out" / "result.json").read_text())
+        self.assertEqual((result["status"], result["reason"], cli.calls), ("failed", "rubric_unreadable", []))
+        self.assertEqual(shared.errors(result, "result"), [])
 
     def test_the_cli_is_handed_result_1_resolved_and_narrowed(self):  # decision 0038
         cli = CLI()
