@@ -1849,7 +1849,7 @@ class MakeLeavesNothing(unittest.TestCase):
     def slow(self) -> dict:
         bin_dir, self.outside, self.place = folder(), folder(), folder()
         (bin_dir / "make").write_text(
-            "#!/bin/sh\nmkdir \"$TMPDIR/held\" && echo data > \"$TMPDIR/held/x\"\n"
+            "#!/bin/sh\nmkdir -p \"$TMPDIR/held\" && echo data > \"$TMPDIR/held/x\"\n"
             "( sleep 30; touch \"$OUTSIDE/late\" ) >/dev/null 2>&1 &\necho $! > \"$OUTSIDE/pid\"\n"
             "[ -n \"$QUICK\" ] && exit 0\nsleep 30\n")
         (bin_dir / "make").chmod(0o755)
