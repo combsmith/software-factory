@@ -8,7 +8,7 @@ import re
 import unittest
 
 from kernel import derive
-from kernel.decide import decide
+from kernel.decide import decide, still_wanted, stuck_runs, unnamed_scope
 from tests.support import (COMMIT, CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, REPORTER, ROOT,
                            changed, config, context, contract, evidence, facts, labelled, review, run, thread,
                            unlabelled)
@@ -1997,14 +1997,39 @@ class AReviewThatReported(unittest.TestCase):
         self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"], d["evidence"]),
                          ("held", "attempts_exhausted", "hold", "needs_you", [r["run"] for r in failed]))
         self.assertEqual(go(facts(), failed[1:]).get("admit"), REVIEW_IT)
-        # One that failed with no outcome has not reported either. It is no attempt, so the Run ceiling bounds it.
-        unread = [run(conclusion="failure", outcome=None, at=at(10 + i), name="n%d" % i)
+        # One that was cancelled with no outcome has not reported either. It is no attempt: its concurrency group cancels
+        # the one waiting behind a newer one (P-44), or a person did; the Run ceiling bounds it (issue 286's ruling).
+        unread = [run(conclusion="cancelled", outcome=None, at=at(10 + i), name="n%d" % i)
                   for i in range(LIMITS["max_runs_per_item"])]
         d = go(facts(), unread[:LIMITS["max_attempts"]])
         self.assertEqual((d["state"], d["reason"], d["outcome"], d.get("admit")),
                          ("verifying", "awaiting_review", "admit", REVIEW_IT))
         d = go(facts(), unread)
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "run_ceiling", "hold"))
+
+    def test_a_run_that_ran_and_left_no_outcome_is_an_attempt(self):  # issue 286's ruling, I-23
+        # A Run that failed or timed out with no outcome ran and did not report: killed, out of memory, or crashed in its
+        # own step. It is the item's, as section 3.10 reads a killed Run, so three such are held at max_attempts and not
+        # left to the Run ceiling. One cancelled with no outcome is no attempt; a job that never started is read as
+        # cancelled by the records port (tests/test_adapters.py).
+        top = LIMITS["max_attempts"]
+        for conclusion in ("failure", "timed_out"):
+            died = [run(conclusion=conclusion, outcome=None, at=at(10 + i), name="d%d" % i) for i in range(top)]
+            d = go(facts(), died)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["evidence"]),
+                             ("held", "attempts_exhausted", "hold", [r["run"] for r in died]), conclusion)
+            self.assertEqual(go(facts(), died[1:]).get("admit"), REVIEW_IT, conclusion)
+        gone = [run(conclusion="cancelled", outcome=None, at=at(10 + i), name="g%d" % i) for i in range(top)]
+        d = go(facts(), gone)
+        self.assertEqual((d["reason"], d.get("admit")), ("awaiting_review", REVIEW_IT))
+        # An outcome the Run wrote is read as it says: a failure by the environment or capacity is no attempt.
+        for outcome in ("environment", "capacity", "superseded"):
+            other = [run(conclusion="failure", outcome=outcome, at=at(10 + i), name="o%d" % i) for i in range(top)]
+            self.assertEqual(go(facts(), other)["reason"], "awaiting_review", outcome)
+        # A Run still in flight has no outcome yet, and is no attempt: one attempt short, it does not hold the item.
+        died = [run(conclusion="failure", outcome=None, at=at(10 + i), name="d%d" % i) for i in range(top - 1)]
+        flying = run(conclusion=None, status="in_progress", outcome=None, at=at(20), name="f0")
+        self.assertNotEqual(go(facts(), died + [flying])["reason"], "attempts_exhausted")
 
     def test_a_review_that_succeeded_with_a_fault_is_unreadable(self):  # I-13
         # A Run that succeeded and names whose fault its failure was contradicts itself: no report is read from it,
@@ -2290,7 +2315,8 @@ class Ceilings(unittest.TestCase):
     def test_an_approval_that_keeps_failing_for_the_environment_is_bounded(self):  # I-8
         # Not an attempt, and never landed, so not an act: only the Run ceiling can bound it.
         ceiling = LIMITS["max_runs_per_item"]
-        for kind in ("environment", "capacity", "superseded", None):
+        # An approval that ran and left no outcome is an attempt (issue 286's ruling): held at max_attempts, below.
+        for kind in ("environment", "capacity", "superseded"):
             d = go(facts(), REVIEWED + approvals(ceiling - 1, outcome=kind))
             self.assertEqual((d["state"], d["outcome"], d["reason"], d["attention"]),
                              ("held", "hold", "run_ceiling", "needs_you"), kind)
@@ -2299,6 +2325,17 @@ class Ceilings(unittest.TestCase):
             # A writer's action renews the allowance, as for any Run.
             d = go(facts(last_writer_action_at=at(40)), REVIEWED + approvals(ceiling - 1, outcome=kind))
             self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"), kind)
+
+    def test_an_approval_that_ran_and_left_no_outcome_is_an_attempt(self):  # issue 286's ruling
+        top = LIMITS["max_attempts"]
+        d = go(facts(), REVIEWED + approvals(top, outcome=None))
+        self.assertEqual((d["state"], d["outcome"], d["reason"]), ("held", "hold", "attempts_exhausted"))
+        d = go(facts(), REVIEWED + approvals(top - 1, outcome=None))
+        self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
+        # Cancelled with no outcome, it is none, and the Run ceiling bounds it.
+        cancelled = [dict(r, conclusion="cancelled") for r in approvals(LIMITS["max_runs_per_item"] - 1, outcome=None)]
+        d = go(facts(), REVIEWED + cancelled)
+        self.assertEqual((d["state"], d["outcome"], d["reason"]), ("held", "hold", "run_ceiling"))
 
     def test_a_failed_model_run_is_not_an_approval_attempt(self):
         fixes = [run(role="dev-lead", intent="fix-findings", conclusion="failure", outcome="item",
@@ -2703,8 +2740,13 @@ class Queue(unittest.TestCase):
 
 
 # A run record of the Factory's own workflow, not completed, still listed under the workflow's name: GitHub's run id,
-# from trials/P-17.json. Which item it is on cannot be read (decision 0036).
-UNNAMED = "39086879694"
+# from trials/P-17.json, and when its record was created, this second. Which item it is on cannot be read (decision 0036).
+UNNAMED = {"run": "39086879694", "created_at": NOW, "status": "in_progress"}
+
+
+def seconds_before(time: str, seconds: int) -> str:
+    return (datetime.datetime.strptime(time, "%Y-%m-%dT%H:%M:%SZ")
+            - datetime.timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class UnidentifiedRuns(unittest.TestCase):
@@ -2764,6 +2806,147 @@ class UnidentifiedRuns(unittest.TestCase):
         # The brakes are asked first: spent approvals hold the item.
         d = go(facts(), REVIEWED + approvals(LIMITS["max_attempts"]), ctx=context(unidentified_runs=[UNNAMED]))
         self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "attempts_exhausted", "hold"))
+
+    def test_an_unidentified_run_past_the_window_admits_and_is_one_alert(self):  # issue 270, trials/P-17.json
+        # P-17 saw a Run's name listed within 3.7 s of its dispatch. A completed Run unnamed for max_unnamed_run_seconds
+        # is no Run waiting for its name: it stops deferring admissions, and is one alert, named by its run id, which
+        # the view shows until a person deletes the run. One second inside the window it still defers.
+        limit = LIMITS["max_unnamed_run_seconds"]
+        def unnamed(age: int, run: str = UNNAMED["run"], status: str = "completed") -> dict:
+            return {"run": run, "created_at": seconds_before(NOW, age), "status": status}
+        for age in (0, 1, limit - 1, -5):     # a record the clock reads as later than now waits too
+            ctx = context(unidentified_runs=[unnamed(age)])
+            d = go(facts(), ctx=ctx)
+            self.assertEqual((d["reason"], d["outcome"]), ("run_unidentified", "defer"), age)
+            self.assertEqual(go(facts(), REVIEWED, ctx=ctx)["reason"], "run_unidentified", age)
+            self.assertEqual(stuck_runs(ctx, CONFIG, NOW), [], age)
+        for age in (limit, limit + 1, 90 * 24 * 3600):
+            ctx = context(unidentified_runs=[unnamed(age)])
+            self.assertEqual(go(facts(), ctx=ctx)["outcome"], "admit", age)
+            d = go(facts(), REVIEWED, ctx=ctx)
+            self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"), age)
+            self.assertEqual(stuck_runs(ctx, CONFIG, NOW), [{"alert": "run_unnamed", "run": UNNAMED["run"]}], age)
+        # One not yet completed may be a Run running on an item now: it defers whatever its age, and past the window it
+        # is an alert all the same.
+        for status in ("queued", "in_progress"):
+            ctx = context(unidentified_runs=[unnamed(limit + 1, status=status)])
+            self.assertEqual(go(facts(), ctx=ctx)["reason"], "run_unidentified", status)
+            self.assertEqual(go(facts(), REVIEWED, ctx=ctx)["reason"], "run_unidentified", status)
+            self.assertEqual(stuck_runs(ctx, CONFIG, NOW), [{"alert": "run_unnamed", "run": UNNAMED["run"]}], status)
+        # One alert to a run, however many passes or items read it; one inside the window beside it still defers.
+        ctx = context(unidentified_runs=[unnamed(limit, "7"), unnamed(limit + 9, "7")])
+        self.assertEqual(stuck_runs(ctx, CONFIG, NOW), [{"alert": "run_unnamed", "run": "7"}])
+        self.assertEqual(go(facts(), ctx=ctx)["outcome"], "admit")
+        ctx = context(unidentified_runs=[unnamed(limit, "7"), unnamed(limit - 1, "8")])
+        self.assertEqual((go(facts(), ctx=ctx)["reason"], stuck_runs(ctx, CONFIG, NOW)),
+                         ("run_unidentified", [{"alert": "run_unnamed", "run": "7"}]))
+        # A window of one second: a Run created this second still waits, one a second old does not.
+        cfg = json.loads(json.dumps(CONFIG))
+        cfg["limits"]["max_unnamed_run_seconds"] = 1
+        self.assertEqual(go(facts(), ctx=context(unidentified_runs=[unnamed(0)]), cfg=cfg)["reason"], "run_unidentified")
+        self.assertEqual(go(facts(), ctx=context(unidentified_runs=[unnamed(1)]), cfg=cfg)["outcome"], "admit")
+
+    def test_past_max_unnamed_runs_every_run_defers(self):  # issue 270, decision 0036
+        # A Run on an item, unnamed past the window, is missing from that item's attempts and Run ceiling: a name the
+        # port cannot read, from a Factory bug or a broken name expression, would admit on the item without bound. So
+        # past max_unnamed_runs such Runs every Run and approval defers, runs_unnamed, until a person deletes them; an
+        # act that admits no Run goes ahead.
+        limit, most = LIMITS["max_unnamed_run_seconds"], LIMITS["max_unnamed_runs"]
+        def past(n: int) -> list:
+            return [{"run": str(7 + i), "created_at": seconds_before(NOW, limit + i), "status": "completed"}
+                    for i in range(n)]
+        self.assertEqual(go(facts(), ctx=context(unidentified_runs=past(most)))["outcome"], "admit")
+        for n in (most + 1, most + 5):
+            ctx = context(unidentified_runs=past(n))
+            d = go(facts(), ctx=ctx)
+            self.assertEqual((d["reason"], d["outcome"], d["attention"]), ("runs_unnamed", "defer", "review"), n)
+            self.assertEqual(go(facts(), REVIEWED, ctx=ctx)["reason"], "runs_unnamed", n)
+            self.assertEqual(len(stuck_runs(ctx, CONFIG, NOW)), n)
+            d = go(facts(reviews=APPROVED), REVIEWED, ctx=ctx)
+            self.assertEqual((d["outcome"], d.get("action")), ("act", "enqueue"), n)
+        # The same run listed twice is one.
+        twice = past(most) + past(most)
+        self.assertEqual(go(facts(), ctx=context(unidentified_runs=twice))["outcome"], "admit")
+        # The brakes come first: spent attempts hold an approval, and a Pause defers it, before the bound.
+        ctx = context(unidentified_runs=past(most + 1))
+        d = go(facts(), REVIEWED + approvals(LIMITS["max_attempts"]), ctx=ctx)
+        self.assertEqual((d["outcome"], d["reason"]), ("hold", "attempts_exhausted"))
+        d = go(facts(), REVIEWED, ctx=dict(ctx, paused=True))
+        self.assertEqual(d["reason"], "paused")
+        # With none past the window the bound is not read, as a limit of the list.
+        for bad in (None, "1", 0, True):
+            cfg = json.loads(json.dumps(CONFIG))
+            if bad is None:
+                del cfg["limits"]["max_unnamed_runs"]
+            else:
+                cfg["limits"]["max_unnamed_runs"] = bad
+            self.assertEqual(go(facts(), ctx=context(unidentified_runs=[]), cfg=cfg)["outcome"], "admit", bad)
+            d = go(facts(), REVIEWED, ctx=context(unidentified_runs=[]), cfg=cfg)
+            self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"), bad)
+        # At the bound exactly, an approval goes ahead; one more, and it waits.
+        d = go(facts(), REVIEWED, ctx=context(unidentified_runs=past(most)))
+        self.assertEqual((d["outcome"], d.get("action")), ("act", "issue_approval"))
+
+    def test_the_scope_reads_the_unnamed_runs_as_each_decision_does(self):  # issue 270, issue 193's ruling 8 amended
+        # A pass with no item to decide still raises what holds the whole scope: unnamed_scope says what every
+        # Decision would of the unnamed Runs, the alerts among it.
+        limit, most = LIMITS["max_unnamed_run_seconds"], LIMITS["max_unnamed_runs"]
+        def runs(*ages, status="completed") -> list:
+            return [{"run": str(7 + i), "created_at": seconds_before(NOW, a), "status": status} for i, a in enumerate(ages)]
+        cases = [([], (False, [], False)), (runs(0), (True, [], False)), (runs(limit + 1, status="in_progress"),
+                 (True, ["7"], False)), (runs(limit), (False, ["7"], False)),
+                 (runs(*[limit + i for i in range(most + 1)]), (False, [str(7 + i) for i in range(most + 1)], True))]
+        for listed, (defers, alerts, bounded) in cases:
+            ctx = context(unidentified_runs=listed)
+            got = unnamed_scope(ctx, CONFIG, NOW)
+            self.assertEqual((got["defers"], [a["run"] for a in got["alerts"]], got["bounded"]), (defers, alerts, bounded))
+            reason = go(facts(), ctx=ctx)["reason"]
+            self.assertEqual(reason == "run_unidentified", defers, listed)
+            self.assertEqual(reason == "runs_unnamed", bounded, listed)
+        flight = runs(limit + 1, status="in_progress") + runs(*[limit + 5 + i for i in range(most + 1)])
+        for i, entry in enumerate(flight):
+            entry["run"] = str(100 + i)
+        got = unnamed_scope(context(unidentified_runs=flight), CONFIG, NOW)
+        self.assertEqual((got["defers"], got["bounded"], len(got["alerts"])), (True, False, most + 2))
+        self.assertEqual(go(facts(), ctx=context(unidentified_runs=flight))["reason"], "run_unidentified")
+        for bad in (None, "x", [None]):
+            got = unnamed_scope(context(unidentified_runs=bad), CONFIG, NOW)
+            self.assertEqual((got["defers"], got["alerts"], got["bounded"]), (True, [], False), bad)
+        self.assertEqual(unnamed_scope(None, None, "now"), {"defers": True, "alerts": [], "bounded": False})
+
+    def test_an_unidentified_run_that_cannot_be_read_defers_and_raises_no_alert(self):  # issue 270, I-13
+        # A run id, a creation, a status or a limit that cannot be read is a list that cannot be read: every Run defers,
+        # an approval too, and no alert names what cannot be read.
+        limit = LIMITS["max_unnamed_run_seconds"]
+        old = seconds_before(NOW, limit + 1)
+        for entry in ("39086879694", {"run": "39086879694", "status": "completed"},
+                      {"created_at": old, "status": "completed"}, {"run": "7", "created_at": old},
+                      {"run": "7", "created_at": old, "status": "done"}, {"run": "7", "created_at": old, "status": None},
+                      {"run": 39086879694, "created_at": old, "status": "completed"},
+                      {"run": "run-7", "created_at": old, "status": "completed"},
+                      {"run": "", "created_at": old, "status": "completed"},
+                      {"run": "7", "created_at": "yesterday", "status": "completed"},
+                      {"run": "7", "created_at": None, "status": "completed"}, None):
+            ctx = context(unidentified_runs=[entry])
+            self.assertEqual(go(facts(), ctx=ctx)["reason"], "run_unidentified", entry)
+            self.assertEqual(go(facts(), REVIEWED, ctx=ctx)["reason"], "run_unidentified", entry)
+            self.assertEqual(stuck_runs(ctx, CONFIG, NOW), [], entry)
+        ctx = context(unidentified_runs=[{"run": "7", "created_at": old, "status": "completed"}])
+        for name in ("max_unnamed_run_seconds", "max_unnamed_runs"):
+            for bad in (None, 0, -1, True, 60.0, "60"):
+                cfg = json.loads(json.dumps(CONFIG))
+                if bad is None:
+                    del cfg["limits"][name]
+                else:
+                    cfg["limits"][name] = bad
+                self.assertEqual(go(facts(), ctx=ctx, cfg=cfg)["reason"], "run_unidentified", (name, bad))
+                self.assertEqual(stuck_runs(ctx, cfg, NOW), [], (name, bad))
+        self.assertEqual(stuck_runs(ctx, CONFIG, "now"), [])
+        # A context or a configuration that is no object names nothing, and raises nothing.
+        for bad in (None, [], "context"):
+            self.assertEqual((stuck_runs(bad, CONFIG, NOW), stuck_runs(ctx, bad, NOW)), ([], []), bad)
+        self.assertEqual(stuck_runs(ctx, dict(CONFIG, limits=None), NOW), [])
+        self.assertEqual(go(facts(), ctx=context(unidentified_runs=[]))["outcome"], "admit")
 
     def test_an_unidentified_run_stops_no_enqueue_and_no_dequeue(self):  # I-46, FR-23
         # An enqueue admits no Run, and a dequeue stops work: neither waits for the name.
@@ -2973,8 +3156,10 @@ class Staleness(unittest.TestCase):
                      ({"model_deferred_until": "unreadable"}, (), "capacity_unreadable", "review"),
                      ({"active_runs": None}, (), "capacity_unreadable", "review"),
                      ({"active_runs": LIMITS["org_max_active_runs"]}, (), "concurrency", "review"),
-                     ({"unidentified_runs": [UNNAMED]}, (), "run_unidentified", "review"),
-                     ({"unidentified_runs": [UNNAMED]}, (), "run_unidentified", "ready")]
+                     ({"unidentified_runs": [dict(UNNAMED, created_at=day_on)]}, (), "run_unidentified", "review"),
+                     ({"unidentified_runs": [dict(UNNAMED, created_at=day_on)]}, (), "run_unidentified", "ready"),
+                     ({"unidentified_runs": [{"run": str(7 + i), "created_at": NOW, "status": "completed"}
+                                             for i in range(LIMITS["max_unnamed_runs"] + 1)]}, (), "runs_unnamed", "review")]
         for over, _, reason, attention in deferrals:
             runs = REVIEWED if attention == "ready" else ()
             ctx = dict(waiting, **over)
@@ -3171,8 +3356,12 @@ class TheFactorysOwnRules(unittest.TestCase):
         for entry in HOOKS["protected"]:
             path = example(entry["path"])
             self.waits_for_review(["docs/notes.md", path], entry["path"])
-            # Reviewed on this head, it converges, and the machine user approves it as usual.
+            # Reviewed on this head, it converges, and the machine user approves it as usual; but a model Lens's own
+            # input waits for a person as well (issue 140).
             d = go(changing(**DEPENDENCY, changed_paths=["docs/notes.md", path]), REVIEWED)
+            if any(derive.matches(own, path) for own in CONFIG["model_lens_inputs"]):
+                self.assertEqual(d["reason"], "model_lens_input_needs_person", path)
+                continue
             self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"),
                              path)
         # Every other class needs the review anyway; the list names what it touched.
@@ -3393,6 +3582,193 @@ class TheFactorysOwnRules(unittest.TestCase):
             d = go(f, cfg=config(protected_paths=rules))
             self.assertEqual((d["reason"], d["evidence"]), ("awaiting_review", ["pr-review", ".github/"]), rules)
 
+    # Issue 140: with one model family, the only judge of a change to a model Lens's own inputs that is not the Lens is a
+    # person. The review still counts, and none suffices.
+    OWN = [e["path"] for e in HOOKS["lens_inputs"] if e["lens"] in CONFIG["required_lenses"]["model"]]
+
+    def waits_for_a_person(self, f, runs=REVIEWED, cfg=None):
+        d = go(f, runs, cfg=cfg)
+        self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                         ("verifying", "model_lens_input_needs_person", "nothing", "needs_you"))
+        return d
+
+    def test_a_change_to_a_model_lenss_own_input_waits_for_a_person(self):  # issue 140
+        self.assertEqual(self.OWN, ["roles/pr-review.*", "roles/pr-review/", "config/rubric-pr-review.json",
+                                    "config/harness.json", "harness/",
+                                    "config/hooks.json", "config/defaults.json", "tools/hooks/protected.py",
+                                    "kernel/gate.py", "kernel/coverage.py", "config/authority.json"])
+        self.assertEqual(CONFIG["model_lens_inputs"], self.OWN)
+        for pattern in self.OWN:
+            for cls in (AGENT, DEPENDENCY):
+                f = changing(**cls, changed_paths=["docs/notes.md", example(pattern)])
+                # The model review is needed first, as for any change on the list; then a person.
+                self.waits_for_review([example(pattern)], pattern, cls=cls)
+                d = self.waits_for_a_person(f)
+                self.assertEqual(d["evidence"], [pattern])
+        # The manifest and a prompt beside it, whatever its suffix, the Role's own directory, anything in the Harness, and
+        # what says which Lens is a model Lens and which files are its own; never another Role's file, nor one further
+        # down (the security pass).
+        for path in ("roles/pr-review.json", "roles/pr-review.md", "ROLES/PR-REVIEW.JSON", "roles/pr-review/prompt.md",
+                     "harness/__init__.py", "harness/apply.py", "config/hooks.json", "config/defaults.json",
+                     "tools/hooks/protected.py"):
+            self.waits_for_a_person(changing(**AGENT, changed_paths=[path]))
+        for path in ("roles/dev-lead.json", "roles/pr-review-b.json", "roles/x/pr-review.json", "harnesses/x.py",
+                     "tools/hooks/identity.py"):
+            d = go(changing(**AGENT, changed_paths=[path]), REVIEWED)
+            self.assertNotEqual(d["reason"], "model_lens_input_needs_person", path)
+        # A rename or a copy out of a listed path waits too: its previous name is read (Muse's read).
+        moved = changing(**AGENT, changed_paths=[("docs/notes.md", "roles/pr-review.json")])
+        self.assertEqual(self.waits_for_a_person(moved)["evidence"], ["roles/pr-review.*"])
+        # Each pattern it matched, once, in the configuration's order.
+        both = changing(**AGENT, changed_paths=["harness/engine.py", "roles/pr-review.json", "roles/pr-review.md"])
+        self.assertEqual(self.waits_for_a_person(both)["evidence"], ["roles/pr-review.*", "harness/"])
+
+    def test_a_persons_approval_of_the_current_head_lets_it_converge(self):  # issue 140
+        f = changing(**AGENT, changed_paths=["roles/pr-review.json"])
+        d = go(dict(f, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approval_due", "issue_approval"))
+        # The machine user's approval as well, as for any change: it is enqueued.
+        d = go(dict(f, reviews=[review(kind="human", name="a-colleague"), review()]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approved", "enqueue"))
+        # A Lens's dismissal, or any App's, ends nothing a person did (L-17): the approval stands.
+        by_app = review(kind="human", name="a-colleague", state="dismissed", dismissed_by=REVIEWER_APP,
+                        dismissed_from="approved")
+        d = go(dict(f, reviews=[by_app]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"))
+        # That person's latest verdict counts: a later request for changes, on this content, supersedes the approval,
+        # even once a person dismisses the request; a later comment does not (Muse's read).
+        approved = review(kind="human", name="a-colleague", at="2026-10-11T12:10:00Z")
+        asked = review(kind="human", name="a-colleague", state="dismissed", dismissed_by=MAINTAINER,
+                       dismissed_from="changes_requested", at="2026-10-11T12:20:00Z")
+        said = review(kind="human", name="a-colleague", state="commented", at="2026-10-11T12:30:00Z")
+        self.waits_for_a_person(dict(f, reviews=[approved, asked]))
+        self.waits_for_a_person(dict(f, reviews=[asked, approved, dict(asked, submitted_at="2026-10-11T12:40:00Z")]))
+        d = go(dict(f, reviews=[approved, said]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"))
+        for later in ([asked, dict(approved, submitted_at="2026-10-11T12:25:00Z")],
+                      [dict(approved, submitted_at="2026-10-11T12:25:00Z"), asked]):     # by time, not by place
+            d = go(dict(f, reviews=later), REVIEWED)
+            self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"))
+        # None of these is a person's judgment of this head.
+        for rv in (review(kind="human", name="a-colleague", content="sha256:0bd0"),          # an earlier head
+                   review(kind="human", name="a-colleague", state="dismissed", dismissed_by=COLLEAGUE,
+                          dismissed_from="approved"),
+                   review(kind="human", name="a-colleague", state="dismissed", dismissed_by=COLLEAGUE,
+                          dismissed_from="changes_requested"),
+                   review(kind="human", name="a-colleague", state="commented"),
+                   review(kind="human", name="stranger", can_write=False),                    # no write access
+                   review(),                                                                   # the machine user
+                   review(can_write=False),                                                    # nor without write
+                   review(kind="app", name="combsmith-sf-dev-lead[bot]"),                      # an App
+                   review(kind="lens", name="pr-review")):                                     # the Lens itself
+            self.waits_for_a_person(dict(f, reviews=[rv]))
+        # The author's or the last pusher's approval is no other judge's, each on its own (Argon's read).
+        pushed = changing(**dict(AGENT, last_pusher="a-colleague"), changed_paths=["harness/task.py"])
+        self.waits_for_a_person(dict(pushed, reviews=[review(kind="human", name="a-colleague")]))
+        authored = changing(**{"class": "maintainer", "author": "a-colleague",
+                               "last_pusher": "combsmith-sf-dev-lead[bot]"}, changed_paths=["harness/task.py"])
+        self.waits_for_a_person(dict(authored, reviews=[review(kind="human", name="a-colleague")]))
+
+    def test_a_model_review_alone_never_suffices(self):  # issue 140
+        f = changing(**AGENT, changed_paths=["config/rubric-pr-review.json"])
+        self.waits_for_a_person(f)
+        self.waits_for_a_person(f, runs=REVIEWED + [run(name="r2")])
+        # Queued with no judge's approval of this head, it leaves the queue.
+        d = go(dict(f, queue=True, reviews=[]), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"], d["action"]), ("model_lens_input_needs_person", "act", "dequeue"))
+
+    def test_the_maintainers_own_change_waits_for_another_judge(self):  # issue 140, L-44
+        # A session may push as the Maintainer, so opening and pushing a change judges no head. A colleague with write
+        # access approves it, or the Maintainer merges it by hand outside the Factory (the Maintainer, 2026-10-22).
+        own = changing(changed_paths=["roles/pr-review.json"])
+        self.assertEqual((own["class"], own["author"], own["last_pusher"]), ("maintainer", "don-petry", "don-petry"))
+        self.waits_for_a_person(own)
+        self.waits_for_a_person(dict(own, reviews=[review(kind="human", name="don-petry")]))
+        d = go(dict(own, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"]), ("converged", "approval_due"))
+        self.waits_for_a_person(dict(own, reviews=APPROVED))
+        d = go(dict(own, reviews=APPROVED + [review(kind="human", name="a-colleague")]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approved", "enqueue"))
+
+    def test_the_factorys_own_approval_never_supplies_the_judgment(self):  # issue 140, the Maintainer, 2026-10-21
+        # The Factory's approving act cannot supply the judgment: no Decision issues an approval for such a change while
+        # no person's approval stands, and an approval Run that succeeded without its review on the timeline yet is no
+        # review.
+        f = changing(**AGENT, changed_paths=["kernel/gate.py"])
+        d = self.waits_for_a_person(f)
+        self.assertNotIn("action", d)
+        landed = REVIEWED + [run(role="pr-review", intent="issue-approval", name="r9", at="2026-10-11T12:30:00Z")]
+        d = self.waits_for_a_person(f, runs=landed)
+        self.assertNotIn("action", d)
+        # Once a judge's approval stands the approval is issued as for any change, and it adds nothing the rule reads.
+        d = go(dict(f, reviews=[review(kind="human", name="a-colleague")]), REVIEWED)
+        self.assertEqual((d["outcome"], d["action"]), ("act", "issue_approval"))
+        self.assertTrue(derive.judged_by_a_person(dict(f, reviews=[review(kind="human", name="a-colleague")])))
+        self.assertFalse(derive.judged_by_a_person(f))
+
+    def test_the_machine_users_approval_never_judges_a_change_to_a_model_lenss_input(self):  # the Maintainer, 2026-10-22
+        # "Only a different person with write can approve." The machine user's approval never counts, whoever made it:
+        # the Factory's approving act makes it too, so counting it would let the Factory approve the change to its own
+        # review and then converge on that approval.
+        f = changing(**AGENT, changed_paths=["roles/pr-review.json"])
+        for alone in (APPROVED, [review(content="sha256:aaaa", at="2026-10-11T12:40:00Z")]):
+            d = self.waits_for_a_person(dict(f, reviews=alone))
+            self.assertNotIn("action", d)
+        self.assertFalse(derive.judged_by_a_person(dict(f, reviews=APPROVED)))
+        # A second person's approval converges it, and the machine user's beside it then enqueues it.
+        d = go(dict(f, reviews=APPROVED + [review(kind="human", name="a-colleague")]), REVIEWED)
+        self.assertEqual((d["state"], d["reason"], d["action"]), ("converged", "approved", "enqueue"))
+
+    def test_an_approval_of_a_change_to_a_model_lenss_inputs_is_still_wanted_only_while_a_judge_approves(self):
+        # Issue 195, ruling 7: the approving act asks the Kernel again on what it just read, so the wait for a person
+        # binds as the act starts. An approval decided while a judge's approval stood is no longer wanted once a person
+        # dismisses it, or once a push puts a listed path in the change; the Factory's own approval never stands in.
+        judge = review(kind="human", name="a-colleague")
+        f = changing(**AGENT, changed_paths=["kernel/gate.py"])
+        decided = go(dict(f, reviews=[judge]), REVIEWED)
+        self.assertEqual((decided["outcome"], decided["action"]), ("act", "issue_approval"))
+        self.assertTrue(still_wanted(decided, go(dict(f, reviews=[judge]), REVIEWED)))
+        dismissed = review(kind="human", name="a-colleague", state="dismissed", dismissed_by=COLLEAGUE,
+                           dismissed_from="approved")
+        for again in (go(dict(f, reviews=[dismissed]), REVIEWED),
+                      go(f, REVIEWED + [run(role="pr-review", intent="issue-approval", name="r9",
+                                            at="2026-10-11T12:30:00Z")])):
+            self.assertEqual(again["reason"], "model_lens_input_needs_person")
+            self.assertFalse(still_wanted(decided, again))
+        # The machine user's approval landed beside the dismissal: whether it waits for a person (#308) or is enqueued,
+        # no second approval is wanted.
+        self.assertFalse(still_wanted(decided, go(dict(f, reviews=[dismissed, review()]), REVIEWED)))
+        # A change off the list, approved, then pushed onto it: the same content id stands for neither, and the push
+        # waits for a person whatever it is.
+        plain = changing(**AGENT, changed_paths=["docs/notes.md"])
+        self.assertFalse(still_wanted(go(plain, REVIEWED), go(f, REVIEWED)))
+
+    def test_the_list_is_the_configurations_never_the_change(self):  # issue 140, decision 0020
+        # A change that takes the manifest off the list in config/hooks.json still waits: the list is the base branch's.
+        f = changing(**AGENT, changed_paths=["docs/hooks-notes.md", "roles/pr-review.json"])
+        self.assertEqual(self.waits_for_a_person(f)["evidence"], ["roles/pr-review.*"])
+        dropped = [p for p in self.OWN if p != "roles/pr-review.*"]
+        d = go(f, REVIEWED, cfg=config(model_lens_inputs=dropped))
+        self.assertNotEqual(d["reason"], "model_lens_input_needs_person")
+        # And the files that make the list are on it: a change that edits the list waits for a person too, so no
+        # change judged by the Lens alone can take a row off it, or name another Lens the model Lens.
+        for path in ("config/hooks.json", "config/defaults.json", "tools/hooks/protected.py"):
+            self.assertEqual(self.waits_for_a_person(changing(**AGENT, changed_paths=[path]))["evidence"], [path])
+
+    def test_an_unreadable_list_of_a_model_lenss_inputs_defers_for_the_maintainer(self):  # issue 140, I-13
+        f = changing(**AGENT, changed_paths=["docs/notes.md"])
+        for rules in ("missing", [], None, "roles/", [""], [5], ["/"], ["roles/../x"]):
+            cfg = config()
+            if rules == "missing":
+                del cfg["model_lens_inputs"]
+            else:
+                cfg["model_lens_inputs"] = rules
+            d = go(f, REVIEWED, cfg=cfg)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"]),
+                             (None, "protected_paths_unreadable", "defer", "needs_you"), rules)
+            d = go(dict(f, queue=True, reviews=APPROVED), REVIEWED, cfg=cfg)
+            self.assertEqual((d["reason"], d["action"]), ("protected_paths_unreadable", "dequeue"), rules)
+
     def test_a_decision_names_the_pattern_never_the_path(self):  # I-45
         # A path is text from outside. The Decision names each pattern of the configuration that matched, once, in the
         # configuration's order.
@@ -3409,5 +3785,79 @@ class NotYetHeld(unittest.TestCase):
     """Rules that are decided and that the Kernel does not hold yet. See `pending` in tests/support.py."""
 
 
+
+class StillWanted(unittest.TestCase):
+    """Issue 195, ruling 4 (I-38): an act or a Run asks the Kernel again on what it just read before it writes, and
+    goes ahead only if that wants the same thing for the same item and content."""
+
+    def test_a_run_or_an_approval_is_still_wanted_only_for_the_same_content(self):  # I-38
+        approval = go(facts(), REVIEWED)
+        self.assertEqual((approval["outcome"], approval["action"]), ("act", "issue_approval"))
+        self.assertTrue(still_wanted(approval, go(facts(), REVIEWED)))
+        # A Hold, a Pause, a Run in flight, new content, an approver who is now the author, or an approval that landed
+        # since: the Kernel, asked again, no longer issues this approval.
+        for again in (go(facts(label_events=[labelled("factory:hold")]), REVIEWED),
+                      go(facts(), REVIEWED, ctx=context(paused=True)),
+                      go(facts(), REVIEWED + [run(status="in_progress", name="r2", at="2026-10-11T12:30:00Z")]),
+                      go(facts(content_id="sha256:bbbb"), REVIEWED),
+                      go(facts(author="donpetry-bot"), REVIEWED),
+                      go(facts(reviews=APPROVED), REVIEWED)):
+            self.assertFalse(still_wanted(approval, again), (again["reason"], again["outcome"]))
+        # Each part of the approval is read: the act, the action, the content and the item.
+        for part in ({"outcome": "nothing"}, {"action": "enqueue"}, {"content_id": "sha256:bbbb"},
+                     {"item": dict(approval["item"], number=43)}):
+            self.assertFalse(still_wanted(approval, dict(approval, **part)), part)
+        self.assertFalse(still_wanted(dict(approval, content_id=None), dict(approval, content_id=None)))
+        # A Run admitted is still wanted only if the same Run is admitted again: the same Role, Intent and content.
+        admitted = go(facts(), [])
+        self.assertEqual(admitted["admit"], REVIEW_IT)
+        self.assertTrue(still_wanted(admitted, go(facts(), [])))
+        for again in (go(facts(content_id="sha256:bbbb"), []), go(facts(), REVIEWED),
+                      go(facts(label_events=[labelled("factory:hold")]), [])):
+            self.assertFalse(still_wanted(admitted, again), again["reason"])
+        for admit in (dict(REVIEW_IT, role="dev-lead"), dict(REVIEW_IT, intent="fix-findings"), None):
+            self.assertFalse(still_wanted(admitted, dict(admitted, admit=admit)), admit)
+        # The Decision's own act is read: an enqueue, or a deferral that names the approval, wants no approval, whatever
+        # the Kernel decides again (the fresh review).
+        enqueue = go(facts(reviews=APPROVED), REVIEWED)
+        self.assertEqual(enqueue["action"], "enqueue")
+        self.assertFalse(still_wanted(dict(enqueue, content_id=approval["content_id"]), approval))
+        for outcome in ("defer", "nothing", "hold", "admit"):
+            self.assertFalse(still_wanted(dict(approval, outcome=outcome), approval), outcome)
+        # Neither an approval nor a Run: an enqueue, a deferral or nothing is never still wanted, even by its twin.
+        for d in (go(facts(reviews=APPROVED), REVIEWED), go(facts(), ctx=context(paused=True)),
+                  go(facts(label_events=[labelled("factory:hold")]))):
+            self.assertFalse(still_wanted(d, d), d["reason"])
+        # An item or a Run that cannot be read wants nothing, even of its twin (Argon's read).
+        item = approval["item"]
+        for d in (dict(approval, item=None), dict(admitted, item=None), dict(admitted, admit={}),
+                  dict(approval, item={}), dict(admitted, item={}), dict(approval, item=dict(item, repo="")),
+                  dict(approval, item=dict(item, repo=None)), dict(approval, item=dict(item, type="issue")),
+                  dict(approval, item=dict(item, number=None)), dict(approval, item=dict(item, number=True)),
+                  dict(approval, item=dict(item, number=0)), dict(approval, item=dict(item, number="42")),
+                  dict(approval, item=dict(item, repo=7)),
+                  dict(admitted, admit=dict(REVIEW_IT, content_id=None)), dict(admitted, admit=dict(REVIEW_IT, role=None)),
+                  dict(admitted, admit=dict(REVIEW_IT, intent=None)), dict(admitted, admit="pr-review"),
+                  dict(admitted, admit=dict(REVIEW_IT, role="")), dict(admitted, admit=dict(REVIEW_IT, content_id=7)),
+                  dict(approval, content_id=""), dict(approval, content_id=7)):
+            self.assertFalse(still_wanted(d, d), (d.get("admit"), d.get("content_id")))
+        # Only an admission admits, on either side, and only for its own item (Muse's read).
+        for outcome in ("hold", "defer", "nothing", "act"):
+            self.assertFalse(still_wanted(admitted, dict(admitted, outcome=outcome)), outcome)
+            self.assertFalse(still_wanted(dict(admitted, outcome=outcome), admitted), outcome)
+        self.assertFalse(still_wanted(admitted, dict(admitted, item=dict(admitted["item"], number=43))))
+        # Each side's item is read on its own: True is no number, though Python counts it equal to 1 (Argon's read).
+        one = dict(approval, item=dict(approval["item"], number=1))
+        self.assertTrue(still_wanted(one, one))
+        for number in (True, 1.0):
+            odd = dict(one, item=dict(one["item"], number=number))
+            self.assertFalse(still_wanted(one, odd), number)
+            self.assertFalse(still_wanted(odd, one), number)
+        # What cannot be read wants nothing.
+        for bad in (None, [], "act", {}):
+            self.assertFalse(still_wanted(approval, bad), bad)
+            self.assertFalse(still_wanted(bad, approval), bad)
+
 if __name__ == "__main__":
     unittest.main()
+

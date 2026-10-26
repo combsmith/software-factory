@@ -1,9 +1,9 @@
 """The records port: the Factory's own run records, as the Kernel reads them (design section 3.10, decision 0036).
 
 A record counts only if it is a run of one of the Factory's own Role workflow files, in the Factory repo, from its
-default branch, started by a dispatch the Controller's App made: a Role's Runs are dispatched, never scheduled, and a
-run of any other workflow, branch, repo, event or dispatcher, a fork's pull request and a person's dispatch among them,
-is never a Run (decision 0003, I-34). Which item a counted Run is on, its Intent, its Role, its content and its id come
+default branch, started by a dispatch the pass job's own token made (P-9; decision 0051): a Role's Runs are
+dispatched, never scheduled, and a run of any other workflow, branch, repo, event or dispatcher, a fork's pull
+request and a person's dispatch among them, is never a Run (decision 0003, I-34). Which item a counted Run is on, its Intent, its Role, its content and its id come
 from its run-name alone, `run-name/1`, and the item's type from the Intent. A counted record whose name is not yet a
 run-name is unidentified: it is reported by its GitHub id, never dropped, and the list is read once more 5 s later, so
 that only what is still unnamed then is reported (decision 0036, rulings 1 and 3).
@@ -12,7 +12,7 @@ Every read of the list asks GitHub for the default branch's dispatches alone and
 keeps the answer's `date` and `age` for the pass record, which never reach the Kernel (ruling 4). The list is whole
 only when every page was read, each run once, as many as the count GitHub gives, with every row readable and every
 counted run's outcome read (L-53). A Run that did not succeed has its outcome read from its artifact by
-`adapters/artifacts.py`, once the list is final, and for no other Run (decisions 0029 and 0039): one it cannot read
+`adapters/artifacts.py`, once the list is final, and for no other Run (decisions 0039 and 0049): one it cannot read
 leaves the list not whole, so that no failed Run is ever read as no attempt.
 """
 from __future__ import annotations
@@ -34,11 +34,15 @@ NAME = re.compile(r"sf ([A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100})#([1-9][0-9]
 # The Intents a pull request's Runs carry, as kernel/decide.py admits them, and an issue's, as kernel/issue.py does.
 # A name with any other Intent cannot be placed on an item: its row cannot be read.
 ON_PULL_REQUEST = {"review-change", "fix-findings", "adjudicate-findings", terms.ISSUE_APPROVAL}
-# GitHub's words for a run that has not started, and how each ends, as the run record holds them.
+# GitHub's words for a run that has not started, and how each ends, as the run record holds them. A Run whose job never
+# started, `startup_failure`, ran no Role and left no outcome: it is read as `cancelled`, no attempt, and the Run ceiling
+# bounds it (decision 0049, issue 286), never as `failure`, which with no outcome is an attempt.
 NOT_STARTED = {"queued", "waiting", "requested", "pending"}
-CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "failure", "cancelled": "cancelled",
+CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "cancelled", "cancelled": "cancelled",
                "timed_out": "timed_out"}
 FRESH = {"Cache-Control": "no-cache"}
+# The faults an outcome names, as `outcome/1` holds them: one of these, once read, is that attempt's for good.
+CONCLUDED = {"item", "capacity", "environment", "superseded"}
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 HTTP_DATE = re.compile(r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0-9]{2}) ([A-Z][a-z]{2}) ([0-9]{4}) "
                        r"([0-9]{2}:[0-9]{2}:[0-9]{2}) GMT")
@@ -109,8 +113,9 @@ def _list(transport, repo: str, workflow: str, branch: str, per_page: int) -> tu
 
 
 def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
-    """`(record, unidentified id)` for one listed run: a record for a counted run its name names, its id for a counted
-    run its name does not yet, and neither for a run that does not count. None for a row that cannot be read."""
+    """`(record, unidentified)` for one listed run: a record for a counted run its name names, its id, its record's
+    creation and its status for a counted run its name does not yet, and neither for a run that does not count. None
+    for a row that cannot be read."""
     if not isinstance(row, dict) or not isinstance(row.get("id"), int) or isinstance(row.get("id"), bool):
         return None
     path, _, ref = str(row.get("path", "")).partition("@")
@@ -122,13 +127,20 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
                and (actor.get("id"), actor.get("type")) == dispatcher)
     if not counted:
         return (None, None)
-    parts = named(row.get("name"))
-    if parts is None:
-        return (None, row["id"])
     status = row.get("status")
     status = "queued" if status in NOT_STARTED else status
     if status not in ("queued", "in_progress", "completed"):
         return None
+    parts = named(row.get("name"))
+    if parts is None:
+        # Its record's creation and its status, from which the Kernel reads how long it has gone unnamed and whether
+        # it may be running on an item now (issue 270).
+        created = row.get("created_at")
+        try:
+            datetime.datetime.strptime(str(created), "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return None
+        return (None, {"run": str(row["id"]), "created_at": created, "status": status})
     conclusion = row.get("conclusion")
     if status == "completed":
         if conclusion not in CONCLUSIONS:
@@ -144,18 +156,58 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
     return (dict(parts, status=status, conclusion=conclusion, outcome=None, started_at=started), None)
 
 
+def known(previous: list) -> dict:
+    """The outcomes the pass records before this one read, each by its Run id and when its attempt started, from the
+    records `controller/pass_.earlier` placed before the pass, held to `pass/1` by `controller/reads.previous_records`,
+    the Factory's own, last two at most (#285's ruling).
+
+    An outcome is written once, by its attempt's final step, so one that named a fault is that attempt's for good; a
+    re-run starts again, at another time, and is read afresh. A Run that left none is kept as none only once two passes
+    in a row read none for that attempt and each read its list whole, its count of active Runs a count: a list read
+    short may have read none where there was one, and an outcome GitHub listed late is read the pass after. A key
+    either record lists twice, whatever its status, is kept by neither, and nothing is kept from a record that is not
+    a `pass/1` record's runs."""
+    def read(record) -> dict:
+        runs_ = record.get("runs") if isinstance(record, dict) else None
+        if not isinstance(runs_, list):
+            return {}
+        context = record.get("context") if isinstance(record.get("context"), dict) else {}
+        whole = type(context.get("active_runs")) is int
+        found, listed = {}, []
+        for r in runs_:
+            if not (isinstance(r, dict) and isinstance(r.get("run"), str) and isinstance(r.get("started_at"), str)):
+                continue
+            listed.append((r["run"], r["started_at"]))
+            outcome = r.get("outcome")
+            if not (r.get("status") == "completed" and r.get("conclusion") not in (None, "success")
+                    and (outcome in CONCLUDED if isinstance(outcome, str) else outcome is None and whole)):
+                continue
+            found[(r["run"], r["started_at"])] = outcome
+        return {k: v for k, v in found.items() if listed.count(k) == 1}
+    records_ = list(previous[-2:]) if isinstance(previous, list) else []
+    last = read(records_[-1]) if records_ else {}
+    before = read(records_[-2]) if len(records_) == 2 else {}
+    return {k: v for k, v in last.items() if v is not None or (k in before and before[k] is None)}
+
+
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
-         sleep=time.sleep) -> dict:
+         sleep=time.sleep, kept=None) -> dict:
     """The run records of the Factory's Role workflows, the ids of counted Runs not yet named, whether the list was
-    read whole, and each read's date and age for the pass record. `dispatcher` is the Controller's App, by its account
-    id and type, `(id, "Bot")`: only a run it dispatched is a Run.
+    read whole, and each read's date and age for the pass record. `dispatcher` is the pass job's own token's account,
+    by its id and type, `(id, "Bot")`: only a run it dispatched is a Run.
 
     `outcome` is the fault a completed Run that did not succeed names in its artifact, and null on every other record
-    and on one that left none."""
+    and on one that left none. `kept` is what `known` read from the pass records before: an outcome held there is not
+    read again, for a row that names when its attempt started, and once in this list, whatever its status. Each outcome read is stamped
+    beside the list's reads, `read` `outcome`: one stamp for each Run's read, its artifacts listed and, where an
+    outcome is listed, downloaded, so the pass record says how many outcomes a pass read. Nothing calls `known` until
+    the pass's entry, the effects port's next part (#193), hands it the records it placed."""
+    kept = kept or {}
     roles = {".github/workflows/%s" % name for name in workflows}
 
     def read() -> tuple:
         records, unnamed, reads, whole, failed = [], [], [], True, []
+        attempts = {}
         for workflow in workflows:
             rows, got, complete = _list(transport, repo, workflow, branch, per_page)
             reads += got
@@ -168,18 +220,26 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
                 record, unidentified = found
                 if record is not None:
                     records.append(record)
+                    key = (record["run"], record["started_at"])
+                    attempts[key] = attempts.get(key, 0) + 1
                     if record["status"] == "completed" and record["conclusion"] != "success":
-                        failed.append((record, row["id"]))
+                        failed.append((record, row["id"], bool(row.get("run_started_at"))))
                 if unidentified is not None:
                     unnamed.append(unidentified)
-        return records, unnamed, reads, whole, failed
+        return records, unnamed, reads, whole, [(r, i, timed and attempts[(r["run"], r["started_at"])] == 1)
+                                                for r, i, timed in failed]
 
     records, unnamed, reads, whole, failed = read()
     if unnamed:
         sleep(WAIT)
         records, unnamed, again, whole, failed = read()
         reads += again
-    for record, github_id in failed:
-        record["outcome"], read_whole = artifacts.outcome(transport, repo, github_id, record["run"])
+    for record, github_id, keyed in failed:
+        if keyed and (record["run"], record["started_at"]) in kept:
+            record["outcome"] = kept[(record["run"], record["started_at"])]
+            continue
+        record["outcome"], read_whole = artifacts.outcome(
+            transport, repo, github_id, record["run"],
+            lambda answer: reads.append(dict(_read_at(answer), read="outcome")))
         whole = whole and read_whole
-    return {"runs": records, "unidentified": [str(i) for i in unnamed], "complete": whole, "reads": reads}
+    return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads}

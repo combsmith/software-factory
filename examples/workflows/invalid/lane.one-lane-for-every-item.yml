@@ -1,0 +1,29 @@
+# Must be rejected. One group written in is one lane for every item: a Run on one waits for a Run on another.
+name: sf-run
+run-name: ${{ inputs.name }}
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        required: true
+        type: string
+      item:
+        required: true
+        type: string
+      pass:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  lane:
+    if: github.actor_id == '41898282' && github.run_attempt == '1' && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false')
+    permissions:
+      contents: read
+    concurrency:
+      group: sf-run
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/run-jobs.yml@factory/v0-next
+    with:
+      name: ${{ inputs.name }}
+      item: ${{ inputs.item }}
+      pass: ${{ inputs.pass }}

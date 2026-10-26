@@ -5,6 +5,7 @@ cause once, and decision 0011's three thresholds, null where a figure was not re
 from __future__ import annotations
 
 from controller.shared import checked, key, moment, seconds
+from kernel import terms as t
 
 STARTS = ("schedule", "relay", "public", "own_repo", "successor", "dispatch")
 CAPACITY, ENVIRONMENT = "capacity", "environment"
@@ -32,7 +33,9 @@ def delay_p95(records: list):
             item = key(facts["item"])
             # Counted once, by the first pass that read this change, if it came after the window's first pass, even
             # when passes between them missed the item.
-            if at_first and moment(at) is not None and seen.get(item) != at and records[0]["now"] < at <= record["now"]:
+            if moment(at) is None or at > record["now"]:
+                continue        # a change no pass has read yet is not seen
+            if at_first and seen.get(item) != at and records[0]["now"] < at:
                 delays.append(seconds(record["now"], at))
             seen[item] = at
     if not delays:
@@ -53,6 +56,30 @@ def thresholds(window: list, usage, rule: dict) -> dict:
     return {"job_minutes_share": threshold(None if share is None else round(share, 4), rule["job_minutes_share"], share),
             "graphql_points_per_hour": threshold(points, rule["graphql_points_per_hour"]),
             "decision_delay_p95_minutes": threshold(delay_p95(window), rule["decision_delay_p95_minutes"])}
+
+
+def alerts(reasons: list, context: dict, capacity, automatic: bool, left_out: bool, not_run: bool, unnamed: dict,
+           reconciled=()) -> list:
+    """Each cause once, however many items it defers (L-48). A cause that holds the whole scope is raised from the
+    context as well as from the Decisions, so that it is raised with no item to defer. The automatic pause defers as
+    `capacity` does, and is the one cause `environment` unless a capacity fault holds too. Facts left out are one cause,
+    and so is six hours with no pass. `unnamed` is the Kernel's `unnamed_scope`: an unnamed Run inside the window
+    defers, and past `max_unnamed_runs` of them past it every Run does (issue 270). `reconciled` is reconciliation's
+    alerts: a write no Effect recorded, and a reconciliation that was short (decision 0061)."""
+    causes = set(reasons) & t.SCOPE_DEFERRALS
+    causes |= {"paused"} if context["paused"] is True else set()
+    causes |= {"pause_unreadable"} if context["paused"] is None else set()
+    causes |= {"capacity"} if capacity is not None else set()
+    causes |= {"capacity_unreadable"} if context["active_runs"] is None else set()
+    causes |= {"run_unidentified"} if unnamed["defers"] else set()
+    causes |= {"runs_unnamed"} if unnamed["bounded"] else set()
+    if automatic and capacity is None:
+        causes.discard("capacity")
+    causes |= {ENVIRONMENT} if automatic else set()
+    causes |= {"facts_unreadable"} if left_out else set()
+    causes |= {"not_run"} if not_run else set()
+    causes |= set(reconciled)
+    return sorted(causes)
 
 
 def health(record: dict, before: list, pause: tuple, automatic: bool, alerts: list, usage, rules: dict) -> dict:

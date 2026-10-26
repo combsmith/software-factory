@@ -26,7 +26,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-03 The caps counted failures, and counted them per worker
 **Failure.** The attempt limit counted only failed runs, and the cap on review cycles re-armed itself. Fixes that succeeded took one pull request to 378 commits in four days, for a diff of 18 files.
 **Rule.** Every automated action on a Work item counts toward a ceiling, whether it succeeded or not: a Run toward the Run ceiling, and an act, made with no model, toward the act ceiling. An approval that lands is an act. One that does not land counts toward the Run ceiling, and toward its attempts too when the fault is the item's.
-**Check.** `tools/mutants.py`, `tests/test_simulator.py::test_invariants_hold_under_faults`, `tests/test_decide.py::test_acts_are_bounded`, `tests/test_decide.py::test_an_approval_that_does_not_land_is_bounded`, `tests/test_decide.py::test_an_approval_that_keeps_failing_for_the_environment_is_bounded`, `tests/test_simulator.py::test_a_queue_that_ejects_every_time_is_bounded`
+**Check.** `tools/mutants.py`, `tests/test_simulator.py::test_invariants_hold_under_faults`, `tests/test_decide.py::test_acts_are_bounded`, `tests/test_decide.py::test_an_approval_that_does_not_land_is_bounded`, `tests/test_decide.py::test_an_approval_that_keeps_failing_for_the_environment_is_bounded`, `tests/test_simulator.py::test_a_queue_that_ejects_every_time_is_bounded`, `tests/test_approve.py::test_each_fault_of_the_act_is_classed_as_the_design_classes_it`
 
 ### L-04 Two agents each answered the other
 **Failure.** Every fix was a new commit, every new commit was reviewed, and every review produced a fix. Merged pull requests took seven to ten commits at the median, and each push cost about 56 jobs.
@@ -83,7 +83,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-14 The Maintainer's finding had no force where it was written
 **Failure.** The Maintainer reported a fault in a plain comment. The author never saw it, the reviewer approved, and the change merged eight minutes later with the fault in it.
 **Rule.** A person with write access blocks with a review thread, whatever its severity, or with an ordinary request for changes. The request stands until that person approves or a person with write access dismisses it: new content does not clear it, and nor does an App's dismissal. A plain comment gates nothing, because it has no resolved state (L-13); it is given to the next Run to steer it.
-**Check.** `tests/test_decide.py::test_a_writer_thread_gates_whatever_its_severity`, `tests/test_decide.py::test_a_writers_request_for_changes_does_not_converge`, `tests/test_decide.py::test_a_request_for_changes_stands_until_that_person_reviews_again`; a comment reaching the next Run is waiting on `harness/`
+**Check.** `tests/test_decide.py::test_a_writer_thread_gates_whatever_its_severity`, `tests/test_decide.py::test_a_writers_request_for_changes_does_not_converge`, `tests/test_decide.py::test_a_request_for_changes_stands_until_that_person_reviews_again`; a comment reaching the next Run is waiting on `adapters/texts.py`
 
 ## Approval and merge
 
@@ -201,7 +201,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-35 What ran was whatever a tag pointed at that day
 **Failure.** The model's command-line tool resolved to the latest version at run time, while its documentation announced a change of default that would stop every agent authenticating.
 **Rule.** What runs is pinned: an action to a full commit hash, a runner image to a version, the Engine's tool to a version.
-**Check.** `examples/workflows/invalid/pin.a-tag-can-move.yml`, `examples/workflows/invalid/runner.an-image-that-changes.yml`; the Engine's tool is waiting on `harness/`
+**Check.** `examples/workflows/invalid/pin.a-tag-can-move.yml`, `examples/workflows/invalid/runner.an-image-that-changes.yml`; the Engine's tool is held by `tests/test_harness.py::test_the_version_is_held_before_and_after_the_call`
 
 ### L-36 A required check never reported
 **Failure.** A required check behind a path filter does not run, so it never reports, and every merge waits for ever. The same happens in the merge queue to a workflow that does not run on its event.
@@ -211,7 +211,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-37 One person's token served seven purposes
 **Failure.** The owner account's token was named 70 times and served seven purposes, and nine workflows passed every secret to whatever they called. Its rotation would show only as a refusal on the next run.
 **Rule.** No workflow names a personal access token, and none inherits secrets. The age of each credential is read, and one near its limit raises one alert.
-**Check.** `examples/workflows/invalid/token.a-persons-token.yml`; a credential's age is waiting on `harness/`
+**Check.** `examples/workflows/invalid/token.a-persons-token.yml`; a credential's age is waiting on `adapters/settings.py`
 
 ### L-38 A gate was allowed to fail
 **Failure.** The eval gate ran only with its failure ignored, and the release never looked at its result.
@@ -231,22 +231,22 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-41 Success was reported for work that was not done
 **Failure.** "pr-review announces an approval it never created" (issue 1874). The author posted "Fixed" for changes it never pushed, and reported a rebase complete with no commit.
 **Rule.** A claim is written by `apply`, from what it wrote and then read back. The model's output has no field for one.
-**Check.** waiting on `harness/`
+**Check.** `tests/test_apply.py::test_an_effect_is_claimed_only_from_what_was_read_back`
 
 ### L-42 The author edited the tests it was judged by
 **Failure.** "[Phase 4] Name and guard the "agent optimizes the check, not the intent" failure mode" (issue 1468): a test tool vendored to satisfy a check, and a distributed file edited to turn a monitor green. Separately, the author edited tests to match its own code.
 **Rule.** `apply` refuses a change by an implementing Role to a test, a fixture, a threshold or an acceptance contract that judges it.
-**Check.** waiting on `harness/`
+**Check.** waiting on `harness/push.py`, the fix Intent's push
 
 ### L-43 The model held the credential that could write
 **Failure.** The author's job held the owner account's token and kept it for pushing. "Never push" was a sentence in the prompt.
 **Rule.** No job holds both a model credential and a credential that can write.
-**Check.** waiting on `harness/`
+**Check.** `tests/test_harness.py::test_the_cli_is_given_exactly_the_named_environment_and_the_one_credential`; that no job holds both is waiting on `.github/workflows/run.yml`
 
 ### L-44 Agents acted as the Maintainer
 **Failure.** Agents ran as the owner's account, so the Maintainer could not review an agent's pull requests and the agent skipped the Maintainer's requests as its own. When one Role took its identity from a shared variable, it committed as the review-only machine user: "dev-lead regressed to committing as donpetry-bot (review-only machine user) instead of don-petry" (issue 1316).
 **Rule.** Each Role declares its own App, and no two share one.
-**Check.** waiting on `roles/`
+**Check.** `tests/test_tools.py::test_each_role_writes_through_its_own_app`
 
 ### L-45 A merged fix was not what ran
 **Failure.** Twice in one week a fix merged and the failure went on, because agents ran from a tag that had not moved. A whole class of change never arrived at all: "Script-only changes never reach the fleet" (issue 1592).
@@ -266,7 +266,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-48 Nobody noticed
 **Failure.** "Engine-token liveness monitoring: a 7-day fleet-wide dev-lead outage went unalerted, and pr-review fails open" (issue 1587). The daily failure report appears to have stopped as well; the review could not confirm it.
 **Rule.** One cause raises one alert, a pass that did not run is itself reported, and an item that needs a person is assigned to one.
-**Check.** `tests/test_controller.py::test_one_cause_raises_one_alert`, `tests/test_controller.py::test_the_first_pass_after_six_hours_with_none_raises_the_not_run_alert_and_the_next_clears_it`; assigning an item to a person is waiting on `adapters/effects.py`
+**Check.** `tests/test_controller.py::test_one_cause_raises_one_alert`, `tests/test_controller.py::test_the_first_pass_after_six_hours_with_none_raises_the_not_run_alert_and_the_next_clears_it`; assigning an item to a person is waiting on `controller/notify.py`
 
 ### L-49 The Maintainer's attention was the real limit
 **Failure.** Runs rose about fivefold while merges stayed at 14 to 36 a week. The owner account cleared holds 64 times across 150 merged pull requests.
@@ -276,12 +276,12 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-50 A credential's permissions were assumed
 **Failure.** A change of credential met a refusal on its first real write and was reverted. An App that could write contents could not move a tag on a repo with workflows, and the fleet was broken for six days.
 **Rule.** Each write a Role may make is tried once on a canary repo, and the recorded response is what the fake GitHub is held to.
-**Check.** waiting on `adapters/effects.py`
+**Check.** `tests/test_effects.py::test_every_write_the_port_sends_has_the_shape_a_trial_recorded`, for a dispatch's answer, from `trials/P-9.json`; the status, the dequeue and the tracking issue are not held yet: `tests/test_effects.py::test_the_status_the_dequeue_and_the_tracking_issue_are_written_as_trials_recorded`
 
 ### L-51 The tests passed against a fake that accepted anything
 **Failure.** The shared stub of the GitHub command returned empty for calls it did not know, so real flags and filters were never exercised.
 **Rule.** Every rule the fake GitHub applies cites a response recorded from the real one, and the required check prints the rules that do not.
-**Check.** `tests/test_tools.py::test_a_rule_of_the_fake_that_is_not_listed_is_caught`, `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate`, `tests/test_tools.py::test_verify_prints_every_rule_no_fixture_grounds`, `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can`; the port's reading of each fixture that grounds a rule of the fake, held to what the rule states, the fake not run: `tests/test_adapters.py::test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it`
+**Check.** `tests/test_tools.py::test_a_rule_of_the_fake_that_is_not_listed_is_caught`, `tests/test_tools.py::test_a_fixture_named_for_a_rule_must_exist_and_validate`, `tests/test_tools.py::test_verify_prints_every_rule_no_fixture_grounds`, `tests/test_tools.py::test_a_rule_no_trial_asks_names_one_or_says_why_none_can`; the port's reading of each fixture that grounds a rule of the fake, held to what the rule states, every other named with why it is not read here, the fake not run: `tests/test_adapters.py::test_the_port_reads_each_grounded_rule_as_the_fake_assumes_it`; each refusal a trial recorded placed, and each one a built port asks read as no answer: `tests/test_adapters.py::test_a_recorded_refusal_is_no_answer`
 
 ### L-52 The fleet and every session shared one API quota
 **Failure.** "The fleet and every session share one GitHub API quota" (issue 2197). It ran out on 2026-10-10 and failed a workflow.
@@ -291,27 +291,27 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-53 The list itself was cut off, and nothing said so
 **Failure.** The list of workflow runs stops at 1,000 for a query, however it is paged. A query over the resource limit came back as a success with no data, and a whole repo was read as having no pull requests.
 **Rule.** A list read short is unreadable. The list of Runs and the list of items each say whether they are whole, as the facts of one item do.
-**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `examples/invalid/facts.no-completeness-for-runs.json` for the list of Runs; `examples/invalid/facts.no-completeness-for-timeline.json` for the timeline the acts are counted from; the list of items is waiting on `adapters/items.py`
+**Check.** `tests/test_decide.py::test_incomplete_facts_never_converge_or_admit`, `examples/invalid/facts.no-completeness-for-runs.json` for the list of Runs; `examples/invalid/facts.no-completeness-for-timeline.json` for the timeline the acts are counted from; the list of open pull requests, `tests/test_adapters.py::test_open_pull_requests_are_whole_only_if_each_was_read`
 
 ### L-54 A wrong fix cleared a gate
 **Failure.** A fix added a new test and broke an existing one without editing it. Nobody ran the suite against the state before the fix, and an outside reviewer marked the thread addressed on the strength of the reply.
 **Rule.** `verify` compares with the head the Run started from. A test that passed and now fails applies no Effect, and a repo with no test command is recorded as not run, never as passed.
-**Check.** waiting on `harness/`
+**Check.** waiting on `harness/verify.py`
 
 ### L-55 A forced push destroyed the Maintainer's commit
 **Failure.** A push leased against a ref that an earlier fetch in the same run had refreshed. The lease passed, and the push discarded a commit the Maintainer had made to steer the work.
 **Rule.** `apply` pushes against the exact head its Decision named. A refusal means the Run was superseded.
-**Check.** waiting on `harness/`
+**Check.** waiting on `harness/push.py`, the fix Intent's push
 
 ### L-56 Steering never reached the agent
 **Failure.** An issue steered by a comment sat idle, because only its title and body reached the prompt. When comments were added they had to be cut to people with write access, newest first, with what was dropped counted and said.
 **Rule.** A Task says what was left out of it, and how much.
-**Check.** waiting on `harness/`
+**Check.** `tests/test_harness.py::test_a_task_says_what_it_left_out_and_how_much`
 
 ### L-57 Who counted as a writer depended on which token asked
 **Failure.** GitHub reports an author's standing relative to the token that reads it. Read with the wrong credential, every trusted marker was dropped as untrusted, and the breaker that counted them could never trip.
 **Rule.** Whether an actor can write is read with one named credential, and a trial records what each credential is shown.
-**Check.** `tests/test_adapters.py::test_an_actor_is_told_by_its_account_type_and_the_configuration`; what each credential is shown of a permission is not held yet: `tests/test_adapters.py::test_what_each_credential_is_shown_of_a_permission_is_recorded`
+**Check.** `tests/test_adapters.py::test_an_actor_is_told_by_its_account_type_and_the_configuration`, `tests/test_adapters.py::test_what_each_credential_is_shown_of_a_permission_is_recorded`
 
 ### L-58 The pause variable meant different things to different readers
 **Failure.** A repo's variable overrode the org's of the same name, and a workflow expression matched its value without regard to case while a script matched it exactly. One spelling delivered a credential to a run that then would not use it.

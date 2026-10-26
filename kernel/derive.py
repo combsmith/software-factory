@@ -5,7 +5,7 @@ State is never stored. This function is the only definition of it.
 from __future__ import annotations
 
 from kernel import terms as t
-from kernel.gate import closed, gates, is_person
+from kernel.gate import closed, gates, is_person, verdict_order
 
 
 def incomplete(facts: dict) -> list:
@@ -206,12 +206,13 @@ def readable_pattern(pattern) -> bool:
 
 
 def readable_rules(config: dict) -> bool:
-    """Whether the protected paths and Lenses' inputs the Kernel is given can be read: a list of at least one pattern,
-    each in its shape (readable_pattern). The Controller builds it from the base branch's config/hooks.json, never the
-    head's (decision 0020). A list that is empty, or not there, would let a change to the Factory's own rules pass as
-    any other (I-13)."""
-    rules = config.get("protected_paths")
-    return isinstance(rules, list) and len(rules) > 0 and all(readable_pattern(p) for p in rules)
+    """Whether the protected paths and Lenses' inputs the Kernel is given can be read, and the model Lenses' own inputs
+    among them: each a list of at least one pattern, each in its shape (readable_pattern). The Controller builds both
+    from the base branch's config/hooks.json, never the head's, by one function (decision 0020, issue 140). A list that
+    is empty, or not there, would let a change to the Factory's own rules, or to what a model Lens is given, pass as any
+    other (I-13)."""
+    return all(isinstance(rules, list) and len(rules) > 0 and all(readable_pattern(p) for p in rules)
+               for rules in (config.get("protected_paths"), config.get("model_lens_inputs")))
 
 
 def fits(pattern: str, path: str) -> bool:
@@ -281,6 +282,33 @@ def touched(facts: dict, config: dict) -> list:
     """
     changed = names(facts["changed_paths"])
     return [p for p in dict.fromkeys(config["protected_paths"]) if any(matches(p, path) for path in changed)]
+
+
+def lens_inputs_touched(facts: dict, config: dict) -> list:
+    """Each model Lens's own input this pull request changes, as the configuration names it, once, in its order: the
+    Role's manifest and prompt, its rubric, and what the Harness gives it and takes back (issue 140)."""
+    changed = names(facts["changed_paths"])
+    return [p for p in dict.fromkeys(config["model_lens_inputs"]) if any(matches(p, path) for path in changed)]
+
+
+def judged_by_a_person(facts: dict) -> bool:
+    """Whether a person has judged this head, so that no model Lens is the only judge of a change to its own inputs: an
+    approval of this content that stands, by a person with write access other than its author and its last pusher
+    (issue 140). The machine user's never counts, whoever made it: the Factory's approving act makes it too, and "Only a
+    different person with write can approve" (the Maintainer, 2026-10-22). That person's latest verdict counts, as for a
+    request for changes (gate): an approval a later request supersedes is none, whoever dismissed the request. Only a
+    person's dismissal ends an approval: an App's, a Lens's among them, ends nothing a person did (L-17). An author's own
+    change is no judgment of a head, whoever pushed it: a session may push as the Maintainer (L-44)."""
+    latest = {}
+    for rv in sorted(facts["reviews"], key=verdict_order):
+        if is_person(rv["by"]) and rv["state"] != "commented" and rv["dismissed_from"] != "commented":
+            latest[rv["by"]["name"]] = rv
+    for rv in latest.values():
+        another = rv["by"]["name"] != facts["author"] and rv["by"]["name"] != facts["last_pusher"]
+        standing = rv["state"] == "approved" or (rv["dismissed_from"] == "approved" and not is_person(rv["dismissed_by"]))
+        if another and standing and rv["content_id"] == facts["content_id"]:
+            return True
+    return False
 
 
 def required_model_lenses(facts: dict, config: dict) -> list:
@@ -453,9 +481,70 @@ def run_deferral(_decision, facts: dict, state, evidence: list, context: dict, n
         return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
     if active >= limits["org_max_active_runs"]:
         return _decision(facts, state, "concurrency", evidence, t.DEFER)
-    if context.get("unidentified_runs") != []:
+    if unnamed_within(context, now, limits) != []:
         return _decision(facts, state, "run_unidentified", evidence, t.DEFER)
+    past = unnamed_past(context, now, limits)
+    if past and len(past) > limits["max_unnamed_runs"]:
+        return _decision(facts, state, "runs_unnamed", evidence, t.DEFER)
     return None
+
+
+def unnamed_runs(context: dict):
+    """The context's unidentified Runs, each a run id of digits, when its record was created, and whether it is queued,
+    in progress or completed; or None when the list or one of them cannot be read (decision 0036, issue 270)."""
+    listed = context.get("unidentified_runs") if isinstance(context, dict) else None
+    if not isinstance(listed, list):
+        return None
+    for entry in listed:
+        if not (isinstance(entry, dict) and isinstance(entry.get("run"), str) and entry["run"]
+                and all(c in t.DIGITS for c in entry["run"]) and is_time(entry.get("created_at"))
+                and entry.get("status") in t.RUN_STATUSES):
+            return None
+    return listed
+
+
+def unnamed_age(entry: dict, now: str) -> int:
+    """How long ago the unidentified Run's record was created, in seconds; below zero where the clock reads it later."""
+    return seconds(now) - seconds(entry["created_at"])
+
+
+def unnamed_window(limits: dict):
+    """max_unnamed_run_seconds and max_unnamed_runs, each a whole number of at least one, or None."""
+    if not isinstance(limits, dict):
+        return None
+    window, most = limits.get("max_unnamed_run_seconds"), limits.get("max_unnamed_runs")
+    if not (type(window) is int and window >= 1 and type(most) is int and most >= 1):
+        return None
+    return window
+
+
+def unnamed_within(context: dict, now: str, limits: dict):
+    """The unidentified Runs that defer every admission, by run id: each inside max_unnamed_run_seconds of its creation,
+    which may yet be named as a Run in flight, and each not yet completed, whatever its age, which may be a Run on an
+    item running now; or None when the list, a Run of it, the limits or `now` cannot be read. A completed one older
+    than the window is no Run waiting for its name: P-17 saw a name listed within 3.7 s (issue 270)."""
+    listed = unnamed_runs(context)
+    if listed == []:
+        return []
+    window = unnamed_window(limits)
+    if listed is None or window is None or not is_time(now):
+        return None
+    return [entry["run"] for entry in listed
+            if unnamed_age(entry, now) < window or entry["status"] != t.RUN_COMPLETED]
+
+
+def unnamed_past(context: dict, now: str, limits: dict) -> list:
+    """The unidentified Runs listed for max_unnamed_run_seconds or more, by run id, each once, in the order listed: the
+    alerts of the whole scope. Read only where unnamed_within can read the list, and empty otherwise. A Run on an item
+    among them is missing from that item's counts, so past max_unnamed_runs of them every Run defers (issue 270)."""
+    listed, within = unnamed_runs(context), unnamed_within(context, now, limits)
+    if listed is None or within is None:
+        return []
+    window, past = unnamed_window(limits), []
+    for entry in listed:
+        if unnamed_age(entry, now) >= window and entry["run"] not in past:
+            past.append(entry["run"])
+    return past
 
 
 def readable_actor(actor, facts: dict, config: dict) -> bool:
@@ -999,6 +1088,12 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
         return {"state": t.ADDRESSING, "reason": "acceptance_failed", "evidence": criteria}
     if said == "missing":
         return {"state": t.VERIFYING, "reason": "acceptance_evidence_missing", "evidence": criteria}
+
+    # A change to a model Lens's own inputs needs a person as well as every model Lens's review: with one model family,
+    # the only judge that is not the Lens is a person (issue 140). It is no wait a queued item is read past.
+    own = lens_inputs_touched(facts, config)
+    if own and not judged_by_a_person(facts):
+        return {"state": t.VERIFYING, "reason": "model_lens_input_needs_person", "evidence": own}
 
     # GitHub does not count an approval by the author or the last pusher, so nothing may merge on one (I-26). It is
     # a Hold the facts establish, read here so that a queued item leaves the queue on it too.

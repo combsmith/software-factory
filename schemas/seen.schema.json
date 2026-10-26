@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "seen/1: the writes each Factory identity made on the served items since a moment, as adapters/seen.py read them from GitHub, by an identity's code from the configuration and never a login's spelling, with each write's kind, item and the key it is recorded by; and every merge of a served item, by anyone. Whole only when every list behind it was read whole. Ids and codes alone (decision 0061).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "since",
+    "whole",
+    "writes",
+    "merged"
+  ],
+  "properties": {
+    "schema": {
+      "const": "seen/1"
+    },
+    "since": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "whole": {
+      "type": "boolean"
+    },
+    "writes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "by",
+          "kind",
+          "item",
+          "key",
+          "at"
+        ],
+        "properties": {
+          "by": {
+            "description": "approver, controller, a Role App's name in config/apps.json, or unattributed: a thread GitHub names no resolver for",
+            "type": "string",
+            "pattern": "^[a-z][a-z-]{0,60}[a-z]$"
+          },
+          "kind": {
+            "enum": [
+              "review",
+              "approval",
+              "comment",
+              "check_run",
+              "resolution",
+              "label",
+              "enqueue",
+              "dequeue",
+              "merge",
+              "close",
+              "reopen",
+              "dismissal",
+              "rename",
+              "ready",
+              "draft",
+              "auto_merge",
+              "retarget",
+              "force_push",
+              "branch_deleted",
+              "branch_restored",
+              "review_request",
+              "assignment",
+              "branch_created",
+              "lock",
+              "push",
+              "other"
+            ]
+          },
+          "item": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "repo",
+              "type",
+              "number"
+            ],
+            "properties": {
+              "repo": {
+                "type": "string",
+                "pattern": "^[^/]+/[^/]+$"
+              },
+              "type": {
+                "enum": [
+                  "pull_request",
+                  "issue"
+                ]
+              },
+              "number": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Za-z0-9_=:-]{1,100}$"
+          },
+          "at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+          }
+        }
+      }
+    },
+    "merged": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item",
+          "at"
+        ],
+        "properties": {
+          "item": {
+            "$ref": "facts.schema.json#/$defs/item"
+          },
+          "at": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+          }
+        }
+      }
+    }
+  }
+}

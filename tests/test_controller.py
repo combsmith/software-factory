@@ -7,17 +7,23 @@ them, and a fake mint, and holds what comes back. Nothing here reaches the netwo
 from __future__ import annotations
 
 import ast
+import contextlib
 import copy
+import io
 import json
+import os
 import pathlib
+import tempfile
 import unittest
+import unittest.mock
 
 from adapters import github, records
+import controller.__main__ as entry
 from controller import pass_, shared
 from kernel.decide import decide
 from tests import support
-from tests import test_issue
-from tests.test_adapters import DISPATCHER, NAME, WORKFLOW, canary, listing
+from tests import test_apply, test_issue
+from tests.test_adapters import DISPATCHER, NAME, WORKFLOW, canary, exchanges, listing, outcome_of, outcome_zip, stored
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 NOW = support.NOW                       # 2026-10-11T13:00:00Z
@@ -26,12 +32,16 @@ OTHER_REPO = "combsmith/markets"
 CONTROLLER = json.loads((ROOT / "config" / "controller.json").read_text())
 TOKEN = {"id": 41898282, "type": "Bot"}       # the workflow's own token's account, as a configuration would hold it
 RELAY = {"id": 900001, "type": "User"}        # a relay's account, as one would be held once the relay exists
+APP_ACCOUNT = {"id": 5000001, "type": "Bot", "login": "combsmith-sf-controller[bot]"}  # the Controller App's, as a trial would record it
+ROLE_ACCOUNT = {"id": 5000002, "type": "Bot", "login": "combsmith-sf-pr-review[bot]"}   # a Role App's
 
 
 def config(**controller) -> dict:
     """What a pass is given: the Kernel's configuration, with issues served, each Work item's Lifecycle, the feed's
     table, the Controller's own, here with both accounts known, and the Release."""
-    c = dict(copy.deepcopy(CONTROLLER), accounts={"workflow_token": dict(TOKEN), "relay": dict(RELAY)})
+    c = dict(copy.deepcopy(CONTROLLER), accounts=dict(CONTROLLER["accounts"], workflow_token=dict(TOKEN), relay=dict(RELAY),
+                                                      controller=dict(APP_ACCOUNT),
+                                                      roles={name: dict(ROLE_ACCOUNT) for name in CONTROLLER["accounts"]["roles"]}))
     c.update(controller)
     kernel = {k: v for k, v in copy.deepcopy(support.CONFIG).items() if k != "lifecycle"}
     kernel["issues"] = test_issue.config()["issues"]
@@ -60,9 +70,16 @@ def run(name="r_01JA6Z", number=42, intent="review-change", role="pr-review", st
             "outcome": outcome, "started_at": at}
 
 
+def unnamed(run_id: str, created: str = "2026-10-11T12:59:58Z", status: str = "in_progress") -> dict:
+    """A run the records port lists before its name: its id, when its record was created and its status (issue 270)."""
+    return {"run": run_id, "created_at": created, "status": status}
+
+
 def listed(runs=(), unidentified=(), complete=True) -> dict:
-    """What the records port returns."""
-    return {"runs": [copy.deepcopy(r) for r in runs], "unidentified": list(unidentified), "complete": complete,
+    """What the records port returns. An unnamed Run given by its id alone is one in flight, created two seconds before
+    the pass."""
+    return {"runs": [copy.deepcopy(r) for r in runs],
+            "unidentified": [unnamed(u) if isinstance(u, str) else dict(u) for u in unidentified], "complete": complete,
             "reads": [{"read": "runs", "date": "2026-10-11T12:59:58Z", "age": 0}]}
 
 
@@ -75,16 +92,24 @@ def an_issue(number=7, repo=REPO, title="An issue", **over) -> dict:
     return {"facts": test_issue.facts(item=dict(test_issue.ITEM, number=number, repo=repo), **over), "title": title}
 
 
+# Every Factory identity's writes since the pass, read whole, and the Effects recorded, read whole: a reconciliation
+# with nothing to match and nothing short (decision 0061).
+# Its window opens after every run these tests list, so none is read as a dispatch no pass recorded.
+SEEN = {"schema": "seen/1", "since": "2026-10-12T00:00:00Z", "whole": True, "writes": [], "merged": []}
+RECORDED = {"applied": [], "written": [], "whole": True}
+
+
 def reads(pulls=None, runs=(), unidentified=(), complete=True, pause=None, event="schedule", actor=None,
-          attempt=1, issues=None, usage=None, records_=True) -> dict:
+          attempt=1, issues=None, usage=None, records_=True, seen=SEEN, effects=RECORDED) -> dict:
     """What one pass read. By default: a scheduled run, no Pause anywhere, one pull request waiting for its review,
-    and the records port's list read whole."""
+    the records port's list read whole, and a reconciliation that found nothing."""
     out = {"started": {"event": event, "actor": actor, "attempt": attempt},
            "pause": {"org": None, "repos": {REPO: None, OTHER_REPO: None}} if pause is None else pause,
            "records": listed(runs, unidentified, complete) if records_ else None,
            "pull_requests": [pr()] if pulls is None else pulls,
            "issues": [] if issues is None else issues,
-           "facts_reads": [{"date": "2026-10-11T12:59:59Z", "age": 0}]}
+           "facts_reads": [{"date": "2026-10-11T12:59:59Z", "age": 0}],
+           "seen": copy.deepcopy(seen), "effects": copy.deepcopy(effects)}
     if usage is not None:
         out["usage"] = usage
     return out
@@ -146,6 +171,9 @@ class Record(unittest.TestCase):
         wrong = passed(reads(pulls=[], issues=[waiting]), cfg=stale)
         self.assertNotEqual(decisions(right)[0]["attention"], "stale")
         self.assertEqual(decisions(wrong)[0]["attention"], "stale")
+        # An issue's repo is a scope even when no read of the Pause names it: then it was not read (the follow-on).
+        unread = passed(reads(pulls=[], issues=[an_issue(8, repo=OTHER_REPO)], pause={"org": None, "repos": {REPO: None}}))
+        self.assertIsNone(unread["record"]["context"]["paused"])
         # An issue's repo has a Pause of its own, and it is read.
         held = passed(reads(pulls=[], issues=[an_issue(8, repo=OTHER_REPO)],
                             pause={"org": None, "repos": {REPO: None, OTHER_REPO: "true"}}))
@@ -184,7 +212,8 @@ class Record(unittest.TestCase):
             with self.assertRaises(pass_.Refused, msg=change):
                 passed(dict(reads(), **change))
         # A pass told nothing it can read of what started it or when to wait is no pass.
-        for broken in ({"read_gap_seconds": 0}, {"accounts": {"workflow_token": {"id": None, "type": None}, "relay": None}},
+        for broken in ({"read_gap_seconds": 0},
+                       {"accounts": dict(CONTROLLER["accounts"], workflow_token={"id": None, "type": None}, relay=None)},
                        {"schema": "controller/2"}):
             with self.assertRaises(pass_.Refused, msg=broken):
                 passed(cfg=config(**broken))
@@ -202,14 +231,19 @@ class Record(unittest.TestCase):
         self.assertEqual((out["alerts"], alone["alerts"]), (["facts_unreadable"], []))
         self.assertEqual(passed(reads(pulls=[{"facts": None, "title": "x"}]))["left_out"], [None])
         self.assertEqual(passed(reads(pulls=[{"facts": {}}, "x"]))["left_out"], [None, None])
+        # A good copy and a bad copy of one item: neither is decided (Argon's read of the merged pass).
+        copies = passed(reads(pulls=[pr(42), {"facts": {"item": dict(support.ITEM, number=42)}, "title": "x"}]))
+        self.assertEqual((decisions(copies), copies["dispatch"]), ([], []))
+        self.assertEqual(copies["left_out"], [dict(support.ITEM, number=42)] * 2)
         # An item listed twice is decided neither time: one pass never dispatches two Runs on one item (Muse's read).
         twice = passed(reads(pulls=[pr(42), pr(42), pr(7)], issues=[an_issue(7), an_issue(7)]))
         self.assertEqual([d["item"]["number"] for d in decisions(twice)], [7])
         self.assertEqual(len(twice["dispatch"]), 1)
         self.assertEqual(twice["left_out"], [dict(support.ITEM, number=42)] * 2 + [dict(test_issue.ITEM, number=7)] * 2)
 
-    def test_the_pass_asks_the_kernel_through_its_two_entry_points_alone(self):  # issue 193, ruling 8
-        for module in sorted((ROOT / "controller").glob("*.py")):
+    def test_the_pass_asks_the_kernel_through_its_entry_points_alone(self):  # issue 193, ruling 8, amended for 270
+        # The entry, `__main__.py`, is the one place that reads the clock and the environment (Entry, below).
+        for module in sorted(m for m in (ROOT / "controller").glob("*.py") if m.name != "__main__.py"):
             tree = ast.parse(module.read_text())
             kernel = {a.asname or a.name: node.module + "." + a.name for node in ast.walk(tree)
                       if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "kernel"
@@ -220,7 +254,9 @@ class Record(unittest.TestCase):
                                                           "urllib", "http")], module)
             used = {(n.value.id, n.attr) for n in ast.walk(tree) if isinstance(n, ast.Attribute)
                     and isinstance(n.value, ast.Name) and n.value.id in kernel}
-            self.assertLessEqual({attr for name, attr in used if kernel[name] != "kernel.terms"}, {"decide"}, module)
+            # Each Lifecycle's decide, and the scope's reading of the unnamed Runs (issue 270).
+            self.assertLessEqual({attr for name, attr in used if kernel[name] != "kernel.terms"},
+                                 {"decide", "unnamed_scope"}, module)
             self.assertNotIn("now()", module.read_text(), module)
             self.assertNotIn("today()", module.read_text(), module)
 
@@ -239,6 +275,14 @@ class Context(unittest.TestCase):
             self.assertIsNone(paused(value), value)
             self.assertIsNone(paused(None, value), value)
         self.assertIsNone(paused(None, repos={}))         # the item's repo was not read
+        # A repo read is a scope whether or not an item of it is decided: a paused repo with nothing open pauses the
+        # pass, and so does one that cannot be read (Argon's read of the merged pass).
+        for repos, want in (({REPO: "true"}, True), ({REPO: "maybe"}, None), ({REPO: None, OTHER_REPO: "true"}, True)):
+            out = passed(reads(pulls=[], pause={"org": None, "repos": repos}))
+            self.assertIs(out["record"]["context"]["paused"], want, repos)
+        elsewhere = {"facts": support.facts(item=dict(support.ITEM, repo=OTHER_REPO, number=1)), "title": "x"}
+        held = passed(reads(pulls=[elsewhere], pause={"org": None, "repos": {REPO: "true", OTHER_REPO: None}}))
+        self.assertEqual((held["dispatch"], decisions(held)[0]["reason"]), ([], "paused"))
         self.assertIsNone(passed(reads(pause={"repos": {REPO: None}}))["record"]["context"]["paused"])
         self.assertIsNone(passed(reads(pause={}))["record"]["context"]["paused"])
 
@@ -247,8 +291,23 @@ class Context(unittest.TestCase):
                                  run("r_00000B", number=8, status="queued"), run("r_00000C")],
                            unidentified=["39086879694"]))
         context = out["record"]["context"]
-        self.assertEqual((context["active_runs"], context["unidentified_runs"]), (2, ["39086879694"]))
+        self.assertEqual((context["active_runs"], context["unidentified_runs"]), (2, [unnamed("39086879694")]))
         self.assertEqual(decisions(out)[0]["reason"], "run_unidentified")
+        # Past the window a completed one defers nothing, and is one alert in the view, by its run id; past
+        # max_unnamed_runs of them every Run defers, the scope raises runs_unnamed, and no successor starts (issue 270).
+        old = [unnamed(str(i), created="2026-10-11T12:00:00Z", status="completed") for i in (1, 2)]
+        one = passed(reads(runs=[], unidentified=old[:1]))
+        self.assertEqual((decisions(one)[0]["outcome"], one["view"]["meta"]["alerts"], one["alerts"]),
+                         ("admit", [{"alert": "run_unnamed", "run": "1"}], []))
+        two = passed(reads(runs=[], unidentified=old))
+        self.assertEqual((decisions(two)[0]["reason"], two["alerts"], len(two["view"]["meta"]["alerts"])),
+                         ("runs_unnamed", ["runs_unnamed"], 2))
+        # The bound holds the whole scope, so it is raised with no item to defer as well.
+        self.assertEqual(passed(reads(pulls=[], runs=[], unidentified=old))["alerts"], ["runs_unnamed"])
+        self.assertEqual(passed()["view"]["meta"]["alerts"], [])
+        # An enqueue goes ahead past the bound, as it does beside a Run inside the window, and starts no successor.
+        bound = passed(reads(pulls=[pr(reviews=[support.review()])], runs=[run()], unidentified=old))
+        self.assertEqual(([d.get("action") for d in bound["acts"]], bound["successor"]), (["enqueue"], False))
 
     def test_a_list_of_runs_read_short_or_not_at_all_admits_nothing(self):  # L-53
         short = passed(reads(complete=False))
@@ -262,12 +321,19 @@ class Context(unittest.TestCase):
         unread = reads()
         unread["pull_requests"][0]["facts"]["complete"]["runs"] = False
         self.assertEqual(decisions(passed(unread))[0]["outcome"], "defer")
-        # A list that holds what is not a run record, an id that is not GitHub's or a read with no date is not a list.
-        for change in ({"runs": [{}]}, {"runs": [dict(run(), status="done")]}, {"unidentified": ["abc"]},
-                       {"unidentified": [""]}, {"unidentified": [39086879694]},
+        # A list that holds what is not a run record, an id that is not GitHub's or a read with no date is not a list,
+        # nor is one with no read of the list itself: an outcome read alone is not one (#285).
+        for change in ({"runs": [{}]}, {"runs": [dict(run(), status="done")]}, {"unidentified": ["39086879694"]},
+                       {"unidentified": [unnamed("abc")]}, {"unidentified": [unnamed("")]},
+                       {"unidentified": [dict(unnamed("7"), status="done")]},
+                       {"unidentified": [dict(unnamed("7"), created_at="soon")]},
+                       {"unidentified": [dict(unnamed("7"), more=1)]}, {"unidentified": [39086879694]},
+                       {"unidentified": [dict(unnamed("7"), run=["7"])]}, {"unidentified": [dict(unnamed("7"), run=7)]},
                        {"reads": [{"read": "runs", "date": "yesterday", "age": 0}]},
                        {"reads": [{"read": "runs", "date": NOW, "age": -1}]}, {"reads": [{"read": "facts", "date": NOW, "age": 0}]},
-                       {"reads": [{"read": "runs", "date": NOW, "age": True}]}):
+                       {"reads": [{"read": "runs", "date": NOW, "age": True}]},
+                       {"reads": [{"read": "runs", "date": NOW, "age": 0}, {"read": "facts", "date": NOW, "age": 0}]},
+                       {"reads": [{"read": "outcome", "date": NOW, "age": 0}]}, {"reads": []}):
             odd = reads()
             odd["records"].update(change)
             out = passed(odd)
@@ -288,6 +354,9 @@ class Context(unittest.TestCase):
         self.assertIsNone(later["record"]["context"]["model_deferred_until"])
         self.assertEqual(len(later["view"]["health"]["faults"]), 1)
         self.assertEqual(passed(reads(runs=[fault]), now="2026-10-11T15:00:01Z")["view"]["health"]["faults"], [])
+        # A fault said to start after the pass defers nothing (Argon's read of the merged pass).
+        ahead = passed(reads(runs=[dict(fault, started_at="2026-10-11T13:00:01Z")]))
+        self.assertEqual((ahead["record"]["context"]["model_deferred_until"], ahead["alerts"]), (None, []))
         other = passed(reads(runs=[dict(fault, outcome="item")]))
         self.assertIsNone(other["record"]["context"]["model_deferred_until"])
 
@@ -343,6 +412,8 @@ class Chain(unittest.TestCase):
         unread["context"]["passes_since"] = None
         self.assertIsNone(since(unread))
         self.assertIsNone(since(earlier("2026-10-11T14:00:00Z")))
+        self.assertIsNone(since(earlier("2026-10-11T12:00:00Z"), earlier("2026-10-11T14:00:00Z")))
+        self.assertIsNone(since(earlier("2026-10-11T12:00:00Z"), earlier(NOW)))
         # A record that is not a pass record makes the records unreadable.
         broken = earlier("2026-10-11T08:00:00Z")
         del broken["context"]
@@ -382,6 +453,10 @@ class Chain(unittest.TestCase):
         broken = copy.deepcopy(last)
         del broken["runs"]
         self.assertEqual(pass_.wait_before_reading([broken], NOW, cfg), 180)
+        # A record that cannot be placed before this pass makes the records unreadable, even beside one that can
+        # (Argon's read of the merged pass).
+        for odd in (unread, earlier(NOW), earlier("2026-10-11T13:00:01Z")):
+            self.assertEqual(pass_.wait_before_reading([earlier("2026-10-11T12:00:00Z"), odd], NOW, cfg), 180, odd["now"])
         # A record with no read waits from its time.
         quiet = dict(copy.deepcopy(last), reads=[])
         self.assertEqual(pass_.wait_before_reading([quiet], NOW, cfg), 150)
@@ -426,10 +501,12 @@ class Chain(unittest.TestCase):
         for attempt in (2, 0, True, None, "1"):
             self.assertEqual(start("schedule", attempt=attempt), "dispatch", attempt)
         # An account the configuration holds as null is no one's: until a trial records it, none is named.
-        held = config(accounts={"workflow_token": None, "relay": None})
+        held = config(accounts=dict(CONTROLLER["accounts"], workflow_token=None, relay=None))
         self.assertEqual(start("watch", RELAY, cfg=held), "public")
         self.assertEqual(start("workflow_dispatch", TOKEN, cfg=held), "dispatch")
-        self.assertEqual(CONTROLLER["accounts"], {"workflow_token": None, "relay": None})
+        self.assertEqual({k: CONTROLLER["accounts"][k] for k in ("workflow_token", "relay", "controller", "maintainer")},
+                         {"workflow_token": None, "relay": None, "controller": None,
+                          "maintainer": {"login": "don-petry", "id": 36422719}})
         self.assertEqual(passed(dict(reads(), started=None))["record"]["started_by"], "dispatch")
 
 
@@ -447,11 +524,47 @@ class Feed(unittest.TestCase):
         # A cause that holds the whole scope is raised with no item to defer (Codex's read).
         fault = run("r_00000F", number=9, conclusion="failure", outcome="capacity", at="2026-10-11T12:00:00Z")
         for read, raised in ((reads(pulls=[], pause={"org": "true", "repos": {}}), ["paused"]),
+                             (reads(pulls=[], pause={"org": "maybe", "repos": {}}), ["pause_unreadable"]),
                              (reads(pulls=[], runs=[fault]), ["capacity"]),
                              (reads(pulls=[], unidentified=["1"]), ["run_unidentified"]),
-                             (reads(pulls=[], complete=False), ["capacity_unreadable"]),
-                             (reads(pulls=[], records_=False), ["capacity_unreadable", "run_unidentified"])):
+                             (reads(pulls=[], complete=False), ["capacity_unreadable", "reconciliation_unreadable"]),
+                             (reads(pulls=[], records_=False), ["capacity_unreadable", "reconciliation_unreadable",
+                                                                 "run_unidentified"])):
             self.assertEqual(passed(read)["alerts"], raised, raised)
+
+    def test_a_write_no_effect_recorded_raises_one_alert_and_is_named_in_the_view(self):  # I-33, decision 0061
+        # The pass reconciles what each Factory identity wrote with what the Factory recorded: one alert however many
+        # writes, each named in the view by ids and codes, kept in the pass record so a rebuilt view says the same.
+        approvals = [{"by": "approver", "kind": "approval", "item": support.ITEM, "key": "PRR_%d" % i,
+                      "at": "2026-10-11T12:30:00Z"} for i in range(3)]
+        out = passed(reads(seen=dict(SEEN, writes=approvals)))
+        self.assertEqual((out["alerts"], out["record"]["alerts"], out["view"]["health"]["alerts"]),
+                         (["write_unmatched"], ["write_unmatched"], ["write_unmatched"]))
+        named = out["view"]["meta"]["reconciliation"]
+        self.assertEqual([(a["alert"], a["key"]) for a in named], [("write_unmatched", "PRR_%d" % i) for i in range(3)])
+        self.assertEqual((out["record"]["reconciliation"], out["view"]["meta"]["alerts"]), (named, []))
+        rebuilt = pass_.rebuild([out["record"]], {}, config())
+        self.assertEqual(rebuilt[0]["meta"]["reconciliation"], named)
+        # Two writes GitHub gives no key for, a label added and taken off, are named once, and the pass is not refused.
+        labels = [{"by": "controller", "kind": "label", "item": support.ITEM, "key": None, "at": at}
+                  for at in ("2026-10-12T00:10:00Z", "2026-10-12T00:20:00Z")]
+        out = passed(reads(seen=dict(SEEN, writes=labels)))
+        self.assertEqual((out["alerts"], len(out["record"]["reconciliation"])), (["write_unmatched"], 1))
+        # What reconciliation found is held to pass/1 with the record, before anything is dispatched: an entry the
+        # record cannot hold refuses the pass whole (CodeRabbit's read).
+        odd = [dict(labels[0], item=dict(support.ITEM, repo="combsmith/software factory"))]
+        with self.assertRaises(pass_.Refused):
+            passed(reads(seen=dict(SEEN, writes=odd)))
+        # Matched, nothing is raised; what was seen or recorded that cannot be read raises the one alert that says so.
+        done = {"schema": "applied/1", "run": "r_01JA7Q", "release": "factory/v0.3.1", "findings": [],
+                "effects": [{"id": "e1", "type": "approve", "state": "applied", "key": "PRR_0", "reason": None}]}
+        self.assertEqual(passed(reads(seen=dict(SEEN, writes=approvals[:1]),
+                                      effects=dict(RECORDED, applied=[done])))["alerts"], [])
+        for read in (reads(seen=None), reads(effects=None), reads(seen=dict(SEEN, whole=False))):
+            self.assertEqual(passed(read)["alerts"], ["reconciliation_unreadable"])
+        # Until every Factory identity's account is known, reconciliation cannot tell their writes: it is short.
+        unknown = config(accounts=dict(config()["controller"]["accounts"], controller=None))
+        self.assertEqual(passed(cfg=unknown)["alerts"], ["reconciliation_unreadable"])
 
     def test_next_actor_and_the_decision_required_are_read_from_the_feed_table_alone(self):  # decision 0039
         held = pr(1, acts_since_writer=support.CONFIG["limits"]["max_acts_per_item"], reviews=[support.review()])
@@ -472,18 +585,21 @@ class Feed(unittest.TestCase):
         self.assertEqual(items["items"][1]["url"], "https://github.com/%s/pull/1" % REPO)
         self.assertEqual((items["items"][1]["runs"], items["items"][1]["sources"]), (1, ["r_01JA6Z"]))
         self.assertEqual(out["view"]["meta"]["reaches_back_to"], "2026-10-11T12:05:00Z")
-        # Attempts are counted as the brakes count them: completed Runs that failed by a fault of the item, since a
-        # person with write access last acted (Codex's read). Every Run is among `runs`.
+        # Attempts are counted as the brakes count them: completed Runs that failed by a fault of the item, or ran and
+        # left no outcome (decision 0049), since a person with write access last acted (Codex's read). Every Run is
+        # among `runs`.
         tried = [run("r_00000A", number=6, intent="fix-findings", role="dev-lead", conclusion="failure", outcome="item"),
                  run("r_00000B", number=6, intent="fix-findings", role="dev-lead", conclusion="failure",
                      outcome="environment"),
                  run("r_00000C", number=6, intent="fix-findings", role="dev-lead", conclusion="failure", outcome="item",
                      at="2026-10-11T11:00:00Z"),
                  run("r_00000D", number=6, at="2026-10-11T12:20:00Z"),
-                 run("r_00000E", number=6, intent="fix-findings", role="dev-lead", status="in_progress")]
+                 run("r_00000E", number=6, intent="fix-findings", role="dev-lead", status="in_progress"),
+                 run("r_00000F", number=6, intent="fix-findings", role="dev-lead", conclusion="timed_out", outcome=None),
+                 run("r_00000G", number=6, intent="fix-findings", role="dev-lead", conclusion="cancelled", outcome=None)]
         sixth = passed(reads(pulls=[pr(6)], runs=tried))["view"]["items"]["items"][0]
         self.assertEqual((sixth["attempts"], sixth["runs"]),
-                         ([{"intent": "fix-findings", "count": 1}, {"intent": "review-change", "count": 0}], 5))
+                         ([{"intent": "fix-findings", "count": 2}, {"intent": "review-change", "count": 0}], 7))
         # The table, changed, changes the feed: nothing else says who acts next or what is asked.
         cfg = config()
         cfg["feed"]["next_actor"]["by_outcome"][0]["actor"] = "lens"
@@ -505,19 +621,24 @@ class Feed(unittest.TestCase):
                  ("2026-10-11T13:05:00Z", reads(pulls=[pr(1), pr(2)], runs=[run(number=1, status="in_progress")])),
                  ("2026-10-11T13:10:00Z", reads(pulls=[pr(1)], runs=[run(number=1, status="in_progress")])),
                  ("2026-10-11T13:15:00Z", reads(pulls=[pr(1), pr(2)], runs=[run(number=1)])),
-                 ("2026-10-11T13:20:00Z", reads(pulls=[pr(1), pr(2, state="closed")], runs=[run(number=1)]))]
+                 ("2026-10-11T13:20:00Z", reads(pulls=[pr(1), pr(2, state="closed")], runs=[run(number=1)])),
+                 # A run unnamed past the window is an alert of that pass, and of the rebuild (issue 270).
+                 ("2026-10-11T13:25:00Z", reads(pulls=[pr(1)], runs=[run(number=1)],
+                                                unidentified=[unnamed("9", created="2026-10-11T13:00:00Z",
+                                                                      status="completed")]))]
         for now, read in steps:
             out = pass_.run(read, cfg, now, list(kept), mint)
             kept.append(out["record"])
             written.append({"meta": out["view"]["meta"], "items": out["view"]["items"]})
         titles = {"https://github.com/%s/pull/%d" % (REPO, n): "A title" for n in (1, 2)}
         self.assertEqual(pass_.rebuild(list(reversed(kept)), titles, cfg), written)
+        self.assertEqual([w["meta"]["alerts"] for w in written][-2:], [[], [{"alert": "run_unnamed", "run": "9"}]])
 
         def ages(n):
             return [[i["age_hours"] for i in w["items"]["items"] if i["item"]["number"] == n] for w in written]
-        self.assertEqual(ages(1), [[0.0], [0.08], [0.17], [0.0], [0.08]])
+        self.assertEqual(ages(1), [[0.0], [0.08], [0.17], [0.0], [0.08], [0.17]])
         # Read in a pass, missed by the next and read again: its time in its State starts again.
-        self.assertEqual(ages(2), [[0.0], [0.08], [], [0.0], []])
+        self.assertEqual(ages(2), [[0.0], [0.08], [], [0.0], [], []])
 
     def test_the_three_thresholds_of_decision_0011_are_computed_and_shown(self):  # decision 0011
         thresholds = passed()["view"]["health"]["thresholds"]
@@ -558,6 +679,10 @@ class Feed(unittest.TestCase):
         again = dict(copy.deepcopy(late["record"]), now="2026-10-11T12:55:00Z")
         once = passed(reads(pulls=[pr(1, last_push_at="2026-10-11T12:45:00Z")]), previous=[before, missed, again])
         self.assertEqual(once["view"]["health"]["thresholds"]["decision_delay_p95_minutes"]["value"], 10.0)
+        # A change dated after the pass that read it is read late by the first pass after it (Argon's read).
+        early = earlier("2026-10-11T12:50:00Z", pulls=[pr(1, last_push_at="2026-10-11T12:50:01Z")])
+        later = passed(reads(pulls=[pr(1, last_push_at="2026-10-11T12:50:01Z")]), previous=[before, early])
+        self.assertEqual(later["view"]["health"]["thresholds"]["decision_delay_p95_minutes"]["value"], 9.98)
         changed = an_issue(7, content_changed_at="2026-10-11T12:50:00Z")
         issue = passed(reads(pulls=[], issues=[changed]), previous=[before])
         self.assertEqual(issue["view"]["health"]["thresholds"]["decision_delay_p95_minutes"]["value"], 10.0)
@@ -586,12 +711,244 @@ class Feed(unittest.TestCase):
 
 
 class Ports(unittest.TestCase):
+    def test_the_pass_record_keeps_its_alerts_for_the_tracking_issue(self):  # issue 193
+        out = passed(reads(pulls=[pr(7)], records_=False))
+        self.assertEqual(out["record"]["alerts"], sorted(out["alerts"]))
+        self.assertTrue(out["record"]["alerts"])
+
     def test_the_pass_reads_what_the_records_port_gives(self):  # issue 192
         got = records.runs(github.Replay([listing("P-17", 3, rows={"name": NAME})]), canary(), "main", [WORKFLOW],
                            DISPATCHER, per_page=10, sleep=lambda s: None)
         out = passed(dict(reads(pulls=[pr(264)]), records=got))
         self.assertEqual(out["record"]["runs"], got["runs"])
         self.assertEqual(out["record"]["reads"][:-1], got["reads"])
+        # A failed Run's outcome the port read is a read the pass keeps, stamped as one (#285), not a list it refuses.
+        rows = listing("P-17", 3, rows={"name": NAME, "status": "completed", "conclusion": "failure"})
+        github_id = rows["response"]["body"]["workflow_runs"][0]["id"]
+        got = records.runs(github.Replay([rows] + stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item")))),
+                           canary(), "main", [WORKFLOW], DISPATCHER, per_page=10, sleep=lambda s: None)
+        out = passed(dict(reads(pulls=[pr(264)]), records=got))
+        self.assertEqual(([r["outcome"] for r in out["record"]["runs"]], [r["read"] for r in out["record"]["reads"]]),
+                         (["item"], ["runs", "outcome", "facts"]))
+
+
+class Hub:
+    """GitHub as the entry meets it: each request answered by its method and path from the table given, any number of
+    times, each recorded with the credential that sent it. A request the table does not hold is refused."""
+
+    def __init__(self, table: dict):
+        self.table, self.sent = dict(table), []
+
+    def connect(self, credential: str):
+        hub = self
+
+        class Sent:
+            def send(self, req):
+                hub.sent.append((credential, req))
+                key = (req["method"], req["path"])
+                if key not in hub.table:
+                    raise github.Unanswered("asked %s %s" % key)
+                return copy.deepcopy(hub.table[key])
+        return Sent()
+
+
+class Entry(unittest.TestCase):
+    HOME = CONTROLLER["home"]["repo"]
+    RUN = "777"
+    TOKEN = "ghs_entrytoken"
+    CLOCK = 1_791_806_400     # 2026-10-12T12:00:00Z
+
+    @classmethod
+    def setUpClass(cls):
+        cls.key = test_apply.throwaway_key().decode()
+
+    def table(self, numbers=(), total=None, pause=404, minted=201, repo_pause=None):
+        from tests.test_adapters import open_page, passes_listed
+        config = entry.configuration(ROOT, "factory/v0.3.1")
+        runs = copy.deepcopy(exchanges("P-17")[4]["response"])
+        runs["body"] = {"total_count": 0, "workflow_runs": []}
+        started = copy.deepcopy(exchanges("P-9")[10]["response"])
+        started["body"].update(id=int(self.RUN), event="schedule", repository={"full_name": self.HOME})
+        listed_runs = "/repos/%s/actions/workflows/%%s/runs?branch=main&event=workflow_dispatch&per_page=100" % self.HOME
+        return {
+            ("GET", "/repos/%s/installation" % self.HOME):
+                {"status": 200, "headers": {}, "body": {"id": 172571064, "app_id": config["app"]["app_id"]}},
+            ("POST", "/app/installations/172571064/access_tokens"):
+                {"status": minted, "headers": {}, "body": {
+                    "token": self.TOKEN, "permissions": dict(entry.wanted(config), metadata="read"),
+                    "repository_selection": "selected", "repositories": [{"full_name": self.HOME}]}},
+            ("GET", passes_listed([])["request"]["call"].split()[1]): passes_listed([])["response"],
+            ("GET", listed_runs % "run.yml"): runs,
+            ("GET", listed_runs % "approve.yml"): runs,
+            ("POST", "/graphql"): open_page(list(numbers), total)["response"],
+            ("GET", "/repos/%s/actions/runs/%s" % (self.HOME, self.RUN)): started,
+            ("GET", "/orgs/combsmith/actions/variables/FACTORY_PAUSED"): {"status": pause, "headers": {}, "body": None},
+            ("GET", "/repos/%s/actions/variables/FACTORY_PAUSED" % self.HOME):
+                {"status": pause if repo_pause is None else repo_pause, "headers": {}, "body": None},
+            ("GET", "/repos/%s/pulls/7" % self.HOME): {"status": 502, "headers": {}, "body": None},
+            ("DELETE", "/installation/token"): {"status": 204, "headers": {}, "body": None},
+        }
+
+    def run_entry(self, hub, **environ):
+        env = {"RELEASE": "factory/v0.3.1", "GITHUB_RUN_ID": self.RUN, entry.KEY: self.key}
+        env.update(environ)
+        slept, printed = [], io.StringIO()
+        sleep = lambda seconds: slept.append((seconds, len(hub.sent)))
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(printed):
+            code = entry.main(["out"] if os.makedirs(os.path.join(d, "out")) is None else [], {k: v for k, v in env.items()
+                                                                                              if v is not None},
+                              base=d, clock=lambda: self.CLOCK, sleep=sleep, connect=hub.connect)
+            named = ["pass.json", "writes.json"] + ["view/%s.json" % v for v in entry.VIEW]
+            files = {n: json.loads(pathlib.Path(d, "out", n).read_text()) for n in named
+                     if pathlib.Path(d, "out", n).is_file()}
+            self.modes = {n: pathlib.Path(d, "out", n).stat().st_mode & 0o777 for n in files}
+        return code, printed.getvalue(), files, slept
+
+    def test_the_entry_reads_through_the_ports_and_hands_the_pass_nothing_else(self):  # #193 ruling 10, #196 PR 2
+        hub = Hub(self.table(numbers=[7]))
+        code, printed, files, slept = self.run_entry(hub)
+        self.assertEqual((code, printed), (0, "passed\n"))
+        self.assertEqual(sorted(files), ["pass.json", "view/health.json", "view/items.json", "view/meta.json",
+                                         "writes.json"])
+        record = files["pass.json"]
+        self.assertEqual(shared.errors(record, "pass"), [])
+        self.assertEqual(shared.errors(files["writes.json"], "writes"), [])
+        self.assertEqual((record["now"], record["release"], record["started_by"]),
+                         ("2026-10-12T12:00:00Z", "factory/v0.3.1", "schedule"))
+        # The pull request whose snapshot could not be read is left out, as one alert; no pass record before this one
+        # is no wait.
+        self.assertEqual((record["pull_requests"], record["issues"]), ([], []))
+        self.assertIn("facts_unreadable", record["alerts"])
+        self.assertEqual([s for s, _ in slept], [0])
+        # The App's JWT asks for the token alone, with every read its grant allows and no write; every read after goes
+        # through that token, and the last request revokes it.
+        through = [(c == self.TOKEN, r["method"], r["path"]) for c, r in hub.sent]
+        self.assertEqual([t for t, _, _ in through[:2]], [False, False])
+        self.assertTrue(all(t for t, _, _ in through[2:]))
+        self.assertEqual(through[-1], (True, "DELETE", "/installation/token"))
+        asked = hub.sent[1][1]["body"]["permissions"]
+        self.assertEqual(asked, {"actions": "read", "checks": "read", "contents": "read", "metadata": "read",
+                                 "pull_requests": "read"})
+        self.assertEqual({m for _, m, p in through[2:] if m != "GET"}, {"POST", "DELETE"})
+        self.assertEqual({p for _, m, p in through[2:] if m == "POST"}, {"/graphql"})
+        # Each file it writes is its own user's alone to read.
+        self.assertEqual(set(self.modes.values()), {0o600})
+        # Nothing it prints is a key, a token or GitHub's.
+        self.assertNotIn(self.TOKEN, printed)
+        # A Pause that cannot be read is unreadable; one GitHub holds as none is no Pause.
+        self.assertIs(record["context"]["paused"], False)
+        for org, repo in ((403, 404), (404, 403)):
+            _, _, files, _ = self.run_entry(Hub(self.table(pause=org, repo_pause=repo)))
+            self.assertIsNone(files["pass.json"]["context"]["paused"], (org, repo))
+
+    def test_each_snapshot_is_read_with_the_configured_accounts_and_kept(self):  # decisions 0005, 0060
+        handed = []
+
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock):
+            handed.append((repo, number, identities, who.approver, who.lenses, who.factory, runs_whole, clock()))
+            return support.facts(item=dict(support.ITEM, number=number)), "A title"
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot):
+            code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
+        self.assertEqual(code, 0)
+        self.assertEqual([e["facts"]["item"]["number"] for e in files["pass.json"]["pull_requests"]], [7])
+        self.assertEqual(files["view/items.json"]["items"][0]["untrusted"]["title"], "A title")
+        self.assertEqual(handed, [(self.HOME, 7, {"agent": set(), "maintainer": {(36422719, "User")},
+                                                  "dependency": {(49699333, "Bot")}},
+                                   (281750570, "User"), {}, set(), True, "2026-10-12T12:00:00Z")])
+        # A list of runs read short is said to each snapshot.
+        table = self.table(numbers=[7])
+        path = "/repos/%s/actions/workflows/run.yml/runs?branch=main&event=workflow_dispatch&per_page=100" % self.HOME
+        table[("GET", path)]["body"]["total_count"] = 1
+        handed.clear()
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot):
+            self.run_entry(Hub(table))
+        self.assertIs(handed[0][6], False)
+        # The accounts as controller/1 holds them, each by id and type; the dispatcher is the pass's token's alone.
+        held = copy.deepcopy(CONTROLLER)
+        held["accounts"].update(lenses=[{"lens": "pr-review", "login": "combsmith-sf-pr-review[bot]", "id": 11}],
+                                agents=[{"login": "combsmith-sf-dev-lead[bot]", "id": 12}],
+                                controller={"id": 13, "type": "Bot", "login": "combsmith-sf-controller[bot]"},
+                                maintainer=None, approver=None, dependencies=[])
+        self.assertEqual(entry.accounts(held), ({"agent": {(12, "Bot")}, "maintainer": set(), "dependency": set()},
+                                                (0, "User"), {(11, "Bot"): "pr-review"},
+                                                {(11, "Bot"), (12, "Bot"), (13, "Bot")}))
+        self.assertEqual(entry.dispatcher(CONTROLLER), (0, "Bot"))
+        self.assertEqual(entry.dispatcher(config()["controller"]), (41898282, "Bot"))
+
+    def test_the_entry_waits_out_the_read_gap_before_it_reads(self):  # decision 0043
+        from tests.test_adapters import a_pass, a_record, pass_stored, pass_zip, passes_listed
+        before = dict(a_record("2026-10-12T11:59:00Z"), reads=[])
+        table = self.table()
+        listed = passes_listed([a_pass(int(self.RUN)), a_pass(30)])
+        table[("GET", listed["request"]["call"].split()[1])] = listed["response"]
+        found = pass_stored(30, pass_zip(before))
+        table[("GET", found[0]["request"]["call"].split()[1])] = found[0]["response"]
+        table[("GET", found[1]["request"]["call"].split()[1])] = found[2]["response"]
+        hub = Hub(table)
+        code, _, files, slept = self.run_entry(hub)
+        self.assertEqual(code, 0)
+        # The last pass's read began a minute ago: two minutes more, waited before anything but the records is read.
+        self.assertEqual(slept, [(120, 5)])
+        self.assertEqual([r["path"].split("?")[0].rsplit("/", 1)[-1] for _, r in hub.sent[2:5]],
+                         ["runs", "artifacts", "zip"])
+        self.assertEqual(files["view/health.json"]["previous_pass_at"], "2026-10-12T11:59:00Z")
+        # Records that cannot be read wait the whole gap, and the pass knows no chain.
+        table[("GET", listed["request"]["call"].split()[1])] = {"status": 502, "headers": {}, "body": None}
+        code, _, files, slept = self.run_entry(Hub(table))
+        self.assertEqual((code, [s for s, _ in slept]), (0, [CONTROLLER["read_gap_seconds"]]))
+        self.assertIsNone(files["pass.json"]["context"]["passes_since"])
+
+    def test_what_the_entry_cannot_read_writes_nothing(self):
+        for environ, want in (({"RELEASE": None}, "release_unreadable"), ({"RELEASE": "v1"}, "release_unreadable"),
+                              ({"GITHUB_RUN_ID": "1/2"}, "run_unreadable"), ({"GITHUB_RUN_ID": None}, "run_unreadable"),
+                              ({entry.KEY: None}, "key_unreadable"), ({entry.KEY: ""}, "key_unreadable")):
+            hub = Hub(self.table())
+            code, printed, files, _ = self.run_entry(hub, **environ)
+            self.assertEqual((code, printed, files, hub.sent), (1, want + "\n", {}, []), environ)
+        # A token GitHub would not give: nothing read, nothing to revoke.
+        hub = Hub(self.table(minted=403))
+        self.assertEqual(self.run_entry(hub)[:3], (1, "token_refused\n", {}))
+        self.assertEqual(len(hub.sent), 2)
+        # A list of open pull requests read short: nothing written, and the token revoked.
+        hub = Hub(self.table(numbers=[7], total=2))
+        self.assertEqual(self.run_entry(hub)[:3], (1, "pull_requests_unreadable\n", {}))
+        self.assertEqual((hub.sent[-1][0], hub.sent[-1][1]["path"]), (self.TOKEN, "/installation/token"))
+        # A token GitHub did not revoke fails the step, after the pass is written.
+        table = self.table()
+        table[("DELETE", "/installation/token")] = {"status": 500, "headers": {}, "body": None}
+        code, printed, files, _ = self.run_entry(Hub(table))
+        self.assertEqual((code, printed, "pass.json" in files), (1, "token_not_revoked\n", True))
+        # A folder outside the directory it runs in, or one not empty, is refused before anything is read.
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()):
+            os.makedirs(os.path.join(d, "inside"))
+            os.makedirs(os.path.join(d, "elsewhere"))
+            hub = Hub(self.table())
+            env = {"RELEASE": "factory/v0.3.1", "GITHUB_RUN_ID": self.RUN, entry.KEY: self.key}
+            self.assertEqual(entry.main(["../elsewhere"], env, base=os.path.join(d, "inside"), connect=hub.connect), 2)
+            self.assertEqual(entry.main([], env, base=d, connect=hub.connect), 2)
+            self.assertEqual(entry.main(["."], env, base=d, connect=hub.connect), 2)
+            self.assertEqual(hub.sent, [])
+
+    def test_only_the_entry_reads_the_clock_or_the_environment(self):
+        # Every other module of controller/ is a function of what it is given (the test above it); the entry takes the
+        # clock, the environment, the sleep and the transport as arguments, so that a test gives each.
+        reaching = {"os", "time", "random", "sys"}
+        for module in sorted(m for m in (ROOT / "controller").glob("*.py") if m.name != "__main__.py"):
+            tree = ast.parse(module.read_text())
+            imported = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names} | \
+                {(n.module or "").split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+            self.assertFalse(imported & reaching, module.name)
+            self.assertFalse([n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr in ("now", "utcnow")],
+                             module.name)
+        main = ast.parse((ROOT / "controller" / "__main__.py").read_text())
+        self.assertLessEqual({"os", "time"}, {a.name for n in ast.walk(main) if isinstance(n, ast.Import)
+                                                         for a in n.names})
+        hub = Hub(self.table())
+        _, _, files, _ = self.run_entry(hub)
+        self.assertEqual(files["pass.json"]["now"], "2026-10-12T12:00:00Z")
+        self.assertRegex(files["pass.json"]["pass"], r"^p_[0-9A-Z]{20}$")
+        minted = {entry.mint_id("r") for _ in range(100)}
+        self.assertEqual(len(minted), 100)
 
 
 if __name__ == "__main__":

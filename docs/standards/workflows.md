@@ -9,6 +9,7 @@ An org standard is cited from combsmith/.github at commit 9e2daad, by file and h
 
 ```yaml
 # The required check, `factory / verify`: it passes only when `make verify` and every shard of the mutation check pass on the commit, with the history tools/check_decisions.py compares it with.
+# `checks` runs `make verify`, its simulators on 300 seeds. On 2026-10-21 the runs that finished took 11 to 14.5 minutes, and six runs in three pull requests were cut at its 15-minute timeout with the tests still running, so its timeout is 25 minutes. Raise it again before a run nears its timeout.
 # About 1,000 mutants, in eight shards of about 126, each kill confirmed by two runs of one test. With six shards of 168 the legs ran 14 to 25 minutes against a 25-minute timeout, and legs were cut at 25:00 in three pull requests, once 22 ms after the last kill had printed. Every mutant names the tests that kill it, which run first; the whole suite, its slow modules last, runs only when they pass ("Mutation run: every mutant names its tests, the slow suites run last, and a builder may break a few", issue 217). Add a shard before a leg nears its timeout.
 # `verify` checks out the base, never the head, and runs the base's tools/needs_passed.py, so a change cannot make its own verdict pass: decision 0023.
 # `commits` checks out the base too and runs the base's tools/commits_are_the_maintainers.py, which reads every commit the pull request carries and refuses unless each is the Maintainer's ("Identity: every commit a pull request carries is the Maintainer's, checked outside the shell", issue 204).
@@ -20,7 +21,7 @@ permissions: {}
 jobs:
   checks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     permissions:
       contents: read
     steps:
@@ -101,12 +102,13 @@ cannot make its own pass (decision 0023). It runs on no event without a base. Th
 `mutants` are the head's. `commits` is the base's too: it fetches the head and reads who authored and committed each
 commit the pull request carries, which must be the Maintainer, read from `config/hooks.json` (decision 0041).
 
-The eval job is a reserved name, `factory / eval`, in a workflow file named eval.yml: the one job that will hold the
-held-out home's read token (design §4.9), scoring a Result against each case with `tools/eval_result.py`. It is the
-Harness story's and does not exist yet; no other workflow or job takes the name, by id or by `name:`.
+The eval job is a reserved name, `factory / eval`, in eval.yml: the one job that holds the held-out home's credential
+(design §4.9). No other workflow takes the name, by id or by `name:`, or names `factory-eval`, the home or its steps.
+Its shape, each credential named by one step alone and its upload the one `UPLOAD`, is `EVAL_GIVEN` in
+`tools/check_workflows.py`, by issue 309, "Workflows: eval.yml runs the review Intent's held-out cases and writes eval-report/1".
 
 Org standard: ci-standards.md, "Permissions Policy", "Action Pinning Policy" and "CI Job Naming Convention". Its name, triggers and stages depart from "1. CI Pipeline (ci.yml)": `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md`.
-Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`, `tests/test_tools.py::test_a_lens_job_that_would_never_report_under_its_name_is_caught`, `tests/test_tools.py::test_the_required_check_fails_unless_every_job_it_needs_passed`, `tests/test_tools.py::test_a_lens_job_that_judges_its_needs_runs_from_the_base`, `tests/test_tools.py::test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape`, `tests/test_tools.py::test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix`, `tests/test_evals.py::test_the_eval_jobs_name_is_reserved`
+Held by: `tests/test_tools.py::test_a_rule_is_not_dodged_by_writing_the_workflow_another_way`, `tests/test_tools.py::test_an_example_in_the_standard_that_has_drifted_is_caught`, `tests/test_tools.py::test_a_lens_job_that_would_never_report_under_its_name_is_caught`, `tests/test_tools.py::test_the_required_check_fails_unless_every_job_it_needs_passed`, `tests/test_tools.py::test_a_lens_job_that_judges_its_needs_runs_from_the_base`, `tests/test_tools.py::test_the_judging_step_and_its_checkout_are_held_to_their_exact_shape`, `tests/test_tools.py::test_the_mutant_shards_are_told_their_index_and_count_by_the_matrix`, `tests/test_evals.py::test_the_eval_jobs_name_is_reserved`, `tests/test_evals.py::test_the_eval_workflow_names_each_credential_in_one_step_alone`
 
 ## Pinned to what was looked up
 
@@ -136,7 +138,9 @@ jobs:
       contents: read       # then only what this job needs
 ```
 
-No personal access token, no `secrets: inherit`; every checkout sets `persist-credentials: false`. No job is granted `security-events: write`: with it, an upload to code scanning could stand for CodeQL's verdict.
+No personal access token, no `secrets: inherit`; every checkout sets `persist-credentials: false`. One personal token is
+named as the exception: the Maintainer's, `HELDOUT_TOKEN`, read-only on the held-out home alone, in eval.yml's `fetch`
+step and nowhere else (decision 0053). No job is granted `security-events: write`: with it, an upload to code scanning could stand for CodeQL's verdict.
 
 Org standard: ci-standards.md, "Permissions Policy". Refusing a personal token and inherited secrets departs from github-settings.md, "Required secrets (all repos)": decision 0014.
 Held by: `examples/workflows/invalid/permissions.none-declared.yml`, `examples/workflows/invalid/token.a-persons-token.yml`, `examples/workflows/invalid/credentials.a-token-left-on-disk.yml`, `examples/workflows/invalid/permissions.security-events-on-a-job.yml`

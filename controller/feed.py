@@ -47,8 +47,10 @@ def age(entry: dict, record: dict, before: list) -> float:
     return round(seconds(record["now"], since) / 3600.0, 2)
 
 
-def view(record: dict, before: list, titles: dict, feed: dict) -> dict:
-    """The feed's two files: every open item the pass decided on, and when and from what the feed was written."""
+def view(record: dict, before: list, titles: dict, feed: dict, alerts: list, reconciliation=()) -> dict:
+    """The feed's two files: every open item the pass decided on, and when and from what the feed was written, with the
+    alerts of the whole scope, one to a Run unnamed past the window (issue 270), and what reconciliation found, each
+    once (decision 0061)."""
     items = []
     for entry in record["pull_requests"] + record["issues"]:
         facts, d = entry["facts"], entry["decision"]
@@ -57,10 +59,12 @@ def view(record: dict, before: list, titles: dict, feed: dict) -> dict:
         mine = [r for r in record["runs"] if r["item"] == d["item"]]
         intents = sorted({r["intent"] for r in mine})
         # An attempt is a completed Run that failed by a fault of the item, since a person with write access last acted,
-        # as the brakes count it (I-23): another Run is among the item's `runs`, never its attempts.
+        # as the brakes count it (I-23): one that ran and left no outcome among them (decision 0049). Another Run is
+        # among the item's `runs`, never its attempts.
         since = facts.get("last_writer_action_at")
         tried = [r for r in mine if r["status"] == "completed" and r["conclusion"] != "success"
-                 and r["outcome"] == "item" and (since is None or r["started_at"] > since)]
+                 and (r["outcome"] == "item" or (r["outcome"] is None and r["conclusion"] in t.RAN_AND_DIED))
+                 and (since is None or r["started_at"] > since)]
         items.append({
             "item": d["item"], "state": d["state"], "reason": d["reason"], "attention": d["attention"],
             "evidence": list(d["evidence"]), "next_actor": next_actor(d, feed), "decision_required": asked(d, feed),
@@ -70,14 +74,18 @@ def view(record: dict, before: list, titles: dict, feed: dict) -> dict:
             "untrusted": {"title": titles.get(key(d["item"]), "")}})
     reach = min([r["started_at"] for r in record["runs"]] or [record["now"]])
     meta = {"schema": "view-meta/1", "pass": record["pass"], "release": record["release"],
-            "written_at": record["now"], "reaches_back_to": reach}
+            "written_at": record["now"], "reaches_back_to": reach, "alerts": [dict(a) for a in alerts],
+            "reconciliation": [dict(e) for e in reconciliation]}
     listed = {"schema": "view-items/1", "pass": record["pass"], "release": record["release"], "items": items}
     return {"meta": checked(meta, "view-meta"), "items": checked(listed, "view-items")}
 
 
-def rebuild(records: list, titles: dict, feed: dict) -> list:
+def rebuild(records: list, titles: dict, feed: dict, alerts_of) -> list:
     """The view as each pass record leaves it, rebuilt from the records alone, oldest first. A record holds no title,
     so the titles are the ones read with the rebuild: a title changed since a pass is the one thing a rebuild shows
-    otherwise, and it is untrusted text that decides nothing."""
+    otherwise, and it is untrusted text that decides nothing. `alerts_of` gives a record's alerts of the whole scope,
+    as the Kernel reads them from that record's context and time (issue 270); what reconciliation found is the
+    record's own (decision 0061)."""
     ordered = sorted(records, key=lambda r: r["now"])
-    return [view(r, [e for e in ordered if e["now"] < r["now"]], titles, feed) for r in ordered]
+    return [view(r, [e for e in ordered if e["now"] < r["now"]], titles, feed, alerts_of(r), r.get("reconciliation", []))
+            for r in ordered]

@@ -1,0 +1,27 @@
+{
+  "schema": "writes/1",
+  "pass": "p_01JA7P",
+  "release": "factory/v0.3.1",
+  "writes": [
+    {
+      "id": "w1",
+      "type": "merge",
+      "item": {
+        "repo": "combsmith/software-factory",
+        "type": "pull_request",
+        "number": 42
+      },
+      "run": "r_01JA7Q",
+      "name": "sf combsmith/software-factory#42 fix-findings dev-lead sha256:5d0c r_01JA7Q",
+      "action": null
+    },
+    {
+      "id": "w2",
+      "type": "dispatch_successor",
+      "item": null,
+      "run": null,
+      "name": null,
+      "action": null
+    }
+  ]
+}

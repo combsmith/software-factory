@@ -12,10 +12,10 @@ from tools.jsonschema_lite import ANNOTATIONS, FILE, SchemaError, _resolve, vali
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Data files that are the real thing, not illustrations, and their schema.
-LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lifecycle",
+LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lifecycle", "roles/pr-review.json": "role",
         "config/authority.json": "authority",
         "config/defaults.json": "config", "config/rubric-pr-review.json": "rubric", "config/apps.json": "apps",
-        "config/hooks.json": "hooks", "config/feed.json": "feed", "config/controller.json": "controller",
+        "config/hooks.json": "hooks", "config/feed.json": "feed", "config/controller.json": "controller", "config/harness.json": "harness",
         "config/rulesets.json": "rulesets",
         "evals/pr-review/cases.json": "eval-set", "evals/context/task.json": "context-eval"}
 # What a coverage example is judged against beyond its schema (decision 0029): the review's rubric, the Finding of
@@ -28,14 +28,16 @@ COVERAGE_AGAINST = ("config/rubric-pr-review.json", "examples/finding.json", "ex
 # reference, and carries nothing; a data file a person edits carries `schema`, its path being its identity and the commit
 # its Release. A document's class names its identity.
 ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied": ("document", "run"),
-            "outcome": ("document", "run"), "pass": ("document", "pass"), "view-meta": ("document", "pass"),
+            "outcome": ("document", "run"), "pass": ("document", "pass"), "writes": ("document", "pass"),
+            "written": ("document", "pass"), "view-meta": ("document", "pass"),
             "view-items": ("document", "pass"), "health": ("document", "pass"),
-            "facts": "record", "issue-facts": "record", "decision": "record", "issue-decision": "record", "finding": "record",
+            "eval-report": ("document", "commit"),
+            "facts": "record", "issue-facts": "record", "seen": "record", "decision": "record", "issue-decision": "record", "finding": "record",
             "effect": "part", "disposition": "part", "coverage": "part", "run-name": "part", "run-record": "part",
             "view-item": "part",
             "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data",
             "acceptance": "data", "trial": "data", "role": "data", "feed": "data", "eval-case": "data",
-            "eval-set": "data", "context-eval": "data", "controller": "data", "rulesets": "data"}
+            "eval-set": "data", "context-eval": "data", "controller": "data", "harness": "data", "rulesets": "data"}
 RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # What one Run carries, and what is written from it, holds codes, never text: a string in these schemas is held by an
 # enum, a const or a pattern anchored at both ends, unless it is a property named `body`, or sits under one named
@@ -43,8 +45,8 @@ RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # untrusted is marked for whatever reads the feed, and only view-item has it. A reference into a kind outside this set
 # is held by that kind's own rules, so the existing records are not swept.
 CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage", "run-record",
-              "pass", "applied", "outcome", "view-meta", "view-items", "view-item", "health", "role", "feed",
-              "eval-set")
+              "pass", "writes", "written", "applied", "outcome", "view-meta", "view-items", "view-item", "health", "role", "feed",
+              "eval-set", "eval-report")
 TEXT_FIELD = "body"
 UNTRUSTED_FIELD = "untrusted"
 UNTRUSTED_KIND = "view-item"

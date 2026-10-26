@@ -1,21 +1,14 @@
 # Must be rejected. Schedules at minute 0 are the ones the platform delays and drops.
-name: factory
+name: sf-tick
 on:
-  pull_request:
-  merge_group:
   schedule:
     - cron: '0 * * * *'
 permissions: {}
 jobs:
-  verify:
-    name: verify
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+  tick:
     permissions:
       contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: make verify
-      - run: python3 -m tools.mutants
+    concurrency:
+      group: sf-tick
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next

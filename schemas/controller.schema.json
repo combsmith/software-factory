@@ -10,7 +10,9 @@
     "not_run_seconds",
     "capacity_window_seconds",
     "automatic_pause",
-    "thresholds"
+    "thresholds",
+    "home",
+    "workflows"
   ],
   "properties": {
     "schema": {
@@ -21,7 +23,14 @@
       "additionalProperties": false,
       "required": [
         "workflow_token",
-        "relay"
+        "relay",
+        "controller",
+        "maintainer",
+        "approver",
+        "lenses",
+        "agents",
+        "dependencies",
+        "roles"
       ],
       "properties": {
         "workflow_token": {
@@ -67,6 +76,182 @@
                 "Bot",
                 "User"
               ]
+            }
+          }
+        },
+        "controller": {
+          "description": "The Controller's App's bot account, by id, type and login, as GitHub records it as an issue's author; null until a trial records it, and while it is, no tracking issue is written",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "type",
+            "login"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "type": {
+              "const": "Bot"
+            },
+            "login": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]*\\[bot\\]$"
+            }
+          }
+        },
+        "maintainer": {
+          "description": "The Maintainer, by login and account id, whom the tracking issue assigns once, when it opens (#193, the Maintainer's point (d))",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "login",
+            "id"
+          ],
+          "properties": {
+            "login": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "approver": {
+          "description": "The machine user, the approver config/defaults.json names, by login and account id, a User: its acts are the Factory's, and its approval stands only while it can write; null until a trial records it",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "login",
+            "id"
+          ],
+          "properties": {
+            "login": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "lenses": {
+          "description": "Each model Lens's App's bot account, by the Lens's name, as GitHub records it as a thread's author; empty until a trial records one, and while a Lens has none, nothing its App does is read as that Lens's",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "lens",
+              "login",
+              "id"
+            ],
+            "properties": {
+              "lens": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,60}$"
+              },
+              "login": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*\\[bot\\]$"
+              },
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "agents": {
+          "description": "The bot accounts of the Factory's own Role Apps that author pull requests, as the class `agent` reads them; empty until a trial records one, and while it is, no pull request is the Factory's own",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "login",
+              "id"
+            ],
+            "properties": {
+              "login": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*\\[bot\\]$"
+              },
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "dependencies": {
+          "description": "The bot accounts whose pull requests are of the class `dependency`, each by login and account id",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "login",
+              "id"
+            ],
+            "properties": {
+              "login": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*\\[bot\\]$"
+              },
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "roles": {
+          "description": "Each Role App's bot account, by id, type and login, keyed by its name in config/apps.json, every one named: a Role left out could not be told; null until a trial records it, and while one is, reconciliation is short (decision 0061)",
+          "type": "object",
+          "required": [
+            "pr-review"
+          ],
+          "additionalProperties": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "type",
+              "login"
+            ],
+            "properties": {
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "type": {
+                "const": "Bot"
+              },
+              "login": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*\\[bot\\]$"
+              }
             }
           }
         }
@@ -133,6 +318,49 @@
         "decision_delay_p95_minutes": {
           "type": "number",
           "minimum": 0
+        }
+      }
+    },
+    "home": {
+      "description": "The Factory's own repo and the branch its Runs are dispatched on",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "branch"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "branch": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_./-]{1,100}$"
+        }
+      }
+    },
+    "workflows": {
+      "description": "The workflow file a dispatch of each kind starts, under .github/workflows/; the records port lists the run and approval files as the Role workflow files",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run",
+        "approval",
+        "poller"
+      ],
+      "properties": {
+        "run": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,60}\\.yml$"
+        },
+        "approval": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,60}\\.yml$"
+        },
+        "poller": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,60}\\.yml$"
         }
       }
     }

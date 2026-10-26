@@ -104,6 +104,9 @@ BASES = {
     "a dependency update to a workflow's pin, queued": base(
         [reviewed()], reviews=APPROVED, queue=True, acts_since_writer=2,
         changed_paths=[a_file(PIN), a_file("docs/notes.md")], **DEPENDENCY),
+    # An agent's change to the review Role's manifest: reviewed, it waits for a person's approval of its head (issue 140).
+    "an agent's change to a model Lens's input, awaiting a person": base(
+        [reviewed()], changed_paths=[a_file("roles/pr-review.json"), a_file("docs/notes.md")], **AGENT),
     # A dependency bot's rebase at the act ceiling: held, then rebased, then its last check passes, and held again.
     "a dependency update held at the act ceiling": base(content_id="sha256:bbbb", reviews=APPROVED,
                                                         acts_since_writer=LIMITS["max_acts_per_item"], **DEPENDENCY),
@@ -239,7 +242,12 @@ STILL = {
     "capacity": dict(base(), context={"model_deferred_until": "2099-01-01T00:00:00Z"}),
     "capacity_unreadable": dict(base(), context={"active_runs": None}),
     "concurrency": dict(base(), context={"active_runs": CONFIG["limits"]["org_max_active_runs"]}),
-    "run_unidentified": dict(base(), context={"unidentified_runs": ["39086879694"]}),
+    "run_unidentified": dict(base(), context={"unidentified_runs": [{"run": "39086879694", "created_at": at(0),
+                                                                     "status": "in_progress"}]}),
+    # Past max_unnamed_runs completed Runs unnamed long past the window, every Run waits for a person (issue 270).
+    "runs_unnamed": dict(base(), context={"unidentified_runs": [
+        {"run": str(7 + i), "created_at": "2026-10-01T00:00:00Z", "status": "completed"}
+        for i in range(CONFIG["limits"]["max_unnamed_runs"] + 1)]}),
     "last_pusher_unreadable": base([reviewed()], last_pusher=None),
     # A count the facts schema refuses, which the Kernel still reads as unreadable.
     "acts_unreadable": base([reviewed()], acts_since_writer=None),

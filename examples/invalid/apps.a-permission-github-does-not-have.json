@@ -13,6 +13,9 @@
       "permission": "pull_requests",
       "level": "write"
     },
+    "effect:create_check_run": {
+      "waits_on": "the pr-review App's grant of checks: write, registered by the Maintainer and read again by trial P-39 (Maintainer, 2026-10-22)"
+    },
     "effect:enqueue_merge": {
       "waits_on": "trial P-2"
     },
@@ -60,6 +63,10 @@
     },
     "read:facts.author": {
       "permission": "pull_requests",
+      "level": "read"
+    },
+    "read:facts.actor.can_write": {
+      "permission": "metadata",
       "level": "read"
     },
     "read:facts.last_pusher": {
@@ -274,7 +281,8 @@
           "level": "read",
           "needs": [
             "read:facts.item",
-            "read:facts.targets_protected"
+            "read:facts.targets_protected",
+            "read:facts.actor.can_write"
           ]
         },
         "pull_requests": {

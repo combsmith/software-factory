@@ -17,20 +17,27 @@ def previous_records(previous):
 
 def run_records(records) -> tuple:
     """`(listed, whole)`: whether the records port's list can be read at all, every run record a run record, every
-    unidentified Run a GitHub id and every read a date and an age; and whether it was also read whole."""
+    unidentified Run a GitHub id with its record's creation and status (issue 270) and every read a date and an age,
+    one of them at least a read of the list itself (an outcome read is no read of the list); and whether it was also
+    read whole."""
     if not isinstance(records, dict):
         return False, False
     runs, unidentified, reads = records.get("runs"), records.get("unidentified"), records.get("reads")
     listed = (isinstance(runs, list) and not any(errors(r, "run-record") for r in runs)
               and isinstance(unidentified, list)
-              and all(isinstance(i, str) and i != "" and set(i) <= DIGITS for i in unidentified)
-              and isinstance(reads, list) and all(_read(r) for r in reads))
+              and all(isinstance(i, dict) and set(i) == {"run", "created_at", "status"}
+                      and isinstance(i["run"], str) and i["run"] != "" and set(i["run"]) <= DIGITS
+                      and moment(i["created_at"]) is not None and i["status"] in ("queued", "in_progress", "completed")
+                      for i in unidentified)
+              and isinstance(reads, list) and all(_read(r) for r in reads)
+              and any(r["read"] == "runs" for r in reads))
     return listed, listed and records.get("complete") is True
 
 
 def _read(entry) -> bool:
-    """One read of the list, as the pass record keeps it: `runs`, a date and an age in whole seconds."""
-    return (isinstance(entry, dict) and set(entry) == {"read", "date", "age"} and entry["read"] == "runs"
+    """One read of the list, as the pass record keeps it: `runs`, or `outcome` for a Run's outcome the records port
+    read (#285), a date and an age in whole seconds."""
+    return (isinstance(entry, dict) and set(entry) == {"read", "date", "age"} and entry["read"] in ("runs", "outcome")
             and moment(entry["date"]) is not None and type(entry["age"]) is int and entry["age"] >= 0)
 
 
@@ -42,11 +49,21 @@ def items(entries, kind: str) -> tuple:
         # from it would look healthy. It is refused, and the not-run alert reports it.
         raise Refused("the list of %s could not be read" % ("pull requests" if kind == "facts" else "issues"))
     readable = [e for e in entries if isinstance(e, dict) and not errors(e.get("facts"), kind)]
-    seen = [key(e["facts"]["item"]) for e in readable]
+    # An item listed twice is counted wherever it can be named, readable or not, so a bad copy leaves the good one out.
+    seen = [_named(e) for e in entries]
     kept = [e for e in readable if seen.count(key(e["facts"]["item"])) == 1]
     left_out = [e.get("facts", {}).get("item") if isinstance(e, dict) and isinstance(e.get("facts"), dict) else None
                 for e in entries if not any(e is k for k in kept)]
     return kept, [i if isinstance(i, dict) else None for i in left_out]
+
+
+def _named(entry):
+    """The item an entry names, as its page, wherever it can be read; None otherwise."""
+    item = entry.get("facts", {}).get("item") if isinstance(entry, dict) and isinstance(entry.get("facts"), dict) else None
+    if not (isinstance(item, dict) and isinstance(item.get("repo"), str) and item.get("type") in ("pull_request", "issue")
+            and type(item.get("number")) is int):
+        return None
+    return key(item)
 
 
 def configured(controller: dict) -> dict:

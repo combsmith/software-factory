@@ -1,7 +1,7 @@
 """One pass of the Controller, as a function of what it read (design sections 2.3, 3.4 and 7.3, issue 193).
 
 `run(reads, config, now, previous, mint)` builds the context from the reads, asks the Kernel about every item through
-its two entry points, and returns the pass record, the Runs to dispatch, each named by its run-name, the acts to make,
+its entry points, and returns the pass record, the Runs to dispatch, each named by its run-name, the acts to make,
 the view's three files, the alerts, and whether to start a successor. It decides nothing itself: every Decision is the
 Kernel's, and what it reports of the Factory's own health is read from the reads and the pass records. It writes
 nothing and reads no clock: `now` is given, and so is `mint`, which gives each new id. What it returns is written by the
@@ -17,7 +17,10 @@ is refused whole, so that nothing is dispatched from a pass that cannot be repla
 - `pull_requests` and `issues`: `[{"facts", "title"}]`, the title beside the facts and never in them;
 - `facts_reads`: each facts read's `{"date", "age"}`;
 - `usage`: what was read of the window's job-minutes and GraphQL points, by `factory_job_minutes`, `org_job_minutes`
-  and `graphql_points_peak_hour`, each missing until a port reads it.
+  and `graphql_points_peak_hour`, each missing until a port reads it;
+- `seen`: what `adapters/seen.py` read of each Factory identity's writes, `seen/1`, or None;
+- `effects`: the Effects recorded in the window, `{"applied": [applied/1], "written": [written/1], "whole"}`, or None;
+  reconciliation matches the one to the other (`controller/reconcile.py`, decision 0061).
 
 `config` holds `kernel`, the Kernel's configuration; `lifecycles`, each Work item's; `feed`, `config/feed.json`;
 `controller`, `config/controller.json`; and `release`, the Release that runs. `previous` is the pass records before this
@@ -31,6 +34,7 @@ import datetime
 from controller import feed as feed_
 from controller import health as health_
 from controller import reads as reads_
+from controller import reconcile as reconcile_
 from controller.shared import Refused, checked, key, moment, seconds, text
 from kernel import decide as pull_request
 from kernel import issue
@@ -45,10 +49,13 @@ NOT_RUN = "not_run"
 __all__ = ["Refused", "run", "rebuild", "wait_before_reading"]
 
 
-def earlier(previous, now: str) -> list:
-    """The pass records that ran before `now`, oldest first; a record whose time is no moment is passed over."""
-    found = [r for r in previous or [] if moment(r["now"]) is not None and r["now"] < now]
-    return sorted(found, key=lambda r: r["now"])
+def earlier(previous, now: str):
+    """The pass records that ran before `now`, oldest first; None if they could not be read, or one of them has a time
+    that is no moment or no earlier than `now`. A record passed over would hide the pass it records: the last pass's
+    read, or the gap the chain began after."""
+    if previous is None or any(moment(r["now"]) is None or r["now"] >= now for r in previous):
+        return None
+    return sorted(previous, key=lambda r: r["now"])
 
 
 def started_by(started, accounts: dict) -> str:
@@ -90,7 +97,8 @@ def human_pause(read, repos) -> tuple:
     read = read if isinstance(read, dict) else {}
     held = read.get("repos") if isinstance(read.get("repos"), dict) else {}
     scopes = [("org", read["org"] if "org" in read else object())]
-    scopes += [("repo", held[repo] if repo in held else object()) for repo in sorted(repos)]
+    # Every repo read is a scope, whether or not an item of it is decided: a paused repo with nothing open still pauses.
+    scopes += [("repo", held[repo] if repo in held else object()) for repo in sorted(set(repos) | set(held))]
     states = [(name, _scope(value)) for name, value in scopes]
     paused = sorted({name for name, state in states if state == "paused"})
     if paused:
@@ -122,7 +130,7 @@ def capacity_until(runs: list, now: str, window: int):
     """Until when model Runs wait after the newest capacity fault: its start and the window, or None once that is
     past (design section 3.10). A Run's record has no time of its fault, so the window counts from its start."""
     starts = [r["started_at"] for r in runs if r["status"] == "completed" and r["outcome"] == CAPACITY
-              and moment(r["started_at"]) is not None]
+              and moment(r["started_at"]) is not None and r["started_at"] <= now]
     if not starts:
         return None
     until = text(moment(max(starts)) + datetime.timedelta(seconds=window))
@@ -150,12 +158,11 @@ def wait_before_reading(previous, now: str, config: dict) -> int:
     """Seconds to wait before this pass reads: none sooner than the gap after the last pass's read began, whatever
     started it (decision 0043). If the records cannot be read, the whole gap."""
     gap = config["controller"]["read_gap_seconds"]
-    previous = reads_.previous_records(previous)
-    if previous is None:
+    before = earlier(reads_.previous_records(previous), now)
+    if before is None:
         return gap
-    before = earlier(previous, now)
     if not before:
-        return 0 if not previous else gap
+        return 0
     last = before[-1]
     began = min([r["date"] for r in last["reads"] if moment(r["date"]) is not None] or [last["now"]])
     return max(0, gap - seconds(now, began))
@@ -163,7 +170,8 @@ def wait_before_reading(previous, now: str, config: dict) -> int:
 
 def rebuild(records: list, titles: dict, config: dict) -> list:
     """The feed's two files as each pass record left them, rebuilt from the records alone (decision 0002)."""
-    return feed_.rebuild(records, titles, config["feed"])
+    return feed_.rebuild(records, titles, config["feed"],
+                         lambda r: pull_request.unnamed_scope(r["context"], config["kernel"], r["now"])["alerts"])
 
 
 def _run_name(item: dict, intent: str, role: str, content: str, run: str) -> str:
@@ -180,8 +188,8 @@ def _acts(record: dict) -> set:
 def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     """One pass: the record, the Runs to dispatch, the acts, the view, the alerts and whether a successor starts."""
     rules = reads_.configured(config["controller"])
-    previous = reads_.previous_records(previous)
-    before = earlier(previous, now)
+    before = earlier(reads_.previous_records(previous), now)
+    previous, before = (None, []) if before is None else (before, before)
     # Facts that are not facts, and an item listed twice, never reach the Kernel and no record could hold them: the
     # item is left out of this pass, as one alert, and every other item is decided as it would be without it.
     pulls, left_out = reads_.items(copy.deepcopy(reads.get("pull_requests")), "facts")
@@ -217,12 +225,17 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             out.append({"facts": facts, "decision": d, "run": mint("r") if minted else None})
         return out
 
+    # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and
+    # one for a reconciliation that is short (I-33, decision 0061). What it found is in the record before it is checked.
+    found = reconcile_.reconcile(reads.get("seen"), reads.get("effects"), runs if listed and whole else None, before,
+                                 rules["accounts"])
     record = {"schema": "pass/1", "pass": mint("p"), "release": config["release"], "now": now,
               "started_by": started_by(reads.get("started"), rules["accounts"]), "context": context, "runs": runs,
               "reads": (copy.deepcopy(records["reads"]) if listed else [])
               + [dict(r, read="facts") if isinstance(r, dict) else r for r in reads.get("facts_reads") or []],
               "pull_requests": asked(pulls, pull_request.decide, config["lifecycles"]["pull_request"]),
-              "issues": asked(issues, issue.decide, config["lifecycles"]["issue"])}
+              "issues": asked(issues, issue.decide, config["lifecycles"]["issue"]),
+              "reconciliation": reconcile_.entries(found)}
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]
@@ -241,39 +254,32 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
         elif d["outcome"] == t.ACT:
             acts.append(d)
 
-    # One cause, one alert, however many items it defers (L-48). The automatic pause defers as `capacity` does, and
-    # is the one cause `environment` unless a capacity fault holds too. An unreadable Pause is one cause with no item to
-    # defer; facts left out are one; and the first pass after six hours with none raises the not-run alert, which the
-    # next pass clears (decision 0043).
-    causes = {e["decision"]["reason"] for e in entries} & t.SCOPE_DEFERRALS
-    # A cause that holds the whole scope is raised from the context too, so that it is raised with no item to defer.
-    causes |= {"paused"} if context["paused"] is True else set()
-    causes |= {"pause_unreadable"} if context["paused"] is None else set()
-    causes |= {"capacity"} if capacity is not None else set()
-    causes |= {"capacity_unreadable"} if context["active_runs"] is None else set()
-    causes |= {"run_unidentified"} if context["unidentified_runs"] != [] else set()
-    if automatic is not None and capacity is None:
-        causes.discard("capacity")
-    causes |= {ENVIRONMENT} if automatic is not None else set()
-    causes |= {"facts_unreadable"} if left_out else set()
+    # An unnamed Run defers only inside the window or until it completes; past the window it is an alert, by its run id,
+    # and past max_unnamed_runs of them every Run defers (issue 270).
+    unnamed = pull_request.unnamed_scope(context, config["kernel"], now)
 
     def gap(later: str, earlier_: str) -> bool:
         return seconds(later, earlier_) > rules["not_run_seconds"]
 
+    # The first pass after six hours with none raises the not-run alert, and the next pass clears it (decision 0043).
     raised = bool(before) and gap(now, before[-1]["now"])
-    causes |= {NOT_RUN} if raised else set()
     cleared = len(before) >= 2 and gap(before[-1]["now"], before[-2]["now"]) and not raised
-    alerts = sorted(causes)
+    alerts = health_.alerts([e["decision"]["reason"] for e in entries], context, capacity, automatic is not None,
+                            bool(left_out), raised, unnamed, reconcile_.alerts(found))
     decided = [e["facts"]["item"] for e in entries]
     titles = {key(e["facts"]["item"]): e.get("title") if isinstance(e.get("title"), str) else ""
               for e in pulls + issues if e["facts"]["item"] in decided}
-    feed = feed_.view(record, before, titles, config["feed"])
+    feed = feed_.view(record, before, titles, config["feed"], unnamed["alerts"], record["reconciliation"])
     feed["health"] = health_.health(record, before, pause, automatic is not None, alerts, reads.get("usage"), rules)
     # A successor only for an item due at the pass's end: an act made here, whose next Decision is due at once, and not
     # one the pass before made too, which did not take. A Run's end starts the next pass itself, and a pass deferred by
     # a Run it cannot name starts none (decisions 0036, 0043).
     done = _acts(before[-1]) if before else set()
     due = [d for d in acts if (key(d["item"]), d["action"], d.get("content_id")) not in done]
-    successor = bool(due) and context["unidentified_runs"] == []
+    successor = bool(due) and not unnamed["defers"] and not unnamed["bounded"]
+    # The one write no Decision calls for: recorded, so the effects port can hold a plan's successor to it; and the
+    # alerts, which the tracking issue reports.
+    record["successor"] = successor
+    record["alerts"] = sorted(alerts)
     return {"record": record, "dispatch": dispatch, "acts": acts, "view": feed, "alerts": alerts,
             "cleared": [NOT_RUN] if cleared else [], "left_out": left_out, "successor": successor}

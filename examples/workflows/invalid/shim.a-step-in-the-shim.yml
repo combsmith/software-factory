@@ -1,0 +1,28 @@
+# Must be rejected. A step in a shim runs the default branch's file, which no Release holds and no channel rolls back.
+name: sf-poller
+on:
+  schedule:
+    - cron: "13 * * * *"
+    - cron: "33 * * * *"
+    - cron: "53 * * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - factory
+      - ci
+      - sf-run
+    types:
+      - completed
+permissions: {}
+jobs:
+  pass:
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: sf-poller
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - run: python3 -m controller

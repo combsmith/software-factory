@@ -2,7 +2,36 @@
   "schema": "controller/1",
   "accounts": {
     "workflow_token": null,
-    "relay": null
+    "relay": null,
+    "controller": null,
+    "maintainer": {
+      "login": "don-petry",
+      "id": 36422719
+    },
+    "approver": {
+      "login": "donpetry-bot",
+      "id": 281750570
+    },
+    "lenses": [],
+    "agents": [],
+    "dependencies": [
+      {
+        "login": "dependabot[bot]",
+        "id": 49699333
+      }
+    ],
+    "roles": {
+      "pr-review": null
+    }
+  },
+  "home": {
+    "repo": "combsmith/software-factory",
+    "branch": "main"
+  },
+  "workflows": {
+    "run": "run.yml",
+    "approval": "approve.yml",
+    "poller": "poller.yml"
   },
   "read_gap_seconds": 180,
   "not_run_seconds": 21600,
