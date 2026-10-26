@@ -4585,10 +4585,11 @@ if args[0] == "api" and "graphql" in args:
     threads = []
     if state["reviews"] >= 1:
         threads.append({"id": os.environ.get("STANDIN_ID", "PRRT_T1"), "isResolved": state["resolved"], "resolvedBy": None,
-                        "comments": {"totalCount": 1, "nodes": [{"databaseId": 101, "author": {"login": os.environ.get("STANDIN_AUTHOR", "combsmith-sf-trial-author"), "__typename": "Bot"},
-                                                                 "body": os.environ.get("STANDIN_FIRST", "Trial thread 1: the App resolves it."), "replyTo": None}]}})
+                        "comments": {"totalCount": 1, "nodes": [{"databaseId": 101, "author": {"login": os.environ.get("STANDIN_AUTHOR", "combsmith-sf-trial-author"), "__typename": os.environ.get("STANDIN_TYPE", "Bot")},
+                                                                 "body": os.environ.get("STANDIN_FIRST", "Trial thread 1: the App resolves it."),
+                                                                 "replyTo": {"databaseId": 7} if os.environ.get("STANDIN_REPLY") else None}]}})
     if state["reviews"] >= 2:
-        nodes = [] if state["deleted"] else [{"databaseId": 201, "author": {"login": "combsmith-sf-trial-author", "__typename": "Bot"},
+        nodes = [] if state["deleted"] else [{"databaseId": os.environ.get("STANDIN_COMMENT", 201), "author": {"login": "combsmith-sf-trial-author", "__typename": "Bot"},
                                                "body": "Trial thread 2: its first comment is deleted.", "replyTo": None}]
         if state["reply"]:
             nodes.append({"databaseId": 202, "author": {"login": "combsmith-sf-trial-author", "__typename": "Bot"},
@@ -4717,7 +4718,9 @@ esac
         # and reaches no file.
         for name, extra in [("another's words", {"STANDIN_FIRST": "Someone else's comment"}),
                             ("another's comment", {"STANDIN_AUTHOR": "someone-else"}),
-                            ("an id that is not one", {"STANDIN_ID": "../../repos/other"})]:
+                            ("an id that is not one", {"STANDIN_ID": "../../repos/other"}),
+                            ("a person's comment under the App's name", {"STANDIN_TYPE": "User"}),
+                            ("a reply, not a thread's first comment", {"STANDIN_REPLY": "1"})]:
             bin_, ran = self.run_threads(**extra)
             self.assertNotEqual(ran.returncode, 0, name)
             calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
@@ -4725,6 +4728,16 @@ esac
             self.assertIn("installation/token", " ".join(calls[-1]["argv"]), name)
             out = next(pathlib.Path(line.strip()) for line in ran.stdout.splitlines() if line.startswith("  /"))
             self.assertNotIn(self.TOKEN, "".join(p.read_text() for p in out.iterdir()), name)
+
+    def test_a_comment_id_that_is_not_one_is_never_sent_in_a_path(self):
+        # The second thread's first comment, read with an id that is not one, is neither replied to nor deleted: a path
+        # is never built from it, the run fails, and the token is revoked last.
+        bin_, ran = self.run_threads(STANDIN_COMMENT="../../issues/1")
+        self.assertNotEqual(ran.returncode, 0)
+        calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
+        said = [" ".join(c["argv"]) for c in calls]
+        self.assertFalse([c for c in said if "/replies" in c or "pulls/comments/" in c or "issues/1" in c])
+        self.assertIn("installation/token", said[-1])
 
 
 class LinuxSandboxTrial(unittest.TestCase):

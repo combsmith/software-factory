@@ -1931,25 +1931,43 @@ class Threads(unittest.TestCase):
             with self.assertRaises(github.Unanswered):
                 self.read(failed)
 
-    def test_a_thread_a_trial_recorded_is_read_as_the_port_reads_it(self):
-        # trials/P-49.json (issue 282) holds the port's own read, asked as it asks, of two threads the trial-author App
-        # opened: one it resolved, and one whose first comment was deleted after a reply.
+    def p49(self) -> tuple:
+        """trials/P-49.json's read of canary pull request 55's threads, asked as the port asks, and a reader of it."""
         found = [e for name in sorted((ROOT / "trials").glob("P-*.json"))
                  for e in json.loads(name.read_text()).get("exchanges", [])
                  if (e.get("request") or {}).get("body", {}) and "FactsThreads" in json.dumps(e["request"]["body"])]
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0]["request"]["body"]["query"], threads.QUERY)
-        resolved, kept = found[0]["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+        router = Router(github.Replay([found[0]]), {"don-petry": "admin"})
+        pull = {"number": 55, "base": {"repo": {"full_name": canary()}}}
+        return found[0], lambda: threads.read(router, pull, timeline.Accounts(router, canary(), MACHINE, {}))
+
+    def test_an_apps_resolution_stops_the_threads_read_today(self):
+        # trials/P-49.json (issue 282): the trial-author App resolved one of its two threads, and deleted the other's
+        # first comment after a reply. resolvedBy names the App's bot by the id its comments carry, but typed a User; the
+        # port reads every resolver as a User, finds none of that login, and refuses the whole read: a pull request whose
+        # Lens resolved its own thread is never read whole until issue 331 reads the resolver from the timeline.
+        found, read = self.p49()
+        resolved, kept = found["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
         opener = resolved["comments"]["nodes"][0]["author"]
-        # An App's resolution names its bot account, by the same id as its comments, and not null as the port assumed.
-        # The port types every resolver a User, so it reads the App's resolution as a User's with the bot's id: what
-        # it reads today, which a Lens's own resolution cannot yet be told by (the follow-up to issue 282).
         self.assertEqual((opener["__typename"], resolved["resolvedBy"]["databaseId"]), ("Bot", opener["databaseId"]))
-        self.assertEqual(threads._account(resolved["resolvedBy"], "User"),
-                         {"login": "combsmith-sf-trial-author[bot]", "id": opener["databaseId"], "type": "User"})
-        # The thread whose first comment was deleted keeps its reply, now its first comment and a reply to nothing, so
-        # the port's refusal of a first comment that replies never fires on it.
+        with self.assertRaises(github.Unanswered) as refused:
+            read()
+        self.assertIn("a User whose login is none GitHub gives", str(refused.exception))
+        # The thread whose first comment was deleted keeps its reply, now its first comment and a reply to nothing.
         self.assertEqual((kept["isResolved"], [c["replyTo"] for c in kept["comments"]["nodes"]]), (False, [None]))
+
+    @pending
+    def test_a_thread_a_trial_recorded_is_read_as_the_port_reads_it(self):
+        # What issue 331 builds: P-49's App resolution read as the App's, by its account id and type, and the thread
+        # whose first comment was deleted still read as its opener's, never as whoever's comment is first now.
+        found, read = self.p49()
+        got, whole = read()
+        self.assertTrue(whole)
+        resolved, kept = got
+        self.assertEqual((resolved["resolved"], resolved["resolved_by"]["kind"], resolved["resolved_by"]["id"]),
+                         (True, "app", resolved["opened_by"]["id"]))
+        self.assertEqual(kept["opened_by"], resolved["opened_by"])
 
 
 def p26_checks_nodes(exchange: dict) -> list:
