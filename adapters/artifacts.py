@@ -122,8 +122,10 @@ def applied(transport, repo: str, github_id: int, run: str, seen=None) -> tuple:
     """`(applied/1, whole)` of the Run GitHub numbers `github_id` and the Factory names `run`: None and whole for a Run
     that uploaded none, as one that wrote nothing or was killed; None and not whole for one that cannot be read, is not
     `applied/1` or is another Run's, so that reconciliation is short and never matches a write to it (decision 0061).
-    Read as the outcome is: bounded at every step, its digest checked."""
-    held, whole = read(transport, repo, github_id, seen, APPLIED, APPLIED_MEMBER, APPLIED_MOST, APPLIED_MOST)
+    Read as the outcome is: bounded at every step, its digest checked. The archive is held to an outcome's bound and
+    downloaded under `STORED`, since `PASSED` is a pass record's alone; only the file in it may be larger, as JSON
+    zipped is (issue 329)."""
+    held, whole = read(transport, repo, github_id, seen, APPLIED, APPLIED_MEMBER, ZIPPED, APPLIED_MOST)
     if held is None:
         return None, whole
     try:
