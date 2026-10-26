@@ -2621,7 +2621,7 @@ class Workflows(unittest.TestCase):
             "a model credential in apply": good.replace("          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}\n",
                                                         "          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}\n" + model),
             "the CLI unchecked": good.replace('          echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c\n', ""),
-            "another checksum": good.replace(check_workflows.CLI_CHECKSUM, "0" * 64),
+            "another checksum": good.replace(check_workflows.CLI_CHECKSUMS["2.1.306"], "0" * 64),
             "another version": good.replace('CLI_VERSION: "2.1.306"', 'CLI_VERSION: "2.1.307"'),
             "a later job on the Channel again": good.replace("          ref: ${{ needs.run.outputs.commit }}\n",
                                                              "          ref: factory/v0-next\n", 1),
@@ -2648,7 +2648,10 @@ class Workflows(unittest.TestCase):
         # The CLI's version is the Engine's pin: a pin that moves without the checksum fails, as does none.
         harness = json.loads((ROOT / "config" / "harness.json").read_text())
         moved = tree({"config/harness.json": json.dumps(dict(harness, engine=dict(harness["engine"], version="2.1.307")))})
-        self.assertTrue(caught(check_workflows.run_jobs_problems(good, moved), "it is not the Run's three jobs"))
+        self.assertTrue(caught(check_workflows.run_jobs_problems(good.replace('"2.1.306"', '"2.1.307"'), moved),
+                               "CLI_CHECKSUMS holds no checksum for it"))
+        with mock.patch.dict(check_workflows.CLI_CHECKSUMS, {"2.1.307": "1" * 64}):
+            self.assertTrue(caught(check_workflows.run_jobs_problems(good, moved), "it is not the Run's three jobs"))
         none = tree({"config/harness.json": "{}"})
         self.assertTrue(caught(check_workflows.run_jobs_problems(good, none), "names no Engine pin"))
 
@@ -2696,6 +2699,11 @@ class Workflows(unittest.TestCase):
             self.assertTrue(caught(check_workflows.shim_problems("other.yml", text),
                                    "it names a key or the environment that holds it, which only %s names" % owner), key)
             self.assertFalse(caught(check_workflows.shim_problems(owner, text), "which only %s names" % owner), key)
+        # GitHub's names of these ignore case, and so does the rule.
+        for spelt in ("Pr_Review_App_Key", "FACTORY-APPLY", "Factory-Poller"):
+            text = GOOD.replace("    permissions:\n      contents: read\n",
+                                "    permissions:\n      contents: read\n    env:\n      X: %s\n" % spelt, 1)
+            self.assertTrue(caught(check_workflows.shim_problems("other.yml", text), "it names a key"), spelt)
         # A comment that names one names nothing.
         self.assertFalse(check_workflows.shim_problems("other.yml", "# READER_APP_KEY\n" + GOOD))
 

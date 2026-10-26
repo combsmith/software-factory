@@ -7231,11 +7231,11 @@ MUTANTS = ISSUE + [
      '', ('tests.test_steps.Reader.test_the_reader_fails_closed',)),
     # #196 PR 2b-2: the Run's jobs, the approving act and the pass, held word for word.
     ("the Run's jobs are not held", 'tools/check_workflows.py',
-     '    if _held(text) != _held(RUN_JOBS_FILE % {"version": version, "checksum": CLI_CHECKSUM}):',
+     '    if _held(text) != _held(RUN_JOBS_FILE % {"version": version, "checksum": CLI_CHECKSUMS[version]}):',
      '    if False:', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome',)),
     ('the CLI is held to no pin', 'tools/check_workflows.py',
-     'RUN_JOBS_FILE % {"version": version, "checksum": CLI_CHECKSUM}',
-     'RUN_JOBS_FILE % {"version": "2.1.306", "checksum": CLI_CHECKSUM}', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome',)),
+     'RUN_JOBS_FILE % {"version": version, "checksum": CLI_CHECKSUMS[version]}',
+     'RUN_JOBS_FILE % {"version": "2.1.306", "checksum": CLI_CHECKSUMS[version]}', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome',)),
     ("a pin of any form is the Engine's", 'tools/check_workflows.py',
      '    if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\\.[0-9]+\\.[0-9]+", version):\n        return ["config/harness.json names no Engine pin, so no install of the CLI can be held"]\n',
      '', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome',)),
@@ -7314,6 +7314,12 @@ MUTANTS = ISSUE + [
     ('the outcome is of a Release it did not read', 'harness/outcome.py',
      '    release = steps.release()',
      '    release = "factory/v9.9.9"', ('tests.test_steps.Apply.test_the_last_step_leaves_the_outcome',)),
+    ("a pin with no checksum is held to none", 'tools/check_workflows.py',
+     '    if version not in CLI_CHECKSUMS:\n        return ["config/harness.json pins the CLI at %s, and CLI_CHECKSUMS holds no checksum for it" % version]\n',
+     '', ('tests.test_tools.Workflows.test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome',)),
+    ("a key named in another case is named nowhere", 'tools/check_workflows.py',
+     'r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY", re.I)', 'r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY")',
+     ('tests.test_tools.Workflows.test_a_key_and_its_environment_are_named_by_their_one_file',)),
 ]
 
 

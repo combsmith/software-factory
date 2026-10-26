@@ -175,7 +175,9 @@ jobs:
           path: pass/written.json
           if-no-files-found: ignore
 """
-CLI_CHECKSUM = "520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe"
+# The CLI's sha256 for linux-x64 by version, each as the vendor's release manifest for that version gives it: a pin with
+# no entry here is refused, so that a pull request that moves the pin moves the checksum.
+CLI_CHECKSUMS = {"2.1.306": "520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe"}
 RUN_JOBS_FILE = """name: sf-run-jobs
 on:
   workflow_call:
@@ -363,9 +365,9 @@ jobs:
 """
 # Each key and the environment it lives in, by the one file that may name them (decision 0035): no other workflow names
 # either, so no other job, and no job a fork's code could reach, holds the key.
-KEYED = {PASS_WORKFLOW: re.compile(r"factory-poller|CONTROLLER_APP_KEY"),
-         RUN_JOBS: re.compile(r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY"),
-         APPROVE_JOB: re.compile(r"factory-approve|APPROVER_TOKEN")}
+KEYED = {PASS_WORKFLOW: re.compile(r"factory-poller|CONTROLLER_APP_KEY", re.I),      # GitHub's names of these
+         RUN_JOBS: re.compile(r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY", re.I),     # ignore case
+         APPROVE_JOB: re.compile(r"factory-approve|APPROVER_TOKEN", re.I)}
 # The id GitHub gives the App GitHub Actions: it reports every job in every workflow of the repo.
 ACTIONS_APP = 15368
 # A workflow that cannot be written within a rule. It is exempt from the rules named and from no other,
@@ -1037,7 +1039,9 @@ def run_jobs_problems(text: str, root: pathlib.Path = ROOT) -> list:
         version = None
     if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         return ["config/harness.json names no Engine pin, so no install of the CLI can be held"]
-    if _held(text) != _held(RUN_JOBS_FILE % {"version": version, "checksum": CLI_CHECKSUM}):
+    if version not in CLI_CHECKSUMS:
+        return ["config/harness.json pins the CLI at %s, and CLI_CHECKSUMS holds no checksum for it" % version]
+    if _held(text) != _held(RUN_JOBS_FILE % {"version": version, "checksum": CLI_CHECKSUMS[version]}):
         return ["it is not the Run's three jobs, word for word, its CLI %s by its checksum" % version]
     return []
 
