@@ -4,7 +4,7 @@ How the Factory ships itself. `rings.json` names the two Channels, what each ser
 from `next` before it reaches `stable`. `cut.py` holds the rules that cut a Release and move or roll back a Channel,
 pure: it is given the refs and the facts, and returns the writes or one code. `current.py` names a commit's one
 Release. `move.py` prints a step's plan from what was read; the workflow that sends it is `.github/workflows/`'s. The
-tags themselves are read by `adapters/tags.py`. How to cut, and who may, is the skill `.claude/skills/cut-a-release/SKILL.md`.
+tags themselves are read by `adapters/tags.py`; `fixtures/` keeps what GitHub answered a Release's reads and steps. How to cut, and who may, is the skill `.claude/skills/cut-a-release/SKILL.md`.
 Not built yet, by the stories that hold their rules: promote.py, cutover.py.
 
 | Rule | Held by |
@@ -21,3 +21,4 @@ Not built yet, by the stories that hold their rules: promote.py, cutover.py.
 | No repo and Intent family is served by two Channels | `examples/invalid/rings.a-repo-on-two-channels.json` |
 | A Release reaches `stable` only with Runs behind it, each Effect read back, and an eval for each changed Intent | `examples/invalid/rings.promotion-with-no-runs.json`, `examples/invalid/rings.promotion-without-evals.json` |
 | The tags are read whole or not at all, and nothing is read at any tag | `tests/test_release.py::test_tags_are_read_whole_or_not_at_all`, `tests/test_release.py::test_a_move_reads_refs_and_nothing_at_any_tag` |
+| A fixture holds no credential, and no header a trial's fixture drops | `tests/test_release.py::test_the_refs_github_answered_are_read_as_the_port_reads_them` |

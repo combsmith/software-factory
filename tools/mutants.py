@@ -7355,6 +7355,12 @@ MUTANTS = ISSUE + [
     ('the plan moves a Channel the ring file does not declare', 'release/move.py',
      '    writes, refused = cut.plan(step, refs, facts, channels(_read(str(rings))))',
      '    writes, refused = cut.plan(step, refs, facts, frozenset({"factory/v0-next"}))', ('tests.test_release.Plan.test_the_plan_is_printed_from_what_was_read_and_nothing_is_written',)),
+    ("a Release fixture's credential passes", 'tools/check_release.py',
+     '    problems = ["%s: %s %s" % (rel, where, what) for where, what in check_trials._credentials(value, "")]',
+     '    problems = []', ('tests.test_release.Tags.test_the_refs_github_answered_are_read_as_the_port_reads_them',)),
+    ('a Release fixture keeps any header', 'tools/check_release.py',
+     '                if str(name).lower() not in check_trials.HEADERS:',
+     '                if False:', ('tests.test_release.Tags.test_the_refs_github_answered_are_read_as_the_port_reads_them',)),
 ]
 
 

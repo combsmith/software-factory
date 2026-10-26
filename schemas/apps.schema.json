@@ -29,6 +29,11 @@
         "write:status_on_item",
         "write:tracking_issue",
         "write:write_view",
+        "write:release_tag",
+        "write:move_channel",
+        "write:deployment",
+        "read:release.refs",
+        "read:release.runs",
         "read:facts.item",
         "read:facts.targets_protected",
         "read:facts.class",
@@ -89,6 +94,21 @@
           "$ref": "#/$defs/mapping"
         },
         "write:write_view": {
+          "$ref": "#/$defs/mapping"
+        },
+        "write:release_tag": {
+          "$ref": "#/$defs/mapping"
+        },
+        "write:move_channel": {
+          "$ref": "#/$defs/mapping"
+        },
+        "write:deployment": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:release.refs": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:release.runs": {
           "$ref": "#/$defs/mapping"
         },
         "read:facts.item": {
@@ -328,6 +348,11 @@
               "write:status_on_item",
               "write:tracking_issue",
               "write:write_view",
+              "write:release_tag",
+              "write:move_channel",
+              "write:deployment",
+              "read:release.refs",
+              "read:release.runs",
               "read:facts.item",
               "read:facts.targets_protected",
               "read:facts.class",

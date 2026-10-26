@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import copy
 import io
 import json
 import pathlib
@@ -222,6 +223,21 @@ class Tags(unittest.TestCase):
         self.assertEqual(imported, {"__future__", "re", "adapters.github"})
         self.assertEqual(check_release.run(), [])
 
+    def test_the_refs_github_answered_are_read_as_the_port_reads_them(self):
+        # One read of this repo's factory/ tags, through the Maintainer's login, on 2026-10-26: none exist yet, so the
+        # first cut has no Release to be newer than, and no rollback has a target.
+        fixture = json.loads((ROOT / "release" / "fixtures" / "refs.read.json").read_text())
+        self.assertEqual(tags.read(github.Replay(fixture["exchanges"]), REPO), {})
+        self.assertEqual(check_release.fixture_problems(fixture, "refs.read.json"), [])
+        for planted in ({"authorization": "token " + "x" * 30}, {"x-oauth-client-id": "Iv1.0123456789"}):
+            with self.subTest(planted=planted):
+                held = copy.deepcopy(fixture)
+                held["exchanges"][0]["response"]["headers"].update(planted)
+                self.assertTrue(check_release.fixture_problems(held, "refs.read.json"))
+        held = copy.deepcopy(fixture)
+        held["exchanges"][0]["response"]["body"] = [{"ref": "refs/tags/factory/v0.1.0", "note": "ghp_" + "x" * 36}]
+        self.assertTrue(check_release.fixture_problems(held, "refs.read.json"))
+
     def test_tags_are_read_whole_or_not_at_all(self):
         for body, status, headers in (
                 ([ref("factory/v0.1.0", kind="tag")], 200, None),
@@ -311,6 +327,21 @@ class Rings(unittest.TestCase):
                     (root / rel).write_text((ROOT / rel).read_text())
                 (root / "release" / "cut.py").write_text(planted)
                 self.assertEqual(len(check_release.run(root)), found)
+
+
+class Apps(unittest.TestCase):
+    def test_the_release_apps_needs_wait_on_its_registration(self):
+        # The release App is not registered yet (ruling 4′): each need its workflow will have waits on that, and no
+        # App grants one, so nothing can write a tag or move a Channel today.
+        apps = json.loads((ROOT / "config" / "apps.json").read_text())
+        needs = ("write:release_tag", "write:move_channel", "write:deployment", "read:release.refs", "read:release.runs")
+        for need in needs:
+            with self.subTest(need=need):
+                self.assertEqual(list(apps["needs"][need]), ["waits_on"])
+                self.assertIn("combsmith-sf-release", apps["needs"][need]["waits_on"])
+        granted = {n for app in apps["apps"].values() for grant in app.get("permissions", {}).values()
+                   for n in grant.get("needs", [])}
+        self.assertFalse(granted & set(needs))
 
 
 class Skill(unittest.TestCase):
