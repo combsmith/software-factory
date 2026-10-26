@@ -92,7 +92,7 @@ def changing(**over) -> dict:
     if isinstance(paths, list):
         paths = [changed(*p) if isinstance(p, tuple) else changed(p) for p in paths]
     files = len(paths) if isinstance(paths, list) and paths else 1
-    return facts(changed_paths=paths, diff={"files": files, "lines": 40, "truncated": False}, **over)
+    return facts(changed_paths=paths, diff={"files": files, "lines": 40, "truncated": False, "characters": 1600}, **over)
 
 
 def later(time: str, minutes: int) -> str:
@@ -1027,6 +1027,21 @@ class Content(unittest.TestCase):
     def test_truncated_or_oversized_diff_is_held_without_a_run(self):
         self.assertEqual(go(facts(diff={"files": 9, "lines": 10, "truncated": True}))["reason"], "too_large")
         self.assertEqual(go(facts(diff={"files": 9, "lines": 99999, "truncated": False}))["reason"], "too_large")
+
+    def test_a_diff_no_task_can_carry_whole_is_held_and_one_at_the_bound_is_reviewed(self):  # issue 327
+        # The Harness gives a review no more of the diff than max_diff_characters, counted as the Task carries it. A
+        # pull request whose diff is longer, or whose length was not read, is held: never reviewed in part.
+        bound = LIMITS["max_diff_characters"]
+        d = go(facts(diff=dict(facts()["diff"], characters=bound)))
+        self.assertEqual((d["outcome"], d["admit"]["intent"]), ("admit", "review-change"))
+        d = go(facts(diff=dict(facts()["diff"], characters=bound)), REVIEWED)
+        self.assertEqual(d["outcome"], "act")
+        unread = {k: v for k, v in facts()["diff"].items() if k != "characters"}
+        for diff in (dict(unread, characters=bound + 1), unread, dict(unread, characters=str(bound)),
+                     dict(unread, characters=True), dict(unread, characters=float(bound))):
+            for runs in ((), REVIEWED):
+                d = go(facts(diff=diff), runs)
+                self.assertEqual((d["state"], d["reason"], d["outcome"]), ("held", "too_large", "hold"), diff)
 
     def test_no_model_review_before_deterministic_checks_pass(self):  # I-27
         pending = facts(checks=[dict(GREEN[0], conclusion="pending")])
@@ -2549,6 +2564,8 @@ class Queue(unittest.TestCase):
                  (dict(outside, label_events=[labelled("factory:admit", at=at(5))], last_push_at=at(10)), "outside_not_admitted"),
                  ({"diff": {"files": 2, "lines": 40, "truncated": True}}, "too_large"),
                  ({"diff": {"files": 2, "lines": LIMITS["max_diff_lines"] + 1, "truncated": False}}, "too_large"),
+                 ({"diff": {"files": 2, "lines": 40, "truncated": False,
+                            "characters": LIMITS["max_diff_characters"] + 1}}, "too_large"),
                  ({"diff": {"files": 0, "lines": 0, "truncated": False}}, "empty_diff")]
         for over, reason in holds:
             d = go(facts(queue=True, reviews=APPROVED, **over), REVIEWED)
@@ -3542,7 +3559,7 @@ class TheFactorysOwnRules(unittest.TestCase):
         # One record for each file of the diff, each by its own path once. A list of another length, though said to be
         # whole, left a file out or misread one, which could be on the list: a short read that gives a rename's two
         # names as two files, and leaves out the protected file beside it, among them.
-        two = {"files": 2, "lines": 40, "truncated": False}
+        two = {"files": 2, "lines": 40, "truncated": False, "characters": 1600}
         for paths in ([], [changed("docs/notes.md")], [changed("docs/notes.md"), changed("docs/notes.md")],
                       [changed("docs/new.md", "docs/old.md")],
                       [changed("a.md"), changed("b.md"), changed("c.md")]):
