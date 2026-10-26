@@ -157,7 +157,7 @@ def facts(armed=True, **over) -> dict:
         "schema": "facts/1", "item": dict(ITEM), "state": "open", "is_draft": False,
         "class": "maintainer", "author": "don-petry", "last_pusher": "don-petry",
         "targets_protected": True, "mergeable": True, "content_id": "sha256:aaaa",
-        "diff": {"files": 2, "lines": 40, "truncated": False}, "changed_paths": [changed(p) for p in PATHS],
+        "diff": {"files": 2, "lines": 40, "truncated": False, "characters": 1600}, "changed_paths": [changed(p) for p in PATHS],
         "label_events": [],
         "last_push_at": "2026-10-11T12:00:00Z",
         "last_writer_action_at": "2026-10-11T12:00:00Z", "reviews": [], "threads": [],
@@ -280,3 +280,17 @@ def config(**over) -> dict:
     c = copy.deepcopy(CONFIG)
     c.update(over)
     return c
+
+
+def releasing(environ):
+    """`harness/steps.release` stood in for by the Release a test names as `RELEASE`, as the checkout's one Release tag
+    would give it: a name that is no Release's tag is a checkout with none."""
+    from unittest import mock
+    from harness import steps
+    value = environ.get("RELEASE") if isinstance(environ, dict) else None
+
+    def release(*a, **k):
+        if isinstance(value, str) and steps.TAG.fullmatch(value):
+            return value
+        raise steps.Stop("release_untagged")
+    return mock.patch.object(steps, "release", release)

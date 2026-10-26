@@ -106,15 +106,10 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "characters",
-        "diff_characters"
+        "characters"
       ],
       "properties": {
         "characters": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "diff_characters": {
           "type": "integer",
           "minimum": 1
         }

@@ -159,3 +159,18 @@ def revoke(as_token) -> bool:
         return as_token.send(github.request("DELETE", "/installation/token")).get("status") == 204
     except github.Unanswered:
         return False
+
+
+def from_key(app: dict, repo: str, wanted: dict, key, now: int, connect) -> tuple:
+    """`(transport, revoke)`: a token of `app` for `repo` with exactly `wanted`, minted with the App's own key, `key`,
+    the text of its secret, and the clock's `now`, through `connect(token)`, the one transport; and the function that
+    revokes it, whose answer is whether GitHub did. Refused as `mint` refuses, and `key_unreadable` for no key."""
+    if not isinstance(key, str) or not key:
+        raise Refused("key_unreadable")
+    try:
+        as_app = connect(jwt(app["app_id"], key.encode(), now))
+        token = mint(as_app, app, repo, wanted, lambda value: connect(value))
+        transport = connect(token.reveal())
+    except github.Unanswered:
+        raise Refused("token_unreadable") from None
+    return transport, lambda: revoke(transport)

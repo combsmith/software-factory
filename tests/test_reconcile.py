@@ -211,8 +211,9 @@ class Matching(unittest.TestCase):
         self.assertEqual(check(seen(), recorded(), records(old_rerun), accounts=TOKEN)["unmatched"], [])
         # Until the pass job's token's account is set, no dispatch is reconciled, and run records not read leave
         # nothing short (ruling 2).
-        self.assertEqual(check(seen(), recorded(), records(r))["unmatched"], [])
-        self.assertIs(check(seen(), recorded(), None)["short"], False)
+        unset = dict(KNOWN, workflow_token=None)
+        self.assertEqual(check(seen(), recorded(), records(r), accounts=unset)["unmatched"], [])
+        self.assertIs(check(seen(), recorded(), None, accounts=unset)["short"], False)
 
 
 class Short(unittest.TestCase):

@@ -30,9 +30,10 @@ import os
 import pathlib
 import re
 import sys
+import time
 import urllib.parse
 
-from adapters import acceptance, checks, pause as pause_, threads
+from adapters import acceptance, checks, identity, pause as pause_, threads
 from adapters.github import Live, Unanswered, request
 from kernel import terms as t
 from tools.jsonschema_lite import validate
@@ -827,12 +828,38 @@ def approve(transport, item: dict, head: str, login: str) -> dict:
     return {"state": "applied", "key": back["node_id"], "fault": None, "reason": None}
 
 
-def main(argv=None, environ=None, base=None) -> int:
+# The Controller's writes and reads in this step, by the needs config/apps.json names: those the App is granted
+# are minted, and one that waits on its grant is not, so its write is refused for want of a credential.
+CONTROLLER_NEEDS = ("write:status_on_item", "write:tracking_issue")
+
+
+def controller_token(environ: dict, config: dict, now: int, connect=None) -> tuple:
+    """`(transport, revoke)`: the Controller App's token for the home repo, minted from `CONTROLLER_APP_KEY` with the
+    needs among `CONTROLLER_NEEDS` the App is granted, or `(None, None)` when there is no key or none is granted."""
+    apps = json.loads((ROOT / "config" / "apps.json").read_text())
+    app = apps["apps"]["controller"]
+    wanted = {}
+    for name in CONTROLLER_NEEDS:
+        try:
+            for permission, level in identity.granted(app, apps["needs"], [name], "write").items():
+                wanted[permission] = max(wanted.get(permission, "read"), level, key=identity.LEVELS.index)
+        except identity.Refused:
+            continue
+    if not environ.get("CONTROLLER_APP_KEY") or not wanted:
+        return None, None
+    return identity.from_key(app, config["home"]["repo"], wanted, environ["CONTROLLER_APP_KEY"], now, connect or Live)
+
+
+def main(argv=None, environ=None, base=None, mint=None, clock=None) -> int:
     """The step. It reads and writes only inside the directory it runs in, `base`, by default the working directory:
-    each path is followed to where it really is, and one outside is refused before anything is opened, naming no path."""
+    each path is followed to where it really is, and one outside is refused before anything is opened, naming no path.
+    The Controller's token is minted from its App's key, `CONTROLLER_APP_KEY`, by `mint(environ, config)`, and revoked
+    when the writes end; one GitHub did not revoke fails the step."""
     argv = sys.argv[1:] if argv is None else argv
     environ = os.environ if environ is None else environ
     inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
+    # The workflow's form: the pass's own folder, which `python3 -m controller` wrote, and written.json beside it.
+    argv = argv or ["pass/pass.json", "pass/writes.json", "pass"]
     if len(argv) != 3:
         print("usage: python3 -m adapters.effects PASS WRITES OUT; nothing was sent")
         return 2
@@ -848,8 +875,8 @@ def main(argv=None, environ=None, base=None) -> int:
         record, writes = json.load(one), json.load(two)
     config = json.loads((ROOT / "config" / "controller.json").read_text())
     owner_role = json.loads((ROOT / "config" / "defaults.json").read_text())["owner_role"]
-    token, own = environ.get("WORKFLOW_TOKEN"), environ.get("CONTROLLER_TOKEN")
-    sent = True
+    token = environ.get("WORKFLOW_TOKEN")
+    sent, revoke = True, None
     try:
         # The plan is held to its record before anything is read with a token: a plan that is not the record's
         # names no scope to read and asks nothing.
@@ -858,9 +885,13 @@ def main(argv=None, environ=None, base=None) -> int:
         _held(writes, record, owner_role)
         transports = {"workflow": Allowed(Live(token), workflow_permits(config)) if token else None,
                       "controller": None}
-        if own:
+        if mint is None:
+            own, revoke = controller_token(environ, config, int((clock or time.time)()))
+        else:
+            own, revoke = mint(environ, config)
+        if own is not None:
             org, repos = scopes(writes, config)
-            transports["controller"] = Allowed(Live(own), *controller_permits(config, org, repos))
+            transports["controller"] = Allowed(own, *controller_permits(config, org, repos))
         org, repos = scopes(writes, config) if transports["controller"] else ("", [])
         read = pause_.read(transports["controller"], org, repos)
         written = apply(writes, record, transports, config, owner_role, pause=read,
@@ -869,6 +900,11 @@ def main(argv=None, environ=None, base=None) -> int:
         written, sent = refused_all(writes, record, "token_unreadable"), False
     except Refused:
         written, sent = refused_all(writes, record, "plan_refused"), False
+    except identity.Refused:     # the key could not mint a token: every write refused, and the step fails
+        written, sent = refused_all(writes, record, "token_unreadable"), False
+    finally:
+        revoked = revoke() if revoke is not None else True
+    sent = sent and revoked is True
     with open(os.path.join(out, "written.json"), "w", encoding="utf-8") as kept:
         kept.write(json.dumps(written, indent=2) + "\n")
     return 0 if sent and not failed(written) else 1

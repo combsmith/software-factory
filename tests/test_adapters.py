@@ -19,6 +19,7 @@ import zipfile
 
 from adapters import acceptance, artifacts, checks, effects, facts, github, heldout, items, passes, pull, records, threads, \
     timeline
+from harness import task
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -597,7 +598,20 @@ class Diff(unittest.TestCase):
             self.assertEqual(got["diff"]["truncated"], False)
         data = body("P-29.base", 1)
         self.assertEqual(pull.diff(compared("P-29.base", 2, data), data, PINNED_BASE)["diff"],
-                         {"files": 1, "lines": 3, "truncated": False})
+                         {"files": 1, "lines": 3, "truncated": False, "characters": 252})
+
+    def test_the_diff_is_counted_as_the_harness_counts_the_task_it_carries(self):  # issue 327
+        # The Kernel's bound and the Harness's are one: the port counts the bytes the content id is the digest of, as
+        # harness/task.py counts the Task's diff, escaped, so a quote, a backslash and each newline are two.
+        data = body("P-29.base", 1)
+        data.update(changed_files=1, additions=1, deletions=0)
+        sent = 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -0,0 +1 @@\n+"caf\u00e9" \\ \u2603\t\n'.encode()
+        answer = github._answer(200, {"Content-Type": github.DIFF}, sent)
+        exchange = dict(exchanges("P-29.base")[2], response=dict(exchanges("P-29.base")[2]["response"],
+                                                                 body=answer["body"]))
+        got = pull.diff(github.Replay([as_compare(exchange, data)]), data, PINNED_BASE)
+        self.assertEqual(got["diff"]["characters"], task.carried(sent.decode()))
+        self.assertGreater(got["diff"]["characters"], len(sent.decode()))
 
     def test_the_content_is_hashed_over_the_bytes_github_sent(self):
         # A diff that is not UTF-8 keeps its bytes: its content id is theirs, so two diffs one byte apart are two.
@@ -612,6 +626,11 @@ class Diff(unittest.TestCase):
             got = pull.diff(github.Replay([as_compare(exchange, data)]), data, PINNED_BASE)
             self.assertEqual(got["content_id"], "sha256:" + hashlib.sha256(sent).hexdigest())
             self.assertIs(got["complete"], True)
+            # No Task carries it, so its length is not given and the Kernel holds it (issue 327, the review's read).
+            self.assertNotIn("characters", got["diff"])
+            with self.assertRaises(task.Refused):
+                task.diff_of(sent, {"item": {"type": "pull_request"}, "last_pusher": "x"},
+                             {"content_id": got["content_id"]}, {"max_diff_characters": 60000})
             ids.append(got["content_id"])
         self.assertNotEqual(*ids)
 
@@ -629,6 +648,7 @@ class Diff(unittest.TestCase):
         # its content is the head commit's, so a push is never read as unchanged.
         data = body("P-29.truncated", 2)
         got = pull.diff(compared("P-29.truncated", 4, data), data, PINNED_BASE)
+        # Its length is not read, so the Kernel holds it twice over.
         self.assertEqual((got["diff"], got["complete"]), ({"files": 3001, "lines": 3001, "truncated": True}, True))
         moved = copy.deepcopy(data)
         moved["head"]["sha"] = "0" * 40
@@ -2127,6 +2147,13 @@ class Snapshot(unittest.TestCase):
                                            "diff": True, "changed_paths": True, "runs": True, "timeline": True})
         self.assertIsNone(got["acceptance"])
         self.assertNotIn(title, json.dumps(got))
+
+    def test_a_snapshot_hands_back_its_head(self):  # #193's ruling 10
+        router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
+        got, title, head = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}),
+                                          True, lambda: self.NOW, with_head=True)
+        self.assertEqual(head, self.sequence(1)[0]["response"]["body"]["head"]["sha"])
+        self.assertNotIn(head, json.dumps(got))
 
     def test_a_snapshot_keeps_its_reads_for_reconciliation_only_once_it_is_whole(self):  # decision 0061
         # Reconciliation reads what the snapshot read, as GitHub gave it, so no read is made twice; a snapshot refused

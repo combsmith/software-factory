@@ -60,7 +60,8 @@
         "diff": {
           "files": 3,
           "lines": 120,
-          "truncated": false
+          "truncated": false,
+          "characters": 4800
         },
         "changed_paths": [
           {

@@ -1,6 +1,10 @@
 """The `run` job: one Task, one call of the Engine, one Result (design sections 2.3 and 3.10, issue 194).
 
     python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT
+    python3 -m harness.run TASK OUT
+
+The second form is the workflow's: TASK is the folder `python3 -m harness.read` wrote, holding each of the first
+form's files by its name, the Run id among them in `run`.
 
 RECORD is the pass record the Run was admitted in, RUN its Run id, FACTS the item's facts as the Run reads them, DIFF the
 bytes of the pull request's diff as GitHub served them, empty for an issue, TEXTS
@@ -16,13 +20,14 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
 import time
 import uuid
 
-from harness import engine, task
+from harness import engine, steps, task
 from kernel.coverage import readable_rubric
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -31,12 +36,17 @@ CLI = "CLAUDE_CLI"
 
 def configuration(root: pathlib.Path = ROOT) -> dict:
     """What the Task and the Engine are told beside the pass record: the Maintainer, the names the Factory's Roles act
-    under, and config/harness.json. The Release is the pass record's: one Release, one path (decision 0006)."""
+    under, config/harness.json, and the longest diff a Task carries, the Kernel's own limit, so the bound the Kernel
+    holds a pull request to and the one a Task is cut at are one (issue 327). The Release is the pass record's: one
+    Release, one path (decision 0006)."""
     hooks = json.loads((root / "config" / "hooks.json").read_text())
     apps = json.loads((root / "config" / "apps.json").read_text())
     defaults = json.loads((root / "config" / "defaults.json").read_text())
     roles = sorted({app["name"] + "[bot]" for app in apps["apps"].values()} | set(defaults["required_lenses"]["model"]))
-    return {"maintainer": hooks["maintainer"]["login"], "roles": roles, "approver": defaults["approver"], "harness": json.loads((root / "config" / "harness.json").read_text())}
+    return {"maintainer": hooks["maintainer"]["login"], "roles": roles, "approver": defaults["approver"],
+            "harness": json.loads((root / "config" / "harness.json").read_text()),
+            # The one bound on the change a Task carries, the Kernel's own (issue 327).
+            "max_diff_characters": defaults["limits"]["max_diff_characters"]}
 
 
 # The Intents whose Result covers a rubric (design section 3.14, decision 0049): a Run of one is never asked without it.
@@ -103,34 +113,67 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
         change = f.read()
     the_task = task.build(admitted, run, read(facts), read(texts), read(role), read(findings), config, change)
     session = session or str(uuid.uuid4())
-    try:
-        told = instructions(ROOT, the_task)
-    except RubricUnreadable:
+    fault, told = None, None
+    if the_task["intent"] in REVIEWING and any(o["kind"] == "diff" for o in the_task["omitted"]):
+        # The Kernel holds a pull request whose diff no Task carries whole; one admitted all the same is never reviewed
+        # in part (issue 327).
+        fault = "diff_not_whole"
+    else:
+        try:
+            told = instructions(ROOT, the_task)
+        except RubricUnreadable:
+            fault = "rubric_unreadable"
+    if fault:
         # The Factory's fault, read before the CLI is started: a failed Result, and no model call spent (issue 330).
-        result = engine.failed(the_task, "rubric_unreadable", engine.usage_of(config["harness"], session))
+        result = engine.failed(the_task, fault, engine.usage_of(config["harness"], session))
     else:
         result = engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], call or cli_call, clock,
                             session, told)
     data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
     digest = "sha256:" + hashlib.sha256(data).hexdigest()
-    os.makedirs(out)
-    with open(os.path.join(out, "result.json"), "wb") as f:
-        f.write(data)
-    with open(os.path.join(out, "result.sha256"), "w", encoding="utf-8") as f:
-        f.write(digest + "\n")
+    # The Result is its own user's alone to read, as every step's files are (`harness/steps.py`).
+    os.makedirs(out, 0o700)
+    steps.write(out, "result.json", data)
+    steps.write(out, "result.sha256", (digest + "\n").encode())
     return digest
 
 
+RUN_ID = re.compile(r"r_[0-9A-Z]{6,26}")
+
+
+def from_folder(folder: str, out: str, base=None) -> list:
+    """The first form's arguments from the folder `harness.read` wrote: its files by name, and the Run id it holds."""
+    inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
+    real = os.path.realpath(os.path.join(inside, folder))
+    if not real.startswith(inside + os.sep):
+        raise task.Refused("a path the job was given is outside the directory it runs in")
+    with open(os.path.join(real, "run"), encoding="utf-8") as f:
+        run = f.read().strip()
+    if not RUN_ID.fullmatch(run):
+        raise task.Refused("the Run id cannot be read")
+    named = [os.path.join(folder, n) for n in ("record.json", "facts.json", "diff", "texts.json", "role.json",
+                                               "findings.json")]
+    return [named[0], run] + named[1:] + [out]
+
+
 def main(argv: list, job_env: dict) -> int:
-    if len(argv) != 8:
-        print("usage: python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT", file=sys.stderr)
+    argv = argv or ["task", "result"]      # the workflow's form: the reader's folder, and the Result's
+    if len(argv) not in (2, 8):
+        print("usage: python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT, or TASK OUT", file=sys.stderr)
         return 2
     try:
+        if len(argv) == 2:
+            argv = from_folder(argv[0], argv[1])
         digest = job(argv, job_env, configuration())
     except (task.Refused, OSError, ValueError) as err:
         print("harness.run: %s" % type(err).__name__, file=sys.stderr)
         return 1
     print("result.json %s" % digest)
+    # The job's output, by the file GitHub names for a step's outputs: the digest alone, which `verify` and `apply`
+    # take the Result by. Nothing else of the Result reaches it.
+    if isinstance(job_env.get("GITHUB_OUTPUT"), str) and job_env["GITHUB_OUTPUT"]:
+        with open(job_env["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+            f.write("digest=%s\n" % digest)
     return 0
 
 

@@ -310,7 +310,7 @@ class TheAct(unittest.TestCase):
         # time the act reads, a person has dismissed it. Nothing is posted, and the reason is not_wanted.
         agent = {"class": "agent", "author": "combsmith-sf-dev-lead[bot]", "last_pusher": "combsmith-sf-dev-lead[bot]"}
         changed = facts(changed_paths=[{"path": "kernel/gate.py", "previous": None}],
-                        diff={"files": 1, "lines": 4, "truncated": False}, **agent)
+                        diff={"files": 1, "lines": 4, "truncated": False, "characters": 160}, **agent)
         judge = review(kind="human", name="a-colleague")
         rec = record(dict(changed, reviews=[judge]))
         self.assertEqual(rec["pull_requests"][0]["decision"].get("action"), "issue_approval")

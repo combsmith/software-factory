@@ -278,7 +278,7 @@ class World:
             "schema": "facts/1", "item": dict(ITEM), "state": self.pr_state, "is_draft": False,
             "class": self.cls, "author": self.author, "last_pusher": self.last_pusher,
             "targets_protected": True, "mergeable": True, "content_id": self.cid(),
-            "diff": {"files": len(self.changed), "lines": 40, "truncated": False},
+            "diff": {"files": len(self.changed), "lines": 40, "truncated": False, "characters": 1600},
             # GitHub: a_pull_request_lists_the_paths_it_changes
             "changed_paths": [{"path": p, "previous": None} for p in sorted(self.changed)],
             "label_events": copy.deepcopy(self.events),
