@@ -4,7 +4,7 @@ that did not succeed (design section 3.10; #196's ruling 7).
     python3 -m harness.outcome NAME APPLIED OUT
 
 NAME is the Run's run-name, APPLIED the folder `harness.apply_step` wrote into, OUT a new folder. The outcome `apply`
-recorded is kept when it is this Run's and this Release's, `RELEASE`; when it is missing or is not, as when the step
+recorded is kept when it is this Run's and this Release's, the one its checkout carries (`steps.release`); when it is missing or is not, as when the step
 before failed or never ran, the Run ends `environment`, `apply_failed`, so that no Run that died leaves nothing. OUT
 holds `outcome.json` alone. An outcome that names a fault fails the step, by its code, once it is written, so that the
 run concludes as it ended and the pass reads it (`adapters/records.py` reads a failed Run's outcome alone); the upload
@@ -21,13 +21,14 @@ from harness.steps import Stop
 
 
 def step(argv: list, environ: dict, base) -> str:
+    argv = steps.given(argv, environ, ("NAME",), ("applied", "outcome"))
     if len(argv) != 3:
         raise Stop("usage: python3 -m harness.outcome NAME APPLIED OUT")
     name, applied, out = argv
     parts = records.named(name)
-    release = environ.get("RELEASE")
-    if parts is None or not isinstance(release, str) or not configuration.RELEASE.fullmatch(release):
+    if parts is None:
         raise Stop("run_unreadable")
+    release = steps.release()
     try:
         kept = steps.read_json(base, os.path.join(applied, "outcome.json"))
     except Stop:

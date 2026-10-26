@@ -27,9 +27,7 @@ TOKEN = "APPROVER_TOKEN"
 
 def written(argv: list, environ: dict, clock, connect) -> tuple:
     name, item, pass_id, _ = argv
-    release = environ.get("RELEASE")
-    if not isinstance(release, str) or not configuration.RELEASE.fullmatch(release):
-        raise Stop("release_unreadable")
+    release = steps.release()
     config = configuration.load(steps.ROOT, release, "controller")
     home = config["controller"]["home"]["repo"]
     parts = read_.asked(name, item, pass_id, home)
@@ -61,6 +59,7 @@ def written(argv: list, environ: dict, clock, connect) -> tuple:
 
 
 def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
+    argv = steps.given(argv, environ, steps.INPUTS, ("applied",))
     if len(argv) != 4:
         raise Stop("usage: python3 -m harness.approve_step NAME ITEM PASS OUT")
     folder = steps.new_folder(base, argv[3])

@@ -241,7 +241,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-43 The model held the credential that could write
 **Failure.** The author's job held the owner account's token and kept it for pushing. "Never push" was a sentence in the prompt.
 **Rule.** No job holds both a model credential and a credential that can write.
-**Check.** `tests/test_harness.py::test_the_cli_is_given_exactly_the_named_environment_and_the_one_credential`; that no job holds both is waiting on `.github/workflows/run.yml`
+**Check.** `tests/test_harness.py::test_the_cli_is_given_exactly_the_named_environment_and_the_one_credential`; that no job holds both, `tests/test_tools.py::test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome`
 
 ### L-44 Agents acted as the Maintainer
 **Failure.** Agents ran as the owner's account, so the Maintainer could not review an agent's pull requests and the agent skipped the Maintainer's requests as its own. When one Role took its identity from a shared variable, it committed as the review-only machine user: "dev-lead regressed to committing as donpetry-bot (review-only machine user) instead of don-petry" (issue 1316).

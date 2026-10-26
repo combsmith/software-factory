@@ -12,6 +12,7 @@ import io
 import json
 import os
 import pathlib
+import subprocess
 import tempfile
 import unittest
 import unittest.mock
@@ -43,9 +44,10 @@ PASS = RECORD["pass"]
 
 
 def ran(step, *given):
-    """The step's exit and what it printed."""
+    """The step's exit and what it printed, its Release the one its environment names as `RELEASE`."""
     printed = io.StringIO()
-    with contextlib.redirect_stdout(printed):
+    environ = given[1] if len(given) > 1 and isinstance(given[1], dict) else {}
+    with contextlib.redirect_stdout(printed), support.releasing(environ):
         code = steps.run(step, *given)
     return code, printed.getvalue()
 
@@ -73,6 +75,94 @@ class Shared(unittest.TestCase):
         self.assertEqual(ran(lambda: "fine"), (0, "fine\n"))
         self.assertEqual(ran(lambda: (_ for _ in ()).throw(steps.Stop("a_code"))), (1, "a_code\n"))
         self.assertEqual(ran(lambda: (_ for _ in ()).throw(ValueError("GitHub said something"))), (1, "step_failed\n"))
+
+
+class ReleaseName(unittest.TestCase):
+    """The Release a step runs as, read from its own checkout's tags (the ruling on issue 196's Release name)."""
+
+    def repo(self, d, *tags):
+        env = dict(steps.GIT_ENV, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@t", HOME=d)
+        for args in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "x"]) + tuple(["tag", t] for t in tags):
+            subprocess.run(["git"] + args, cwd=d, env=env, check=True, capture_output=True)
+
+    def test_the_release_is_its_one_tag(self):
+        for tags, want in ((("factory/v0.3.1",), "factory/v0.3.1"),
+                           (("factory/v0.3.1", "factory/v0-next"), "factory/v0.3.1"),
+                           (("factory/v0.3.1", "a-tag", "v0.3.1"), "factory/v0.3.1")):
+            with tempfile.TemporaryDirectory() as d:
+                self.repo(d, *tags)
+                self.assertEqual(steps.release(d), want, tags)
+                self.assertRegex(steps.commit(d), r"^[0-9a-f]{40}$")
+        # None, the Channel's alone, or a name a Release's tag is not, is no Release; two refuse rather than pick.
+        for tags, want in (((), "release_untagged"), (("factory/v0-next",), "release_untagged"),
+                           (("factory/v0.3.01", "factory/v1.2"), "release_untagged"),
+                           (("factory/v0.3.1", "factory/v0.3.2"), "release_twice")):
+            with tempfile.TemporaryDirectory() as d:
+                self.repo(d, *tags)
+                with self.assertRaisesRegex(steps.Stop, "^%s$" % want, msg=tags):
+                    steps.release(d)
+        with tempfile.TemporaryDirectory() as d:
+            for read in (steps.release, steps.commit):
+                with self.assertRaisesRegex(steps.Stop, "^release_unreadable$"):
+                    read(d)     # no repository at all
+        # It asks git for the tags on HEAD, in an environment of its own.
+        seen = []
+
+        def run(args, **kw):
+            seen.append((args, kw["env"]))
+            return subprocess.CompletedProcess(args, 0, "factory/v1.0.0\n", "")
+        self.assertEqual(steps.release("/x", run), "factory/v1.0.0")
+        for said in ("not a sha\n", "abc\n", ""):
+            with self.assertRaisesRegex(steps.Stop, "^release_unreadable$", msg=said):
+                steps.commit("/x", lambda args, **kw: subprocess.CompletedProcess(args, 0, said, ""))
+        self.assertEqual(seen, [(["git", "tag", "--points-at", "HEAD"], steps.GIT_ENV)])
+
+    def test_the_first_job_hands_on_the_commit_it_checked_out(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "github_output")
+            with unittest.mock.patch.object(steps, "commit", lambda: "a" * 40):
+                self.assertEqual(steps.handed_on({"GITHUB_OUTPUT": out}), "commit " + "a" * 40)
+            self.assertEqual(pathlib.Path(out).read_text(), "commit=%s\n" % ("a" * 40))
+
+    def test_a_step_with_no_release_reads_no_key(self):
+        # apply and the act refuse before a key or a token is read, so no credential is held under no Release.
+        _, printed, _, calls = Apply().go({"RELEASE": "factory/v0-next"})
+        self.assertEqual((printed, calls["minted"]), ("release_untagged\n", []))
+        used = []
+        with tempfile.TemporaryDirectory() as d:
+            code, printed = ran(approve_step.step, [NAME, ITEM, PASS, "o"], {approve_step.TOKEN: "t"}, d,
+                                lambda: 0, lambda token: used.append(token))
+        self.assertEqual((code, printed, used), (1, "release_untagged\n", []))
+
+
+class WorkflowForm(unittest.TestCase):
+    def test_each_step_takes_the_runs_inputs_from_its_environment_and_its_folders_by_name(self):
+        # A workflow's run: line is `python3 -m <module>` alone, so a step with no argument reads the Run's three inputs
+        # from its environment, and its folders by their fixed names.
+        env = {"NAME": NAME, "ITEM": ITEM, "PASS": PASS}
+        self.assertEqual(steps.given([], env, steps.INPUTS, ("task",)), [NAME, ITEM, PASS, "task"])
+        self.assertEqual(steps.given(["a", "b"], env, steps.INPUTS, ("task",)), ["a", "b"])
+        self.assertEqual(steps.given([], {}, ("NAME",), ("applied", "outcome")), [None, "applied", "outcome"])
+        seen = []
+        for module, folders in ((read, ["task"]), (verify, ["result", "verdict"]), (apply_step, ["result", "applied"]),
+                                (outcome, ["applied", "outcome"]), (approve_step, ["applied"])):
+            with tempfile.TemporaryDirectory() as d:
+                with unittest.mock.patch.object(steps, "given", lambda a, e, i, f: seen.append((module, list(f))) or
+                                                (_ for _ in ()).throw(steps.Stop("seen"))):
+                    ran(module.step, [], env, d)
+        self.assertEqual(seen, [(m, f) for m, f in ((read, ["task"]), (verify, ["result", "verdict"]),
+                                                    (apply_step, ["result", "applied"]), (outcome, ["applied", "outcome"]),
+                                                    (approve_step, ["applied"]))])
+
+    def test_run_hands_on_the_digest_alone_as_its_steps_output(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "github_output")
+            with unittest.mock.patch.object(run, "job", lambda paths, env, config: "sha256:" + "a" * 64), \
+                    unittest.mock.patch.object(run, "from_folder", lambda folder, result: [folder, result]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(run.main([], {"GITHUB_OUTPUT": out}), 0)
+            self.assertEqual(pathlib.Path(out).read_text(), "digest=sha256:%s\n" % ("a" * 64))
 
 
 class Reader(unittest.TestCase):
@@ -214,15 +304,21 @@ class Verify(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             os.mkdir(os.path.join(d, "result"))
             pathlib.Path(d, "result", "result.json").write_bytes(data)
-            self.assertEqual(ran(verify.step, ["result", "verdict"], {"RUN_DIGEST": digest}, d)[0], 0)
+            ok = {"RUN_DIGEST": digest, "RELEASE": result["release"]}
+            self.assertEqual(ran(verify.step, ["result", "verdict"], ok, d)[0], 0)
+            # A commit no Release tag names is refused first; a Result of another Release than the job's, refused.
+            self.assertEqual(ran(verify.step, ["result", "v4"], {"RUN_DIGEST": digest}, d), (1, "release_untagged\n"))
+            self.assertEqual(ran(verify.step, ["result", "v5"], dict(ok, RELEASE="factory/v9.9.9"), d),
+                             (1, "release_differs\n"))
             said = json.loads(pathlib.Path(d, "verdict", "verdict.json").read_text())
             self.assertEqual((said["checks"], said["digest"], said["run"]), ("not_run", digest, result["run"]))
             for environ, want in (({"RUN_DIGEST": "sha256:" + "0" * 64}, "result_not_the_runs"),
                                   ({}, "digest_unreadable"), ({"RUN_DIGEST": "abc"}, "digest_unreadable")):
+                environ = dict(environ, RELEASE=result["release"])
                 self.assertEqual(ran(verify.step, ["result", "v2"], environ, d), (1, want + "\n"), environ)
             pathlib.Path(d, "result", "result.json").write_bytes(b"{}")
-            self.assertEqual(ran(verify.step, ["result", "v3"], {"RUN_DIGEST": "sha256:" + hashlib.sha256(b"{}").hexdigest()},
-                                 d), (1, "result_unreadable\n"))
+            self.assertEqual(ran(verify.step, ["result", "v3"], {"RUN_DIGEST": "sha256:" + hashlib.sha256(b"{}").hexdigest(),
+                                                                 "RELEASE": result["release"]}, d), (1, "result_unreadable\n"))
 
 
 NEEDS = json.dumps({"run": {"result": "success", "outputs": {}}, "verify": {"result": "success", "outputs": {}}})
@@ -322,7 +418,7 @@ class Apply(unittest.TestCase):
         # A Run of another Release than the pass that admitted it writes nothing.
         code, _, ended, calls = self.go({"RELEASE": "factory/v0.3.2"})
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("environment", "release_differs", []))
-        self.assertEqual(self.go({"RELEASE": "v1"})[:3], (1, "release_unreadable\n", None))
+        self.assertEqual(self.go({"RELEASE": "v1"})[:3], (1, "release_untagged\n", None))
         # No Decision for this Run: superseded, and the job is never asked.
         code, _, ended, calls = self.go(record=None)
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"], calls["revoked"]),
@@ -411,7 +507,7 @@ class Approve(unittest.TestCase):
         self.assertEqual((record, run_, config["approver"], config["github_run"]), (RECORD, RUN, "donpetry-bot", "9"))
         self.assertEqual(done["effects"][0]["state"], "applied")
         with tempfile.TemporaryDirectory() as d:
-            self.assertEqual(ran(approve_step.step, [NAME, ITEM, PASS, "o"], {}, d), (1, "release_unreadable\n"))
+            self.assertEqual(ran(approve_step.step, [NAME, ITEM, PASS, "o"], {}, d), (1, "release_untagged\n"))
         # A record that cannot be read, or a Decision not the run-name's: nothing asked, and the step fails by its code.
         elsewhere = copy.deepcopy(RECORD)
         for e in elsewhere["pull_requests"]:
@@ -475,6 +571,15 @@ class ControllerKey(unittest.TestCase):
             effects.controller_token({"CONTROLLER_APP_KEY": "k"}, config, 0)
         # The status's checks: write, which the App is granted; the tracking issue's write waits on its grant.
         self.assertEqual(asked, [("combsmith-sf-controller", HOME, {"checks": "write"}, "k")])
+        # The workflow's form, with no argument: the pass's own folder, `pass/`, and written.json into it.
+        out = tc.passed(tc.reads(pulls=[]))
+        with tempfile.TemporaryDirectory() as d:
+            os.mkdir(os.path.join(d, "pass"))
+            pathlib.Path(d, "pass", "pass.json").write_text(json.dumps(out["record"]))
+            pathlib.Path(d, "pass", "writes.json").write_text(json.dumps(writes_.plan(out)))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(effects.main([], {}, d), 0)
+            self.assertTrue(pathlib.Path(d, "pass", "written.json").is_file())
         # The step fails when GitHub did not revoke the token, and only then.
         out = tc.passed(tc.reads(pulls=[]))
         with tempfile.TemporaryDirectory() as d:

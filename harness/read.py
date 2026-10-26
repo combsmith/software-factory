@@ -104,6 +104,7 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock) -> dict:
 
 
 def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
+    argv = steps.given(argv, environ, steps.INPUTS, ("task",))
     if len(argv) != 4:
         raise Stop("usage: python3 -m harness.read NAME ITEM PASS OUT")
     name, item, pass_id, out = argv
