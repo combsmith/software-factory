@@ -116,6 +116,11 @@ def _usage(config: dict, session: str, seconds: float, said=None) -> dict:
             "seconds": round(max(seconds, 0.0), 3)}
 
 
+def usage_of(config: dict, session: str) -> dict:
+    """`usage` for a Run the CLI was never asked: the model and the session named, and nothing counted."""
+    return _usage(config, session, 0.0)
+
+
 def failed(task: dict, reason: str, usage: dict) -> dict:
     """The Result the Harness writes whole: `failed`, a reason code, empty lists, and the usage."""
     return {"schema": "result/1", "run": task["run"], "release": task["release"], "status": "failed", "reason": reason,

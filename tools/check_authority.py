@@ -5,6 +5,7 @@ import json
 import pathlib
 
 from kernel import terms
+from tools.jsonschema_lite import validate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MODEL_JUDGED = {"functional", "security", "architecture", "delivery", "reliability",
@@ -52,7 +53,20 @@ def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = RO
     unread = sorted(stem for stem, m in roles.items() if not isinstance(m, dict))
     for stem in unread:
         problems.append("roles/%s.json cannot be read as a manifest" % stem)
-    roles = {stem: m for stem, m in roles.items() if isinstance(m, dict)}
+    # A manifest is held to role/1 before anything is read from it: one of another shape is a problem, never a
+    # traceback, and nothing else is read from it (issue 330).
+    schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
+               for p in sorted((ROOT / "schemas").glob("*.schema.json"))}
+    shaped = {}
+    for stem, m in sorted(roles.items()):
+        if not isinstance(m, dict):
+            continue
+        wrong = validate(m, schemas["role"], schemas=schemas)
+        if wrong:
+            problems.append("roles/%s.json does not hold to role/1: %s" % (stem, wrong[0]))
+        else:
+            shaped[stem] = m
+    roles = shaped
     for stem, m in sorted(roles.items()):
         name = m.get("name")
         if name != stem:
