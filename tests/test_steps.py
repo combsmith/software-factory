@@ -304,15 +304,21 @@ class Verify(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             os.mkdir(os.path.join(d, "result"))
             pathlib.Path(d, "result", "result.json").write_bytes(data)
-            self.assertEqual(ran(verify.step, ["result", "verdict"], {"RUN_DIGEST": digest}, d)[0], 0)
+            ok = {"RUN_DIGEST": digest, "RELEASE": result["release"]}
+            self.assertEqual(ran(verify.step, ["result", "verdict"], ok, d)[0], 0)
+            # A commit no Release tag names is refused first; a Result of another Release than the job's, refused.
+            self.assertEqual(ran(verify.step, ["result", "v4"], {"RUN_DIGEST": digest}, d), (1, "release_untagged\n"))
+            self.assertEqual(ran(verify.step, ["result", "v5"], dict(ok, RELEASE="factory/v9.9.9"), d),
+                             (1, "release_differs\n"))
             said = json.loads(pathlib.Path(d, "verdict", "verdict.json").read_text())
             self.assertEqual((said["checks"], said["digest"], said["run"]), ("not_run", digest, result["run"]))
             for environ, want in (({"RUN_DIGEST": "sha256:" + "0" * 64}, "result_not_the_runs"),
                                   ({}, "digest_unreadable"), ({"RUN_DIGEST": "abc"}, "digest_unreadable")):
+                environ = dict(environ, RELEASE=result["release"])
                 self.assertEqual(ran(verify.step, ["result", "v2"], environ, d), (1, want + "\n"), environ)
             pathlib.Path(d, "result", "result.json").write_bytes(b"{}")
-            self.assertEqual(ran(verify.step, ["result", "v3"], {"RUN_DIGEST": "sha256:" + hashlib.sha256(b"{}").hexdigest()},
-                                 d), (1, "result_unreadable\n"))
+            self.assertEqual(ran(verify.step, ["result", "v3"], {"RUN_DIGEST": "sha256:" + hashlib.sha256(b"{}").hexdigest(),
+                                                                 "RELEASE": result["release"]}, d), (1, "result_unreadable\n"))
 
 
 NEEDS = json.dumps({"run": {"result": "success", "outputs": {}}, "verify": {"result": "success", "outputs": {}}})

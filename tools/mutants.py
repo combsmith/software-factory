@@ -7493,6 +7493,12 @@ MUTANTS = ISSUE + [
     ('a rubric of no UTF-8 stops the job', 'harness/run.py',
      '    except (OSError, ValueError):\n        held = None\n',
      '    except (OSError, json.JSONDecodeError):\n        held = None\n', ('tests.test_harness.Engine.test_a_review_whose_rubric_cannot_be_read_is_never_asked',)),
+    ('verify names no Release of its own', 'harness/verify.py',
+     '    release = steps.release()\n    reported = environ.get("RUN_DIGEST")',
+     '    release = "factory/v9.9.9"\n    reported = environ.get("RUN_DIGEST")', ('tests.test_steps.Verify.test_verify_takes_the_results_digest',)),
+    ('verify takes a Result of another Release', 'harness/verify.py',
+     '    if result["release"] != release:\n        raise Stop("release_differs")\n',
+     '', ('tests.test_steps.Verify.test_verify_takes_the_results_digest',)),
 ]
 
 

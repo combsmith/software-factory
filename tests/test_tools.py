@@ -2662,6 +2662,41 @@ class Workflows(unittest.TestCase):
         none = tree({"config/harness.json": "{}"})
         self.assertTrue(caught(check_workflows.run_jobs_problems(good, none), "names no Engine pin"))
 
+    def test_the_commit_a_later_job_checks_out_is_the_releases_own(self):  # decision 0066
+        # A job output is as trusted as the step that writes it. `commit` is written by one step alone, `commit`, right
+        # after `run` checks out the Channel and before the CLI is installed or any secret named, on the Release's own
+        # code; GitHub keeps each step's outputs apart, so no later step can write it. And each later job checks out
+        # that commit and names its Release from it before any step that holds a secret runs Factory code.
+        entries, bad = check_workflows.read((self.LIVE / "run-jobs.yml").read_text())
+        self.assertEqual(bad, [])
+
+        def steps_of(job):
+            found = {}
+            for e in entries:
+                if e["path"][:3] == ["jobs", job, "steps"] or (e["path"] == ["jobs", job, "steps"]):
+                    found.setdefault(e["step"], []).append(e)
+            return [found[n] for n in sorted(found)]
+
+        def value(step, key, under=None):
+            return next((e["value"] for e in step if e["key"] == key and (under is None or e["path"][-1] == under)), None)
+        outputs = {e["key"]: e["value"] for e in entries if e["path"] == ["jobs", "run", "outputs"]}
+        self.assertEqual(outputs["commit"], "${{ steps.commit.outputs.commit }}")
+        ids = [e["value"] for e in entries if e["key"] == "id" and e["path"][-1] == "steps"]
+        self.assertEqual(ids.count("commit"), 1)
+        run = steps_of("run")
+        self.assertTrue(value(run[0], "uses").startswith("actions/checkout@"))
+        self.assertEqual(value(run[0], "ref"), "factory/v0-next")
+        self.assertEqual((value(run[1], "id"), value(run[1], "run")), ("commit", "python3 -m harness.steps"))
+        self.assertFalse([e for step in run[:2] for e in step if "secrets." in e["value"]])
+        for job, first in (("verify", "python3 -m harness.verify"), ("apply", "python3 -m harness.apply_step")):
+            these = steps_of(job)
+            self.assertEqual(value(these[0], "ref"), "${{ needs.run.outputs.commit }}", job)
+            self.assertEqual(value(these[0], "fetch-tags"), "true", job)
+            factory = [n for n, step in enumerate(these) if (value(step, "run") or "").startswith("python3 -m ")]
+            self.assertEqual(value(these[factory[0]], "run"), first, job)
+            # No step before it holds a secret, and it names its Release before it reads one (tests/test_steps.py).
+            self.assertFalse([e for step in these[:factory[0]] for e in step if "secrets." in e["value"]], job)
+
     def test_the_pass_uploads_its_record_before_it_dispatches(self):  # design section 2.3, steps 5 and 6
         good = (self.LIVE / "pass.yml").read_text()
         self.assertEqual(check_workflows.pass_problems(good), [])

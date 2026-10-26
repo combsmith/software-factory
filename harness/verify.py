@@ -7,7 +7,8 @@ RESULT is the folder the Result was downloaded into, by the artifact id `run` re
 taken by the digest `run` reported, `RUN_DIGEST`, and held to `result/1`: a Result of other bytes, or one that is no
 Result, fails the job, so `apply` writes nothing. An Intent that pushes nothing, as the review Intent, has no code of its
 own to check: its `checks` are `not_run`, never `passed` (L-54). The checks for code come with the fix Intent. OUT holds
-`verdict.json`, `verdict/1`: the Run, its Release, the digest and the checks, and no field of the Result."""
+`verdict.json`, `verdict/1`: the Run, its Release, the digest and the checks, and no field of the Result. The job's Release is named
+first, from the one Release tag on the commit it checked out (`steps.release`), and a Result of another is refused."""
 from __future__ import annotations
 
 import hashlib
@@ -27,6 +28,9 @@ def step(argv: list, environ: dict, base) -> str:
     if len(argv) != 2:
         raise Stop("usage: python3 -m harness.verify RESULT OUT")
     found, out = argv
+    # The Release first, from the commit this job checked out, before anything of the Run is read: a commit no Release
+    # tag names is no Release's, and this job runs none of its code beyond this read (decision 0066).
+    release = steps.release()
     reported = environ.get("RUN_DIGEST")
     if not isinstance(reported, str) or not DIGEST.fullmatch(reported):
         raise Stop("digest_unreadable")
@@ -43,6 +47,8 @@ def step(argv: list, environ: dict, base) -> str:
         raise Stop("result_unreadable") from None
     if shared.errors(result, "result"):
         raise Stop("result_unreadable")
+    if result["release"] != release:
+        raise Stop("release_differs")
     verdict = {"schema": "verdict/1", "run": result["run"], "release": result["release"], "digest": reported,
                "checks": "not_run"}
     if shared.errors(verdict, "verdict"):
