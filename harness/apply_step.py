@@ -51,12 +51,10 @@ def needs_met(needs) -> tuple:
 def written(argv: list, environ: dict, base, clock, connect) -> tuple:
     """`(applied/1, outcome/1)` of the Run."""
     name, item, pass_id, found, _ = argv
-    config = configuration.load(steps.ROOT, environ.get("RELEASE"), APP)
+    release = steps.release()
+    config = configuration.load(steps.ROOT, release, APP)
     home = config["controller"]["home"]["repo"]
     parts = read_.asked(name, item, pass_id, home)
-    release = environ.get("RELEASE")
-    if not isinstance(release, str) or not configuration.RELEASE.fullmatch(release):
-        raise Stop("release_unreadable")
     why = needs_met(environ.get("NEEDS"))
     if why is not None:
         return _ended(parts["run"], release, why)
@@ -137,6 +135,7 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
 
 
 def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
+    argv = steps.given(argv, environ, steps.INPUTS, ("result", "applied"))
     if len(argv) != 5:
         raise Stop("usage: python3 -m harness.apply_step NAME ITEM PASS RESULT OUT")
     folder = steps.new_folder(base, argv[4])

@@ -55,9 +55,26 @@ def tree(files: dict) -> pathlib.Path:
     return root
 
 
+def running_test():
+    """The test case whose method is running, found up the stack; None outside one, as in setUpClass."""
+    frame = sys._getframe(1)
+    while frame is not None:
+        case = frame.f_locals.get("self")
+        if isinstance(case, unittest.TestCase):
+            return case
+        frame = frame.f_back
+    return None
+
+
 def clone(files: dict) -> pathlib.Path:
-    """A copy of this repo with `files` written over it."""
-    root = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "repo"
+    """A copy of this repo with `files` written over it, removed when the test that made it ends (issue 344). A copy
+    is the tree as `tools/walk.py` reads it, megabytes, with no other working tree in it; a run that kept every
+    copy to its end held gigabytes, and a run killed before its end left them all behind."""
+    made = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+    case = running_test()
+    if case is not None:
+        case.addCleanup(shutil.rmtree, str(made), True)
+    root = made / "repo"
     walk.copy(ROOT, root)
     for rel, text in files.items():
         path = root / rel
@@ -2597,6 +2614,169 @@ class Workflows(unittest.TestCase):
         }
         for name, text in fine.items():
             self.assertEqual(rules(text), [], name)
+
+
+    # The Run's three jobs, the approving act's one and the pass, each held word for word (issue 196, PR 2b-2).
+    LIVE = ROOT / ".github" / "workflows"
+
+    def test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome(self):
+        good = (self.LIVE / "run-jobs.yml").read_text()
+        self.assertEqual(check_workflows.run_jobs_problems(good), [])
+        model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
+        reader = "          READER_APP_KEY: ${{ secrets.READER_APP_KEY }}\n"
+        broken = {
+            "the reader's key beside the model": good.replace(model, model + reader),
+            "the model beside the reader's key": good.replace(reader, reader + model),
+            "the reader's step after the model's": good.replace("        run: python3 -m harness.read\n", "        run: X\n")
+                                                       .replace("        run: python3 -m harness.run\n",
+                                                                "        run: python3 -m harness.read\n")
+                                                       .replace("        run: X\n", "        run: python3 -m harness.run\n"),
+            "a secret in verify": good.replace("          RUN_DIGEST: ${{ needs.run.outputs.digest }}\n        run: python3 -m harness.verify",
+                                               "          RUN_DIGEST: ${{ needs.run.outputs.digest }}\n          K: ${{ secrets.PR_REVIEW_APP_KEY }}\n        run: python3 -m harness.verify"),
+            "a cache in verify": good.replace("      - name: Verify the Result\n",
+                                              "      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n"
+                                              "        with:\n          path: x\n          key: y\n      - name: Verify the Result\n"),
+            "apply skipped when run fails": good.replace("    if: always() && needs.run.outputs.commit != ''\n", ""),
+            "apply on no commit": good.replace("    if: always() && needs.run.outputs.commit != ''\n", "    if: always()\n"),
+            "an outcome a failure skips": good.replace("      - name: Leave the Run's outcome\n        if: always()\n",
+                                                       "      - name: Leave the Run's outcome\n"),
+            "the item's code checked out": good.replace("          ref: factory/v0-next\n",
+                                                        "          ref: ${{ inputs.item }}\n", 1),
+            "a model credential in apply": good.replace("          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}\n",
+                                                        "          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}\n" + model),
+            "the CLI unchecked": good.replace('          echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c\n', ""),
+            "another checksum": good.replace(check_workflows.CLI_CHECKSUMS["2.1.306"], "0" * 64),
+            "another version": good.replace('CLI_VERSION: "2.1.306"', 'CLI_VERSION: "2.1.307"'),
+            "a later job on the Channel again": good.replace("          ref: ${{ needs.run.outputs.commit }}\n",
+                                                             "          ref: factory/v0-next\n", 1),
+            "a later job with no tags": good.replace("          fetch-tags: true\n", "", 1),
+            "no commit handed on": good.replace("        run: python3 -m harness.steps\n", ""),
+            "verify on an environment": good.replace("    needs: run\n    runs-on: ubuntu-24.04\n",
+                                                     "    needs: run\n    runs-on: ubuntu-24.04\n    environment: factory-run\n"),
+            "the model's step handed a tool list": good.replace("          CLAUDE_CLI: /usr/local/bin/claude\n",
+                                                                "          CLAUDE_CLI: /usr/local/bin/claude\n          TOOLS: Bash\n"),
+        }
+        for why, text in broken.items():
+            self.assertNotEqual(text, good, why)
+            self.assertTrue(caught(check_workflows.run_jobs_problems(text), "it is not the Run's three jobs"), why)
+        # Each file is held by its own name, wherever the check meets it.
+        passed = (self.LIVE / "pass.yml").read_text()
+        approving = (self.LIVE / "approve-job.yml").read_text()
+        for name, text, said in (("run-jobs.yml", broken["another checksum"], "it is not the Run's three jobs"),
+                                 ("pass.yml", passed.replace("      - if: always()\n        uses", "      - uses"),
+                                  "it is not the pass"),
+                                 ("approve-job.yml", approving.replace("timeout-minutes: 10", "timeout-minutes: 20"),
+                                  "the approving act's one job")):
+            self.assertTrue(caught(check_workflows.shim_problems(name, text), said), name)
+        self.assertEqual(check_workflows.shim_problems("run-jobs.yml", good), [])
+        # The CLI's version is the Engine's pin: a pin that moves without the checksum fails, as does none.
+        harness = json.loads((ROOT / "config" / "harness.json").read_text())
+        moved = tree({"config/harness.json": json.dumps(dict(harness, engine=dict(harness["engine"], version="2.1.307")))})
+        self.assertTrue(caught(check_workflows.run_jobs_problems(good.replace('"2.1.306"', '"2.1.307"'), moved),
+                               "CLI_CHECKSUMS holds no checksum for it"))
+        with mock.patch.dict(check_workflows.CLI_CHECKSUMS, {"2.1.307": "1" * 64}):
+            self.assertTrue(caught(check_workflows.run_jobs_problems(good, moved), "it is not the Run's three jobs"))
+            # The pin, the workflow's version and its checksum moved together pass.
+            together = good.replace('"2.1.306"', '"2.1.307"').replace(check_workflows.CLI_CHECKSUMS["2.1.306"], "1" * 64)
+            self.assertEqual(check_workflows.run_jobs_problems(together, moved), [])
+        none = tree({"config/harness.json": "{}"})
+        self.assertTrue(caught(check_workflows.run_jobs_problems(good, none), "names no Engine pin"))
+
+    def test_the_commit_a_later_job_checks_out_is_the_releases_own(self):  # decision 0066
+        # A job output is as trusted as the step that writes it. `commit` is written by one step alone, `commit`, right
+        # after `run` checks out the Channel and before the CLI is installed or any secret named, on the Release's own
+        # code; GitHub keeps each step's outputs apart, so no later step can write it. And each later job checks out
+        # that commit and names its Release from it before any step that holds a secret runs Factory code.
+        entries, bad = check_workflows.read((self.LIVE / "run-jobs.yml").read_text())
+        self.assertEqual(bad, [])
+
+        def steps_of(job):
+            found = {}
+            for e in entries:
+                if e["path"][:3] == ["jobs", job, "steps"] or (e["path"] == ["jobs", job, "steps"]):
+                    found.setdefault(e["step"], []).append(e)
+            return [found[n] for n in sorted(found)]
+
+        def value(step, key, under=None):
+            return next((e["value"] for e in step if e["key"] == key and (under is None or e["path"][-1] == under)), None)
+        outputs = {e["key"]: e["value"] for e in entries if e["path"] == ["jobs", "run", "outputs"]}
+        self.assertEqual(outputs["commit"], "${{ steps.commit.outputs.commit }}")
+        ids = [e["value"] for e in entries if e["key"] == "id" and e["path"][-1] == "steps"]
+        self.assertEqual(ids.count("commit"), 1)
+        run = steps_of("run")
+        self.assertTrue(value(run[0], "uses").startswith("actions/checkout@"))
+        self.assertEqual(value(run[0], "ref"), "factory/v0-next")
+        self.assertEqual((value(run[1], "id"), value(run[1], "run")), ("commit", "python3 -m harness.steps"))
+        self.assertFalse([e for step in run[:2] for e in step if "secrets." in e["value"]])
+        for job, first in (("verify", "python3 -m harness.verify"), ("apply", "python3 -m harness.apply_step")):
+            these = steps_of(job)
+            self.assertEqual(value(these[0], "ref"), "${{ needs.run.outputs.commit }}", job)
+            self.assertEqual(value(these[0], "fetch-tags"), "true", job)
+            factory = [n for n, step in enumerate(these) if (value(step, "run") or "").startswith("python3 -m ")]
+            self.assertEqual(value(these[factory[0]], "run"), first, job)
+            # No step before it holds a secret, and it names its Release before it reads one (tests/test_steps.py).
+            self.assertFalse([e for step in these[:factory[0]] for e in step if "secrets." in e["value"]], job)
+
+    def test_the_pass_uploads_its_record_before_it_dispatches(self):  # design section 2.3, steps 5 and 6
+        good = (self.LIVE / "pass.yml").read_text()
+        self.assertEqual(check_workflows.pass_problems(good), [])
+        upload = ("      - name: Upload the pass record\n        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
+                  " # v7.0.2\n        with:\n          name: pass\n          path: pass/pass.json\n          if-no-files-found: error\n")
+        self.assertIn(upload, good)
+        writes = good[good.index("      - name: Write what the pass decided\n"):good.index("      - if: always()\n")]
+        broken = {
+            "dispatched before the record": good.replace(upload, "").replace(writes, writes + upload),
+            "the token beside the read": good.replace("        run: python3 -m controller\n",
+                                                      "          WORKFLOW_TOKEN: ${{ github.token }}\n        run: python3 -m controller\n"),
+            "no record of the writes": good[:good.index("      - if: always()\n")],
+            "the writes' record a failure skips": good.replace("      - if: always()\n        uses", "      - uses"),
+        }
+        for why, text in broken.items():
+            self.assertNotEqual(text, good, why)
+            self.assertTrue(caught(check_workflows.pass_problems(text), "it is not the pass"), why)
+
+    def test_the_approving_act_holds_the_approvers_token_alone(self):  # decision 0055
+        good = (self.LIVE / "approve-job.yml").read_text()
+        self.assertEqual(check_workflows.approve_job_problems(good), [])
+        for why, text in {"a key beside it": good.replace("          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}\n",
+                                                          "          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}\n"
+                                                          "          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}\n"),
+                          "the item's code": good.replace("          ref: factory/v0-next\n", "          ref: ${{ inputs.item }}\n"),
+                          "no outcome step": good.replace("        run: python3 -m harness.outcome\n", ""),
+                          "an outcome a failure skips": good.replace("      - if: always()\n        uses: actions/upload-artifact@"
+                                                                     "cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n"
+                                                                     "        with:\n          name: outcome",
+                                                                     "      - uses: actions/upload-artifact@"
+                                                                     "cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n"
+                                                                     "        with:\n          name: outcome")}.items():
+            self.assertNotEqual(text, good, why)
+            self.assertTrue(caught(check_workflows.approve_job_problems(text), "the approving act's one job"), why)
+
+    def test_a_key_and_its_environment_are_named_by_their_one_file(self):  # decision 0035
+        named = {"READER_APP_KEY": "run-jobs.yml", "factory-apply": "run-jobs.yml", "PR_REVIEW_APP_KEY": "run-jobs.yml",
+                 "factory-run": "run-jobs.yml", "APPROVER_TOKEN": "approve-job.yml", "factory-approve": "approve-job.yml",
+                 "CONTROLLER_APP_KEY": "pass.yml", "factory-poller": "pass.yml"}
+        for key, owner in named.items():
+            text = GOOD.replace("    permissions:\n      contents: read\n",
+                                "    permissions:\n      contents: read\n    env:\n      X: %s\n" % key, 1)
+            self.assertTrue(caught(check_workflows.shim_problems("other.yml", text),
+                                   "it names a key or the environment that holds it, which only %s names" % owner), key)
+            self.assertFalse(caught(check_workflows.shim_problems(owner, text), "which only %s names" % owner), key)
+        # GitHub's names of these ignore case, and so does the rule.
+        for spelt in ("Pr_Review_App_Key", "FACTORY-APPLY", "Factory-Poller"):
+            text = GOOD.replace("    permissions:\n      contents: read\n",
+                                "    permissions:\n      contents: read\n    env:\n      X: %s\n" % spelt, 1)
+            self.assertTrue(caught(check_workflows.shim_problems("other.yml", text), "it names a key"), spelt)
+        # A comment that names one names nothing.
+        self.assertFalse(check_workflows.shim_problems("other.yml", "# READER_APP_KEY\n" + GOOD))
+
+    def test_every_module_a_workflow_runs_is_in_the_repo(self):
+        for path in sorted(self.LIVE.glob("*.yml")):
+            for module in re.findall(r"python3 -m ([\w.]+)", path.read_text()):
+                parts = module.split(".")
+                found = ROOT.joinpath(*parts).with_suffix(".py").is_file() or (ROOT.joinpath(*parts) / "__main__.py").is_file()
+                self.assertTrue(found, "%s runs %s" % (path.name, module))
+
 
 
 class TheList(unittest.TestCase):
@@ -7063,3 +7243,19 @@ except OSError:
                               capture_output=True, text=True, timeout=60)
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertIn("is inside the repo", done.stderr)
+
+
+class Copies(unittest.TestCase):
+    def test_a_copy_of_the_repo_is_removed_when_the_test_that_made_it_ends(self):  # issue 344
+        made = []
+
+        class Case(unittest.TestCase):
+            def test_it(self):
+                made.append(clone({"x.txt": "x"}))
+                self.assertTrue((made[0] / "x.txt").is_file())
+        result = unittest.TestResult()
+        Case("test_it").run(result)
+        self.assertTrue(result.wasSuccessful(), result.failures + result.errors)
+        self.assertFalse(made[0].parent.exists())
+        # A copy is the tree as tools/walk.py reads it: no other working tree, and megabytes.
+        self.assertLess(sum(f.stat().st_size for f in walk.files(ROOT)), 64 * 2 ** 20)

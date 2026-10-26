@@ -157,6 +157,7 @@ def from_folder(folder: str, out: str, base=None) -> list:
 
 
 def main(argv: list, job_env: dict) -> int:
+    argv = argv or ["task", "result"]      # the workflow's form: the reader's folder, and the Result's
     if len(argv) not in (2, 8):
         print("usage: python3 -m harness.run RECORD RUN FACTS DIFF TEXTS ROLE FINDINGS OUT, or TASK OUT", file=sys.stderr)
         return 2
@@ -168,6 +169,11 @@ def main(argv: list, job_env: dict) -> int:
         print("harness.run: %s" % type(err).__name__, file=sys.stderr)
         return 1
     print("result.json %s" % digest)
+    # The job's output, by the file GitHub names for a step's outputs: the digest alone, which `verify` and `apply`
+    # take the Result by. Nothing else of the Result reaches it.
+    if isinstance(job_env.get("GITHUB_OUTPUT"), str) and job_env["GITHUB_OUTPUT"]:
+        with open(job_env["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+            f.write("digest=%s\n" % digest)
     return 0
 
 

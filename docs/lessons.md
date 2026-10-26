@@ -196,6 +196,11 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 **Rule.** A mutant is killed only by a test that fails on it, fails again when run alone on it, and passes when run alone on the unbroken code, in the same copy. A failure short of that runs the suite once more, and a second is `FLAKY`, which fails the run. A test timed by the wall clock is marked `@wall_clock` and skipped in the mutation run.
 **Check.** `tests/test_tools.py::test_a_mutant_whose_only_failure_is_unrelated_survives`, `tests/test_tools.py::test_a_test_that_fails_on_the_unbroken_code_too_kills_nothing`, `tests/test_tools.py::test_a_failure_that_is_not_the_mutants_twice_is_flaky_and_fails_the_check`, `tests/test_tools.py::test_every_test_timed_by_the_wall_clock_is_marked_and_skipped_when_mutating`, `tools/mutants.py`
 
+### L-61 A hook killed for its time filled the disk
+**Failure.** The stop hook's `make verify` outlasted the hook's time under four builders' load and was killed at every stop, so the suite's temporary folders, each holding the run's copies of the repo, were never removed. They filled the Maintainer's disk, and every builder's checks then failed for want of space.
+**Rule.** A hook's run leaves nothing behind, killed or not: it runs in a process group and a temporary folder of its own, both ended when it ends. A test's copy of the repo goes when the test ends. A verify that could not finish is not started again for a while; CI runs it.
+**Check.** `tests/test_hooks.py::test_a_run_killed_for_its_time_leaves_the_temporary_folder_as_it_found_it`, `tests/test_hooks.py::test_a_verify_that_did_not_finish_is_not_started_again_for_a_while`, `tests/test_tools.py::test_a_copy_of_the_repo_is_removed_when_the_test_that_made_it_ends`
+
 ## Workflows
 
 ### L-35 What ran was whatever a tag pointed at that day
@@ -241,7 +246,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-43 The model held the credential that could write
 **Failure.** The author's job held the owner account's token and kept it for pushing. "Never push" was a sentence in the prompt.
 **Rule.** No job holds both a model credential and a credential that can write.
-**Check.** `tests/test_harness.py::test_the_cli_is_given_exactly_the_named_environment_and_the_one_credential`; that no job holds both is waiting on `.github/workflows/run.yml`
+**Check.** `tests/test_harness.py::test_the_cli_is_given_exactly_the_named_environment_and_the_one_credential`; that no job holds both, `tests/test_tools.py::test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome`
 
 ### L-44 Agents acted as the Maintainer
 **Failure.** Agents ran as the owner's account, so the Maintainer could not review an agent's pull requests and the agent skipped the Maintainer's requests as its own. When one Role took its identity from a shared variable, it committed as the review-only machine user: "dev-lead regressed to committing as donpetry-bot (review-only machine user) instead of don-petry" (issue 1316).

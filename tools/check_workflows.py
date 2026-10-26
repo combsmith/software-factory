@@ -74,8 +74,9 @@ RELEASE = re.compile(r"^combsmith/software-factory/\.github/workflows/[\w.-]+\.y
 # until the same pull request records its new hash, and `.github/` is the Maintainer's to approve. None is live yet.
 SHIMS = {}
 # A workflow held by a shape check of its own, which it is spared these rules for: the eval job judges main's own
-# commit, so it runs main's file on a dispatch, and eval_problems holds every line of it (issue 309).
-SHAPED = {"eval.yml": ("shim",)}
+# commit, so it runs main's file on a dispatch, and eval_problems holds every line of it (issue 309); and the Run's
+# jobs, whose CLI install run_jobs_problems holds word for word with the rest of the file (issue 196).
+SHAPED = {"eval.yml": ("shim",), "run-jobs.yml": ("install",)}
 # The one workflow that wakes on another's end, and the one job granted a write (issue 196's ruling 4).
 WAKES = "poller.yml"
 # The Run's lane (issue 196's ruling 6): one concurrency group for each Work item, on the one job that calls the Run's
@@ -123,6 +124,255 @@ jobs:
 EVENT_READ = re.compile(r"(?<![./\w-])github(?![\w-])(?!\.token(?![\w.\[]))", re.I)
 GITHUB_ANY = re.compile(r"(?<![./\w-])github(?![\w-])", re.I)     # the poller names none of it, its token neither
 PASS_JOB, PASS_FILES = "pass", ("poller.yml", "pass.yml")
+# The Run's three jobs and the approving act's one, each held word for word, as run.yml is (#196's ruling 7, decisions
+# 0050, 0054 and 0055; the Maintainer's answers (a) and (b) of 2026-10-21). Every job checks out the Release, never the
+# item's code. `run` reads with the reader's key in a step of its own, revoked before the model's step, which holds the
+# model's credential alone, the Engine setting the scrub and `--tools ""`; `verify` holds no secret and no cache; `apply`
+# runs whatever failed and its last step always leaves the outcome; the act holds the machine user's token alone. The CLI
+# is the second exempt install, its version the Engine's pin in config/harness.json, and its checksum CLI_CHECKSUM, the
+# one the vendor's release manifest gives for linux-x64; a pull request that moves the pin moves the checksum.
+APPROVE_JOB = "approve-job.yml"
+PASS_WORKFLOW = "pass.yml"
+# The pass, held word for word: the record uploaded before anything is dispatched, the Controller's key on its two steps
+# alone, the pass's own token on the writes' step alone, and the record of each write uploaded whatever failed.
+PASS_FILE = """name: sf-pass
+on:
+  workflow_call:
+permissions: {}
+jobs:
+  pass:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: factory-poller
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: factory/v0-next
+          fetch-tags: true
+          persist-credentials: false
+      - name: Read and decide
+        env:
+          CONTROLLER_APP_KEY: ${{ secrets.CONTROLLER_APP_KEY }}
+        run: python3 -m controller
+      - name: Upload the pass record
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pass
+          path: pass/pass.json
+          if-no-files-found: error
+      - name: Write what the pass decided
+        env:
+          CONTROLLER_APP_KEY: ${{ secrets.CONTROLLER_APP_KEY }}
+          WORKFLOW_TOKEN: ${{ github.token }}
+        run: python3 -m adapters.effects
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: written
+          path: pass/written.json
+          if-no-files-found: ignore
+"""
+# The CLI's sha256 for linux-x64 by version, each as the vendor's release manifest for that version gives it: a pin with
+# no entry here is refused, so that a pull request that moves the pin moves the checksum.
+CLI_CHECKSUMS = {"2.1.306": "520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe"}
+RUN_JOBS_FILE = """name: sf-run-jobs
+on:
+  workflow_call:
+    inputs:
+      name:
+        required: true
+        type: string
+      item:
+        required: true
+        type: string
+      pass:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: factory-run
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.commit.outputs.commit }}
+      digest: ${{ steps.engine.outputs.digest }}
+      artifact: ${{ steps.result.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: factory/v0-next
+          persist-credentials: false
+      - name: Hand on the commit it checked out, which every later job checks out
+        id: commit
+        run: python3 -m harness.steps
+      - name: Install the CLI at the Engine's pin
+        env:
+          CLI_VERSION: "%(version)s"
+          CLI_CHECKSUM: "%(checksum)s"
+        run: |
+          url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"
+          curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude "${url}"
+          echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c
+          chmod 0755 /tmp/claude
+          sudo mv /tmp/claude /usr/local/bin/claude
+      - name: Read what the Task is built from
+        env:
+          NAME: ${{ inputs.name }}
+          ITEM: ${{ inputs.item }}
+          PASS: ${{ inputs.pass }}
+          READER_APP_KEY: ${{ secrets.READER_APP_KEY }}
+        run: python3 -m harness.read
+      - name: Run the Engine
+        id: engine
+        env:
+          CLAUDE_CLI: /usr/local/bin/claude
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: python3 -m harness.run
+      - name: Upload the Result
+        id: result
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: result
+          path: result/
+          if-no-files-found: error
+  verify:
+    needs: run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.run.outputs.commit }}
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.run.outputs.artifact }}
+          path: result
+      - name: Verify the Result
+        env:
+          RUN_DIGEST: ${{ needs.run.outputs.digest }}
+        run: python3 -m harness.verify
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verdict
+          path: verdict/
+          if-no-files-found: error
+  apply:
+    needs:
+      - run
+      - verify
+    if: always() && needs.run.outputs.commit != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: factory-apply
+    permissions:
+      contents: read
+    env:
+      NEEDS: ${{ toJSON(needs) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.run.outputs.commit }}
+          fetch-tags: true
+          persist-credentials: false
+      - if: always()
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.run.outputs.artifact }}
+          path: result
+      - name: Apply the Result
+        if: always()
+        env:
+          NAME: ${{ inputs.name }}
+          ITEM: ${{ inputs.item }}
+          PASS: ${{ inputs.pass }}
+          RUN_DIGEST: ${{ needs.run.outputs.digest }}
+          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}
+        run: python3 -m harness.apply_step
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: applied
+          path: applied/applied.json
+          if-no-files-found: ignore
+      - name: Leave the Run's outcome
+        if: always()
+        env:
+          NAME: ${{ inputs.name }}
+        run: python3 -m harness.outcome
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: outcome
+          path: outcome/outcome.json
+          if-no-files-found: error
+"""
+APPROVE_JOB_FILE = """name: sf-approve-job
+on:
+  workflow_call:
+    inputs:
+      name:
+        required: true
+        type: string
+      item:
+        required: true
+        type: string
+      pass:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  approve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: factory-approve
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: factory/v0-next
+          fetch-tags: true
+          persist-credentials: false
+      - name: Approve the commit it read, if the Kernel still wants it
+        env:
+          NAME: ${{ inputs.name }}
+          ITEM: ${{ inputs.item }}
+          PASS: ${{ inputs.pass }}
+          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}
+        run: python3 -m harness.approve_step
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: applied
+          path: applied/applied.json
+          if-no-files-found: ignore
+      - name: Leave the Run's outcome
+        if: always()
+        env:
+          NAME: ${{ inputs.name }}
+        run: python3 -m harness.outcome
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: outcome
+          path: outcome/outcome.json
+          if-no-files-found: error
+"""
+# Each key and the environment it lives in, by the one file that may name them (decision 0035): no other workflow names
+# either, so no other job, and no job a fork's code could reach, holds the key.
+KEYED = {PASS_WORKFLOW: re.compile(r"factory-poller|CONTROLLER_APP_KEY", re.I),      # GitHub's names of these
+         RUN_JOBS: re.compile(r"factory-run|factory-apply|READER_APP_KEY|PR_REVIEW_APP_KEY", re.I),     # ignore case
+         APPROVE_JOB: re.compile(r"factory-approve|APPROVER_TOKEN", re.I)}
 # The id GitHub gives the App GitHub Actions: it reports every job in every workflow of the repo.
 ACTIONS_APP = 15368
 # A workflow that cannot be written within a rule. It is exempt from the rules named and from no other,
@@ -781,6 +1031,40 @@ def run_problems(text: str, root: pathlib.Path = ROOT) -> list:
     return []
 
 
+def _held(text: str) -> list:
+    return [line for line in text.split("\n") if line.strip() and not line.lstrip().startswith("#")]
+
+
+def run_jobs_problems(text: str, root: pathlib.Path = ROOT) -> list:
+    """What is wrong with run-jobs.yml: anything but RUN_JOBS_FILE, word for word but for its comments, its CLI the
+    Engine's pin in config/harness.json and the checksum CLI_CHECKSUM."""
+    try:
+        version = json.loads((root / "config" / "harness.json").read_text())["engine"]["version"]
+    except (OSError, ValueError, KeyError, TypeError):
+        version = None
+    if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+        return ["config/harness.json names no Engine pin, so no install of the CLI can be held"]
+    if version not in CLI_CHECKSUMS:
+        return ["config/harness.json pins the CLI at %s, and CLI_CHECKSUMS holds no checksum for it" % version]
+    if _held(text) != _held(RUN_JOBS_FILE % {"version": version, "checksum": CLI_CHECKSUMS[version]}):
+        return ["it is not the Run's three jobs, word for word, its CLI %s by its checksum" % version]
+    return []
+
+
+def pass_problems(text: str) -> list:
+    """What is wrong with pass.yml: anything but PASS_FILE, word for word but for its comments."""
+    if _held(text) != _held(PASS_FILE):
+        return ["it is not the pass, word for word: its record uploaded before it dispatches, its keys on their steps"]
+    return []
+
+
+def approve_job_problems(text: str) -> list:
+    """What is wrong with approve-job.yml: anything but APPROVE_JOB_FILE, word for word but for its comments."""
+    if _held(text) != _held(APPROVE_JOB_FILE):
+        return ["it is not the approving act's one job, word for word"]
+    return []
+
+
 def shim_problems(name: str, text: str, root: pathlib.Path = ROOT) -> list:
     """What is wrong with one live workflow by its file's name: a shim not held word for word by its hash in SHIMS, a
     workflow that wakes on another's end that is not the poller, or the pass job anywhere but the poller and the pass."""
@@ -801,6 +1085,15 @@ def shim_problems(name: str, text: str, root: pathlib.Path = ROOT) -> list:
         problems += run_problems(text, root)
     elif any(e["key"] == "uses" and e["value"].split("@")[0].endswith("/" + RUN_JOBS) for e in entries):
         problems.append("only run.yml calls the Run's jobs, from the pass's own token and never under a Pause")
+    if name == RUN_JOBS:
+        problems += run_jobs_problems(text, root)
+    if name == APPROVE_JOB:
+        problems += approve_job_problems(text)
+    if name == PASS_WORKFLOW:
+        problems += pass_problems(text)
+    for owner, named in KEYED.items():
+        if name != owner and named.search(_uncommented(text)):
+            problems.append("it names a key or the environment that holds it, which only %s names" % owner)
     if any(e["path"] == [] and e["key"] == "run-name" for e in entries) and name != "run.yml":
         problems.append("only run.yml names its run, by the run-name the pass gave it")
     if name in PASS_FILES and EVENT_READ.search(_uncommented(text)):
