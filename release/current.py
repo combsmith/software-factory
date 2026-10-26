@@ -37,5 +37,7 @@ def channel(name) -> tuple:
 
 def resolve(commit, refs) -> str | None:
     """The one Release whose tag names `commit`, among `refs` ({tag name: commit}); None when none does, or two do."""
+    if not isinstance(commit, str):
+        return None
     found = [name for name, sha in sorted(refs.items()) if sha == commit and version(name)]
     return found[0] if len(found) == 1 else None

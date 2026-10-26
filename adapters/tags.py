@@ -22,7 +22,7 @@ def path(repo: str) -> str:
 
 def read(transport, repo: str):
     """Every `factory/` tag of `repo` and the commit it names, or None when they were not all read."""
-    if transport is None or not REPO.fullmatch(repo) or repo.split("/")[1] in (".", ".."):
+    if transport is None or not isinstance(repo, str) or not REPO.fullmatch(repo) or repo.split("/")[1] in (".", ".."):
         return None
     try:
         answer = transport.send(request("GET", path(repo)))

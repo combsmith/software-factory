@@ -10,7 +10,8 @@ Not built yet, by the stories that hold their rules: promote.py, cutover.py.
 | Rule | Held by |
 |---|---|
 | A Release is cut only from a verified commit of `main`, newer than every Release, of the Channel's major | `tests/test_release.py::test_each_rule_of_a_cut_refuses_with_its_own_code` |
-| `next` moves only through the eval gate, read before anything is written | `tests/test_release.py::test_a_closed_eval_gate_refuses_every_cut_and_move_and_burns_no_version` |
+| `next` moves only through the eval gate, judged for that Release and read before anything is written | `tests/test_release.py::test_a_closed_eval_gate_refuses_every_cut_and_move_and_burns_no_version` |
+| A step moves only a Channel the ring file declares, to a commit one Release names alone | `tests/test_release.py::test_only_a_channel_the_ring_file_declares_is_moved`, `tests/test_release.py::test_a_channel_moves_only_to_a_commit_one_release_names_alone` |
 | No step writes a Release tag | `tests/test_release.py::test_no_step_writes_a_release_tag_and_none_names_anything_but_a_channel` |
 | No step moves `stable` until promotion is built | `tests/test_release.py::test_stable_is_never_moved_until_promotion_is_built` |
 | A rollback passes no gate and moves only back | `tests/test_release.py::test_a_rollback_passes_no_gate_and_never_moves_forward` |

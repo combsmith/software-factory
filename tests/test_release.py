@@ -23,9 +23,15 @@ SKILL = ROOT / ".claude" / "skills" / "cut-a-release" / "SKILL.md"
 REPO = "combsmith/software-factory"
 A, B, C, D = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
 NEXT, STABLE = "factory/v0-next", "factory/v0-stable"
-# Two Releases, `next` on the later; a commit D on main, verified, with the eval gate open.
+# Two Releases, `next` on the later; a commit D on main, verified, with the eval gate open for the version cut.
 REFS = {"factory/v0.1.0": A, "factory/v0.2.0": B, NEXT: B}
-OPEN = {"commit": D, "on_main": True, "verified": True, "gate": cut.PASS}
+OPEN = {"commit": D, "on_main": True, "verified": True, "gate": cut.PASS, "release": "factory/v0.3.0"}
+CHANNELS = frozenset({NEXT, STABLE})
+TO_A = dict(OPEN, commit=A, release="factory/v0.1.0")
+
+
+def plan(step, refs, facts, channels=CHANNELS):
+    return cut.plan(step, refs, facts, channels)
 
 
 def cutting(version="factory/v0.3.0", commit=D, channel=NEXT):
@@ -34,37 +40,47 @@ def cutting(version="factory/v0.3.0", commit=D, channel=NEXT):
 
 class Cut(unittest.TestCase):
     def test_a_cut_creates_the_release_and_moves_next_to_it_in_one_plan(self):
-        self.assertEqual(cut.plan(cutting(), REFS, OPEN),
-                         ([("create", "factory/v0.3.0", D), ("move", NEXT, D)], None))
+        self.assertEqual(plan(cutting(), REFS, OPEN), ([("create", "factory/v0.3.0", D), ("move", NEXT, D)], None))
 
     def test_each_rule_of_a_cut_refuses_with_its_own_code(self):
         for step, facts, code in (
-                (cutting(version="factory/v0.2.0"), OPEN, cut.NOT_NEWER),
+                (cutting(version="factory/v0.2.0"), dict(OPEN, release="factory/v0.2.0"), cut.NOT_NEWER),
                 (cutting(), dict(OPEN, on_main=False), cut.NOT_ON_MAIN),
                 (cutting(), dict(OPEN, on_main=None), cut.NOT_ON_MAIN),
                 (cutting(), dict(OPEN, verified=False), cut.NOT_VERIFIED),
                 (cutting(), dict(OPEN, verified="true"), cut.NOT_VERIFIED),
                 (cutting(commit=A), dict(OPEN, commit=A), cut.ALREADY_RELEASED),
-                (cutting(version="factory/v0.1.5"), OPEN, cut.NOT_NEWER),
-                (cutting(version="factory/v1.0.0"), OPEN, cut.ANOTHER_MAJOR),
+                # Unverified is said before already released, so the first fault read is the one reported.
+                (cutting(commit=A), dict(OPEN, commit=A, verified=False), cut.NOT_VERIFIED),
+                (cutting(version="factory/v0.1.5"), dict(OPEN, release="factory/v0.1.5"), cut.NOT_NEWER),
+                (cutting(version="factory/v1.0.0"), dict(OPEN, release="factory/v1.0.0"), cut.ANOTHER_MAJOR),
                 (cutting(), dict(OPEN, gate="eval_set_empty"), cut.EVAL_GATE_CLOSED),
                 (cutting(), dict(OPEN, commit=C), cut.STEP_UNREADABLE),
                 (cutting(version="factory/v0.3"), OPEN, cut.STEP_UNREADABLE),
-                (cutting(commit=""), dict(OPEN, commit=""), cut.STEP_UNREADABLE)):
+                (cutting(commit=""), dict(OPEN, commit=""), cut.STEP_UNREADABLE),
+                (cutting(commit="main"), dict(OPEN, commit="main"), cut.STEP_UNREADABLE),
+                (cutting(commit=D.upper()), dict(OPEN, commit=D.upper()), cut.STEP_UNREADABLE),
+                (cutting(commit=D[:39]), dict(OPEN, commit=D[:39]), cut.STEP_UNREADABLE),
+                (cutting(commit=None), dict(OPEN, commit=None), cut.STEP_UNREADABLE)):
             with self.subTest(step=step, facts=facts):
-                self.assertEqual(cut.plan(step, REFS, facts), ([], code))
+                self.assertEqual(plan(step, REFS, facts), ([], code))
 
     def test_a_closed_eval_gate_refuses_every_cut_and_move_and_burns_no_version(self):
-        # The gate is the eval report's verdict on the commit (ruling 4″): anything but `pass` refuses, and it is read
-        # before any write, so the version asked is still free once the gate opens.
+        # The gate is the eval report's verdict on the commit, for the Release asked (ruling 4″): anything but `pass`
+        # refuses, and so does a pass judged for another Release. It is read before any write, so the version asked
+        # is still free once the gate opens.
         self.assertEqual(cut.PASS, eval_gate.PASS)
+        to = {"command": "move", "channel": NEXT, "to": "factory/v0.1.0"}
         for word in ("eval_set_empty", "case_failed", "another_commit", "report_unreadable", None, True, "PASS"):
             with self.subTest(gate=word):
-                self.assertEqual(cut.plan(cutting(), REFS, dict(OPEN, gate=word)), ([], cut.EVAL_GATE_CLOSED))
-                moved = cut.plan({"command": "move", "channel": NEXT, "to": "factory/v0.1.0"}, REFS,
-                                 dict(OPEN, commit=A, gate=word))
-                self.assertEqual(moved, ([], cut.EVAL_GATE_CLOSED))
-        self.assertIsNone(cut.plan(cutting(), REFS, OPEN)[1])
+                self.assertEqual(plan(cutting(), REFS, dict(OPEN, gate=word)), ([], cut.EVAL_GATE_CLOSED))
+                self.assertEqual(plan(to, REFS, dict(TO_A, gate=word)), ([], cut.EVAL_GATE_CLOSED))
+        for judged in ("factory/v0.3.1", None, "factory/v0.1.0"):
+            with self.subTest(release=judged):
+                self.assertEqual(plan(cutting(), REFS, dict(OPEN, release=judged)), ([], cut.EVAL_GATE_CLOSED))
+                if judged != "factory/v0.1.0":
+                    self.assertEqual(plan(to, REFS, dict(TO_A, release=judged)), ([], cut.EVAL_GATE_CLOSED))
+        self.assertIsNone(plan(cutting(), REFS, OPEN)[1])
 
     def test_no_step_writes_a_release_tag_and_none_names_anything_but_a_channel(self):
         for command in ("cut", "move", "rollback"):
@@ -72,19 +88,37 @@ class Cut(unittest.TestCase):
                                   ("main", cut.NOT_A_CHANNEL), (None, cut.NOT_A_CHANNEL)):
                 with self.subTest(command=command, channel=channel):
                     step = dict(cutting(channel=channel), command=command, to="factory/v0.1.0")
-                    self.assertEqual(cut.plan(step, REFS, OPEN), ([], code))
+                    self.assertEqual(plan(step, REFS, OPEN), ([], code))
+                    # A name of no Channel's form is refused even where the ring file is read as naming it.
+                    self.assertEqual(plan(step, REFS, OPEN, CHANNELS | {channel}), ([], code))
+
+    def test_only_a_channel_the_ring_file_declares_is_moved(self):
+        # A Channel of another major is of the right form, and still refused: once a v1 Release existed it could never
+        # be deleted (ruling 3), and every v0 cut after it would be refused as not newer.
+        v1 = cutting(version="factory/v1.0.0", channel="factory/v1-next")
+        self.assertEqual(plan(v1, REFS, dict(OPEN, release="factory/v1.0.0")), ([], cut.NOT_A_CHANNEL))
+        self.assertEqual(plan(cutting(), REFS, OPEN, frozenset()), ([], cut.NOT_A_CHANNEL))
+        self.assertEqual(plan(cutting(), REFS, OPEN, [NEXT]), ([], cut.STEP_UNREADABLE))
+        rings = json.loads((ROOT / "release" / "rings.json").read_text())
+        self.assertEqual(move.channels(rings), CHANNELS)
+        for odd in (None, [], {"channels": []}, {"channels": {"next": "factory/v0-next"}}):
+            with self.subTest(rings=odd):
+                self.assertEqual(move.channels(odd), frozenset())
 
     def test_stable_is_never_moved_until_promotion_is_built(self):
         for command in ("cut", "move", "rollback"):
             with self.subTest(command=command):
                 step = dict(cutting(channel=STABLE), command=command, to="factory/v0.1.0")
-                self.assertEqual(cut.plan(step, dict(REFS, **{STABLE: B}), OPEN), ([], cut.PROMOTION_NOT_BUILT))
+                self.assertEqual(plan(step, dict(REFS, **{STABLE: B}), TO_A), ([], cut.PROMOTION_NOT_BUILT))
 
-    def test_a_step_that_cannot_be_read_is_refused(self):
+    def test_a_step_or_refs_that_cannot_be_read_are_refused(self):
         for step, refs, facts in (("cut", REFS, OPEN), (cutting(), None, OPEN), (cutting(), REFS, None),
-                                  (dict(cutting(), command="delete"), REFS, OPEN)):
-            with self.subTest(step=step):
-                self.assertEqual(cut.plan(step, refs, facts), ([], cut.STEP_UNREADABLE))
+                                  (dict(cutting(), command="delete"), REFS, OPEN),
+                                  (cutting(), dict(REFS, **{"factory/v0.0.1": None}), OPEN),
+                                  (cutting(), dict(REFS, **{NEXT: "junk"}), OPEN),
+                                  (cutting(), {**REFS, 3: A}, OPEN)):
+            with self.subTest(step=step, refs=refs):
+                self.assertEqual(plan(step, refs, facts), ([], cut.STEP_UNREADABLE))
         self.assertTrue(set(cut.CODES) <= set(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", (ROOT / "release" / "cut.py")
                                                          .read_text())))
 
@@ -92,22 +126,32 @@ class Cut(unittest.TestCase):
 class Move(unittest.TestCase):
     def test_next_moves_only_to_an_existing_release_of_its_major_through_the_gate(self):
         step = {"command": "move", "channel": NEXT, "to": "factory/v0.1.0"}
-        self.assertEqual(cut.plan(step, REFS, dict(OPEN, commit=A)), ([("move", NEXT, A)], None))
+        self.assertEqual(plan(step, REFS, TO_A), ([("move", NEXT, A)], None))
         for to, code in (("factory/v0.9.0", cut.NOT_A_RELEASE), (NEXT, cut.NOT_A_RELEASE), (None, cut.NOT_A_RELEASE),
                          ("factory/v1.0.0", cut.ANOTHER_MAJOR)):
             with self.subTest(to=to):
                 refs = dict(REFS, **{"factory/v1.0.0": C})
-                self.assertEqual(cut.plan(dict(step, to=to), refs, dict(OPEN, commit=C)), ([], code))
-        self.assertEqual(cut.plan(step, REFS, dict(OPEN, commit=A, on_main=False)), ([], cut.NOT_ON_MAIN))
-        self.assertEqual(cut.plan(step, REFS, dict(OPEN, commit=A, verified=False)), ([], cut.NOT_VERIFIED))
-        self.assertEqual(cut.plan(step, REFS, OPEN), ([], cut.STEP_UNREADABLE))
+                self.assertEqual(plan(dict(step, to=to), refs, dict(OPEN, commit=C, release=to)), ([], code))
+        self.assertEqual(plan(step, REFS, dict(TO_A, on_main=False)), ([], cut.NOT_ON_MAIN))
+        self.assertEqual(plan(step, REFS, dict(TO_A, verified=False)), ([], cut.NOT_VERIFIED))
+        self.assertEqual(plan(step, REFS, dict(TO_A, commit=D)), ([], cut.STEP_UNREADABLE))
+
+    def test_a_channel_moves_only_to_a_commit_one_release_names_alone(self):
+        # Two Releases on one commit resolve to none, so a Channel moved there would name no Release (ruling 7).
+        twice = dict(REFS, **{"factory/v0.1.1": A})
+        self.assertEqual(plan({"command": "move", "channel": NEXT, "to": "factory/v0.1.0"}, twice, TO_A),
+                         ([], cut.NOT_A_RELEASE))
+        self.assertEqual(plan({"command": "rollback", "channel": NEXT, "to": "factory/v0.1.0"}, twice, {}),
+                         ([], cut.NOT_A_RELEASE))
+        self.assertEqual(cut.default_target(NEXT, twice), None)
+        self.assertEqual(cut.default_target(NEXT, dict(twice, **{"factory/v0.0.9": C})), "factory/v0.0.9")
 
 
 class Rollback(unittest.TestCase):
     def test_a_rollback_by_default_takes_the_greatest_release_below_the_one_next_is_on(self):
         refs = dict(REFS, **{"factory/v0.1.9": C, "factory/v0.3.0": D, "factory/v1.0.0": "e" * 40})
         self.assertEqual(cut.default_target(NEXT, refs), "factory/v0.1.9")
-        self.assertEqual(cut.plan({"command": "rollback", "channel": NEXT}, refs, {}), ([("move", NEXT, C)], None))
+        self.assertEqual(plan({"command": "rollback", "channel": NEXT}, refs, {}), ([("move", NEXT, C)], None))
         self.assertEqual(cut.default_target(NEXT, {"factory/v0.1.0": A, NEXT: A}), None)
         self.assertEqual(cut.default_target(NEXT, {"factory/v0.1.0": A}), None)
 
@@ -115,14 +159,18 @@ class Rollback(unittest.TestCase):
         # It must work while the Factory is broken (section 9.1), so it reads no facts; and since it passes no gate,
         # a rollback to a later Release, or from a Channel at no Release, is refused: that is the admin login's.
         step = {"command": "rollback", "channel": NEXT, "to": "factory/v0.1.0"}
-        self.assertEqual(cut.plan(step, REFS, {"gate": "case_failed", "verified": False}), ([("move", NEXT, A)], None))
+        self.assertEqual(plan(step, REFS, {"gate": "case_failed", "verified": False}), ([("move", NEXT, A)], None))
         later = dict(REFS, **{"factory/v0.3.0": D})
-        self.assertEqual(cut.plan(dict(step, to="factory/v0.3.0"), later, {}), ([], cut.NOT_EARLIER))
-        self.assertEqual(cut.plan(dict(step, to="factory/v0.2.0"), REFS, {}), ([], cut.NOT_EARLIER))
-        self.assertEqual(cut.plan(step, dict(REFS, **{NEXT: C}), {}), ([], cut.NOT_EARLIER))
-        self.assertEqual(cut.plan({"command": "rollback", "channel": NEXT}, {"factory/v0.1.0": A, NEXT: A}, {}),
+        self.assertEqual(plan(dict(step, to="factory/v0.3.0"), later, {}), ([], cut.NOT_EARLIER))
+        self.assertEqual(plan(dict(step, to="factory/v0.2.0"), REFS, {}), ([], cut.NOT_EARLIER))
+        self.assertEqual(plan(step, dict(REFS, **{NEXT: C}), {}), ([], cut.NOT_EARLIER))
+        self.assertEqual(plan({"command": "rollback", "channel": NEXT}, {"factory/v0.1.0": A, NEXT: A}, {}),
                          ([], cut.NO_EARLIER_RELEASE))
-        self.assertEqual(cut.plan(dict(step, to="factory/v0.0.9"), REFS, {}), ([], cut.NOT_A_RELEASE))
+        self.assertEqual(plan(dict(step, to="factory/v0.0.9"), REFS, {}), ([], cut.NOT_A_RELEASE))
+        # A target that is named, but is no Release, is refused, never read as no target and the default taken.
+        for to in ("", 0, False, []):
+            with self.subTest(to=to):
+                self.assertEqual(plan(dict(step, to=to), REFS, {}), ([], cut.NOT_A_RELEASE))
 
 
 class Current(unittest.TestCase):
@@ -135,6 +183,7 @@ class Current(unittest.TestCase):
                                               "factory/v0.1.0-rc": C, "factory/v0.1.0.0": C, "v0.1.0": C,
                                               "factory/v0.١.0": C}))
         self.assertIsNone(current.resolve(None, REFS))
+        self.assertIsNone(current.resolve(None, {"factory/v0.1.0": None}))
 
     def test_a_name_is_a_release_or_a_channel_and_never_both(self):
         self.assertEqual(current.version("factory/v10.0.3"), (10, 0, 3))
@@ -189,9 +238,11 @@ class Tags(unittest.TestCase):
         self.assertEqual(tags.read(answered([]), REPO), {})
         self.assertIsNone(tags.read(github.Replay([]), REPO))
         self.assertIsNone(tags.read(None, REPO))
-        for repo in ("combsmith", "combsmith/..", "combsmith/x/y", "../x"):
+        for repo in ("combsmith", "combsmith/..", "combsmith/.", "combsmith/x/y", "../x", None):
             with self.subTest(repo=repo):
-                self.assertIsNone(tags.read(answered([]), repo))
+                asked = []
+                self.assertIsNone(tags.read(type("Sent", (), {"send": lambda _, req: asked.append(req)})(), repo))
+                self.assertEqual(asked, [], "a repo that is none, or climbs out, is never asked")
 
 
 class Plan(unittest.TestCase):
@@ -213,6 +264,13 @@ class Plan(unittest.TestCase):
         self.assertEqual(self.planned(cutting(), REFS, dict(OPEN, gate="eval_set_empty")),
                          (1, json.dumps({"refused": cut.EVAL_GATE_CLOSED}) + "\n"))
         self.assertEqual(self.planned(cutting(), "{", OPEN), (1, json.dumps({"refused": cut.STEP_UNREADABLE}) + "\n"))
+        with tempfile.TemporaryDirectory() as scratch, contextlib.redirect_stdout(io.StringIO()) as out:
+            files = []
+            for n, value in enumerate((cutting(), REFS, OPEN)):
+                files.append(pathlib.Path(scratch) / ("%d.json" % n))
+                files[-1].write_text(json.dumps(value))
+            self.assertEqual(move.main(["plan"] + [str(f) for f in files], rings=pathlib.Path(scratch) / "none.json"), 1)
+        self.assertEqual(out.getvalue(), json.dumps({"refused": cut.NOT_A_CHANNEL}) + "\n")
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(move.main(["cut", "a", "b", "c"]), 2)
             self.assertEqual(move.main(["plan", "a"]), 2)
@@ -235,16 +293,24 @@ class Rings(unittest.TestCase):
         self.assertEqual(check_release.ring_problems(other), [])
         majors = dict(rings, channels=dict(rings["channels"], stable={"tag": "factory/v1-stable"}))
         self.assertEqual(len(check_release.ring_problems(majors)), 1)
+        # What the schema refuses is said there; this rule reads it without failing.
+        for odd in ({"serves": ["x"], "channels": {"next": "x"}}, {"serves": None, "channels": []}, {}):
+            with self.subTest(rings=odd):
+                self.assertEqual(check_release.ring_problems(odd), [])
 
     def test_the_release_rules_import_nothing_but_each_other(self):
-        for planted in ("import os\n", "from adapters import tags\n", "from . import x\n", "x = open\n"):
+        for planted, found in (("import os\n", 1), ("from adapters import tags\n", 1), ("from . import x\n", 1),
+                               ("x = open\n", 1), ("from release import move\n", 1), ("import release.move\n", 1),
+                               ("from release.move import main\n", 1), ("from release import current, move\n", 1),
+                               ("from __future__ import annotations\nfrom release import current\n", 0),
+                               ("import release.current\n", 0)):
             with self.subTest(planted=planted), tempfile.TemporaryDirectory() as scratch:
                 root = pathlib.Path(scratch)
                 for rel in (check_release.RINGS,) + check_release.PURE:
                     (root / rel).parent.mkdir(parents=True, exist_ok=True)
                     (root / rel).write_text((ROOT / rel).read_text())
                 (root / "release" / "cut.py").write_text(planted)
-                self.assertEqual(len(check_release.run(root)), 1)
+                self.assertEqual(len(check_release.run(root)), found)
 
 
 class Skill(unittest.TestCase):

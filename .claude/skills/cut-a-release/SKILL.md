@@ -34,8 +34,8 @@ next, and roll back in one action".
 
 Read every factory/ tag through the Maintainer's gh login into a scratch directory outside the repo, as
 `adapters/tags.py` reads them: `gh api repos/combsmith/software-factory/git/matching-refs/tags/factory`. Write the
-step, the refs as `{name: commit}`, and the commit's facts (`commit`, `on_main`, `verified`, `gate`) as three JSON
-files, then plan. It is pure and writes nothing:
+step, the refs as `{name: commit}`, and the commit's facts (`commit`, `on_main`, `verified`, `gate`, and the `release`
+the gate judged) as three JSON files, then plan. It is pure and writes nothing:
 
 ```bash
 python3 -m release.move plan step.json refs.json facts.json

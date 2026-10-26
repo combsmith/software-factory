@@ -16,20 +16,24 @@ from tools.check_purity import FORBIDDEN_NAMES
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RINGS = "release/rings.json"
 PURE = ("release/cut.py", "release/current.py")
-ALLOWED_IMPORTS = {"__future__", "release"}
+# What the rules may import: the future's annotations, and each other, never the CLI that reads files.
+ALLOWED_IMPORTS = {"__future__"} | {"release." + pathlib.PurePath(rel).stem for rel in PURE}
 
 
 def ring_problems(value) -> list:
     """What is wrong with a ring file that its schema let through: nothing, or each sentence."""
     problems, served = [], {}
-    for line in value.get("serves", []):
+    lines, channels = value.get("serves"), value.get("channels")
+    for line in (lines if isinstance(lines, list) else []):
+        if not isinstance(line, dict):
+            continue
         key = (line.get("repo"), line.get("family"))
         if key in served and served[key] != line.get("channel"):
             problems.append("serves: %s, family %s, is served by two Channels, %s and %s"
                             % (key[0], key[1], served[key], line.get("channel")))
         served.setdefault(key, line.get("channel"))
-    majors = {tag.split("/v", 1)[1].split("-")[0] for tag in
-              (c.get("tag", "") for c in value.get("channels", {}).values()) if "/v" in tag}
+    tags = [c.get("tag") for c in (channels.values() if isinstance(channels, dict) else []) if isinstance(c, dict)]
+    majors = {tag.split("/v", 1)[1].split("-")[0] for tag in tags if isinstance(tag, str) and "/v" in tag}
     if len(majors) > 1:
         problems.append("channels: name majors %s; both Channels are of one major" % ", ".join(sorted(majors)))
     return problems
@@ -41,12 +45,14 @@ def _impure(path: pathlib.Path, rel: str) -> list:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             mods = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "release":
+            mods = ["release." + alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom):
             mods = [node.module or "."] if node.level == 0 else ["."]
         else:
             mods = []
         for mod in mods:
-            if mod.split(".")[0] not in ALLOWED_IMPORTS:
+            if mod not in ALLOWED_IMPORTS:
                 problems.append("%s:%d imports %s; the Release's rules import nothing but each other"
                                 % (rel, node.lineno, mod))
         if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
