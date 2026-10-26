@@ -27,12 +27,14 @@ import json
 import re
 
 from adapters import github, identity
+from adapters.rules import UNREADABLE as LIST_UNREADABLE
 from harness import shared
 from harness import task as task_
 from kernel import derive
 from kernel import terms as t
 from kernel.coverage import covered
 from kernel.decide import decide
+from tools.hooks import protected
 
 # The order `apply` writes in: effect/1's, one list for each type (section 3.6).
 ORDER = ("submit_review", "create_check_run", "resolve_thread", "comment")
@@ -51,6 +53,25 @@ READS = ("read:facts.item", "read:facts.state", "read:facts.is_draft", "read:fac
 THREAD = re.compile(r"PRRT_[A-Za-z0-9_-]+")
 # How a Result that did not complete ends, by its reason: the Role's fault, or the Factory's.
 THE_ROLES = ("result_invalid", "task_too_large")
+
+
+def push_refusal(paths, previous_paths, protected_list):
+    """Why a Role's push may not land, or None (issue 139): `push_protected` where a path it changes, or one a path of
+    it was renamed or copied from, is on the base's list (`adapters/rules.py`), every protected path and every Lens's
+    input, matched as `tools/hooks/protected.py` matches them. A push lands content no model Lens has reviewed, so one
+    that touches the list is always refused, and a person pushes such a change (decisions 0020 and 0052). A path that
+    cannot be read as one from the top of the repo could be any, and is refused too. A list that is none, or empty, is
+    `push_list_unreadable`, never nothing to touch. No Effect pushes yet: slice 2's push Effect calls this."""
+    if not isinstance(protected_list, list) or not protected_list \
+            or not all(isinstance(p, str) and p for p in protected_list):
+        return LIST_UNREADABLE
+    every = protected.entries([(pattern, "") for pattern in protected_list])
+    for path in list(paths) + [p for p in previous_paths if p is not None]:
+        names = path.split("/") if isinstance(path, str) else None
+        if names is None or not all(names) or any(n in (".", "..") for n in names) \
+                or any(whole.match(path.casefold()) for _, _, _, whole in every):
+            return "push_protected"
+    return None
 
 
 def gates(finding: dict) -> bool:

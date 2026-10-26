@@ -797,6 +797,42 @@ class RoleWrites(unittest.TestCase):
         self.assertEqual(len(hub.sent), len(fine) + 1)      # and the good check run
 
 
+class Push(unittest.TestCase):
+    """A Role's push is refused where it touches the base's list (issue 139). No Effect pushes yet."""
+    LIST = ["config/hooks.json", "kernel/", "roles/pr-review.*", ".gitleaks.toml"]
+
+    def test_a_push_that_touches_the_list_is_refused(self):
+        # A path on it, at any depth below a directory on it, in any case.
+        for path in ("config/hooks.json", "kernel/decide.py", "kernel/deep/x.py", "KERNEL/decide.py",
+                     "roles/pr-review.json", "roles/pr-review.md", ".gitleaks.toml"):
+            self.assertEqual(apply.push_refusal([path], [None], self.LIST), "push_protected", path)
+        # A rename or a copy out of a path on it touches it too.
+        self.assertEqual(apply.push_refusal(["docs/hooks.json"], ["config/hooks.json"], self.LIST), "push_protected")
+        self.assertEqual(apply.push_refusal(["docs/a.md", "kernel/x.py"], [None, None], self.LIST), "push_protected")
+
+    def test_a_push_that_touches_nothing_on_the_list_is_not_refused(self):
+        # The glob's edges: `*` is part of one name, after its literal part; a directory is only itself.
+        for path in ("docs/a.md", "roles/pr-reviewer.json", "roles/pr-review/x.md", "kernelx/a.py", "config/hooks.jsonl",
+                     "x/config/hooks.json", "roles/pr-review"):
+            self.assertIsNone(apply.push_refusal([path], ["docs/old.md"], self.LIST), path)
+        self.assertIsNone(apply.push_refusal([], [], self.LIST))
+
+    def test_a_path_that_cannot_be_read_as_one_is_refused(self):
+        for path in ("", "a//b", "/kernel/x.py", "docs/../kernel/x.py", "./kernel/x.py", None, 7):
+            self.assertEqual(apply.push_refusal([path], [None], self.LIST), "push_protected", path)
+        self.assertEqual(apply.push_refusal(["docs/a.md"], ["docs/../config/hooks.json"], self.LIST), "push_protected")
+
+    def test_a_list_that_is_none_or_empty_refuses_every_push(self):
+        for listed in (None, [], [""], ["kernel/", None], "kernel/", {"kernel/": 1}):
+            self.assertEqual(apply.push_refusal(["docs/a.md"], [None], listed), "push_list_unreadable", listed)
+
+    def test_the_repos_own_list_holds_the_kernel_and_the_review_roles_inputs(self):
+        from tools.hooks import protected
+        listed = protected.protected_paths()
+        for path in ("kernel/derive.py", "config/hooks.json", "harness/apply.py", "roles/pr-review.json"):
+            self.assertEqual(apply.push_refusal([path], [None], listed), "push_protected", path)
+
+
 class Job(unittest.TestCase):
     CONFIG = {"kernel": support.CONFIG, "rubric": RUBRIC, "authority": AUTHORITY, "github_run": 4242,
               "app": APPS["apps"]["pr-review"], "needs": APPS["needs"]}
