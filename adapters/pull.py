@@ -10,6 +10,7 @@ title, which is handed beside the facts and never in them (decision 0039).
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import urllib.parse
 
@@ -208,7 +209,9 @@ def diff(transport, pull: dict, base_head: str) -> dict:
     the one `adapters/timeline.py` gives a review's commit.
 
     The diff is checked against the counts of the same pull request's read, its files, added and deleted lines: a
-    difference is a short read, `complete.diff` false. The content id is the sha256 of the bytes GitHub sent. A 406
+    difference is a short read, `complete.diff` false. The content id is the sha256 of the bytes GitHub sent, and
+    `characters` their length as a Task carries them, escaped as JSON, so the Kernel holds what no Task can carry whole
+    (issue 327); bytes that are no UTF-8 have none, as no Task carries them. A 406
     `too_large` is GitHub's whole answer that it will not serve the diff: `truncated`, read whole, which holds the pull
     request as too large; its `content_id` is the head commit's, so any push is new content and nothing is read as
     unchanged (decision 0002). P-29 grounds that answer for a pull request's diff; compare's is read the same,
@@ -231,8 +234,16 @@ def diff(transport, pull: dict, base_head: str) -> dict:
     if not isinstance(text, str):
         raise Unanswered("the diff is not text")
     whole = _counts(text) == (files, added, deleted)
-    return {"diff": dict(size, truncated=False), "content_id": "sha256:" + hashlib.sha256(raw(text)).hexdigest(),
-            "complete": whole}
+    # Counted as harness/task.py's carried() counts the Task's diff, escaped as JSON, so the Kernel's bound and the
+    # Harness's are one (issue 327). Bytes that are no UTF-8 are no Task at all: their length is not given, and the
+    # Kernel holds them.
+    try:
+        raw(text).decode("utf-8")
+        counted = {"characters": len(json.dumps(text)) - 2}
+    except UnicodeDecodeError:
+        counted = {}
+    return {"diff": dict(size, truncated=False, **counted),
+            "content_id": "sha256:" + hashlib.sha256(raw(text)).hexdigest(), "complete": whole}
 
 
 def change(transport, pull: dict, base_head: str) -> bytes:

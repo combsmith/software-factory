@@ -178,6 +178,7 @@
         "max_unmerged_closes",
         "org_max_active_runs",
         "max_diff_lines",
+        "max_diff_characters",
         "max_acts_per_item",
         "max_path_length",
         "max_close_lag_seconds",
@@ -206,6 +207,11 @@
           "minimum": 1
         },
         "max_diff_lines": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_diff_characters": {
+          "description": "The longest diff, in characters as a Task carries it, escaped, that a review is given whole. A pull request whose diff is longer, or whose length was not read, is held too large; the Harness gives a Run no more (issue 327).",
           "type": "integer",
           "minimum": 1
         },
