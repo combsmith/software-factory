@@ -260,8 +260,10 @@ class Task(unittest.TestCase):
         def with_change(body, characters, texts=(), text_characters=HARNESS["texts"]["characters"]):
             raw = body.encode()
             content = "sha256:" + hashlib.sha256(raw).hexdigest()
+            c = config(texts={"characters": text_characters})
+            c["max_diff_characters"] = characters
             return built(list(texts), record=record(admit=dict(REVIEW, content_id=content)), facts=facts(content),
-                         diff=raw, config=config(texts={"characters": text_characters, "diff_characters": characters}))
+                         diff=raw, config=c)
         a, b, c = part("a", 40), part("b", 200), part("c", 10)
         size = task.carried
         t = with_change(a + b + c, size(a) + size(c) + 5)
@@ -572,7 +574,7 @@ class Engine(unittest.TestCase):
         # A Task with its change and its texts each at their budget, every character escaped twice over, is one
         # argument the CLI can be given.
         room = HARNESS["texts"]
-        body = "diff --git a/f b/f\n" + "\\" * ((room["diff_characters"] - 22) // 2)
+        body = "diff --git a/f b/f\n" + "\\" * ((run.configuration()["max_diff_characters"] - 22) // 2)
         raw = body.encode()
         content = "sha256:" + hashlib.sha256(raw).hexdigest()
         full = built([text("thread:T1", body="\\" * (room["characters"] // 2))], diff=raw, facts=facts(content),
@@ -594,6 +596,24 @@ class Job(unittest.TestCase):
             path.write_bytes(value) if name == "diff" else path.write_text(json.dumps(value))
             paths.append(path)
         return [str(paths[0]), RUN] + [str(p) for p in paths[1:]] + [str(where / "out")]
+
+    def test_a_review_given_part_of_the_diff_is_never_asked(self):  # issue 327
+        # The Kernel holds a pull request whose diff no Task carries whole. Were one admitted all the same, the run job
+        # writes a failed Result, the Factory's fault, before the CLI is started: a review never judges part of a change.
+        whole = task.carried(DIFF.decode())
+        for room, asked in ((whole, True), (whole - 1, False), (1, False)):
+            with tempfile.TemporaryDirectory() as d:
+                where = pathlib.Path(d)
+                cli = CLI()
+                run.job(self.files(where), JOB, dict(run.configuration(), max_diff_characters=room), call=cli,
+                        clock=Clock(), session=SESSION, base=where)
+                result = json.loads((where / "out" / "result.json").read_text())
+            self.assertEqual(bool(cli.calls), asked, room)
+            if not asked:
+                self.assertEqual((result["status"], result["reason"]), ("failed", "diff_not_whole"), room)
+                self.assertEqual(shared.errors(result, "result"), [])
+        self.assertEqual(run.configuration()["max_diff_characters"],
+                         json.loads((ROOT / "config" / "defaults.json").read_text())["limits"]["max_diff_characters"])
 
     def test_the_job_writes_the_result_and_its_digest_and_nothing_else(self):  # section 3.10
         import hashlib

@@ -992,6 +992,12 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
         return {"state": t.HELD, "reason": "empty_diff", "evidence": []}
     if facts["diff"]["truncated"] or facts["diff"]["lines"] > config["limits"]["max_diff_lines"]:
         return {"state": t.HELD, "reason": "too_large", "evidence": []}
+    # A review is given the whole diff or is not asked: one whose length was not read, or that a Task cannot carry
+    # whole, is held as too large, never reviewed in part (issue 327).
+    characters = facts["diff"].get("characters")
+    if not isinstance(characters, int) or isinstance(characters, bool) \
+            or not 0 <= characters <= config["limits"]["max_diff_characters"]:
+        return {"state": t.HELD, "reason": "too_large", "evidence": []}
     # A review that cannot be read could be a writer's request for changes. It is read before anything
     # admits a Run or converges: an unreadable fact never yields an action (I-13), only a stop.
     if unreadable_reviews(facts, config):

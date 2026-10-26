@@ -279,7 +279,7 @@ def open_item(fn):
 def push(pr: dict, who: str, writer: bool, diff=None) -> dict:
     f = pr["facts"]
     f.update(content_id="sha256:%04x" % pr["minute"], last_push_at=now(pr), last_pusher=who, queue=False,
-             mergeable=True, checks=copy.deepcopy(PENDING), diff=diff or {"files": 2, "lines": 40, "truncated": False})
+             mergeable=True, checks=copy.deepcopy(PENDING), diff=diff or {"files": 2, "lines": 40, "truncated": False, "characters": 1600})
     if writer:
         f["last_writer_action_at"] = now(pr)
     pr.pop("rerun", None)
@@ -612,7 +612,7 @@ def resolved(pr: dict) -> bool:
     return any(th["resolved"] for th in pr["facts"]["threads"])
 
 
-NORMAL = {"files": 2, "lines": 40, "truncated": False}
+NORMAL = {"files": 2, "lines": 40, "truncated": False, "characters": 1600}
 MOVES = [
     # A person with write access.
     Move("a person pushes", "human", lambda pr: push(pr, MAINTAINER["name"], True)),
