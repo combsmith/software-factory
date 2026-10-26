@@ -67,7 +67,11 @@ def unfinished(record, now: float):
     started = last.get("started") if isinstance(last, dict) else None
     if not isinstance(started, (int, float)) or isinstance(started, bool) or last.get("finished") is not False:
         return None
-    return now - started if 0 <= now - started < RETRY else None
+    try:
+        ago = now - started
+    except OverflowError:
+        return None
+    return ago if 0 <= ago < RETRY else None
 
 
 def note(record, started: float, finished: bool) -> None:

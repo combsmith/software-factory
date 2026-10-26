@@ -1825,7 +1825,8 @@ class BeforeStop(unittest.TestCase):
         self.assertEqual(json.loads(record.read_text())["finished"], True)
         self.assertEqual(before_stop.respond(payload, env, clock=lambda: 1000.0 + before_stop.RETRY + 5)[0], 2)
         # A record that cannot be read, or says nothing whole, skips nothing.
-        for text in ("{", "[]", '{"started": true, "finished": false}', '{"started": 1, "finished": 0}'):
+        for text in ("{", "[]", '{"started": true, "finished": false}', '{"started": 1, "finished": 0}',
+                     '{"started": 1%s, "finished": false}' % ("0" * 400), '{"started": 60.0, "finished": false}'):
             record.write_text(text)
             self.assertEqual(before_stop.respond(payload, env, clock=lambda: 2.0)[0], 2, text)
         # Where there is no git directory to write in, every stop runs it.
@@ -1901,6 +1902,20 @@ class MakeLeavesNothing(unittest.TestCase):
         hook_.wait(timeout=30)
         self.assertEqual(sorted(os.listdir(self.place)), before)
         self.assertTrue(self.gone(int((self.outside / "pid").read_text())))
+
+    def test_a_relative_temporary_place_is_the_hooks_never_the_runs(self):
+        # TMPDIR read where the hook stands: a run in another directory makes nothing there.
+        env = dict(self.slow(), QUICK="1", TMPDIR="rel")
+        where, here = a_project(), folder()
+        old = os.getcwd()
+        os.chdir(str(here))
+        try:
+            (here / "rel").mkdir()
+            self.assertEqual(make.make("verify", where, env, 30)[0], True)
+        finally:
+            os.chdir(old)
+        self.assertFalse((where / "rel").exists())
+        self.assertEqual(os.listdir(str(here / "rel")), [])
 
     def test_a_folder_a_killed_hook_left_is_removed_once_it_is_stale(self):
         place = folder()

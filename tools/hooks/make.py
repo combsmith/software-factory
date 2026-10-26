@@ -2,7 +2,9 @@
 
 A run leaves nothing behind (issue 344): it runs in a process group of its own, with a temporary
 folder of its own as every temporary folder's root, and when it ends, runs out of time, or the hook
-is told to end (SIGTERM, SIGHUP), the group is ended and the folder removed. A hook killed outright
+is told to end (SIGTERM, SIGHUP), the group is ended and the folder removed. A process that starts a
+session of its own leaves the group and is its own to end; what it leaves in the folder goes with the
+folder, or with the sweep. A hook killed outright
 cannot remove its folder, so each run first removes such folders older than STALE. The time a run is
 given counts from when the hook asked, the sweep's time included.
 """
@@ -50,7 +52,7 @@ def _make(env: dict):
 
 def temporary(env: dict) -> str:
     """Where the runs' temporary folders are made: the one the hook's environment names, as the run's would be."""
-    return env.get("TMPDIR") or tempfile.gettempdir()
+    return os.path.abspath(env.get("TMPDIR") or tempfile.gettempdir())
 
 
 def sweep(env: dict, now: float) -> None:
@@ -100,7 +102,7 @@ def _end(child: subprocess.Popen) -> None:
 
 def make(target: str, where: pathlib.Path, env: dict, timeout: int, clock=time.time) -> tuple:
     """(passed, what to show). Without make, it did not pass, and says why in one sentence. Whatever the run makes
-    under its temporary folder is removed when it ends, and so is every process it started."""
+    under its temporary folder is removed when it ends, and so is every process of its group."""
     exe = _make(env)
     if exe is None:
         return False, ("make is not on PATH, so `make %s` did not run in %s. Put make on PATH; the same checks "
