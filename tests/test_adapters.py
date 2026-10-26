@@ -1809,8 +1809,11 @@ class Acceptance(unittest.TestCase):
                 self.opened(closing_answer("o/r", 26, []), answer, issue_timeline("o/r", 36, []))
         odd = issue_answer("o/r", 36)
         odd["response"]["body"]["labels"] = [{"name": None}]
-        with self.assertRaises(github.Unanswered):
-            self.opened(closing_answer("o/r", 26, []), odd)
+        other = issue_answer("o/r", 36)
+        other["response"]["body"]["number"] = 37
+        for answer in (odd, other):
+            with self.assertRaises(github.Unanswered):
+                self.opened(closing_answer("o/r", 26, []), answer, issue_timeline("o/r", 36, []))
 
     def test_closing_references_that_name_another_issue_than_the_bound_one_are_not_whole(self):  # issue 295
         for issues in ([37], [36, 37], [37, 36]):

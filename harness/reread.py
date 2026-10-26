@@ -3,7 +3,8 @@
 
 The run records are the records port's list of the Role workflow files, counted by the pass's own token's account;
 the Pause is `FACTORY_PAUSED` on the org and on the item's repo; the facts are the facts port's snapshot of the pull
-request, with the accounts `controller/1` holds and whether the run records were read whole. The context is built from
+request, with the accounts `controller/1` holds, the App that opens pull requests (issue 295) and whether the run
+records were read whole. The context is built from
 them by `controller/pass_.context_of`, as one pass builds it, with no pass records before, so `passes_since` is
 unreadable, which defers nothing. What cannot be read raises, and the job that asked records whose fault it was."""
 from __future__ import annotations
@@ -23,7 +24,7 @@ def item(transport, config: dict, number: int, now: str, clock) -> tuple:
     identities, approver, lenses, factory = facts_.accounts_of(controller)
     who = timeline.Accounts(transport, home, approver, lenses, factory)
     facts, _, head = facts_.snapshot(transport, home, number, identities, who, listed.get("complete") is True, clock,
-                                     with_head=True)
+                                     with_head=True, opener=facts_.opener_of(controller, config["kernel"], config["apps"]))
     paused = pause_.read(transport, home.split("/")[0], [home])
     rules = reads_.configured(controller)
     listed_, _, runs, _, _, _, context = pass_.context_of(listed, paused, [home], rules, now)
