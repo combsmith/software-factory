@@ -7,6 +7,8 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
+import subprocess
 import sys
 
 
@@ -67,6 +69,45 @@ def given(argv: list, environ: dict, inputs: tuple, folders: tuple) -> list:
     return list(argv) if argv else [environ.get(name) for name in inputs] + list(folders)
 
 
+# A Release's own tag, as the Release cut writes it: the Channel's tag, `factory/v0-next`, on the same commit, is not one.
+TAG = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+SHA = re.compile(r"[0-9a-f]{40}")
+GIT_ENV = {"PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0"}
+
+
+def _git(args: list, root, run) -> str:
+    try:
+        done = run(["git"] + args, cwd=str(root), capture_output=True, text=True, timeout=30, env=GIT_ENV, check=False)
+    except (OSError, subprocess.SubprocessError):
+        raise Stop("release_unreadable") from None
+    if done.returncode != 0:
+        raise Stop("release_unreadable")
+    return done.stdout
+
+
+def release(root=None, run=subprocess.run) -> str:
+    """The Release this step runs as: the one tag `factory/vX.Y.Z` on the commit checked out, read from the checkout's
+    own tags, `git tag --points-at HEAD` (the ruling on issue 196's Release name, after #197's ruling 11). The Channel's
+    tag on the same commit is not one; none is `release_untagged`, and two refuse, `release_twice`, rather than pick.
+    Each step that needs the name calls this, its one entry point, before it reads any key. It is replaced by
+    `release/current.py` of #197's first pull request, whichever of the two merges second re-pointing its callers."""
+    names = [line.strip() for line in _git(["tag", "--points-at", "HEAD"], ROOT if root is None else root, run).splitlines()
+             if TAG.fullmatch(line.strip())]
+    if not names:
+        raise Stop("release_untagged")
+    if len(names) > 1:
+        raise Stop("release_twice")
+    return names[0]
+
+
+def commit(root=None, run=subprocess.run) -> str:
+    """The commit checked out, which each later job of the Run checks out exactly, so that every job runs one Release."""
+    sha = _git(["rev-parse", "HEAD"], ROOT if root is None else root, run).strip()
+    if not SHA.fullmatch(sha):
+        raise Stop("release_unreadable")
+    return sha
+
+
 def run(step, *given) -> int:
     """A step's exit: 0 and its line on success, else 1 and its one code; whatever it raised is never printed."""
     try:
@@ -85,4 +126,17 @@ def exit_with(step, *given) -> None:
     sys.exit(run(step, *given))
 
 
+def handed_on(environ: dict) -> str:
+    """`python3 -m harness.steps`, a workflow's first job's step after its checkout of the Channel: the commit it got,
+    as the step's output `commit`, which every later job checks out."""
+    sha = commit()
+    with open(environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+        f.write("commit=%s\n" % sha)
+    return "commit %s" % sha
+
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+if __name__ == "__main__":
+    exit_with(handed_on, dict(os.environ))

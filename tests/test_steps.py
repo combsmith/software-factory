@@ -12,6 +12,7 @@ import io
 import json
 import os
 import pathlib
+import subprocess
 import tempfile
 import unittest
 import unittest.mock
@@ -43,9 +44,10 @@ PASS = RECORD["pass"]
 
 
 def ran(step, *given):
-    """The step's exit and what it printed."""
+    """The step's exit and what it printed, its Release the one its environment names as `RELEASE`."""
     printed = io.StringIO()
-    with contextlib.redirect_stdout(printed):
+    environ = given[1] if len(given) > 1 and isinstance(given[1], dict) else {}
+    with contextlib.redirect_stdout(printed), support.releasing(environ):
         code = steps.run(step, *given)
     return code, printed.getvalue()
 
@@ -73,6 +75,65 @@ class Shared(unittest.TestCase):
         self.assertEqual(ran(lambda: "fine"), (0, "fine\n"))
         self.assertEqual(ran(lambda: (_ for _ in ()).throw(steps.Stop("a_code"))), (1, "a_code\n"))
         self.assertEqual(ran(lambda: (_ for _ in ()).throw(ValueError("GitHub said something"))), (1, "step_failed\n"))
+
+
+class ReleaseName(unittest.TestCase):
+    """The Release a step runs as, read from its own checkout's tags (the ruling on issue 196's Release name)."""
+
+    def repo(self, d, *tags):
+        env = dict(steps.GIT_ENV, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@t", HOME=d)
+        for args in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "x"]) + tuple(["tag", t] for t in tags):
+            subprocess.run(["git"] + args, cwd=d, env=env, check=True, capture_output=True)
+
+    def test_the_release_is_its_one_tag(self):
+        for tags, want in ((("factory/v0.3.1",), "factory/v0.3.1"),
+                           (("factory/v0.3.1", "factory/v0-next"), "factory/v0.3.1"),
+                           (("factory/v0.3.1", "a-tag", "v0.3.1"), "factory/v0.3.1")):
+            with tempfile.TemporaryDirectory() as d:
+                self.repo(d, *tags)
+                self.assertEqual(steps.release(d), want, tags)
+                self.assertRegex(steps.commit(d), r"^[0-9a-f]{40}$")
+        # None, the Channel's alone, or a name a Release's tag is not, is no Release; two refuse rather than pick.
+        for tags, want in (((), "release_untagged"), (("factory/v0-next",), "release_untagged"),
+                           (("factory/v0.3.01", "factory/v1.2"), "release_untagged"),
+                           (("factory/v0.3.1", "factory/v0.3.2"), "release_twice")):
+            with tempfile.TemporaryDirectory() as d:
+                self.repo(d, *tags)
+                with self.assertRaisesRegex(steps.Stop, "^%s$" % want, msg=tags):
+                    steps.release(d)
+        with tempfile.TemporaryDirectory() as d:
+            for read in (steps.release, steps.commit):
+                with self.assertRaisesRegex(steps.Stop, "^release_unreadable$"):
+                    read(d)     # no repository at all
+        # It asks git for the tags on HEAD, in an environment of its own.
+        seen = []
+
+        def run(args, **kw):
+            seen.append((args, kw["env"]))
+            return subprocess.CompletedProcess(args, 0, "factory/v1.0.0\n", "")
+        self.assertEqual(steps.release("/x", run), "factory/v1.0.0")
+        for said in ("not a sha\n", "abc\n", ""):
+            with self.assertRaisesRegex(steps.Stop, "^release_unreadable$", msg=said):
+                steps.commit("/x", lambda args, **kw: subprocess.CompletedProcess(args, 0, said, ""))
+        self.assertEqual(seen, [(["git", "tag", "--points-at", "HEAD"], steps.GIT_ENV)])
+
+    def test_the_first_job_hands_on_the_commit_it_checked_out(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "github_output")
+            with unittest.mock.patch.object(steps, "commit", lambda: "a" * 40):
+                self.assertEqual(steps.handed_on({"GITHUB_OUTPUT": out}), "commit " + "a" * 40)
+            self.assertEqual(pathlib.Path(out).read_text(), "commit=%s\n" % ("a" * 40))
+
+    def test_a_step_with_no_release_reads_no_key(self):
+        # apply and the act refuse before a key or a token is read, so no credential is held under no Release.
+        _, printed, _, calls = Apply().go({"RELEASE": "factory/v0-next"})
+        self.assertEqual((printed, calls["minted"]), ("release_untagged\n", []))
+        used = []
+        with tempfile.TemporaryDirectory() as d:
+            code, printed = ran(approve_step.step, [NAME, ITEM, PASS, "o"], {approve_step.TOKEN: "t"}, d,
+                                lambda: 0, lambda token: used.append(token))
+        self.assertEqual((code, printed, used), (1, "release_untagged\n", []))
 
 
 class WorkflowForm(unittest.TestCase):
@@ -351,7 +412,7 @@ class Apply(unittest.TestCase):
         # A Run of another Release than the pass that admitted it writes nothing.
         code, _, ended, calls = self.go({"RELEASE": "factory/v0.3.2"})
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("environment", "release_differs", []))
-        self.assertEqual(self.go({"RELEASE": "v1"})[:3], (1, "release_unreadable\n", None))
+        self.assertEqual(self.go({"RELEASE": "v1"})[:3], (1, "release_untagged\n", None))
         # No Decision for this Run: superseded, and the job is never asked.
         code, _, ended, calls = self.go(record=None)
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"], calls["revoked"]),
@@ -440,7 +501,7 @@ class Approve(unittest.TestCase):
         self.assertEqual((record, run_, config["approver"], config["github_run"]), (RECORD, RUN, "donpetry-bot", "9"))
         self.assertEqual(done["effects"][0]["state"], "applied")
         with tempfile.TemporaryDirectory() as d:
-            self.assertEqual(ran(approve_step.step, [NAME, ITEM, PASS, "o"], {}, d), (1, "release_unreadable\n"))
+            self.assertEqual(ran(approve_step.step, [NAME, ITEM, PASS, "o"], {}, d), (1, "release_untagged\n"))
         # A record that cannot be read, or a Decision not the run-name's: nothing asked, and the step fails by its code.
         elsewhere = copy.deepcopy(RECORD)
         for e in elsewhere["pull_requests"]:

@@ -794,7 +794,7 @@ class Entry(unittest.TestCase):
         env.update(environ)
         slept, printed = [], io.StringIO()
         sleep = lambda seconds: slept.append((seconds, len(hub.sent)))
-        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(printed):
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(printed), support.releasing(env):
             code = entry.main(["out"] if os.makedirs(os.path.join(d, "out")) is None else [], {k: v for k, v in env.items()
                                                                                               if v is not None},
                               base=d, clock=lambda: self.CLOCK, sleep=sleep, connect=hub.connect)
@@ -900,7 +900,7 @@ class Entry(unittest.TestCase):
         self.assertIsNone(files["pass.json"]["context"]["passes_since"])
 
     def test_what_the_entry_cannot_read_writes_nothing(self):
-        for environ, want in (({"RELEASE": None}, "release_unreadable"), ({"RELEASE": "v1"}, "release_unreadable"),
+        for environ, want in (({"RELEASE": None}, "release_untagged"), ({"RELEASE": "v1"}, "release_untagged"),
                               ({"GITHUB_RUN_ID": "1/2"}, "run_unreadable"), ({"GITHUB_RUN_ID": None}, "run_unreadable"),
                               ({entry.KEY: None}, "key_unreadable"), ({entry.KEY: ""}, "key_unreadable")):
             hub = Hub(self.table())
@@ -931,7 +931,7 @@ class Entry(unittest.TestCase):
             self.assertEqual(entry.main(["."], env, base=d, connect=hub.connect), 2)
             self.assertEqual(hub.sent, [])
         # The workflow's form, with no argument: the pass is written into a new folder of its own, `pass/`.
-        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()):
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()), support.releasing(env):
             self.assertEqual(entry.main([], env, base=d, clock=lambda: self.CLOCK, sleep=lambda s: None,
                                         connect=Hub(self.table()).connect), 0)
             self.assertTrue(pathlib.Path(d, entry.FOLDER, "pass.json").is_file())

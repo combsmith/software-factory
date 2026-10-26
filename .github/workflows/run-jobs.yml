@@ -1,7 +1,7 @@
 # A Run's three jobs, called by run.yml at the Release's channel, with the item's lane on the calling job (#196's rulings 6 and 7; decisions 0004, 0050, 0054, 0058, 0064).
 # `run` reads what the Task is built from with the reader's key in a step of its own, whose token is revoked before the model's step; the model's step holds the model's credential alone, and the Engine sets the scrub and `--tools ""`.
 # `verify` holds no secret and no cache, and takes the Result by the digest `run` reported. `apply` runs whatever failed before it: it writes nothing unless both succeeded, and its last step always leaves the Run's outcome.
-# Every job checks out the Release, never the item's code. The CLI is installed at the Engine's pin, its sha256 the one the vendor's release manifest gives for linux-x64.
+# The first job checks out the Channel once and hands on the commit it got; every later job checks out exactly that commit, with its tags, so that every job runs one Release and each step that needs the Release's name reads its one tag (harness/steps.release). Never the item's code. The CLI is installed at the Engine's pin, its sha256 the one the vendor's release manifest gives for linux-x64.
 name: sf-run-jobs
 on:
   workflow_call:
@@ -24,6 +24,7 @@ jobs:
     permissions:
       contents: read
     outputs:
+      commit: ${{ steps.commit.outputs.commit }}
       digest: ${{ steps.engine.outputs.digest }}
       artifact: ${{ steps.result.outputs.artifact-id }}
     steps:
@@ -31,6 +32,9 @@ jobs:
         with:
           ref: factory/v0-next
           persist-credentials: false
+      - name: Hand on the commit it checked out, which every later job checks out
+        id: commit
+        run: python3 -m harness.steps
       - name: Install the CLI at the Engine's pin
         env:
           CLI_VERSION: "2.1.306"
@@ -70,7 +74,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: factory/v0-next
+          ref: ${{ needs.run.outputs.commit }}
+          fetch-tags: true
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -100,7 +105,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: factory/v0-next
+          ref: ${{ needs.run.outputs.commit }}
+          fetch-tags: true
           persist-credentials: false
       - if: always()
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

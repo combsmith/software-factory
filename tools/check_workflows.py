@@ -151,6 +151,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: factory/v0-next
+          fetch-tags: true
           persist-credentials: false
       - name: Read and decide
         env:
@@ -197,6 +198,7 @@ jobs:
     permissions:
       contents: read
     outputs:
+      commit: ${{ steps.commit.outputs.commit }}
       digest: ${{ steps.engine.outputs.digest }}
       artifact: ${{ steps.result.outputs.artifact-id }}
     steps:
@@ -204,6 +206,9 @@ jobs:
         with:
           ref: factory/v0-next
           persist-credentials: false
+      - name: Hand on the commit it checked out, which every later job checks out
+        id: commit
+        run: python3 -m harness.steps
       - name: Install the CLI at the Engine's pin
         env:
           CLI_VERSION: "%(version)s"
@@ -243,7 +248,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: factory/v0-next
+          ref: ${{ needs.run.outputs.commit }}
+          fetch-tags: true
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -273,7 +279,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: factory/v0-next
+          ref: ${{ needs.run.outputs.commit }}
+          fetch-tags: true
           persist-credentials: false
       - if: always()
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -332,6 +339,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: factory/v0-next
+          fetch-tags: true
           persist-credentials: false
       - name: Approve the commit it read, if the Kernel still wants it
         env:

@@ -12,7 +12,7 @@ and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 
 4. It gives the pass what it read and the time after the reads, and writes `pass.json`, `writes.json`, the plan the
    effects step holds to it, and the view's three files under `view/`.
 
-The Release is `RELEASE`, the tag the pass's workflow was called at. A snapshot that cannot be read leaves its pull
+The Release is the one tag `factory/vX.Y.Z` on the commit the pass checked out (`harness/steps.release`), read before any key. A snapshot that cannot be read leaves its pull
 request out of the pass, by its item, as one alert. A list of open pull requests not read whole, a Release, a key or
 a run id that cannot be read, or a pass `pass_.py` refuses, writes nothing, so that nothing is dispatched; the step
 prints one code and exits 1, and nothing it prints is GitHub's text."""
@@ -31,11 +31,11 @@ from adapters.facts import accounts_of as accounts, dispatcher_of as dispatcher
 from adapters.github import Live, Unanswered
 from controller import configuration as configured, pass_, reads as reads_, writes as writes_
 from controller.shared import Refused
+from harness import steps
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 APP = "controller"
 KEY = "CONTROLLER_APP_KEY"
-RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 RUN_ID = re.compile(r"[1-9][0-9]{0,18}")
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 VIEW = ("meta", "items", "health")
@@ -140,9 +140,11 @@ def main(argv=None, environ=None, base=None, clock=time.time, sleep=time.sleep, 
         return 2
     revoke, code = None, None
     try:
-        release, run_id, key = environ.get("RELEASE"), environ.get("GITHUB_RUN_ID"), environ.get(KEY)
-        if not (isinstance(release, str) and RELEASE.fullmatch(release)):
-            raise Stop("release_unreadable")
+        try:
+            release = steps.release()
+        except steps.Stop as stop:
+            raise Stop(stop.code) from None
+        run_id, key = environ.get("GITHUB_RUN_ID"), environ.get(KEY)
         if not (isinstance(run_id, str) and RUN_ID.fullmatch(run_id)):
             raise Stop("run_unreadable")
         if not isinstance(key, str) or not key:
