@@ -117,7 +117,8 @@
             "lock",
             "push",
             "other",
-            "dispatch"
+            "dispatch",
+            "rerun"
           ]
         },
         "item": {

@@ -153,7 +153,25 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
         datetime.datetime.strptime(str(started), "%Y-%m-%dT%H:%M:%SZ")
     except ValueError:
         return None
-    return (dict(parts, status=status, conclusion=conclusion, outcome=None, started_at=started), None)
+    record = dict(parts, status=status, conclusion=conclusion, outcome=None, started_at=started)
+    # When it was dispatched, which a re-run keeps, and whether the pass job's own token re-ran it: reconciliation reads
+    # the dispatch by the one, and a re-run by that token as a write no Effect records (decision 0063).
+    created = row.get("created_at")
+    try:
+        datetime.datetime.strptime(str(created), "%Y-%m-%dT%H:%M:%SZ")
+        record["dispatched_at"] = created
+    except ValueError:
+        pass
+    # An attempt, or a re-run's re-runner, GitHub gives none of that can be read is null: reconciliation cannot tell.
+    attempt = row.get("run_attempt")
+    again = row.get("triggering_actor") if isinstance(row.get("triggering_actor"), dict) else {}
+    if not (isinstance(attempt, int) and not isinstance(attempt, bool) and attempt >= 1):
+        record["rerun_by_dispatcher"] = None
+    elif attempt > 1:
+        told = isinstance(again.get("id"), int) and not isinstance(again.get("id"), bool) and again["id"] > 0 \
+            and again.get("type") in ("User", "Bot")
+        record["rerun_by_dispatcher"] = (again["id"], again["type"]) == dispatcher if told else None
+    return (record, None)
 
 
 def known(previous: list) -> dict:

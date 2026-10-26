@@ -23,6 +23,7 @@ import time
 import uuid
 
 from harness import engine, task
+from kernel.coverage import readable_rubric
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CLI = "CLAUDE_CLI"
@@ -38,20 +39,34 @@ def configuration(root: pathlib.Path = ROOT) -> dict:
     return {"maintainer": hooks["maintainer"]["login"], "roles": roles, "approver": defaults["approver"], "harness": json.loads((root / "config" / "harness.json").read_text())}
 
 
+# The Intents whose Result covers a rubric (design section 3.14, decision 0049): a Run of one is never asked without it.
+REVIEWING = ("review-change",)
+
+
+class RubricUnreadable(task.Refused):
+    """A reviewing Intent's rubric is missing, names another Role or Intent, or cannot be read."""
+
+
 def instructions(root: pathlib.Path, the_task: dict) -> str:
     """What the model is told before the Task, from the Release's own files by the admitted Role's name and never from
     the item: the Role's instructions, `roles/<role>/prompt.md`, and the rubric its Intent's Result covers,
     `config/rubric-<role>.json`, where one names this Intent (decision 0059). Both are a model Lens's inputs (decision
-    0052). A Role with no instructions in the Release has no Task."""
+    0052). A Role with no instructions in the Release has no Task, and a reviewing Intent whose rubric is missing, names
+    another Role or Intent, or cannot be read is RubricUnreadable, before anything is asked."""
     prompt = root / "roles" / the_task["role"] / "prompt.md"
     if not prompt.is_file():
         raise task.Refused("the Role has no instructions in the Release")
     told = engine.ROLE + prompt.read_text(encoding="utf-8")
     rubric = root / "config" / ("rubric-%s.json" % the_task["role"])
-    if rubric.is_file():
-        held = json.loads(rubric.read_text(encoding="utf-8"))
-        if isinstance(held, dict) and held.get("intent") == the_task["intent"]:
-            told += engine.RUBRIC + json.dumps(held, sort_keys=True)
+    try:
+        held = json.loads(rubric.read_text(encoding="utf-8")) if rubric.is_file() else None
+    except (OSError, ValueError):
+        held = None
+    if (isinstance(held, dict) and (held.get("role"), held.get("intent")) == (the_task["role"], the_task["intent"])
+            and readable_rubric(held)):
+        told += engine.RUBRIC + json.dumps(held, sort_keys=True)
+    elif the_task["intent"] in REVIEWING:
+        raise RubricUnreadable("rubric_unreadable")
     return told
 
 
@@ -87,8 +102,15 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
     with open(diff, "rb") as f:
         change = f.read()
     the_task = task.build(admitted, run, read(facts), read(texts), read(role), read(findings), config, change)
-    result = engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], call or cli_call, clock,
-                        session or str(uuid.uuid4()), instructions(ROOT, the_task))
+    session = session or str(uuid.uuid4())
+    try:
+        told = instructions(ROOT, the_task)
+    except RubricUnreadable:
+        # The Factory's fault, read before the CLI is started: a failed Result, and no model call spent (issue 330).
+        result = engine.failed(the_task, "rubric_unreadable", engine.usage_of(config["harness"], session))
+    else:
+        result = engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], call or cli_call, clock,
+                            session, told)
     data = (json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
     digest = "sha256:" + hashlib.sha256(data).hexdigest()
     os.makedirs(out)
