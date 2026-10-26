@@ -94,8 +94,9 @@ class Matching(unittest.TestCase):
         # Role recorded, by the run records: another Role's, or one whose Run is not among them, covers nothing.
         done = applied(("resolve_thread", "PRRT_t", "applied"))
         mine = run(name=done["run"], role="pr-review")
-        accounts = dict(KNOWN, roles=dict(KNOWN["roles"], **{"dev-lead": {"id": 5000004, "type": "Bot",
-                                                                         "login": "combsmith-sf-dev-lead[bot]"}}))
+        # Role matching alone: with no pass job's token, the Run is no dispatch to reconcile.
+        accounts = dict(KNOWN, workflow_token=None, roles=dict(KNOWN["roles"], **{
+            "dev-lead": {"id": 5000004, "type": "Bot", "login": "combsmith-sf-dev-lead[bot]"}}))
         self.assertEqual(check(seen(wrote("pr-review", "resolution", "PRRT_t")), recorded([done]), records(mine),
                                accounts=accounts)["unmatched"], [])
         for by, runs in (("dev-lead", records(mine)), ("pr-review", records()),
