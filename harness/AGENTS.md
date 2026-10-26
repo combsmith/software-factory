@@ -1,9 +1,8 @@
 # harness/
 
-The Harness: the jobs that carry one Run. `task.py` builds the Task from the Decision that admitted the Run, `engine.py` runs the vendor's CLI on it, with no tool and no secret but its own, and `run.py` writes the Result and its digest alone.
-`apply.py` reads the item again, refuses what may not be written, writes the Effects with a token narrowed to them and records what it read back; `approve.py` is the approving act, a Run with no Engine, through the machine user's token alone
-(decision 0055). The jobs' steps: `read.py`, the reader's; `verify.py`; `apply_step.py` and `outcome.py`; `approve_step.py`; `reread.py`, the item read again; `steps.py`, their files. `eval/` is the eval job's steps (decision 0053;
-its rules are `evals/AGENTS.md`'s). Every test drives a stand-in for the CLI: the first live Run is the workflows' and the Release's.
+The Harness: the jobs that carry one Run. `task.py` builds the Task from the Decision that admitted the Run, `engine.py` runs the CLI on it, with no tool and no secret but its own, and `run.py` writes the Result and its digest alone. `apply.py` reads the item
+again, refuses what may not be written, writes the Effects with a token narrowed to them and records what it read back; `approve.py` is the approving act, a Run with no Engine, through the machine user's token alone (decision 0055). Steps: `read.py`, the
+reader's; `verify.py`; `apply_step.py` and `outcome.py`; `approve_step.py`; `reread.py`, the item read again; `steps.py`, their files. `eval/` is the eval job's steps (decision 0053; rules in `evals/AGENTS.md`). Every test drives a stand-in for the CLI.
 Not built yet, by the stories that hold their rules: push.py, eval/run.py.
 
 | Rule | Held by |
@@ -34,6 +33,7 @@ Not built yet, by the stories that hold their rules: push.py, eval/run.py.
 | The approving act sends one write, the approval of the commit it read, and claims only what it reads back | `tests/test_approve.py::test_the_act_sends_one_write_and_it_is_the_approval` |
 | It approves only through the approver's token, for a Decision that issued the approval, what the Kernel still wants | `tests/test_approve.py::test_the_act_approves_only_what_the_kernel_asked_again_still_wants` |
 | The reader reads the Task's inputs, held to the Decision, and revokes its token before the model's step | `tests/test_steps.py::test_the_reader_writes_the_tasks_inputs`, `tests/test_steps.py::test_the_reader_fails_closed` |
+| A Run whose own Release is not its pass's, or cannot be named, builds no Task | `tests/test_steps.py::test_a_run_on_another_release_than_its_pass_builds_no_task`, `tests/test_steps.py::test_a_run_whose_own_release_cannot_be_named_builds_no_task` |
 | A step writes new files of its own and prints a code; `verify` takes the Result by its digest, checks `not_run` | `tests/test_steps.py::test_a_steps_files_are_new_and_its_own`, `tests/test_steps.py::test_verify_takes_the_results_digest` |
 | `apply` waits for `run` and `verify`, and reads the item again with reads alone | `tests/test_steps.py::test_apply_waits_for_its_jobs`, `tests/test_steps.py::test_apply_reads_with_reads`, `tests/test_steps.py::test_the_item_is_read_again` |
 | The last step leaves the Run's outcome; the approver reads and writes held to its item | `tests/test_steps.py::test_the_last_step_leaves_the_outcome`, `tests/test_steps.py::test_the_approver_holds_to_its_item` |

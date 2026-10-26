@@ -1,0 +1,37 @@
+{
+  "read": "every tag under refs/tags/factory/ of combsmith/software-factory, as adapters/tags.py reads it: one GET of git/matching-refs, through the Maintainer's gh login, writing no ref",
+  "ran_at": "2026-10-26T05:08:56Z",
+  "exchanges": [
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory/git/matching-refs/tags/factory (gh api --include)",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-length": "2",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 26 Oct 2026 05:08:56 GMT",
+          "etag": "\"aab559191e17d03ba0bfdffc31b40d4e049a5503df89962b881294b8d7190e26\"",
+          "last-modified": "Mon, 26 Oct 2026 04:49:40 GMT",
+          "x-github-media-type": "github.v3; format=json"
+        },
+        "body": []
+      }
+    }
+  ],
+  "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[0].response.headers: every header but those kept, the login's scopes and rate among them"
+  ]
+}

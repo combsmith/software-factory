@@ -1,0 +1,32 @@
+{
+  "schema": "rings/1",
+  "channels": {
+    "next": {
+      "tag": "factory/v0-next"
+    },
+    "stable": {
+      "tag": "factory/v0-stable"
+    }
+  },
+  "serves": [
+    {
+      "repo": "combsmith/software-factory",
+      "family": "review-change",
+      "channel": "next"
+    },
+    {
+      "repo": "combsmith/software-factory",
+      "family": "review-change",
+      "channel": "stable"
+    }
+  ],
+  "promotion": {
+    "from": "next",
+    "to": "stable",
+    "evidence": {
+      "runs": 10,
+      "effects_read_back": true,
+      "eval_for_each_changed_intent": true
+    }
+  }
+}

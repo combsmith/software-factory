@@ -12,6 +12,12 @@ into the new folder OUT, the record, the Run id, the facts, the diff, the texts,
 for `python3 -m harness.run OUT RESULT`. The token is revoked before the step ends, whatever happened, and a token
 GitHub did not revoke fails the step, so the model's step never starts beside a live reader token.
 
+Before anything else is read, the Run's own Release is named: the one Release tag, among the `factory/` tags read with
+that token, on the commit the job checked out, `RELEASE_COMMIT` (#197's rulings 8 and 11). A Run whose own Release is
+not its pass record's builds no Task: OUT holds its `outcome/1` alone, `superseded`, `release_moved`, and the step stops
+by that code. One whose own Release cannot be named stops `release_unresolved` and writes nothing; the pass record's
+Release is never taken for it.
+
 Not read yet, by the stories that hold them: the texts (`adapters/texts.py`), so the Task carries the diff alone; the
 Finding records a Decision names (`harness/apply.py` writes them, and no port reads them back yet), so the review
 Intent, which names none, is the one a Run can carry; an issue's Run, whose reads are the issue Lifecycle's."""
@@ -23,16 +29,36 @@ import re
 import sys
 import time
 
-from adapters import facts as facts_, identity, passes, pull, records, timeline
+from adapters import facts as facts_, identity, passes, pull, records, tags, timeline
 from adapters.github import Live, Unanswered
 from controller import configuration
 from harness import approve, shared, steps, task
 from harness.steps import Stop
+from release import current, cut
 
 APP = "reader"
 KEY = "READER_APP_KEY"
 ITEM = re.compile(r"([A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100})#([1-9][0-9]{0,8})")
 FILES = ("record.json", "run", "facts.json", "diff", "texts.json", "role.json", "findings.json")
+COMMIT = "RELEASE_COMMIT"
+
+
+class ReleaseMoved(Stop):
+    """The Run's own Release is not its pass record's: it builds no Task, and ends `superseded`."""
+
+    def __init__(self, release: str):
+        super().__init__("release_moved")
+        self.release = release
+
+
+def own_release(transport, home: str, commit) -> str:
+    """The Release the job runs: the one Release tag on the commit it checked out; Stop `release_unresolved` when the
+    commit is not a full sha, the tags cannot be read whole, or no one Release names it."""
+    refs = tags.read(transport, home) if cut.sha(commit) else None      # a cheap guard: `resolve` refuses it too
+    found = current.resolve(commit, refs) if refs is not None else None
+    if found is None:
+        raise Stop("release_unresolved")
+    return found
 
 
 def wanted(config: dict) -> dict:
@@ -78,14 +104,19 @@ def decided(record, parts: dict, owner_role: str) -> dict:
     return admit
 
 
-def reads(transport, config: dict, parts: dict, pass_id: str, clock) -> dict:
+def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None) -> dict:
     """Each file the step writes, by its name, read through `transport`."""
     controller = config["controller"]
     home, branch = controller["home"]["repo"], controller["home"]["branch"]
+    own = own_release(transport, home, commit)
     record = passes.find(transport, home, branch, controller["workflows"]["poller"], pass_id)
     if record is None:
         raise Stop("record_not_found")
     admit = decided(record, parts, config["kernel"]["owner_role"])
+    # Once the record holds this Run's Decision, so that no outcome is left for a Run id it does not hold: a pass of
+    # another Release than the Run's own builds no Task. Nothing of the Decision has been used yet.
+    if record["release"] != own:
+        raise ReleaseMoved(own)
     if "intent" not in admit:
         raise Stop("not_the_decision")       # an approval is the approving act's, and runs no Task
     identities, approver, lenses, factory = facts_.accounts_of(controller)
@@ -117,13 +148,17 @@ def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
         raise Stop(str(err)) from None
     utc = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(clock())))
     try:
-        found = reads(transport, config, parts, pass_id, utc)
+        found = reads(transport, config, parts, pass_id, utc, environ.get(COMMIT))
     except BaseException as err:
         # The token is revoked whatever stopped the reads, and one GitHub did not revoke is the step's one code.
         if revoke() is not True:
             raise Stop("token_not_revoked") from None
         if isinstance(err, Unanswered):
             raise Stop("facts_unreadable") from None
+        if isinstance(err, ReleaseMoved):
+            # No Task: the Run's outcome alone, under its own Release, for the job's last step to carry.
+            steps.write(folder, "outcome.json", {"schema": "outcome/1", "run": parts["run"], "release": err.release,
+                                                 "outcome": "superseded", "reason": "release_moved"})
         raise
     if revoke() is not True:
         raise Stop("token_not_revoked")

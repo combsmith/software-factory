@@ -1,8 +1,7 @@
 # software-factory
 
-The decision core of the Factory: a set of agent Roles that turn an issue into a reviewed, merged
-change, and a Kernel that decides what each Role may do next. So far this repo holds the Kernel,
-its schemas, its checks, a simulator and the first of the ports. Only `adapters/github.py` talks to GitHub; nothing talks to a model yet.
+The decision core of the Factory: a set of agent Roles that turn an issue into a reviewed, merged change, and a Kernel that decides what each Role may do next.
+So far this repo holds the Kernel, its schemas, its checks, a simulator and the first of the ports. Only `adapters/github.py` talks to GitHub; nothing talks to a model yet.
 
 It follows the org's standards, [combsmith/.github/AGENTS.md](https://github.com/combsmith/.github/blob/main/AGENTS.md),
 except where `docs/decisions/0014-where-this-repo-departs-from-the-orgs-standards.md` says why not.
@@ -56,5 +55,6 @@ Before editing in a directory, read its `AGENTS.md`: it carries the rules of tha
 | Unsure what a capitalised word means | `docs/glossary.md`. One term, one meaning |
 | Needing the design itself | `docs/architecture/software-factory-design.md`: section 0 is one page, and 1.2 says which sections are rules |
 | Running a platform trial, or adding its fixture to `trials/` | The skill `.claude/skills/run-a-platform-trial/SKILL.md` |
+| Cutting a Release, moving `next` or rolling it back | The skill `.claude/skills/cut-a-release/SKILL.md` |
 
-Not built yet, under names that are reserved: roles, release, evals and the workflows; `adapters/AGENTS.md`, `controller/AGENTS.md` and `harness/AGENTS.md` name their parts still to come. A rule that is waiting on one of them says so.
+Not built yet, under names that are reserved: roles, evals and the workflows; `adapters/AGENTS.md`, `controller/AGENTS.md`, `harness/AGENTS.md` and `release/AGENTS.md` name their parts still to come. A rule that is waiting on one of them says so.
