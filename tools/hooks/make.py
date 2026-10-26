@@ -1,9 +1,10 @@
 """Run a make target for a hook, in the project or in one of its worktrees, and nowhere else.
 
 A run leaves nothing behind (issue 344): it runs in a process group of its own, with a temporary
-folder of its own as every temporary folder's root, and when it ends, or runs out of time, the group
-is ended and the folder removed. A hook the session ends before that cannot remove its folder, so
-each run first removes such folders older than STALE.
+folder of its own as every temporary folder's root, and when it ends, runs out of time, or the hook
+is told to end (SIGTERM, SIGHUP), the group is ended and the folder removed. A hook killed outright
+cannot remove its folder, so each run first removes such folders older than STALE. The time a run is
+given counts from when the hook asked, the sweep's time included.
 """
 from __future__ import annotations
 
@@ -69,6 +70,25 @@ def sweep(env: dict, now: float) -> None:
             continue
 
 
+class Ended(Exception):
+    """The hook was told to end while its run was going."""
+
+
+def _ended(signum, frame):
+    raise Ended(signum)
+
+
+def _hold() -> dict:
+    """Have SIGTERM and SIGHUP end the run before the hook ends; the handlers they replace, to restore."""
+    held = {}
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        try:
+            held[sig] = signal.signal(sig, _ended)
+        except (ValueError, OSError):
+            pass        # not the main thread: the hook's own run is always on it
+    return held
+
+
 def _end(child: subprocess.Popen) -> None:
     """End the run's whole process group, whatever it started, and reap it."""
     try:
@@ -85,11 +105,13 @@ def make(target: str, where: pathlib.Path, env: dict, timeout: int, clock=time.t
     if exe is None:
         return False, ("make is not on PATH, so `make %s` did not run in %s. Put make on PATH; the same checks "
                        "run without it as python3 -m tools.verify%s." % (target, where, " --fast" if target == "fast" else ""))
+    asked = time.monotonic()
     sweep(env, clock())
     try:
         root = tempfile.mkdtemp(prefix=PREFIX, dir=temporary(env))
     except OSError as err:
         return False, "`make %s` could not start in %s: %s." % (target, where, err)
+    child, held = None, _hold()
     try:
         try:
             child = subprocess.Popen([exe, target], cwd=str(where), env=dict(env, TMPDIR=root, TMP=root, TEMP=root),
@@ -98,14 +120,16 @@ def make(target: str, where: pathlib.Path, env: dict, timeout: int, clock=time.t
         except OSError as err:
             return False, "`make %s` could not start in %s: %s." % (target, where, err)
         try:
-            out, _ = child.communicate(timeout=timeout)
+            out, _ = child.communicate(timeout=max(1.0, timeout - (time.monotonic() - asked)))
         except subprocess.TimeoutExpired:
-            _end(child)
             return False, UNFINISHED % (target, timeout, where)
-        _end(child)
         return child.returncode == 0, tail(out)
     finally:
+        if child is not None:
+            _end(child)
         shutil.rmtree(root, ignore_errors=True)
+        for sig, handler in held.items():
+            signal.signal(sig, handler)
 
 
 def lacks(target: str, where: pathlib.Path, env: dict) -> bool:

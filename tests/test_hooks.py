@@ -14,6 +14,7 @@ import pathlib
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -61,7 +62,8 @@ def programs(*names: str) -> str:
 
 
 def environment(path: str, **extra: str) -> dict:
-    env = {"PATH": path, "HOME": HOME, "GIT_CONFIG_NOSYSTEM": "1", "FAKE_GH_USER": WHO["login"]}
+    env = {"PATH": path, "HOME": HOME, "GIT_CONFIG_NOSYSTEM": "1", "FAKE_GH_USER": WHO["login"],
+           "TMPDIR": tempfile.gettempdir()}
     env.update(extra)
     return env
 
@@ -1817,6 +1819,7 @@ class BeforeStop(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("was not started in %s" % where, json.loads(out)["systemMessage"])
         self.assertIn("100 seconds ago", json.loads(out)["systemMessage"])
+        self.assertIn("delete %s" % record, json.loads(out)["systemMessage"])
         # Past RETRY it is started again, and a verify that finished is no reason to skip one.
         self.assertEqual(before_stop.respond(payload, env, clock=lambda: 1000.0 + before_stop.RETRY)[0], 2)
         self.assertEqual(json.loads(record.read_text())["finished"], True)
@@ -1827,6 +1830,15 @@ class BeforeStop(unittest.TestCase):
             self.assertEqual(before_stop.respond(payload, env, clock=lambda: 2.0)[0], 2, text)
         # Where there is no git directory to write in, every stop runs it.
         self.assertIsNone(before_stop.record_of(folder(), env))
+        # A run the hook was told to end did not run out of time, and is not written down: the next stop runs it.
+        record.unlink()
+
+        def told_to_end(*args):
+            raise make.Ended(15)
+        with unittest.mock.patch.object(before_stop.make, "make", told_to_end), self.assertRaises(make.Ended):
+            before_stop.respond(payload, env, clock=lambda: 3000.0)
+        self.assertFalse(record.exists())
+        self.assertEqual(before_stop.respond(payload, env, clock=lambda: 3001.0)[0], 2)
 
 
 class MakeLeavesNothing(unittest.TestCase):
@@ -1840,6 +1852,13 @@ class MakeLeavesNothing(unittest.TestCase):
             "[ -n \"$QUICK\" ] && exit 0\nsleep 30\n")
         (bin_dir / "make").chmod(0o755)
         return environment(str(bin_dir) + ":/usr/bin:/bin", TMPDIR=str(self.place), OUTSIDE=str(self.outside))
+
+    def started(self) -> None:
+        """Wait for the stand-in make to have started its background process."""
+        for _ in range(100):
+            if (self.outside / "pid").is_file() and (self.outside / "pid").read_text().strip():
+                return
+            time.sleep(0.1)
 
     def gone(self, pid: int) -> bool:
         for _ in range(50):
@@ -1863,16 +1882,29 @@ class MakeLeavesNothing(unittest.TestCase):
         env = dict(self.slow(), QUICK="1")
         before = sorted(os.listdir(self.place))
         # And it first removes what a killed hook's run left, once it is stale.
-        left = self.place / (make.PREFIX + "left")
+        left, now = self.place / (make.PREFIX + "left"), os.stat(str(self.place)).st_mtime
         left.mkdir()
-        os.utime(str(left), (time.time() - make.STALE - 60,) * 2)
-        self.assertEqual(make.make("verify", a_project(), env, 30)[0], True)
+        os.utime(str(left), (now - make.STALE - 60,) * 2)
+        self.assertEqual(make.make("verify", a_project(), env, 30, clock=lambda: now)[0], True)
+        self.assertEqual(sorted(os.listdir(self.place)), before)
+        self.assertTrue(self.gone(int((self.outside / "pid").read_text())))
+
+    def test_a_hook_told_to_end_ends_its_run_and_leaves_nothing(self):
+        # SIGTERM to the hook, as when the person stops it, ends the run's whole group and removes its folder.
+        env = self.slow()
+        before = sorted(os.listdir(self.place))
+        script = ("import pathlib, sys\nsys.path.insert(0, %r)\nfrom tools.hooks import make\n"
+                  "make.make('verify', pathlib.Path(%r), %r, 30)\n" % (str(ROOT), str(a_project()), env))
+        hook_ = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.started()
+        hook_.send_signal(signal.SIGTERM)
+        hook_.wait(timeout=30)
         self.assertEqual(sorted(os.listdir(self.place)), before)
         self.assertTrue(self.gone(int((self.outside / "pid").read_text())))
 
     def test_a_folder_a_killed_hook_left_is_removed_once_it_is_stale(self):
         place = folder()
-        now = time.time()
+        now = os.stat(str(place)).st_mtime
         for name, age in (("sf-make-old", make.STALE + 60), ("sf-make-new", 60), ("other-old", make.STALE + 60)):
             (place / name).mkdir()
             (place / name / "x").write_text("data")

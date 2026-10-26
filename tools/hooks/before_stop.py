@@ -4,9 +4,10 @@ At the next stop it ends and the person is told: a hook that sent it back for ev
 no bound and no person. With nothing changed and nothing unpushed there is nothing to verify, so a
 turn spent answering questions costs nothing. Run as `python3 -I` on this file; see after_edit.py.
 
-A verify it cannot finish is not started (issue 344): each run is written down in the tree's git
-directory before it starts and when it ends, and while the last one there did not finish, within
-RETRY, the session is told so and ends; CI runs verify as before. Hooks are helpers; only CI enforces.
+A verify it cannot finish is not started (issue 344): each run that ends, or runs out of the hook's
+time, is written down in the tree's git directory, and while the last one there ran out of time,
+within RETRY, the session is told so and ends; CI runs verify as before. A run the hook was told to
+end is not written down. Hooks are helpers; only CI enforces.
 """
 from __future__ import annotations
 
@@ -24,7 +25,7 @@ from tools.hooks import make  # noqa: E402
 TIMEOUT = 580       # seconds; the settings give the hook 600
 TOLD = 15           # lines of the failure put in front of the person
 RETRY = 3600        # seconds after a verify that did not finish before one is started again
-RECORD = "sf-stop-verify.json"   # in the tree's git directory: the last verify's start and whether it finished
+RECORD = "sf-stop-verify.json"   # in the tree's git directory: the last verify's start and whether it finished in time
 
 
 def _git(where: pathlib.Path, env: dict, args: list):
@@ -79,6 +80,7 @@ def note(record, started: float, finished: bool) -> None:
 
 def respond(payload: dict, env: dict, clock=time.time) -> tuple:
     """(exit code, stdout, stderr) for this stop."""
+    asked = time.monotonic()
     base = make.project(env)
     where = make.tree(base, payload.get("cwd")) or base
     if nothing_to_verify(where, env):
@@ -87,12 +89,12 @@ def respond(payload: dict, env: dict, clock=time.time) -> tuple:
     ago = unfinished(record, now)
     if ago is not None:
         told = ("`make verify` was not started in %s: the last one there, %d seconds ago, did not finish in the %d "
-                "seconds the hook has. CI runs it; run it yourself to see it now." % (where, ago, TIMEOUT))
+                "seconds the hook has. CI runs it. To have it run at the next stop, delete %s." % (where, ago, TIMEOUT,
+                                                                                                record))
         return 0, json.dumps({"systemMessage": told}) + "\n", ""
-    note(record, now, False)
-    passed, said = make.make("verify", where, env, TIMEOUT)
-    if not said.startswith(make.UNFINISHED % ("verify", TIMEOUT, where)):
-        note(record, now, True)
+    budget = max(1, int(TIMEOUT - (time.monotonic() - asked)))
+    passed, said = make.make("verify", where, env, budget)
+    note(record, now, not said.startswith(make.UNFINISHED % ("verify", budget, where)))
     if passed:
         return 0, "", ""
     if payload.get("stop_hook_active") is True:
