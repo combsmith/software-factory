@@ -1910,6 +1910,7 @@ class MakeLeavesNothing(unittest.TestCase):
 
     def test_a_relative_temporary_place_is_the_hooks_never_the_runs(self):
         # TMPDIR read where the hook stands: a run in another directory makes nothing there.
+        self.assertEqual(make.temporary({"TMPDIR": "rel"}), os.path.abspath("rel"))
         env = dict(self.slow(), QUICK="1", TMPDIR="rel")
         where, here = a_project(), folder()
         old = os.getcwd()
@@ -1921,6 +1922,23 @@ class MakeLeavesNothing(unittest.TestCase):
             os.chdir(old)
         self.assertFalse((where / "rel").exists())
         self.assertEqual(os.listdir(str(here / "rel")), [])
+
+    def test_a_process_of_a_session_of_its_own_does_not_hold_the_hook(self):
+        # One that keeps the output open is not waited for: the hook ends when its run's group does.
+        bin_dir, outside = folder(), folder()
+        sleeper = ("import subprocess, sys\nchild = subprocess.Popen(['sleep', '60'], start_new_session=True)\n"
+                   "open(sys.argv[1], 'w').write(str(child.pid))\n")
+        (bin_dir / "make").write_text("#!/bin/sh\n%s -c \"%s\" \"$OUTSIDE/pid\"\nsleep 30\n"
+                                      % (sys.executable, sleeper.replace('"', '\\"')))
+        (bin_dir / "make").chmod(0o755)
+        env = environment(str(bin_dir) + ":/usr/bin:/bin", TMPDIR=str(folder()), OUTSIDE=str(outside))
+        self.assertEqual(make.make("verify", a_project(), env, 1)[0], False)
+        pid = int((outside / "pid").read_text())
+        try:
+            # It returned while the process that holds its output still lives.
+            os.kill(pid, 0)
+        finally:
+            os.kill(pid, signal.SIGKILL)
 
     def test_a_folder_a_killed_hook_left_is_removed_once_it_is_stale(self):
         place = folder()

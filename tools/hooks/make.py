@@ -91,13 +91,21 @@ def _hold() -> dict:
     return held
 
 
+REAP = 5        # seconds to wait for the run itself once its group is killed
+
 def _end(child: subprocess.Popen) -> None:
-    """End the run's whole process group, whatever it started, and reap it."""
+    """End the run's whole process group, whatever it started, and reap it. The output is not read on: a process of
+    a session of its own may hold it open for as long as it lives."""
     try:
         os.killpg(child.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
-    child.communicate()
+    if child.stdout is not None:
+        child.stdout.close()
+    try:
+        child.wait(timeout=REAP)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def make(target: str, where: pathlib.Path, env: dict, timeout: int, clock=time.time) -> tuple:
