@@ -43,6 +43,6 @@ of every write by a Factory identity to a recorded Effect (I-33) to
 | The act approves no change to a model Lens's own inputs that no different person approved | `tests/test_approve.py::test_the_act_approves_no_change_to_a_model_lenss_inputs_that_no_judge_approved` |
 | Each fault is classed as the table says, by its status and what is read again, and never as `capacity` | `tests/test_approve.py::test_each_fault_of_the_act_is_classed_as_the_design_classes_it` |
 | `approve` is an Effect `applied/1` records and no Result may ask for | `tests/test_approve.py::test_an_approval_is_an_effect_apply_records_and_no_result_may_ask_for`, `examples/invalid/result.asks-for-an-approval.json` |
-| The act's workflow has the shape above, and no other workflow names `APPROVER_TOKEN` | waiting on `.github/workflows/approve-job.yml`, held by the `approve` rule of `tools/check_workflows.py` from its first commit |
+| The act's workflow has the shape above, and no other workflow names `APPROVER_TOKEN` | `tests/test_tools.py::test_the_approving_act_holds_the_approvers_token_alone`, `tests/test_tools.py::test_a_key_and_its_environment_are_named_by_their_one_file` |
 | The step runs on `factory-approve` with the approver's token alone, reading the item as the pass does | waiting on `.github/workflows/approve.yml` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
