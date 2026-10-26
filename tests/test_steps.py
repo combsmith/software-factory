@@ -149,13 +149,14 @@ class WorkflowForm(unittest.TestCase):
         self.assertEqual(steps.given([], {}, ("NAME",), ("applied", "outcome")), [None, "applied", "outcome"])
         seen = []
         for module, folders in ((read, ["task"]), (verify, ["result", "verdict"]), (apply_step, ["result", "applied"]),
-                                (outcome, ["applied", "outcome"]), (approve_step, ["applied"])):
+                                (outcome, ["applied", "outcome", "reader-outcome"]), (approve_step, ["applied"])):
             with tempfile.TemporaryDirectory() as d:
                 with unittest.mock.patch.object(steps, "given", lambda a, e, i, f: seen.append((module, list(f))) or
                                                 (_ for _ in ()).throw(steps.Stop("seen"))):
                     ran(module.step, [], env, d)
         self.assertEqual(seen, [(m, f) for m, f in ((read, ["task"]), (verify, ["result", "verdict"]),
-                                                    (apply_step, ["result", "applied"]), (outcome, ["applied", "outcome"]),
+                                                    (apply_step, ["result", "applied"]),
+                                                    (outcome, ["applied", "outcome", "reader-outcome"]),
                                                     (approve_step, ["applied"]))])
 
     def test_run_hands_on_the_digest_alone_as_its_steps_output(self):
@@ -171,7 +172,9 @@ class WorkflowForm(unittest.TestCase):
 class Reader(unittest.TestCase):
     """The reader's step, its ports stood in for: what it reads, what it holds them to, and its token."""
 
-    def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, refs=TAGS):
+    def go(self, record=RECORD, head=HEAD, first=HEAD, change=DIFF, revoked=True, argv=None, environ=None, refs=TAGS,
+           commit=CHECKED_OUT):
+        """`commit` is what `steps.commit()` gives, or a function that stands in for it."""
         calls = {"minted": [], "revoked": 0, "tags": []}
 
         def tags_read(transport, repo):
@@ -192,13 +195,14 @@ class Reader(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, \
                 unittest.mock.patch.object(identity, "from_key", from_key), \
                 unittest.mock.patch.object(passes, "find", lambda *a: copy.deepcopy(record)), \
+                unittest.mock.patch.object(read.steps, "commit", commit if callable(commit) else lambda: commit), \
                 unittest.mock.patch.object(read.tags, "read", tags_read), \
                 unittest.mock.patch.object(read.facts_, "snapshot", lambda *a, **k: (facts, "title", head)), \
                 unittest.mock.patch.object(read.pull, "read", lambda *a: pulled), \
                 unittest.mock.patch.object(read.pull, "base", lambda *a: {"head": "b" * 40}), \
                 unittest.mock.patch.object(read.pull, "change", lambda *a: change):
             code, printed = ran(read.step, argv or [NAME, ITEM, PASS, "task"],
-                                environ if environ is not None else {read.KEY: "the key", read.COMMIT: CHECKED_OUT}, d)
+                                environ if environ is not None else {read.KEY: "the key"}, d)
             folder = pathlib.Path(d, "task")
             files = sorted(p.name for p in folder.iterdir()) if folder.is_dir() else None
             kept = {n: (folder / n).read_bytes() for n in files or ()}
@@ -251,6 +255,12 @@ class Reader(unittest.TestCase):
                 pathlib.Path(d, folder, "outcome.json").write_bytes(said)
             env = {"RELEASE": "factory/v0.3.2"}
             self.assertEqual(ran(outcome.step, [NAME, "applied", "o", "task"], env, d), (1, "release_moved\n"))
+            # The workflow's form: the run job's `reader-outcome` artifact, downloaded to the folder of its name.
+            os.rename(os.path.join(d, "task"), os.path.join(d, "reader-outcome"))
+            self.assertEqual(ran(outcome.step, [], dict(env, NAME=NAME), d), (1, "release_moved\n"))
+            self.assertEqual(json.loads(pathlib.Path(d, "outcome", "outcome.json").read_bytes()),
+                             json.loads(kept["outcome.json"]))
+            os.rename(os.path.join(d, "reader-outcome"), os.path.join(d, "task"))
             self.assertEqual(json.loads(pathlib.Path(d, "o", "outcome.json").read_bytes()), json.loads(kept["outcome.json"]))
             # Without the reader's folder, or under another Release than the reader's, `apply`'s word stands.
             self.assertEqual(ran(outcome.step, [NAME, "applied", "o2"], env, d), (1, "run_failed\n"))
@@ -269,11 +279,15 @@ class Reader(unittest.TestCase):
         # Never the pass record's Release in its place: with none named, nothing is written but the code.
         for change in ({"refs": None}, {"refs": {"factory/v0-next": CHECKED_OUT}},
                        {"refs": dict(TAGS, **{"factory/v0.3.2": CHECKED_OUT})},
-                       {"environ": {read.KEY: "the key"}}, {"environ": {read.KEY: "the key", read.COMMIT: "HEAD"}},
-                       {"environ": {read.KEY: "the key", read.COMMIT: CHECKED_OUT.upper()}}):
+                       {"commit": None}, {"commit": "HEAD"}, {"commit": CHECKED_OUT.upper()}):
             with self.subTest(change=change):
                 code, printed, files, _, calls = self.go(**change)
                 self.assertEqual((code, printed, files, calls["revoked"]), (1, "release_unresolved\n", [], 1))
+        # The commit is the job's own, `steps.commit()`, read before any key: a checkout it cannot read mints nothing.
+        def unreadable():
+            raise steps.Stop("release_unreadable")
+        code, printed, files, _, calls = self.go(commit=unreadable)
+        self.assertEqual((code, printed, calls["minted"]), (1, "release_unreadable\n", []))
 
     def test_the_reader_fails_closed(self):
         def varied(change):

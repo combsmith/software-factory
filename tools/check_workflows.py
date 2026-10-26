@@ -203,6 +203,7 @@ jobs:
       commit: ${{ steps.commit.outputs.commit }}
       digest: ${{ steps.engine.outputs.digest }}
       artifact: ${{ steps.result.outputs.artifact-id }}
+      reader: ${{ steps.reader.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -241,6 +242,14 @@ jobs:
           name: result
           path: result/
           if-no-files-found: error
+      - name: Upload the reader's outcome, which it leaves when the Run's Release is not its pass's
+        id: reader
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reader-outcome
+          path: task/outcome.json
+          if-no-files-found: ignore
   verify:
     needs: run
     runs-on: ubuntu-24.04
@@ -289,6 +298,11 @@ jobs:
         with:
           artifact-ids: ${{ needs.run.outputs.artifact }}
           path: result
+      - if: always() && needs.run.outputs.reader != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.run.outputs.reader }}
+          path: reader-outcome
       - name: Apply the Result
         if: always()
         env:

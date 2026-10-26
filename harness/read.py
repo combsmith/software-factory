@@ -13,7 +13,7 @@ for `python3 -m harness.run OUT RESULT`. The token is revoked before the step en
 GitHub did not revoke fails the step, so the model's step never starts beside a live reader token.
 
 Before anything else is read, the Run's own Release is named: the one Release tag, among the `factory/` tags read with
-that token, on the commit the job checked out, `RELEASE_COMMIT` (#197's rulings 8 and 11). A Run whose own Release is
+that token, on the commit the job checked out, `steps.commit()`, the one the job hands on (#197's rulings 8 and 11). A Run whose own Release is
 not its pass record's builds no Task: OUT holds its `outcome/1` alone, `superseded`, `release_moved`, and the step stops
 by that code. One whose own Release cannot be named stops `release_unresolved` and writes nothing; the pass record's
 Release is never taken for it.
@@ -40,7 +40,6 @@ APP = "reader"
 KEY = "READER_APP_KEY"
 ITEM = re.compile(r"([A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100})#([1-9][0-9]{0,8})")
 FILES = ("record.json", "run", "facts.json", "diff", "texts.json", "role.json", "findings.json")
-COMMIT = "RELEASE_COMMIT"
 
 
 class ReleaseMoved(Stop):
@@ -142,6 +141,7 @@ def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
     config = configuration.load(steps.ROOT, None, APP)
     parts = asked(name, item, pass_id, config["controller"]["home"]["repo"])
     folder = steps.new_folder(base, out)
+    commit = steps.commit()     # the commit this job checked out and hands on, read before any key is
     try:
         transport, revoke = identity.from_key(config["app"], config["controller"]["home"]["repo"], wanted(config),
                                               environ.get(KEY), int(clock()), connect)
@@ -149,7 +149,7 @@ def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
         raise Stop(str(err)) from None
     utc = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(clock())))
     try:
-        found = reads(transport, config, parts, pass_id, utc, environ.get(COMMIT))
+        found = reads(transport, config, parts, pass_id, utc, commit)
     except BaseException as err:
         # The token is revoked whatever stopped the reads, and one GitHub did not revoke is the step's one code.
         if revoke() is not True:

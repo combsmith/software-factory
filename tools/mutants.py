@@ -7432,14 +7432,14 @@ MUTANTS = ISSUE + [
      ('tests.test_steps.Apply.test_apply_reads_with_reads',)),
     # #196 PR 2b-2: the Release a step runs as, read from its checkout's one Release tag.
     ('two Release tags are read as their first', 'harness/steps.py',
-     '    if len(names) > 1:\n        raise Stop("release_twice")\n',
-     '', ('tests.test_steps.ReleaseName.test_the_release_is_its_one_tag',)),
+     '        raise Stop("release_twice" if sum(1 for name in refs if current.version(name)) > 1 else "release_untagged")',
+     '        raise Stop("release_untagged")', ('tests.test_steps.ReleaseName.test_the_release_is_its_one_tag',)),
     ("the Channel's tag is a Release", 'harness/steps.py',
-     'TAG = re.compile(r"factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)")',
-     'TAG = re.compile(r"factory/v.*")', ('tests.test_steps.ReleaseName.test_the_release_is_its_one_tag',)),
+     '    refs = {line.strip(): HEAD for line in listed if line.strip()}',
+     '    refs = {line.strip().replace("-next", ".0.0"): HEAD for line in listed if line.strip()}', ('tests.test_steps.ReleaseName.test_the_release_is_its_one_tag',)),
     ('a checkout with no Release tag is one', 'harness/steps.py',
-     '    if not names:\n        raise Stop("release_untagged")\n',
-     '    if not names:\n        return "factory/v0.0.0"\n', ('tests.test_steps.ReleaseName.test_the_release_is_its_one_tag',)),
+     '    if found is None:\n        raise Stop(',
+     '    if found is None and refs:\n        raise Stop(', ('tests.test_steps.ReleaseName.test_the_release_is_its_one_tag',)),
     ('git that failed is read as no tag', 'harness/steps.py',
      '    if done.returncode != 0:\n        raise Stop("release_unreadable")\n',
      '', ('tests.test_steps.ReleaseName.test_the_release_is_its_one_tag',)),
@@ -7708,6 +7708,12 @@ MUTANTS = ISSUE + [
     ('any outcome the reader left is kept', 'harness/outcome.py',
      ' \\\n            and (moved["outcome"], moved["reason"]) == MOVED:',
      ':', ('tests.test_steps.Reader.test_a_run_on_another_release_than_its_pass_builds_no_task',)),
+    ('the reader names its Release from a commit it was given', 'harness/read.py',
+     '    commit = steps.commit()     # the commit this job checked out and hands on, read before any key is\n',
+     '    commit = environ.get("RELEASE_COMMIT")\n', ('tests.test_steps.Reader.test_a_run_on_another_release_than_its_pass_builds_no_task', 'tests.test_steps.Reader.test_a_run_whose_own_release_cannot_be_named_builds_no_task')),
+    ("the reader's outcome is not read in the workflow's form", 'harness/outcome.py',
+     '    argv = steps.given(argv, environ, ("NAME",), ("applied", "outcome", "reader-outcome"))',
+     '    argv = steps.given(argv, environ, ("NAME",), ("applied", "outcome"))', ('tests.test_steps.Reader.test_a_run_on_another_release_than_its_pass_builds_no_task',)),
 ]
 
 
