@@ -2614,102 +2614,6 @@
           "kind": "person",
           "name": "don-petry"
         },
-        "via": "graphql",
-        "call": "POST /graphql (gh api graphql): query FactsThreads, adapters/threads.py's own read, of pull request 55, as the Maintainer",
-        "headers": {
-          "accept": "application/vnd.github+json"
-        },
-        "body": {
-          "query": "query FactsThreads($owner: String!, $name: String!, $number: Int!, $after: String) {\n  repository(owner: $owner, name: $name) {\n    pullRequest(number: $number) {\n      reviewThreads(first: 100, after: $after) {\n        totalCount\n        pageInfo { hasNextPage endCursor }\n        nodes {\n          id isResolved\n          resolvedBy { login databaseId }\n          comments(first: 1) {\n            nodes {\n              createdAt\n              replyTo { id }\n              author { __typename login ... on User { databaseId } ... on Bot { databaseId } }\n            }\n          }\n        }\n      }\n    }\n  }\n}",
-          "variables": {
-            "owner": "combsmith",
-            "name": "software-factory-canary",
-            "number": 55,
-            "after": null
-          }
-        }
-      },
-      "response": {
-        "status": 200,
-        "headers": {
-          "content-type": "application/json; charset=utf-8",
-          "date": "Mon, 26 Oct 2026 02:09:38 GMT",
-          "server": "github.com",
-          "vary": "Accept-Encoding, Accept, X-Requested-With",
-          "x-accepted-oauth-scopes": "repo",
-          "x-github-media-type": "github.v4; format=json",
-          "x-github-request-id": "D269:352E71:B3E245:251F55A:6ADEB662",
-          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
-          "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4554",
-          "x-ratelimit-reset": "1792982879",
-          "x-ratelimit-resource": "graphql",
-          "x-ratelimit-used": "446"
-        },
-        "body": {
-          "data": {
-            "repository": {
-              "pullRequest": {
-                "reviewThreads": {
-                  "totalCount": 2,
-                  "pageInfo": {
-                    "hasNextPage": false,
-                    "endCursor": "Y3Vyc29yOnYyOpK0MjAyNi0xMC0yM1QwMDowNTo1MVrOr2z6yg=="
-                  },
-                  "nodes": [
-                    {
-                      "id": "PRRT_kwDOVFD6786vbPoG",
-                      "isResolved": true,
-                      "resolvedBy": {
-                        "login": "combsmith-sf-trial-author[bot]",
-                        "databaseId": 344141469
-                      },
-                      "comments": {
-                        "nodes": [
-                          {
-                            "createdAt": "2026-10-23T00:05:47Z",
-                            "replyTo": null,
-                            "author": {
-                              "__typename": "Bot",
-                              "login": "combsmith-sf-trial-author",
-                              "databaseId": 344141469
-                            }
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "id": "PRRT_kwDOVFD6786vbPrK",
-                      "isResolved": false,
-                      "resolvedBy": null,
-                      "comments": {
-                        "nodes": [
-                          {
-                            "createdAt": "2026-10-23T00:05:53Z",
-                            "replyTo": null,
-                            "author": {
-                              "__typename": "Bot",
-                              "login": "combsmith-sf-trial-author",
-                              "databaseId": 344141469
-                            }
-                          }
-                        ]
-                      }
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "request": {
-        "as": {
-          "kind": "person",
-          "name": "don-petry"
-        },
         "via": "rest",
         "call": "PATCH /repos/combsmith/software-factory-canary/pulls/55 (gh api -X PATCH -f state=closed): the trial's pull request closed",
         "headers": {
@@ -3147,8 +3051,104 @@
           "kind": "person",
           "name": "don-petry"
         },
+        "via": "graphql",
+        "call": "POST /graphql (gh api graphql): query FactsThreads, adapters/threads.py's own read, of pull request 55, as the Maintainer, on 2026-10-26, the pull request closed and its branch gone",
+        "headers": {
+          "accept": "application/vnd.github+json"
+        },
+        "body": {
+          "query": "query FactsThreads($owner: String!, $name: String!, $number: Int!, $after: String) {\n  repository(owner: $owner, name: $name) {\n    pullRequest(number: $number) {\n      reviewThreads(first: 100, after: $after) {\n        totalCount\n        pageInfo { hasNextPage endCursor }\n        nodes {\n          id isResolved\n          resolvedBy { login databaseId }\n          comments(first: 1) {\n            nodes {\n              createdAt\n              replyTo { id }\n              author { __typename login ... on User { databaseId } ... on Bot { databaseId } }\n            }\n          }\n        }\n      }\n    }\n  }\n}",
+          "variables": {
+            "owner": "combsmith",
+            "name": "software-factory-canary",
+            "number": 55,
+            "after": null
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 26 Oct 2026 02:09:38 GMT",
+          "server": "github.com",
+          "vary": "Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "repo",
+          "x-github-media-type": "github.v4; format=json",
+          "x-github-request-id": "D269:352E71:B3E245:251F55A:6ADEB662",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4554",
+          "x-ratelimit-reset": "1792982879",
+          "x-ratelimit-resource": "graphql",
+          "x-ratelimit-used": "446"
+        },
+        "body": {
+          "data": {
+            "repository": {
+              "pullRequest": {
+                "reviewThreads": {
+                  "totalCount": 2,
+                  "pageInfo": {
+                    "hasNextPage": false,
+                    "endCursor": "Y3Vyc29yOnYyOpK0MjAyNi0xMC0yM1QwMDowNTo1MVrOr2z6yg=="
+                  },
+                  "nodes": [
+                    {
+                      "id": "PRRT_kwDOVFD6786vbPoG",
+                      "isResolved": true,
+                      "resolvedBy": {
+                        "login": "combsmith-sf-trial-author[bot]",
+                        "databaseId": 344141469
+                      },
+                      "comments": {
+                        "nodes": [
+                          {
+                            "createdAt": "2026-10-23T00:05:47Z",
+                            "replyTo": null,
+                            "author": {
+                              "__typename": "Bot",
+                              "login": "combsmith-sf-trial-author",
+                              "databaseId": 344141469
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": "PRRT_kwDOVFD6786vbPrK",
+                      "isResolved": false,
+                      "resolvedBy": null,
+                      "comments": {
+                        "nodes": [
+                          {
+                            "createdAt": "2026-10-23T00:05:53Z",
+                            "replyTo": null,
+                            "author": {
+                              "__typename": "Bot",
+                              "login": "combsmith-sf-trial-author",
+                              "databaseId": 344141469
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
         "via": "cli",
-        "call": "python3, in a scratch directory outside the repo: the App's resolveReviewThread (a GraphQL write, which a fixture keeps in no exchange of its own, from the App's run), and what exchanges 11, 19 and 22 say of resolvedBy and of the thread whose first comment was deleted",
+        "call": "python3, in a scratch directory outside the repo: the App's resolveReviewThread (a GraphQL write, which a fixture keeps in no exchange of its own, from the App's run), and what exchanges 11, 19 and 24 say of resolvedBy and of the thread whose first comment was deleted",
         "headers": {},
         "body": null
       },
@@ -3214,6 +3214,25 @@
     }
   ],
   "removed": [
+    "exchanges[0].request.headers.authorization",
+    "exchanges[1].request.headers.authorization",
+    "exchanges[2].request.headers.authorization",
+    "exchanges[3].request.headers.authorization",
+    "exchanges[4].request.headers.authorization",
+    "exchanges[5].request.headers.authorization",
+    "exchanges[6].request.headers.authorization",
+    "exchanges[7].request.headers.authorization",
+    "exchanges[8].request.headers.authorization",
+    "exchanges[9].request.headers.authorization",
+    "exchanges[10].request.headers.authorization",
+    "exchanges[11].request.headers.authorization",
+    "exchanges[12].request.headers.authorization",
+    "exchanges[13].request.headers.authorization",
+    "exchanges[14].request.headers.authorization",
+    "exchanges[15].request.headers.authorization",
+    "exchanges[16].request.headers.authorization",
+    "exchanges[17].request.headers.authorization",
+    "exchanges[18].request.headers.authorization",
     "exchanges[19].request.headers.authorization",
     "exchanges[20].request.headers.authorization",
     "exchanges[21].request.headers.authorization",

@@ -1965,9 +1965,12 @@ class Threads(unittest.TestCase):
         got, whole = read()
         self.assertTrue(whole)
         resolved, kept = got
-        self.assertEqual((resolved["resolved"], resolved["resolved_by"]["kind"], resolved["resolved_by"]["id"]),
-                         (True, "app", resolved["opened_by"]["id"]))
-        self.assertEqual(kept["opened_by"], resolved["opened_by"])
+        self.assertEqual((resolved["resolved"], resolved["resolved_by"]), (True, resolved["opened_by"]))
+        self.assertNotEqual(resolved["resolved_by"]["kind"], "human")
+        # The second thread was opened by the App's review at the time that review was submitted, before its reply.
+        opened = [e for e in json.loads((ROOT / "trials" / "P-49.json").read_text())["exchanges"]
+                  if e["request"]["call"].endswith("/pulls/55/reviews")][1]["response"]["body"]["submitted_at"]
+        self.assertEqual((kept["opened_by"], kept["opened_at"]), (resolved["opened_by"], opened))
 
 
 def p26_checks_nodes(exchange: dict) -> list:
