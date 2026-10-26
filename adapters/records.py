@@ -162,10 +162,15 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
         record["dispatched_at"] = created
     except ValueError:
         pass
+    # An attempt, or a re-run's re-runner, GitHub gives none of that can be read is null: reconciliation cannot tell.
     attempt = row.get("run_attempt")
-    if isinstance(attempt, int) and not isinstance(attempt, bool) and attempt > 1:
-        again = row.get("triggering_actor") if isinstance(row.get("triggering_actor"), dict) else {}
-        record["rerun_by_dispatcher"] = (again.get("id"), again.get("type")) == dispatcher
+    again = row.get("triggering_actor") if isinstance(row.get("triggering_actor"), dict) else {}
+    if not (isinstance(attempt, int) and not isinstance(attempt, bool) and attempt >= 1):
+        record["rerun_by_dispatcher"] = None
+    elif attempt > 1:
+        told = isinstance(again.get("id"), int) and not isinstance(again.get("id"), bool) and again["id"] > 0 \
+            and again.get("type") in ("User", "Bot")
+        record["rerun_by_dispatcher"] = (again["id"], again["type"]) == dispatcher if told else None
     return (record, None)
 
 

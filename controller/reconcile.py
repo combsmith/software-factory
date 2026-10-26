@@ -121,6 +121,9 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
                 unmatched.append({"by": "workflow_token", "kind": "dispatch", "item": r["item"], "key": r["run"]})
             if r.get("rerun_by_dispatcher") is True and r["started_at"] >= since:
                 unmatched.append({"by": "workflow_token", "kind": "rerun", "item": r["item"], "key": r["run"]})
+            # A re-run whose re-runner, or a run whose attempt, cannot be read cannot be told from the token's.
+            if "rerun_by_dispatcher" in r and r["rerun_by_dispatcher"] is None and r["started_at"] >= since:
+                short = True
     if token and not isinstance(runs, list):
         short = True
     for m in seen["merged"] if readable else []:

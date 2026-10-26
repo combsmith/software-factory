@@ -185,6 +185,10 @@ class Matching(unittest.TestCase):
                                      accounts=TOKEN)), [("workflow_token", "rerun")])
         self.assertEqual(kinds(check(seen(), recorded(), records(dict(rerun, rerun_by_dispatcher=True)), accounts=TOKEN)),
                          [("workflow_token", "rerun")])
+        # A re-run whose re-runner cannot be read cannot be told from the token's: reconciliation is short.
+        self.assertIs(check(seen(), recorded(), records(dict(rerun, rerun_by_dispatcher=None)), accounts=TOKEN)["short"],
+                      True)
+        self.assertIs(check(seen(), recorded(), records(rerun), accounts=TOKEN)["short"], False)
         # One that started before the window was reconciled by an earlier pass.
         old_rerun = dict(rerun, started_at="2026-10-10T13:00:00Z", rerun_by_dispatcher=True)
         self.assertEqual(check(seen(), recorded(), records(old_rerun), accounts=TOKEN)["unmatched"], [])
@@ -387,6 +391,29 @@ class SeenPort(unittest.TestCase):
             self.assertIs(seen_.read(GitHub(short), ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False, path)
         still_open = {**answers, ("GET", ISSUE + "/timeline?per_page=100"): events[:0]}
         self.assertIs(seen_.read(GitHub(still_open), ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False)
+        # A close or a merge alone says it left; one before the window, reopened since, does not.
+        for timeline_ in (events[:1], events[1:]):
+            ended = {**answers, ("GET", ISSUE + "/timeline?per_page=100"): timeline_}
+            self.assertIs(seen_.read(GitHub(ended), ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], True, timeline_)
+        reopened = {**answers, ("GET", ISSUE + "/timeline?per_page=100"): [
+            dict(events[0], created_at=EARLY), {"event": "reopened", "actor": PERSON, "created_at": EARLY}]}
+        self.assertIs(seen_.read(GitHub(reopened), ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False)
+        # Its threads and check runs are whole only when every one GitHub counts was read, of a head that can be read.
+        threads_more = {"data": {"repository": {"pullRequest": {"reviewThreads": {
+            "totalCount": 2, "pageInfo": {"hasNextPage": True}, "nodes": [{"id": "PRRT_l", "isResolved": False}]}}}}}
+        for change in ({("POST", "/graphql"): threads_more},
+                       {("POST", "/graphql"): {"data": {"repository": {"pullRequest": {"reviewThreads": {
+                           "totalCount": 2, "pageInfo": {"hasNextPage": False}, "nodes": []}}}}}},
+                       {("GET", "/repos/%s/commits/%s/check-runs?per_page=100" % (ITEM["repo"], head)): {
+                           "total_count": 2, "check_runs": []}},
+                       {("POST", "/graphql"): {"data": {"repository": {"pullRequest": {"reviewThreads": {
+                           "totalCount": 1, "pageInfo": {"hasNextPage": True},
+                           "nodes": [{"id": "PRRT_l", "isResolved": False}]}}}}}},
+                       {("GET", PULL): {"head": {"sha": "abc"}},
+                        ("GET", "/repos/%s/commits/abc/check-runs?per_page=100" % ITEM["repo"]): {
+                            "total_count": 0, "check_runs": []}}):
+            self.assertIs(seen_.read(GitHub({**answers, **change}), ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False,
+                          change)
 
     def test_a_list_that_cannot_be_read_whole_leaves_what_was_seen_short(self):  # ruling 5
         self.assertIs(port()[2], True)
@@ -432,6 +459,12 @@ class SeenPort(unittest.TestCase):
                       # An event GitHub gives no name for cannot be told from a write.
                       kept(events=[{"actor": PERSON, "created_at": AT}])):
             self.assertIs(port(parts)[2], False, parts)
+        # A review of a state GitHub does not give cannot be told.
+        self.assertIs(port(kept(reviews=[{"user": ROLE, "state": None, "node_id": "PRR_u", "submitted_at": AT}]))[2],
+                      False)
+        # A dismissed review whose state before cannot be read is read as an approval, so that a Role's alarms too.
+        writes, _, whole = port(kept(reviews=[dismissed]))
+        self.assertEqual(([(w["by"], w["kind"]) for w in writes], whole), ([("pr-review", "approval")], False))
         # A dismissed change request is what it was: a review.
         asked = kept(reviews=[dismissed], events=[{"event": "review_dismissed", "actor": PERSON, "created_at": AT,
                                                    "dismissed_review": {"review_id": 5,
@@ -516,6 +549,11 @@ class SeenPort(unittest.TestCase):
             github = Dated({day: entry})
             github.date = date
             self.assertIs(seen_.pushes(github, ITEM["repo"], APPROVER, SINCE, lambda: NOW)[1], whole, date)
+        # A period longer than GitHub's time needs covers the window all the same.
+        week = ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=week&per_page=100" % ITEM["repo"])
+        github = Dated({week: entry})
+        github.date = "Sun, 11 Oct 2026 13:00:00 GMT"
+        self.assertIs(seen_.pushes(github, ITEM["repo"], APPROVER, SINCE, lambda: "2026-10-12T03:00:00Z")[1], True)
 
     def test_seen_is_whole_only_when_every_part_was(self):
         whole, short = ([], [], True), ([], [], False)

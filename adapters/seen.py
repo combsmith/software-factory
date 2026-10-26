@@ -24,10 +24,9 @@ a write the Factory recorded, a check run's conclusion changed among them, keeps
 from __future__ import annotations
 
 import datetime
-import email.utils
 import re
 
-from adapters import threads, timeline
+from adapters import records, threads, timeline
 from adapters.github import Unanswered, request
 
 LEFT = "left"      # what `kept` is for an item the pass before served that is no longer open: nothing kept, read here
@@ -52,6 +51,8 @@ EVENTS = {"labeled": "label", "unlabeled": "label", "added_to_merge_queue": "enq
 # identity made is `other`, keyed by its event's name, so that an event GitHub adds alarms rather than going unread.
 NOT_WRITES = {"commented", "reviewed", "committed", "mentioned", "subscribed", "unsubscribed", "cross-referenced",
               "referenced", "line-commented", "commit-commented"}
+# The states GitHub gives a submitted review.
+STATES = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED")
 # A dismissed review's state before, as the timeline gives it, as the reviews list gives a review's state.
 DISMISSED = {"approved": "APPROVED", "changes_requested": "CHANGES_REQUESTED", "commented": "COMMENTED"}
 # What the repo's activity names each write to a branch.
@@ -157,7 +158,8 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         whole &= isinstance(got, tuple) and len(got) == 2 and isinstance(got[0], list) and got[1] is True
         parts[name] = got[0] if isinstance(got, tuple) and len(got) == 2 and isinstance(got[0], list) else []
     if kept == LEFT and item["type"] == "pull_request":
-        whole &= any(_object(e).get("event") in ("closed", "merged") for e in parts["events"])
+        whole &= any(_object(e).get("event") in ("closed", "merged") and _at(_object(e).get("created_at"), since)
+                     for e in parts["events"])
 
     def add(by, kind, key, at):
         writes.append({"by": by, "kind": kind, "item": dict(item), "key": key, "at": at})
@@ -177,6 +179,7 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         if by is None or at is None or r.get("state") == "PENDING":
             continue
         state = r.get("state")
+        whole &= state in STATES
         if state == "DISMISSED":
             # A dismissed review is what it was before it was dismissed: a Role's review is matched as one, and an
             # approval as an approval. One whose state before cannot be read leaves what was seen short.
@@ -255,14 +258,12 @@ def _period(since: str, now: str):
 
 
 def _dated(answer: dict):
-    """The answer's own time, from GitHub's `Date`, or None if it gives none that can be read."""
+    """The answer's own time, from GitHub's `Date`, read as the records port reads it, or None if it gives none that
+    can be read."""
     try:
-        when = email.utils.parsedate_to_datetime(str(_object(answer.get("headers")).get("date")))
-    except (TypeError, ValueError, IndexError):
+        return records._http_date(_object(answer.get("headers")).get("date"))
+    except Unanswered:
         return None
-    if when is None or when.tzinfo is None:
-        return None
-    return when.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def pushes(transport, repo: str, approver: dict, since: str, clock=_utc) -> tuple:
