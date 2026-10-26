@@ -34,6 +34,7 @@
         "write:deployment",
         "read:release.refs",
         "read:release.runs",
+        "read:release.checks",
         "read:facts.item",
         "read:facts.targets_protected",
         "read:facts.class",
@@ -109,6 +110,9 @@
           "$ref": "#/$defs/mapping"
         },
         "read:release.runs": {
+          "$ref": "#/$defs/mapping"
+        },
+        "read:release.checks": {
           "$ref": "#/$defs/mapping"
         },
         "read:facts.item": {
@@ -353,6 +357,7 @@
               "write:deployment",
               "read:release.refs",
               "read:release.runs",
+              "read:release.checks",
               "read:facts.item",
               "read:facts.targets_protected",
               "read:facts.class",
