@@ -1,13 +1,25 @@
-"""Run a make target for a hook, in the project or in one of its worktrees, and nowhere else."""
+"""Run a make target for a hook, in the project or in one of its worktrees, and nowhere else.
+
+A run leaves nothing behind (issue 344): it runs in a process group of its own, with a temporary
+folder of its own as every temporary folder's root, and when it ends, or runs out of time, the group
+is ended and the folder removed. A hook the session ends before that cannot remove its folder, so
+each run first removes such folders older than STALE.
+"""
 from __future__ import annotations
 
 import os
 import pathlib
 import shutil
+import signal
 import subprocess
+import tempfile
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TAIL = 40   # lines of output shown; the end of a run is where it says what failed
+PREFIX = "sf-make-"     # the temporary folder of one run
+STALE = 3600    # seconds; no run is given this long, so a folder this old is one a killed hook left
+UNFINISHED = "`make %s` did not finish in %d seconds in %s."
 
 
 def project(env: dict) -> pathlib.Path:
@@ -35,20 +47,65 @@ def _make(env: dict):
     return shutil.which("make", path=env.get("PATH", os.defpath))
 
 
-def make(target: str, where: pathlib.Path, env: dict, timeout: int) -> tuple:
-    """(passed, what to show). Without make, it did not pass, and says why in one sentence."""
+def temporary(env: dict) -> str:
+    """Where the runs' temporary folders are made: the one the hook's environment names, as the run's would be."""
+    return env.get("TMPDIR") or tempfile.gettempdir()
+
+
+def sweep(env: dict, now: float) -> None:
+    """Remove the folders of runs a killed hook left, older than STALE: a running one is never that old."""
+    place = temporary(env)
+    try:
+        names = os.listdir(place)
+    except OSError:
+        return
+    for name in names:
+        path = os.path.join(place, name)
+        try:
+            if name.startswith(PREFIX) and os.path.isdir(path) and not os.path.islink(path) \
+                    and now - os.lstat(path).st_mtime > STALE:
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            continue
+
+
+def _end(child: subprocess.Popen) -> None:
+    """End the run's whole process group, whatever it started, and reap it."""
+    try:
+        os.killpg(child.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    child.communicate()
+
+
+def make(target: str, where: pathlib.Path, env: dict, timeout: int, clock=time.time) -> tuple:
+    """(passed, what to show). Without make, it did not pass, and says why in one sentence. Whatever the run makes
+    under its temporary folder is removed when it ends, and so is every process it started."""
     exe = _make(env)
     if exe is None:
         return False, ("make is not on PATH, so `make %s` did not run in %s. Put make on PATH; the same checks "
                        "run without it as python3 -m tools.verify%s." % (target, where, " --fast" if target == "fast" else ""))
+    sweep(env, clock())
     try:
-        done = subprocess.run([exe, target], cwd=str(where), env=env, stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return False, "`make %s` did not finish in %d seconds in %s." % (target, timeout, where)
+        root = tempfile.mkdtemp(prefix=PREFIX, dir=temporary(env))
     except OSError as err:
         return False, "`make %s` could not start in %s: %s." % (target, where, err)
-    return done.returncode == 0, tail(done.stdout)
+    try:
+        try:
+            child = subprocess.Popen([exe, target], cwd=str(where), env=dict(env, TMPDIR=root, TMP=root, TEMP=root),
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                     start_new_session=True)
+        except OSError as err:
+            return False, "`make %s` could not start in %s: %s." % (target, where, err)
+        try:
+            out, _ = child.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _end(child)
+            return False, UNFINISHED % (target, timeout, where)
+        _end(child)
+        return child.returncode == 0, tail(out)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def lacks(target: str, where: pathlib.Path, env: dict) -> bool:

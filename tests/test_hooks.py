@@ -19,10 +19,11 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 from unittest import mock
 
 from tests.support import Spent, cores, faster_than_linear, linear, over, sizes, slack, wall_clock, within
-from tools.hooks import after_edit, before_stop, identity, protected, rules_changed, shell
+from tools.hooks import after_edit, before_stop, identity, make, protected, rules_changed, shell
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOOKS = ROOT / "tools" / "hooks"
@@ -1794,6 +1795,91 @@ class BeforeStop(unittest.TestCase):
         git(ahead, "update-ref", "refs/remotes/origin/main", "HEAD")
         git(ahead, "commit", "-q", "--allow-empty", "-m", "unpushed")
         self.assertEqual(before_stop.respond(*self.stop(False, path, ahead, FAKE_MAKE_EXIT="2"))[0], 2)
+
+    def test_a_verify_that_did_not_finish_is_not_started_again_for_a_while(self):  # issue 344
+        # The hook writes each verify down in the tree's git directory; while the last did not finish, within RETRY,
+        # it says so and ends the session, and CI runs it. Older than that, or finished, it runs again.
+        where = repo(fresh=True)
+        (where / "new.py").write_text("")
+        bin_dir = folder()
+        (bin_dir / "git").symlink_to(shutil.which("git"))
+        (bin_dir / "make").write_text("#!/bin/sh\n[ -n \"$SLOW\" ] && exec /bin/sleep 30\nexit \"${FAKE_MAKE_EXIT:-0}\"\n")
+        (bin_dir / "make").chmod(0o755)
+        env = environment(str(bin_dir), CLAUDE_PROJECT_DIR=str(where), FAKE_MAKE_EXIT="2")
+        payload = {"hook_event_name": "Stop", "stop_hook_active": False, "cwd": str(where)}
+        record = before_stop.record_of(where, env)
+        self.assertEqual(record.parent, (where / ".git").resolve())
+        with unittest.mock.patch.object(before_stop, "TIMEOUT", 1):
+            code, out, _ = before_stop.respond(payload, dict(env, SLOW="1"), clock=lambda: 1000.0)
+        self.assertEqual(code, 2)
+        self.assertEqual(json.loads(record.read_text()), {"started": 1000.0, "finished": False})
+        code, out, _ = before_stop.respond(payload, env, clock=lambda: 1100.0)
+        self.assertEqual(code, 0)
+        self.assertIn("was not started in %s" % where, json.loads(out)["systemMessage"])
+        self.assertIn("100 seconds ago", json.loads(out)["systemMessage"])
+        # Past RETRY it is started again, and a verify that finished is no reason to skip one.
+        self.assertEqual(before_stop.respond(payload, env, clock=lambda: 1000.0 + before_stop.RETRY)[0], 2)
+        self.assertEqual(json.loads(record.read_text())["finished"], True)
+        self.assertEqual(before_stop.respond(payload, env, clock=lambda: 1000.0 + before_stop.RETRY + 5)[0], 2)
+        # A record that cannot be read, or says nothing whole, skips nothing.
+        for text in ("{", "[]", '{"started": true, "finished": false}', '{"started": 1, "finished": 0}'):
+            record.write_text(text)
+            self.assertEqual(before_stop.respond(payload, env, clock=lambda: 2.0)[0], 2, text)
+        # Where there is no git directory to write in, every stop runs it.
+        self.assertIsNone(before_stop.record_of(folder(), env))
+
+
+class MakeLeavesNothing(unittest.TestCase):
+    """A make run for a hook leaves nothing behind it, killed or not (issue 344)."""
+
+    def slow(self) -> dict:
+        bin_dir, self.outside, self.place = folder(), folder(), folder()
+        (bin_dir / "make").write_text(
+            "#!/bin/sh\nmkdir \"$TMPDIR/held\" && echo data > \"$TMPDIR/held/x\"\n"
+            "( sleep 30; touch \"$OUTSIDE/late\" ) >/dev/null 2>&1 &\necho $! > \"$OUTSIDE/pid\"\n"
+            "[ -n \"$QUICK\" ] && exit 0\nsleep 30\n")
+        (bin_dir / "make").chmod(0o755)
+        return environment(str(bin_dir) + ":/usr/bin:/bin", TMPDIR=str(self.place), OUTSIDE=str(self.outside))
+
+    def gone(self, pid: int) -> bool:
+        for _ in range(50):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            time.sleep(0.1)
+        return False
+
+    def test_a_run_killed_for_its_time_leaves_the_temporary_folder_as_it_found_it(self):
+        env = self.slow()
+        before = sorted(os.listdir(self.place))
+        passed, said = make.make("verify", a_project(), env, 1)
+        self.assertEqual((passed, said.split(" in ")[0]), (False, "`make verify` did not finish"))
+        self.assertEqual(sorted(os.listdir(self.place)), before)
+        # Every process the run started is ended with it.
+        self.assertTrue(self.gone(int((self.outside / "pid").read_text())))
+
+    def test_a_run_that_ends_leaves_nothing_either(self):
+        env = dict(self.slow(), QUICK="1")
+        before = sorted(os.listdir(self.place))
+        # And it first removes what a killed hook's run left, once it is stale.
+        left = self.place / (make.PREFIX + "left")
+        left.mkdir()
+        os.utime(str(left), (time.time() - make.STALE - 60,) * 2)
+        self.assertEqual(make.make("verify", a_project(), env, 30)[0], True)
+        self.assertEqual(sorted(os.listdir(self.place)), before)
+        self.assertTrue(self.gone(int((self.outside / "pid").read_text())))
+
+    def test_a_folder_a_killed_hook_left_is_removed_once_it_is_stale(self):
+        place = folder()
+        now = time.time()
+        for name, age in (("sf-make-old", make.STALE + 60), ("sf-make-new", 60), ("other-old", make.STALE + 60)):
+            (place / name).mkdir()
+            (place / name / "x").write_text("data")
+            os.utime(str(place / name), (now - age, now - age))
+        make.sweep({"TMPDIR": str(place)}, now)
+        self.assertEqual(sorted(os.listdir(place)), ["other-old", "sf-make-new"])
+        make.sweep({"TMPDIR": str(place / "nowhere")}, now)
 
 
 RULES = json.loads((ROOT / "config" / "hooks.json").read_text())
