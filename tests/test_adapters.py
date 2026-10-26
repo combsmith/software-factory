@@ -1931,14 +1931,46 @@ class Threads(unittest.TestCase):
             with self.assertRaises(github.Unanswered):
                 self.read(failed)
 
-    @pending
-    def test_a_thread_a_trial_recorded_is_read_as_the_port_reads_it(self):
-        # A thread's author, time and resolver, as GitHub's GraphQL gives them, are not yet recorded: the first trial
-        # that records one, asked as the port asks, is read here.
+    def p49(self) -> tuple:
+        """trials/P-49.json's read of canary pull request 55's threads, asked as the port asks, and a reader of it."""
         found = [e for name in sorted((ROOT / "trials").glob("P-*.json"))
                  for e in json.loads(name.read_text()).get("exchanges", [])
                  if (e.get("request") or {}).get("body", {}) and "FactsThreads" in json.dumps(e["request"]["body"])]
-        self.assertTrue(found)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["request"]["body"]["query"], threads.QUERY)
+        router = Router(github.Replay([found[0]]), {"don-petry": "admin"})
+        pull = {"number": 55, "base": {"repo": {"full_name": canary()}}}
+        return found[0], lambda: threads.read(router, pull, timeline.Accounts(router, canary(), MACHINE, {}))
+
+    def test_an_apps_resolution_stops_the_threads_read_today(self):
+        # trials/P-49.json (issue 282): the trial-author App resolved one of its two threads, and deleted the other's
+        # first comment after a reply. resolvedBy names the App's bot by the id its comments carry, but typed a User; the
+        # port reads every resolver as a User, finds none of that login, and refuses the whole read: a pull request whose
+        # Lens resolved its own thread is never read whole until issue 331 reads the resolver from the timeline.
+        found, read = self.p49()
+        resolved, kept = found["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+        opener = resolved["comments"]["nodes"][0]["author"]
+        self.assertEqual((opener["__typename"], resolved["resolvedBy"]["databaseId"]), ("Bot", opener["databaseId"]))
+        with self.assertRaises(github.Unanswered) as refused:
+            read()
+        self.assertIn("a User whose login is none GitHub gives", str(refused.exception))
+        # The thread whose first comment was deleted keeps its reply, now its first comment and a reply to nothing.
+        self.assertEqual((kept["isResolved"], [c["replyTo"] for c in kept["comments"]["nodes"]]), (False, [None]))
+
+    @pending
+    def test_a_thread_a_trial_recorded_is_read_as_the_port_reads_it(self):
+        # What issue 331 builds: P-49's App resolution read as the App's, by its account id and type, and the thread
+        # whose first comment was deleted still read as its opener's, never as whoever's comment is first now.
+        found, read = self.p49()
+        got, whole = read()
+        self.assertTrue(whole)
+        resolved, kept = got
+        self.assertEqual((resolved["resolved"], resolved["resolved_by"]), (True, resolved["opened_by"]))
+        self.assertNotEqual(resolved["resolved_by"]["kind"], "human")
+        # The second thread was opened by the App's review at the time that review was submitted, before its reply.
+        opened = [e for e in json.loads((ROOT / "trials" / "P-49.json").read_text())["exchanges"]
+                  if e["request"]["call"].endswith("/pulls/55/reviews")][1]["response"]["body"]["submitted_at"]
+        self.assertEqual((kept["opened_by"], kept["opened_at"]), (resolved["opened_by"], opened))
 
 
 def p26_checks_nodes(exchange: dict) -> list:
