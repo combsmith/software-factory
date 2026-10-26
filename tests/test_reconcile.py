@@ -173,6 +173,10 @@ class Matching(unittest.TestCase):
         refused = written(("dispatch_run", ITEM, "r_01JA7Q", None, "refused"))
         self.assertEqual(kinds(check(seen(), recorded(written_=[refused]), records(r), accounts=TOKEN)),
                          [("workflow_token", "dispatch")])
+        # A re-run is a person's and runs nothing (decision 0058): it is no dispatch, whenever it started (issue 329).
+        self.assertEqual(check(seen(), recorded(), records(dict(r, attempt=2)), accounts=TOKEN)["unmatched"], [])
+        self.assertEqual(kinds(check(seen(), recorded(), records(dict(r, attempt=1)), accounts=TOKEN)),
+                         [("workflow_token", "dispatch")])
         # Until the pass job's token's account is set, no dispatch is reconciled, and run records not read leave
         # nothing short (ruling 2).
         self.assertEqual(check(seen(), recorded(), records(r))["unmatched"], [])
@@ -239,7 +243,8 @@ IDENTITIES = {(281750570, "User"): "approver", (5000001, "Bot"): "controller", (
 APPS = {5364130: "controller", 5364144: "pr-review"}
 ISSUE = "/repos/%s/issues/%d" % (ITEM["repo"], ITEM["number"])
 COMMENTS = ("GET", ISSUE + "/comments?since=%s&per_page=100" % SINCE)
-ACTIVITY = ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=week&per_page=100" % ITEM["repo"])
+ACTIVITY = ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=day&per_page=100" % ITEM["repo"])
+NOW = "2026-10-11T13:00:00Z"        # a pass's time, a day or less after SINCE
 AT, EARLY = "2026-10-11T12:00:00Z", "2026-10-10T12:00:00Z"
 
 
@@ -283,7 +288,8 @@ class SeenPort(unittest.TestCase):
     def test_each_identitys_writes_are_read_by_its_account_never_its_login(self):  # ruling 2
         reviews = [{"user": APPROVER, "state": "APPROVED", "node_id": "PRR_a", "submitted_at": AT},
                    {"user": APPROVER, "state": "COMMENTED", "node_id": "PRR_b", "submitted_at": AT},
-                   {"user": APPROVER, "state": "DISMISSED", "node_id": "PRR_d", "submitted_at": AT},
+                   {"user": APPROVER, "state": "DISMISSED", "node_id": "PRR_d", "id": 4, "submitted_at": AT},
+                   {"user": ROLE, "state": "DISMISSED", "node_id": "PRR_e", "id": 5, "submitted_at": AT},
                    {"user": APPROVER, "state": "PENDING", "node_id": "PRR_q"},
                    {"user": ROLE, "state": "COMMENTED", "node_id": "PRR_r", "submitted_at": SINCE},
                    {"user": dict(PERSON, login="donpetry-bot"), "state": "APPROVED", "node_id": "PRR_p", "submitted_at": AT},
@@ -293,7 +299,10 @@ class SeenPort(unittest.TestCase):
                                                                                 "created_at": AT}]
         events = [{"event": "labeled", "actor": CONTROLLER, "created_at": AT},
                   {"event": "removed_from_merge_queue", "actor": CONTROLLER, "created_at": AT},
-                  {"event": "review_dismissed", "actor": APPROVER, "created_at": AT},
+                  {"event": "review_dismissed", "actor": APPROVER, "created_at": AT,
+                   "dismissed_review": {"review_id": 4, "state": "approved"}},
+                  {"event": "review_dismissed", "actor": PERSON, "created_at": AT,
+                   "dismissed_review": {"review_id": 5, "state": "commented"}},
                   {"event": "closed", "actor": ROLE, "created_at": AT},
                   {"event": "review_requested", "actor": ROLE, "created_at": AT},
                   {"event": "assigned", "actor": CONTROLLER, "created_at": AT},
@@ -313,7 +322,8 @@ class SeenPort(unittest.TestCase):
         self.assertTrue(whole)
         self.assertEqual([(w["by"], w["kind"], w["key"]) for w in writes],
                          [("approver", "approval", "PRR_a"), ("approver", "review", "PRR_b"),
-                          ("approver", "approval", "PRR_d"), ("pr-review", "review", "PRR_r"),
+                          ("approver", "approval", "PRR_d"), ("pr-review", "review", "PRR_e"),
+                          ("pr-review", "review", "PRR_r"),
                           ("controller", "comment", "IC_c"), ("controller", "label", None),
                           ("controller", "dequeue", None), ("approver", "dismissal", None),
                           ("pr-review", "close", None), ("pr-review", "review_request", None),
@@ -337,6 +347,19 @@ class SeenPort(unittest.TestCase):
         self.assertEqual((github.asked, [(w["by"], w["kind"]) for w in writes], whole),
                          ([("GET", ISSUE + "/timeline?per_page=100"), COMMENTS], [("controller", "label")], True))
 
+    def test_an_item_that_left_the_open_list_has_its_timeline_read_here(self):  # issue 329
+        # A pull request merged or closed between the passes is no longer open, so no snapshot reads it: its timeline
+        # is read here, and with it a close by a Factory identity and a merge for an Override.
+        events = [{"event": "closed", "actor": CONTROLLER, "created_at": AT},
+                  {"event": "merged", "actor": PERSON, "created_at": AT}]
+        github = GitHub({("GET", ISSUE + "/timeline?per_page=100"): events})
+        writes, merged, whole = seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)
+        self.assertEqual(([(w["by"], w["kind"]) for w in writes], merged, whole),
+                         ([("controller", "close")], [{"item": ITEM, "at": AT}], True))
+        self.assertEqual(github.asked, [("GET", ISSUE + "/timeline?per_page=100"), COMMENTS])
+        github = GitHub({("GET", ISSUE + "/timeline?per_page=100"): {"status": 502, "body": {}}})
+        self.assertIs(seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False)
+
     def test_a_list_that_cannot_be_read_whole_leaves_what_was_seen_short(self):  # ruling 5
         self.assertIs(port()[2], True)
         bad = {"reviews": [{"user": ROLE, "state": "COMMENTED", "node_id": "P", "submitted_at": "yesterday"}],
@@ -353,6 +376,22 @@ class SeenPort(unittest.TestCase):
                 + [kept(**{name: value}) for name, value in keyless.items()]:
             self.assertIs(port(parts)[2], False, parts)
         unreadable = {"login": "combsmith-sf-controller[bot]"}
+        # A dismissed review whose state before the timeline does not give (issue 329); an event no Factory write
+        # makes, by an account that cannot be read; a resolver of no positive id (issue 328).
+        dismissed = {"user": ROLE, "state": "DISMISSED", "node_id": "PRR_e", "id": 5, "submitted_at": AT}
+        for parts in (kept(reviews=[dismissed]),
+                      kept(reviews=[dismissed], events=[{"event": "review_dismissed", "actor": PERSON, "created_at": AT,
+                                                         "dismissed_review": {"review_id": 5, "state": "pending"}}]),
+                      kept(events=[{"event": "milestoned", "actor": unreadable, "created_at": AT}]),
+                      kept(events=[{"event": "milestoned", "actor": dict(CONTROLLER, type="Organization"),
+                                    "created_at": AT}]),
+                      kept(threads=[{"id": "PRRT_z", "isResolved": True, "resolvedBy": {"databaseId": 0}}]),
+                      kept(threads=[{"id": "PRRT_z", "isResolved": True, "resolvedBy": {"databaseId": -3}}])):
+            self.assertIs(port(parts)[2], False, parts)
+        # A person's event no Factory write makes, or one before the window, is no one's to reconcile.
+        for event in ({"event": "milestoned", "actor": PERSON, "created_at": AT},
+                      {"event": "milestoned", "actor": unreadable, "created_at": EARLY}):
+            self.assertEqual(port(kept(events=[event]))[::2], ([], True), event)
         for actor in (unreadable, dict(CONTROLLER, type="Organization"), dict(CONTROLLER, id=0)):
             self.assertIs(port(over={COMMENTS: [{"user": actor, "node_id": "IC_u", "created_at": AT}]})[2], False, actor)
         for parts in (kept(reviews=[{"user": unreadable, "state": "APPROVED", "node_id": "PRR_u", "submitted_at": AT}]),
@@ -374,14 +413,14 @@ class SeenPort(unittest.TestCase):
                    {"id": 10, "actor": APPROVER, "timestamp": SINCE, "activity_type": "force_push"},
                    {"id": 11, "actor": APPROVER, "timestamp": AT, "activity_type": "pr_merge"},
                    {"id": 12, "actor": APPROVER, "timestamp": AT, "activity_type": "branch_creation"}]
-        writes, whole = seen_.pushes(GitHub({ACTIVITY: entries}), ITEM["repo"], APPROVER, SINCE)
+        writes, whole = seen_.pushes(GitHub({ACTIVITY: entries}), ITEM["repo"], APPROVER, SINCE, lambda: NOW)
         # Each is named by the kind its activity gives, never a push for all.
         self.assertEqual(([(w["by"], w["kind"], w["key"], w["item"]) for w in writes], whole),
                          ([("approver", "push", "7", None), ("approver", "force_push", "10", None),
                            ("approver", "merge", "11", None), ("approver", "branch_created", "12", None)], True))
         # An activity of a type not known is the machine user's write all the same, and leaves the read short.
         writes, whole = seen_.pushes(GitHub({ACTIVITY: [dict(entries[0], activity_type="branch_rename")]}),
-                                     ITEM["repo"], APPROVER, SINCE)
+                                     ITEM["repo"], APPROVER, SINCE, lambda: NOW)
         self.assertEqual(([w["kind"] for w in writes], whole), (["other"], False))
         for answer in ({"status": 500, "body": {}}, None,
                        [{"id": 7, "actor": APPROVER, "timestamp": "x", "activity_type": "push"}],
@@ -389,7 +428,22 @@ class SeenPort(unittest.TestCase):
                        [{"id": True, "actor": APPROVER, "timestamp": AT, "activity_type": "push"}],
                        [{"id": 7, "actor": {"login": "donpetry-bot"}, "timestamp": AT, "activity_type": "push"}],
                        [{"id": i + 1, "actor": PERSON, "timestamp": AT} for i in range(100)]):
-            self.assertIs(seen_.pushes(GitHub({ACTIVITY: answer}), ITEM["repo"], APPROVER, SINCE)[1], False, answer)
+            self.assertIs(seen_.pushes(GitHub({ACTIVITY: answer}), ITEM["repo"], APPROVER, SINCE, lambda: NOW)[1], False,
+                          answer)
+
+    def test_the_activity_is_asked_for_a_period_that_covers_the_window(self):  # issue 329
+        # GitHub's shortest period that covers the window is asked; a window older than a year is read for the year,
+        # and short, since what came before it is not read.
+        entry = [{"id": 7, "actor": APPROVER, "timestamp": AT, "activity_type": "push"}]
+        for now, period in (("2026-10-12T00:00:00Z", "day"), ("2026-10-12T00:00:01Z", "week"),
+                            ("2026-10-18T00:00:00Z", "week"), ("2026-10-19T00:00:00Z", "month"),
+                            ("2026-12-01T00:00:00Z", "quarter"), ("2027-06-01T00:00:00Z", "year")):
+            path = ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=%s&per_page=100" % (ITEM["repo"], period))
+            self.assertEqual(seen_.pushes(GitHub({path: entry}), ITEM["repo"], APPROVER, SINCE, lambda: now),
+                             ([{"by": "approver", "kind": "push", "item": None, "key": "7", "at": AT}], True), now)
+        year = ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=year&per_page=100" % ITEM["repo"])
+        for now in ("2027-10-11T00:00:01Z", "never"):
+            self.assertIs(seen_.pushes(GitHub({year: entry}), ITEM["repo"], APPROVER, SINCE, lambda: now)[1], False, now)
 
     def test_seen_is_whole_only_when_every_part_was(self):
         whole, short = ([], [], True), ([], [], False)
@@ -404,6 +458,9 @@ class SeenPort(unittest.TestCase):
         self.assertIs(known, True)
         for accounts in (ACCOUNTS, dict(KNOWN, approver=None), dict(KNOWN, roles={"pr-review": None})):
             self.assertIs(seen_.identities(accounts)[1], False)
+        # Two identities of one account cannot be told apart: neither is known (issue 328).
+        twice = dict(KNOWN, roles={"pr-review": dict(KNOWN["controller"])})
+        self.assertIs(seen_.identities(twice)[1], False)
         # The configuration holds the machine user as trials/P-7.json records it and the approver config/defaults.json
         # names, and a Role App's account for each Role App config/apps.json holds.
         defaults = json.loads((ROOT / "config" / "defaults.json").read_text())

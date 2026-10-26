@@ -877,7 +877,13 @@ class Records(unittest.TestCase):
                                         "type": "pull_request", "number": 264}, "intent": "review-change",
                                         "role": "pr-review", "content_id": "sha256:5d0c", "status": "queued",
                                         "conclusion": None, "outcome": None,
-                                        "started_at": second["response"]["body"]["workflow_runs"][0]["run_started_at"]}])
+                                        "started_at": second["response"]["body"]["workflow_runs"][0]["run_started_at"],
+                                        "attempt": second["response"]["body"]["workflow_runs"][0]["run_attempt"]}])
+        # A re-run is numbered as GitHub numbers it; an attempt GitHub does not give is left out (issue 329).
+        for attempt, want in ((2, {"attempt": 2}), (None, {}), (0, {}), (True, {}), ("2", {})):
+            again = listing("P-17", 10, total=1, rows={"name": NAME, "run_attempt": attempt})
+            got, _ = self.read(listing("P-17", 9, total=1), again, per_page=1)
+            self.assertEqual({k: v for k, v in got["runs"][0].items() if k == "attempt"}, want, attempt)
 
     def test_only_a_dispatch_of_a_role_workflow_from_the_default_branch_in_this_repo_counts(self):
         # Decision 0003 and I-34: another workflow, event, branch, ref, repo or dispatcher, a fork's pull request and a
@@ -1107,6 +1113,11 @@ class Artifacts(unittest.TestCase):
         text = json.dumps(done)
         self.assertEqual(read(text + " " * (artifacts.APPLIED_MOST - len(text))), (done, True))
         self.assertEqual(read(text + " " * (artifacts.APPLIED_MOST - len(text) + 1)), (None, False))
+        # The archive is held to an outcome's bound and never downloaded under a pass record's: one listed larger is
+        # not downloaded at all (issue 329). The listing alone is answered; a download would find no answer.
+        listed = as_applied(stored(repo, github_id, outcome_zip(done, "applied.json"),
+                                   size_in_bytes=artifacts.ZIPPED + 1))[:1]
+        self.assertEqual(artifacts.applied(github.Replay(listed), repo, github_id, done["run"]), (None, False))
 
     RUN = "r_01JA6Z"
 

@@ -60,6 +60,11 @@
     },
     "started_at": {
       "$ref": "#/$defs/time"
+    },
+    "attempt": {
+      "description": "Which attempt of its run this is, as GitHub numbers it, 1 for the run a dispatch started; a later one is a re-run, which runs nothing (decision 0058), and which reconciliation reads as no dispatch. Absent where GitHub did not say, and read then as a first",
+      "type": "integer",
+      "minimum": 1
     }
   },
   "$defs": {

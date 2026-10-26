@@ -153,7 +153,13 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
         datetime.datetime.strptime(str(started), "%Y-%m-%dT%H:%M:%SZ")
     except ValueError:
         return None
-    return (dict(parts, status=status, conclusion=conclusion, outcome=None, started_at=started), None)
+    record = dict(parts, status=status, conclusion=conclusion, outcome=None, started_at=started)
+    # Which attempt it is, where GitHub says: a re-run is a person's and runs nothing (decision 0058), so
+    # reconciliation reads only a first attempt as a dispatch (issue 329).
+    attempt = row.get("run_attempt")
+    if isinstance(attempt, int) and not isinstance(attempt, bool) and attempt >= 1:
+        record["attempt"] = attempt
+    return (record, None)
 
 
 def known(previous: list) -> dict:

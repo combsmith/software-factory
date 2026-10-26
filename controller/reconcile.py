@@ -115,7 +115,8 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
         since = seen["since"]
         dispatched = _dispatched(effects) if recorded else set()
         for r in runs if isinstance(runs, list) else []:
-            if r["started_at"] >= since and r["run"] not in dispatched:
+            # A re-run is a person's and runs nothing (decision 0058): only a first attempt is a dispatch.
+            if r["started_at"] >= since and r.get("attempt", 1) == 1 and r["run"] not in dispatched:
                 unmatched.append({"by": "workflow_token", "kind": "dispatch", "item": r["item"], "key": r["run"]})
     if token and not isinstance(runs, list):
         short = True
