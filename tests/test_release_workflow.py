@@ -16,7 +16,7 @@ STEP_ENV = "          RELEASE_TOKEN: ${{ steps.mint.outputs.token }}\n"
 
 
 def caught(problems: list, words: str) -> bool:
-    return len(problems) >= 1 and any(words in p for p in problems)
+    return len(problems) == 1 and words in problems[0]
 
 
 class Shape(unittest.TestCase):
@@ -69,6 +69,15 @@ class Shape(unittest.TestCase):
                                    "runs on workflow_dispatch, with the inputs"),
             "a command more": (LIVE.replace("          - rollback\n", "          - rollback\n          - promote\n"),
                                "runs on workflow_dispatch, with the inputs"),
+            "a command more past a blank line": (LIVE.replace("          - rollback\n",
+                                                              "          - rollback\n\n          - promote\n"),
+                                                 "runs on workflow_dispatch, with the inputs"),
+            "a command more past a comment": (LIVE.replace("          - rollback\n",
+                                                           "          - rollback\n          # more\n          - promote\n"),
+                                              "runs on workflow_dispatch, with the inputs"),
+            "a machine of its own": (LIVE.replace("runs-on: ubuntu-24.04", "runs-on: linux-1"),
+                                     "runs on GitHub's own runner"),
+            "a longer run": (LIVE.replace("timeout-minutes: 15", "timeout-minutes: 120"), "runs on GitHub's own runner"),
             "another schedule": (LIVE.replace('"41 6 * * 1-5"', '"41 * * * *"'), "runs on workflow_dispatch, with the inputs"),
             "another name": (LIVE.replace("name: sf-release", "name: factory"), "it holds name: sf-release"),
             "a step with a key more": (LIVE.replace("      - run: python3 -m release.move\n",
@@ -103,8 +112,11 @@ class Version(unittest.TestCase):
     def test_a_cut_asked_with_no_version_is_of_the_next_patch_or_the_majors_first(self):
         refs = {"factory/v0.1.0": "a" * 40, "factory/v0.2.3": "b" * 40, "factory/v1.0.0": "c" * 40,
                 "factory/v0-next": "b" * 40}
-        self.assertEqual(cut.next_version("factory/v0-next", refs), "factory/v0.2.4")
         self.assertEqual(cut.next_version("factory/v1-next", refs), "factory/v1.0.1")
+        # A later major's Release exists: no cut of v0 is newer than it, so none is named.
+        self.assertIsNone(cut.next_version("factory/v0-next", refs))
+        refs.pop("factory/v1.0.0")
+        self.assertEqual(cut.next_version("factory/v0-next", refs), "factory/v0.2.4")
         self.assertEqual(cut.next_version("factory/v0-next", {}), "factory/v0.1.0")
         self.assertEqual(cut.next_version("factory/v2-next", refs), "factory/v2.1.0")
         for name in ("factory/v0.2.3", "main", None):

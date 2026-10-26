@@ -207,10 +207,27 @@ EVAL_STEP_KEYS = {"uses", "run", "with", "env"}
 # `python3 -m release.move`, given its inputs and the token under env: and nothing else.
 RELEASE_WORKFLOW, RELEASE_JOB, RELEASE_ENVIRONMENT = "release.yml", "release", "factory-release"
 RELEASE_TOP = {"name": "sf-release", "on": "", "permissions": "{}", "jobs": ""}
-RELEASE_INPUTS = {"command": {"required": "true", "type": "choice"}, "version": {"required": "false", "type": "string"},
-                  "to": {"required": "false", "type": "string"}}
-RELEASE_COMMANDS = ["cut", "move", "rollback"]
-RELEASE_CRON = "41 6 * * 1-5"      # weekdays, at a minute no other schedule here takes
+# Its triggers, word for word: a list the reader keeps no entry of, an option or a schedule, is held this way alone.
+RELEASE_ON = """on:
+  workflow_dispatch:
+    inputs:
+      command:
+        required: true
+        type: choice
+        options:
+          - cut
+          - move
+          - rollback
+      version:
+        required: false
+        type: string
+      to:
+        required: false
+        type: string
+  schedule:
+    - cron: "41 6 * * 1-5"
+"""
+RELEASE_RUNNER = {"runs-on": "ubuntu-24.04", "timeout-minutes": "15"}
 RELEASE_IF = ("github.event_name == 'workflow_dispatch' || (vars.FACTORY_RELEASE_AUTO == 'true' && "
               "(vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false'))")
 RELEASE_JOB_KEYS = {"if", "runs-on", "timeout-minutes", "environment", "concurrency", "permissions", "steps"}
@@ -814,7 +831,7 @@ def _release_kind(step: dict):
 
 def release_problems(text: str) -> list:
     """What is wrong with release.yml's shape (issue 197, ruling 4′), each a sentence: RELEASE_TOP above one job,
-    `release`, dispatched with RELEASE_INPUTS or on a schedule, run only as RELEASE_IF says, on the environment
+    `release`, dispatched and scheduled as RELEASE_ON writes, run only as RELEASE_IF says, on the environment
     `factory-release`, granted `contents: read` alone, one at a time; its steps RELEASE_ORDER, each given exactly what
     RELEASE_GIVEN says. Every other spelling is refused: a check reads what it names, never what it can guess."""
     entries, bad = read(text)
@@ -823,25 +840,10 @@ def release_problems(text: str) -> list:
     problems = []
     if {e["key"]: e["value"] for e in entries if e["path"] == []} != RELEASE_TOP:
         problems.append("it holds name: sf-release, on:, permissions: {} and jobs:, and nothing else above its job")
-    events = {e["key"] for e in entries if e["path"] == ["on"]}
-    inputs = [e for e in entries if e["path"][:3] == ["on", "workflow_dispatch", "inputs"]]
-    given = {}
-    for e in inputs:
-        if len(e["path"]) == 4 and e["key"] != "options":
-            given.setdefault(e["path"][3], {})[e["key"]] = e["value"]
-    # A choice's options are a list of bare words, which the reader keeps no entry of: they are read as the lines under
-    # their key, each `- word` one indent deeper, up to the next key.
-    lines = text.split("\n")
-    at = [i for i, line in enumerate(lines) if line == "        options:"]
-    options = []
-    for line in (lines[at[0] + 1:] if len(at) == 1 else []):
-        if not line.startswith("          - "):
-            break
-        options.append(line[len("          - "):])
-    crons = [e["value"] for e in entries if e["path"] == ["on", "schedule"]]
-    named = [e["key"] for e in inputs if len(e["path"]) == 3]
-    if events != {"workflow_dispatch", "schedule"} or given != RELEASE_INPUTS or named != list(RELEASE_INPUTS) \
-            or options != RELEASE_COMMANDS or crons != [RELEASE_CRON]:
+    # Its triggers are held word for word, as RELEASE_ON writes them: the options and the schedule are lists the reader
+    # keeps no entry of, and a blank line or a comment between their items would hide one more from a reading by keys.
+    held_on = text[text.find("\non:\n") + 1:text.find("\npermissions:")] if "\non:\n" in text else ""
+    if held_on + "\n" != RELEASE_ON:
         problems.append("runs on workflow_dispatch, with the inputs command (cut, move or rollback), version and to, "
                         "and on a schedule, and on nothing else")
     if [e["key"] for e in entries if e["path"] == ["jobs"]] != [RELEASE_JOB]:
@@ -850,6 +852,9 @@ def release_problems(text: str) -> list:
     if set(inside) != RELEASE_JOB_KEYS or inside["environment"]["value"] != RELEASE_ENVIRONMENT:
         problems.append("its job has exactly %s, and runs on the environment %s"
                         % (", ".join(sorted(RELEASE_JOB_KEYS)), RELEASE_ENVIRONMENT))
+    if {k: inside[k]["value"] for k in RELEASE_RUNNER if k in inside} != RELEASE_RUNNER:
+        problems.append("its job runs on GitHub's own runner, %s, for at most %s minutes"
+                        % (RELEASE_RUNNER["runs-on"], RELEASE_RUNNER["timeout-minutes"]))
     if "if" in inside and inside["if"]["value"] != RELEASE_IF:
         problems.append("its job runs on a dispatch, or on the schedule only when FACTORY_RELEASE_AUTO is true and no "
                         "Pause is set: if: %s" % RELEASE_IF)

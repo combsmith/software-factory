@@ -142,10 +142,13 @@ def _move(step, refs, facts, major) -> tuple:
 
 def next_version(channel, refs) -> str | None:
     """The version a cut asked with none is of: the next patch of the greatest Release of the Channel's major, or that
-    major's first, `.1.0`, where it has none (ruling 2); None for a name that is no Channel."""
+    major's first, `.1.0`, where it has none (ruling 2); None for a name that is no Channel, or when a later major's
+    Release exists, since no cut of this one is newer than it."""
     found = current.channel(channel)
     if not found:
         return None
+    if any(v[0] > found[0] for v in releases(refs)):
+        return None         # a later major's Release exists: no cut of this one is newer than every Release
     mine = [v for v in releases(refs) if v[0] == found[0]]
     if not mine:
         return "%s%d.1.0" % (current.PREFIX, found[0])

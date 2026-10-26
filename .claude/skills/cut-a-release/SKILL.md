@@ -69,6 +69,8 @@ gh workflow run release.yml -R combsmith/software-factory -f command=rollback -f
 ```
 
 Runs already started finish on the Release they started on. If that Release is writing harm, set the Pause first.
+Release runs go one at a time, and GitHub replaces a run still waiting with a newer one: read that the rollback's run
+concluded, and dispatch it again if the schedule's took its place.
 
 ## Read back
 
