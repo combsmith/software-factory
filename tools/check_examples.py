@@ -17,7 +17,7 @@ LIVE = {"lifecycle/pull_request.json": "lifecycle", "lifecycle/issue.json": "lif
         "config/defaults.json": "config", "config/rubric-pr-review.json": "rubric", "config/apps.json": "apps",
         "config/hooks.json": "hooks", "config/feed.json": "feed", "config/controller.json": "controller", "config/harness.json": "harness",
         "config/rulesets.json": "rulesets",
-        "evals/pr-review/cases.json": "eval-set", "evals/context/task.json": "context-eval"}
+        "evals/pr-review/cases.json": "eval-set", "evals/context/task.json": "context-eval", "release/rings.json": "rings"}
 # What a coverage example is judged against beyond its schema (decision 0029): the review's rubric, the Finding of
 # examples/finding.json, and the paths examples/facts.json changes. No schema can say every criterion that applies is
 # reported on; kernel/coverage.py does.
@@ -37,7 +37,8 @@ ENVELOPE = {"task": ("document", "run"), "result": ("document", "run"), "applied
             "view-item": "part",
             "config": "data", "hooks": "data", "lifecycle": "data", "authority": "data", "apps": "data", "rubric": "data",
             "acceptance": "data", "trial": "data", "role": "data", "feed": "data", "eval-case": "data",
-            "eval-set": "data", "context-eval": "data", "controller": "data", "harness": "data", "rulesets": "data"}
+            "eval-set": "data", "context-eval": "data", "controller": "data", "harness": "data", "rulesets": "data",
+            "rings": "data"}
 RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # What one Run carries, and what is written from it, holds codes, never text: a string in these schemas is held by an
 # enum, a const or a pattern anchored at both ends, unless it is a property named `body`, or sits under one named
@@ -46,7 +47,7 @@ RELEASE = "^factory/v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
 # is held by that kind's own rules, so the existing records are not swept.
 CODES_ONLY = ("task", "result", "effect", "disposition", "run-name", "coverage", "run-record",
               "pass", "writes", "written", "applied", "outcome", "view-meta", "view-items", "view-item", "health", "role", "feed",
-              "eval-set", "eval-report")
+              "eval-set", "eval-report", "rings")
 TEXT_FIELD = "body"
 UNTRUSTED_FIELD = "untrusted"
 UNTRUSTED_KIND = "view-item"
@@ -299,6 +300,10 @@ def run(root: pathlib.Path = ROOT) -> list:
             # A fixture's rules beyond its schema are tools/check_trials.py's: a counter-example of one is refused there.
             from tools import check_trials
             errors = check_trials.fixture_problems(value, root)
+        if kind == "rings" and not errors:
+            # What no schema can say of a ring file is tools/check_release.py's: a counter-example of it is refused there.
+            from tools import check_release
+            errors = check_release.ring_problems(value)
         if not errors:
             problems.append("invalid/%s: was accepted, and must be rejected" % path.name)
         elif len(errors) > 1:

@@ -1,0 +1,43 @@
+{
+  "schema": "task/1",
+  "run": "r_01JA7Q",
+  "release": "factory/v0-next",
+  "role": "pr-review",
+  "intent": "adjudicate-findings",
+  "item": {
+    "repo": "combsmith/software-factory",
+    "type": "pull_request",
+    "number": 42
+  },
+  "content_id": "sha256:5d0c",
+  "findings": [
+    "f_9c1e",
+    "f_22ab"
+  ],
+  "texts": [
+    {
+      "id": "thread:PRRT_kw1",
+      "trust": "advisory",
+      "source": "coderabbitai[bot]",
+      "body": "parse() reads the first item before it checks that the list has one."
+    },
+    {
+      "id": "issue:body",
+      "trust": "maintainer",
+      "source": "don-petry",
+      "body": "Return early from parse() when its list is empty, and add a test of that case."
+    }
+  ],
+  "limits": {
+    "turns": 20,
+    "repair_turns": 2,
+    "seconds": 900,
+    "cost_ceiling_usd": 1.5
+  },
+  "tier": "deep",
+  "permitted_effects": [
+    "resolve_thread",
+    "comment"
+  ],
+  "result_schema": "result/1"
+}

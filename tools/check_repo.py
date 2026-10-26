@@ -10,7 +10,7 @@ import re
 from tools import walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-LOCAL = {"kernel", "tools", "sim", "tests", "adapters", "controller", "harness"}
+LOCAL = {"kernel", "tools", "sim", "tests", "adapters", "controller", "harness", "release"}
 # The standard-library modules in use. A new one is added here on purpose, in the same change.
 STDLIB = {"__future__", "ast", "contextlib", "copy", "datetime", "hashlib", "io", "json", "os", "pathlib", "random", "re", "shlex",
           "shutil", "subprocess", "sys", "tempfile", "time", "typing", "unittest"}
