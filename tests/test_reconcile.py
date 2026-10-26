@@ -173,6 +173,25 @@ class Matching(unittest.TestCase):
         refused = written(("dispatch_run", ITEM, "r_01JA7Q", None, "refused"))
         self.assertEqual(kinds(check(seen(), recorded(written_=[refused]), records(r), accounts=TOKEN)),
                          [("workflow_token", "dispatch")])
+        # A dispatch is read by when its run was made, which a re-run keeps (decision 0063): a person's re-run of a
+        # Run dispatched before the window is no dispatch in it, and a re-run hides no dispatch made in it.
+        rerun = dict(r, dispatched_at="2026-10-10T12:00:00Z", started_at="2026-10-11T12:30:00Z", rerun_by_dispatcher=False)
+        self.assertEqual(check(seen(), recorded(), records(rerun), accounts=TOKEN)["unmatched"], [])
+        hidden = dict(r, dispatched_at=SINCE, started_at="2026-10-11T12:30:00Z", rerun_by_dispatcher=False)
+        self.assertEqual(kinds(check(seen(), recorded(), records(hidden), accounts=TOKEN)), [("workflow_token", "dispatch")])
+        self.assertEqual(check(seen(), recorded(written_=[sent]), records(hidden), accounts=TOKEN)["unmatched"], [])
+        # A re-run the pass job's own token made is a write no Effect records, whatever its dispatch was.
+        self.assertEqual(kinds(check(seen(), recorded(written_=[sent]), records(dict(hidden, rerun_by_dispatcher=True)),
+                                     accounts=TOKEN)), [("workflow_token", "rerun")])
+        self.assertEqual(kinds(check(seen(), recorded(), records(dict(rerun, rerun_by_dispatcher=True)), accounts=TOKEN)),
+                         [("workflow_token", "rerun")])
+        # A re-run whose re-runner cannot be read cannot be told from the token's: reconciliation is short.
+        self.assertIs(check(seen(), recorded(), records(dict(rerun, rerun_by_dispatcher=None)), accounts=TOKEN)["short"],
+                      True)
+        self.assertIs(check(seen(), recorded(), records(rerun), accounts=TOKEN)["short"], False)
+        # One that started before the window was reconciled by an earlier pass.
+        old_rerun = dict(rerun, started_at="2026-10-10T13:00:00Z", rerun_by_dispatcher=True)
+        self.assertEqual(check(seen(), recorded(), records(old_rerun), accounts=TOKEN)["unmatched"], [])
         # Until the pass job's token's account is set, no dispatch is reconciled, and run records not read leave
         # nothing short (ruling 2).
         self.assertEqual(check(seen(), recorded(), records(r))["unmatched"], [])
@@ -238,8 +257,10 @@ PERSON = {"id": 36422719, "type": "User", "login": "don-petry"}
 IDENTITIES = {(281750570, "User"): "approver", (5000001, "Bot"): "controller", (5000002, "Bot"): "pr-review"}
 APPS = {5364130: "controller", 5364144: "pr-review"}
 ISSUE = "/repos/%s/issues/%d" % (ITEM["repo"], ITEM["number"])
+PULL = "/repos/%s/pulls/%d" % (ITEM["repo"], ITEM["number"])
 COMMENTS = ("GET", ISSUE + "/comments?since=%s&per_page=100" % SINCE)
-ACTIVITY = ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=week&per_page=100" % ITEM["repo"])
+ACTIVITY = ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=day&per_page=100" % ITEM["repo"])
+NOW = "2026-10-11T13:00:00Z"        # a pass's time, a day or less after SINCE
 AT, EARLY = "2026-10-11T12:00:00Z", "2026-10-10T12:00:00Z"
 
 
@@ -283,7 +304,8 @@ class SeenPort(unittest.TestCase):
     def test_each_identitys_writes_are_read_by_its_account_never_its_login(self):  # ruling 2
         reviews = [{"user": APPROVER, "state": "APPROVED", "node_id": "PRR_a", "submitted_at": AT},
                    {"user": APPROVER, "state": "COMMENTED", "node_id": "PRR_b", "submitted_at": AT},
-                   {"user": APPROVER, "state": "DISMISSED", "node_id": "PRR_d", "submitted_at": AT},
+                   {"user": APPROVER, "state": "DISMISSED", "node_id": "PRR_d", "id": 4, "submitted_at": AT},
+                   {"user": ROLE, "state": "DISMISSED", "node_id": "PRR_e", "id": 5, "submitted_at": AT},
                    {"user": APPROVER, "state": "PENDING", "node_id": "PRR_q"},
                    {"user": ROLE, "state": "COMMENTED", "node_id": "PRR_r", "submitted_at": SINCE},
                    {"user": dict(PERSON, login="donpetry-bot"), "state": "APPROVED", "node_id": "PRR_p", "submitted_at": AT},
@@ -293,7 +315,10 @@ class SeenPort(unittest.TestCase):
                                                                                 "created_at": AT}]
         events = [{"event": "labeled", "actor": CONTROLLER, "created_at": AT},
                   {"event": "removed_from_merge_queue", "actor": CONTROLLER, "created_at": AT},
-                  {"event": "review_dismissed", "actor": APPROVER, "created_at": AT},
+                  {"event": "review_dismissed", "actor": APPROVER, "created_at": AT,
+                   "dismissed_review": {"review_id": 4, "state": "approved"}},
+                  {"event": "review_dismissed", "actor": PERSON, "created_at": AT,
+                   "dismissed_review": {"review_id": 5, "state": "commented"}},
                   {"event": "closed", "actor": ROLE, "created_at": AT},
                   {"event": "review_requested", "actor": ROLE, "created_at": AT},
                   {"event": "assigned", "actor": CONTROLLER, "created_at": AT},
@@ -313,7 +338,8 @@ class SeenPort(unittest.TestCase):
         self.assertTrue(whole)
         self.assertEqual([(w["by"], w["kind"], w["key"]) for w in writes],
                          [("approver", "approval", "PRR_a"), ("approver", "review", "PRR_b"),
-                          ("approver", "approval", "PRR_d"), ("pr-review", "review", "PRR_r"),
+                          ("approver", "approval", "PRR_d"), ("pr-review", "review", "PRR_e"),
+                          ("pr-review", "review", "PRR_r"),
                           ("controller", "comment", "IC_c"), ("controller", "label", None),
                           ("controller", "dequeue", None), ("approver", "dismissal", None),
                           ("pr-review", "close", None), ("pr-review", "review_request", None),
@@ -337,6 +363,58 @@ class SeenPort(unittest.TestCase):
         self.assertEqual((github.asked, [(w["by"], w["kind"]) for w in writes], whole),
                          ([("GET", ISSUE + "/timeline?per_page=100"), COMMENTS], [("controller", "label")], True))
 
+    def test_an_item_that_left_the_open_list_has_its_timeline_read_here(self):  # issue 329
+        # A pull request merged or closed between the passes is no longer open, so no snapshot reads it: its timeline
+        # is read here, and with it a close by a Factory identity and a merge for an Override.
+        # Its reviews, threads and the check runs on its head are read here too, since no snapshot kept them.
+        events = [{"event": "closed", "actor": CONTROLLER, "created_at": AT},
+                  {"event": "merged", "actor": PERSON, "created_at": AT}]
+        head = "c0ffee" + "0" * 34
+        answers = {("GET", ISSUE + "/timeline?per_page=100"): events,
+                   ("GET", PULL + "/reviews?per_page=100"): [
+                       {"user": APPROVER, "state": "APPROVED", "node_id": "PRR_l", "submitted_at": AT}],
+                   ("POST", "/graphql"): {"data": {"repository": {"pullRequest": {"reviewThreads": {
+                       "totalCount": 1, "pageInfo": {"hasNextPage": False},
+                       "nodes": [{"id": "PRRT_l", "isResolved": True, "resolvedBy": None}]}}}}},
+                   ("GET", PULL): {"head": {"sha": head}},
+                   ("GET", "/repos/%s/commits/%s/check-runs?per_page=100" % (ITEM["repo"], head)): {
+                       "total_count": 1, "check_runs": [{"node_id": "CR_l", "started_at": AT, "app": {"id": 5364130}}]}}
+        github = GitHub(answers)
+        writes, merged, whole = seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)
+        self.assertEqual(([(w["by"], w["kind"], w["key"]) for w in writes], merged, whole),
+                         ([("approver", "approval", "PRR_l"), ("controller", "close", None),
+                           ("unattributed", "resolution", "PRRT_l"), ("controller", "check_run", "CR_l")],
+                          [{"item": ITEM, "at": AT}], True))
+        # Any of them not read, or a timeline that names no close, which no item that left would, is short.
+        for path in list(answers):
+            short = {**answers, path: {"status": 502, "body": {}}}
+            self.assertIs(seen_.read(GitHub(short), ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False, path)
+        still_open = {**answers, ("GET", ISSUE + "/timeline?per_page=100"): events[:0]}
+        self.assertIs(seen_.read(GitHub(still_open), ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False)
+        # A close or a merge alone says it left; one before the window, reopened since, does not.
+        for timeline_ in (events[:1], events[1:]):
+            ended = {**answers, ("GET", ISSUE + "/timeline?per_page=100"): timeline_}
+            self.assertIs(seen_.read(GitHub(ended), ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], True, timeline_)
+        reopened = {**answers, ("GET", ISSUE + "/timeline?per_page=100"): [
+            dict(events[0], created_at=EARLY), {"event": "reopened", "actor": PERSON, "created_at": EARLY}]}
+        self.assertIs(seen_.read(GitHub(reopened), ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False)
+        # Its threads and check runs are whole only when every one GitHub counts was read, of a head that can be read.
+        threads_more = {"data": {"repository": {"pullRequest": {"reviewThreads": {
+            "totalCount": 2, "pageInfo": {"hasNextPage": True}, "nodes": [{"id": "PRRT_l", "isResolved": False}]}}}}}
+        for change in ({("POST", "/graphql"): threads_more},
+                       {("POST", "/graphql"): {"data": {"repository": {"pullRequest": {"reviewThreads": {
+                           "totalCount": 2, "pageInfo": {"hasNextPage": False}, "nodes": []}}}}}},
+                       {("GET", "/repos/%s/commits/%s/check-runs?per_page=100" % (ITEM["repo"], head)): {
+                           "total_count": 2, "check_runs": []}},
+                       {("POST", "/graphql"): {"data": {"repository": {"pullRequest": {"reviewThreads": {
+                           "totalCount": 1, "pageInfo": {"hasNextPage": True},
+                           "nodes": [{"id": "PRRT_l", "isResolved": False}]}}}}}},
+                       {("GET", PULL): {"head": {"sha": "abc"}},
+                        ("GET", "/repos/%s/commits/abc/check-runs?per_page=100" % ITEM["repo"]): {
+                            "total_count": 0, "check_runs": []}}):
+            self.assertIs(seen_.read(GitHub({**answers, **change}), ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2], False,
+                          change)
+
     def test_a_list_that_cannot_be_read_whole_leaves_what_was_seen_short(self):  # ruling 5
         self.assertIs(port()[2], True)
         bad = {"reviews": [{"user": ROLE, "state": "COMMENTED", "node_id": "P", "submitted_at": "yesterday"}],
@@ -353,6 +431,54 @@ class SeenPort(unittest.TestCase):
                 + [kept(**{name: value}) for name, value in keyless.items()]:
             self.assertIs(port(parts)[2], False, parts)
         unreadable = {"login": "combsmith-sf-controller[bot]"}
+        # A dismissed review whose state before the timeline does not give (issue 329); an event no Factory write
+        # makes, by an account that cannot be read; a resolver of no positive id (issue 328).
+        dismissed = {"user": ROLE, "state": "DISMISSED", "node_id": "PRR_e", "id": 5, "submitted_at": AT}
+        for parts in (kept(reviews=[dismissed]),
+                      kept(reviews=[dismissed], events=[{"event": "review_dismissed", "actor": PERSON, "created_at": AT,
+                                                         "dismissed_review": {"review_id": 5, "state": "pending"}}]),
+                      kept(events=[{"event": "milestoned", "actor": unreadable, "created_at": AT}]),
+                      kept(events=[{"event": "milestoned", "actor": dict(CONTROLLER, type="Organization"),
+                                    "created_at": AT}]),
+                      kept(threads=[{"id": "PRRT_z", "isResolved": True, "resolvedBy": {"databaseId": 0}}]),
+                      kept(threads=[{"id": "PRRT_z", "isResolved": True, "resolvedBy": {"databaseId": -3}}]),
+                      # A dismissal and a review told by no positive id, or a state that is no word, pair with nothing.
+                      kept(reviews=[dict(dismissed, id=None)], events=[{"event": "review_dismissed", "actor": PERSON,
+                                                                        "created_at": AT,
+                                                                        "dismissed_review": {"state": "commented"}}]),
+                      kept(reviews=[dict(dismissed, id=True)], events=[{"event": "review_dismissed", "actor": PERSON,
+                                                                        "created_at": AT, "dismissed_review": {
+                                                                            "review_id": 1, "state": "commented"}}]),
+                      kept(reviews=[dict(dismissed, id=1)], events=[{"event": "review_dismissed", "actor": PERSON,
+                                                                     "created_at": AT, "dismissed_review": {
+                                                                         "review_id": True, "state": "commented"}}]),
+                      kept(reviews=[dict(dismissed, id=[5])]),
+                      kept(reviews=[dismissed], events=[{"event": "review_dismissed", "actor": PERSON,
+                                                         "created_at": AT, "dismissed_review": {
+                                                             "review_id": 5, "state": ["commented"]}}]),
+                      # An event GitHub gives no name for cannot be told from a write.
+                      kept(events=[{"actor": PERSON, "created_at": AT}])):
+            self.assertIs(port(parts)[2], False, parts)
+        # A review of a state GitHub does not give cannot be told.
+        self.assertIs(port(kept(reviews=[{"user": ROLE, "state": None, "node_id": "PRR_u", "submitted_at": AT}]))[2],
+                      False)
+        # A dismissed review whose state before cannot be read is read as an approval, so that a Role's alarms too.
+        writes, _, whole = port(kept(reviews=[dismissed]))
+        self.assertEqual(([(w["by"], w["kind"]) for w in writes], whole), ([("pr-review", "approval")], False))
+        # A dismissed change request is what it was: a review.
+        asked = kept(reviews=[dismissed], events=[{"event": "review_dismissed", "actor": PERSON, "created_at": AT,
+                                                   "dismissed_review": {"review_id": 5,
+                                                                        "state": "changes_requested"}}])
+        writes, _, whole = port(asked)
+        self.assertEqual(([(w["by"], w["kind"]) for w in writes], whole), ([("pr-review", "review")], True))
+        # Only a dismissal says what a review was before: another event of the timeline does not.
+        other = kept(reviews=[dismissed], events=[{"event": "labeled", "actor": PERSON, "created_at": AT,
+                                                   "dismissed_review": {"review_id": 5, "state": "commented"}}])
+        self.assertIs(port(other)[2], False)
+        # A person's event no Factory write makes, or one before the window, is no one's to reconcile.
+        for event in ({"event": "milestoned", "actor": PERSON, "created_at": AT},
+                      {"event": "milestoned", "actor": unreadable, "created_at": EARLY}):
+            self.assertEqual(port(kept(events=[event]))[::2], ([], True), event)
         for actor in (unreadable, dict(CONTROLLER, type="Organization"), dict(CONTROLLER, id=0)):
             self.assertIs(port(over={COMMENTS: [{"user": actor, "node_id": "IC_u", "created_at": AT}]})[2], False, actor)
         for parts in (kept(reviews=[{"user": unreadable, "state": "APPROVED", "node_id": "PRR_u", "submitted_at": AT}]),
@@ -374,14 +500,14 @@ class SeenPort(unittest.TestCase):
                    {"id": 10, "actor": APPROVER, "timestamp": SINCE, "activity_type": "force_push"},
                    {"id": 11, "actor": APPROVER, "timestamp": AT, "activity_type": "pr_merge"},
                    {"id": 12, "actor": APPROVER, "timestamp": AT, "activity_type": "branch_creation"}]
-        writes, whole = seen_.pushes(GitHub({ACTIVITY: entries}), ITEM["repo"], APPROVER, SINCE)
+        writes, whole = seen_.pushes(GitHub({ACTIVITY: entries}), ITEM["repo"], APPROVER, SINCE, lambda: NOW)
         # Each is named by the kind its activity gives, never a push for all.
         self.assertEqual(([(w["by"], w["kind"], w["key"], w["item"]) for w in writes], whole),
                          ([("approver", "push", "7", None), ("approver", "force_push", "10", None),
                            ("approver", "merge", "11", None), ("approver", "branch_created", "12", None)], True))
         # An activity of a type not known is the machine user's write all the same, and leaves the read short.
         writes, whole = seen_.pushes(GitHub({ACTIVITY: [dict(entries[0], activity_type="branch_rename")]}),
-                                     ITEM["repo"], APPROVER, SINCE)
+                                     ITEM["repo"], APPROVER, SINCE, lambda: NOW)
         self.assertEqual(([w["kind"] for w in writes], whole), (["other"], False))
         for answer in ({"status": 500, "body": {}}, None,
                        [{"id": 7, "actor": APPROVER, "timestamp": "x", "activity_type": "push"}],
@@ -389,7 +515,45 @@ class SeenPort(unittest.TestCase):
                        [{"id": True, "actor": APPROVER, "timestamp": AT, "activity_type": "push"}],
                        [{"id": 7, "actor": {"login": "donpetry-bot"}, "timestamp": AT, "activity_type": "push"}],
                        [{"id": i + 1, "actor": PERSON, "timestamp": AT} for i in range(100)]):
-            self.assertIs(seen_.pushes(GitHub({ACTIVITY: answer}), ITEM["repo"], APPROVER, SINCE)[1], False, answer)
+            self.assertIs(seen_.pushes(GitHub({ACTIVITY: answer}), ITEM["repo"], APPROVER, SINCE, lambda: NOW)[1], False,
+                          answer)
+
+    def test_the_activity_is_asked_for_a_period_that_covers_the_window(self):  # issue 329
+        # GitHub's shortest period that covers the window is asked; a window older than a year is read for the year,
+        # and short, since what came before it is not read.
+        entry = [{"id": 7, "actor": APPROVER, "timestamp": AT, "activity_type": "push"}]
+        # Each period is asked only while it covers the window an hour over, for clocks apart.
+        for now, period in (("2026-10-11T23:00:00Z", "day"), ("2026-10-11T23:00:01Z", "week"),
+                            ("2026-10-17T23:00:00Z", "week"), ("2026-10-17T23:00:01Z", "month"),
+                            ("2026-11-07T23:00:00Z", "month"), ("2026-11-07T23:00:01Z", "quarter"),
+                            ("2027-01-07T23:00:00Z", "quarter"), ("2027-01-07T23:00:01Z", "year"),
+                            ("2027-10-09T23:00:00Z", "year")):
+            path = ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=%s&per_page=100" % (ITEM["repo"], period))
+            self.assertEqual(seen_.pushes(GitHub({path: entry}), ITEM["repo"], APPROVER, SINCE, lambda: now),
+                             ([{"by": "approver", "kind": "push", "item": None, "key": "7", "at": AT}], True), now)
+        # A window older than a year, a clock before the window, or one that cannot be read is read for the year,
+        # and short.
+        year = ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=year&per_page=100" % ITEM["repo"])
+        for now in ("2027-10-09T23:00:01Z", "2026-10-01T00:00:00Z", "never"):
+            github = GitHub({year: entry})
+            self.assertIs(seen_.pushes(github, ITEM["repo"], APPROVER, SINCE, lambda: now)[1], False, now)
+            self.assertEqual(github.asked, [year], now)
+        # GitHub's own Date decides what its period covered: a clock behind GitHub's leaves the read short.
+        day = ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=day&per_page=100" % ITEM["repo"])
+
+        class Dated(GitHub):
+            def send(self, req):
+                return dict(super().send(req), headers={"date": self.date})
+        for date, whole in (("Sun, 11 Oct 2026 13:00:00 GMT", True), ("Mon, 12 Oct 2026 03:00:00 GMT", False),
+                            ("no date", True)):
+            github = Dated({day: entry})
+            github.date = date
+            self.assertIs(seen_.pushes(github, ITEM["repo"], APPROVER, SINCE, lambda: NOW)[1], whole, date)
+        # A period longer than GitHub's time needs covers the window all the same.
+        week = ("GET", "/repos/%s/activity?actor=donpetry-bot&time_period=week&per_page=100" % ITEM["repo"])
+        github = Dated({week: entry})
+        github.date = "Sun, 11 Oct 2026 13:00:00 GMT"
+        self.assertIs(seen_.pushes(github, ITEM["repo"], APPROVER, SINCE, lambda: "2026-10-12T03:00:00Z")[1], True)
 
     def test_seen_is_whole_only_when_every_part_was(self):
         whole, short = ([], [], True), ([], [], False)
@@ -404,6 +568,9 @@ class SeenPort(unittest.TestCase):
         self.assertIs(known, True)
         for accounts in (ACCOUNTS, dict(KNOWN, approver=None), dict(KNOWN, roles={"pr-review": None})):
             self.assertIs(seen_.identities(accounts)[1], False)
+        # Two identities of one account cannot be told apart: neither is known (issue 328).
+        twice = dict(KNOWN, roles={"pr-review": dict(KNOWN["controller"])})
+        self.assertEqual(seen_.identities(twice), ({(281750570, "User"): "approver"}, False))
         # The configuration holds the machine user as trials/P-7.json records it and the approver config/defaults.json
         # names, and a Role App's account for each Role App config/apps.json holds.
         defaults = json.loads((ROOT / "config" / "defaults.json").read_text())
