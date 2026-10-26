@@ -44,10 +44,6 @@ def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = RO
     held to `role/1`."""
     problems = []
     cats = authority["categories"]
-    # The authority table names a person and nobody by these words: no Role is either.
-    for stem, m in sorted(roles.items()):
-        if isinstance(m, dict) and m.get("name") in ("human", "none"):
-            problems.append("roles/%s.json names a Role %r, which the authority table reads as no Role" % (stem, m["name"]))
     # The Controller's App and the reader's are no Role's, and a Role writes through neither.
     no_role = {entry.get("name") for key, entry in apps["apps"].items() if key in ("controller", "reader")}
     unread = sorted(stem for stem, m in roles.items() if not isinstance(m, dict))
@@ -55,8 +51,8 @@ def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = RO
         problems.append("roles/%s.json cannot be read as a manifest" % stem)
     # A manifest is held to role/1 before anything is read from it: one of another shape is a problem, never a
     # traceback, and nothing else is read from it (issue 330).
-    schemas = {p.name[: -len(".schema.json")]: json.loads(p.read_text())
-               for p in sorted((ROOT / "schemas").glob("*.schema.json"))}
+    # role/1 and the one schema it refers to, and no other, so a fault elsewhere is not this check's (CodeRabbit's read).
+    schemas = {name: json.loads((ROOT / "schemas" / ("%s.schema.json" % name)).read_text()) for name in ("role", "effect")}
     shaped = {}
     for stem, m in sorted(roles.items()):
         if not isinstance(m, dict):
@@ -67,11 +63,15 @@ def team(roles: dict, authority: dict, apps: dict, live, root: pathlib.Path = RO
         else:
             shaped[stem] = m
     roles = shaped
+    # The authority table names a person and nobody by these words: no Role is either.
+    for stem, m in sorted(roles.items()):
+        if m["name"] in ("human", "none"):
+            problems.append("roles/%s.json names a Role %r, which the authority table reads as no Role" % (stem, m["name"]))
     for stem, m in sorted(roles.items()):
         name = m.get("name")
         if name != stem:
             problems.append("roles/%s.json names the Role %r; a manifest is named as its file" % (stem, name))
-        if live.get("roles/%s.json" % stem) != "role" or m.get("schema") != "role/1":
+        if live.get("roles/%s.json" % stem) != "role":
             problems.append("roles/%s.json is held to no schema; add it to LIVE in tools/check_examples.py" % stem)
         owns = set(m.get("owns", ()))
         named = {c for c, entry in cats.items() if entry.get("owner") == name}
