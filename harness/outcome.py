@@ -3,18 +3,17 @@ that did not succeed (design section 3.10; #196's ruling 7).
 
     python3 -m harness.outcome NAME APPLIED OUT [TASK]
 
-NAME is the Run's run-name, APPLIED the folder `harness.apply_step` wrote into, OUT a new folder, and TASK, when given,
-the folder the `run` job's reader wrote; with no argument, the workflow's form, NAME is the environment's and the
-folders are `applied`, `outcome` and `reader-outcome`, where the run job's `reader-outcome` artifact is downloaded when
-there is one. A Run the reader found on another Release than its pass's left in TASK its
-own `outcome/1`, `superseded`, `release_moved` (#197's ruling 8); its `run` job failed by that code, so `apply` read
-nothing and said `run_failed`, and the reader's outcome, when it is this Run's and this Release's, is the one kept. The
-outcome `apply` recorded is kept when it is this Run's and this Release's, the one its checkout carries
-(`steps.release`); when it is missing or is not, as when the step
-before failed or never ran, the Run ends `environment`, `apply_failed`, so that no Run that died leaves nothing. OUT
-holds `outcome.json` alone. An outcome that names a fault fails the step, by its code, once it is written, so that the
-run concludes as it ended and the pass reads it (`adapters/records.py` reads a failed Run's outcome alone); the upload
-after it runs whatever failed."""
+NAME is the Run's run-name, APPLIED the folder `harness.apply_step` wrote into, OUT a new folder, and TASK, when
+given, the folder the `run` job's reader wrote; with no argument, the workflow's form, NAME is the environment's and
+the folders are `applied`, `outcome` and `reader-outcome`, where the run job's `reader-outcome` artifact is downloaded
+when there is one. A Run the reader found on another Release than its pass's left in TASK its own `outcome/1`,
+`superseded`, `release_moved` (#197's ruling 8); its `run` job failed by that code, so `apply` read nothing and said
+`run_failed`, and the reader's outcome, when it is this Run's and this Release's, is the one kept. The outcome `apply`
+recorded is kept when it is this Run's and this Release's, the one its checkout carries (`steps.release`); when it is
+missing or is not, as when the step before failed or never ran, the Run ends `environment`, `apply_failed`, so that no
+Run that died leaves nothing. OUT holds `outcome.json` alone. An outcome that names a fault fails the step, by its
+code, once it is written, so that the run concludes as it ended and the pass reads it (`adapters/records.py` reads a
+failed Run's outcome alone); the upload after it runs whatever failed."""
 from __future__ import annotations
 
 import os

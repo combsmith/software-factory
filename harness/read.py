@@ -13,14 +13,14 @@ for `python3 -m harness.run OUT RESULT`. The token is revoked before the step en
 GitHub did not revoke fails the step, so the model's step never starts beside a live reader token.
 
 Before anything else is read, the Run's own Release is named: the one Release tag, among the `factory/` tags read with
-that token, on the commit the job checked out, `steps.commit()`, the one the job hands on (#197's rulings 8 and 11). A Run whose own Release is
-not its pass record's builds no Task: OUT holds its `outcome/1` alone, `superseded`, `release_moved`, and the step stops
-by that code. One whose own Release cannot be named stops `release_unresolved` and writes nothing; the pass record's
-Release is never taken for it.
-
-Not read yet, by the stories that hold them: the texts (`adapters/texts.py`), so the Task carries the diff alone; the
-Finding records a Decision names (`harness/apply.py` writes them, and no port reads them back yet), so the review
-Intent, which names none, is the one a Run can carry; an issue's Run, whose reads are the issue Lifecycle's."""
+that token, on the commit the job checked out, `steps.commit()`, the one the job hands on (#197's rulings 8 and 11). A
+Run whose own Release is not its pass record's builds no Task: OUT holds its `outcome/1` alone, `superseded`,
+`release_moved`, and the step stops by that code. One whose own Release cannot be named stops `release_unresolved` and
+writes nothing; the pass record's Release is never taken for it; a checkout `steps.commit()` cannot read stops
+`release_unreadable`, before any key is read. Not read yet, by the stories that hold them: the texts
+(`adapters/texts.py`), so the Task carries the diff alone; the Finding records a Decision names (`harness/apply.py`
+writes them, and no port reads them back yet), so the review Intent, which names none, is the one a Run can carry; an
+issue's Run, whose reads are the issue Lifecycle's."""
 from __future__ import annotations
 
 import hashlib

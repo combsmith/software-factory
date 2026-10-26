@@ -93,10 +93,13 @@ def release(root=None, run=subprocess.run) -> str:
     `release_twice`, rather than pick. Each step that needs the name calls this, its one entry point, before it reads
     any key."""
     listed = _git(["tag", "--points-at", HEAD], ROOT if root is None else root, run).splitlines()
+    # Every tag listed is on the commit checked out, so each is given that commit, by git's own name for it, HEAD, and
+    # current.resolve names the one Release among them as it would among refs read from GitHub.
     refs = {line.strip(): HEAD for line in listed if line.strip()}
     found = current.resolve(HEAD, refs)
     if found is None:
-        raise Stop("release_twice" if sum(1 for name in refs if current.version(name)) > 1 else "release_untagged")
+        twice = sum(1 for name in refs if current.version(name)) > 1
+        raise Stop("release_twice" if twice else "release_untagged")
     return found
 
 
