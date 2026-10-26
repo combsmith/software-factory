@@ -362,7 +362,7 @@ class Skill(unittest.TestCase):
                 self.assertEqual(words[:4], ["gh", "workflow", "run", "release.yml"])
                 fields = dict(w.split("=", 1) for w in words[4:] if "=" in w)
                 self.assertEqual([w for w in words[4:] if w not in ("-f", "-R", REPO) and "=" not in w], [])
-                self.assertIn(fields.get("command"), ("cut", "rollback"))
+                self.assertIn(fields.get("command"), ("cut", "move", "rollback"))
                 for name in ("version", "to"):
                     if name in fields:
                         self.assertTrue(current.version(fields[name]) or re.fullmatch(r"factory/v0\.X\.Y", fields[name]),

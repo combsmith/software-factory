@@ -248,19 +248,19 @@ class Writes(unittest.TestCase):
                 self.assertIsNone(deployments.record(github.Replay(answers), REPO, D, VERSION))
 
 
-def cut_reads(document=None):
-    """Every exchange of a cut of VERSION at D, from the first read of the tags to the Deployment."""
-    after_create = dict(REFS, **{VERSION: D})
+def cut_reads(document=None, version=VERSION):
+    """Every exchange of a cut of version at D, from the first read of the tags to the Deployment."""
+    after_create = dict(REFS, **{version: D})
     after_move = dict(after_create, **{NEXT: D})
-    return ([refs_read(REFS)] + facts_reads(D, document)
-            + [ex("POST", "/repos/%s/git/refs" % REPO, 201, {"ref": "refs/tags/" + VERSION, "object": {"sha": D}},
-                  sent={"ref": "refs/tags/" + VERSION, "sha": D}), refs_read(after_create),
+    return ([refs_read(REFS)] + facts_reads(D, document if document is not None else report(release=version))
+            + [ex("POST", "/repos/%s/git/refs" % REPO, 201, {"ref": "refs/tags/" + version, "object": {"sha": D}},
+                  sent={"ref": "refs/tags/" + version, "sha": D}), refs_read(after_create),
                ex("PATCH", "/repos/%s/git/refs/tags/%s" % (REPO, NEXT), 200,
                   {"ref": "refs/tags/" + NEXT, "object": {"sha": D}}, sent={"sha": D, "force": True}),
                refs_read(after_move),
                ex("POST", "/repos/%s/deployments" % REPO, 201, {"id": 77, "sha": D, "environment": "factory-next"},
                   sent={"ref": D, "task": "deploy", "auto_merge": False, "required_contexts": [],
-                        "environment": "factory-next", "description": VERSION, "transient_environment": False,
+                        "environment": "factory-next", "description": version, "transient_environment": False,
                         "production_environment": False}),
                ex("POST", "/repos/%s/deployments/77/statuses" % REPO, 201, {"state": "success"},
                   sent={"state": "success", "environment": "factory-next"})])
@@ -296,6 +296,13 @@ class Step(unittest.TestCase):
         self.assertEqual((done, code, tokens), ({"writes": [["create", VERSION, D], ["move", NEXT, D]],
                                                  "deployments": [77]}, None, ["the token"]))
         self.assertEqual(replay._left, [])
+
+    def test_a_cut_asked_with_no_version_is_of_the_next_patch(self):
+        # The schedule's cut names no version: it is the next patch of next's major, judged by the gate as that one.
+        env = {"RELEASE_COMMAND": "cut", "RELEASE_VERSION": "", "RELEASE_CUT_COMMIT": D, "RELEASE_TOKEN": "t"}
+        done, code, _, replay = self.run_step(env, cut_reads(version="factory/v0.2.1"))
+        self.assertEqual((done["writes"], code, replay._left),
+                         ([["create", "factory/v0.2.1", D], ["move", NEXT, D]], None, []))
 
     def test_a_closed_gate_writes_nothing(self):
         env = {"RELEASE_COMMAND": "cut", "RELEASE_VERSION": VERSION, "RELEASE_CUT_COMMIT": D, "RELEASE_TOKEN": "t"}

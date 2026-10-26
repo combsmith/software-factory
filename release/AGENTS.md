@@ -31,3 +31,6 @@ Not built yet, by the stories that hold their rules: promote.py, cutover.py.
 | A rollback reads no fact of the commit it moves to | `tests/test_release_step.py::test_a_rollback_reads_no_fact_and_moves_next_back` |
 | A Release is never written twice; a Channel is created once and moved with force after | `tests/test_release_step.py::test_a_release_is_created_and_a_channel_created_once_then_moved_with_force` |
 | A Deployment counts only as one of the commit moved to, its status success | `tests/test_release_step.py::test_a_deployment_of_next_is_recorded_with_its_status` |
+| Only `.github/workflows/release.yml` runs the step, held to its shape: one job on `factory-release`, its token for this repo alone, no checkout an output names | `tests/test_release_workflow.py::test_each_counter_example_is_refused_for_its_one_fault` |
+| No other workflow names the release job's environment, key, token or step | `tests/test_release_workflow.py::test_only_release_yml_names_the_release_jobs_environment_key_token_or_step` |
+| A cut asked with no version, as the schedule asks one, is of the next patch of its major | `tests/test_release_workflow.py::test_a_cut_asked_with_no_version_is_of_the_next_patch_or_the_majors_first` |
