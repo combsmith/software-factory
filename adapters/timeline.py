@@ -71,8 +71,12 @@ class Accounts:
         """The repo's permission answer for `login`, read once a login for all the reader serves."""
         if login not in self.answers:
             path = "/repos/%s/collaborators/%s/permission" % (self.repo, urllib.parse.quote(login, safe=""))
-            answer = self.transport.send(request("GET", path))
-            # An answer that failed is kept too, so a login is asked once however often it appears.
+            # An answer that failed is kept too, one that never came among them, so a login is asked once however
+            # often it appears.
+            try:
+                answer = self.transport.send(request("GET", path))
+            except Unanswered:
+                answer = {"status": "no answer", "body": None}
             ok = answer["status"] == 200 and isinstance(answer["body"], dict)
             self.answers[login] = answer["body"] if ok else answer["status"]
         if not isinstance(self.answers[login], dict):

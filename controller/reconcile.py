@@ -35,6 +35,7 @@ MATCHES = {
 # A write GitHub gives no key for, an event of the timeline, is matched by its item: each recorded once.
 BY_ITEM = ("dequeue",)
 DISPATCHES = ("dispatch_run", "dispatch_approval")
+RESOLVE = "resolve_thread"
 # A Decision that says the item had what a merge needs: an approval of its content standing, read by the Kernel.
 MERGEABLE = ("converged", "queued")
 LANDED = ("applied", "already_applied")
@@ -54,14 +55,21 @@ def _identities(accounts) -> tuple:
     return found, known
 
 
-def _keys(effects: dict) -> tuple:
-    """`(keys, items)`: the key of every Effect recorded as landed, by where it was recorded and its type; and of a
-    write matched by its item, how many were recorded on each."""
+def _keys(effects: dict, runs) -> tuple:
+    """`(keys, items)`: the key of every Effect recorded as landed, by where it was recorded and its type, and a
+    thread's resolution by the Role whose Run recorded it too; and of a write matched by its item, how many were
+    recorded on each."""
     keys, items = {}, {}
+    # A thread's id outlives its reopening, so one Role's recorded resolution must not cover another's: it is bound to
+    # the Role of the Run that recorded it, by the run records; one whose Run is not among them binds to none.
+    role_of = {r["run"]: r["role"] for r in runs} if isinstance(runs, list) else {}
     for done in effects["applied"]:
         for e in done["effects"]:
             if e["state"] in LANDED and e["key"] is not None:
-                keys.setdefault((APPLIED, e["type"]), set()).add(e["key"])
+                if e["type"] == RESOLVE:
+                    keys.setdefault((APPLIED, RESOLVE, role_of.get(done["run"])), set()).add(e["key"])
+                else:
+                    keys.setdefault((APPLIED, e["type"]), set()).add(e["key"])
     for done in effects["written"]:
         for w in done["writes"]:
             if w["state"] not in LANDED:
@@ -91,7 +99,7 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
     readable = seen is not None and not errors(seen, "seen")
     recorded = _readable(effects)
     short = not (readable and seen["whole"] is True and recorded and effects.get("whole") is True and known)
-    keys, items = _keys(effects) if recorded else ({}, {})
+    keys, items = _keys(effects, runs) if recorded else ({}, {})
     unmatched, override = [], []
     for w in seen["writes"] if readable else []:
         kind = identities.get(w["by"])
@@ -104,6 +112,8 @@ def reconcile(seen, effects, runs, before, accounts) -> dict:
             slot = (where[1], key(w["item"]) if w["item"] else None)
             landed = items.get(slot, 0) > 0
             items[slot] = items.get(slot, 0) - 1
+        elif where == (APPLIED, RESOLVE):
+            landed = w["key"] is not None and w["key"] in keys.get((APPLIED, RESOLVE, w["by"]), set())
         else:
             landed = where is not None and w["key"] is not None and w["key"] in keys.get(where, set())
         if not landed:

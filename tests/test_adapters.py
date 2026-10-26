@@ -2055,7 +2055,17 @@ class Threads(unittest.TestCase):
         router = Router(github.Replay([threads_answer("o/r", 26, nodes)]), {"don-petry": "admin"})
         got, whole = threads.read(router, Threads.PULL, timeline.Accounts(router, "o/r", MACHINE, {}))
         self.assertEqual((whole, [t["resolved_by"]["kind"] for t in got], router.asked), (True, ["human"] * 3, ["don-petry"]))
-        # A read that failed is asked once too.
+        # A read that failed, or never answered, is asked once too.
+        class Silent(Router):
+            def send(self, req):
+                if "/collaborators/" in req["path"]:
+                    self.asked.append(req["path"].split("/collaborators/")[1].split("/")[0])
+                    raise github.Unanswered("no answer")
+                return super().send(req)
+        nodes = [thread_node("PRRT_%d" % i, LENS, resolved_by=("don-petry", MAINTAINER)) for i in range(3)]
+        router = Silent(github.Replay([threads_answer("o/r", 26, nodes)]), {})
+        got, whole = threads.read(router, Threads.PULL, timeline.Accounts(router, "o/r", MACHINE, {}))
+        self.assertEqual((whole, [t["resolved_by"] for t in got], router.asked), (True, [None] * 3, ["don-petry"]))
         nodes = [thread_node("PRRT_%d" % i, LENS, resolved_by=("don-petry", MAINTAINER)) for i in range(3)]
         router = Router(github.Replay([threads_answer("o/r", 26, nodes)]), {"don-petry": "missing"})
         got, whole = threads.read(router, Threads.PULL, timeline.Accounts(router, "o/r", MACHINE, {}))
