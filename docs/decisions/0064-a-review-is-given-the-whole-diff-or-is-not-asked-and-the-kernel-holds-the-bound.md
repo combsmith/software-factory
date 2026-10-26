@@ -1,4 +1,4 @@
-# 0063. A review is given the whole diff or is not asked, and the Kernel holds the bound
+# 0064. A review is given the whole diff or is not asked, and the Kernel holds the bound
 
 Status: accepted. Taken as working rulings on 2026-10-25, which the Maintainer may overturn in review, for "Kernel: a pull request whose diff the Task cannot carry whole is held" (issue 327). It extends `docs/decisions/0050-the-model-is-given-a-task-and-no-tool-and-apply-writes-only-what-it-reads-back.md`, whose Task cuts a diff over its budget at a file's boundary and says what it left out, and moves that budget, which 0050 placed in `config/harness.json` as `texts.diff_characters`, to the Kernel's own limits; 0050 is not edited.
 
