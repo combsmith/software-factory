@@ -229,7 +229,7 @@ class Tags(unittest.TestCase):
         fixture = json.loads((ROOT / "release" / "fixtures" / "refs.read.json").read_text())
         self.assertEqual(tags.read(github.Replay(fixture["exchanges"]), REPO), {})
         self.assertEqual(check_release.fixture_problems(fixture, "refs.read.json"), [])
-        for planted in ({"authorization": "token " + "x" * 30}, {"x-oauth-client-id": "Iv1.0123456789"}):
+        for planted in ({"authorization": "token " + "x" * 30}, {"x-github-edge-region": "iad"}):
             with self.subTest(planted=planted):
                 held = copy.deepcopy(fixture)
                 held["exchanges"][0]["response"]["headers"].update(planted)
