@@ -7288,6 +7288,10 @@ MUTANTS = ISSUE + [
     ("the effects step's workflow form reads nothing", 'adapters/effects.py',
      '    argv = argv or ["pass/pass.json", "pass/writes.json", "pass"]\n',
      '', ('tests.test_steps.ControllerKey.test_the_controller_mints_from_its_key',)),
+    ('a pull request that moved under apply is the environment', 'harness/apply_step.py',
+     '                done = _ended(parts["run"], release, ("superseded", "head_moved"))',
+     '                done = _ended(parts["run"], release, ("environment", "facts_unreadable"))',
+     ('tests.test_steps.Apply.test_apply_reads_with_reads',)),
 ]
 
 

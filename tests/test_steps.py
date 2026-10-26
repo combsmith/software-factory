@@ -331,6 +331,14 @@ class Apply(unittest.TestCase):
         self.assertEqual(calls["job"][0][1], json.loads(data))
         _, _, _, calls = self.go(result=data)
         self.assertIsNone(calls["job"][0][1])
+        # A pull request that changed while it was read again is a change under the Run; one that cannot be read, not.
+        for raised, want in ((reread.facts_.Moved("moved"), ("superseded", "head_moved")),
+                             (github.Unanswered("no answer"), ("environment", "facts_unreadable"))):
+            def reading(*a, raised=raised):
+                raise raised
+            with unittest.mock.patch.object(reread, "item", reading):
+                code, _, ended, _ = self.go(a_job=lambda admit, result, read_, *a: read_())
+            self.assertEqual((ended["outcome"], ended["reason"]), want, raised)
         # A record that cannot be read is the environment's; a Decision of another item, no Decision of this Run's.
         code, _, ended, calls = self.go(record=github.Unanswered)
         self.assertEqual((ended["outcome"], ended["reason"], calls["job"]), ("environment", "record_unreadable", []))

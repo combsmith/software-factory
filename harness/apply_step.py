@@ -19,6 +19,7 @@ import sys
 import time
 
 from adapters import effects, identity, passes
+from adapters.facts import Moved
 from adapters.github import Live, Unanswered
 from controller import configuration
 from harness import apply, read as read_, reread, shared, steps, task
@@ -122,6 +123,9 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
         if admit is not None:
             try:
                 done = apply.job(admit, result, read, write, mint, role, told, utc())
+            except Moved:
+                # The pull request changed while it was read again: a change under the Run, never the environment's.
+                done = _ended(parts["run"], release, ("superseded", "head_moved"))
             except Unanswered:
                 done = _ended(parts["run"], release, ("environment", "facts_unreadable"))
     finally:
