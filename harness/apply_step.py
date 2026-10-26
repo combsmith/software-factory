@@ -133,6 +133,7 @@ def written(argv: list, environ: dict, base, clock, connect) -> tuple:
 
 
 def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
+    argv = steps.given(argv, environ, steps.INPUTS, ("result", "applied"))
     if len(argv) != 5:
         raise Stop("usage: python3 -m harness.apply_step NAME ITEM PASS RESULT OUT")
     folder = steps.new_folder(base, argv[4])

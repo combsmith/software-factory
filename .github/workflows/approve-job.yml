@@ -1,0 +1,47 @@
+# The approving act's one job, called by approve.yml at the Release's channel, with the item's lane on the calling job (decision 0055; #196's ruling 2).
+# `approve`, on `factory-approve`, holds the machine user's token alone, and every request it makes goes through the effects port's `Approving`, held to its item. It checks out the Release, never the item's code; it leaves the Run's outcome whatever failed.
+name: sf-approve-job
+on:
+  workflow_call:
+    inputs:
+      name:
+        required: true
+        type: string
+      item:
+        required: true
+        type: string
+      pass:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  approve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: factory-approve
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: factory/v0-next
+          persist-credentials: false
+      - name: Approve the commit it read, if the Kernel still wants it
+        env:
+          NAME: ${{ inputs.name }}
+          ITEM: ${{ inputs.item }}
+          PASS: ${{ inputs.pass }}
+          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}
+        run: python3 -m harness.approve_step
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: applied
+          path: approved/applied.json
+          if-no-files-found: ignore
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: outcome
+          path: approved/outcome.json
+          if-no-files-found: error

@@ -1,0 +1,41 @@
+# One pass of the Controller, called by poller.yml at the Release's channel, one running and one waiting (#196's ruling 4; decisions 0043, 0051, 0060).
+# It reads nothing of the run that woke the poller: what started it is read from its own run. The pass record is uploaded before anything is dispatched, so no Run starts from a Decision with no record, and the record of each write after them, whatever failed.
+# The one job granted a write: actions: write, the pass's own token, which dispatches the Runs and the successor. The Controller's key is on its two steps alone.
+name: sf-pass
+on:
+  workflow_call:
+permissions: {}
+jobs:
+  pass:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: factory-poller
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: factory/v0-next
+          persist-credentials: false
+      - name: Read and decide
+        env:
+          CONTROLLER_APP_KEY: ${{ secrets.CONTROLLER_APP_KEY }}
+        run: python3 -m controller
+      - name: Upload the pass record
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pass
+          path: pass/pass.json
+          if-no-files-found: error
+      - name: Write what the pass decided
+        env:
+          CONTROLLER_APP_KEY: ${{ secrets.CONTROLLER_APP_KEY }}
+          WORKFLOW_TOKEN: ${{ github.token }}
+        run: python3 -m adapters.effects
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: written
+          path: pass/written.json
+          if-no-files-found: ignore

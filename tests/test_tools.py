@@ -2593,6 +2593,117 @@ class Workflows(unittest.TestCase):
             self.assertEqual(rules(text), [], name)
 
 
+    # The Run's three jobs, the approving act's one and the pass, each held word for word (issue 196, PR 2b-2).
+    LIVE = ROOT / ".github" / "workflows"
+
+    def test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome(self):
+        good = (self.LIVE / "run-jobs.yml").read_text()
+        self.assertEqual(check_workflows.run_jobs_problems(good), [])
+        model = "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n"
+        reader = "          READER_APP_KEY: ${{ secrets.READER_APP_KEY }}\n"
+        broken = {
+            "the reader's key beside the model": good.replace(model, model + reader),
+            "the model beside the reader's key": good.replace(reader, reader + model),
+            "the reader's step after the model's": good.replace("        run: python3 -m harness.read\n", "        run: X\n")
+                                                       .replace("        run: python3 -m harness.run\n",
+                                                                "        run: python3 -m harness.read\n")
+                                                       .replace("        run: X\n", "        run: python3 -m harness.run\n"),
+            "a secret in verify": good.replace("          RUN_DIGEST: ${{ needs.run.outputs.digest }}\n        run: python3 -m harness.verify",
+                                               "          RUN_DIGEST: ${{ needs.run.outputs.digest }}\n          K: ${{ secrets.PR_REVIEW_APP_KEY }}\n        run: python3 -m harness.verify"),
+            "a cache in verify": good.replace("      - name: Verify the Result\n",
+                                              "      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n"
+                                              "        with:\n          path: x\n          key: y\n      - name: Verify the Result\n"),
+            "apply skipped when run fails": good.replace("      - verify\n    if: always()\n", "      - verify\n"),
+            "an outcome a failure skips": good.replace("      - name: Leave the Run's outcome\n        if: always()\n",
+                                                       "      - name: Leave the Run's outcome\n"),
+            "the item's code checked out": good.replace("          ref: factory/v0-next\n",
+                                                        "          ref: ${{ inputs.item }}\n", 1),
+            "a model credential in apply": good.replace("          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}\n",
+                                                        "          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}\n" + model),
+            "the CLI unchecked": good.replace('          echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c\n', ""),
+            "another checksum": good.replace(check_workflows.CLI_CHECKSUM, "0" * 64),
+            "another version": good.replace('CLI_VERSION: "2.1.306"', 'CLI_VERSION: "2.1.307"'),
+            "verify on an environment": good.replace("    needs: run\n    runs-on: ubuntu-24.04\n",
+                                                     "    needs: run\n    runs-on: ubuntu-24.04\n    environment: factory-run\n"),
+            "the model's step handed a tool list": good.replace("          CLAUDE_CLI: /usr/local/bin/claude\n",
+                                                                "          CLAUDE_CLI: /usr/local/bin/claude\n          TOOLS: Bash\n"),
+        }
+        for why, text in broken.items():
+            self.assertNotEqual(text, good, why)
+            self.assertTrue(caught(check_workflows.run_jobs_problems(text), "it is not the Run's three jobs"), why)
+        # Each file is held by its own name, wherever the check meets it.
+        passed = (self.LIVE / "pass.yml").read_text()
+        approving = (self.LIVE / "approve-job.yml").read_text()
+        for name, text, said in (("run-jobs.yml", broken["another checksum"], "it is not the Run's three jobs"),
+                                 ("pass.yml", passed.replace("      - if: always()\n        uses", "      - uses"),
+                                  "it is not the pass"),
+                                 ("approve-job.yml", approving.replace("timeout-minutes: 10", "timeout-minutes: 20"),
+                                  "the approving act's one job")):
+            self.assertTrue(caught(check_workflows.shim_problems(name, text), said), name)
+        self.assertEqual(check_workflows.shim_problems("run-jobs.yml", good), [])
+        # The CLI's version is the Engine's pin: a pin that moves without the checksum fails, as does none.
+        harness = json.loads((ROOT / "config" / "harness.json").read_text())
+        moved = tree({"config/harness.json": json.dumps(dict(harness, engine=dict(harness["engine"], version="2.1.307")))})
+        self.assertTrue(caught(check_workflows.run_jobs_problems(good, moved), "it is not the Run's three jobs"))
+        none = tree({"config/harness.json": "{}"})
+        self.assertTrue(caught(check_workflows.run_jobs_problems(good, none), "names no Engine pin"))
+
+    def test_the_pass_uploads_its_record_before_it_dispatches(self):  # design section 2.3, steps 5 and 6
+        good = (self.LIVE / "pass.yml").read_text()
+        self.assertEqual(check_workflows.pass_problems(good), [])
+        upload = ("      - name: Upload the pass record\n        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
+                  " # v7.0.2\n        with:\n          name: pass\n          path: pass/pass.json\n          if-no-files-found: error\n")
+        self.assertIn(upload, good)
+        writes = good[good.index("      - name: Write what the pass decided\n"):good.index("      - if: always()\n")]
+        broken = {
+            "dispatched before the record": good.replace(upload, "").replace(writes, writes + upload),
+            "the token beside the read": good.replace("        run: python3 -m controller\n",
+                                                      "          WORKFLOW_TOKEN: ${{ github.token }}\n        run: python3 -m controller\n"),
+            "no record of the writes": good[:good.index("      - if: always()\n")],
+            "the writes' record a failure skips": good.replace("      - if: always()\n        uses", "      - uses"),
+        }
+        for why, text in broken.items():
+            self.assertNotEqual(text, good, why)
+            self.assertTrue(caught(check_workflows.pass_problems(text), "it is not the pass"), why)
+
+    def test_the_approving_act_holds_the_approvers_token_alone(self):  # decision 0055
+        good = (self.LIVE / "approve-job.yml").read_text()
+        self.assertEqual(check_workflows.approve_job_problems(good), [])
+        for why, text in {"a key beside it": good.replace("          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}\n",
+                                                          "          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}\n"
+                                                          "          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}\n"),
+                          "the item's code": good.replace("          ref: factory/v0-next\n", "          ref: ${{ inputs.item }}\n"),
+                          "an outcome a failure skips": good.replace("      - if: always()\n        uses: actions/upload-artifact@"
+                                                                     "cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n"
+                                                                     "        with:\n          name: outcome",
+                                                                     "      - uses: actions/upload-artifact@"
+                                                                     "cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n"
+                                                                     "        with:\n          name: outcome")}.items():
+            self.assertNotEqual(text, good, why)
+            self.assertTrue(caught(check_workflows.approve_job_problems(text), "the approving act's one job"), why)
+
+    def test_a_key_and_its_environment_are_named_by_their_one_file(self):  # decision 0035
+        named = {"READER_APP_KEY": "run-jobs.yml", "factory-apply": "run-jobs.yml", "PR_REVIEW_APP_KEY": "run-jobs.yml",
+                 "factory-run": "run-jobs.yml", "APPROVER_TOKEN": "approve-job.yml", "factory-approve": "approve-job.yml",
+                 "CONTROLLER_APP_KEY": "pass.yml", "factory-poller": "pass.yml"}
+        for key, owner in named.items():
+            text = GOOD.replace("    permissions:\n      contents: read\n",
+                                "    permissions:\n      contents: read\n    env:\n      X: %s\n" % key, 1)
+            self.assertTrue(caught(check_workflows.shim_problems("other.yml", text),
+                                   "it names a key or the environment that holds it, which only %s names" % owner), key)
+            self.assertFalse(caught(check_workflows.shim_problems(owner, text), "which only %s names" % owner), key)
+        # A comment that names one names nothing.
+        self.assertFalse(check_workflows.shim_problems("other.yml", "# READER_APP_KEY\n" + GOOD))
+
+    def test_every_module_a_workflow_runs_is_in_the_repo(self):
+        for path in sorted(self.LIVE.glob("*.yml")):
+            for module in re.findall(r"python3 -m ([\w.]+)", path.read_text()):
+                parts = module.split(".")
+                found = ROOT.joinpath(*parts).with_suffix(".py").is_file() or (ROOT.joinpath(*parts) / "__main__.py").is_file()
+                self.assertTrue(found, "%s runs %s" % (path.name, module))
+
+
+
 class TheList(unittest.TestCase):
     """The protected paths and every Lens's input: one list, in config/hooks.json, that the session hooks read and the
     Kernel is given as `protected_paths` (decision 0020)."""

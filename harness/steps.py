@@ -56,6 +56,17 @@ def read_json(base, path: str):
         raise Stop("file_unreadable") from None
 
 
+# The Run's three inputs, as the workflow hands each step them: in its environment, never on its command line, which
+# holds `python3 -m <module>` and nothing else (`tools/check_workflows.py`'s `install`).
+INPUTS = ("NAME", "ITEM", "PASS")
+
+
+def given(argv: list, environ: dict, inputs: tuple, folders: tuple) -> list:
+    """The step's arguments: those on its command line, or, with none, the workflow's form: each of `inputs` from the
+    environment, then its folders by their fixed names."""
+    return list(argv) if argv else [environ.get(name) for name in inputs] + list(folders)
+
+
 def run(step, *given) -> int:
     """A step's exit: 0 and its line on success, else 1 and its one code; whatever it raised is never printed."""
     try:

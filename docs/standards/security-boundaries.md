@@ -16,7 +16,7 @@ A Result only requests Effects. No job holds both a model credential and a crede
 write, and no job that can write runs code from the Work item's branch.
 
 Org standard: none. It departs from ci-standards.md, "Concurrency, pinning, and the permission contract", which gives the agent's job write access: decision 0014.
-Held by: waiting on `.github/workflows/run.yml`
+Held by: `tests/test_tools.py::test_the_runs_jobs_keep_each_key_apart_and_always_leave_the_outcome`, `tests/test_tools.py::test_the_approving_act_holds_the_approvers_token_alone`
 
 ## No text from outside reaches a decision
 

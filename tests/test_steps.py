@@ -75,6 +75,35 @@ class Shared(unittest.TestCase):
         self.assertEqual(ran(lambda: (_ for _ in ()).throw(ValueError("GitHub said something"))), (1, "step_failed\n"))
 
 
+class WorkflowForm(unittest.TestCase):
+    def test_each_step_takes_the_runs_inputs_from_its_environment_and_its_folders_by_name(self):
+        # A workflow's run: line is `python3 -m <module>` alone, so a step with no argument reads the Run's three inputs
+        # from its environment, and its folders by their fixed names.
+        env = {"NAME": NAME, "ITEM": ITEM, "PASS": PASS}
+        self.assertEqual(steps.given([], env, steps.INPUTS, ("task",)), [NAME, ITEM, PASS, "task"])
+        self.assertEqual(steps.given(["a", "b"], env, steps.INPUTS, ("task",)), ["a", "b"])
+        self.assertEqual(steps.given([], {}, ("NAME",), ("applied", "outcome")), [None, "applied", "outcome"])
+        seen = []
+        for module, folders in ((read, ["task"]), (verify, ["result", "verdict"]), (apply_step, ["result", "applied"]),
+                                (outcome, ["applied", "outcome"]), (approve_step, ["approved"])):
+            with tempfile.TemporaryDirectory() as d:
+                with unittest.mock.patch.object(steps, "given", lambda a, e, i, f: seen.append((module, list(f))) or
+                                                (_ for _ in ()).throw(steps.Stop("seen"))):
+                    ran(module.step, [], env, d)
+        self.assertEqual(seen, [(m, f) for m, f in ((read, ["task"]), (verify, ["result", "verdict"]),
+                                                    (apply_step, ["result", "applied"]), (outcome, ["applied", "outcome"]),
+                                                    (approve_step, ["approved"]))])
+
+    def test_run_hands_on_the_digest_alone_as_its_steps_output(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "github_output")
+            with unittest.mock.patch.object(run, "job", lambda paths, env, config: "sha256:" + "a" * 64), \
+                    unittest.mock.patch.object(run, "from_folder", lambda folder, result: [folder, result]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(run.main([], {"GITHUB_OUTPUT": out}), 0)
+            self.assertEqual(pathlib.Path(out).read_text(), "digest=sha256:%s\n" % ("a" * 64))
+
+
 class Reader(unittest.TestCase):
     """The reader's step, its ports stood in for: what it reads, what it holds them to, and its token."""
 
@@ -467,6 +496,15 @@ class ControllerKey(unittest.TestCase):
             effects.controller_token({"CONTROLLER_APP_KEY": "k"}, config, 0)
         # The status's checks: write, which the App is granted; the tracking issue's write waits on its grant.
         self.assertEqual(asked, [("combsmith-sf-controller", HOME, {"checks": "write"}, "k")])
+        # The workflow's form, with no argument: the pass's own folder, `pass/`, and written.json into it.
+        out = tc.passed(tc.reads(pulls=[]))
+        with tempfile.TemporaryDirectory() as d:
+            os.mkdir(os.path.join(d, "pass"))
+            pathlib.Path(d, "pass", "pass.json").write_text(json.dumps(out["record"]))
+            pathlib.Path(d, "pass", "writes.json").write_text(json.dumps(writes_.plan(out)))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(effects.main([], {}, d), 0)
+            self.assertTrue(pathlib.Path(d, "pass", "written.json").is_file())
         # The step fails when GitHub did not revoke the token, and only then.
         out = tc.passed(tc.reads(pulls=[]))
         with tempfile.TemporaryDirectory() as d:

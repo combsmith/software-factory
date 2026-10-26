@@ -61,6 +61,7 @@ def written(argv: list, environ: dict, clock, connect) -> tuple:
 
 
 def step(argv: list, environ: dict, base, clock=time.time, connect=Live) -> str:
+    argv = steps.given(argv, environ, steps.INPUTS, ("approved",))
     if len(argv) != 4:
         raise Stop("usage: python3 -m harness.approve_step NAME ITEM PASS OUT")
     folder = steps.new_folder(base, argv[3])

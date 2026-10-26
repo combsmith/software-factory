@@ -1,0 +1,135 @@
+# A Run's three jobs, called by run.yml at the Release's channel, with the item's lane on the calling job (#196's rulings 6 and 7; decisions 0004, 0050, 0054, 0058, 0064).
+# `run` reads what the Task is built from with the reader's key in a step of its own, whose token is revoked before the model's step; the model's step holds the model's credential alone, and the Engine sets the scrub and `--tools ""`.
+# `verify` holds no secret and no cache, and takes the Result by the digest `run` reported. `apply` runs whatever failed before it: it writes nothing unless both succeeded, and its last step always leaves the Run's outcome.
+# Every job checks out the Release, never the item's code. The CLI is installed at the Engine's pin, its sha256 the one the vendor's release manifest gives for linux-x64.
+name: sf-run-jobs
+on:
+  workflow_call:
+    inputs:
+      name:
+        required: true
+        type: string
+      item:
+        required: true
+        type: string
+      pass:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: factory-run
+    permissions:
+      contents: read
+    outputs:
+      digest: ${{ steps.engine.outputs.digest }}
+      artifact: ${{ steps.result.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: factory/v0-next
+          persist-credentials: false
+      - name: Install the CLI at the Engine's pin
+        env:
+          CLI_VERSION: "2.1.306"
+          CLI_CHECKSUM: "520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe"
+        run: |
+          url="https://downloads.claude.ai/claude-code-releases/${CLI_VERSION}/linux-x64/claude"
+          curl -sSfL --proto '=https' --proto-redir '=https' -o /tmp/claude "${url}"
+          echo "${CLI_CHECKSUM}  /tmp/claude" | sha256sum -c
+          chmod 0755 /tmp/claude
+          sudo mv /tmp/claude /usr/local/bin/claude
+      - name: Read what the Task is built from
+        env:
+          NAME: ${{ inputs.name }}
+          ITEM: ${{ inputs.item }}
+          PASS: ${{ inputs.pass }}
+          READER_APP_KEY: ${{ secrets.READER_APP_KEY }}
+        run: python3 -m harness.read
+      - name: Run the Engine
+        id: engine
+        env:
+          CLAUDE_CLI: /usr/local/bin/claude
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: python3 -m harness.run
+      - name: Upload the Result
+        id: result
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: result
+          path: result/
+          if-no-files-found: error
+  verify:
+    needs: run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: factory/v0-next
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.run.outputs.artifact }}
+          path: result
+      - name: Verify the Result
+        env:
+          RUN_DIGEST: ${{ needs.run.outputs.digest }}
+        run: python3 -m harness.verify
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verdict
+          path: verdict/
+          if-no-files-found: error
+  apply:
+    needs:
+      - run
+      - verify
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: factory-apply
+    permissions:
+      contents: read
+    env:
+      NEEDS: ${{ toJSON(needs) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: factory/v0-next
+          persist-credentials: false
+      - if: always()
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.run.outputs.artifact }}
+          path: result
+      - name: Apply the Result
+        if: always()
+        env:
+          NAME: ${{ inputs.name }}
+          ITEM: ${{ inputs.item }}
+          PASS: ${{ inputs.pass }}
+          RUN_DIGEST: ${{ needs.run.outputs.digest }}
+          PR_REVIEW_APP_KEY: ${{ secrets.PR_REVIEW_APP_KEY }}
+        run: python3 -m harness.apply_step
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: applied
+          path: applied/applied.json
+          if-no-files-found: ignore
+      - name: Leave the Run's outcome
+        if: always()
+        env:
+          NAME: ${{ inputs.name }}
+        run: python3 -m harness.outcome
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: outcome
+          path: outcome/outcome.json
+          if-no-files-found: error

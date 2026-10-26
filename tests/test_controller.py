@@ -505,7 +505,7 @@ class Chain(unittest.TestCase):
         self.assertEqual(start("watch", RELAY, cfg=held), "public")
         self.assertEqual(start("workflow_dispatch", TOKEN, cfg=held), "dispatch")
         self.assertEqual({k: CONTROLLER["accounts"][k] for k in ("workflow_token", "relay", "controller", "maintainer")},
-                         {"workflow_token": None, "relay": None, "controller": None,
+                         {"workflow_token": {"id": 41898282, "type": "Bot"}, "relay": None, "controller": None,
                           "maintainer": {"login": "don-petry", "id": 36422719}})
         self.assertEqual(passed(dict(reads(), started=None))["record"]["started_by"], "dispatch")
 
@@ -872,7 +872,8 @@ class Entry(unittest.TestCase):
         self.assertEqual(entry.accounts(held), ({"agent": {(12, "Bot")}, "maintainer": set(), "dependency": set()},
                                                 (0, "User"), {(11, "Bot"): "pr-review"},
                                                 {(11, "Bot"), (12, "Bot"), (13, "Bot")}))
-        self.assertEqual(entry.dispatcher(CONTROLLER), (0, "Bot"))
+        self.assertEqual(entry.dispatcher(dict(CONTROLLER, accounts=dict(CONTROLLER["accounts"], workflow_token=None))),
+                         (0, "Bot"))
         self.assertEqual(entry.dispatcher(config()["controller"]), (41898282, "Bot"))
 
     def test_the_entry_waits_out_the_read_gap_before_it_reads(self):  # decision 0043
@@ -925,9 +926,16 @@ class Entry(unittest.TestCase):
             hub = Hub(self.table())
             env = {"RELEASE": "factory/v0.3.1", "GITHUB_RUN_ID": self.RUN, entry.KEY: self.key}
             self.assertEqual(entry.main(["../elsewhere"], env, base=os.path.join(d, "inside"), connect=hub.connect), 2)
-            self.assertEqual(entry.main([], env, base=d, connect=hub.connect), 2)
+            os.makedirs(os.path.join(d, entry.FOLDER))
+            self.assertEqual(entry.main([], env, base=d, connect=hub.connect), 2)     # its folder already there
             self.assertEqual(entry.main(["."], env, base=d, connect=hub.connect), 2)
             self.assertEqual(hub.sent, [])
+        # The workflow's form, with no argument: the pass is written into a new folder of its own, `pass/`.
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(entry.main([], env, base=d, clock=lambda: self.CLOCK, sleep=lambda s: None,
+                                        connect=Hub(self.table()).connect), 0)
+            self.assertTrue(pathlib.Path(d, entry.FOLDER, "pass.json").is_file())
+            self.assertEqual(os.stat(os.path.join(d, entry.FOLDER)).st_mode & 0o777, 0o700)
 
     def test_only_the_entry_reads_the_clock_or_the_environment(self):
         # Every other module of controller/ is a function of what it is given (the test above it); the entry takes the

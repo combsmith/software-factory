@@ -21,6 +21,7 @@ from harness.steps import Stop
 
 
 def step(argv: list, environ: dict, base) -> str:
+    argv = steps.given(argv, environ, ("NAME",), ("applied", "outcome"))
     if len(argv) != 3:
         raise Stop("usage: python3 -m harness.outcome NAME APPLIED OUT")
     name, applied, out = argv

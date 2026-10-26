@@ -858,6 +858,8 @@ def main(argv=None, environ=None, base=None, mint=None, clock=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     environ = os.environ if environ is None else environ
     inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
+    # The workflow's form: the pass's own folder, which `python3 -m controller` wrote, and written.json beside it.
+    argv = argv or ["pass/pass.json", "pass/writes.json", "pass"]
     if len(argv) != 3:
         print("usage: python3 -m adapters.effects PASS WRITES OUT; nothing was sent")
         return 2

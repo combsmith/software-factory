@@ -23,6 +23,7 @@ DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 def step(argv: list, environ: dict, base) -> str:
+    argv = steps.given(argv, environ, (), ("result", "verdict"))
     if len(argv) != 2:
         raise Stop("usage: python3 -m harness.verify RESULT OUT")
     found, out = argv

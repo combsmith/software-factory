@@ -1,4 +1,4 @@
-"""The pass's entry, `python3 -m controller OUT`: one pass, read through the ports, decided by `controller/pass_.py`,
+"""The pass's entry, `python3 -m controller [OUT]`: one pass, read through the ports, decided by `controller/pass_.py`,
 and written to the folder `OUT` for the pass job's next steps (#193's ruling 10 for PR 2; #196's PR 2; design sections
 2.3 and 7.3). It is the one place in `controller/` that reads the clock or the environment.
 
@@ -39,6 +39,7 @@ RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*
 RUN_ID = re.compile(r"[1-9][0-9]{0,18}")
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 VIEW = ("meta", "items", "health")
+FOLDER = "pass"     # what the workflow's form writes into, for the upload and the effects step
 
 
 class Stop(Exception):
@@ -128,6 +129,10 @@ def main(argv=None, environ=None, base=None, clock=time.time, sleep=time.sleep, 
     argv = sys.argv[1:] if argv is None else argv
     environ = os.environ if environ is None else environ
     inside = os.path.realpath(str(pathlib.Path.cwd() if base is None else base))
+    if not argv and not os.path.lexists(os.path.join(inside, FOLDER)):
+        # The workflow's form: the folder `pass.yml` uploads, made here, new and the step's own.
+        os.mkdir(os.path.join(inside, FOLDER), 0o700)
+        argv = [FOLDER]
     out = os.path.realpath(os.path.join(inside, argv[0])) if len(argv) == 1 else None
     if out is None or not (out == inside or out.startswith(inside + os.sep)) or not os.path.isdir(out) \
             or os.listdir(out):
