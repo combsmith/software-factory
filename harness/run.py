@@ -36,12 +36,17 @@ CLI = "CLAUDE_CLI"
 
 def configuration(root: pathlib.Path = ROOT) -> dict:
     """What the Task and the Engine are told beside the pass record: the Maintainer, the names the Factory's Roles act
-    under, and config/harness.json. The Release is the pass record's: one Release, one path (decision 0006)."""
+    under, config/harness.json, and the longest diff a Task carries, the Kernel's own limit, so the bound the Kernel
+    holds a pull request to and the one a Task is cut at are one (issue 327). The Release is the pass record's: one
+    Release, one path (decision 0006)."""
     hooks = json.loads((root / "config" / "hooks.json").read_text())
     apps = json.loads((root / "config" / "apps.json").read_text())
     defaults = json.loads((root / "config" / "defaults.json").read_text())
     roles = sorted({app["name"] + "[bot]" for app in apps["apps"].values()} | set(defaults["required_lenses"]["model"]))
-    return {"maintainer": hooks["maintainer"]["login"], "roles": roles, "approver": defaults["approver"], "harness": json.loads((root / "config" / "harness.json").read_text())}
+    return {"maintainer": hooks["maintainer"]["login"], "roles": roles, "approver": defaults["approver"],
+            "harness": json.loads((root / "config" / "harness.json").read_text()),
+            # The one bound on the change a Task carries, the Kernel's own (issue 327).
+            "max_diff_characters": defaults["limits"]["max_diff_characters"]}
 
 
 # The Intents whose Result covers a rubric (design section 3.14, decision 0049): a Run of one is never asked without it.
@@ -108,11 +113,19 @@ def job(paths: list, job_env: dict, config: dict, call=None, clock=time.monotoni
         change = f.read()
     the_task = task.build(admitted, run, read(facts), read(texts), read(role), read(findings), config, change)
     session = session or str(uuid.uuid4())
-    try:
-        told = instructions(ROOT, the_task)
-    except RubricUnreadable:
+    fault, told = None, None
+    if the_task["intent"] in REVIEWING and any(o["kind"] == "diff" for o in the_task["omitted"]):
+        # The Kernel holds a pull request whose diff no Task carries whole; one admitted all the same is never reviewed
+        # in part (issue 327).
+        fault = "diff_not_whole"
+    else:
+        try:
+            told = instructions(ROOT, the_task)
+        except RubricUnreadable:
+            fault = "rubric_unreadable"
+    if fault:
         # The Factory's fault, read before the CLI is started: a failed Result, and no model call spent (issue 330).
-        result = engine.failed(the_task, "rubric_unreadable", engine.usage_of(config["harness"], session))
+        result = engine.failed(the_task, fault, engine.usage_of(config["harness"], session))
     else:
         result = engine.run(the_task, job_env.get(CLI, ""), job_env, config["harness"], call or cli_call, clock,
                             session, told)

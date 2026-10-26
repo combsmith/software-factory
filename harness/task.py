@@ -111,7 +111,7 @@ def diff_of(diff, facts: dict, admit: dict, config: dict) -> tuple:
         body = diff.decode("utf-8")
     except UnicodeDecodeError:
         raise Refused("the diff is not text") from None
-    room = config["harness"]["texts"]["diff_characters"]
+    room = config["max_diff_characters"]
     kept, cut, characters = [], 0, 0
     for part in [p for p in FILE_START.split(body) if p]:
         if not cut and carried(part) <= room:

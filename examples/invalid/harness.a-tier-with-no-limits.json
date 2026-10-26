@@ -14,8 +14,7 @@
     }
   },
   "texts": {
-    "characters": 40000,
-    "diff_characters": 60000
+    "characters": 40000
   },
   "advisory": [
     "coderabbit"
