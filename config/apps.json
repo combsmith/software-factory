@@ -258,6 +258,12 @@
             "read:records.artifacts"
           ]
         },
+        "actions_variables": {
+          "level": "read",
+          "needs": [
+            "read:pass.pause"
+          ]
+        },
         "checks": {
           "level": "write",
           "needs": [

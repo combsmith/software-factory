@@ -4,7 +4,7 @@
   "question": "Does what GitHub granted each Factory App, its permissions, its events and the repos it reaches, agree with config/apps.json?",
   "pass": "They agree exactly, and a difference fails (section 6). As the story, #26, states it in its working rulings: for each App, app_id is the data's; the permissions and their levels are exactly the data's, no more and no fewer, and the same registered and installed; events is empty; the selection is selected; and the repos are exactly installed_on. A mismatch is a fail, and no key for that App is stored. This fixture holds the first two reads, made through the Maintainer's login and minting nothing: GET /apps/{slug} for each App, and GET /orgs/combsmith/installations, kept whole, third-party Apps included. Its verdict is on every part of the condition but the repos. The repos each installation reaches need an installation token, so they are read at the Maintainer's terminal by tools/trial_p39_reach.sh and kept in P-39.reach.json, with a verdict of their own. P-39 passes only if both fixtures do.",
   "repo": "combsmith",
-  "ran_at": "2026-10-27T22:45:44Z",
+  "ran_at": "2026-10-27T23:43:41Z",
   "exchanges": [
     {
       "request": {
@@ -25,19 +25,19 @@
         "headers": {
           "cache-control": "private, max-age=60, s-maxage=60",
           "content-type": "application/json; charset=utf-8",
-          "date": "Tue, 27 Oct 2026 22:45:44 GMT",
+          "date": "Tue, 27 Oct 2026 23:43:42 GMT",
           "etag": "W/\"cb9105064fdf464881ec90ccb4ba1ace6aacc283711c460594b0758b6941de61\"",
           "server": "github.com",
           "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
           "x-accepted-oauth-scopes": "",
           "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "CA16:189688:37E2CFC:B858D09:6AE12998",
+          "x-github-request-id": "D404:817C5:3B8C544:C3ABDC5:6AE1372D",
           "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
           "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4915",
-          "x-ratelimit-reset": "1793142768",
+          "x-ratelimit-remaining": "4790",
+          "x-ratelimit-reset": "1793146453",
           "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "85"
+          "x-ratelimit-used": "210"
         },
         "body": {
           "id": 5364130,
@@ -103,19 +103,19 @@
         "headers": {
           "cache-control": "private, max-age=60, s-maxage=60",
           "content-type": "application/json; charset=utf-8",
-          "date": "Tue, 27 Oct 2026 22:45:45 GMT",
-          "etag": "W/\"091fad7ba94e170deaa6463ba1578ee0b88587b8687b7e803fe614cf39c62ea6\"",
+          "date": "Tue, 27 Oct 2026 23:43:42 GMT",
+          "etag": "W/\"ccc27d368edb150b66f7612e2fb4b83ac31afe01a4eb309766c6c0fbc05aa6c2\"",
           "server": "github.com",
           "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
           "x-accepted-oauth-scopes": "",
           "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "CA19:2CC808:35F6F5F:B1E9BD7:6AE12999",
+          "x-github-request-id": "D407:A6D16:3CA0548:C62FCB4:6AE1372E",
           "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
           "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4914",
-          "x-ratelimit-reset": "1793142768",
+          "x-ratelimit-remaining": "4789",
+          "x-ratelimit-reset": "1793146453",
           "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "86"
+          "x-ratelimit-used": "211"
         },
         "body": {
           "id": 5364144,
@@ -148,9 +148,10 @@
           "external_url": "https://github.com/combsmith/",
           "html_url": "https://github.com/apps/combsmith-sf-pr-review",
           "created_at": "2026-10-18T02:23:43Z",
-          "updated_at": "2026-10-27T22:38:04Z",
+          "updated_at": "2026-10-27T23:38:51Z",
           "permissions": {
             "actions": "read",
+            "actions_variables": "read",
             "checks": "write",
             "contents": "read",
             "issues": "read",
@@ -180,19 +181,19 @@
         "headers": {
           "cache-control": "private, max-age=60, s-maxage=60",
           "content-type": "application/json; charset=utf-8",
-          "date": "Tue, 27 Oct 2026 22:45:45 GMT",
+          "date": "Tue, 27 Oct 2026 23:43:43 GMT",
           "etag": "W/\"aa14bd18168cc76f84c6c0d3232c4f0ef53a5f1f023100a016fc515827de1226\"",
           "server": "github.com",
           "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
           "x-accepted-oauth-scopes": "",
           "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "CA1A:CDD1C:34DF928:ADA6D3E:6AE12999",
+          "x-github-request-id": "D408:34229E:3C30223:C5BDD5C:6AE1372F",
           "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
           "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4913",
-          "x-ratelimit-reset": "1793142768",
+          "x-ratelimit-remaining": "4788",
+          "x-ratelimit-reset": "1793146453",
           "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "87"
+          "x-ratelimit-used": "212"
         },
         "body": {
           "id": 5364151,
@@ -257,19 +258,19 @@
         "headers": {
           "cache-control": "private, max-age=60, s-maxage=60",
           "content-type": "application/json; charset=utf-8",
-          "date": "Tue, 27 Oct 2026 22:45:45 GMT",
-          "etag": "W/\"9ad263cc42fe6bd5cc8881591d6c9626ae173e5399d3a5d2ecddf5b9a88384b1\"",
+          "date": "Tue, 27 Oct 2026 23:43:44 GMT",
+          "etag": "W/\"d80be2db669a77c567ccd65047bcede8cb8a85a509dcf3e3b9cec52bc204947b\"",
           "server": "github.com",
           "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
           "x-accepted-oauth-scopes": "admin:org, read:org, write:org",
           "x-github-media-type": "github.v3; format=json",
-          "x-github-request-id": "CA1B:CDD1C:34DFB17:ADA73E6:6AE12999",
+          "x-github-request-id": "D409:1A3955:40AC1B2:D87597E:6AE1372F",
           "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
           "x-ratelimit-limit": "5000",
-          "x-ratelimit-remaining": "4919",
-          "x-ratelimit-reset": "1793142695",
+          "x-ratelimit-remaining": "4369",
+          "x-ratelimit-reset": "1793146310",
           "x-ratelimit-resource": "core",
-          "x-ratelimit-used": "81"
+          "x-ratelimit-used": "631"
         },
         "body": {
           "total_count": 18,
@@ -1171,11 +1172,12 @@
                 "actions": "read",
                 "contents": "read",
                 "metadata": "read",
-                "pull_requests": "write"
+                "pull_requests": "write",
+                "actions_variables": "read"
               },
               "events": [],
               "created_at": "2026-10-17T21:28:33.000-05:00",
-              "updated_at": "2026-10-27T17:40:18.000-05:00",
+              "updated_at": "2026-10-27T18:39:38.000-05:00",
               "single_file_name": null,
               "has_multiple_single_files": false,
               "single_file_paths": [],
