@@ -66,7 +66,7 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
     labels = timeline.label_events(events, accounts)
     read = checks.read(transport, first, raw)
     contract, contract_whole = acceptance.read(transport, first, accounts, opener)
-    found, threads_whole = applied.held(*threads.read(transport, first, accounts, raw), recorded)
+    found, threads_whole = applied.held(*threads.read(transport, first, accounts, raw), recorded, content["content_id"])
     if pusher is not None and pushed_at is None:
         raise Unanswered("the head's push names its pusher but no time that can be read")
     if not pull.unchanged(transport, first):

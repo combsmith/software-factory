@@ -40,4 +40,5 @@ join needed, so one port reads both.
 | P-49 as recorded, the Lens's own reply first: whole, and the Finding gates | `tests/test_adapters.py::test_a_thread_a_trial_recorded_is_read_as_the_port_reads_it` |
 | The snapshot holds its threads to what was recorded | `tests/test_adapters.py::test_a_snapshot_holds_every_thread_read_and_says_whether_they_were_read_whole` |
 | The pass, the read step and the read again each hand it | `tests/test_controller.py::test_each_snapshot_is_read_with_the_configured_accounts_and_kept`, `tests/test_steps.py::test_the_reader_writes_the_tasks_inputs`, `tests/test_steps.py::test_the_item_is_read_again` |
+| A deleted comment's cost: a later review by the same Lens, read whole, on the current content, supersedes that Lens's earlier records, and releases a pull request held by a thread that is gone (decision 0075) | `tests/test_adapters.py::test_a_later_review_by_the_same_lens_on_the_current_content_releases_a_thread_that_is_gone` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

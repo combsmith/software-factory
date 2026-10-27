@@ -243,12 +243,12 @@ class Reader(unittest.TestCase):
         self.assertEqual((json.loads(kept["texts.json"]), json.loads(kept["findings.json"])), ([], []))
         self.assertEqual(json.loads(kept["role.json"])["name"], "pr-review")
         # The threads are held to what the item's Lenses recorded, read from the run records (issue 338).
-        self.assertEqual(calls["recorded"], [({}, True)])
+        self.assertEqual(calls["recorded"], [({}, True, [])])
         # Of the run list of both Role workflows, the model Lenses' Runs on this item, held to the authority table.
         self.assertEqual(calls["listed"], [["run.yml", "approve.yml"]])
         self.assertEqual(calls["asked"], [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
         # A list read short holds them to nothing recorded, not whole: the Task is refused rather than built on it.
-        self.assertEqual(self.go(complete=False)[4]["recorded"], [({}, False)])
+        self.assertEqual(self.go(complete=False)[4]["recorded"], [({}, False, [])])
         # Minted once, for the home repo, with reads alone, and revoked once.
         (app, repo, wanted, key), = calls["minted"]
         self.assertEqual((app, repo, key, calls["revoked"]), ("combsmith-sf-reader", HOME, "the key", 1))
@@ -723,7 +723,7 @@ class Reread(unittest.TestCase):
                 else:
                     self.assertIsNone(reread.item("t", config, 42, support.NOW, lambda: support.NOW)[3]["active_runs"])
         # A list read short holds the threads to nothing recorded, and they are not whole (issue 338).
-        self.assertEqual(whole, [(False, ({}, False)), (False, ({}, False))])
+        self.assertEqual(whole, [(False, ({}, False, [])), (False, ({}, False, []))])
         asked_ = []
         with unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: copy.deepcopy(listed)), \
                 recorded_spy(reread, asked_), \

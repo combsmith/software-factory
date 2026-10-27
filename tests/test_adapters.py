@@ -2254,6 +2254,11 @@ class Recorded(unittest.TestCase):
     RUN = "r_01JA6Z"
 
     def recorded(self, runs, *exchanges_, numbers=(26,)):
+        """What the Lenses recorded, as the join reads it: each thread's Lens, category and severity, and whether whole."""
+        return {n: ({k: {f: v for f, v in t.items() if f != "runs"} for k, t in got[0].items()}, got[1])
+                for n, got in self.full(runs, *exchanges_, numbers=numbers).items()}
+
+    def full(self, runs, *exchanges_, numbers=(26,)):
         return applied.recorded(github.Replay(list(exchanges_)), "o/r", runs, list(numbers), {"pr-review"}, AUTHORITY)
 
     def test_a_lens_runs_applied_record_is_read_by_the_one_github_run_its_name_names(self):
@@ -2336,12 +2341,102 @@ class Recorded(unittest.TestCase):
                                              + applied_stored("o/r", 39100000001, lens_applied(
                                                  "r_01JA7R", finding_on("PRRT_7", lens="qa-lead")))),
                                "o/r", listed_runs(lens_run(self.RUN), other), [26], {"pr-review", "qa-lead"}, AUTHORITY)
-        self.assertEqual(got[26][0]["PRRT_7"], {"lens": None, "category": None, "severity": None})
+        self.assertEqual(got[26][0]["PRRT_7"], {"lens": None, "category": None, "severity": None,
+                                                "runs": [self.RUN, "r_01JA7R"]})
 
-    def held(self, nodes: list, recorded_: tuple, lenses=None) -> tuple:
+    def held(self, nodes: list, recorded_: tuple, lenses=None, content_id=None) -> tuple:
         router = Router(github.Replay([threads_answer("o/r", 26, nodes)]), {"don-petry": "admin", "pr-review": "read"})
         accounts = timeline.Accounts(router, "o/r", MACHINE, lenses or {LENS[1:]: "pr-review"})
-        return applied.held(*threads.read(router, Threads.PULL, accounts), recorded_)
+        return applied.held(*threads.read(router, Threads.PULL, accounts), recorded_, content_id)
+
+    LATER = "r_01JA9B"
+
+    def two_runs(self, earlier, later, later_run=None, later_record="whole"):
+        """What a Lens recorded on pull request 26 over two Runs: the first, on content "sha256:old", recorded the
+        thread PRRT_7; the second, `later_run`, recorded the Findings `later`, or its record cannot be read."""
+        first = dict(lens_run(self.RUN), content_id="sha256:old", started_at="2026-10-21T16:00:00Z")
+        second = later_run or dict(lens_run(self.LATER), content_id="sha256:new", started_at="2026-10-21T17:00:00Z")
+        record = lens_applied(second["run"], *later) if later_record == "whole" else later_record
+        return self.full(listed_runs(first, second),
+                         *applied_stored("o/r", 39100000000, lens_applied(self.RUN, *earlier)),
+                         *applied_stored("o/r", 39100000001, record))[26]
+
+    def test_a_later_review_by_the_same_lens_on_the_current_content_releases_a_thread_that_is_gone(self):  # issue 347
+        # The thread PRRT_7, which the first Run recorded, is gone. A later Run of the same Lens, read whole, on the
+        # current content, supersedes the first Run's record: the threads are whole, and the hold is released.
+        recorded_ = self.two_runs([finding_on("PRRT_7")], [])
+        self.assertTrue(self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[1])
+        # Without it, or told no current content, the record still holds the pull request.
+        self.assertFalse(self.held([thread_node("PRRT_1")], recorded_)[1])
+        self.assertFalse(self.held([thread_node("PRRT_1")], recorded_[:2], content_id="sha256:new")[1])
+        # A problem that still stands is raised again by the later review, on a thread of its own, held to its opener.
+        recorded_ = self.two_runs([finding_on("PRRT_7")], [finding_on("PRRT_9")])
+        self.assertTrue(self.held([thread_node("PRRT_9", LENS)], recorded_, content_id="sha256:new")[1])
+        self.assertFalse(self.held([], recorded_, content_id="sha256:new")[1])
+
+    def test_a_review_by_another_lens_supersedes_nothing(self):  # issue 347
+        other = dict(lens_run(self.LATER), role="qa-lead", content_id="sha256:new", started_at="2026-10-21T17:00:00Z")
+        first = dict(lens_run(self.RUN), content_id="sha256:old", started_at="2026-10-21T16:00:00Z")
+        recorded_ = applied.recorded(github.Replay(
+            applied_stored("o/r", 39100000000, lens_applied(self.RUN, finding_on("PRRT_7")))
+            + applied_stored("o/r", 39100000001, lens_applied(self.LATER))), "o/r", listed_runs(first, other), [26],
+            {"pr-review", "qa-lead"}, AUTHORITY)[26]
+        self.assertFalse(self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[1])
+
+    def test_a_review_on_other_content_or_before_supersedes_nothing(self):  # issue 347
+        # Only the current content's head is known to be at or after an earlier Run's: a later Run on other content,
+        # one on the current content that started first, or one whose start cannot be read, supersedes nothing.
+        for later in (dict(lens_run(self.LATER), content_id="sha256:older", started_at="2026-10-21T17:00:00Z"),
+                      dict(lens_run(self.LATER), content_id="sha256:new", started_at="2026-10-21T15:00:00Z"),
+                      dict(lens_run(self.LATER), content_id="sha256:new", started_at="2026-10-21T16:00:00Z"),
+                      dict(lens_run(self.LATER), content_id="sha256:new", started_at="yesterday"),
+                      dict(lens_run(self.LATER), content_id="sha256:new", started_at="2026-99-99T99:99:99Z"),
+                      # A time GitHub never writes, unpadded: read as text it would sort after the earlier start.
+                      dict(lens_run(self.LATER), content_id="sha256:new", started_at="2026-10-21T9:00:00Z"),
+                      dict(lens_run(self.LATER), content_id="sha256:new", started_at=None)):
+            recorded_ = self.two_runs([finding_on("PRRT_7")], [], later_run=later)
+            self.assertFalse(self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[1], later)
+        # An earlier Run whose own start cannot be read is superseded by nothing either.
+        recorded_ = self.full(listed_runs(dict(lens_run(self.RUN), content_id="sha256:old", started_at="later"),
+                                          dict(lens_run(self.LATER), content_id="sha256:new",
+                                               started_at="2026-10-21T17:00:00Z")),
+                              *applied_stored("o/r", 39100000000, lens_applied(self.RUN, finding_on("PRRT_7"))),
+                              *applied_stored("o/r", 39100000001, lens_applied(self.LATER)))[26]
+        self.assertFalse(self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[1])
+
+    def test_only_a_later_review_that_succeeded_supersedes(self):  # issue 347, the Claude review of #355
+        # A later Run of the Lens on the current content that failed, was cancelled or timed out reviewed nothing, and one
+        # that adjudicated re-read Findings without reviewing the change: neither releases a thread that is gone. A
+        # Run that did not succeed may list no record at all, and is read as recording nothing, whole.
+        for conclusion in ("failure", "cancelled", "timed_out"):
+            later = dict(lens_run(self.LATER, conclusion=conclusion), content_id="sha256:new",
+                         started_at="2026-10-21T17:00:00Z")
+            for record in ("whole", None):
+                recorded_ = self.two_runs([finding_on("PRRT_7")], [], later_run=later, later_record=record)
+                self.assertFalse(self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[1],
+                                 (conclusion, record))
+        # A review that succeeded but whose record is past retention, read as none, cannot be read: it supersedes nothing.
+        later = dict(lens_run(self.LATER), content_id="sha256:new", started_at="2026-10-21T17:00:00Z")
+        first = dict(lens_run(self.RUN), content_id="sha256:old", started_at="2026-10-21T16:00:00Z")
+        recorded_ = self.full(listed_runs(first, later),
+                              *applied_stored("o/r", 39100000000, lens_applied(self.RUN, finding_on("PRRT_7"))),
+                              *applied_stored("o/r", 39100000001, lens_applied(self.LATER), expired=True)[:1])[26]
+        self.assertTrue(recorded_[1])
+        self.assertFalse(self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[1])
+        adjudicated = dict(lens_run(self.LATER), intent="adjudicate-findings", content_id="sha256:new",
+                           started_at="2026-10-21T17:00:00Z")
+        recorded_ = self.two_runs([finding_on("PRRT_7")], [], later_run=adjudicated)
+        self.assertFalse(self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[1])
+
+    def test_a_later_review_whose_record_is_read_short_releases_nothing(self):  # issue 347
+        self.assertFalse(self.held([thread_node("PRRT_1")], self.two_runs([finding_on("PRRT_7")], [], later_record="x"),
+                                   content_id="sha256:new")[1])
+
+    def test_a_thread_both_reviews_record_is_still_held_to_its_opener(self):  # issue 347
+        recorded_ = self.two_runs([finding_on("PRRT_7")], [finding_on("PRRT_7")])
+        self.assertTrue(self.held([thread_node("PRRT_7", LENS)], recorded_, content_id="sha256:new")[1])
+        for nodes in ([], [thread_node("PRRT_7")], [thread_node("PRRT_7", APP)]):
+            self.assertFalse(self.held(nodes, recorded_, content_id="sha256:new")[1], nodes)
 
     def test_a_recorded_thread_is_its_lenss(self):
         from kernel import derive, gate
@@ -2449,6 +2544,19 @@ class Snapshot(unittest.TestCase):
         router = Router(github.Replay(self.sequence(reread)), {"don-petry": "admin"})
         accounts = timeline.Accounts(router, canary(), MACHINE, {})
         return facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW, recorded=NOTHING)
+
+    def test_a_snapshot_tells_the_threads_its_content_so_a_later_review_supersedes(self):  # issue 347
+        # A thread a Lens recorded is gone; a later review of that Lens is on the snapshot's own content. The snapshot
+        # hands its content id to the threads, so the later review supersedes the record and the threads are whole.
+        content = "sha256:" + body("P-29.base", 24)["before the base moved"]
+        old = {"lens": "pr-review", "run": "r_01JA6Z", "content_id": "sha256:old", "started_at": "2026-10-21T16:00:00Z"}
+        fresh = dict(old, run="r_01JA9B", content_id=content, started_at="2026-10-21T17:00:00Z", reviewed=True)
+        gone = ({"PRRT_gone": {"lens": "pr-review", "category": "functional", "severity": "major", "runs": ["r_01JA6Z"]}},
+                True, [old, fresh])
+        router = Router(github.Replay(self.sequence(1)), {"don-petry": "admin"})
+        accounts = timeline.Accounts(router, canary(), MACHINE, {})
+        got, _ = facts.snapshot(router, canary(), 26, person(), accounts, True, lambda: self.NOW, recorded=gone)
+        self.assertEqual((got["content_id"], got["complete"]["threads"]), (content, True))
 
     def test_a_snapshot_holds_every_part_of_the_facts_and_the_title_beside_them(self):
         got, title = self.read(1)
