@@ -98,6 +98,7 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock) -> dict:
     found = applied.recorded(transport, home, listed, [number], set(config["kernel"]["required_lenses"]["model"]),
                              config["authority"])
     facts, _, head = facts_.snapshot(transport, home, number, identities, who, True, clock, with_head=True,
+                                     opener=facts_.opener_of(controller, config["kernel"], config["apps"]),
                                      recorded=found[number])
     first = pull.read(transport, home, number)
     if str(first["head"]["sha"]) != head:

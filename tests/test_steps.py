@@ -198,10 +198,11 @@ class Reader(unittest.TestCase):
         facts = support.facts(item=dict(support.ITEM, number=42), content_id=CONTENT)
         pulled = {"head": {"sha": first}, "number": 42}
         listed = {"runs": [], "unidentified": [], "complete": complete, "reads": [], "github_ids": {}}
-        calls["recorded"], calls["listed"], calls["asked"] = [], [], []
+        calls["recorded"], calls["listed"], calls["asked"], calls["opener"] = [], [], [], []
 
         def snapshot(*a, **k):
             calls["recorded"].append(k["recorded"])
+            calls["opener"].append(k.get("opener", "not told"))
             return facts, "title", head
         with tempfile.TemporaryDirectory() as d, \
                 unittest.mock.patch.object(identity, "from_key", from_key), \
@@ -210,6 +211,7 @@ class Reader(unittest.TestCase):
                                            lambda *a, **k: calls["listed"].append(a[3]) or copy.deepcopy(listed)), \
                 recorded_spy(read, calls["asked"]), \
                 unittest.mock.patch.object(read.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(read.facts_, "opener_of", lambda *told: (12, "Bot")), \
                 unittest.mock.patch.object(read.pull, "read", lambda *a: pulled), \
                 unittest.mock.patch.object(read.pull, "base", lambda *a: {"head": "b" * 40}), \
                 unittest.mock.patch.object(read.pull, "change", lambda *a: change):
@@ -239,6 +241,8 @@ class Reader(unittest.TestCase):
         (app, repo, wanted, key), = calls["minted"]
         self.assertEqual((app, repo, key, calls["revoked"]), ("combsmith-sf-reader", HOME, "the key", 1))
         self.assertEqual(set(wanted.values()), {"read"})
+        # The pull request is read with the App that opens pull requests, as the pass reads it (issue 295).
+        self.assertEqual(calls["opener"], [(12, "Bot")])
         # What `run` takes from the folder is what the reader wrote.
         with tempfile.TemporaryDirectory() as d:
             os.mkdir(os.path.join(d, "task"))
@@ -632,7 +636,8 @@ class Reread(unittest.TestCase):
         facts = support.facts()
         whole = []
 
-        def snapshot(transport, repo, number, identities, who, runs_whole, clock, with_head=False, *, recorded):
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, with_head=False, opener=None, *,
+                     recorded):
             whole.append((runs_whole, recorded))
             return facts, "t", HEAD
         from controller import configuration
@@ -659,6 +664,16 @@ class Reread(unittest.TestCase):
         # What the item's model Lenses recorded is read from that list, held to the authority table (issue 338).
         self.assertEqual(asked_, [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
         self.assertEqual((got[3]["paused"], got[3]["active_runs"], got[3]["passes_since"]), (False, 1, None))
+        # The pull request is read with the App that opens pull requests, as the pass reads it (issue 295).
+        told = []
+        with unittest.mock.patch.object(reread.records, "runs", lambda *a, **k: copy.deepcopy(listed)), \
+                unittest.mock.patch.object(reread.facts_, "snapshot",
+                                           lambda *a, **k: told.append(k.get("opener", "not told")) or (facts, "t", HEAD)), \
+                unittest.mock.patch.object(reread.facts_, "opener_of", lambda *a: (12, "Bot")), \
+                unittest.mock.patch.object(reread.pause_, "read",
+                                           lambda transport, org, repos: {"org": None, "repos": {HOME: None}}):
+            reread.item("t", config, 42, support.NOW, lambda: support.NOW)
+        self.assertEqual(told, [(12, "Bot")])
         # The Pause is read again, on the org and the item's repo, and a Pause or one unreadable is the context's.
         asked = []
 

@@ -27,12 +27,13 @@ def kernel(root: pathlib.Path) -> dict:
 
 
 def load(root: pathlib.Path, release: str, app: str) -> dict:
-    """`kernel`, `release`, `controller`, `feed` and `lifecycles`, as `pass_.run` takes them, `app` and `needs`,
-    the App the reads go through and the needs it is granted under, and `authority`, which gives each Lens the
-    categories its Findings may name (`adapters/applied.py`)."""
+    """`kernel`, `release`, `controller`, `feed` and `lifecycles`, as `pass_.run` takes them, and `app` and `needs`,
+    the App the reads go through and the needs it is granted under, `apps`, every App by its Role's name, and
+    `authority`, which gives each Lens the categories its Findings may name (`adapters/applied.py`)."""
     apps = _json(root, "config", "apps.json")
     return {"kernel": kernel(root), "release": release, "controller": _json(root, "config", "controller.json"),
             "feed": _json(root, "config", "feed.json"),
             "lifecycles": {"pull_request": _json(root, "lifecycle", "pull_request.json"),
                            "issue": _json(root, "lifecycle", "issue.json")},
-            "app": apps["apps"][app], "needs": apps["needs"], "authority": _json(root, "config", "authority.json")}
+            "app": apps["apps"][app], "needs": apps["needs"], "apps": apps["apps"],
+            "authority": _json(root, "config", "authority.json")}

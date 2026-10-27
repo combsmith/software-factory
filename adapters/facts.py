@@ -44,7 +44,7 @@ def _utc() -> str:
 
 
 def snapshot(transport, repo: str, number: int, identities: dict, accounts: timeline.Accounts, runs_whole: bool,
-             clock=_utc, kept=None, with_head: bool = False, *, recorded: tuple) -> tuple:
+             clock=_utc, kept=None, with_head: bool = False, opener=None, *, recorded: tuple) -> tuple:
     """`(facts/1, title)` for one pull request, or `(facts/1, title, head)` `with_head`: the head commit its first read
     gave, which the snapshot is held to, beside the facts and never in them (#193's ruling 10). `identities` gives the class's accounts (`adapters/pull.own`),
     `accounts` who acted, `runs_whole` whether the pass read the run records whole, `recorded` what the pull request's
@@ -65,7 +65,7 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
     writer = timeline.since_writer(events, accounts)
     labels = timeline.label_events(events, accounts)
     read = checks.read(transport, first, raw)
-    contract, contract_whole = acceptance.read(transport, first, accounts)
+    contract, contract_whole = acceptance.read(transport, first, accounts, opener)
     found, threads_whole = applied.held(*threads.read(transport, first, accounts, raw), recorded)
     if pusher is not None and pushed_at is None:
         raise Unanswered("the head's push names its pusher but no time that can be read")
@@ -113,6 +113,22 @@ def accounts_of(controller: dict) -> tuple:
     lenses = {(a["id"], "Bot"): a["lens"] for a in held["lenses"]}
     factory = bots(held["agents"]) | set(lenses) | ({(held["controller"]["id"], "Bot")} if held["controller"] else set())
     return identities, approver, lenses, factory
+
+
+def opener_of(controller: dict, kernel: dict, apps: dict):
+    """The bot account, `(id, "Bot")`, of the App that opens the Factory's pull requests: the App, in config/apps.json, of
+    the Role the configuration names for `open-pull-request`, as `controller/1` holds its account. None where no Role
+    opens one, so no pull request is bound to an issue by its branch (slice 1); `acceptance.UNTOLD` where one does but
+    its App or its account cannot be told (issue 295)."""
+    intent = kernel["issues"]["intents"]["open-pull-request"]
+    if intent is None:
+        return None
+    app = apps.get(intent["role"]) if isinstance(apps.get(intent["role"]), dict) else {}
+    account = controller["accounts"]["roles"].get(intent["role"])
+    if not app.get("name") or app["name"] != intent["app"] or not isinstance(account, dict) \
+            or account.get("login") != app["name"] + "[bot]":
+        return acceptance.UNTOLD
+    return account["id"], "Bot"
 
 
 def dispatcher_of(controller: dict) -> tuple:
