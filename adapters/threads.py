@@ -3,9 +3,13 @@ who opened it and when, with its Finding's category and severity where the facts
 
 One GraphQL read of the threads, page by page. Who opened a thread is its first comment's author, and when, that
 comment's time: a first comment that replies to another is not the opener's, and the thread is refused. Who resolved
-it is GitHub's `resolvedBy`, which is typed a User: a resolved thread GitHub names no resolver for, as it is taken to
-when an App resolved it or the account is gone, has `resolved_by` null, and the Kernel defers on that thread alone
-(`unreadable_thread`). No trial has recorded either yet. Each actor is told by its account id and type,
+it is GitHub's `resolvedBy`, by its account id alone: GraphQL types it a User whoever resolved it, an App among them
+(trials/P-49.json), so its type is never read. The id is matched to the thread's comment author, whose type GraphQL
+gives, or else to the repo's permission read of its login, which answers the account's id and type
+(trials/P-53.json), once a login a pass. A resolver neither answers, or that GitHub names none for, has `resolved_by`
+null, and the Kernel defers on that thread alone (`unreadable_thread`). A thread whose first comment was deleted reads
+its reply as its opener, since GitHub keeps no link to the comment (trials/P-53.json); holding it to the Lens's own
+record waits on the collector. Each actor is told by its account id and type,
 never by a name's spelling (decision 0005, L-57), and its write access read once a login, as `adapters/timeline.py`
 does. No comment's text is read. A thread whose opener GitHub no longer names, a deleted account's, is refused with the
 snapshot, as an unreadable actor is anywhere: the known cost is that such a pull request is never read whole. A thread
@@ -61,6 +65,32 @@ def _account(author, kind=None):
     return {"login": author.get("login"), "id": author.get("databaseId"), "type": kind}
 
 
+def _resolver(by, author, accounts: timeline.Accounts):
+    """Who resolved a thread, as `facts/1` holds an actor, or None where it cannot be told (decision 0067, issue 331).
+
+    GraphQL's `resolvedBy` is typed a User whoever resolved it, an App among them (trials/P-49.json), so its type is
+    never read. Its account id is matched to the thread's own comment author, whose type GraphQL gives; failing that,
+    to the repo's permission read of its login, which answers the account's id and type (trials/P-53.json), held to
+    the id. An id neither answers, or a read that fails, leaves the resolver unread, and the Kernel defers on the thread
+    (`kernel/derive.py`'s `unreadable_thread`)."""
+    if not isinstance(by, dict):
+        return None
+    ident = by.get("databaseId")
+    if not isinstance(ident, int) or isinstance(ident, bool) or ident < 1:
+        return None
+    if isinstance(author, dict) and author.get("databaseId") == ident and author.get("__typename") in ("User", "Bot") \
+            and not isinstance(author.get("databaseId"), bool):
+        return accounts.actor(_account(author))
+    kind = accounts.typed(by.get("login"), ident)
+    if kind is None:
+        return None
+    try:
+        return accounts.actor({"login": by["login"], "id": ident, "type": kind})
+    except Unanswered:
+        # An account typed but not read whole, its access among it: the resolver alone is unread.
+        return None
+
+
 def thread(node: dict, accounts: timeline.Accounts) -> dict:
     """One thread as `facts/1` holds it; refused when any part GitHub gives cannot be read."""
     ident, resolved = node.get("id"), node.get("isResolved")
@@ -78,7 +108,7 @@ def thread(node: dict, accounts: timeline.Accounts) -> dict:
     by = node.get("resolvedBy")
     if not resolved and by is not None:
         raise Unanswered("an open review thread that names who resolved it")
-    resolved_by = accounts.actor(_account(by, "User")) if by is not None else None
+    resolved_by = _resolver(by, first[0].get("author"), accounts) if by is not None else None
     human = opened_by["kind"] == "human"
     return {"id": ident, "resolved": resolved, "opened_by": opened_by, "category": "human" if human else None,
             "severity": None, "resolved_by": resolved_by, "opened_at": opened_at}

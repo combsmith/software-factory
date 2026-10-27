@@ -14,6 +14,7 @@ import json
 import os
 import pathlib
 import unittest
+import urllib.parse
 import zipfile
 
 from adapters import acceptance, artifacts, checks, effects, facts, github, heldout, items, passes, pull, records, threads, \
@@ -1250,18 +1251,27 @@ class Router:
     A compare not in the table is the replay's, as the snapshot's own compares of the diff and the files are (issue
     284), and one the replay does not hold either answers 404. The permission's trial is #222's."""
 
-    def __init__(self, replay, permissions=None, compares=None):
+    # The account each login's permission answer names, as trials/P-53.json records the answer: its id and type.
+    USERS = {"don-petry": (36422719, "User"), "donpetry-bot": (281750570, "User"),
+             "combsmith-sf-trial-author[bot]": (344141469, "Bot"), "coderabbitai[bot]": (136622811, "Bot")}
+
+    def __init__(self, replay, permissions=None, compares=None, users=None):
         self.replay, self.permissions, self.compares, self.asked = replay, dict(permissions or {}), dict(compares or {}), []
+        self.users = dict(self.USERS, **(users or {}))
 
     def send(self, req):
         path = req["path"]
         if "/collaborators/" in path:
-            login = path.split("/collaborators/")[1].split("/")[0]
+            login = urllib.parse.unquote(path.split("/collaborators/")[1].split("/")[0])
             self.asked.append(login)
             level = self.permissions.get(login, "none")
             if level == "missing":
                 return {"status": 404, "headers": {}, "body": {"message": "Not Found"}}
-            return {"status": 200, "headers": {}, "body": {"permission": level}}
+            body = {"permission": level}
+            if login in self.users:
+                ident, kind = self.users[login]
+                body["user"] = {"login": login, "id": ident, "type": kind}
+            return {"status": 200, "headers": {}, "body": body}
         if "/compare/" in path:
             commit = path.split("...")[1]
             if commit in self.compares:
@@ -1988,20 +1998,98 @@ class Threads(unittest.TestCase):
         pull = {"number": 55, "base": {"repo": {"full_name": canary()}}}
         return found[0], lambda: threads.read(router, pull, timeline.Accounts(router, canary(), MACHINE, {}))
 
-    def test_an_apps_resolution_stops_the_threads_read_today(self):
-        # trials/P-49.json (issue 282): the trial-author App resolved one of its two threads, and deleted the other's
-        # first comment after a reply. resolvedBy names the App's bot by the id its comments carry, but typed a User; the
-        # port reads every resolver as a User, finds none of that login, and refuses the whole read: a pull request whose
-        # Lens resolved its own thread is never read whole until issue 331 reads the resolver from the timeline.
+    def test_an_apps_resolution_is_read_as_the_apps_by_its_comment_author(self):  # issue 331, decision 0067
+        # trials/P-49.json (issue 282): the trial-author App resolved one of its two threads. resolvedBy names the App's
+        # bot by the id its comments carry, typed a User, which says nothing; the thread's own comment author, a Bot
+        # of that id, says who. The read is whole, and the resolver is the App, as the thread's opener is.
         found, read = self.p49()
-        resolved, kept = found["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
-        opener = resolved["comments"]["nodes"][0]["author"]
-        self.assertEqual((opener["__typename"], resolved["resolvedBy"]["databaseId"]), ("Bot", opener["databaseId"]))
-        with self.assertRaises(github.Unanswered) as refused:
-            read()
-        self.assertIn("a User whose login is none GitHub gives", str(refused.exception))
-        # The thread whose first comment was deleted keeps its reply, now its first comment and a reply to nothing.
-        self.assertEqual((kept["isResolved"], [c["replyTo"] for c in kept["comments"]["nodes"]]), (False, [None]))
+        resolved = found["response"]["body"]["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"][0]
+        self.assertEqual((resolved["comments"]["nodes"][0]["author"]["__typename"],
+                          resolved["resolvedBy"]["databaseId"]), ("Bot", 344141469))
+        got, whole = read()
+        self.assertTrue(whole)
+        self.assertEqual((got[0]["resolved"], got[0]["resolved_by"]), (True, got[0]["opened_by"]))
+        self.assertEqual(got[0]["resolved_by"]["kind"], "app")
+
+    def resolved(self, by: tuple, opened=LENS, users=None, permissions=None) -> dict:
+        """One Lens thread resolved by `by`, `(login, id)` as resolvedBy gives it, read through the port."""
+        router = Router(github.Replay([threads_answer("o/r", 26, [thread_node("PRRT_1", opened, resolved_by=by)])]),
+                        permissions or {"don-petry": "admin"}, users=users)
+        accounts = timeline.Accounts(router, "o/r", MACHINE, {LENS[1:]: "coderabbit"})
+        got, whole = threads.read(router, Threads.PULL, accounts)
+        self.assertTrue(whole)
+        return got[0], router
+
+    def test_a_resolver_is_typed_by_its_account_never_by_resolved_bys_type(self):  # issue 331, decision 0067
+        from kernel import derive, gate
+        config = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), approver=APPROVER)
+        facts_ = {"threads": [], "class": "maintainer", "author": "don-petry"}
+        # A person who resolved a Lens's thread, and opened none of it: the repo's permission read of the login
+        # resolvedBy gives answers the account, a User of resolvedBy's id (trials/P-53.json). The thread is closed.
+        th, _ = self.resolved(("don-petry", MAINTAINER))
+        self.assertEqual(th["resolved_by"], {"kind": "human", "name": "don-petry", "can_write": True})
+        self.assertTrue(gate.closed(th))
+        self.assertFalse(derive.unreadable_thread(th, ["coderabbit"], facts_, config))
+        # The Lens's own App resolving its own thread, by the id its comment carries: closed, by the Lens.
+        th, router = self.resolved(("coderabbitai[bot]", LENS[1]))
+        self.assertEqual((th["resolved_by"], router.asked), (th["opened_by"], []))
+        self.assertTrue(gate.closed(th))
+        # Another App, a Bot that is no Lens: neither a person nor the thread's Lens, so the thread stays open; it is
+        # read whole, and so is not unreadable.
+        th, _ = self.resolved(("github-actions[bot]", APP[1]), users={"github-actions[bot]": (APP[1], "Bot")})
+        self.assertEqual(th["resolved_by"]["kind"], "app")
+        self.assertFalse(gate.closed(th))
+        # Its Finding's category and severity, joined from the Lens's record, are all an open Lens thread needs more.
+        self.assertFalse(derive.unreadable_thread(dict(th, category="functional", severity="major"), ["coderabbit"],
+                                                  facts_, config))
+        # An id the permission read does not answer, a read that fails, an account of no type GitHub gives, or a
+        # resolver of no id: the resolver is unread, never taken for a User, and the Kernel defers on the thread.
+        for by, users, permissions in ((("don-petry", 999), None, None),
+                                       (("don-petry", MAINTAINER), None, {"don-petry": "missing"}),
+                                       (("don-petry", MAINTAINER), {"don-petry": (MAINTAINER, "Organization")}, None),
+                                       (("someone", 77), None, None),
+                                       (("don-petry", None), None, None), (("don-petry", True), None, None),
+                                       ((None, 77), None, None),
+                                       (("don-petry", MAINTAINER), None, {"don-petry": "owner"})):
+            th, _ = self.resolved(by, users=users, permissions=permissions)
+            self.assertEqual((th["resolved"], th["resolved_by"]), (True, None), by)
+            self.assertTrue(derive.unreadable_thread(th, ["coderabbit"], facts_, config), by)
+        # An id that is no account's, True among them, is never matched to an author of id 1, as True == 1 would.
+        th, _ = self.resolved(("someone", True), opened=("someone", 1, "User"), permissions={"someone": "admin"})
+        self.assertEqual(th["resolved_by"], None)
+
+    def test_an_account_is_typed_by_the_permission_read_held_to_its_id(self):  # issue 331, decision 0067
+        # The permission read answers the account, its id and type (trials/P-53.json): a type is taken only for the id
+        # asked, never for a read that failed, another id, or a type GitHub does not give an account.
+        router = Router(github.Replay([]), {"don-petry": "admin", "gone": "missing"},
+                        users={"odd": (5, "Organization")})
+        accounts = timeline.Accounts(router, "o/r", MACHINE, {})
+        self.assertEqual([accounts.typed("don-petry", MAINTAINER), accounts.typed("combsmith-sf-trial-author[bot]", 344141469)],
+                         ["User", "Bot"])
+        for login, ident in (("gone", 1), ("don-petry", MAINTAINER + 1), ("odd", 5), (None, MAINTAINER),
+                             ("don-petry", True), ("don-petry", 0)):
+            self.assertIsNone(accounts.typed(login, ident), (login, ident))
+
+    def test_a_resolver_is_read_once_a_login_whatever_it_resolved(self):  # issue 331: the cost
+        nodes = [thread_node("PRRT_%d" % i, LENS, resolved_by=("don-petry", MAINTAINER)) for i in range(3)]
+        router = Router(github.Replay([threads_answer("o/r", 26, nodes)]), {"don-petry": "admin"})
+        got, whole = threads.read(router, Threads.PULL, timeline.Accounts(router, "o/r", MACHINE, {}))
+        self.assertEqual((whole, [t["resolved_by"]["kind"] for t in got], router.asked), (True, ["human"] * 3, ["don-petry"]))
+        # A read that failed, or never answered, is asked once too.
+        class Silent(Router):
+            def send(self, req):
+                if "/collaborators/" in req["path"]:
+                    self.asked.append(req["path"].split("/collaborators/")[1].split("/")[0])
+                    raise github.Unanswered("no answer")
+                return super().send(req)
+        nodes = [thread_node("PRRT_%d" % i, LENS, resolved_by=("don-petry", MAINTAINER)) for i in range(3)]
+        router = Silent(github.Replay([threads_answer("o/r", 26, nodes)]), {})
+        got, whole = threads.read(router, Threads.PULL, timeline.Accounts(router, "o/r", MACHINE, {}))
+        self.assertEqual((whole, [t["resolved_by"] for t in got], router.asked), (True, [None] * 3, ["don-petry"]))
+        nodes = [thread_node("PRRT_%d" % i, LENS, resolved_by=("don-petry", MAINTAINER)) for i in range(3)]
+        router = Router(github.Replay([threads_answer("o/r", 26, nodes)]), {"don-petry": "missing"})
+        got, whole = threads.read(router, Threads.PULL, timeline.Accounts(router, "o/r", MACHINE, {}))
+        self.assertEqual((whole, [t["resolved_by"] for t in got], router.asked), (True, [None] * 3, ["don-petry"]))
 
     @pending
     def test_a_thread_a_trial_recorded_is_read_as_the_port_reads_it(self):
