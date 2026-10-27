@@ -7,13 +7,14 @@ NAME is the Run's run-name, ITEM its pull request as `owner/repo#number`, PASS t
 Decision: the three inputs the pass dispatched it with. The step mints the reader App's token, from `READER_APP_KEY`,
 for the home repo with the reads its grant allows and no write; finds the pass record by PASS among the poller's runs;
 finds in it the Decision of the Run id the run-name names, which must be of the item and the content the run-name names;
-reads the pull request's facts and the bytes of its diff, which must be the content the Decision admitted; and writes,
+reads the pull request's facts, its threads held to what its Lenses recorded, and the bytes of its diff, which must be the content the Decision admitted; and writes,
 into the new folder OUT, the record, the Run id, the facts, the diff, the texts, the Role's manifest and the Findings,
 for `python3 -m harness.run OUT RESULT`. The token is revoked before the step ends, whatever happened, and a token
 GitHub did not revoke fails the step, so the model's step never starts beside a live reader token.
 
 Not read yet, by the stories that hold them: the texts (`adapters/texts.py`), so the Task carries the diff alone; the
-Finding records a Decision names (`harness/apply.py` writes them, and no port reads them back yet), so the review
+Finding records a Decision names (`harness/apply.py` writes them, and `adapters/applied.py` reads them for the threads
+alone), so the review
 Intent, which names none, is the one a Run can carry; an issue's Run, whose reads are the issue Lifecycle's."""
 from __future__ import annotations
 
@@ -23,7 +24,7 @@ import re
 import sys
 import time
 
-from adapters import facts as facts_, identity, passes, pull, records, timeline
+from adapters import applied, facts as facts_, identity, passes, pull, records, timeline
 from adapters.github import Live, Unanswered
 from controller import configuration
 from harness import approve, shared, steps, task
@@ -91,7 +92,14 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock) -> dict:
     identities, approver, lenses, factory = facts_.accounts_of(controller)
     who = timeline.Accounts(transport, home, approver, lenses, factory)
     number = parts["item"]["number"]
-    facts, _, head = facts_.snapshot(transport, home, number, identities, who, True, clock, with_head=True)
+    # The threads are held to what the item's Lenses recorded, read from their Runs (adapters/applied.py, issue 338).
+    listed = records.runs(transport, home, branch, [controller["workflows"]["run"], controller["workflows"]["approval"]],
+                          facts_.dispatcher_of(controller))
+    found = applied.recorded(transport, home, listed, [number], set(config["kernel"]["required_lenses"]["model"]),
+                             config["authority"])
+    facts, _, head = facts_.snapshot(transport, home, number, identities, who, True, clock, with_head=True,
+                                     opener=facts_.opener_of(controller, config["kernel"], config["apps"]),
+                                     recorded=found[number])
     first = pull.read(transport, home, number)
     if str(first["head"]["sha"]) != head:
         raise Stop("head_moved")

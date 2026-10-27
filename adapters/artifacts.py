@@ -80,12 +80,15 @@ def _member(zipped: bytes, member: str = MEMBER, held: int = HELD):
 
 
 def read(transport, repo: str, github_id: int, seen=None, name: str = NAME, member: str = MEMBER,
-         zipped_most: int = ZIPPED, held_most: int = HELD) -> tuple:
+         zipped_most: int = ZIPPED, held_most: int = HELD, required: bool = False) -> tuple:
     """`(bytes, whole)` of the one file of the one artifact named `name` the run GitHub numbers `github_id` lists, read
     in the bounds given: None and whole for a run that lists none, or one past its retention; None and not whole for
-    what cannot be read. `outcome`'s bounds unless asked; a wider `zipped_most` is downloaded under `PASSED`."""
+    what cannot be read, and for a run that lists none where one is `required`. `outcome`'s bounds unless asked; a
+    wider `zipped_most` is downloaded under `PASSED`."""
     found = _listed(transport, repo, github_id, seen, name)
-    if found is None or (found and found.get("expired") is True):
+    if found is None:
+        return None, not required
+    if found and found.get("expired") is True:
         return None, True
     ident, size, digest = (found or {}).get("id"), (found or {}).get("size_in_bytes"), (found or {}).get("digest")
     if not found or found.get("expired") is not False or not isinstance(ident, int) or isinstance(ident, bool) \
@@ -111,26 +114,28 @@ def outcome(transport, repo: str, github_id: int, run: str, seen=None) -> tuple:
         return None, whole
     try:
         record = json.loads(held.decode("utf-8"))
-    except ValueError:
+    except (ValueError, RecursionError):
+        # A body nested deeper than Python parses is no outcome, never an error that ends the pass.
         record = None
     if not isinstance(record, dict) or validate(record, SCHEMA) or record["run"] != run or record["outcome"] is None:
         return None, False
     return record["outcome"], True
 
 
-def applied(transport, repo: str, github_id: int, run: str, seen=None) -> tuple:
+def applied(transport, repo: str, github_id: int, run: str, seen=None, required: bool = False) -> tuple:
     """`(applied/1, whole)` of the Run GitHub numbers `github_id` and the Factory names `run`: None and whole for a Run
     that uploaded none, as one that wrote nothing or was killed; None and not whole for one that cannot be read, is not
     `applied/1` or is another Run's, so that reconciliation is short and never matches a write to it (decision 0061).
     Read as the outcome is: bounded at every step, its digest checked. The archive is held to an outcome's bound and
     downloaded under `STORED`, since `PASSED` is a pass record's alone; only the file in it may be larger, as JSON
-    zipped is (issue 329)."""
-    held, whole = read(transport, repo, github_id, seen, APPLIED, APPLIED_MEMBER, ZIPPED, APPLIED_MOST)
+    zipped is (issue 329). `required`, for a Run that succeeded, which uploads one whatever it wrote: one that lists
+    none was deleted, and is not whole (decision 0069)."""
+    held, whole = read(transport, repo, github_id, seen, APPLIED, APPLIED_MEMBER, ZIPPED, APPLIED_MOST, required)
     if held is None:
         return None, whole
     try:
         record = json.loads(held.decode("utf-8"))
-    except ValueError:
+    except (ValueError, RecursionError):
         return None, False
     if not isinstance(record, dict) or validate(record, SCHEMAS["applied"], schemas=SCHEMAS) or record["run"] != run:
         return None, False

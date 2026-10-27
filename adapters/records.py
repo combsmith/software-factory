@@ -218,14 +218,16 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     and on one that left none. `kept` is what `known` read from the pass records before: an outcome held there is not
     read again, for a row that names when its attempt started, and once in this list, whatever its status. Each outcome read is stamped
     beside the list's reads, `read` `outcome`: one stamp for each Run's read, its artifacts listed and, where an
-    outcome is listed, downloaded, so the pass record says how many outcomes a pass read. Nothing calls `known` until
+    outcome is listed, downloaded, so the pass record says how many outcomes a pass read. `github_ids` names each Run
+    id's GitHub runs, which no run record holds, so that `adapters/applied.py` reads a Run's `applied/1` by the one
+    GitHub run its name names (issue 338). Nothing calls `known` until
     the pass's entry, the effects port's next part (#193), hands it the records it placed."""
     kept = kept or {}
     roles = {".github/workflows/%s" % name for name in workflows}
 
     def read() -> tuple:
         records, unnamed, reads, whole, failed = [], [], [], True, []
-        attempts = {}
+        attempts, ids = {}, {}
         for workflow in workflows:
             rows, got, complete = _list(transport, repo, workflow, branch, per_page)
             reads += got
@@ -240,17 +242,18 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
                     records.append(record)
                     key = (record["run"], record["started_at"])
                     attempts[key] = attempts.get(key, 0) + 1
+                    ids.setdefault(record["run"], []).append(row["id"])
                     if record["status"] == "completed" and record["conclusion"] != "success":
                         failed.append((record, row["id"], bool(row.get("run_started_at"))))
                 if unidentified is not None:
                     unnamed.append(unidentified)
         return records, unnamed, reads, whole, [(r, i, timed and attempts[(r["run"], r["started_at"])] == 1)
-                                                for r, i, timed in failed]
+                                                for r, i, timed in failed], ids
 
-    records, unnamed, reads, whole, failed = read()
+    records, unnamed, reads, whole, failed, ids = read()
     if unnamed:
         sleep(WAIT)
-        records, unnamed, again, whole, failed = read()
+        records, unnamed, again, whole, failed, ids = read()
         reads += again
     for record, github_id, keyed in failed:
         if keyed and (record["run"], record["started_at"]) in kept:
@@ -260,4 +263,4 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
             transport, repo, github_id, record["run"],
             lambda answer: reads.append(dict(_read_at(answer), read="outcome")))
         whole = whole and read_whole
-    return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads}
+    return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads, "github_ids": ids}
