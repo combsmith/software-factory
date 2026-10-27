@@ -1,4 +1,4 @@
-# 0072. A rule names only a trial whose row asks it, and the fake models stale dismissal
+# 0074. A rule names only a trial whose row asks it, and the fake models stale dismissal
 
 Status: accepted. The Factory Builder's rulings of 2026-10-27 on the grounding issue the Why names, option (a) for the approval rule. The Maintainer may overturn it in review. Section 6 of the design is protected: the questions added here to the rows of P-1, P-2, P-7 and P-18 are the Maintainer's to approve, and a trial with two rows there is refused.
 
