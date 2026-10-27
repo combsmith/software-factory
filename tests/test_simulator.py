@@ -762,6 +762,69 @@ class Simulation(unittest.TestCase):
         self.assertEqual(notes, set(happened))
         self.assertTrue(behind and merged)
 
+    def test_the_seeds_serve_a_ruleset_that_dismisses_stale_approvals_and_one_that_does_not(self):  # issue 265
+        # Under a ruleset that dismisses stale approvals, a push dismisses each standing approval and names the pusher
+        # (trials/P-7.json); a person's push so ends the contract's approval, which the person gives again. Under one
+        # that does not, an approval stands. Every invariant holds under both, and items merge under both.
+        dismissed, ended, stood, merged = False, False, False, {True: False, False: False}
+        for seed in SEEDS:
+            w = World(seed)
+            for _ in range(250):
+                w.step()
+            if w.dismisses_stale:
+                dismissed = dismissed or any(rv["state"] == "dismissed" and rv["dismissed_from"] == "approved"
+                                             and rv["dismissed_by"]["name"] in (world.MAINTAINER["name"], world.AUTHOR)
+                                             for rv in w.reviews)
+                ended = ended or any("the push dismissed the contract's approval" in line for line in w.trace)
+            else:
+                self.assertFalse(any("the push dismissed" in line for line in w.trace), "seed %d" % seed)
+                stood = stood or any(rv["state"] == "approved" and rv["commit"] != "c%d" % w.content for rv in w.reviews)
+            if not merged[w.dismisses_stale]:
+                w.settle()
+                merged[w.dismisses_stale] = w.pr_state == "merged"
+        self.assertEqual((dismissed, ended, stood, merged), (True, True, True, {True: True, False: True}))
+
+    def test_a_stale_dismissal_takes_approvals_alone_and_ends_only_the_contracts_own(self):  # issue 265
+        # Under a ruleset that dismisses stale approvals, a push dismisses each approval that stands and no other review:
+        # a request for changes stays. A person's push ends the contract's approval only when it dismisses the review
+        # that carried it: one an App dismissed before, which still stands for the Kernel (L-17), is not ended again.
+        seed = next(s for s in range(7, 400) if s % world.DISMISSES_STALE[0] == world.DISMISSES_STALE[1]
+                    and World(s).criteria is not None)
+        w = World(seed)
+        self.assertTrue(w.dismisses_stale)
+        w.head = w.digest()
+        w.approve_contract(world.COLLEAGUE, commit="c-old")
+        held = dict(w.approved)
+        w.reviews = [
+            {"by": dict(world.COLLEAGUE), "state": "dismissed", "commit": "c-old", "content_id": "sha256:old",
+             "submitted_at": w.now(), "dismissed_by": dict(world.AUTHOR_APP), "dismissed_from": "approved"},
+            {"by": dict(world.MACHINE), "state": "approved", "commit": "c%d" % w.content, "content_id": w.cid(),
+             "submitted_at": w.now(), "dismissed_by": None, "dismissed_from": None},
+            {"by": dict(world.MAINTAINER), "state": "changes_requested", "commit": "c%d" % w.content,
+             "content_id": w.cid(), "submitted_at": w.now(), "dismissed_by": None, "dismissed_from": None}]
+        w.push(world.MAINTAINER["name"], writer=True)
+        self.assertEqual([(rv["state"], rv["dismissed_from"], (rv["dismissed_by"] or {}).get("name")) for rv in w.reviews],
+                         [("dismissed", "approved", world.AUTHOR), ("dismissed", "approved", world.MAINTAINER["name"]),
+                          ("changes_requested", None, None)])
+        self.assertEqual(w.approved, held)
+        # The review that carried it, standing, is dismissed by the Maintainer's push, and the approval ends.
+        w.reviews[0].update(state="approved", dismissed_by=None, dismissed_from=None)
+        w.push(world.MAINTAINER["name"], writer=True)
+        self.assertIsNone(w.approved)
+        # Under a ruleset that does not dismiss stale approvals, the same push leaves each approval standing, and the
+        # contract's approval with it.
+        w = World(seed)
+        w.dismisses_stale = False
+        w.head = w.digest()
+        w.approve_contract(world.COLLEAGUE)
+        held = dict(w.approved)
+        w.reviews = [{"by": dict(world.COLLEAGUE), "state": "approved", "commit": held["commit"], "content_id": w.cid(),
+                      "submitted_at": w.now(), "dismissed_by": None, "dismissed_from": None}]
+        for who in (world.MAINTAINER["name"], world.AUTHOR):
+            w.push(who, writer=who == world.MAINTAINER["name"])
+        self.assertEqual([(rv["state"], rv["dismissed_by"]) for rv in w.reviews], [("approved", None)])
+        self.assertEqual(w.approved, held)
+
     def test_the_seeds_serve_a_review_that_left_a_criterion_uncovered(self):  # I-37, decision 0029
         # Now and then a review's Result leaves a criterion of its rubric uncovered: `apply` refuses it, so its Run fails
         # by a fault of the item and opens no thread. The same Lens's review of the same content is admitted again, and
