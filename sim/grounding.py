@@ -128,7 +128,7 @@ RULES = (
      ("P-43",), "trials/P-43.json", None),
     # trials/P-43.json: a rename, a copy and an edit are listed once each, by path; REST's previous_filename names the
     # renamed file's old path, GraphQL's files give none, so the port reads them by REST; an unchanged copy was listed as
-    # added, with no source.
+    # added, with no source. The compare the port reads, recorded after the trial, names them the same way (issue 138).
     ("a_pull_request_lists_the_paths_it_changes", "Every file a pull request changes is read once, as many as the diff "
      "counts, by its path from the top of the repo, with the path a renamed file had before; an unchanged copy is "
      "listed as an added file", ("P-43",), "trials/P-43.json", None),
