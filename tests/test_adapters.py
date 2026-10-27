@@ -2390,6 +2390,9 @@ class Recorded(unittest.TestCase):
                       dict(lens_run(self.LATER), content_id="sha256:new", started_at="2026-10-21T15:00:00Z"),
                       dict(lens_run(self.LATER), content_id="sha256:new", started_at="2026-10-21T16:00:00Z"),
                       dict(lens_run(self.LATER), content_id="sha256:new", started_at="yesterday"),
+                      dict(lens_run(self.LATER), content_id="sha256:new", started_at="2026-99-99T99:99:99Z"),
+                      # A time GitHub never writes, unpadded: read as text it would sort after the earlier start.
+                      dict(lens_run(self.LATER), content_id="sha256:new", started_at="2026-10-21T9:00:00Z"),
                       dict(lens_run(self.LATER), content_id="sha256:new", started_at=None)):
             recorded_ = self.two_runs([finding_on("PRRT_7")], [], later_run=later)
             self.assertFalse(self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[1], later)
@@ -2412,6 +2415,14 @@ class Recorded(unittest.TestCase):
                 recorded_ = self.two_runs([finding_on("PRRT_7")], [], later_run=later, later_record=record)
                 self.assertFalse(self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[1],
                                  (conclusion, record))
+        # A review that succeeded but whose record is past retention, read as none, cannot be read: it supersedes nothing.
+        later = dict(lens_run(self.LATER), content_id="sha256:new", started_at="2026-10-21T17:00:00Z")
+        first = dict(lens_run(self.RUN), content_id="sha256:old", started_at="2026-10-21T16:00:00Z")
+        recorded_ = self.full(listed_runs(first, later),
+                              *applied_stored("o/r", 39100000000, lens_applied(self.RUN, finding_on("PRRT_7"))),
+                              *applied_stored("o/r", 39100000001, lens_applied(self.LATER), expired=True)[:1])[26]
+        self.assertTrue(recorded_[1])
+        self.assertFalse(self.held([thread_node("PRRT_1")], recorded_, content_id="sha256:new")[1])
         adjudicated = dict(lens_run(self.LATER), intent="adjudicate-findings", content_id="sha256:new",
                            started_at="2026-10-21T17:00:00Z")
         recorded_ = self.two_runs([finding_on("PRRT_7")], [], later_run=adjudicated)

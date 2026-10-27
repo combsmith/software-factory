@@ -27,7 +27,8 @@ A thread no Lens recorded, a person's or an outside reviewer's, is left as `adap
 A later review supersedes a Lens's earlier records for the first rule (issue 347): a Lens Run that reviewed the change,
 its Intent `review-change` and its conclusion success, whose `applied/1` was read whole, on the pull request's current
 content, supersedes every Run of that Lens that started before it. A Run that failed or was cancelled reviewed
-nothing, and an adjudication re-reads Findings without reviewing the change, so neither supersedes. Its head is
+nothing, an adjudication re-reads Findings without reviewing the change, and a review whose record is past retention
+cannot be read, so none of them supersedes. Its head is
 the current head, at or after any earlier Run's, and no other order of heads can be read, so a Run on any other
 content supersedes nothing. A thread every Run that recorded it is superseded need not be in the read: a fresh review
 releases a pull request held by a thread that is gone, and raises the problem again on a thread of its own if it
@@ -35,6 +36,7 @@ stands. A thread the superseding Run also records is still held to its opener; t
 """
 from __future__ import annotations
 
+import datetime
 import re
 
 from adapters import artifacts
@@ -96,7 +98,8 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
                 found[number].setdefault(held[1], []).append(held + (record["run"],))
         read[number].append({"lens": record["role"], "run": record["run"], "content_id": record.get("content_id"),
                              "started_at": record.get("started_at"),
-                             "reviewed": record.get("intent") == REVIEW and record.get("conclusion") == "success"})
+                             "reviewed": record.get("intent") == REVIEW and record.get("conclusion") == "success"
+                             and done is not None})
     owners = authority.get("categories", {}) if isinstance(authority, dict) else {}
     for number, by_key in found.items():
         if not out[number][1]:
@@ -120,7 +123,13 @@ def superseded(read: list, content_id) -> set:
     current content, supersedes nothing."""
     def start(r):
         when = r.get("started_at")
-        return when if isinstance(when, str) and TIME.fullmatch(when) else None
+        if not isinstance(when, str) or not TIME.fullmatch(when):
+            return None
+        try:
+            datetime.datetime.strptime(when, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return None
+        return when
     if not isinstance(content_id, str) or not content_id:
         return set()
     fresh = [r for r in read if r.get("reviewed") is True and r.get("content_id") == content_id
