@@ -62,6 +62,10 @@ NOT_YET_HELD = ()
 # from the seed alone, so the rest of each world stays as it was.
 PAUSES = {0: True, 3: None}
 PAUSE_FOR = 80
+# Whether the ruleset dismisses stale approvals on a push, by the seed alone: on one seed in three it does, as the
+# canary's did when P-7 ran, and on the rest it does not, as main's does until the ruleset switch (issue 198). Drawn
+# from the seed alone, so the rest of each world stays as it was.
+DISMISSES_STALE = (3, 1)
 # The Holds the brakes place at a ceiling. Under a Pause each shows as it would with no Pause, with a Run in flight or
 # none: a Hold is a reading and no act (decision 0003).
 CEILINGS = ("attempts_exhausted", "run_ceiling", "max_rounds", "act_ceiling")
@@ -74,6 +78,26 @@ CONTRACTS = {0: 3, 3: 1, 5: 2}
 REPORTER = {"name": CHECKS[CONFIG["acceptance_reporters"]["test"]], "app_id": APPS[CONFIG["acceptance_reporters"]["test"]],
             "workflow": WORKFLOWS[CONFIG["acceptance_reporters"]["test"]]}
 COLLEAGUE = {"kind": "human", "name": "a-colleague", "can_write": True}
+# Each person's permission on the repo, the machine user's among them, as the collaborator permission endpoint answers
+# it, and the permissions that are write access (decision 0048, issue 299). Both worlds serve the one and build every
+# person's write access from it, as the port does, with their own copy of its rule and never the port's.
+PERMISSIONS = {MAINTAINER["name"]: "admin", COLLEAGUE["name"]: "write", STRANGER["name"]: "read",
+               MACHINE["name"]: "write"}
+WRITE_ACCESS = ("admin", "maintain", "write")
+
+
+def told(value):
+    """`value` with every person's write access, and the machine user's, read from the permission the world serves
+    for their login, none for a login it serves none for; an App's is left as the world made it. Lists and objects
+    are walked."""
+    if isinstance(value, dict):
+        if value.get("kind") in ("human", "machine_user") and "can_write" in value:
+            # GitHub: a_logins_permission_is_read_from_the_collaborator_endpoint
+            return dict(value, can_write=PERMISSIONS.get(value.get("name"), "none") in WRITE_ACCESS)
+        return {k: told(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [told(v) for v in value]
+    return value
 # On one seed in ten the item is a dependency bot's update, of class `dependency`, that the bot opened and pushed: on
 # every other such seed it edits the pin in the workflow file the verify Lens is read from. By the seed alone.
 DEPENDENCY_SEED = 4
@@ -137,6 +161,7 @@ class World:
         # What an App does out of turn draws from its own generator, so that the rest of a seed's world stays as it was.
         self.meddler = random.Random(-seed)
         self.seed, self.faults, self.people = seed, faults, people
+        self.dismisses_stale = seed % DISMISSES_STALE[0] == DISMISSES_STALE[1]
         # Worlds that never end on their own: an approval that never lands, failing every time with the
         # fault `approval_fails` names ("item" or "environment"), and a queue that ejects every time.
         self.approval_fails, self.queue_merges = approval_fails, queue_merges
@@ -274,7 +299,8 @@ class World:
         return "sha256:%04x" % self.content
 
     def facts(self) -> dict:
-        return {
+        # Every person's write access is the permission the world serves for them, read as the port reads it.
+        return told({
             "schema": "facts/1", "item": dict(ITEM), "state": self.pr_state, "is_draft": False,
             "class": self.cls, "author": self.author, "last_pusher": self.last_pusher,
             "targets_protected": True, "mergeable": True, "content_id": self.cid(),
@@ -300,7 +326,7 @@ class World:
             "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True,
                          "changed_paths": True, "runs": True, "timeline": True},
             "read_at": self.now(),
-        }
+        })
 
     def digest(self) -> str:
         """The digest of the contract and every path it protects, at its current revision."""
@@ -373,7 +399,7 @@ class World:
 
     @staticmethod
     def is_person(by: dict) -> bool:
-        return by["kind"] == "human" and by["can_write"] is True
+        return by["kind"] == "human" and told(by)["can_write"] is True
 
     def label(self, name: str, by: dict):
         """`by` adds the label. Anyone else adding hands-off again does not replace a person's: it stands as theirs."""
@@ -417,8 +443,9 @@ class World:
         approver that stands, a writer's request for changes or open thread, a Hold, or a required check that
         failed or gave no verdict (L-19, FR-23, I-9). A check still pending is a wait, and is no objection."""
         out = []
-        if not any(rv["by"]["name"] == CONFIG["approver"] and rv["state"] == "approved" and rv["content_id"] == self.cid()
-                   for rv in self.reviews):
+        # The approver's approval stands only while it can write, as the Kernel reads it (decision 0048).
+        if not any(rv["by"]["name"] == CONFIG["approver"] and told(rv["by"])["can_write"] is True
+                   and rv["state"] == "approved" and rv["content_id"] == self.cid() for rv in self.reviews):
             out.append("no standing approval")
         if self.asked:
             out.append("a writer's request for changes")
@@ -951,7 +978,25 @@ class World:
                 self.revision += 1
                 self.head = self.digest()
                 self.note("the push changed the contract -> %s" % self.head)
-        # GitHub: an_approval_survives_a_push
+        if self.dismisses_stale:
+            # GitHub: an_approval_is_dismissed_by_a_push
+            # GitHub: a_persons_push_names_the_person_as_dismisser
+            # Each standing approval is dismissed, and the timeline names the pusher, an App (trials/P-7.json) or a
+            # person (asked by P-38), as its dismisser. A request for changes is no approval, and stays.
+            pusher = MAINTAINER if who == MAINTAINER["name"] else {"kind": "app", "name": who, "can_write": True}
+            dismissed = [rv for rv in self.reviews if rv["state"] == "approved"]
+            for rv in dismissed:
+                rv.update(state="dismissed", dismissed_from="approved", dismissed_by=dict(pusher))
+            # A person's dismissal ends an approval a person gave, the contract's among them (decision 0025): the
+            # person who approves the contract approves it again (on_the_contract). An App's ends nothing (L-17).
+            if self.is_person(pusher) and self.approved is not None and any(
+                    rv["by"]["name"] == self.approved["by"]["name"] and rv["commit"] == self.approved["commit"]
+                    for rv in dismissed):
+                self.approved = None
+                self.note("the push dismissed the contract's approval")
+        else:
+            # GitHub: an_approval_stands_without_stale_dismissal
+            pass
         # GitHub: a_request_for_changes_survives_a_push
         self.note("push by %s -> %s" % (who, self.cid()))
 

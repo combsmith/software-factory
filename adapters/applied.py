@@ -23,11 +23,28 @@ never none.
   Kernel defers on a required Lens's open thread as it does today (`kernel/derive.py`'s `unreadable_thread`).
 
 A thread no Lens recorded, a person's or an outside reviewer's, is left as `adapters/threads.py` read it.
+
+A later review supersedes a Lens's earlier records for the first rule (issue 347): a Lens Run that reviewed the change,
+its Intent `review-change` and its conclusion success, whose `applied/1` was read whole, on the pull request's current
+content, supersedes every Run of that Lens that started before it. A Run that failed or was cancelled reviewed
+nothing, an adjudication re-reads Findings without reviewing the change, and a review whose record is past retention
+cannot be read, so none of them supersedes. Its head is
+the current head, at or after any earlier Run's, and no other order of heads can be read, so a Run on any other
+content supersedes nothing. A thread every Run that recorded it is superseded need not be in the read: a fresh review
+releases a pull request held by a thread that is gone, and raises the problem again on a thread of its own if it
+stands. A thread the superseding Run also records is still held to its opener; the join is unchanged.
 """
 from __future__ import annotations
 
+import datetime
+import re
+
 from adapters import artifacts
 from adapters.github import Unanswered
+
+# A Run's start, as the records port reads it.
+TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+REVIEW = "review-change"       # the Intent that reviews the change, and so may supersede an earlier review
 
 
 def _finding(found: dict):
@@ -39,16 +56,20 @@ def _finding(found: dict):
 
 
 def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: dict) -> dict:
-    """`{number: (threads, whole)}` for each open pull request numbered: `threads` maps each thread a Lens recorded to
-    `{lens, category, severity}`, the category and severity null unless one Finding of that Lens alone names it and
-    the authority table gives the Lens that category; `lens` null when two Lenses recorded it. `runs` is the records
-    port's list, `lenses` the model Lenses' names, `authority` `config/authority.json`."""
+    """`{number: (threads, whole, read)}` for each open pull request numbered: `threads` maps each thread a Lens
+    recorded to `{lens, category, severity, runs}`, the category and severity null unless one Finding of that Lens
+    alone names it and the authority table gives the Lens that category, `lens` null when two Lenses recorded it, and
+    `runs` the Runs that recorded it; `read` is each Lens Run whose `applied/1` was read whole, `{lens, run,
+    content_id, started_at, reviewed}`, `reviewed` whether it is a review that succeeded, which `held` reads for a
+    later review. `runs` is the records port's list, `lenses` the model Lenses' names, `authority`
+    `config/authority.json`."""
     whole = isinstance(runs, dict) and runs.get("complete") is True
     ids = runs.get("github_ids") if whole else None
-    out = {n: ({}, whole and isinstance(ids, dict)) for n in numbers}
+    out = {n: ({}, whole and isinstance(ids, dict), []) for n in numbers}
     if not out or not whole or not isinstance(ids, dict):
         return out
     found = {n: {} for n in numbers}
+    read = {n: [] for n in numbers}
     for record in runs["runs"]:
         item = record["item"]
         if record["status"] != "completed" or record["role"] not in lenses or item["type"] != "pull_request" \
@@ -56,7 +77,7 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
             continue
         number, named = item["number"], ids.get(record["run"])
         if not (isinstance(named, list) and len(named) == 1):
-            out[number] = ({}, False)
+            out[number] = ({}, False, [])
             continue
         try:
             # A Run that succeeded uploaded its record whatever it wrote: one it no longer lists was deleted.
@@ -65,16 +86,20 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
         except Unanswered:
             done, read_whole = None, False
         if not read_whole:
-            out[number] = ({}, False)
+            out[number] = ({}, False, [])
             continue
         for posted in (done or {}).get("findings", ()):
             if posted["source"]["lens"] != record["role"]:
                 # A Run that records another Lens's Finding, on any surface, contradicts itself: none of it is read.
-                out[number] = ({}, False)
+                out[number] = ({}, False, [])
                 break
             held = _finding(posted)
             if held is not None:
-                found[number].setdefault(held[1], []).append(held)
+                found[number].setdefault(held[1], []).append(held + (record["run"],))
+        read[number].append({"lens": record["role"], "run": record["run"], "content_id": record.get("content_id"),
+                             "started_at": record.get("started_at"),
+                             "reviewed": record.get("intent") == REVIEW and record.get("conclusion") == "success"
+                             and done is not None})
     owners = authority.get("categories", {}) if isinstance(authority, dict) else {}
     for number, by_key in found.items():
         if not out[number][1]:
@@ -86,18 +111,44 @@ def recorded(transport, repo: str, runs, numbers: list, lenses: set, authority: 
             category, severity = (held[0][2], held[0][3]) if len(held) == 1 else (None, None)
             if category is not None and (owners.get(category) or {}).get("owner") != lens:
                 category, severity = None, None
-            threads[key] = {"lens": lens, "category": category, "severity": severity}
-        out[number] = (threads, True)
+            threads[key] = {"lens": lens, "category": category, "severity": severity,
+                            "runs": sorted({h[4] for h in held})}
+        out[number] = (threads, True, read[number])
     return out
 
 
-def held(found: list, whole: bool, recorded_: tuple) -> tuple:
+def superseded(read: list, content_id) -> set:
+    """The Runs a later review of their own Lens supersedes: each that started before a review of that Lens that
+    succeeded, read whole, on the pull request's current content `content_id`. A start that cannot be read, or no
+    current content, supersedes nothing."""
+    def start(r):
+        when = r.get("started_at")
+        if not isinstance(when, str) or not TIME.fullmatch(when):
+            return None
+        try:
+            datetime.datetime.strptime(when, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return None
+        return when
+    if not isinstance(content_id, str) or not content_id:
+        return set()
+    fresh = [r for r in read if r.get("reviewed") is True and r.get("content_id") == content_id
+             and start(r) is not None]
+    return {r["run"] for r in read if start(r) is not None
+            and any(f["lens"] == r["lens"] and f["run"] != r["run"] and start(f) > start(r) for f in fresh)}
+
+
+def held(found: list, whole: bool, recorded_: tuple, content_id=None) -> tuple:
     """`(threads, whole)`: the threads read with each Lens thread's category and severity joined from its Finding, and
-    whole only when the read was and every recorded thread is in it, opened by the Lens that recorded it."""
-    threads, recorded_whole = recorded_
+    whole only when the read was and every recorded thread is in it, opened by the Lens that recorded it, but for one
+    every Run that recorded it is superseded by a later review of its Lens on `content_id`, the current content."""
+    threads, recorded_whole = recorded_[0], recorded_[1]
+    later = superseded(recorded_[2] if len(recorded_) > 2 else [], content_id)
     whole = whole and recorded_whole
     by_id = {th["id"]: th for th in found}
     for key, finding in threads.items():
+        if finding.get("runs") and all(run in later for run in finding["runs"]):
+            continue
         th = by_id.get(key)
         if th is None or th["opened_by"] != {"kind": "lens", "name": finding["lens"], "can_write": False}:
             whole = False

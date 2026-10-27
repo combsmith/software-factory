@@ -97,7 +97,8 @@ artifact. No `set -x`, and no verbose curl.
 7. **Ground the fake.** In `sim/grounding.py`, find each rule whose trials include this one, and
    set its fixture to the new file if the fixture shows the rule holds. If it shows the fake is
    wrong, leave the rule unverified and say so to the Maintainer: changing the fake is a story of
-   its own. A rule no trial asks cannot be grounded until a trial for it is added to section 6.
+   its own. A rule no trial asks cannot be grounded until a trial for it is added to section 6, and
+   a rule names only a trial whose row asks it: `ASKS` quotes the words of that row's question.
 8. **Leave the canary as it was.** Undo everything the trial made, and list what was undone:
    - tokens and personal or fine-grained tokens: revoked, not left to expire;
    - deploy keys, self-hosted runners, webhooks and App installations: deleted;

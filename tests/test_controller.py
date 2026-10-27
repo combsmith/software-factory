@@ -860,7 +860,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(files["view/items.json"]["items"][0]["untrusted"]["title"], "A title")
         self.assertEqual(handed, [(self.HOME, 7, {"agent": set(), "maintainer": {(36422719, "User")},
                                                   "dependency": {(49699333, "Bot")}},
-                                   (281750570, "User"), {}, set(), True, "2026-10-12T12:00:00Z", None, ({}, True))])
+                                   (281750570, "User"), {}, set(), True, "2026-10-12T12:00:00Z", None, ({}, True, []))])
         # The App that opens pull requests, as the configuration names it, is said to each snapshot (issue 295).
         handed.clear()
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
@@ -876,7 +876,7 @@ class Entry(unittest.TestCase):
             self.run_entry(Hub(table))
         self.assertIs(handed[0][6], False)
         # And holds its threads to nothing recorded, not whole: a Lens Run the list missed may have recorded one.
-        self.assertEqual(handed[0][9], ({}, False))
+        self.assertEqual(handed[0][9], ({}, False, []))
         # The accounts as controller/1 holds them, each by id and type; the dispatcher is the pass's token's alone.
         held = copy.deepcopy(CONTROLLER)
         held["accounts"].update(lenses=[{"lens": "pr-review", "login": "combsmith-sf-pr-review[bot]", "id": 11}],
