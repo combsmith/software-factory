@@ -17,8 +17,8 @@ import unittest
 import urllib.parse
 import zipfile
 
-from adapters import acceptance, applied, artifacts, checks, effects, facts, github, heldout, items, passes, pull, records, threads, \
-    timeline
+from adapters import acceptance, applied, artifacts, checks, effects, facts, github, heldout, items, passes, pull, records, \
+    rules, threads, timeline
 from harness import task
 from tests.support import pending
 
@@ -3084,6 +3084,76 @@ class Items(unittest.TestCase):
         for answer in (other, erred, failed):
             with self.assertRaises(github.Unanswered):
                 self.read(answer)
+
+
+class Rules(unittest.TestCase):
+    """config/hooks.json as a commit holds it, in the shape trials/P-51.json recorded a file read at a commit (issue 139)."""
+    SHA = "b" * 40
+
+    def answer(self, data: bytes = None, **over) -> dict:
+        found = copy.deepcopy(exchanges("P-51")[5])
+        data = (pathlib.Path(__file__).resolve().parent.parent / "config" / "hooks.json").read_bytes() if data is None \
+            else data
+        found["request"]["call"] = "GET /repos/o/r/contents/config/hooks.json?ref=%s" % self.SHA
+        found["response"]["body"].update(name="hooks.json", path="config/hooks.json", size=len(data),
+                                         content=base64.encodebytes(data).decode(), encoding="base64", type="file")
+        found["response"]["body"].update(over)
+        return found
+
+    def read(self, *found, repo="o/r", sha=SHA, transport=None):
+        return rules.listed_at(transport or github.Replay(list(found)), repo, sha)
+
+    def test_the_list_is_the_bases_every_protected_path_and_lens_input_once(self):
+        from tools.hooks import protected
+        patterns, why = self.read(self.answer())
+        self.assertIsNone(why)
+        once = []
+        for pattern in protected.protected_paths():
+            if pattern not in once:
+                once.append(pattern)
+        self.assertEqual(patterns, once)
+        self.assertTrue(set(protected.model_lens_inputs(["pr-review"])) <= set(patterns))
+        # Another commit's list is that commit's: a pattern its hooks.json holds, and no other.
+        held = json.loads((pathlib.Path(__file__).resolve().parent.parent / "config" / "hooks.json").read_text())
+        held["protected"].append({"path": "docs/frozen.md", "is": "a test"})
+        patterns, _ = self.read(self.answer(json.dumps(held).encode()))
+        self.assertIn("docs/frozen.md", patterns)
+
+    def test_a_list_that_cannot_be_read_is_unreadable_never_empty(self):
+        unreadable = (None, "push_list_unreadable")
+        for over in ({"type": "dir"}, {"path": "config/other.json"}, {"size": 3}, {"size": 0}, {"size": True},
+                     {"encoding": "utf-8"}, {"content": "!!not base64!!"}, {"content": None}):
+            self.assertEqual(self.read(self.answer(**over)), unreadable, over)
+        for data in (b"{", b"[]", json.dumps({"protected": []}).encode(), b"\xff\xfe"):
+            self.assertEqual(self.read(self.answer(data)), unreadable, data)
+        gone = self.answer()
+        gone["response"].update(status=404, body={"message": "Not Found"})
+        self.assertEqual(self.read(gone), unreadable)
+        # A directory's answer is a list of its entries.
+        listing = self.answer()
+        listing["response"]["body"] = [listing["response"]["body"]]
+        self.assertEqual(self.read(listing), unreadable)
+        # Coordinates that cannot name a commit of a repo are not asked at all.
+        class Unasked:
+            def send(self, req):
+                raise AssertionError("asked %s" % req)
+        for repo, sha in (("o", self.SHA), ("o/..", self.SHA), ("o/r/x", self.SHA), ("o/r", "main"), ("o/r", "B" * 40),
+                          (None, self.SHA), ("o/r", None)):
+            self.assertEqual(self.read(repo=repo, sha=sha, transport=Unasked()), unreadable, (repo, sha))
+        # A read the transport cannot answer is unreadable.
+        self.assertEqual(self.read(), unreadable)
+
+    def test_a_working_trees_list_that_is_no_utf8_is_unreadable_to_the_hook_too(self):
+        # load() reads the working tree's file as parse() reads a commit's: what cannot be read is Unreadable.
+        import tempfile
+        from tools.hooks import protected
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "hooks.json"
+            path.write_bytes(b"\xff\xfe{")
+            with self.assertRaises(protected.Unreadable):
+                protected.load(path)
+            with self.assertRaises(protected.Unreadable):
+                protected.load(pathlib.Path(d) / "nowhere.json")
 
 
 if __name__ == "__main__":
