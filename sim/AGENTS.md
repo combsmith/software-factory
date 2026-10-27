@@ -19,9 +19,8 @@ the issue is held or declined, and a person none while it is declined: the Contr
 
 The world is one pull request, paused for a span on some seeds, or with a Pause that cannot be read, and on some with no writer's action yet.
 On those seeds the Pause may begin early, as an approval falls due or a count is spent (`tests/test_simulator.py::test_the_pause_falls_due_with_an_approval`, `..._with_a_spent_count`).
-Its checks pass, fail, time out or give no verdict, and another App can post a passing check under the name of a Lens that failed. On an odd seed it
-is the Maintainer's own, of class `maintainer`: GitHub refuses a review by its author, so the Maintainer acts with threads, a Hold and pushes. On an even seed it is an agent's, of class `agent`, and the Maintainer also reviews it:
-requests changes, comments or approves (`tests/test_simulator.py::test_the_seeds_serve_a_maintainers_and_an_agents_pull_request`).
+Its checks pass, fail, time out or give no verdict, and another App can post a passing check under the name of a Lens that failed. On an odd seed it is the Maintainer's own, of class `maintainer`: GitHub refuses a review by its author, so the Maintainer acts
+with threads, a Hold and pushes. On an even seed it is an agent's, of class `agent`, and the Maintainer also reviews it: requests changes, comments or approves (`tests/test_simulator.py::test_the_seeds_serve_a_maintainers_and_an_agents_pull_request`).
 On one seed in ten it is a dependency bot's update, on every other such seed to a workflow's pin, whose list of paths can leave one out. A Role's fix, the Maintainer's push and that update
 may change the Factory's own rules or a Lens's input (`tests/test_simulator.py::test_the_seeds_change_the_list_by_a_role_the_dependency_bot_and_the_maintainer`).
 While the item is queued, the Maintainer may dismiss its approval, open a thread or add a Hold. The queue merges only after a pass has read the item whole and current,
@@ -38,3 +37,4 @@ A rule about anything else is not exercised here, so its boundary cases are all 
 
 On one seed in three the ruleset dismisses stale approvals: a push dismisses each standing approval and names the pusher (`tests/test_simulator.py::test_the_seeds_serve_a_ruleset_that_dismisses_stale_approvals_and_one_that_does_not`).
 Known to differ, unverified until the fake changes or its trial runs: the queue merges without checking the merge group (`the_merge_group_is_not_checked`; this repo's queue checks it, P-2).
+An App's write access is the world's own, true, where the port gives a Bot's as false: the Kernel reads an App's only for its type.

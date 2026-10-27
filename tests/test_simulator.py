@@ -218,6 +218,45 @@ class Simulation(unittest.TestCase):
         with mock.patch.dict(world.CONFIG, protected_paths=["lifecycle/"]):
             self.assertRaises(world.Broken, w.poll)
 
+    def test_every_actors_write_access_is_read_from_the_permission(self):  # issue 299, decision 0048
+        # The pull request's world serves each person's permission, the machine user's among them, and builds every
+        # actor's write access from it, as the port does, with its own copy of the rule: a label event's, a review's and
+        # a thread's actor alike, and whoever the world asks is a person.
+        from adapters import timeline
+        self.assertEqual((set(world.WRITE_ACCESS), set(world.PERMISSIONS.values()) - timeline.PERMISSIONS),
+                         (timeline.WRITE, set()))
+        self.assertNotIn("adapters", pathlib.Path(world.__file__).read_text())
+        w = World(1, faults=False, people=False)
+        w.events.append({"label": "factory:hold", "action": "labeled", "by": dict(world.COLLEAGUE), "at": w.now()})
+        w.reviews.append({"by": dict(world.MACHINE), "state": "approved", "commit": "c1", "content_id": w.cid(),
+                          "submitted_at": w.now(), "dismissed_by": None, "dismissed_from": None})
+        w.threads.append({"id": "PRRT_299", "resolved": True, "opened_by": dict(world.COLLEAGUE),
+                          "resolved_by": dict(world.COLLEAGUE), "category": "human", "severity": None,
+                          "opened_at": w.now()})
+        for permission, writes in (("admin", True), ("maintain", True), ("write", True), ("triage", False),
+                                   ("read", False), ("none", False)):
+            with mock.patch.dict(world.PERMISSIONS, {world.COLLEAGUE["name"]: permission,
+                                                     world.MACHINE["name"]: permission}):
+                facts = w.facts()
+                self.assertEqual((facts["label_events"][-1]["by"]["can_write"], facts["reviews"][-1]["by"]["can_write"],
+                                  facts["threads"][-1]["opened_by"]["can_write"],
+                                  facts["threads"][-1]["resolved_by"]["can_write"], w.is_person(world.COLLEAGUE)),
+                                 (writes,) * 5, permission)
+                # The approver's approval stands in the world's own reading only while the approver can write, as the
+                # Kernel reads it.
+                self.assertEqual("no standing approval" in w.objections(), not writes, permission)
+        # A login the world serves no permission for writes nothing; an App's is left as the world made it.
+        w.events.append({"label": "factory:hold", "action": "labeled", "by": dict(world.COLLEAGUE, name="someone"),
+                         "at": w.now()})
+        w.events.append({"label": "factory:hold", "action": "labeled", "by": dict(world.IMPOSTOR), "at": w.now()})
+        self.assertEqual([e["by"]["can_write"] for e in w.facts()["label_events"][-2:]], [False, True])
+        # A Lens's App, which opens and resolves its threads, is an App too: no permission is read for it.
+        w.threads.append({"id": "PRRT_lens", "resolved": True, "opened_by": dict(world.REVIEWER_APP),
+                          "resolved_by": dict(world.REVIEWER_APP), "category": "functional", "severity": "major",
+                          "opened_at": w.now()})
+        lens = w.facts()["threads"][-1]
+        self.assertEqual((lens["opened_by"], lens["resolved_by"]), (world.REVIEWER_APP, world.REVIEWER_APP))
+
     def test_a_seed_replays_exactly(self):
         traces = []
         for _ in range(2):
