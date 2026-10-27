@@ -1,0 +1,120 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "rings/1: the Factory's two Channels, which repo and Intent family each serves, and the evidence a Release must have from next before it may reach stable (design section 9.4, FR-50, decision 0010). A data file: its path is its identity and the commit its Release. The gate that reads the evidence, release/promote.py, is slice 3's.",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "schema",
+  "channels",
+  "serves",
+  "promotion"
+ ],
+ "properties": {
+  "schema": {
+   "const": "rings/1"
+  },
+  "channels": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "next",
+    "stable"
+   ],
+   "properties": {
+    "next": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "tag"
+     ],
+     "properties": {
+      "tag": {
+       "type": "string",
+       "pattern": "^factory/v(0|[1-9][0-9]*)-next$"
+      }
+     }
+    },
+    "stable": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "tag"
+     ],
+     "properties": {
+      "tag": {
+       "type": "string",
+       "pattern": "^factory/v(0|[1-9][0-9]*)-stable$"
+      }
+     }
+    }
+   }
+  },
+  "serves": {
+   "type": "array",
+   "uniqueItems": true,
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "repo",
+     "family",
+     "channel"
+    ],
+    "properties": {
+     "repo": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$"
+     },
+     "family": {
+      "type": "string",
+      "pattern": "^[a-z][a-z-]*[a-z]$"
+     },
+     "channel": {
+      "enum": [
+       "next",
+       "stable"
+      ]
+     }
+    }
+   }
+  },
+  "promotion": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "from",
+    "to",
+    "evidence"
+   ],
+   "properties": {
+    "from": {
+     "const": "next"
+    },
+    "to": {
+     "const": "stable"
+    },
+    "evidence": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "runs",
+      "effects_read_back",
+      "eval_for_each_changed_intent"
+     ],
+     "properties": {
+      "runs": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "effects_read_back": {
+       "const": true
+      },
+      "eval_for_each_changed_intent": {
+       "const": true
+      }
+     }
+    }
+   }
+  }
+ }
+}

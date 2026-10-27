@@ -1,0 +1,110 @@
+"""The Release's rules beyond a schema (#197's rulings 4 and 6). Run by `make verify`.
+
+The ring file, `release/rings.json`, validates as `rings/1` in `tools/check_examples.py`; what no schema can say is
+held here: no repo and Intent family is served by two Channels (decision 0010, on the Factory's side), and both
+Channels name one major. A fixture in `release/fixtures/` is what GitHub answered a Release's read or step, and holds
+no credential and no header a trial's fixture may not keep, by `tools/check_trials.py`'s own scan. The rules that cut and move, `release/cut.py`, and that name a commit's Release,
+`release/current.py`, are pure: they import nothing but each other, and name nothing that reads, writes or runs.
+"""
+from __future__ import annotations
+
+import ast
+import json
+import pathlib
+
+from tools import check_trials
+from tools.check_purity import FORBIDDEN_NAMES
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+RINGS = "release/rings.json"
+FIXTURES = "release/fixtures"
+PURE = ("release/cut.py", "release/current.py")
+# What the rules may import: the future's annotations, and each other, never the CLI that reads files.
+ALLOWED_IMPORTS = {"__future__"} | {"release." + pathlib.PurePath(rel).stem for rel in PURE}
+
+
+def ring_problems(value) -> list:
+    """What is wrong with a ring file that its schema let through: nothing, or each sentence."""
+    problems, served = [], {}
+    lines, channels = value.get("serves"), value.get("channels")
+    for line in (lines if isinstance(lines, list) else []):
+        if not isinstance(line, dict):
+            continue
+        key = (line.get("repo"), line.get("family"))
+        if key in served and served[key] != line.get("channel"):
+            problems.append("serves: %s, family %s, is served by two Channels, %s and %s"
+                            % (key[0], key[1], served[key], line.get("channel")))
+        served.setdefault(key, line.get("channel"))
+    tags = [c.get("tag") for c in (channels.values() if isinstance(channels, dict) else []) if isinstance(c, dict)]
+    majors = {tag.split("/v", 1)[1].split("-")[0] for tag in tags if isinstance(tag, str) and "/v" in tag}
+    if len(majors) > 1:
+        problems.append("channels: name majors %s; both Channels are of one major" % ", ".join(sorted(majors)))
+    return problems
+
+
+def _impure(path: pathlib.Path, rel: str) -> list:
+    tree = ast.parse(path.read_text(), filename=rel)
+    problems = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            mods = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "release":
+            mods = ["release." + alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            mods = [node.module or "."] if node.level == 0 else ["."]
+        else:
+            mods = []
+        for mod in mods:
+            if mod not in ALLOWED_IMPORTS:
+                problems.append("%s:%d imports %s; the Release's rules import nothing but each other"
+                                % (rel, node.lineno, mod))
+        if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
+            problems.append("%s:%d names %s; the Release's rules read, write and run nothing" % (rel, node.lineno, node.id))
+    return problems
+
+
+def fixture_problems(value, rel: str) -> list:
+    """What a Release fixture holds that it must not: a credential anywhere, or a header a trial's fixture drops."""
+    problems = ["%s: %s %s" % (rel, where, what) for where, what in check_trials._credentials(value, "")]
+    exchanges = value.get("exchanges") if isinstance(value, dict) else None
+    for i, exchange in enumerate(exchanges if isinstance(exchanges, list) else []):
+        for side in ("request", "response"):
+            held = (exchange.get(side) or {}).get("headers") if isinstance(exchange, dict) else None
+            for name in (held if isinstance(held, dict) else {}):
+                if str(name).lower() not in check_trials.HEADERS:
+                    problems.append("%s: exchanges[%d].%s.headers holds %s, which a fixture does not keep"
+                                    % (rel, i, side, name))
+    if not isinstance(exchanges, list) or not exchanges:
+        problems.append("%s: holds no exchange" % rel)
+    return problems
+
+
+def run(root: pathlib.Path = ROOT) -> list:
+    problems = []
+    rings = root / RINGS
+    if not rings.is_file():
+        return ["%s is missing; both Channels and the ring file exist from the first commit" % RINGS]
+    try:
+        value = json.loads(rings.read_text())
+    except ValueError as err:
+        return ["%s is not JSON: %s" % (RINGS, err)]
+    if isinstance(value, dict):
+        problems += ["%s: %s" % (RINGS, p) for p in ring_problems(value)]
+    for path in sorted((root / FIXTURES).glob("*")) if (root / FIXTURES).is_dir() else []:
+        rel = path.relative_to(root).as_posix()
+        try:
+            problems += fixture_problems(json.loads(path.read_text()), rel)
+        except ValueError as err:
+            problems.append("%s is not JSON: %s" % (rel, err))
+    for rel in PURE:
+        path = root / rel
+        problems += _impure(path, rel) if path.is_file() else ["%s is missing" % rel]
+    return problems
+
+
+if __name__ == "__main__":
+    import sys
+    found = run()
+    for p in found:
+        print(p)
+    sys.exit(1 if found else 0)
