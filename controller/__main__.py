@@ -26,7 +26,7 @@ import re
 import sys
 import time
 
-from adapters import facts as facts_, identity, items, passes, pause as pause_, records, timeline
+from adapters import applied, facts as facts_, identity, items, passes, pause as pause_, records, timeline
 from adapters.facts import accounts_of as accounts, dispatcher_of as dispatcher
 from adapters.github import Live, Unanswered
 from controller import configuration as configured, pass_, reads as reads_, writes as writes_
@@ -89,10 +89,14 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock) -> dic
     identities, approver, lenses, factory = accounts(controller)
     who = timeline.Accounts(transport, home, approver, lenses, factory)
     runs_whole = isinstance(runs, dict) and runs.get("complete") is True
+    # What each Lens recorded on each open pull request, in its Runs' applied/1, which the threads are held to.
+    found = applied.recorded(transport, home, runs, numbers, set(config["kernel"]["required_lenses"]["model"]),
+                             config["authority"])
     pulls = []
     for number in numbers:
         try:
-            facts, title = facts_.snapshot(transport, home, number, identities, who, runs_whole, lambda: utc(clock))
+            facts, title = facts_.snapshot(transport, home, number, identities, who, runs_whole, lambda: utc(clock),
+                                           recorded=found[number])
             pulls.append({"facts": facts, "title": title})
         except Unanswered:
             pulls.append({"facts": {"item": {"repo": home, "type": "pull_request", "number": number}}, "title": None})

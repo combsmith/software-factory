@@ -8,10 +8,11 @@ pushed away and back between the two reads still gives the parts of that commit.
 refuses the whole; a list that was not read whole says so in its `complete` flag, and the Kernel defers on it.
 
 One part is not read yet, and says so: `acceptance` is null, and whole only where no issue the pull request closes
-asks for a contract (`adapters/acceptance.py`); the contract itself waits on `adapters/contract.py`. A Lens's thread has
-no category or severity until `harness/` uploads the Finding records they are joined from (`adapters/threads.py`). The
-run records are the records port's, read
-once a pass: the caller says whether that read was whole.
+asks for a contract (`adapters/acceptance.py`); the contract itself waits on `adapters/contract.py`. A Lens's thread
+takes its category and severity from the Finding its Lens recorded, and every thread a Lens recorded must be in the
+threads read, opened by that Lens, or the threads are not whole (`adapters/applied.py`, issue 338): every caller hands
+what the Lenses recorded. The run records are the records port's, read once a pass: the caller says whether that read
+was whole.
 
 `read_at` is taken after the last read, never given by the caller. `last_push_at` is the push's own time where the head
 branch's activity names the head, and `read_at` where it does not, so that an admission placed before the read never
@@ -25,7 +26,7 @@ import datetime
 import json
 import pathlib
 
-from adapters import acceptance, checks, pull, threads, timeline
+from adapters import acceptance, applied, checks, pull, threads, timeline
 from adapters.github import Unanswered
 from tools.jsonschema_lite import validate
 
@@ -43,10 +44,11 @@ def _utc() -> str:
 
 
 def snapshot(transport, repo: str, number: int, identities: dict, accounts: timeline.Accounts, runs_whole: bool,
-             clock=_utc, kept=None, with_head: bool = False) -> tuple:
+             clock=_utc, kept=None, with_head: bool = False, *, recorded: tuple) -> tuple:
     """`(facts/1, title)` for one pull request, or `(facts/1, title, head)` `with_head`: the head commit its first read
     gave, which the snapshot is held to, beside the facts and never in them (#193's ruling 10). `identities` gives the class's accounts (`adapters/pull.own`),
-    `accounts` who acted, `runs_whole` whether the pass read the run records whole, and `clock` the time after the last
+    `accounts` who acted, `runs_whole` whether the pass read the run records whole, `recorded` what the pull request's
+    Lenses recorded (`adapters/applied.recorded`), and `clock` the time after the last
     read. `kept`, where given, is filled with what GitHub gave the timeline, reviews, threads and check runs reads,
     each with whether it was whole, once the snapshot is whole: reconciliation reads them, so no read is made twice
     (`adapters/seen.py`, decision 0061)."""
@@ -64,7 +66,7 @@ def snapshot(transport, repo: str, number: int, identities: dict, accounts: time
     labels = timeline.label_events(events, accounts)
     read = checks.read(transport, first, raw)
     contract, contract_whole = acceptance.read(transport, first, accounts)
-    found, threads_whole = threads.read(transport, first, accounts, raw)
+    found, threads_whole = applied.held(*threads.read(transport, first, accounts, raw), recorded)
     if pusher is not None and pushed_at is None:
         raise Unanswered("the head's push names its pusher but no time that can be read")
     if not pull.unchanged(transport, first):
