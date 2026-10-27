@@ -121,7 +121,8 @@ def reads(transport, config: dict, parts: dict, pass_id: str, clock, commit=None
     identities, approver, lenses, factory = facts_.accounts_of(controller)
     who = timeline.Accounts(transport, home, approver, lenses, factory)
     number = parts["item"]["number"]
-    facts, _, head = facts_.snapshot(transport, home, number, identities, who, True, clock, with_head=True)
+    facts, _, head = facts_.snapshot(transport, home, number, identities, who, True, clock, with_head=True,
+                                     opener=facts_.opener_of(controller, config["kernel"], config["apps"]))
     first = pull.read(transport, home, number)
     if str(first["head"]["sha"]) != head:
         raise Stop("head_moved")

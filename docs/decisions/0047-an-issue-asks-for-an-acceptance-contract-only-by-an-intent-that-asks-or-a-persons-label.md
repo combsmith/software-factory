@@ -27,5 +27,5 @@ Design sections 3.13 and 4.8 make the acceptance contract the item's, read from 
 | A pull request to another base than the default is not whole on its contract | `tests/test_adapters.py::test_a_pull_request_to_another_base_than_the_default_is_not_read_whole_on_its_contract` |
 | Every Intent a Lifecycle runs is ruled on whether it asks | `tests/test_adapters.py::test_every_intent_a_lifecycle_runs_is_ruled_on_whether_it_asks_for_a_contract` |
 | A snapshot reads `complete.acceptance` true where no closing issue asks, and false where one does | `tests/test_adapters.py::test_a_snapshot_holds_every_part_of_the_facts_and_the_title_beside_them`, `tests/test_adapters.py::test_a_snapshot_whose_closing_issue_asks_for_a_contract_is_not_read_whole_on_it` |
-| A pull request is bound to the issue it serves by its Run or branch, not by its author's closing link | waiting on `adapters/binding.py` |
+| A pull request is bound to the issue it serves by its Run or branch, not by its author's closing link | `tests/test_adapters.py::test_a_pull_request_the_factory_opens_is_bound_to_the_issue_its_branch_names` |
 | The contract asked for is read | waiting on `adapters/contract.py` |

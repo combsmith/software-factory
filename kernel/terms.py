@@ -139,6 +139,11 @@ LABEL_ACTIONS = ("labeled", "unlabeled")
 # The label a person adds to an issue to ask for an acceptance contract (decision 0047): the facts port reads it from the
 # issue a pull request closes, as the Kernel reads a control label. No Lifecycle runs an Intent that asks yet.
 LABEL_CONTRACT = "factory:contract"
+# The branch a pull request the Factory opens is pushed to: the issue it serves and the count of pull requests the
+# Factory has opened for that issue, each a whole number from 1 with no leading zero, and nothing after (issue 295). It
+# binds the pull request to that issue, never its body. Not under `factory/`, the tags' namespace: a branch never shares
+# a short name with a tag.
+WORK_BRANCH = r"factory-work/issue-([1-9][0-9]*)-([1-9][0-9]*)"
 
 # The conclusions of a Run that ran and did not report: with no outcome, it is the item's, an attempt (issue 286).
 RAN_AND_DIED = ("failure", "timed_out")

@@ -17,7 +17,7 @@ import tempfile
 import unittest
 import unittest.mock
 
-from adapters import github, records
+from adapters import acceptance, github, records
 import controller.__main__ as entry
 from controller import pass_, shared
 from kernel.decide import decide
@@ -844,8 +844,8 @@ class Entry(unittest.TestCase):
     def test_each_snapshot_is_read_with_the_configured_accounts_and_kept(self):  # decisions 0005, 0060
         handed = []
 
-        def snapshot(transport, repo, number, identities, who, runs_whole, clock):
-            handed.append((repo, number, identities, who.approver, who.lenses, who.factory, runs_whole, clock()))
+        def snapshot(transport, repo, number, identities, who, runs_whole, clock, opener):
+            handed.append((repo, number, identities, who.approver, who.lenses, who.factory, runs_whole, clock(), opener))
             return support.facts(item=dict(support.ITEM, number=number)), "A title"
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot):
             code, _, files, _ = self.run_entry(Hub(self.table(numbers=[7])))
@@ -854,7 +854,13 @@ class Entry(unittest.TestCase):
         self.assertEqual(files["view/items.json"]["items"][0]["untrusted"]["title"], "A title")
         self.assertEqual(handed, [(self.HOME, 7, {"agent": set(), "maintainer": {(36422719, "User")},
                                                   "dependency": {(49699333, "Bot")}},
-                                   (281750570, "User"), {}, set(), True, "2026-10-12T12:00:00Z")])
+                                   (281750570, "User"), {}, set(), True, "2026-10-12T12:00:00Z", None)])
+        # The App that opens pull requests, as the configuration names it, is said to each snapshot (issue 295).
+        handed.clear()
+        with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
+                unittest.mock.patch.object(entry, "opener", lambda *told: (12, "Bot")):
+            self.run_entry(Hub(self.table(numbers=[7])))
+        self.assertEqual(handed[0][8], (12, "Bot"))
         # A list of runs read short is said to each snapshot.
         table = self.table(numbers=[7])
         path = "/repos/%s/actions/workflows/run.yml/runs?branch=main&event=workflow_dispatch&per_page=100" % self.HOME
@@ -875,6 +881,29 @@ class Entry(unittest.TestCase):
         self.assertEqual(entry.dispatcher(dict(CONTROLLER, accounts=dict(CONTROLLER["accounts"], workflow_token=None))),
                          (0, "Bot"))
         self.assertEqual(entry.dispatcher(config()["controller"]), (41898282, "Bot"))
+
+    def test_the_app_that_opens_pull_requests_is_read_from_the_configuration_by_its_role(self):  # issue 295
+        # In slice 1 no Role opens a pull request, so none is bound to an issue by its branch.
+        loaded = entry.configuration(ROOT, "factory/v0.3.1")
+        self.assertIsNone(entry.opener(loaded["controller"], loaded["kernel"], loaded["apps"]))
+        # The App of the Role named for open-pull-request, by the account controller/1 holds for that Role.
+        kernel = copy.deepcopy(loaded["kernel"])
+        kernel["issues"]["intents"]["open-pull-request"] = {"role": "dev-lead", "app": "combsmith-sf-dev-lead"}
+        apps = dict(loaded["apps"], **{"dev-lead": dict(loaded["apps"]["pr-review"], name="combsmith-sf-dev-lead")})
+        held = copy.deepcopy(loaded["controller"])
+        held["accounts"]["roles"]["dev-lead"] = {"id": 12, "type": "Bot", "login": "combsmith-sf-dev-lead[bot]"}
+        self.assertEqual(entry.opener(held, kernel, apps), (12, "Bot"))
+        # A Role named whose App, or whose App's account, cannot be told is untold, never nobody.
+        unheld = copy.deepcopy(held)
+        unheld["accounts"]["roles"]["dev-lead"] = None
+        other = copy.deepcopy(held)
+        other["accounts"]["roles"]["dev-lead"]["login"] = "combsmith-sf-pr-review[bot]"
+        renamed = copy.deepcopy(held)
+        renamed["accounts"]["roles"]["dev-lead"]["login"] = "another[bot]"
+        for told, app_list in ((unheld, apps), (other, apps), (held, loaded["apps"]),
+                               (held, dict(apps, **{"dev-lead": dict(apps["dev-lead"], name="another")})),
+                               (renamed, dict(apps, **{"dev-lead": dict(apps["dev-lead"], name="another")}))):
+            self.assertEqual(entry.opener(told, kernel, app_list), acceptance.UNTOLD)
 
     def test_the_entry_waits_out_the_read_gap_before_it_reads(self):  # decision 0043
         from tests.test_adapters import a_pass, a_record, pass_stored, pass_zip, passes_listed
