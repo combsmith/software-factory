@@ -816,6 +816,8 @@ class Push(unittest.TestCase):
                      "x/config/hooks.json", "roles/pr-review"):
             self.assertIsNone(apply.push_refusal([path], ["docs/old.md"], self.LIST), path)
         self.assertIsNone(apply.push_refusal([], [], self.LIST))
+        # A path that was neither renamed nor copied has no previous path.
+        self.assertIsNone(apply.push_refusal(["docs/a.md", "docs/b.md"], [None, None], self.LIST))
 
     def test_a_path_that_cannot_be_read_as_one_is_refused(self):
         for path in ("", "a//b", "/kernel/x.py", "docs/../kernel/x.py", "./kernel/x.py", None, 7, "config/hooks.json\x00",
@@ -827,7 +829,8 @@ class Push(unittest.TestCase):
         self.assertEqual(apply.push_refusal(["docs/a.md"], ["docs/../config/hooks.json"], self.LIST), "push_protected")
 
     def test_a_list_that_is_none_or_empty_refuses_every_push(self):
-        for listed in (None, [], [""], ["kernel/", None], "kernel/", {"kernel/": 1}):
+        for listed in (None, [], [""], ["kernel/", None], "kernel/", {"kernel/": 1}, ["/kernel/gate.py"], ["."], [".."],
+                       ["kernel//"], ["kernel/", "a//b"]):
             self.assertEqual(apply.push_refusal(["docs/a.md"], [None], listed), "push_list_unreadable", listed)
 
     def test_the_repos_own_list_holds_the_kernel_and_the_review_roles_inputs(self):

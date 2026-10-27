@@ -2688,7 +2688,7 @@ class Rules(unittest.TestCase):
             else data
         found["request"]["call"] = "GET /repos/o/r/contents/config/hooks.json?ref=%s" % self.SHA
         found["response"]["body"].update(name="hooks.json", path="config/hooks.json", size=len(data),
-                                         content=base64.b64encode(data).decode(), encoding="base64", type="file")
+                                         content=base64.encodebytes(data).decode(), encoding="base64", type="file")
         found["response"]["body"].update(over)
         return found
 
