@@ -1,4 +1,4 @@
-# 0073. A later review by the same Lens supersedes its earlier records for a thread that is gone
+# 0075. A later review by the same Lens supersedes its earlier records for a thread that is gone
 
 Status: accepted. The Factory Builder's rulings of 2026-10-26 and 2026-10-27, option (b), for the issue the Why names. The Maintainer may overturn it in review.
 
@@ -8,7 +8,7 @@ Status: accepted. The Factory Builder's rulings of 2026-10-26 and 2026-10-27, op
 |---|---|---|
 | What supersedes | A later Run of the same Lens whose `applied/1` was read whole, on the pull request's current content, supersedes every Run of that Lens that started before it, for the rule that every recorded thread is in the threads read and opened by its Lens | A fresh review of the current head says what that Lens now holds of the change |
 | Whose | The same Lens only. Another Lens's Run supersedes nothing | A Lens speaks for its own Findings alone |
-| Which head | Only a Run on the current content: its head is the current head, at or after any earlier Run's. A Run on any other content supersedes nothing, since no order of heads can be read from a content id; nor does one that started at the same time as, or before, the Run it would supersede, or one whose start, or the earlier Run's, cannot be read | If the order of heads cannot be read, nothing is superseded and the hold stays |
+| Which head | Only a Run on the current content: its head is the current head, at or after any earlier Run's. A Run on any other content supersedes nothing, since no order of heads can be read from a content id; nor does one that started at the same time as, or before, the Run it would supersede, or one whose start, or the earlier Run's, cannot be read | If the order of heads cannot be read, nothing is superseded and the hold stays. So a Run on an older head never releases a hold, even where its content matches an earlier snapshot's: only the snapshot's own content counts, and a Run on it supersedes only Runs that started before it, so a head pushed away and back does not let an older Run release a record a later one made |
 | Read whole | A later Run whose `applied/1` cannot be read leaves the pull request's threads not whole, as before, and supersedes nothing | What cannot be read is never read as none |
 | What stays | A thread the superseding Run also records is still held to its opener; a thread any Run that is not superseded recorded is still held. The join, each Lens thread's category and severity from its Lens's one Finding, does not change | The fresh review's own record holds what it raised |
 | A problem that still stands | The later Run raises it again, as a Finding on a thread of its own, which is held to its opener | A deleted Finding is not a resolved one |
