@@ -1041,6 +1041,12 @@ MUTANTS = ISSUE + [
      'APPLIED_MEMBER, ZIPPED, APPLIED_MOST, required)',
      'APPLIED_MEMBER, APPLIED_MOST, APPLIED_MOST, required)', ("tests.test_adapters",)),
     # Issue 299: every actor's write access, in both worlds, read from the permission each serves (decision 0048).
+    ("a Lens's write access is read from a permission", 'sim/world.py',
+     'in ("human", "machine_user") and "can_write"',
+     'in ("human", "machine_user", "lens") and "can_write"', ("tests.test_simulator.Simulation.test_every_actors_write_access_is_read_from_the_permission",)),
+    ("an approver who cannot write stands in the world's own reading", 'sim/world.py',
+     ' and told(rv["by"])["can_write"] is True\n',
+     '\n', ("tests.test_simulator.Simulation.test_every_actors_write_access_is_read_from_the_permission",)),
     ("the worlds read the author's write access alone", 'sim/world.py',
      '        if value.get("kind") in ("human", "machine_user") and "can_write" in value:',
      '        if False:', ("tests.test_simulator.Simulation.test_every_actors_write_access_is_read_from_the_permission", "tests.test_issue_simulator.IssueSimulation.test_every_actors_write_access_is_read_from_the_permission")),

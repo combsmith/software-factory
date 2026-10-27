@@ -438,8 +438,9 @@ class World:
         approver that stands, a writer's request for changes or open thread, a Hold, or a required check that
         failed or gave no verdict (L-19, FR-23, I-9). A check still pending is a wait, and is no objection."""
         out = []
-        if not any(rv["by"]["name"] == CONFIG["approver"] and rv["state"] == "approved" and rv["content_id"] == self.cid()
-                   for rv in self.reviews):
+        # The approver's approval stands only while it can write, as the Kernel reads it (decision 0048).
+        if not any(rv["by"]["name"] == CONFIG["approver"] and told(rv["by"])["can_write"] is True
+                   and rv["state"] == "approved" and rv["content_id"] == self.cid() for rv in self.reviews):
             out.append("no standing approval")
         if self.asked:
             out.append("a writer's request for changes")

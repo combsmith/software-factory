@@ -228,20 +228,34 @@ class Simulation(unittest.TestCase):
         self.assertNotIn("adapters", pathlib.Path(world.__file__).read_text())
         w = World(1, faults=False, people=False)
         w.events.append({"label": "factory:hold", "action": "labeled", "by": dict(world.COLLEAGUE), "at": w.now()})
-        w.reviews.append({"by": dict(world.MACHINE), "state": "commented", "commit": "c1", "content_id": w.cid(),
+        w.reviews.append({"by": dict(world.MACHINE), "state": "approved", "commit": "c1", "content_id": w.cid(),
                           "submitted_at": w.now(), "dismissed_by": None, "dismissed_from": None})
+        w.threads.append({"id": "PRRT_299", "resolved": True, "opened_by": dict(world.COLLEAGUE),
+                          "resolved_by": dict(world.COLLEAGUE), "category": "human", "severity": None,
+                          "opened_at": w.now()})
         for permission, writes in (("admin", True), ("maintain", True), ("write", True), ("triage", False),
                                    ("read", False), ("none", False)):
             with mock.patch.dict(world.PERMISSIONS, {world.COLLEAGUE["name"]: permission,
                                                      world.MACHINE["name"]: permission}):
                 facts = w.facts()
                 self.assertEqual((facts["label_events"][-1]["by"]["can_write"], facts["reviews"][-1]["by"]["can_write"],
-                                  w.is_person(world.COLLEAGUE)), (writes,) * 3, permission)
+                                  facts["threads"][-1]["opened_by"]["can_write"],
+                                  facts["threads"][-1]["resolved_by"]["can_write"], w.is_person(world.COLLEAGUE)),
+                                 (writes,) * 5, permission)
+                # The approver's approval stands in the world's own reading only while the approver can write, as the
+                # Kernel reads it.
+                self.assertEqual("no standing approval" in w.objections(), not writes, permission)
         # A login the world serves no permission for writes nothing; an App's is left as the world made it.
         w.events.append({"label": "factory:hold", "action": "labeled", "by": dict(world.COLLEAGUE, name="someone"),
                          "at": w.now()})
         w.events.append({"label": "factory:hold", "action": "labeled", "by": dict(world.IMPOSTOR), "at": w.now()})
         self.assertEqual([e["by"]["can_write"] for e in w.facts()["label_events"][-2:]], [False, True])
+        # A Lens's App, which opens and resolves its threads, is an App too: no permission is read for it.
+        w.threads.append({"id": "PRRT_lens", "resolved": True, "opened_by": dict(world.REVIEWER_APP),
+                          "resolved_by": dict(world.REVIEWER_APP), "category": "functional", "severity": "major",
+                          "opened_at": w.now()})
+        lens = w.facts()["threads"][-1]
+        self.assertEqual((lens["opened_by"], lens["resolved_by"]), (world.REVIEWER_APP, world.REVIEWER_APP))
 
     def test_a_seed_replays_exactly(self):
         traces = []
