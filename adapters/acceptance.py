@@ -20,15 +20,26 @@ pull request's own repo.
 Where no issue asks, `acceptance` is null and read whole. Where one asks, the contract is to be read, which
 `adapters/contract.py`, not built, holds: until then the read is not whole, and the Kernel defers.
 
-The known limit: the closing references are the pull request's own, which its author writes, so an author who removes
-"Closes" before a pass removes the ask (decision 0047).
+A pull request the Factory opens is bound to the issue it serves by its branch, `kernel/terms.py`'s `WORK_BRANCH`, never
+by its body (issue 295): its author is the App of the Role that opens pull requests, and the ask is read from the issue
+its branch names. Its closing references may leave that issue out, but they may name no other: one that does, a
+branch of another shape or another repo, or an issue that is a pull request, is not read whole. A pull request a person
+opens keeps the closing references' reading, which its author writes, so an author who removes "Closes" before a pass
+removes the ask (decision 0047). Where the Role that opens pull requests is named but its App's account is not known, a
+pull request on a branch of that shape cannot be told for a person's, and is not read whole. No Role opens one in slice 1,
+so none is bound yet.
 """
 from __future__ import annotations
+
+import re
 
 from adapters import timeline
 from adapters.github import Unanswered, request
 from kernel import gate, terms
 
+# The opener's account when the Role that opens pull requests is named but its App's account is not known.
+UNTOLD = (0, "untold")
+BRANCH = re.compile(terms.WORK_BRANCH)
 PAGE = 10      # closing references on one page, as P-33 and P-46 asked them; more than one page is not read whole
 LABELS = 50    # an issue's labels on one page; more is not read whole
 QUERY = """query FactsClosing($owner: String!, $name: String!, $number: Int!) {
@@ -115,14 +126,54 @@ def asks(transport, repo: str, number: int, listed: bool, accounts: timeline.Acc
     return standing is True, whole and (standing is not None) == listed
 
 
-def read(transport, pull: dict, accounts: timeline.Accounts) -> tuple:
-    """`(acceptance, whole)`: null and whole where no issue the pull request closes asks for a contract; null and not
-    whole where one asks, where the closing issues cannot be read whole, or where the base is not the default branch,
-    whose pull requests carry no closing reference to read."""
+def labelled(transport, repo: str, number: int) -> bool:
+    """Whether GitHub lists the `factory:contract` label on issue `number`; refused where it is no issue."""
+    answer = transport.send(request("GET", "/repos/%s/issues/%d" % (repo, number)))
+    body = answer["body"]
+    if answer["status"] != 200 or not isinstance(body, dict) or body.get("number") != number:
+        raise Unanswered("the bound issue answered %d" % answer["status"])
+    labels = body.get("labels")
+    if "pull_request" in body or not isinstance(labels, list) \
+            or not all(isinstance(n, dict) and isinstance(n.get("name"), str) for n in labels):
+        raise Unanswered("the bound issue is no issue whose labels can be read")
+    return any(n["name"] == terms.LABEL_CONTRACT for n in labels)
+
+
+def bound(pull: dict, opener):
+    """The issue a pull request is bound to by its branch: its number where `opener`, the account of the App that opens
+    the Factory's pull requests, authored it; None where another account did, or no Role opens one; False where it
+    cannot be read whole: the opener's on a branch of another shape or another repo, or, with the opener untold, any
+    pull request on a branch of the Factory's shape."""
+    if opener is None:
+        return None
+    head = pull.get("head") if isinstance(pull.get("head"), dict) else {}
+    ref = head.get("ref")
+    shaped = BRANCH.fullmatch(ref) if isinstance(ref, str) else None
+    if opener == UNTOLD:
+        return False if shaped else None
+    user = pull.get("user") if isinstance(pull.get("user"), dict) else {}
+    if (user.get("id"), user.get("type")) != tuple(opener):
+        return None
+    same = (head.get("repo") or {}).get("full_name") == pull["base"]["repo"]["full_name"]
+    return int(shaped.group(1)) if shaped and same else False
+
+
+def read(transport, pull: dict, accounts: timeline.Accounts, opener=None) -> tuple:
+    """`(acceptance, whole)`: null and whole where no issue the pull request serves asks for a contract; null and not
+    whole where one asks, where the issues cannot be read whole, or where the base is not the default branch, whose
+    pull requests carry no closing reference to read. The issue it serves is the one its branch binds it to, where the
+    opener's App opened it, and else the issues it closes."""
     base = pull["base"]
     if not base.get("ref") or base.get("ref") != (base.get("repo") or {}).get("default_branch"):
         return None, False
+    issue = bound(pull, opener)
+    if issue is False:
+        return None, False
     found, whole = closing(transport, pull)
+    if issue is not None:
+        if not whole or any(number != issue for number in found):
+            return None, False
+        found = {issue: found[issue] if issue in found else labelled(transport, base["repo"]["full_name"], issue)}
     for number, listed in found.items():
         asked, read_whole = asks(transport, base["repo"]["full_name"], number, listed, accounts)
         if asked or not read_whole:

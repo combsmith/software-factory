@@ -225,7 +225,17 @@ class Writes(unittest.TestCase):
                 self.assertFalse(tags.write(github.Replay([ex("POST", "/repos/%s/git/refs" % REPO, status, body,
                                                               sent={"ref": "refs/tags/" + VERSION, "sha": D})]),
                                             REPO, ("create", VERSION, D), REFS))
-        self.assertFalse(tags.write(github.Replay([]), "combsmith/..", ("create", VERSION, D), REFS))
+        # A repo that could name another path is never asked, whatever GitHub would answer.
+        for repo in ("combsmith/..", "combsmith/.", "combsmith", None):
+            with self.subTest(repo=repo):
+                asked = []
+
+                class Answers:
+                    def send(self, req):
+                        asked.append(req)
+                        return {"status": 201, "headers": {}, "body": {"ref": "refs/tags/" + VERSION, "object": {"sha": D}}}
+                self.assertFalse(tags.write(Answers(), repo, ("create", VERSION, D), REFS))
+                self.assertEqual(asked, [])
 
     def test_a_deployment_of_next_is_recorded_with_its_status(self):
         sent = {"ref": D, "task": "deploy", "auto_merge": False, "required_contexts": [], "environment": "factory-next",

@@ -3,6 +3,11 @@
 At the next stop it ends and the person is told: a hook that sent it back for ever would cycle with
 no bound and no person. With nothing changed and nothing unpushed there is nothing to verify, so a
 turn spent answering questions costs nothing. Run as `python3 -I` on this file; see after_edit.py.
+
+A verify it cannot finish is not started (issue 344): each run that ends, or runs out of the hook's
+time, is written down in the tree's git directory, and while the last one there ran out of time,
+within RETRY, the session is told so and ends; CI runs verify as before. A run the hook was told to
+end is not written down. Hooks are helpers; only CI enforces.
 """
 from __future__ import annotations
 
@@ -12,12 +17,15 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2]))
 from tools.hooks import make  # noqa: E402
 
 TIMEOUT = 580       # seconds; the settings give the hook 600
 TOLD = 15           # lines of the failure put in front of the person
+RETRY = 3600        # seconds after a verify that did not finish before one is started again
+RECORD = "sf-stop-verify.json"   # in the tree's git directory: the last verify's start and whether it finished in time
 
 
 def _git(where: pathlib.Path, env: dict, args: list):
@@ -43,13 +51,54 @@ def nothing_to_verify(where: pathlib.Path, env: dict) -> bool:
     return False
 
 
-def respond(payload: dict, env: dict) -> tuple:
+def record_of(where: pathlib.Path, env: dict):
+    """The file the last verify in `where` is written down in, in its git directory; None where that cannot be read."""
+    found = _git(where, env, ["rev-parse", "--absolute-git-dir"])
+    path = pathlib.Path(found.strip()) if found and found.strip() else None
+    return path / RECORD if path is not None and path.is_dir() else None
+
+
+def unfinished(record, now: float):
+    """How long ago a verify was started that did not finish, where that is within RETRY; else None."""
+    try:
+        last = json.loads(record.read_text())
+    except (AttributeError, OSError, ValueError):
+        return None
+    started = last.get("started") if isinstance(last, dict) else None
+    if not isinstance(started, (int, float)) or isinstance(started, bool) or last.get("finished") is not False:
+        return None
+    try:
+        ago = now - started
+    except OverflowError:
+        return None
+    return ago if 0 <= ago < RETRY else None
+
+
+def note(record, started: float, finished: bool) -> None:
+    if record is not None:
+        try:
+            record.write_text(json.dumps({"started": started, "finished": finished}) + "\n")
+        except OSError:
+            pass
+
+
+def respond(payload: dict, env: dict, clock=time.time) -> tuple:
     """(exit code, stdout, stderr) for this stop."""
+    asked = time.monotonic()
     base = make.project(env)
     where = make.tree(base, payload.get("cwd")) or base
     if nothing_to_verify(where, env):
         return 0, "", ""
-    passed, said = make.make("verify", where, env, TIMEOUT)
+    record, now = record_of(where, env), clock()
+    ago = unfinished(record, now)
+    if ago is not None:
+        told = ("`make verify` was not started in %s: the last one there, %d seconds ago, did not finish in the %d "
+                "seconds the hook has. CI runs it. To have it run at the next stop, delete %s." % (where, ago, TIMEOUT,
+                                                                                                record))
+        return 0, json.dumps({"systemMessage": told}) + "\n", ""
+    budget = max(1, int(TIMEOUT - (time.monotonic() - asked)))
+    passed, said = make.make("verify", where, env, budget)
+    note(record, now, not said.startswith(make.UNFINISHED % ("verify", budget, where)))
     if passed:
         return 0, "", ""
     if payload.get("stop_hook_active") is True:

@@ -5,7 +5,7 @@ from `next` before it reaches `stable`. `cut.py` holds the rules that cut a Rele
 pure: it is given the refs and the facts, and returns the writes or one code. `current.py` names a commit's one
 Release. `move.py` prints a step's plan from what was read, and runs the step: it sends each write, reads it back and records the Deployment. The
 tags themselves are read by `adapters/tags.py`; `fixtures/` keeps what GitHub answered a Release's reads and steps. How to cut, and who may, is the skill `.claude/skills/cut-a-release/SKILL.md`.
-Not built yet, by the stories that hold their rules: promote.py, cutover.py.
+Not built yet, by the stories that hold their rules: promote.py, cutover.py, fixtures/cut.v0-1-0.json.
 
 | Rule | Held by |
 |---|---|
@@ -21,6 +21,7 @@ Not built yet, by the stories that hold their rules: promote.py, cutover.py.
 | No repo and Intent family is served by two Channels | `examples/invalid/rings.a-repo-on-two-channels.json` |
 | A Release reaches `stable` only with Runs behind it, each Effect read back, and an eval for each changed Intent | `examples/invalid/rings.promotion-with-no-runs.json`, `examples/invalid/rings.promotion-without-evals.json` |
 | The tags are read whole or not at all, and nothing is read at any tag | `tests/test_release.py::test_tags_are_read_whole_or_not_at_all`, `tests/test_release.py::test_a_move_reads_refs_and_nothing_at_any_tag` |
+| Each page GitHub links is read, of this list alone and to a bound | `tests/test_release.py::test_each_page_github_links_is_read_and_only_this_lists` |
 | A fixture holds no credential, and no header a trial's fixture drops | `tests/test_release.py::test_the_refs_github_answered_are_read_as_the_port_reads_them` |
 | The step sends each write through the token it is given, reads it back, and records each move of `next` | `tests/test_release_step.py::test_a_cut_creates_the_release_moves_next_reads_each_back_and_records_the_deployment` |
 | It stops at the first write GitHub refused, or not read back, read twice, on its commit as the one Release planned | `tests/test_release_step.py::test_a_write_not_read_back_stops_the_step_there` |
