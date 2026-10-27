@@ -4507,6 +4507,339 @@
           ]
         }
       }
+    },
+    {
+      "request": {
+        "as": {
+          "kind": "person",
+          "name": "don-petry"
+        },
+        "via": "rest",
+        "call": "GET /repos/combsmith/software-factory-canary/compare/54ccf0807156a4352d19390205cc30efa1373b39...38cc12cf13731f3ecb7288d37cb7d8743c6f6854 (gh api), read after the review of this fixture: the compare the facts port reads the files by (issue 284), with the rename it names (issue 138)",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28"
+        },
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "private, max-age=60, s-maxage=60",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Tue, 27 Oct 2026 16:42:09 GMT",
+          "etag": "W/\"c15165f0561e4a069c96275d9e3782a4225493d0f0fe0423aca63b9dbbdd2b58\"",
+          "last-modified": "Wed, 21 Oct 2026 16:18:27 GMT",
+          "server": "github.com",
+          "vary": "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With",
+          "x-accepted-oauth-scopes": "",
+          "x-github-media-type": "github.v3; format=json",
+          "x-github-request-id": "E2FD:CDD1C:CEDA1A:2A6698A:6AE0D461",
+          "x-oauth-scopes": "admin:org, admin:org_hook, delete_repo, gist, read:packages, read:project, repo, workflow",
+          "x-ratelimit-limit": "5000",
+          "x-ratelimit-remaining": "4926",
+          "x-ratelimit-reset": "1793120690",
+          "x-ratelimit-resource": "core",
+          "x-ratelimit-used": "74"
+        },
+        "body": {
+          "url": "https://api.github.com/repos/combsmith/software-factory-canary/compare/54ccf0807156a4352d19390205cc30efa1373b39...38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+          "html_url": "https://github.com/combsmith/software-factory-canary/compare/54ccf0807156a4352d19390205cc30efa1373b39...38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+          "permalink_url": "https://github.com/combsmith/software-factory-canary/compare/combsmith:54ccf08...combsmith:38cc12c",
+          "diff_url": "https://github.com/combsmith/software-factory-canary/compare/54ccf0807156a4352d19390205cc30efa1373b39...38cc12cf13731f3ecb7288d37cb7d8743c6f6854.diff",
+          "patch_url": "https://github.com/combsmith/software-factory-canary/compare/54ccf0807156a4352d19390205cc30efa1373b39...38cc12cf13731f3ecb7288d37cb7d8743c6f6854.patch",
+          "base_commit": {
+            "sha": "54ccf0807156a4352d19390205cc30efa1373b39",
+            "node_id": "C_kwDOVFD679oAKDU0Y2NmMDgwNzE1NmE0MzUyZDE5MzkwMjA1Y2MzMGVmYTEzNzNiMzk",
+            "commit": {
+              "author": {
+                "name": "Don Petry",
+                "email": "36422719+don-petry@users.noreply.github.com",
+                "date": "2026-10-21T13:56:49Z"
+              },
+              "committer": {
+                "name": "GitHub",
+                "email": "noreply@github.com",
+                "date": "2026-10-21T13:56:49Z"
+              },
+              "message": "Remove the batch 2c trial workflows (combsmith/software-factory#187, step 8) (#46)\n\n* Remove trial workflow p27-pull-request (combsmith/software-factory#187, step 8)\n\n* Remove trial workflow p20-watch (combsmith/software-factory#187, step 8)\n\n* Remove trial workflow p14-cache-scope (combsmith/software-factory#187, step 8)\n\n* Remove trial workflow p9-chain (combsmith/software-factory#187, step 8)",
+              "tree": {
+                "sha": "ed7ecbafe3f59c09f39f1d444ddba6f4d93e2e25",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/ed7ecbafe3f59c09f39f1d444ddba6f4d93e2e25"
+              },
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/54ccf0807156a4352d19390205cc30efa1373b39",
+              "comment_count": 0,
+              "verification": {
+                "verified": true,
+                "reason": "valid",
+                "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq2MShCRC1aQ7uu5UhlAAAr9EQACxjv9CFMmasp+BN//2p4w1k\ntgFTzdf+wgKlnqc3+PZzliun2MEcrh2o2CWN12TQ+MAWPXad9ODcv8dPlbYzS84j\nLek8qF5Pg8tawx/CMKXxlPCPji81gkO9IB/qSoN0yl6RxowSudMzo6gR5YHQYrDy\n6PX8UtShrrh3naSMzz4KNy6ih7NqiXK3RxZQN/QfRWZyc2sj/bI7AwwOlPdA7xDW\nPsDDOZOA5CeuABJWj61FxHYlDlIPdAai3yZNtvSZAIhQzXNyKiAGoJ00AFQFoZmD\nEQlP7nsO63KeRGlRpT8jM2n55mH3qqXYGQIcTLy5m8X2GuXjQpEdwCpDuSA/tzWH\nE02nqO5k9Rf0nRCFV7I/hwEfuTKhub00gJhYuimCuSXNQpqU1jBOCyOXQHcBsLBE\nIsdheFFPng19xQjW8Fta58cym9T1ajwBqoD4cA/FGDIRxQVBPrNTjd+HpT//bKmh\ng5XuCptUmfpLHu8Co8Y2fxqw0tICq5SI23XUI4SsxI7bG5i5/pru0r6W6KJn2nZW\nnOo/RzAEBPGmZUWT6tVMkNViLLaT8hs6B89a0LRAA3HYpN3nxmXmWamFAOfW3ZD7\nixm+o8zQTfSWRM6b/NizfQ9v4LzqjBMrdV7XphQHGN49Cinq8DSxv1bk02yE84na\nmBKm3yLXFh39XlQHWnMl\n=8wNx\n-----END PGP SIGNATURE-----\n",
+                "payload": "tree ed7ecbafe3f59c09f39f1d444ddba6f4d93e2e25\nparent aa20832b7e56697e50b7ee3c944a0b2b115216ac\nauthor Don Petry <36422719+don-petry@users.noreply.github.com> 1792591009 -0500\ncommitter GitHub <noreply@github.com> 1792591009 -0500\n\nRemove the batch 2c trial workflows (combsmith/software-factory#187, step 8) (#46)\n\n* Remove trial workflow p27-pull-request (combsmith/software-factory#187, step 8)\n\n* Remove trial workflow p20-watch (combsmith/software-factory#187, step 8)\n\n* Remove trial workflow p14-cache-scope (combsmith/software-factory#187, step 8)\n\n* Remove trial workflow p9-chain (combsmith/software-factory#187, step 8)",
+                "verified_at": "2026-10-21T13:56:50Z"
+              }
+            },
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/54ccf0807156a4352d19390205cc30efa1373b39",
+            "html_url": "https://github.com/combsmith/software-factory-canary/commit/54ccf0807156a4352d19390205cc30efa1373b39",
+            "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/54ccf0807156a4352d19390205cc30efa1373b39/comments",
+            "author": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "committer": {
+              "login": "web-flow",
+              "id": 19864447,
+              "node_id": "MDQ6VXNlcjE5ODY0NDQ3",
+              "avatar_url": "https://avatars.githubusercontent.com/u/19864447?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/web-flow",
+              "html_url": "https://github.com/web-flow",
+              "followers_url": "https://api.github.com/users/web-flow/followers",
+              "following_url": "https://api.github.com/users/web-flow/following{/other_user}",
+              "gists_url": "https://api.github.com/users/web-flow/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/web-flow/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/web-flow/subscriptions",
+              "organizations_url": "https://api.github.com/users/web-flow/orgs",
+              "repos_url": "https://api.github.com/users/web-flow/repos",
+              "events_url": "https://api.github.com/users/web-flow/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/web-flow/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "parents": [
+              {
+                "sha": "aa20832b7e56697e50b7ee3c944a0b2b115216ac",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/aa20832b7e56697e50b7ee3c944a0b2b115216ac",
+                "html_url": "https://github.com/combsmith/software-factory-canary/commit/aa20832b7e56697e50b7ee3c944a0b2b115216ac"
+              }
+            ]
+          },
+          "merge_base_commit": {
+            "sha": "54ccf0807156a4352d19390205cc30efa1373b39",
+            "node_id": "C_kwDOVFD679oAKDU0Y2NmMDgwNzE1NmE0MzUyZDE5MzkwMjA1Y2MzMGVmYTEzNzNiMzk",
+            "commit": {
+              "author": {
+                "name": "Don Petry",
+                "email": "36422719+don-petry@users.noreply.github.com",
+                "date": "2026-10-21T13:56:49Z"
+              },
+              "committer": {
+                "name": "GitHub",
+                "email": "noreply@github.com",
+                "date": "2026-10-21T13:56:49Z"
+              },
+              "message": "Remove the batch 2c trial workflows (combsmith/software-factory#187, step 8) (#46)\n\n* Remove trial workflow p27-pull-request (combsmith/software-factory#187, step 8)\n\n* Remove trial workflow p20-watch (combsmith/software-factory#187, step 8)\n\n* Remove trial workflow p14-cache-scope (combsmith/software-factory#187, step 8)\n\n* Remove trial workflow p9-chain (combsmith/software-factory#187, step 8)",
+              "tree": {
+                "sha": "ed7ecbafe3f59c09f39f1d444ddba6f4d93e2e25",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/ed7ecbafe3f59c09f39f1d444ddba6f4d93e2e25"
+              },
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/54ccf0807156a4352d19390205cc30efa1373b39",
+              "comment_count": 0,
+              "verification": {
+                "verified": true,
+                "reason": "valid",
+                "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq2MShCRC1aQ7uu5UhlAAAr9EQACxjv9CFMmasp+BN//2p4w1k\ntgFTzdf+wgKlnqc3+PZzliun2MEcrh2o2CWN12TQ+MAWPXad9ODcv8dPlbYzS84j\nLek8qF5Pg8tawx/CMKXxlPCPji81gkO9IB/qSoN0yl6RxowSudMzo6gR5YHQYrDy\n6PX8UtShrrh3naSMzz4KNy6ih7NqiXK3RxZQN/QfRWZyc2sj/bI7AwwOlPdA7xDW\nPsDDOZOA5CeuABJWj61FxHYlDlIPdAai3yZNtvSZAIhQzXNyKiAGoJ00AFQFoZmD\nEQlP7nsO63KeRGlRpT8jM2n55mH3qqXYGQIcTLy5m8X2GuXjQpEdwCpDuSA/tzWH\nE02nqO5k9Rf0nRCFV7I/hwEfuTKhub00gJhYuimCuSXNQpqU1jBOCyOXQHcBsLBE\nIsdheFFPng19xQjW8Fta58cym9T1ajwBqoD4cA/FGDIRxQVBPrNTjd+HpT//bKmh\ng5XuCptUmfpLHu8Co8Y2fxqw0tICq5SI23XUI4SsxI7bG5i5/pru0r6W6KJn2nZW\nnOo/RzAEBPGmZUWT6tVMkNViLLaT8hs6B89a0LRAA3HYpN3nxmXmWamFAOfW3ZD7\nixm+o8zQTfSWRM6b/NizfQ9v4LzqjBMrdV7XphQHGN49Cinq8DSxv1bk02yE84na\nmBKm3yLXFh39XlQHWnMl\n=8wNx\n-----END PGP SIGNATURE-----\n",
+                "payload": "tree ed7ecbafe3f59c09f39f1d444ddba6f4d93e2e25\nparent aa20832b7e56697e50b7ee3c944a0b2b115216ac\nauthor Don Petry <36422719+don-petry@users.noreply.github.com> 1792591009 -0500\ncommitter GitHub <noreply@github.com> 1792591009 -0500\n\nRemove the batch 2c trial workflows (combsmith/software-factory#187, step 8) (#46)\n\n* Remove trial workflow p27-pull-request (combsmith/software-factory#187, step 8)\n\n* Remove trial workflow p20-watch (combsmith/software-factory#187, step 8)\n\n* Remove trial workflow p14-cache-scope (combsmith/software-factory#187, step 8)\n\n* Remove trial workflow p9-chain (combsmith/software-factory#187, step 8)",
+                "verified_at": "2026-10-21T13:56:50Z"
+              }
+            },
+            "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/54ccf0807156a4352d19390205cc30efa1373b39",
+            "html_url": "https://github.com/combsmith/software-factory-canary/commit/54ccf0807156a4352d19390205cc30efa1373b39",
+            "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/54ccf0807156a4352d19390205cc30efa1373b39/comments",
+            "author": {
+              "login": "don-petry",
+              "id": 36422719,
+              "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+              "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/don-petry",
+              "html_url": "https://github.com/don-petry",
+              "followers_url": "https://api.github.com/users/don-petry/followers",
+              "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+              "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+              "organizations_url": "https://api.github.com/users/don-petry/orgs",
+              "repos_url": "https://api.github.com/users/don-petry/repos",
+              "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/don-petry/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "committer": {
+              "login": "web-flow",
+              "id": 19864447,
+              "node_id": "MDQ6VXNlcjE5ODY0NDQ3",
+              "avatar_url": "https://avatars.githubusercontent.com/u/19864447?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/web-flow",
+              "html_url": "https://github.com/web-flow",
+              "followers_url": "https://api.github.com/users/web-flow/followers",
+              "following_url": "https://api.github.com/users/web-flow/following{/other_user}",
+              "gists_url": "https://api.github.com/users/web-flow/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/web-flow/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/web-flow/subscriptions",
+              "organizations_url": "https://api.github.com/users/web-flow/orgs",
+              "repos_url": "https://api.github.com/users/web-flow/repos",
+              "events_url": "https://api.github.com/users/web-flow/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/web-flow/received_events",
+              "type": "User",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "parents": [
+              {
+                "sha": "aa20832b7e56697e50b7ee3c944a0b2b115216ac",
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/aa20832b7e56697e50b7ee3c944a0b2b115216ac",
+                "html_url": "https://github.com/combsmith/software-factory-canary/commit/aa20832b7e56697e50b7ee3c944a0b2b115216ac"
+              }
+            ]
+          },
+          "status": "ahead",
+          "ahead_by": 1,
+          "behind_by": 0,
+          "total_commits": 1,
+          "commits": [
+            {
+              "sha": "38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+              "node_id": "C_kwDOVFD679oAKDM4Y2MxMmNmMTM3MzFmM2VjYjcyODhkMzdjYjdkODc0M2M2ZjY4NTQ",
+              "commit": {
+                "author": {
+                  "name": "Don Petry",
+                  "email": "36422719+don-petry@users.noreply.github.com",
+                  "date": "2026-10-21T16:18:27Z"
+                },
+                "committer": {
+                  "name": "Don Petry",
+                  "email": "36422719+don-petry@users.noreply.github.com",
+                  "date": "2026-10-21T16:18:27Z"
+                },
+                "message": "Trial P-43: a rename, a copy and an edit, for the lists read short",
+                "tree": {
+                  "sha": "bede0d4f9b4e93a82c95196ba3e4522b6b10c6c6",
+                  "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/trees/bede0d4f9b4e93a82c95196ba3e4522b6b10c6c6"
+                },
+                "url": "https://api.github.com/repos/combsmith/software-factory-canary/git/commits/38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+                "comment_count": 0,
+                "verification": {
+                  "verified": false,
+                  "reason": "unsigned",
+                  "signature": null,
+                  "payload": null,
+                  "verified_at": null
+                }
+              },
+              "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+              "html_url": "https://github.com/combsmith/software-factory-canary/commit/38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+              "comments_url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/comments",
+              "author": {
+                "login": "don-petry",
+                "id": 36422719,
+                "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+                "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/don-petry",
+                "html_url": "https://github.com/don-petry",
+                "followers_url": "https://api.github.com/users/don-petry/followers",
+                "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+                "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+                "organizations_url": "https://api.github.com/users/don-petry/orgs",
+                "repos_url": "https://api.github.com/users/don-petry/repos",
+                "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/don-petry/received_events",
+                "type": "User",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "committer": {
+                "login": "don-petry",
+                "id": 36422719,
+                "node_id": "MDQ6VXNlcjM2NDIyNzE5",
+                "avatar_url": "https://avatars.githubusercontent.com/u/36422719?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/don-petry",
+                "html_url": "https://github.com/don-petry",
+                "followers_url": "https://api.github.com/users/don-petry/followers",
+                "following_url": "https://api.github.com/users/don-petry/following{/other_user}",
+                "gists_url": "https://api.github.com/users/don-petry/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/don-petry/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/don-petry/subscriptions",
+                "organizations_url": "https://api.github.com/users/don-petry/orgs",
+                "repos_url": "https://api.github.com/users/don-petry/repos",
+                "events_url": "https://api.github.com/users/don-petry/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/don-petry/received_events",
+                "type": "User",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "parents": [
+                {
+                  "sha": "54ccf0807156a4352d19390205cc30efa1373b39",
+                  "url": "https://api.github.com/repos/combsmith/software-factory-canary/commits/54ccf0807156a4352d19390205cc30efa1373b39",
+                  "html_url": "https://github.com/combsmith/software-factory-canary/commit/54ccf0807156a4352d19390205cc30efa1373b39"
+                }
+              ]
+            }
+          ],
+          "files": [
+            {
+              "sha": "d2ddef8cee37163f7ab0f0f120cb1b95a4ca843f",
+              "filename": "p3/README.md",
+              "status": "modified",
+              "additions": 2,
+              "deletions": 0,
+              "changes": 2,
+              "blob_url": "https://github.com/combsmith/software-factory-canary/blob/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/p3%2FREADME.md",
+              "raw_url": "https://github.com/combsmith/software-factory-canary/raw/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/p3%2FREADME.md",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p3%2FREADME.md?ref=38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+              "patch": "@@ -1 +1,3 @@\n Platform trial P-3. A change here runs `.github/workflows/p3-environment-secret.yml`.\n+\n+Edited by trial P-43 (software-factory issue 250)."
+            },
+            {
+              "sha": "63fc039b671a179a778e694d9dde58090528b039",
+              "filename": "p43/README-copied.md",
+              "status": "added",
+              "additions": 1,
+              "deletions": 0,
+              "changes": 1,
+              "blob_url": "https://github.com/combsmith/software-factory-canary/blob/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/p43%2FREADME-copied.md",
+              "raw_url": "https://github.com/combsmith/software-factory-canary/raw/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/p43%2FREADME-copied.md",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/p43%2FREADME-copied.md?ref=38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+              "patch": "@@ -0,0 +1 @@\n+Platform trial P-24. `.github/CODEOWNERS` names @don-petry as the owner of everything under p24/."
+            },
+            {
+              "sha": "71e42be6c08edcfa7419c9da0f6ad25888a7cab7",
+              "filename": "trial-notes/p-43-renamed.md",
+              "status": "renamed",
+              "additions": 0,
+              "deletions": 0,
+              "changes": 0,
+              "blob_url": "https://github.com/combsmith/software-factory-canary/blob/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/trial-notes%2Fp-43-renamed.md",
+              "raw_url": "https://github.com/combsmith/software-factory-canary/raw/38cc12cf13731f3ecb7288d37cb7d8743c6f6854/trial-notes%2Fp-43-renamed.md",
+              "contents_url": "https://api.github.com/repos/combsmith/software-factory-canary/contents/trial-notes%2Fp-43-renamed.md?ref=38cc12cf13731f3ecb7288d37cb7d8743c6f6854",
+              "previous_filename": "trial-notes/p-1.md"
+            }
+          ]
+        }
+      }
     }
   ],
   "removed": [
@@ -4536,7 +4869,8 @@
     "exchanges[24].request.headers.authorization",
     "exchanges[25].request.headers.authorization",
     "exchanges[26].request.headers.authorization",
-    "exchanges[27].request.headers.authorization"
+    "exchanges[27].request.headers.authorization",
+    "exchanges[29].request.headers.authorization"
   ],
   "verdict": "pass"
 }
