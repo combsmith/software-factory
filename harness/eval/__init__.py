@@ -52,8 +52,17 @@ def manifest(root: pathlib.Path) -> tuple:
     """`(manifest, sha256 of its bytes)`, the set at the commit checked out, held to `eval-set/1`; Stop otherwise."""
     try:
         data = (root / SET).read_bytes()
+    except OSError:
+        raise Stop("eval_set_unreadable") from None
+    return held(data)
+
+
+def held(data: bytes) -> tuple:
+    """`(manifest, sha256 of its bytes)` from the set's bytes, however they were read: the Release's gate reads them at
+    the commit it judges, through the transport. Held to `eval-set/1`; Stop otherwise."""
+    try:
         found = json.loads(data.decode("utf-8"))
-    except (OSError, ValueError):
+    except (ValueError, AttributeError, RecursionError):
         raise Stop("eval_set_unreadable") from None
     if _errors(found, "eval-set") or found["count"] != len(found["cases"]) or \
             len({c["id"] for c in found["cases"]}) != len(found["cases"]):

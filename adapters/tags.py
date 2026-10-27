@@ -3,13 +3,20 @@
 when the refs were not answered whole: an answer not a list of refs, a next page that is not this list's next, more
 than MOST_PAGES of them, a name given twice, or a tag that is not lightweight, whose sha is not its commit. GitHub may
 page the list, thirty to a page; each next page is read by the link GitHub gives for it, held to this list's own: of
-this repo, by its name, or by the id GitHub gives for it, read once when a link names one. It decides nothing: which name is a Release or a
-Channel is `release/current.py`'s. It reads no file at any tag, so a rollback runs nothing of what it rolls back."""
+this repo, by its name, or by the id GitHub gives for it, read once when a link names one. It decides nothing: which
+name is a Release or a Channel is `release/current.py`'s. It reads no file at any tag, so a rollback runs nothing of
+what it rolls back.
+
+`write` sends one of `release/cut.py`'s writes, through the token it is given, the release App's alone: a Release
+created, never one that exists, and `next`, the one Channel a step moves, created the first time and moved with
+`force` after, by the refs read before it; `stable` is never written here. It says whether GitHub answered the write
+as made; whether the ref now names the commit is the read after it."""
 from __future__ import annotations
 
 import re
 
 from adapters.github import Unanswered, request
+from release import current
 
 PREFIX = "refs/tags/factory/"
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -20,6 +27,10 @@ NEXT_LINK = re.compile(r'<https://api\.github\.com(/[^<>\s]*)>;\s*rel="next"')
 PAGED = re.compile(r"/(?:repos/(?P<name>[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100})|repositories/(?P<id>[1-9][0-9]{0,11}))"
                    r"/git/matching-refs/tags/factory\?(?:per_page=[1-9][0-9]{0,2}&)?page=(?P<page>[1-9][0-9]{0,3})")
 MOST_PAGES = 40     # 1,200 tags at thirty to a page: a list longer than that is not read whole
+
+
+def _repo(repo) -> bool:
+    return isinstance(repo, str) and REPO.fullmatch(repo) is not None and repo.split("/")[1] not in (".", "..")
 
 
 def path(repo: str) -> str:
@@ -83,3 +94,30 @@ def read(transport, repo: str):
         if paged is None or int(paged.group("page")) != number or not _ours(transport, repo, paged, known):
             return None
     return None
+
+
+def write(transport, repo: str, planned, refs) -> bool:
+    """Send one planned write, `("create", Release, commit)` or `("move", Channel, commit)`, given the refs read before
+    it. True only when GitHub answered it as made: 201 for a ref created, 200 for a Channel moved."""
+    if transport is None or not _repo(repo) or not isinstance(refs, dict) or not isinstance(planned, (tuple, list)) \
+            or len(planned) != 3:
+        return False
+    kind, name, commit = planned
+    if not (isinstance(commit, str) and SHA.fullmatch(commit)):
+        return False
+    if kind == "create" and current.version(name) and name not in refs:
+        req, wanted = request("POST", "/repos/%s/git/refs" % repo, body={"ref": "refs/tags/" + name, "sha": commit}), 201
+    elif kind == "move" and current.channel(name)[1:] == ("next",) and name not in refs:
+        req, wanted = request("POST", "/repos/%s/git/refs" % repo, body={"ref": "refs/tags/" + name, "sha": commit}), 201
+    elif kind == "move" and current.channel(name)[1:] == ("next",):
+        req, wanted = request("PATCH", "/repos/%s/git/refs/tags/%s" % (repo, name),
+                              body={"sha": commit, "force": True}), 200
+    else:
+        return False
+    try:
+        answer = transport.send(req)
+    except Unanswered:
+        return False
+    body = answer["body"]
+    return answer["status"] == wanted and isinstance(body, dict) and body.get("ref") == "refs/tags/" + name \
+        and isinstance(body.get("object"), dict) and body["object"].get("sha") == commit
