@@ -27,7 +27,7 @@ import sys
 import time
 
 from adapters import facts as facts_, identity, items, passes, pause as pause_, records, timeline
-from adapters.facts import accounts_of as accounts, dispatcher_of as dispatcher
+from adapters.facts import accounts_of as accounts, dispatcher_of as dispatcher, opener_of as opener
 from adapters.github import Live, Unanswered
 from controller import configuration as configured, pass_, reads as reads_, writes as writes_
 from controller.shared import Refused
@@ -88,11 +88,13 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock) -> dic
         raise Stop("pull_requests_unreadable")
     identities, approver, lenses, factory = accounts(controller)
     who = timeline.Accounts(transport, home, approver, lenses, factory)
+    opens = opener(controller, config["kernel"], config["apps"])
     runs_whole = isinstance(runs, dict) and runs.get("complete") is True
     pulls = []
     for number in numbers:
         try:
-            facts, title = facts_.snapshot(transport, home, number, identities, who, runs_whole, lambda: utc(clock))
+            facts, title = facts_.snapshot(transport, home, number, identities, who, runs_whole, lambda: utc(clock),
+                                           opener=opens)
             pulls.append({"facts": facts, "title": title})
         except Unanswered:
             pulls.append({"facts": {"item": {"repo": home, "type": "pull_request", "number": number}}, "title": None})
