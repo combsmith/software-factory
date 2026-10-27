@@ -772,6 +772,19 @@ class Simulation(unittest.TestCase):
         w.reviews[0].update(state="approved", dismissed_by=None, dismissed_from=None)
         w.push(world.MAINTAINER["name"], writer=True)
         self.assertIsNone(w.approved)
+        # Under a ruleset that does not dismiss stale approvals, the same push leaves each approval standing, and the
+        # contract's approval with it.
+        w = World(seed)
+        w.dismisses_stale = False
+        w.head = w.digest()
+        w.approve_contract(world.COLLEAGUE)
+        held = dict(w.approved)
+        w.reviews = [{"by": dict(world.COLLEAGUE), "state": "approved", "commit": held["commit"], "content_id": w.cid(),
+                      "submitted_at": w.now(), "dismissed_by": None, "dismissed_from": None}]
+        for who in (world.MAINTAINER["name"], world.AUTHOR):
+            w.push(who, writer=who == world.MAINTAINER["name"])
+        self.assertEqual([(rv["state"], rv["dismissed_by"]) for rv in w.reviews], [("approved", None)])
+        self.assertEqual(w.approved, held)
 
     def test_the_seeds_serve_a_review_that_left_a_criterion_uncovered(self):  # I-37, decision 0029
         # Now and then a review's Result leaves a criterion of its rubric uncovered: `apply` refuses it, so its Run fails

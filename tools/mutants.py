@@ -2088,6 +2088,9 @@ MUTANTS = ISSUE + [
     ('a stale dismissal takes a request for changes too', 'sim/world.py',
      '            dismissed = [rv for rv in self.reviews if rv["state"] == "approved"]\n',
      '            dismissed = [rv for rv in self.reviews if rv["state"] in ("approved", "changes_requested")]\n', ('tests.test_simulator.Simulation.test_a_stale_dismissal_takes_approvals_alone_and_ends_only_the_contracts_own',)),
+    ('a ruleset that keeps stale approvals dismisses them anyway', 'sim/world.py',
+     '        if self.dismisses_stale:\n            # GitHub: an_approval_is_dismissed_by_a_push\n',
+     '        if True:\n            # GitHub: an_approval_is_dismissed_by_a_push\n', ('tests.test_simulator.Simulation.test_a_stale_dismissal_takes_approvals_alone_and_ends_only_the_contracts_own',)),
     # Decision 0048: a person's write access is read from the collaborator permission.
     ("a property of a definition of the facts is no fact", "tools/check_apps.py",
      '        named.update("%s.%s" % (name, prop) for prop in inner)\n', "        pass\n",
