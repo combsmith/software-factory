@@ -93,7 +93,7 @@ fi
 out=$(cd "$(mktemp -d)" && pwd -P)
 case "$out/" in "$root"/*) echo "the scratch directory is inside the repo" >&2; exit 2 ;; esac
 
-jwt="" token="" n=0 id="" raw=""
+jwt="" token="" n=0 id="" raw="" node=""
 
 # The value at a dotted path of the JSON body of a redacted capture.
 value() {
@@ -277,16 +277,18 @@ owner=${repo%%/*} name=${repo#*/}
 SINCE=2026-01-01T00:00:00Z
 
 # A pull request's node id, read by REST and held to GitHub's shape, so that nothing else is sent as one.
+# The pull request's node id, into node. Not in a subshell: the read is an exchange of its own, numbered in this
+# shell, and what the redaction reports goes to the terminal, never into the id.
 node_of() {   # PR
     as_installation GET "repos/$repo/pulls/$1"
-    python3 -I -c '
+    node=$(python3 -I -c '
 import json, re, sys
 text = open(sys.argv[1]).read()
 head, gap, body = text.partition("\n\n")
 said = str(json.loads(body if gap else text)["node_id"])
 if not re.fullmatch(r"PR_[A-Za-z0-9_-]{1,100}", said):
     sys.exit("the node id of the pull request does not have the shape of one")
-print(said)' "$out/$id.clean"
+print(said)' "$out/$id.clean")
 }
 
 THREADS='query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $pr) { reviewThreads(first: 100) { totalCount pageInfo { hasNextPage } nodes { id isResolved resolvedBy { login __typename } comments(first: 1) { nodes { databaseId author { login __typename } body } } } } } } }'
@@ -324,22 +326,22 @@ print(json.dumps({"event": "COMMENT", "body": "A platform trial: %d review threa
                                for n in range(1, count + 1)]}))' "$file" "$count" "$target")"
     echo "pull request $target: review answered $(answered)" ;;
 enqueue)
-    node=$(node_of "$target")
+    node_of "$target"
     as_graphql "enqueuePullRequest, the App's write, on $repo's pull request $target" \
         'mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id}) { mergeQueueEntry { id state position } } }' "id=$node"
     echo "pull request $target: enqueue answered $(answered)" ;;
 automerge)
-    node=$(node_of "$target")
+    node_of "$target"
     as_graphql "enablePullRequestAutoMerge, the App's write, on $repo's pull request $target" \
         'mutation($id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: SQUASH}) { pullRequest { number autoMergeRequest { enabledBy { login __typename } mergeMethod } } } }' "id=$node"
     echo "pull request $target: auto-merge answered $(answered)" ;;
 dequeue)
-    node=$(node_of "$target")
-    as_graphql "dequeuePullRequest, the App's write, on $repo's pull request $target, the token narrowed to $narrow" \
+    node_of "$target"
+    as_graphql "dequeuePullRequest, the App's write, on $repo's pull request $target, its permissions narrowed to $narrow" \
         'mutation($id: ID!) { dequeuePullRequest(input: {id: $id}) { mergeQueueEntry { id state } } }' "id=$node"
     echo "pull request $target: dequeue answered $(answered)" ;;
 queue)
-    as_graphql "the merge queue of $repo's main and pull request $target's place in it, the token narrowed to $narrow" \
+    as_graphql "the merge queue of $repo's main and pull request $target's place in it, its permissions narrowed to $narrow" \
         'query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) { mergeQueue(branch: "main") { entries(first: 20) { totalCount nodes { position state pullRequest { number } } } } pullRequest(number: $pr) { isInMergeQueue mergeQueueEntry { position state } } } }' \
         "owner=$owner" "name=$name" "pr=$target"
     echo "pull request $target: queue read answered $(answered)"

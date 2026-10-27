@@ -5001,7 +5001,8 @@ args = sys.argv[1:]
 with open(here / "calls", "a") as calls:
     calls.write(json.dumps({"argv": args, "token": os.environ.get("GH_TOKEN")}) + "\n")
 def answer(status, body):
-    print("HTTP/2.0 %d X\nContent-Type: application/json\n" % status)
+    # With a header the redaction takes out, as GitHub sends, so its report is printed.
+    print("HTTP/2.0 %d X\nContent-Type: application/json\nAccess-Control-Allow-Origin: *\n" % status)
     if body is not None:
         print(json.dumps(body))
     sys.exit(0 if status < 400 else 1)
@@ -5137,6 +5138,14 @@ esac
             self.assertEqual({c["token"] for c in calls}, {self.TOKEN}, args)
             self.assertTrue(all(self.TOKEN not in " ".join(c["argv"]) for c in calls + minted), args)
             self.assertNotIn(self.TOKEN, (out / "exchanges.json").read_text() + ran.stdout + ran.stderr, args)
+            # A write on a pull request names it by the node id GitHub gave, and nothing the redaction said; each
+            # exchange is numbered once, the read of the node id among them.
+            if args[1] in ("enqueue", "automerge", "dequeue"):
+                written = [c["argv"] for c in calls if c["argv"][1] == "graphql"]
+                self.assertEqual([a for w in written for a in w if a.startswith("id=")], ["id=PR_kwDOA7"], args)
+            recorded = json.loads((out / "exchanges.json").read_text())["exchanges"]
+            self.assertEqual(len(recorded), len(calls) + 2, args)
+            self.assertTrue(all("call" in e["request"] for e in recorded), args)
 
     def test_resolve_leaves_the_apps_own_threads_and_burst_resolves_the_trial_authors_alone(self):
         for action, ids in (("resolve", ["PRRT_T1", "PRRT_T3", "PRRT_T4", "PRRT_T5"]), ("burst", ["PRRT_T4", "PRRT_T5"])):
