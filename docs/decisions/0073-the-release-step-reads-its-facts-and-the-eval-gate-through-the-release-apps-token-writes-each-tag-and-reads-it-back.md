@@ -8,13 +8,12 @@ decision 0071 left to plan alone, and leaves decision 0071 as it is.
 
 | What | Decided | Because |
 |---|---|---|
-| The step | `python3 -m release.move` with no argument is the release job's one step: it takes its inputs from the job's environment and the release App's token, reads the factory/ tags, plans by `release/cut.py`, sends each write, reads the tags again after it, and records each move of `next` as a Deployment on `factory-next`. It prints codes alone, and exits 1 by the code that stopped it | Ruling 4′: every step but the mint and the checkout is `python3 -m release.move`; a workflow's run line is a module and nothing else |
+| The step | `python3 -m release.move step` runs the release job's step: it takes its inputs from the job's environment and the release App's token, reads the factory/ tags, plans by `release/cut.py`, sends each write, reads the tags again after it, and records each move of `next` as a Deployment on `factory-next`. It prints codes alone, and exits 1 by the code that stopped it | Ruling 4′: every step but the mint and the checkout is `python3 -m release.move`. The workflow's own form of it, and the version a scheduled cut takes when it names none, are the next pull request's, with the workflow |
 | The cut's commit | Named `RELEASE_CUT_COMMIT`, never `RELEASE_COMMIT`, which is the Run's own checkout | One term, one meaning |
 | A commit's facts | `adapters/candidate.py`: on `main` by GitHub's comparison of the commit with `main`'s head, read by its branch's ref, never a name a tag could share; `verify` as GitHub Actions' one success on the commit; and the eval gate. Each fails closed | Ruling 4: the cut's rules read these, and a fact not read is no fact |
 | The eval gate | The eval job's one successful dispatch on the commit, its `eval-report` artifact read within `STORED`, and the set's manifest at that commit read through the transport, judged by `harness.eval.verdict` for the Release asked. Anything not read whole, deep JSON included, closes it, which `cut.plan` reads as `eval_gate_closed` | Ruling 4″; nothing of the commit is executed to judge it |
 | The writes | `adapters/tags.py`'s `write`: a Release created, never one that exists; `next` created once and moved with `force` after; `stable` and a Release are never moved. Each is read back, once more if need be, on its commit as the one Release planned, or the step stops there | Ruling 3 holds a Release immutable; a write is claimed only from what was read back |
 | A rollback | Reads no fact of the commit it moves to | Ruling 5′: it works while the Factory is broken |
-| A cut with no version | Is of the next patch of the Channel's major | The schedule's cut names none (ruling 4′) |
 
 ## Why
 
