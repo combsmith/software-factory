@@ -5329,6 +5329,10 @@ MUTANTS = ISSUE + [
      'json.dump({"permissions": answer.get("permissions"), "repository_selection": answer.get("repository_selection")},', 'json.dump(dict(answer, permissions=answer.get("permissions")),',
      ('tests.test_tools.PauseReadTrial.test_one_token_reads_three_times_and_is_revoked_and_never_kept',)),
     # P-39 read again on 2026-10-27: the review Role's App is granted what apply reads again and its check run.
+    ("the effects step's token cannot read the Pause", "adapters/effects.py",
+     'CONTROLLER_NEEDS = ("write:status_on_item", "write:tracking_issue", "read:pass.pause")',
+     'CONTROLLER_NEEDS = ("write:status_on_item", "write:tracking_issue")',
+     ("tests.test_steps.ControllerKey.test_the_controller_mints_from_its_key",)),
     ("the review Role's App is granted no read of the checks", "config/apps.json",
      '            "effect:create_check_run",\n            "read:facts.checks"\n', '            "effect:create_check_run"\n',
      ("tests.test_apply.RoleWrites.test_the_role_app_is_granted_what_apply_reads_again",)),

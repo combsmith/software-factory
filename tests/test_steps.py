@@ -675,8 +675,10 @@ class ControllerKey(unittest.TestCase):
                                                                                                    wanted, key)) or
                                         ("t", lambda: True)):
             effects.controller_token({"CONTROLLER_APP_KEY": "k"}, config, 0)
-        # The status's checks: write and the tracking issue's issues: write, each granted the App on 2026-10-27.
-        self.assertEqual(asked, [("combsmith-sf-controller", HOME, {"checks": "write", "issues": "write"}, "k")])
+        # The status's checks: write, the tracking issue's issues: write and the Pause's variables read, each granted
+        # the App on 2026-10-27.
+        self.assertEqual(asked, [("combsmith-sf-controller", HOME, {"actions_variables": "read", "checks": "write",
+                                                                    "issues": "write"}, "k")])
         # The workflow's form, with no argument: the pass's own folder, `pass/`, and written.json into it.
         out = tc.passed(tc.reads(pulls=[]))
         with tempfile.TemporaryDirectory() as d:

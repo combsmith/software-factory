@@ -5774,7 +5774,7 @@ def status(name, default):
 if method == "POST" and url.endswith("/access_tokens"):
     code = status("mint", 201)
     body = {"token": "''' + "ghs_" + "P" * 36 + r'''", "expires_at": "2026-10-22T19:00:00Z",
-            "permissions": {"variables": "read", "issues": "write", "metadata": "read"}, "repository_selection": "selected"}
+            "permissions": {"actions_variables": "read", "issues": "write", "metadata": "read"}, "repository_selection": "selected"}
     print(json.dumps(body) + "\n" + str(code), end="")
     sys.exit(0)
 if method == "DELETE":
@@ -5839,7 +5839,7 @@ esac
                          ["clean-1", "clean-2", "clean-3", "ran_at", "redacted-1", "redacted-2", "redacted-3",
                           "requests.json", "token.json"])
         self.assertEqual(json.loads((out / "token.json").read_text()),
-                         {"permissions": {"variables": "read", "issues": "write", "metadata": "read"}, "repository_selection": "selected"})
+                         {"permissions": {"actions_variables": "read", "issues": "write", "metadata": "read"}, "repository_selection": "selected"})
         # A refused read is kept as it was answered, and its status recorded.
         asked = json.loads((out / "requests.json").read_text())
         self.assertEqual(([r["status"] for r in asked["reads"]], asked["revoked"]), (["200", "403", "200"], "204"))

@@ -465,12 +465,22 @@ class Pause(unittest.TestCase):
                                        ["combsmith/software-factory"]), "pause_unreadable")
 
     def test_the_pause_is_read_as_github_holds_the_variable(self):
-        # The Controller's App reads FACTORY_PAUSED on the org and on a repo, granted the variables' read (#193's
-        # ruling 3): P-52 recorded both answers on 2026-10-27.
-        found = [e for path in sorted((ROOT / "trials").glob("P-*.json"))
-                 for e in json.loads(path.read_text()).get("exchanges", [])
-                 if "/actions/variables/FACTORY_PAUSED" in str((e.get("request") or {}).get("call", ""))]
-        self.assertTrue(found)
+        # The Controller's App reads FACTORY_PAUSED on a repo, granted the variables' read (#193's ruling 3), as P-52
+        # recorded GitHub's answer on 2026-10-27: the variable's own text.
+        recorded = json.loads((ROOT / "trials" / "P-52.json").read_text())
+        repo = recorded["repo"]
+        answer = next(e for e in recorded["exchanges"]
+                      if e["request"]["call"] == "GET /repos/%s/actions/variables/FACTORY_PAUSED" % repo)
+        self.assertEqual(answer["response"]["status"], 200)
+        self.assertEqual(pause.read(github.Replay([answer]), "", [repo])["repos"], {repo: "false"})
+
+    @pending
+    def test_the_orgs_pause_is_read_through_the_repos_list_of_the_orgs_variables(self):
+        # Issue 362: GitHub refuses the Controller's token the org's own variable (P-52's 403), and names it in each
+        # repo's list of the org's variables; read whole, a list that does not name it is unreadable, never unset.
+        recorded = json.loads((ROOT / "trials" / "P-52.json").read_text())
+        listed = next(e for e in recorded["exchanges"] if "/actions/organization-variables" in e["request"]["call"])
+        self.assertEqual(pause.read(github.Replay([listed]), "combsmith", [])["org"], "false")
 
 
 class Tracking(unittest.TestCase):
