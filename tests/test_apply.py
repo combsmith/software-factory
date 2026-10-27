@@ -818,8 +818,12 @@ class Push(unittest.TestCase):
         self.assertIsNone(apply.push_refusal([], [], self.LIST))
 
     def test_a_path_that_cannot_be_read_as_one_is_refused(self):
-        for path in ("", "a//b", "/kernel/x.py", "docs/../kernel/x.py", "./kernel/x.py", None, 7):
+        for path in ("", "a//b", "/kernel/x.py", "docs/../kernel/x.py", "./kernel/x.py", None, 7, "config/hooks.json\x00",
+                     "docs/a\nb.md", "docs\\a.md", "kernel\\decide.py", "docs/a\x7f.md"):
             self.assertEqual(apply.push_refusal([path], [None], self.LIST), "push_protected", path)
+        # Paths that are no list could be any.
+        for paths, previous in (("docs/a.md", []), (["docs/a.md"], None), (None, []), ({"docs/a.md": 1}, [])):
+            self.assertEqual(apply.push_refusal(paths, previous, self.LIST), "push_protected", (paths, previous))
         self.assertEqual(apply.push_refusal(["docs/a.md"], ["docs/../config/hooks.json"], self.LIST), "push_protected")
 
     def test_a_list_that_is_none_or_empty_refuses_every_push(self):

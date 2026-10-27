@@ -210,7 +210,7 @@ def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
     """
     try:
         text = path.read_text()
-    except OSError as err:
+    except (OSError, ValueError) as err:     # a file that is no UTF-8 is a ValueError
         raise Unreadable("config/hooks.json cannot be read (%s)" % type(err).__name__)
     return parse(text)
 
@@ -228,7 +228,7 @@ def parse(text: str) -> dict:
         lists["settings"]["reads"] = list(data["settings"]["reads"])
         branch = data["merging"]["branch"]
         sessions = {key: list(data["sessions"][key]) for key in ("programs", "words", "environment")}
-    except (OSError, ValueError, KeyError, TypeError) as err:
+    except (ValueError, KeyError, TypeError) as err:
         raise Unreadable("config/hooks.json cannot be read (%s)" % type(err).__name__)
     paths = protected + reported
     words = [p for p, _ in paths] + [branch] + [w for group in lists.values() for v in group.values() for w in v]

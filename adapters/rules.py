@@ -3,7 +3,8 @@ transport with the token its caller holds, `GET /repos/{repo}/contents/config/ho
 recorded a file read at a commit (issue 139).
 
 What a Role's push may not touch is the base's list, never the head's, so that a change cannot take itself off it
-(decisions 0020 and 0052). The list is `tools/hooks/protected.py`'s reading of that text, the same function and syntax
+(decisions 0020 and 0052). `sha` is the base commit from the trusted read of the pull request, never one the head
+names: GitHub answers `?ref=` with a commit of any fork of the repo, so a sha the head chose could be a list it wrote. The list is `tools/hooks/protected.py`'s reading of that text, the same function and syntax
 the Kernel's `protected_paths` comes from: every protected path and every Lens's input, each once, so a model Lens's
 inputs, the Kernel's `model_lens_inputs`, among them. A list that cannot be read, of any kind, is
 `push_list_unreadable`, the Factory's fault, never an empty list."""

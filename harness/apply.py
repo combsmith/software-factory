@@ -51,6 +51,9 @@ READS = ("read:facts.item", "read:facts.state", "read:facts.is_draft", "read:fac
          "read:facts.last_writer_action_at", "read:facts.reviews", "read:facts.threads", "read:facts.checks",
          "read:facts.acceptance", "read:records.runs", "read:records.artifacts")
 THREAD = re.compile(r"PRRT_[A-Za-z0-9_-]+")
+# A character no path from the top of the repo holds: a control character, which a layer below could cut it at, and a
+# backslash, which another reading takes for `/` (issue 139).
+UNREADABLE_PATH = re.compile(r"[\x00-\x1f\x7f\\]")
 # How a Result that did not complete ends, by its reason: the Role's fault, or the Factory's.
 THE_ROLES = ("result_invalid", "task_too_large")
 
@@ -60,15 +63,18 @@ def push_refusal(paths, previous_paths, protected_list):
     it was renamed or copied from, is on the base's list (`adapters/rules.py`), every protected path and every Lens's
     input, matched as `tools/hooks/protected.py` matches them. A push lands content no model Lens has reviewed, so one
     that touches the list is always refused, and a person pushes such a change (decisions 0020 and 0052). A path that
-    cannot be read as one from the top of the repo could be any, and is refused too. A list that is none, or empty, is
+    cannot be read as one from the top of the repo (an empty name, `.` or `..`, a control character or a backslash), or
+    paths that are no list, could be any, and are refused too. A list that is none, or empty, is
     `push_list_unreadable`, never nothing to touch. No Effect pushes yet: slice 2's push Effect calls this."""
     if not isinstance(protected_list, list) or not protected_list \
             or not all(isinstance(p, str) and p for p in protected_list):
         return LIST_UNREADABLE
+    if not isinstance(paths, (list, tuple)) or not isinstance(previous_paths, (list, tuple)):
+        return "push_protected"
     every = protected.entries([(pattern, "") for pattern in protected_list])
     for path in list(paths) + [p for p in previous_paths if p is not None]:
         names = path.split("/") if isinstance(path, str) else None
-        if names is None or not all(names) or any(n in (".", "..") for n in names) \
+        if names is None or not all(names) or any(n in (".", "..") for n in names) or UNREADABLE_PATH.search(path) \
                 or any(whole.match(path.casefold()) for _, _, _, whole in every):
             return "push_protected"
     return None
