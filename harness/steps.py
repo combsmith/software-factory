@@ -11,6 +11,8 @@ import re
 import subprocess
 import sys
 
+from release import current
+
 
 class Stop(Exception):
     """A step that cannot go on, by its code alone."""
@@ -69,8 +71,7 @@ def given(argv: list, environ: dict, inputs: tuple, folders: tuple) -> list:
     return list(argv) if argv else [environ.get(name) for name in inputs] + list(folders)
 
 
-# A Release's own tag, as the Release cut writes it: the Channel's tag, `factory/v0-next`, on the same commit, is not one.
-TAG = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+HEAD = "HEAD"      # the commit checked out, as git names it: every tag `--points-at` lists is on it
 SHA = re.compile(r"[0-9a-f]{40}")
 GIT_ENV = {"PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0"}
 
@@ -86,18 +87,20 @@ def _git(args: list, root, run) -> str:
 
 
 def release(root=None, run=subprocess.run) -> str:
-    """The Release this step runs as: the one tag `factory/vX.Y.Z` on the commit checked out, read from the checkout's
-    own tags, `git tag --points-at HEAD` (the ruling on issue 196's Release name, after #197's ruling 11). The Channel's
-    tag on the same commit is not one; none is `release_untagged`, and two refuse, `release_twice`, rather than pick.
-    Each step that needs the name calls this, its one entry point, before it reads any key. It is replaced by
-    `release/current.py` of #197's first pull request, whichever of the two merges second re-pointing its callers."""
-    names = [line.strip() for line in _git(["tag", "--points-at", "HEAD"], ROOT if root is None else root, run).splitlines()
-             if TAG.fullmatch(line.strip())]
-    if not names:
-        raise Stop("release_untagged")
-    if len(names) > 1:
-        raise Stop("release_twice")
-    return names[0]
+    """The Release this step runs as: the one Release tag on the commit checked out, read from the checkout's own tags,
+    `git tag --points-at HEAD`, and named by `release/current.py`'s rules (#197's rulings 7 and 11), the one place they
+    are written. The Channel's tag on the same commit is never one; none is `release_untagged`, and two refuse,
+    `release_twice`, rather than pick. Each step that needs the name calls this, its one entry point, before it reads
+    any key."""
+    listed = _git(["tag", "--points-at", HEAD], ROOT if root is None else root, run).splitlines()
+    # Every tag listed is on the commit checked out, so each is given that commit, by git's own name for it, HEAD, and
+    # current.resolve names the one Release among them as it would among refs read from GitHub.
+    refs = {line.strip(): HEAD for line in listed if line.strip()}
+    found = current.resolve(HEAD, refs)
+    if found is None:
+        twice = sum(1 for name in refs if current.version(name)) > 1
+        raise Stop("release_twice" if twice else "release_untagged")
+    return found
 
 
 def commit(root=None, run=subprocess.run) -> str:

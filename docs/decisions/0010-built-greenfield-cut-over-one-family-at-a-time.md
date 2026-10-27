@@ -21,5 +21,5 @@ same work is the one failure that cannot be undone by reversing a switch.
 | Boundary | Check |
 |---|---|
 | Nothing here is read from the proof-of-concept repo | `tools/check_repo.py` |
-| For any repo and Intent family, exactly one line serves it | waiting on `release/` |
+| For any repo and Intent family, exactly one line serves it | `examples/invalid/rings.a-repo-on-two-channels.json`, `tools/check_release.py`, for the Factory's two Channels; the proof of concept's side waiting on `release/cutover.py` |
 | An Intent family is cut over only after its eval set exists | `tests/test_evals.py::test_the_review_intents_eval_set_has_its_cases`, not held yet |

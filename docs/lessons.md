@@ -256,17 +256,17 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-45 A merged fix was not what ran
 **Failure.** Twice in one week a fix merged and the failure went on, because agents ran from a tag that had not moved. A whole class of change never arrived at all: "Script-only changes never reach the fleet" (issue 1592).
 **Rule.** Every Run records the Release it ran, and a change is live only when the Channel that serves it points at it.
-**Check.** waiting on `release/`
+**Check.** `examples/invalid/task.a-channel-for-a-release.json`, `tests/test_release.py::test_a_commit_with_no_release_or_two_resolves_to_none`
 
 ### L-46 A caller ran ahead of what it called
 **Failure.** A caller passed an input the pinned Release did not declare, and every run failed at startup, after merge, because a pull request's own checks run the old caller.
 **Rule.** The dispatcher and what it dispatches ride one Release, and a new field is read at every live Channel before anything sends it.
-**Check.** waiting on `release/`
+**Check.** One Channel for every shim, `tests/test_tools.py::test_every_shim_calls_one_channel`; a Run on another Release than its pass's doing nothing, `tests/test_steps.py::test_a_run_on_another_release_than_its_pass_builds_no_task`, `tests/test_steps.py::test_a_run_whose_own_release_cannot_be_named_builds_no_task`
 
 ### L-47 Promotion counted green runs in a ring with no members
 **Failure.** The gate read run conclusions, the rings were empty, all four channels pointed at one commit, and the gate was overridden by hand on four dates in ten days.
 **Rule.** A candidate with no Runs behind it, each with Effects read back, is refused.
-**Check.** waiting on `release/`
+**Check.** `examples/invalid/rings.promotion-with-no-runs.json`; the gate that reads it waiting on `release/promote.py`
 
 ### L-48 Nobody noticed
 **Failure.** "Engine-token liveness monitoring: a 7-day fleet-wide dev-lead outage went unalerted, and pr-review fails open" (issue 1587). The daily failure report appears to have stopped as well; the review could not confirm it.

@@ -1,8 +1,8 @@
 # adapters/
 
-All of the Factory's I/O. `github.py` is the one transport: every request goes through it, nothing else reaches the network. `items.py` the open pull requests, `pull.py` one, `timeline.py` its reviews, labels and who acted, `checks.py` its checks and queue,
-`threads.py` its review threads, `applied.py` what Lenses recorded, `facts.py` its snapshot, `records.py` the run records, `artifacts.py` a failed Run's outcome, `seen.py` writes made, `passes.py` past pass records and a pass's run, `acceptance.py` whether an
-item asks for a contract, `heldout.py` the held-out cases, `rules.py` the base's rules; `effects.py` sends the Controller's and a Role's writes, `pause.py` reads the Pause, and `identity.py` mints a token. A port decides nothing and hands the Kernel no text.
+All of the Factory's I/O. `github.py` is the one transport; nothing else reaches the network. `items.py` the open pull requests, `pull.py` one, `timeline.py` its reviews, labels, actors, `checks.py` checks, queue, `threads.py` its threads, `applied.py` what
+Lenses recorded, `facts.py` its snapshot, `records.py` the run records, `artifacts.py` a Run's outcome, `seen.py` writes made, `passes.py` past pass records and a pass's run, `acceptance.py` whether an item asks for a contract, `heldout.py` held-out cases,
+`rules.py` the base's rules; `effects.py` sends the Controller's and a Role's writes, `pause.py` reads the Pause, `tags.py` the Factory's tags, and `identity.py` mints a token. A port decides nothing and hands the Kernel no text.
 Not built yet, by the stories that hold their rules: contract.py, binding.py, issues.py, settings.py, usage.py, texts.py.
 
 | Rule | Held by |

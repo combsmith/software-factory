@@ -287,10 +287,11 @@ def releasing(environ):
     would give it: a name that is no Release's tag is a checkout with none."""
     from unittest import mock
     from harness import steps
+    from release import current
     value = environ.get("RELEASE") if isinstance(environ, dict) else None
 
     def release(*a, **k):
-        if isinstance(value, str) and steps.TAG.fullmatch(value):
+        if current.version(value):
             return value
         raise steps.Stop("release_untagged")
     return mock.patch.object(steps, "release", release)
