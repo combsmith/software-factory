@@ -2281,7 +2281,12 @@ class Recorded(unittest.TestCase):
         self.assertEqual(self.recorded(listed_runs(lens_run(self.RUN), ids={self.RUN: [39100000000, 39100000001]}),
                                        *applied_stored("o/r", 39100000000, done)), short)
         # An applied/1 that cannot be read, is another Run's, or holds another Lens's Finding.
-        for record in ("not json", "[" * 5000, lens_applied("r_01JA7R", finding_on("PRRT_7")),
+        # A body nested as deep as the bound allows, past what any Python's decoder parses: it raises RecursionError,
+        # never only a decoding error, so the pass would end on it were it not caught (the security pass on #338).
+        deep = "[" * (artifacts.APPLIED_MOST - 1)
+        with self.assertRaises(RecursionError):
+            json.loads(deep)
+        for record in ("not json", deep, lens_applied("r_01JA7R", finding_on("PRRT_7")),
                        lens_applied(self.RUN, finding_on("PRRT_7", lens="security-lead")),
                        lens_applied(self.RUN, finding_on("PRRT_7"), finding_on("CR_1", lens="qa-lead", surface="annotation"))):
             self.assertEqual(self.recorded(listed_runs(lens_run(self.RUN)), *applied_stored("o/r", 39100000000, record)),
