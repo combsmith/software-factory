@@ -13,7 +13,8 @@ Each write is told by the account that made it, by id and type, never a login's 
 out, but a merge by anyone, which reconciliation reads for an Override. A dismissed review was an approval or a change
 request, and is read as an approval: the machine user's that no Effect recorded alarms either way. The timeline's
 events that change a pull request's state are read too, though no Factory write makes them yet, so that one made by a
-Factory identity alarms. A thread GitHub names no resolver for, as when an App resolved it, is `unattributed`. A list
+Factory identity alarms. A thread's resolver is told by its account id alone, since GitHub types it a User whoever
+resolved it (decision 0067); a thread GitHub names no resolver for is `unattributed`. A list
 that cannot be read whole, or a write whose time or key cannot be read, leaves what was read `whole` false, so that
 reconciliation is short, never silent; nothing is guessed. Ids and codes alone: no body or title is kept.
 
@@ -224,7 +225,10 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str) 
         ident = _object(resolver).get("databaseId")
         # A resolver GitHub names but whose account cannot be read cannot be told from a Factory identity.
         whole &= resolver is None or (isinstance(ident, int) and not isinstance(ident, bool) and ident > 0)
-        by = "unattributed" if resolver is None else _who({"id": ident, "type": "User"}, identities)
+        # GraphQL types resolvedBy a User whoever resolved it, an App among them (trials/P-49.json): it is told by its
+        # account id alone, which names one account whatever its type (decision 0067).
+        by = "unattributed" if resolver is None else next(
+            (code for (told, _), code in identities.items() if told == ident and _positive(ident)), None)
         if by is None:
             continue
         whole &= _key(t.get("id")) is not None
