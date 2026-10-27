@@ -3582,6 +3582,10 @@ class Trials(unittest.TestCase):
         for broken, why in ((quote.replace("does a request for changes survive the push", ""), "no quote"),
                             (quote.replace("survive the push", "survive the merge"), "not the question"),
                             (quote.replace("does a request for changes survive the push", "the push"), "too short"),
+                            (quote.replace("does a request for changes survive the push", "request for changes"),
+                             "three words"),
+                            (quote.replace("does a request for changes survive the push", "es a request for chan"),
+                             "not whole words"),
                             (quote.replace("does a request for changes survive the push",
                                           "If a request for changes does not survive a push"), "the answer")):
             problems = check_trials.run(clone({"sim/grounding.py": GROUNDING.replace(quote, broken)}))
@@ -3597,6 +3601,22 @@ class Trials(unittest.TestCase):
         self.assertNotEqual(reworded, design)
         self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: reworded})),
                                "a_request_for_changes_survives_a_push: P-41's row in section 6 does not ask it"))
+        # Four words are enough, as the question gives them.
+        self.assertEqual(check_trials.run(clone({"sim/grounding.py": GROUNDING.replace(
+            quote, quote.replace("does a request for changes survive the push", "request for changes survive"))})), [])
+        # A second row for the trial, later in section 6, is refused, and answers no quote the first does not.
+        second = reworded.replace("\n## 7. ", "\n| P-41 | does a request for changes survive the push | x |\n\n## 7. ", 1)
+        self.assertNotEqual(second, reworded)
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: second})),
+                               "section 6 has more than one row for P-41; a trial has one"))
+        # A row fenced with tildes, or in an HTML comment, holds no row either.
+        for hidden in ("~~~\n%s\n~~~", "<!--\n%s\n-->"):
+            veiled = reworded.replace("\n## 7. ", "\n" + hidden % "| P-41 | does a request for changes survive the push | x |"
+                                      + "\n\n## 7. ", 1)
+            problems = check_trials.run(clone({check_trials.DESIGN: veiled}))
+            self.assertTrue(caught(problems, "a_request_for_changes_survives_a_push: P-41's row in section 6 does not "
+                                             "ask it"), hidden)
+            self.assertFalse(caught(problems, "more than one row"), hidden)
         # A row in a fenced block asks nothing, though it quotes the old question.
         row = reworded.index("\n", reworded.index("| P-41 |"))
         fenced = reworded[:row] + "\n```\n| P-41 | does a request for changes survive the push | Yes |\n```" + reworded[row:]
@@ -3615,6 +3635,9 @@ class Trials(unittest.TestCase):
         stray = GROUNDING.replace("ASKS = {", 'ASKS = {\n    "a_rule_never_listed": {"P-41": "does a request for changes"},', 1)
         self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": stray})),
                                "ASKS quotes P-41 for a_rule_never_listed, which is no rule"))
+        # A trial that is not a string is reported, never raised on.
+        odd = GROUNDING.replace(quote, quote[:-1] + ', 1: "x", "P-9": "y"}')
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": odd})), "ASKS quotes 1 for"))
         for shape in ("ASKS = []\n", "ASKS = {'x': 'y'}\n", "ASKS = dict()\n"):
             body = GROUNDING[:GROUNDING.index("\nASKS = {")] + "\n" + shape
             self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": body})), "ASKS"), shape)

@@ -88,6 +88,8 @@ ROW = re.compile(r"^\| (P-[1-9][0-9]*) \|", re.M)
 QUESTION = re.compile(r"^\| (P-[1-9][0-9]*) \| (.*?) \| ", re.M)
 QUOTED_WORDS = 4
 FENCED = re.compile(r"^```.*?^```", re.M | re.S)
+# A block fenced with tildes, and an HTML comment, hold no row either (the review of #265).
+HIDDEN = re.compile(r"^~~~.*?^~~~|<!--.*?-->", re.M | re.S)
 MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 
 # A key that names a credential, however it is spelt: compared after strip(), lower() and - to _.
@@ -625,13 +627,18 @@ def _section_6(root: pathlib.Path):
     start = text.find("\n## 6. ")
     end = text.find("\n## ", start + 1) if start >= 0 else -1
     section = text[start:end if end >= 0 else len(text)] if start >= 0 else ""
-    return FENCED.sub("", section)
+    return HIDDEN.sub("", FENCED.sub("", section))
 
 
 def section_6(root: pathlib.Path) -> set:
     """The trials section 6 of the design has a row for, or None when the design cannot be read."""
     section = _section_6(root)
     return None if section is None else set(ROW.findall(section))
+
+
+def _quoted(quote: str, question: str) -> bool:
+    """Whether `quote` is in `question` as whole words: it starts and ends where a word does."""
+    return re.search(r"(?<![\w`'])%s(?![\w`])" % re.escape(quote), question) is not None
 
 
 def questions(root: pathlib.Path) -> dict:
@@ -649,6 +656,11 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
     rows, asked = section_6(root), questions(root)
     if rows is None:
         problems.append("%s cannot be read, so no trial a rule names can be found in section 6" % DESIGN)
+    else:
+        # A trial has one row: a second could answer a quote the first no longer does (the security pass on #265).
+        listed_rows = ROW.findall(_section_6(root))
+        for trial in sorted({t for t in listed_rows if listed_rows.count(t) > 1}):
+            problems.append("%s: section 6 has more than one row for %s; a trial has one" % (DESIGN, trial))
     try:
         quoted = asks(root)
     except ValueError as err:
@@ -678,7 +690,7 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
             # row that never asked it, or stops asking it, refuses the rule (issue 265).
             quote = (quoted.get(code) or {}).get(trial) if quoted is not None else None
             if quoted is not None and asked is not None and not (
-                    isinstance(quote, str) and len(WORD.findall(quote)) >= QUOTED_WORDS and quote in asked.get(trial, "")):
+                    isinstance(quote, str) and len(WORD.findall(quote)) >= QUOTED_WORDS and _quoted(quote, asked.get(trial, ""))):
                 problems.append("sim/grounding.py: %s: %s's row in section 6 does not ask it; quote in ASKS the words "
                                 "of its question that do, at least %d, or name the trial whose row does"
                                 % (code, trial, QUOTED_WORDS))
@@ -712,7 +724,7 @@ def _grounding(root: pathlib.Path, valid: dict, problems: list) -> None:
                                 % (code, fixture, valid[fixture]["trial"], " or ".join(trials)))
     # A quote is of a trial its rule names, and of no other.
     for code, by_trial in sorted((quoted or {}).items(), key=lambda kv: str(kv[0])):
-        for trial in sorted(set(by_trial) - set(named.get(code) or ())):
+        for trial in sorted(set(by_trial) - set(named.get(code) or ()), key=str):
             problems.append("sim/grounding.py: ASKS quotes %s for %s, which %s; take it out"
                             % (trial, code, "names no such trial" if code in named else "is no rule"))
     # Each world marks the rules it applies: the pull request's in world.py, the issue's in issues.py. Only these two

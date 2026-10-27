@@ -958,8 +958,9 @@ class World:
                 self.note("the push changed the contract -> %s" % self.head)
         if self.dismisses_stale:
             # GitHub: an_approval_is_dismissed_by_a_push
-            # Each standing approval is dismissed, and the timeline names the pusher, a person or an App, as its
-            # dismisser (trials/P-7.json). A request for changes is no approval, and stays.
+            # GitHub: a_persons_push_names_the_person_as_dismisser
+            # Each standing approval is dismissed, and the timeline names the pusher, an App (trials/P-7.json) or a
+            # person (asked by P-38), as its dismisser. A request for changes is no approval, and stays.
             pusher = MAINTAINER if who == MAINTAINER["name"] else {"kind": "app", "name": who, "can_write": True}
             dismissed = [rv for rv in self.reviews if rv["state"] == "approved"]
             for rv in dismissed:

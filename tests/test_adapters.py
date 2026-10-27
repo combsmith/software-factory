@@ -2794,6 +2794,10 @@ class Contract(unittest.TestCase):
                                        {"number": 48, "base": {"repo": {"full_name": canary()}}})
         files = pull.changed_paths(github.Replay([as_compare(p43[10], body("P-43", 8))]), body("P-43", 8), PINNED_BASE)
         return {
+            # The App's push dismissed the machine user's approval as stale, and the port reads the App as its dismisser.
+            "an_approval_is_dismissed_by_a_push": ({"P-7"}, any(
+                r["by"]["kind"] == "machine_user" and r["state"] == "dismissed" and r["dismissed_from"] == "approved"
+                and r["dismissed_by"]["kind"] == "app" for r in reviewed)),
             "a_push_is_new_content": ({"P-29.base"}, before != after),
             "the_pusher_is_the_last_pusher": ({"P-28", "P-28.app"},
                 pull.last_pusher(replay("P-28", 7), body("P-28", 10)) == "don-petry"

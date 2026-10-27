@@ -29,8 +29,13 @@ RULES = (
      "saw each entry within 11 s"),
     ("an_app_pushes_to_the_head", "An App can push to the head of a pull request", ("P-7",), "trials/P-7.json", None),
     ("an_approval_is_dismissed_by_a_push", "Under a ruleset that dismisses stale approvals on a push, a push dismisses "
-     "each standing approval, and the timeline names the pusher, a person or an App, as its dismisser", ("P-7",),
+     "each standing approval, and the timeline names an App that pushed as its dismisser", ("P-7",),
      "trials/P-7.json", None),
+    # P-7 saw only an App's push dismiss an approval as stale: the Maintainer's dismissal there was his own, with a
+    # message and no commit. Who a person's push is named, P-38 asks.
+    ("a_persons_push_names_the_person_as_dismisser", "Under a ruleset that dismisses stale approvals on a push, the "
+     "timeline names a person who pushed, as that person, the dismisser of each approval the push dismissed",
+     ("P-38",), None, None),
     ("an_approval_stands_without_stale_dismissal", "Under a ruleset that does not dismiss stale approvals, a push leaves "
      "an earlier approval in place", ("P-1",), None, None),
     ("a_request_for_changes_survives_a_push", "A push leaves a request for changes standing", ("P-41",), None, None),
@@ -241,6 +246,7 @@ ASKS = {
     },
     "an_app_pushes_to_the_head": {"P-7": "the last-push rule when an App pushed last"},
     "an_approval_is_dismissed_by_a_push": {"P-7": "does an approval given before a push still stand after it"},
+    "a_persons_push_names_the_person_as_dismisser": {"P-38": "who does the timeline record as dismissing it?"},
     "an_approval_stands_without_stale_dismissal": {
         "P-1": "under a ruleset that does not dismiss stale approvals, does an approval given before a push still stand"
               " after it?",
