@@ -35,5 +35,5 @@ access, answers the account by id and type, and costs no read more for a person.
 | An account is typed by the permission read only for the id asked | `tests/test_adapters.py::test_an_account_is_typed_by_the_permission_read_held_to_its_id` |
 | A resolution is matched only to an Effect its own Role's Run recorded | `tests/test_reconcile.py::test_a_resolution_is_matched_to_the_role_whose_run_recorded_it` |
 | Reconciliation tells a resolver by its account id, and matches a Role's resolution | `tests/test_reconcile.py::test_each_identitys_writes_are_read_by_its_account_never_its_login`, `tests/test_reconcile.py::test_each_write_is_matched_to_the_effect_that_recorded_it` |
-| A Lens's recorded Finding comment missing from the threads read leaves it unreadable | not held yet: `tests/test_adapters.py::test_a_thread_a_trial_recorded_is_read_as_the_port_reads_it` |
+| A Lens's recorded Finding comment missing from the threads read leaves it unreadable | by its thread and its opener, decision 0069: `tests/test_adapters.py::test_a_recorded_thread_is_its_lenss`, `tests/test_adapters.py::test_a_thread_a_trial_recorded_is_read_as_the_port_reads_it`, `tests/test_adapters.py::test_a_deleted_lens_comment_whose_reply_is_a_persons_is_unreadable` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
