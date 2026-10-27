@@ -15,8 +15,9 @@ next, and roll back in one action".
 
 - **The cut and the move are the release workflow's**, release.yml under .github/workflows/, run by its App,
   `combsmith-sf-release`, in the environment `factory-release`. The Maintainer dispatches it, or the schedule does once
-  he sets the repo variable `FACTORY_RELEASE_AUTO` to `true`. It is the next pull request's; until it is on `main`,
-  nothing here can cut.
+  he sets the repo variable `FACTORY_RELEASE_AUTO` to `true` and no Pause is set. Its job mints the App's token for
+  this repo alone, checks out the commit the run is of, `main`'s head, and runs `python3 -m release.move`, which cuts
+  that commit. Until the App is registered and its key is in the environment, nothing can cut.
 - **A session never** mints a credential, runs `gh auth token` or anything with `--show-token`, opens the App's key,
   writes or deletes a tag, or dispatches the release workflow. It reads, plans, and hands the Maintainer the one command.
 
@@ -46,10 +47,17 @@ and stop. A refused cut burns no version.
 
 ## The step, at the Maintainer's dispatch
 
-A cut of the next version, which creates the tag and then moves `next`:
+A cut of `main`'s head as the next version, which creates the tag and then moves `next`; with no version, it is the
+next patch:
 
 ```bash
 gh workflow run release.yml -R combsmith/software-factory -f command=cut -f version=factory/v0.X.Y
+```
+
+A move of `next` forward to an existing Release, through the same gate, judged for that Release:
+
+```bash
+gh workflow run release.yml -R combsmith/software-factory -f command=move -f to=factory/v0.X.Y
 ```
 
 A rollback, with no eval gate, so that it works while the Factory is broken. It moves `next` back to the greatest
@@ -61,6 +69,8 @@ gh workflow run release.yml -R combsmith/software-factory -f command=rollback -f
 ```
 
 Runs already started finish on the Release they started on. If that Release is writing harm, set the Pause first.
+Release runs go one at a time, and GitHub replaces a run still waiting with a newer one: read that the rollback's run
+concluded, and dispatch it again if the schedule's took its place.
 
 ## Read back
 

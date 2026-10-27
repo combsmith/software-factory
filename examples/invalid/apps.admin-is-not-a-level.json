@@ -42,20 +42,23 @@
       "waits_on": "the view App, combsmith-sf-view, registered with the feed story (Maintainer, 2026-10-14)"
     },
     "write:release_tag": {
-      "waits_on": "the release App, combsmith-sf-release, registered by the Maintainer with ruling 4′'s grants and read again by trial P-39 (Maintainer, 2026-10-21)"
+      "waits_on": "the release App, combsmith-sf-release, registered by the Maintainer with ruling 4′'s grants and checks: read, and read again by trial P-39 (Maintainer, 2026-10-21; checks: read, 2026-10-26)"
     },
     "write:move_channel": {
-      "waits_on": "the release App, combsmith-sf-release, registered by the Maintainer with ruling 4′'s grants and read again by trial P-39 (Maintainer, 2026-10-21)"
+      "waits_on": "the release App, combsmith-sf-release, registered by the Maintainer with ruling 4′'s grants and checks: read, and read again by trial P-39 (Maintainer, 2026-10-21; checks: read, 2026-10-26)"
     },
     "write:deployment": {
-      "waits_on": "the release App, combsmith-sf-release, registered by the Maintainer with ruling 4′'s grants and read again by trial P-39 (Maintainer, 2026-10-21)"
+      "waits_on": "the release App, combsmith-sf-release, registered by the Maintainer with ruling 4′'s grants and checks: read, and read again by trial P-39 (Maintainer, 2026-10-21; checks: read, 2026-10-26)"
     },
     "read:release.refs": {
       "permission": "contents",
       "level": "read"
     },
     "read:release.runs": {
-      "waits_on": "the release App, combsmith-sf-release, registered by the Maintainer with ruling 4′'s grants and read again by trial P-39 (Maintainer, 2026-10-21)"
+      "waits_on": "the release App, combsmith-sf-release, registered by the Maintainer with ruling 4′'s grants and checks: read, and read again by trial P-39 (Maintainer, 2026-10-21; checks: read, 2026-10-26)"
+    },
+    "read:release.checks": {
+      "waits_on": "the release App, combsmith-sf-release, registered by the Maintainer with ruling 4′'s grants and checks: read, and read again by trial P-39 (Maintainer, 2026-10-21; checks: read, 2026-10-26)"
     },
     "read:facts.item": {
       "permission": "metadata",

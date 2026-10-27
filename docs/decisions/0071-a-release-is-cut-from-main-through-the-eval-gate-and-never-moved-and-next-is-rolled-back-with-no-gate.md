@@ -37,8 +37,8 @@ registered and the eval set holds cases.
 | A rollback passes no gate and moves only back | `tests/test_release.py::test_a_rollback_passes_no_gate_and_never_moves_forward` |
 | A commit's Release is its one Release tag | `tests/test_release.py::test_a_commit_with_no_release_or_two_resolves_to_none` |
 | The release App's needs wait on its registration | `tests/test_release.py::test_the_release_apps_needs_wait_on_its_registration` |
-| Only the release workflow moves `next`, held to its shape | waiting on `.github/workflows/release.yml` |
-| A Release tag is immutable to everyone | waiting on `.github/workflows/release.yml`, whose first cut's fixture reads the ruleset again |
+| Only the release workflow moves `next`, held to its shape | `tools/check_workflows.py`, `tests/test_release_workflow.py::test_each_counter_example_is_refused_for_its_one_fault` |
+| A Release tag is immutable to everyone | waiting on `release/fixtures/cut.v0-1-0.json`, the first cut's fixture, which reads the ruleset again |
 | A Run on another Release than its pass's builds no Task and ends `superseded`, `release_moved`; one whose own Release cannot be named builds none either, never taking the pass's | `tests/test_steps.py::test_a_run_on_another_release_than_its_pass_builds_no_task`, `tests/test_steps.py::test_a_run_whose_own_release_cannot_be_named_builds_no_task` |
 | Every step names its Release by `release/current.py`'s rules alone, over its checkout's own tags | `tests/test_steps.py::test_the_release_is_its_one_tag` |
 | The reader takes its commit from its own checkout, before any key | `tests/test_steps.py::test_a_run_whose_own_release_cannot_be_named_builds_no_task` |

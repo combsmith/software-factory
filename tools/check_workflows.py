@@ -75,8 +75,10 @@ RELEASE = re.compile(r"^combsmith/software-factory/\.github/workflows/[\w.-]+\.y
 SHIMS = {}
 # A workflow held by a shape check of its own, which it is spared these rules for: the eval job judges main's own
 # commit, so it runs main's file on a dispatch, and eval_problems holds every line of it (issue 309); and the Run's
-# jobs, whose CLI install run_jobs_problems holds word for word with the rest of the file (issue 196).
-SHAPED = {"eval.yml": ("shim",), "run-jobs.yml": ("install",)}
+# jobs, whose CLI install run_jobs_problems holds word for word with the rest of the file (issue 196). The release job
+# moves the Release every Run calls, so it cannot be one: it runs main's file, and release_problems holds every line of
+# it (issue 197's ruling 4′).
+SHAPED = {"eval.yml": ("shim",), "run-jobs.yml": ("install",), "release.yml": ("shim",)}
 # The one workflow that wakes on another's end, and the one job granted a write (issue 196's ruling 4).
 WAKES = "poller.yml"
 # The Run's lane (issue 196's ruling 6): one concurrency group for each Work item, on the one job that calls the Run's
@@ -462,6 +464,57 @@ EVAL_GIVEN = {
     "judge": {},
 }
 EVAL_STEP_KEYS = {"uses", "run", "with", "env"}
+# The release job and its workflow (issue 197's ruling 4′): dispatched by the Maintainer, with the command and its
+# version or target, or on a schedule that cuts only when the repo's FACTORY_RELEASE_AUTO is true and no Pause is set;
+# one job, `release`, on its own environment, whose deployment branches are main's alone, so no other ref's copy of
+# this file reaches its key. Its token is minted by the one pinned action below, for this repo alone and the grants the
+# step needs; the checkout is the commit the run is of, never a ref an output names; and its one step is
+# `python3 -m release.move`, given its inputs and the token under env: and nothing else.
+RELEASE_WORKFLOW, RELEASE_JOB, RELEASE_ENVIRONMENT = "release.yml", "release", "factory-release"
+RELEASE_TOP = {"name": "sf-release", "on": "", "permissions": "{}", "jobs": ""}
+# Its triggers, word for word: a list the reader keeps no entry of, an option or a schedule, is held this way alone.
+RELEASE_ON = """on:
+  workflow_dispatch:
+    inputs:
+      command:
+        required: true
+        type: choice
+        options:
+          - cut
+          - move
+          - rollback
+      version:
+        required: false
+        type: string
+      to:
+        required: false
+        type: string
+  schedule:
+    - cron: "41 6 * * 1-5"
+"""
+RELEASE_RUNNER = {"runs-on": "ubuntu-24.04", "timeout-minutes": "15"}
+RELEASE_IF = ("github.event_name == 'workflow_dispatch' || (vars.FACTORY_RELEASE_AUTO == 'true' && "
+              "(vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false'))")
+RELEASE_JOB_KEYS = {"if", "runs-on", "timeout-minutes", "environment", "concurrency", "permissions", "steps"}
+RELEASE_CONCURRENCY = {"group": "sf-release", "cancel-in-progress": "false"}
+RELEASE_GRANTED = [("contents", "read")]       # the job's own token: its writes are the App's
+# The one action that mints the release App's token, as CHECKOUT is the one checkout: a bump edits this too.
+APP_TOKEN = ("actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510", "# v3.3.0")
+RELEASE_ORDER = ("mint", "checkout", "step")
+RELEASE_STEP = "python3 -m release.move"
+RELEASE_GIVEN = {
+    "mint": {"with": {"client-id": "${{ vars.RELEASE_APP_CLIENT_ID }}", "private-key": "${{ secrets.RELEASE_APP_KEY }}",
+                      "repositories": "software-factory", "permission-contents": "write",
+                      "permission-workflows": "write", "permission-deployments": "write",
+                      "permission-actions": "read", "permission-checks": "read"}},
+    "checkout": {"with": {"persist-credentials": "false"}},
+    "step": {"env": {"RELEASE_COMMAND": "${{ inputs.command || 'cut' }}", "RELEASE_VERSION": "${{ inputs.version }}",
+                     "RELEASE_TO": "${{ inputs.to }}", "RELEASE_CUT_COMMIT": "${{ github.sha }}",
+                     "RELEASE_TOKEN": "${{ steps.mint.outputs.token }}"}},
+}
+RELEASE_STEP_KEYS = {"mint": {"id", "uses", "with"}, "checkout": {"uses", "with"}, "step": {"run", "env"}}
+# What names the release job's environment, its key or its token, in a workflow that is not release.yml.
+RELEASE_ONLY = re.compile(r"factory-release|RELEASE_APP_|RELEASE_TOKEN|release\.move", re.I)
 EVAL_TOP = {"name": "factory", "on": "", "permissions": "{}", "jobs": ""}
 EVAL_ACTIONS = {"checkout", "upload"}
 # The model's credential, an organisation secret no branch policy narrows (decision 0053): named in eval.yml's run step
@@ -1031,6 +1084,71 @@ def eval_problems(text: str) -> list:
     return problems
 
 
+def _release_kind(step: dict):
+    """What one step of the release job is: the token's mint, the listed checkout, the release step, or None."""
+    uses = step.get("uses", {}).get("value", "") if "uses" in step else None
+    if uses is not None and "run" not in step:
+        if (uses, step["uses"]["comment"]) == CHECKOUT:
+            return "checkout"
+        return "mint" if (uses, step["uses"]["comment"]) == APP_TOKEN else None
+    return "step" if _lines(step.get("run")) == [RELEASE_STEP] and "uses" not in step else None
+
+
+def release_problems(text: str) -> list:
+    """What is wrong with release.yml's shape (issue 197, ruling 4′), each a sentence: RELEASE_TOP above one job,
+    `release`, dispatched and scheduled as RELEASE_ON writes, run only as RELEASE_IF says, on the environment
+    `factory-release`, granted `contents: read` alone, one at a time; its steps RELEASE_ORDER, each given exactly what
+    RELEASE_GIVEN says. Every other spelling is refused: a check reads what it names, never what it can guess."""
+    entries, bad = read(text)
+    if bad:
+        return ["line %d is not in the narrow form" % bad[0]]
+    problems = []
+    if {e["key"]: e["value"] for e in entries if e["path"] == []} != RELEASE_TOP:
+        problems.append("it holds name: sf-release, on:, permissions: {} and jobs:, and nothing else above its job")
+    # Its triggers are held word for word, as RELEASE_ON writes them: the options and the schedule are lists the reader
+    # keeps no entry of, and a blank line or a comment between their items would hide one more from a reading by keys.
+    held_on = text[text.find("\non:\n") + 1:text.find("\npermissions:")] if "\non:\n" in text else ""
+    if held_on + "\n" != RELEASE_ON:
+        problems.append("runs on workflow_dispatch, with the inputs command (cut, move or rollback), version and to, "
+                        "and on a schedule, and on nothing else")
+    if [e["key"] for e in entries if e["path"] == ["jobs"]] != [RELEASE_JOB]:
+        problems.append("it holds the job %s and no other" % RELEASE_JOB)
+    inside = {e["key"]: e for e in entries if e["path"] == ["jobs", RELEASE_JOB]}
+    if set(inside) != RELEASE_JOB_KEYS or inside["environment"]["value"] != RELEASE_ENVIRONMENT:
+        problems.append("its job has exactly %s, and runs on the environment %s"
+                        % (", ".join(sorted(RELEASE_JOB_KEYS)), RELEASE_ENVIRONMENT))
+    if {k: inside[k]["value"] for k in RELEASE_RUNNER if k in inside} != RELEASE_RUNNER:
+        problems.append("its job runs on GitHub's own runner, %s, for at most %s minutes"
+                        % (RELEASE_RUNNER["runs-on"], RELEASE_RUNNER["timeout-minutes"]))
+    if "if" in inside and inside["if"]["value"] != RELEASE_IF:
+        problems.append("its job runs on a dispatch, or on the schedule only when FACTORY_RELEASE_AUTO is true and no "
+                        "Pause is set: if: %s" % RELEASE_IF)
+    held = {e["key"]: e["value"] for e in entries if e["path"] == ["jobs", RELEASE_JOB, "concurrency"]}
+    if held != RELEASE_CONCURRENCY:
+        problems.append("its job runs one at a time and never cancels one in progress: concurrency %s" % RELEASE_CONCURRENCY)
+    granted = sorted((e["key"], e["value"]) for e in entries if e["path"] == ["jobs", RELEASE_JOB, "permissions"])
+    if granted != RELEASE_GRANTED:
+        problems.append("its job is granted contents: read and nothing else; its writes are the App's token's")
+    steps = _steps(entries, RELEASE_JOB)
+    kinds = [_release_kind(step) for step in steps]
+    if tuple(kinds) != RELEASE_ORDER:
+        problems.append("its steps are %s, in that order, and no other" % ", ".join(RELEASE_ORDER))
+    for step, kind in zip(steps, kinds):
+        if kind is None:
+            continue
+        number = next(iter(step.values()))["step"]
+        own = set(step) - RELEASE_STEP_KEYS[kind]
+        if own or (kind == "mint" and step.get("id", {}).get("value") != "mint"):
+            problems.append("its %s step has exactly %s" % (kind, ", ".join(sorted(RELEASE_STEP_KEYS[kind]))))
+        for under in ("with", "env"):
+            have = {e["key"]: e["value"] for e in entries if e["step"] == number
+                    and e["path"] == ["jobs", RELEASE_JOB, "steps", under]}
+            if have != RELEASE_GIVEN[kind].get(under, {}):
+                problems.append("its %s step is given under %s: %s, exactly"
+                                % (kind, under, RELEASE_GIVEN[kind].get(under, {})))
+    return problems
+
+
 def run_problems(text: str, root: pathlib.Path = ROOT) -> list:
     """What is wrong with run.yml: anything but the Run's shim as the ruling gives it, its dispatcher the account that
     config/controller.json names for the pass's own token. While it names none, no run.yml is right."""
@@ -1252,6 +1370,13 @@ def run(root: pathlib.Path = ROOT) -> list:
                 if EVAL_ONLY.search(line):
                     problems.append("%s: line %d names the eval job's environment, the held-out home or its steps, "
                                     "which are eval.yml's alone" % (path.relative_to(root), number))
+        if path.name == RELEASE_WORKFLOW:
+            problems += ["%s: %s" % (path.relative_to(root), p) for p in release_problems(raw(path))]
+        else:
+            for number, line in enumerate(raw(path).split("\n"), 1):
+                if RELEASE_ONLY.search(line):
+                    problems.append("%s: line %d names the release job's environment, its key, its token or its step, "
+                                    "which are release.yml's alone" % (path.relative_to(root), number))
     for folder in sorted((root / ".github").glob("actions*")):
         problems.append("%s: a local action is not read by this check; write a reusable workflow"
                         % folder.relative_to(root))

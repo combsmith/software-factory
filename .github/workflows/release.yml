@@ -1,0 +1,53 @@
+name: sf-release
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        required: true
+        type: choice
+        options:
+          - cut
+          - move
+          - rollback
+      version:
+        required: false
+        type: string
+      to:
+        required: false
+        type: string
+  schedule:
+    - cron: "41 6 * * 1-5"
+permissions: {}
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || (vars.FACTORY_RELEASE_AUTO == 'true' && (vars.FACTORY_PAUSED == '' || vars.FACTORY_PAUSED == 'false'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: factory-release
+    concurrency:
+      group: sf-release
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - id: mint
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+          repositories: software-factory
+          permission-contents: write
+          permission-workflows: write
+          permission-deployments: write
+          permission-actions: read
+          permission-checks: read
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -m release.move
+        env:
+          RELEASE_COMMAND: ${{ inputs.command || 'cut' }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_TO: ${{ inputs.to }}
+          RELEASE_CUT_COMMIT: ${{ github.sha }}
+          RELEASE_TOKEN: ${{ steps.mint.outputs.token }}

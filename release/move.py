@@ -1,20 +1,22 @@
 """The release workflow's steps (rulings 4′ and 5′): a step's plan from what was read, and the step itself.
 
     python3 -m release.move plan < READS
-    python3 -m release.move step
+    python3 -m release.move
 
 `plan`: READS, on standard input, is one JSON object: `step`, the step asked (`release/cut.py`'s), `refs`, the refs
 `adapters/tags.py` read, and `facts`, the facts of the commit asked about. It opens no path it is given (SonarCloud's
 S2083 and S8707), as `tools/redact_trial.py` opens none. It prints `{"writes": [...]}` and exits 0, or
 `{"refused": code}` and exits 1, and writes nothing. Reads that cannot be read are refused, `step_unreadable`.
 
-`step`, the release job's one step after the token's mint and the checkout, is given its inputs by its environment:
-`RELEASE_COMMAND` (`cut`, `move` or `rollback`), `RELEASE_VERSION` and `RELEASE_CUT_COMMIT` for a cut, `RELEASE_TO` for a
-move or a rollback, and `RELEASE_TOKEN`, the release App's token. Through that token alone it reads the `factory/`
-tags, and, but for a rollback, the commit's facts (`adapters/candidate.py`); plans; sends each write and reads the
-tags again after it, once more if need be, stopping at the first not read back on its commit as the one Release planned;
-and records a Deployment of each move of `next` once read back. A rollback reads no fact and passes no gate, so it works while the Factory is broken. It prints
-what it did, by codes alone, and exits 0, or 1 with the code that stopped it. Nothing here reads a file at any tag.
+The step, with no argument, is the release job's one step after the token's mint and the checkout. It is given its
+inputs by its environment: `RELEASE_COMMAND` (`cut`, `move` or `rollback`), `RELEASE_VERSION` and `RELEASE_CUT_COMMIT`
+for a cut (a cut asked with no version is of the next patch of `next`'s major, as the schedule asks one), `RELEASE_TO`
+for a move or a rollback, and `RELEASE_TOKEN`, the release App's token. Through that token alone it reads the
+`factory/` tags, and, but for a rollback, the commit's facts (`adapters/candidate.py`); plans; sends each write and
+reads the tags again after it, once more if need be, stopping at the first not read back on its commit as the one
+Release planned; and records a Deployment of each move of `next` once read back. A rollback reads no fact and passes
+no gate, so it works while the Factory is broken. It prints what it did, by codes alone, and exits 0, or 1 with the
+code that stopped it. Nothing here reads a file at any tag.
 
 The Channels a step may move are those `release/rings.json` declares, and `next` is the one a step moves.
 """
@@ -29,7 +31,7 @@ from release import current, cut
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RINGS = ROOT / "release" / "rings.json"
 CONTROLLER = ROOT / "config" / "controller.json"
-USAGE = "usage: python3 -m release.move plan < READS, or python3 -m release.move step"
+USAGE = "usage: python3 -m release.move plan < READS, or python3 -m release.move"
 COMMANDS = ("cut", "move", "rollback")
 READ = object()       # read the Release's own file
 
@@ -103,6 +105,8 @@ def run(environ: dict, connect, rings=READ, controller=READ) -> tuple:
     if refs is None:
         return done, "refs_unreadable"
     step = asked(environ, channel)
+    if step["command"] == "cut" and not step["version"]:
+        step["version"] = cut.next_version(channel, refs)      # the schedule's cut, which names no version
     if step["command"] == "rollback":
         facts = {}
     else:
@@ -134,7 +138,7 @@ def run(environ: dict, connect, rings=READ, controller=READ) -> tuple:
 
 
 def main(argv, stdin=None, rings=RINGS, environ=None, connect=None) -> int:
-    if list(argv) == ["step"]:
+    if list(argv) in ([], ["step"]):
         if connect is None:
             from adapters.github import Live
             connect = Live

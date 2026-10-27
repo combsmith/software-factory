@@ -381,7 +381,9 @@ class Apps(unittest.TestCase):
         # waits on that, and no App grants one, so nothing can write a tag or move a Channel today. The read of the
         # tags is the reader's too, which names a Run's own Release (ruling 8), under the contents read it holds.
         apps = json.loads((ROOT / "config" / "apps.json").read_text())
-        waiting = ("write:release_tag", "write:move_channel", "write:deployment", "read:release.runs")
+        # checks: read beside ruling 4′'s grants: adapters/candidate.verified reads verify's check runs (2026-10-26).
+        waiting = ("write:release_tag", "write:move_channel", "write:deployment", "read:release.runs",
+                   "read:release.checks")
         for need in waiting:
             with self.subTest(need=need):
                 self.assertEqual(list(apps["needs"][need]), ["waits_on"])
@@ -413,7 +415,7 @@ class Skill(unittest.TestCase):
                 self.assertEqual(words[:4], ["gh", "workflow", "run", "release.yml"])
                 fields = dict(w.split("=", 1) for w in words[4:] if "=" in w)
                 self.assertEqual([w for w in words[4:] if w not in ("-f", "-R", REPO) and "=" not in w], [])
-                self.assertIn(fields.get("command"), ("cut", "rollback"))
+                self.assertIn(fields.get("command"), ("cut", "move", "rollback"))
                 for name in ("version", "to"):
                     if name in fields:
                         self.assertTrue(current.version(fields[name]) or re.fullmatch(r"factory/v0\.X\.Y", fields[name]),
