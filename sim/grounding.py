@@ -28,10 +28,11 @@ RULES = (
      "assumed, no trial can ask it: a race between a push and the read of the activity, which no trial can force; P-28 "
      "saw each entry within 11 s"),
     ("an_app_pushes_to_the_head", "An App can push to the head of a pull request", ("P-7",), "trials/P-7.json", None),
-    # Contradicted by trials/P-7.json: under the ruleset's dismiss_stale_reviews_on_push, the App's push dismissed the
-    # machine user's approval, and the timeline names the pusher as the dismisser. Left unverified, as it is: changing
-    # the fake is a story of its own (sim/AGENTS.md, "Known to differ").
-    ("an_approval_survives_a_push", "A push leaves an earlier approval in place", ("P-7",), None, None),
+    ("an_approval_is_dismissed_by_a_push", "Under a ruleset that dismisses stale approvals on a push, a push dismisses "
+     "each standing approval, and the timeline names the pusher, a person or an App, as its dismisser", ("P-7",),
+     "trials/P-7.json", None),
+    ("an_approval_stands_without_stale_dismissal", "Under a ruleset that does not dismiss stale approvals, a push leaves "
+     "an earlier approval in place", ("P-1",), None, None),
     ("a_request_for_changes_survives_a_push", "A push leaves a request for changes standing", ("P-41",), None, None),
     ("an_app_can_dismiss_a_review", "An App with pull_requests: write can dismiss a person's review, and the timeline "
      "says which App and what the review was before (previousReviewState)", ("P-41",), None, None),
@@ -239,7 +240,11 @@ ASKS = {
         "P-28": "Can the actor who last pushed a pull request's head be read as a fact?",
     },
     "an_app_pushes_to_the_head": {"P-7": "the last-push rule when an App pushed last"},
-    "an_approval_survives_a_push": {"P-7": "does an approval given before a push still stand after it"},
+    "an_approval_is_dismissed_by_a_push": {"P-7": "does an approval given before a push still stand after it"},
+    "an_approval_stands_without_stale_dismissal": {
+        "P-1": "under a ruleset that does not dismiss stale approvals, does an approval given before a push still stand"
+              " after it?",
+    },
     "a_request_for_changes_survives_a_push": {"P-41": "does a request for changes survive the push"},
     "an_app_can_dismiss_a_review": {"P-41": "can an App with `pull_requests: write` dismiss a person's review"},
     "a_push_restarts_the_checks": {"P-42": "after a push, is every required check pending again"},

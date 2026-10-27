@@ -3648,13 +3648,15 @@ class Trials(unittest.TestCase):
 
     def test_the_approval_trials_ground_the_rules_they_asked(self):
         # The sitting of 2026-10-19: P-7 passed with the App's push and the machine user's approval of it, and P-28
-        # read the App's push; the rule P-7 contradicts stays unverified (sim/AGENTS.md, "Known to differ").
+        # read the App's push. Under the canary's ruleset the App's push dismissed the approval, naming the App, and P-7
+        # grounds the rule the fake now applies where the world's ruleset dismisses stale approvals (issue 265).
         by_code = {code: (trials, fixture) for code, _, trials, fixture, _ in check_trials.rules()}
         self.assertEqual(by_code["an_app_pushes_to_the_head"], (("P-7",), "trials/P-7.json"))
         self.assertEqual(by_code["the_machine_users_approval_counts"], (("P-7",), "trials/P-7.json"))
         self.assertEqual(by_code["the_pusher_is_the_last_pusher"], (("P-28",), ("trials/P-28.json", "trials/P-28.app.json")))
-        self.assertEqual(by_code["an_approval_survives_a_push"], (("P-7",), None))
-        self.assertTrue(caught(check_trials.unverified(), "an_approval_survives_a_push"))
+        self.assertEqual(by_code["an_approval_is_dismissed_by_a_push"], (("P-7",), "trials/P-7.json"))
+        self.assertFalse(caught(check_trials.unverified(), "an_approval_is_dismissed_by_a_push"))
+        self.assertEqual(by_code["an_approval_stands_without_stale_dismissal"], (("P-1",), None))
         for name in ("P-1", "P-7", "P-7.maintainer-pushed", "P-24", "P-28.app"):
             data = json.loads((ROOT / "trials" / ("%s.json" % name)).read_text())
             self.assertEqual(data["verdict"], "pass", name)

@@ -1414,6 +1414,13 @@ class Timeline(unittest.TestCase):
         nobody = Router(github.Replay([]), {APPROVER: "write"})
         self.assertEqual(timeline.since_writer(events, self.accounts(nobody)),
                          {"last_writer_action_at": None, "acts_since_writer": 2})
+        # The App's push dismissed the machine user's approval as stale, the timeline naming the App (issue 265). Were
+        # that App a Factory identity, its dismissal would still be no act: only an approval, a label or a queue entry
+        # is one. The Maintainer's push-dismissal is his own action, as his push is in the fake.
+        app = next(e["actor"] for e in events if e.get("event") == "review_dismissed" and e["actor"]["type"] == "Bot")
+        factory = Router(github.Replay([]), {APPROVER: "write"})
+        self.assertEqual(timeline.since_writer(events, self.accounts(factory, factory={(app["id"], "Bot")})),
+                         {"last_writer_action_at": None, "acts_since_writer": 2})
         # A mention or a subscription names whom an act touched: nobody's action, and nobody's access is asked for it.
         mentions = [e for e in events if e.get("event") in ("mentioned", "subscribed")]
         quiet = Router(github.Replay([]))
