@@ -5059,7 +5059,10 @@ url = args[-1]
 if url.endswith("/installation"):
     print("HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n" + json.dumps({"id": 42}))
 elif url.endswith("/access_tokens"):
-    print("HTTP/2.0 201 Created\r\nContent-Type: application/json\r\n\r\n" + json.dumps({"token": "''' + "ghs_" + "W" * 36 + r'''", "permissions": json.loads(sent).get("permissions", {"pull_requests": "write"})}))
+    # As curl -i prints it through a proxy, and as GitHub pretty-prints it, an empty list across a blank line.
+    answer = json.dumps({"token": "''' + "ghs_" + "W" * 36 + r'''", "permissions": json.loads(sent).get("permissions", {"pull_requests": "write"}),
+                         "repositories": []}, indent=2).replace("[]", "[\n\n  ]")
+    print("HTTP/1.1 200 Connection established\r\n\r\nHTTP/2.0 201 Created\r\nContent-Type: application/json\r\n\r\n" + answer)
 '''
     OPENSSL = r'''#!/bin/sh
 case "$1" in
@@ -5135,6 +5138,24 @@ esac
             sent = [next(a.split("=", 1)[1] for a in c["argv"] if a.startswith("id=")) for c in calls
                     if any("resolveReviewThread" in a for a in c["argv"])]
             self.assertEqual(sent, ids, action)
+
+    def test_the_token_is_read_after_the_last_status_lines_headers(self):
+        # Both App scripts read the mint's answer as curl -i prints it: through a proxy, a block of its own comes first,
+        # and GitHub pretty-prints an empty list across a blank line, which once hid the token, unread and unrevoked.
+        token = "ghs_" + "Q" * 36
+        body = json.dumps({"token": token, "repositories": [], "permissions": {"checks": "write"}}, indent=2)
+        answers = ["HTTP/2 201 \r\ncontent-type: application/json\r\n\r\n" + body.replace("[]", "[\n\n  ]"),
+                   "HTTP/1.1 200 Connection established\r\n\r\nHTTP/2 201 \r\nx: y\r\n\r\n" + body]
+        for name in ("trial_window2.sh", "trial_as_app.sh"):
+            script = (ROOT / "tools" / name).read_text()
+            parse = re.search(r"/access_tokens\" \|\n    python3 -I -c '\n(.*?)' \"\$raw\"\)", script, re.S).group(1)
+            for answer in answers:
+                kept = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)) / "02.raw"
+                ran = subprocess.run([sys.executable, "-I", "-c", parse, str(kept)], input=answer, capture_output=True,
+                                     text=True, timeout=60)
+                self.assertEqual((ran.returncode, ran.stdout), (0, token), (name, answer[:40]))
+                self.assertNotIn(token, kept.read_text(), name)
+                self.assertEqual(json.loads(kept.read_text().rsplit("\n\n", 1)[1])["permissions"], {"checks": "write"})
 
     def test_a_refusal_is_kept_and_the_token_still_revoked(self):
         for args, refuse in ((("pr-review", "dequeue", "7", "metadata=read"), "dequeuePullRequest"),

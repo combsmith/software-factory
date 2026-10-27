@@ -4641,6 +4641,12 @@ MUTANTS = ISSUE + [
      '        if rel.parts[:2] == (".github", "workflows") and TRIAL_STUB.stem in text:\n', '        if False:\n',
      ("tests.test_tools.Repo.test_the_p50_stub_alone_may_serve_and_only_on_loopback",)),
     # Issues 185 and 250: the second machine-user window's App writes, against a stand-in gh, curl and openssl.
+    ("the App script reads the token after the last blank line", 'tools/trial_as_app.sh',
+     'cut = text.find("\\n\\n", starts[-1]) if starts else -1', 'cut = text.rfind("\\n\\n")',
+     ("tests.test_tools.WindowTwoApps.test_the_token_is_read_after_the_last_status_lines_headers",)),
+    ("the window reads the token after the last blank line", 'tools/trial_window2.sh',
+     'cut = text.find("\\n\\n", starts[-1]) if starts else -1', 'cut = text.rfind("\\n\\n")',
+     ("tests.test_tools.WindowTwoApps.test_each_action_asks_what_it_says_with_one_token_for_the_repo_revoked_last",)),
     ("the window's token is not narrowed", 'tools/trial_window2.sh',
      'if sys.argv[2]:\n    body["permissions"]', 'if False:\n    body["permissions"]',
      ('tests.test_tools.WindowTwoApps.test_each_action_asks_what_it_says_with_one_token_for_the_repo_revoked_last',)),

@@ -247,9 +247,13 @@ token=$(printf 'Authorization: Bearer %s\n' "$jwt" |
     curl -q -sS -i -X POST -H @- -H "Accept: $ACCEPT" -H "X-GitHub-Api-Version: $VERSION" --data-binary "$mint" \
         "$API/app/installations/$installation/access_tokens" |
     python3 -I -c '
-import json, sys
+import json, re, sys
 text = sys.stdin.read().replace("\r\n", "\n")
-head, gap, body = text.rpartition("\n\n")
+# The headers are the block of the last status line: a proxy block can come before the one GitHub sends, and GitHub
+# prints an empty list in its JSON across a blank line, so neither the first blank line nor the last ends the headers.
+starts = [m.start(1) for m in re.finditer(r"(?:\A|\n\n)(HTTP/[0-9.]+ [0-9]{3})", text)]
+cut = text.find("\n\n", starts[-1]) if starts else -1
+head, body = (text[:cut], text[cut + 2:]) if cut >= 0 else (text, "")
 try:
     data = json.loads(body)
 except ValueError:
@@ -260,7 +264,7 @@ with open(sys.argv[1], "w") as kept:
 sys.stdout.write(token)' "$raw")
 redact "$raw"
 jwt=""
-[ -n "$token" ] || { echo "no installation token was minted: GitHub's answer is in OUT" >&2; exit 1; }
+[ -n "$token" ] || { echo "no installation token was read: if one was minted it was not revoked, and lapses within the hour; GitHub's answer is in OUT" >&2; exit 1; }
 
 owner=${repo%%/*} name=${repo#*/}
 # The time #306's reconciliation reads comments since: before the canary existed, so every comment is listed.

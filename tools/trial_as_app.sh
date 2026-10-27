@@ -187,11 +187,14 @@ token=$(printf 'Authorization: Bearer %s\n' "$jwt" |
     curl -q -sS -i --fail-with-body -X POST -H @- -H "Accept: $ACCEPT" -H "X-GitHub-Api-Version: $VERSION" \
         "$API/app/installations/$installation/access_tokens" |
     python3 -I -c '
-import json, sys
+import json, re, sys
 text = sys.stdin.read().replace("\r\n", "\n")
-# The last blank line ends the headers: a proxy prints its own "Connection established" block before the one
-# from GitHub, and a JSON body holds no blank line.
-head, gap, body = text.rpartition("\n\n")
+# The headers are the block of the last status line: a proxy prints its own "Connection established" block before
+# the one from GitHub, and GitHub prints an empty list in its JSON across a blank line, so neither the first blank
+# line nor the last ends the headers.
+starts = [m.start(1) for m in re.finditer(r"(?:\A|\n\n)(HTTP/[0-9.]+ [0-9]{3})", text)]
+cut = text.find("\n\n", starts[-1]) if starts else -1
+head, body = (text[:cut], text[cut + 2:]) if cut >= 0 else (text, "")
 try:
     data = json.loads(body)
 except ValueError:
