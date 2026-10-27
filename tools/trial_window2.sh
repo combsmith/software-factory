@@ -4,6 +4,8 @@
 # this. Each action is one App's, and no App runs another's:
 #
 #   bash tools/trial_window2.sh trial-author comments KEY REPO PR FILE COUNT   # one review, COUNT threads on FILE's line 1
+#   bash tools/trial_window2.sh trial-author enqueue KEY REPO PR PERMISSIONS   # enqueuePullRequest, the token narrowed (P-2)
+#   bash tools/trial_window2.sh trial-author dequeue KEY REPO PR PERMISSIONS   # dequeuePullRequest, the token narrowed (P-2)
 #   bash tools/trial_window2.sh pr-review enqueue KEY REPO PR                  # enqueuePullRequest
 #   bash tools/trial_window2.sh pr-review automerge KEY REPO PR                # enablePullRequestAutoMerge, squash
 #   bash tools/trial_window2.sh pr-review dequeue KEY REPO PR PERMISSIONS      # dequeuePullRequest, the token narrowed
@@ -42,7 +44,7 @@ usage() {
 who=$1 action=$2 key=$3 repo=$4 target=$5
 shift 5
 case "$who/$action/$#" in
-    trial-author/comments/2|pr-review/enqueue/0|pr-review/automerge/0|pr-review/dequeue/1|pr-review/resolve/0) ;;
+    trial-author/comments/2|trial-author/enqueue/1|trial-author/dequeue/1|pr-review/enqueue/0|pr-review/automerge/0|pr-review/dequeue/1|pr-review/resolve/0) ;;
     pr-review/burst/0|pr-review/dismiss/1|pr-review/check/1|controller/queue/1|controller/label/1|controller/issue-comments/1) ;;
     controller/pause/0) ;;
     *) usage ;;
@@ -64,6 +66,8 @@ case "$action" in
         case "$file" in ""|/*|*..*|*" "*) echo "FILE is a path in the pull request's head" >&2; exit 2 ;; esac
         case "$count" in ""|*[!0-9]*) usage ;; esac
         [ "$count" -ge 1 ] && [ "$count" -le 50 ] || { echo "COUNT is 1 to 50" >&2; exit 2; } ;;
+    enqueue) narrow=${1:-}
+        case "$narrow" in *[!a-z_=,]*) usage ;; esac ;;
     dequeue|queue|issue-comments) narrow=$1
         case "$narrow" in ""|*[!a-z_=,]*) usage ;; esac ;;
     dismiss) review=$1
@@ -327,7 +331,7 @@ print(json.dumps({"event": "COMMENT", "body": "A platform trial: %d review threa
     echo "pull request $target: review answered $(answered)" ;;
 enqueue)
     node_of "$target"
-    as_graphql "enqueuePullRequest, the App's write, on $repo's pull request $target" \
+    as_graphql "enqueuePullRequest, the App's write, on $repo's pull request $target${narrow:+, its permissions narrowed to $narrow}" \
         'mutation($id: ID!) { enqueuePullRequest(input: {pullRequestId: $id}) { mergeQueueEntry { id state position } } }' "id=$node"
     echo "pull request $target: enqueue answered $(answered)" ;;
 automerge)
