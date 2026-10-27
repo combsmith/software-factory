@@ -209,7 +209,17 @@ def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
     A Lens's input is reported, as a stop lists it, and never asked about: `lens_inputs` keeps each with its Lens.
     """
     try:
-        data = json.loads(path.read_text())
+        text = path.read_text()
+    except (OSError, ValueError) as err:     # a file that is no UTF-8 is a ValueError
+        raise Unreadable("config/hooks.json cannot be read (%s)" % type(err).__name__)
+    return parse(text)
+
+
+def parse(text: str) -> dict:
+    """load()'s reading of config/hooks.json's text, wherever it was read from: a commit's, as the base holds it, as
+    well as the working tree's (issue 139). Raises Unreadable as load() does."""
+    try:
+        data = json.loads(text)
         protected = [(e["path"], e["is"]) for e in data["protected"]]
         inputs = [(e["lens"], e["path"], e["is"]) for e in data["lens_inputs"]]
         reported = [(e["path"], e["is"]) for e in data["reported"]] + [(p, what) for _, p, what in inputs]
@@ -218,7 +228,7 @@ def load(path: pathlib.Path = ROOT / "config" / "hooks.json") -> dict:
         lists["settings"]["reads"] = list(data["settings"]["reads"])
         branch = data["merging"]["branch"]
         sessions = {key: list(data["sessions"][key]) for key in ("programs", "words", "environment")}
-    except (OSError, ValueError, KeyError, TypeError) as err:
+    except (ValueError, KeyError, TypeError) as err:
         raise Unreadable("config/hooks.json cannot be read (%s)" % type(err).__name__)
     paths = protected + reported
     words = [p for p, _ in paths] + [branch] + [w for group in lists.values() for v in group.values() for w in v]
@@ -238,7 +248,11 @@ def protected_paths(path: pathlib.Path = ROOT / "config" / "hooks.json") -> list
     """What the Kernel is given as `protected_paths`: every protected path, then every Lens's input, as patterns in the
     one syntax of config/hooks.json, without what each is, which is prose. A pull request that changes one converges
     only once every model Lens has reviewed it (decision 0020). Raises Unreadable as load() does."""
-    data = load(path)
+    return protected_of(load(path))
+
+
+def protected_of(data: dict) -> list:
+    """protected_paths() of data load() or parse() read."""
     return [p for p, _ in data["protected"]] + [p for _, p, _ in data["lens_inputs"]]
 
 
