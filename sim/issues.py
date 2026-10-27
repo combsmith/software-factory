@@ -14,7 +14,7 @@ import random
 
 from kernel import issue
 from kernel import terms as t
-from sim.world import COLLEAGUE, MAINTAINER, STRANGER, Broken, World, queue_in_lane
+from sim.world import COLLEAGUE, MAINTAINER, PERMISSIONS, STRANGER, WRITE_ACCESS, Broken, World, queue_in_lane, told
 from tools import check_lifecycle
 from tools.jsonschema_lite import validate
 
@@ -41,10 +41,8 @@ SERVED = {"served_from": "2026-01-01T00:00:00Z", "left_out_labels": ["epic", "id
                       issue.OPENING: {"role": "dev-lead", "app": AUTHOR_APP["name"]}}}
 CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), lifecycle=LIFECYCLE, issues=SERVED)
 LIMITS = CONFIG["limits"]
-# Each person's permission on the repo, as the collaborator permission endpoint answers it, and the permissions that
-# are write access (issue 222, decision 0048): the port reads the one and gives the facts the other.
-PERMISSIONS = {MAINTAINER["name"]: "admin", COLLEAGUE["name"]: "write", STRANGER["name"]: "read"}
-WRITE_ACCESS = ("admin", "maintain", "write")
+# Each person's permission on the repo, and the permissions that are write access, are the pull request's world's
+# (issue 222, decision 0048, issue 299): every actor's write access is built from the one with the other, by `told`.
 # The invariants the Kernel does not hold yet, each the name of a test marked @pending in tests/test_issue.py.
 NOT_YET_HELD = ()
 # On an even seed a person with write access opened the issue; on an odd seed an outsider did, whom the Maintainer
@@ -155,7 +153,7 @@ class IssueWorld:
 
     @staticmethod
     def is_person(by: dict) -> bool:
-        return by["kind"] == "human" and by["can_write"] is True
+        return by["kind"] == "human" and told(by)["can_write"] is True
 
     @classmethod
     def by_of(cls, actor: dict) -> str:
@@ -181,12 +179,13 @@ class IssueWorld:
 
     # ---- the facts, as the port would give them
     def facts(self) -> dict:
-        return {
+        # Every actor's write access, the author's and each label event's among them, is the permission the world
+        # serves for them (issue 299).
+        return told({
             "schema": "issue-facts/1", "item": dict(ITEM), "state": self.state,
             # GitHub: an_issues_close_and_reopening_say_when
             "closed_first_at": None if self.closed is None else World.at(self.closed),
-            # GitHub: a_logins_permission_is_read_from_the_collaborator_endpoint
-            "author": dict(self.author, can_write=PERMISSIONS[self.author["name"]] in WRITE_ACCESS),
+            "author": dict(self.author),
             "type": self.type, "label_names": list(self.label_names),
             "assignees": [],
             # GitHub: a_reopening_names_its_actor
@@ -205,7 +204,7 @@ class IssueWorld:
             # GitHub: the_timeline_shows_each_act
             "acts_since_writer": self.acts, "branch_head": self.branch_head,
             "complete": {"timeline": True, "linked": True, "runs": True}, "read_at": self.now(),
-        }
+        })
 
     def records(self) -> list:
         """What the records port lists: every Run, a queued one among them, but none past the retention on a seed

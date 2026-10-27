@@ -218,6 +218,31 @@ class Simulation(unittest.TestCase):
         with mock.patch.dict(world.CONFIG, protected_paths=["lifecycle/"]):
             self.assertRaises(world.Broken, w.poll)
 
+    def test_every_actors_write_access_is_read_from_the_permission(self):  # issue 299, decision 0048
+        # The pull request's world serves each person's permission, the machine user's among them, and builds every
+        # actor's write access from it, as the port does, with its own copy of the rule: a label event's, a review's and
+        # a thread's actor alike, and whoever the world asks is a person.
+        from adapters import timeline
+        self.assertEqual((set(world.WRITE_ACCESS), set(world.PERMISSIONS.values()) - timeline.PERMISSIONS),
+                         (timeline.WRITE, set()))
+        self.assertNotIn("adapters", pathlib.Path(world.__file__).read_text())
+        w = World(1, faults=False, people=False)
+        w.events.append({"label": "factory:hold", "action": "labeled", "by": dict(world.COLLEAGUE), "at": w.now()})
+        w.reviews.append({"by": dict(world.MACHINE), "state": "commented", "commit": "c1", "content_id": w.cid(),
+                          "submitted_at": w.now(), "dismissed_by": None, "dismissed_from": None})
+        for permission, writes in (("admin", True), ("maintain", True), ("write", True), ("triage", False),
+                                   ("read", False), ("none", False)):
+            with mock.patch.dict(world.PERMISSIONS, {world.COLLEAGUE["name"]: permission,
+                                                     world.MACHINE["name"]: permission}):
+                facts = w.facts()
+                self.assertEqual((facts["label_events"][-1]["by"]["can_write"], facts["reviews"][-1]["by"]["can_write"],
+                                  w.is_person(world.COLLEAGUE)), (writes,) * 3, permission)
+        # A login the world serves no permission for writes nothing; an App's is left as the world made it.
+        w.events.append({"label": "factory:hold", "action": "labeled", "by": dict(world.COLLEAGUE, name="someone"),
+                         "at": w.now()})
+        w.events.append({"label": "factory:hold", "action": "labeled", "by": dict(world.IMPOSTOR), "at": w.now()})
+        self.assertEqual([e["by"]["can_write"] for e in w.facts()["label_events"][-2:]], [False, True])
+
     def test_a_seed_replays_exactly(self):
         traces = []
         for _ in range(2):

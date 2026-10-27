@@ -74,6 +74,26 @@ CONTRACTS = {0: 3, 3: 1, 5: 2}
 REPORTER = {"name": CHECKS[CONFIG["acceptance_reporters"]["test"]], "app_id": APPS[CONFIG["acceptance_reporters"]["test"]],
             "workflow": WORKFLOWS[CONFIG["acceptance_reporters"]["test"]]}
 COLLEAGUE = {"kind": "human", "name": "a-colleague", "can_write": True}
+# Each person's permission on the repo, the machine user's among them, as the collaborator permission endpoint answers
+# it, and the permissions that are write access (decision 0048, issue 299). Both worlds serve the one and build every
+# person's write access from it, as the port does, with their own copy of its rule and never the port's.
+PERMISSIONS = {MAINTAINER["name"]: "admin", COLLEAGUE["name"]: "write", STRANGER["name"]: "read",
+               MACHINE["name"]: "write"}
+WRITE_ACCESS = ("admin", "maintain", "write")
+
+
+def told(value):
+    """`value` with every person's write access, and the machine user's, read from the permission the world serves
+    for their login, none for a login it serves none for; an App's is left as the world made it. Lists and objects
+    are walked."""
+    if isinstance(value, dict):
+        if value.get("kind") in ("human", "machine_user") and "can_write" in value:
+            # GitHub: a_logins_permission_is_read_from_the_collaborator_endpoint
+            return dict(value, can_write=PERMISSIONS.get(value.get("name"), "none") in WRITE_ACCESS)
+        return {k: told(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [told(v) for v in value]
+    return value
 # On one seed in ten the item is a dependency bot's update, of class `dependency`, that the bot opened and pushed: on
 # every other such seed it edits the pin in the workflow file the verify Lens is read from. By the seed alone.
 DEPENDENCY_SEED = 4
@@ -274,7 +294,8 @@ class World:
         return "sha256:%04x" % self.content
 
     def facts(self) -> dict:
-        return {
+        # Every person's write access is the permission the world serves for them, read as the port reads it.
+        return told({
             "schema": "facts/1", "item": dict(ITEM), "state": self.pr_state, "is_draft": False,
             "class": self.cls, "author": self.author, "last_pusher": self.last_pusher,
             "targets_protected": True, "mergeable": True, "content_id": self.cid(),
@@ -300,7 +321,7 @@ class World:
             "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True,
                          "changed_paths": True, "runs": True, "timeline": True},
             "read_at": self.now(),
-        }
+        })
 
     def digest(self) -> str:
         """The digest of the contract and every path it protects, at its current revision."""
@@ -373,7 +394,7 @@ class World:
 
     @staticmethod
     def is_person(by: dict) -> bool:
-        return by["kind"] == "human" and by["can_write"] is True
+        return by["kind"] == "human" and told(by)["can_write"] is True
 
     def label(self, name: str, by: dict):
         """`by` adds the label. Anyone else adding hands-off again does not replace a person's: it stands as theirs."""
