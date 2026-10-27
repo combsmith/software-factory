@@ -89,7 +89,7 @@ QUESTION = re.compile(r"^\| (P-[1-9][0-9]*) \| (.*?) \| ", re.M)
 QUOTED_WORDS = 4
 FENCED = re.compile(r"^```.*?^```", re.M | re.S)
 # A block fenced with tildes, and an HTML comment, hold no row either (the review of #265).
-HIDDEN = re.compile(r"^~~~.*?^~~~|<!--.*?-->", re.M | re.S)
+HIDDEN = re.compile(r"(?:^~~~.*?^~~~)|(?:<!--.*?-->)", re.M | re.S)
 MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 
 # A key that names a credential, however it is spelt: compared after strip(), lower() and - to _.
