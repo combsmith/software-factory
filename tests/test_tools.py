@@ -5045,6 +5045,10 @@ if path.startswith("repos/%s/issues/7/comments" % repo):
     answer(403 if refused("issue-comments") else 200, {"message": "Resource not accessible by integration"} if refused("issue-comments") else [])
 if path.startswith("repos/%s/pulls/7/comments" % repo):
     answer(200, [])
+if path == "repos/%s/actions/variables/FACTORY_PAUSED" % repo:
+    answer(200, {"name": "FACTORY_PAUSED", "value": "false"})
+if path == "repos/%s/actions/organization-variables?per_page=100" % repo:
+    answer(200, {"total_count": 1, "variables": [{"name": "FACTORY_PAUSED", "value": "false"}]})
 answer(404, {"message": "the stand-in does not know " + path})
 '''
     CURL = r'''#!/usr/bin/env python3
@@ -5118,6 +5122,8 @@ esac
                                                              "GET repos/%s/pulls/7/comments?per_page=100"]),
             (("controller", "issue-comments", "7", "metadata=read,pull_requests=read"), ["GET repos/%s/issues/7/comments?since=2026-01-01T00:00:00Z&per_page=100"]),
             (("controller", "label", "7", "factory:hold"), ["POST repos/%s/issues/7/labels", "DELETE repos/%s/issues/7/labels/factory:hold"]),
+            (("controller", "pause", "metadata=read,actions_variables=read"), ["GET repos/%s/actions/variables/FACTORY_PAUSED",
+                                                                       "GET repos/%s/actions/organization-variables?per_page=100"]),
         ]
         for args, asked in cases:
             ran, calls, minted, out = self.run_window(*args)
@@ -5126,7 +5132,8 @@ esac
             # One token, minted for the one repo and narrowed where the action narrows it, reaching gh by its environment.
             body = json.loads(minted[1]["sent"])
             self.assertEqual(body["repositories"], [check_trials.CANARY], args)
-            self.assertEqual(body.get("permissions"), dict(p.split("=") for p in args[3].split(",")) if args[1] in ("dequeue", "queue", "issue-comments") else None, args)
+            narrowed = args[2] if args[1] == "pause" else args[3] if args[1] in ("dequeue", "queue", "issue-comments") else None
+            self.assertEqual(body.get("permissions"), dict(p.split("=") for p in narrowed.split(",")) if narrowed else None, args)
             self.assertEqual({c["token"] for c in calls}, {self.TOKEN}, args)
             self.assertTrue(all(self.TOKEN not in " ".join(c["argv"]) for c in calls + minted), args)
             self.assertNotIn(self.TOKEN, (out / "exchanges.json").read_text() + ran.stdout + ran.stderr, args)
@@ -5171,7 +5178,9 @@ esac
     def test_an_app_runs_only_its_own_actions_and_nothing_unshaped_is_sent(self):
         for args in (("controller", "dismiss", "7", "99"), ("pr-review", "label", "7", "x"), ("reader", "queue", "7", "metadata=read"),
                      ("trial-author", "enqueue", "7"), ("pr-review", "dequeue", "7", "pull_requests=write;rm"),
-                     ("pr-review", "check", "abc", "x"), ("controller", "label", "7", "a b")):
+                     ("pr-review", "check", "abc", "x"), ("controller", "label", "7", "a b"),
+                     ("pr-review", "pause", "actions_variables=read"), ("controller", "pause", "actions_variables=read;rm"),
+                     ("controller", "pause", "actions_variables=read", "7")):
             ran, calls, minted, out = self.run_window(*args)
             self.assertEqual(ran.returncode, 2, args)
             self.assertEqual((calls, minted), ([], []), args)

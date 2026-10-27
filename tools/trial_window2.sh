@@ -16,6 +16,8 @@
 #                                                                               # issue and review comments (#306), narrowed
 #   bash tools/trial_window2.sh controller label KEY REPO PR LABEL             # a label added, then removed
 #   bash tools/trial_window2.sh controller issue-comments KEY REPO N PERMISSIONS # an issue's comments since a time (#306)
+#   bash tools/trial_window2.sh controller pause KEY REPO PERMISSIONS          # FACTORY_PAUSED, the repo's and the org's
+#                                                                               # as the repo lists it, narrowed (P-52b)
 #
 # PERMISSIONS narrows the token to exactly those, as name=level separated by commas (pull_requests=write,metadata=read),
 # so that a trial names the least permission a call needs. KEY is the path of that App's private key: only openssl
@@ -42,17 +44,21 @@ shift 5
 case "$who/$action/$#" in
     trial-author/comments/2|pr-review/enqueue/0|pr-review/automerge/0|pr-review/dequeue/1|pr-review/resolve/0) ;;
     pr-review/burst/0|pr-review/dismiss/1|pr-review/check/1|controller/queue/1|controller/label/1|controller/issue-comments/1) ;;
+    controller/pause/0) ;;
     *) usage ;;
 esac
 case "$repo" in */*/*|/*|*/) usage ;; */*) ;; *) usage ;; esac
-if [ "$action" = check ]; then
+narrow=""
+if [ "$action" = pause ]; then
+    narrow=$target
+    case "$narrow" in ""|*[!a-z_=,]*) usage ;; esac
+elif [ "$action" = check ]; then
     case "$target" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;; *) usage ;; esac
     case "$target" in *[!0-9a-f]*) usage ;; esac
     [ "${#target}" -eq 40 ] || usage
 else
     case "$target" in ""|*[!0-9]*) usage ;; esac
 fi
-narrow=""
 case "$action" in
     comments) file=$1 count=$2
         case "$file" in ""|/*|*..*|*" "*) echo "FILE is a path in the pull request's head" >&2; exit 2 ;; esac
@@ -368,6 +374,11 @@ import json, sys
 print(json.dumps({"name": sys.argv[1], "head_sha": sys.argv[2], "status": "completed", "conclusion": "success",
                   "output": {"title": "A platform trial", "summary": "Posted by the pr-review App under this name."}}))' "$name" "$target")"
     echo "check run $name on $target: answered $(answered)" ;;
+pause)
+    as_installation GET "repos/$repo/actions/variables/FACTORY_PAUSED"
+    echo "the repo's FACTORY_PAUSED answered $(answered)"
+    as_installation GET "repos/$repo/actions/organization-variables?per_page=100"
+    echo "the repo's list of the org's variables answered $(answered)" ;;
 issue-comments)
     as_installation GET "repos/$repo/issues/$target/comments?since=$SINCE&per_page=100"
     echo "issue $target: its comments since $SINCE answered $(answered)" ;;
