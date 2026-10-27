@@ -3622,6 +3622,10 @@ class Trials(unittest.TestCase):
             unclosed = design.replace("| P-41 |", opener + "\n| P-41 |", 1)
             self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: unclosed})),
                                    "a_request_for_changes_survives_a_push: P-41 has no row in section 6"), opener)
+        # A block that is closed hides only itself: the rows after it are read as before.
+        for block in ("```\nx\n```", "~~~\nx\n~~~", "<!-- x -->"):
+            closed = design.replace("| P-41 |", block + "\n| P-41 |", 1)
+            self.assertEqual(check_trials.run(clone({check_trials.DESIGN: closed})), [], block)
         # A row in a fenced block asks nothing, though it quotes the old question.
         row = reworded.index("\n", reworded.index("| P-41 |"))
         fenced = reworded[:row] + "\n```\n| P-41 | does a request for changes survive the push | Yes |\n```" + reworded[row:]
