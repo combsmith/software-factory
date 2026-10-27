@@ -3327,12 +3327,15 @@ GROUNDING = (ROOT / "sim" / "grounding.py").read_text()
 
 
 def grounded(fixture_path: str, trials: str = '("P-18",)') -> str:
-    """sim/grounding.py with the rule P-18 asks grounded by `fixture_path`, a path or a tuple of them written as a
-    literal, and asked by `trials`."""
-    rule = '("P-18",), None, None)'
-    assert GROUNDING.count(rule) == 1
+    """sim/grounding.py with the rule P-18 asks of a killed job grounded by `fixture_path`, a path or a tuple of them
+    written as a literal, and asked by `trials`; a P-7 among them quotes its row, as each trial a rule names must."""
+    rule = '("a_killed_job_times_out", "A job killed part way concludes timed_out", ("P-18",), None, None)'
+    asked = '"a_killed_job_times_out": {"P-18": "when a job times out or is cancelled?"}'
+    assert GROUNDING.count(rule) == 1 and GROUNDING.count(asked) == 1
     literal = fixture_path if fixture_path.startswith("(") else '"%s"' % fixture_path
-    return GROUNDING.replace(rule, '%s, %s, None)' % (trials, literal))
+    quotes = asked[:-1] + (', "P-7": "when an App pushed last"}' if '"P-7"' in trials else "}")
+    return GROUNDING.replace(rule, rule.replace('("P-18",), None, None)', '%s, %s, None)' % (trials, literal))).replace(
+        asked, quotes)
 
 
 TAIL = "A" * 36
@@ -3570,6 +3573,91 @@ class Trials(unittest.TestCase):
         self.assertFalse(caught(check_trials.unverified(root), "a_killed_job_times_out"))
         self.assertTrue(caught(check_trials.unverified(), "a_killed_job_times_out"))
 
+    def test_a_rule_names_only_a_trial_whose_row_asks_it(self):  # issue 265
+        # Each trial a rule names asks it in its row of section 6: the rule quotes, in ASKS, the words of the row's
+        # question that do, four at least. A rule with no quote of its trial, a quote that is not in that row's
+        # question, its answer among the rest, or one too short to name a question, is refused.
+        quote = '"a_request_for_changes_survives_a_push": {"P-41": "does a request for changes survive the push"}'
+        self.assertEqual(GROUNDING.count(quote), 1)
+        for broken, why in ((quote.replace("does a request for changes survive the push", ""), "no quote"),
+                            (quote.replace("survive the push", "survive the merge"), "not the question"),
+                            (quote.replace("does a request for changes survive the push", "the push"), "too short"),
+                            (quote.replace("does a request for changes survive the push", "request for changes"),
+                             "three words"),
+                            (quote.replace("does a request for changes survive the push", "es a request for chan"),
+                             "not whole words"),
+                            (quote.replace("does a request for changes survive the push",
+                                          "If a request for changes does not survive a push"), "the answer")):
+            problems = check_trials.run(clone({"sim/grounding.py": GROUNDING.replace(quote, broken)}))
+            self.assertTrue(caught(problems, "a_request_for_changes_survives_a_push: P-41's row in section 6 does not "
+                                             "ask it"), why)
+        missing = GROUNDING.replace(quote + ",\n", "")
+        self.assertNotEqual(missing, GROUNDING)
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": missing})),
+                               "a_request_for_changes_survives_a_push: P-41's row in section 6 does not ask it"))
+        # A row whose question stops asking it refuses the rule too, though the quote is unchanged.
+        design = (ROOT / check_trials.DESIGN).read_text()
+        reworded = design.replace("does a request for changes survive the push", "is a request for changes kept", 1)
+        self.assertNotEqual(reworded, design)
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: reworded})),
+                               "a_request_for_changes_survives_a_push: P-41's row in section 6 does not ask it"))
+        # Four words are enough, as the question gives them.
+        self.assertEqual(check_trials.run(clone({"sim/grounding.py": GROUNDING.replace(
+            quote, quote.replace("does a request for changes survive the push", "request for changes survive"))})), [])
+        # A second row for the trial, later in section 6, is refused, and answers no quote the first does not.
+        second = reworded.replace("\n## 7. ", "\n| P-41 | does a request for changes survive the push | x |\n\n## 7. ", 1)
+        self.assertNotEqual(second, reworded)
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: second})),
+                               "section 6 has more than one row for P-41; a trial has one"))
+        # A row fenced with tildes, or in an HTML comment, holds no row either.
+        for hidden in ("~~~\n%s\n~~~", "<!--\n%s\n-->"):
+            veiled = reworded.replace("\n## 7. ", "\n" + hidden % "| P-41 | does a request for changes survive the push | x |"
+                                      + "\n\n## 7. ", 1)
+            problems = check_trials.run(clone({check_trials.DESIGN: veiled}))
+            self.assertTrue(caught(problems, "a_request_for_changes_survives_a_push: P-41's row in section 6 does not "
+                                             "ask it"), hidden)
+            self.assertFalse(caught(problems, "more than one row"), hidden)
+        # An opener left unclosed hides every row after it, as a renderer reads it: those trials have no row.
+        for opener in ("<!--", "~~~", "```"):
+            unclosed = design.replace("| P-41 |", opener + "\n| P-41 |", 1)
+            self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: unclosed})),
+                                   "a_request_for_changes_survives_a_push: P-41 has no row in section 6"), opener)
+        # A block that is closed hides only itself: the rows after it are read as before.
+        for block in ("```\nx\n```", "~~~\nx\n~~~", "<!-- x -->"):
+            closed = design.replace("| P-41 |", block + "\n| P-41 |", 1)
+            self.assertEqual(check_trials.run(clone({check_trials.DESIGN: closed})), [], block)
+        # A row in a fenced block asks nothing, though it quotes the old question.
+        row = reworded.index("\n", reworded.index("| P-41 |"))
+        fenced = reworded[:row] + "\n```\n| P-41 | does a request for changes survive the push | Yes |\n```" + reworded[row:]
+        self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: fenced})),
+                               "a_request_for_changes_survives_a_push: P-41's row in section 6 does not ask it"))
+        # What #265 found: a rule that names a trial whose row asks something else, as the_timeline_shows_each_act named
+        # P-8, whose row asks the cost of a pass and the cadence of ticks, is refused until a row asks it.
+        p8 = GROUNDING.replace('("P-2", "P-41"), None, None)', '("P-8",), None, None)', 1)
+        self.assertNotEqual(p8, GROUNDING)
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": p8})),
+                               "the_timeline_shows_each_act: P-8's row in section 6 does not ask it"))
+        # A quote is of a trial its rule names, of a rule that is listed, and ASKS is a literal of that shape.
+        extra = GROUNDING.replace(quote, quote[:-1] + ', "P-9": "Can a pass start the next one"}')
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": extra})),
+                               "ASKS quotes P-9 for a_request_for_changes_survives_a_push, which names no such trial"))
+        stray = GROUNDING.replace("ASKS = {", 'ASKS = {\n    "a_rule_never_listed": {"P-41": "does a request for changes"},', 1)
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": stray})),
+                               "ASKS quotes P-41 for a_rule_never_listed, which is no rule"))
+        # A trial that is not a string is reported, never raised on.
+        odd = GROUNDING.replace(quote, quote[:-1] + ', 1: "x", "P-9": "y"}')
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": odd})), "ASKS quotes 1 for"))
+        for shape in ("ASKS = []\n", "ASKS = {'x': 'y'}\n", "ASKS = dict()\n"):
+            body = GROUNDING[:GROUNDING.index("\nASKS = {")] + "\n" + shape
+            self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": body})), "ASKS"), shape)
+        self.assertTrue(caught(check_trials.run(clone({"sim/grounding.py": GROUNDING[:GROUNDING.index("\nASKS = {")]})),
+                               "sim/grounding.py: holds no ASKS"))
+        # Every rule this repo lists quotes each trial it names, and nothing more.
+        self.assertEqual(check_trials.run(), [])
+        listed = {code: trials for code, _, trials, _, _ in check_trials.rules()}
+        self.assertEqual({(c, t) for c, by in check_trials.asks().items() for t in by},
+                         {(c, t) for c, trials in listed.items() for t in trials})
+
     def test_a_rule_may_be_grounded_by_a_tuple_of_fixtures_each_held_to_the_same_rules(self):
         # The last pusher is read from a person's push (P-28.json) and from an App's (P-28.app.json): one rule, two
         # fixtures, each of which must exist, validate and record a trial that asks the rule.
@@ -3592,13 +3680,15 @@ class Trials(unittest.TestCase):
 
     def test_the_approval_trials_ground_the_rules_they_asked(self):
         # The sitting of 2026-10-19: P-7 passed with the App's push and the machine user's approval of it, and P-28
-        # read the App's push; the rule P-7 contradicts stays unverified (sim/AGENTS.md, "Known to differ").
+        # read the App's push. Under the canary's ruleset the App's push dismissed the approval, naming the App, and P-7
+        # grounds the rule the fake now applies where the world's ruleset dismisses stale approvals (issue 265).
         by_code = {code: (trials, fixture) for code, _, trials, fixture, _ in check_trials.rules()}
         self.assertEqual(by_code["an_app_pushes_to_the_head"], (("P-7",), "trials/P-7.json"))
         self.assertEqual(by_code["the_machine_users_approval_counts"], (("P-7",), "trials/P-7.json"))
         self.assertEqual(by_code["the_pusher_is_the_last_pusher"], (("P-28",), ("trials/P-28.json", "trials/P-28.app.json")))
-        self.assertEqual(by_code["an_approval_survives_a_push"], (("P-7", "P-29"), None))
-        self.assertTrue(caught(check_trials.unverified(), "an_approval_survives_a_push"))
+        self.assertEqual(by_code["an_approval_is_dismissed_by_a_push"], (("P-7",), "trials/P-7.json"))
+        self.assertFalse(caught(check_trials.unverified(), "an_approval_is_dismissed_by_a_push"))
+        self.assertEqual(by_code["an_approval_stands_without_stale_dismissal"], (("P-1",), None))
         for name in ("P-1", "P-7", "P-7.maintainer-pushed", "P-24", "P-28.app"):
             data = json.loads((ROOT / "trials" / ("%s.json" % name)).read_text())
             self.assertEqual(data["verdict"], "pass", name)
@@ -4255,7 +4345,7 @@ class Trials(unittest.TestCase):
         # The list verify prints says, for each rule no fixture grounds, the trials that ask it or why none can.
         lines = {line.split(":", 1)[0]: line for line in check_trials.unverified(clone({"sim/grounding.py": said, "sim/world.py": world}))}
         self.assertIn("(%sa race no trial can force)" % check_trials.ASSUMED, lines["a_rule_nobody_asks"])
-        self.assertIn("(asked by P-7, P-29, no fixture yet)", lines["an_approval_survives_a_push"])
+        self.assertIn("(asked by P-2, P-41, no fixture yet)", lines["the_timeline_shows_each_act"])
         for code, _, trials, fixture, note in check_trials.rules():
             self.assertTrue(trials or fixture is not None or (isinstance(note, str) and note.startswith(check_trials.ASSUMED)), code)
             self.assertTrue(not trials or note is None, code)

@@ -1421,6 +1421,13 @@ class Timeline(unittest.TestCase):
         nobody = Router(github.Replay([]), {APPROVER: "write"})
         self.assertEqual(timeline.since_writer(events, self.accounts(nobody)),
                          {"last_writer_action_at": None, "acts_since_writer": 2})
+        # The App's push dismissed the machine user's approval as stale, the timeline naming the App (issue 265). Were
+        # that App a Factory identity, its dismissal would still be no act: only an approval, a label or a queue entry
+        # is one. The Maintainer's push-dismissal is his own action, as his push is in the fake.
+        app = next(e["actor"] for e in events if e.get("event") == "review_dismissed" and e["actor"]["type"] == "Bot")
+        factory = Router(github.Replay([]), {APPROVER: "write"})
+        self.assertEqual(timeline.since_writer(events, self.accounts(factory, factory={(app["id"], "Bot")})),
+                         {"last_writer_action_at": None, "acts_since_writer": 2})
         # A mention or a subscription names whom an act touched: nobody's action, and nobody's access is asked for it.
         mentions = [e for e in events if e.get("event") in ("mentioned", "subscribed")]
         quiet = Router(github.Replay([]))
@@ -2891,6 +2898,10 @@ class Contract(unittest.TestCase):
                                        {"number": 48, "base": {"repo": {"full_name": canary()}}})
         files = pull.changed_paths(github.Replay([as_compare(p43[10], body("P-43", 8))]), body("P-43", 8), PINNED_BASE)
         return {
+            # The App's push dismissed the machine user's approval as stale, and the port reads the App as its dismisser.
+            "an_approval_is_dismissed_by_a_push": ({"P-7"}, any(
+                r["by"]["kind"] == "machine_user" and r["state"] == "dismissed" and r["dismissed_from"] == "approved"
+                and r["dismissed_by"]["kind"] == "app" for r in reviewed)),
             "a_push_is_new_content": ({"P-29.base"}, before != after),
             "the_pusher_is_the_last_pusher": ({"P-28", "P-28.app"},
                 pull.last_pusher(replay("P-28", 7), body("P-28", 10)) == "don-petry"

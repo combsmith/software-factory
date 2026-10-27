@@ -8,8 +8,11 @@ why none can, "assumed, no trial can ask it: ..." (None where a trial does).
 A rule with no fixture is unverified, and `make verify` prints it with what it waits on (design,
 section 4.5). A rule no trial asks can be grounded only once a trial for it is added to section 6,
 so each either names the trial that will, or says why none can (issue 190).
-`tools/check_trials.py` holds this list and the marks to each other, and each fixture named here
-to its schema. It reads RULES as a literal, so that it can judge a copy of the repo: keep it one.
+A trial a rule names asks it in its row: ASKS quotes, for each, the words of that row's question
+that do (issue 265), so a rule that names the wrong row is refused.
+`tools/check_trials.py` holds this list and the marks to each other, each quote to its row, and
+each fixture named here to its schema. It reads RULES and ASKS as literals, so that it can judge a
+copy of the repo: keep them so.
 """
 
 RULES = (
@@ -25,10 +28,16 @@ RULES = (
      "assumed, no trial can ask it: a race between a push and the read of the activity, which no trial can force; P-28 "
      "saw each entry within 11 s"),
     ("an_app_pushes_to_the_head", "An App can push to the head of a pull request", ("P-7",), "trials/P-7.json", None),
-    # Contradicted by trials/P-7.json: under the ruleset's dismiss_stale_reviews_on_push, the App's push dismissed the
-    # machine user's approval, and the timeline names the pusher as the dismisser. Left unverified, as it is: changing
-    # the fake is a story of its own (sim/AGENTS.md, "Known to differ").
-    ("an_approval_survives_a_push", "A push leaves an earlier approval in place", ("P-7", "P-29"), None, None),
+    ("an_approval_is_dismissed_by_a_push", "Under a ruleset that dismisses stale approvals on a push, a push dismisses "
+     "each standing approval, and the timeline names an App that pushed as its dismisser", ("P-7",),
+     "trials/P-7.json", None),
+    # P-7 saw only an App's push dismiss an approval as stale: the Maintainer's dismissal there was his own, with a
+    # message and no commit. Who a person's push is named, P-38 asks.
+    ("a_persons_push_names_the_person_as_dismisser", "Under a ruleset that dismisses stale approvals on a push, the "
+     "timeline names a person who pushed, as that person, the dismisser of each approval the push dismissed",
+     ("P-38",), None, None),
+    ("an_approval_stands_without_stale_dismissal", "Under a ruleset that does not dismiss stale approvals, a push leaves "
+     "an earlier approval in place", ("P-1",), None, None),
     ("a_request_for_changes_survives_a_push", "A push leaves a request for changes standing", ("P-41",), None, None),
     ("an_app_can_dismiss_a_review", "An App with pull_requests: write can dismiss a person's review, and the timeline "
      "says which App and what the review was before (previousReviewState)", ("P-41",), None, None),
@@ -72,12 +81,14 @@ RULES = (
     ("the_machine_users_approval_counts", "The machine user's approval counts when an App pushed last",
      ("P-7",), "trials/P-7.json", None),
     ("an_approval_can_fail_to_land", "The machine user's approval can fail to land, by a fault of the item or of the "
-     "environment, and its Run then concludes failure", ("P-7",), None, None),
+     "environment, and its Run then concludes failure", (), None,
+     "assumed, no trial can ask it: a fault of the item or of the environment that drops an approval cannot be forced "
+     "on demand"),
     ("the_queue_can_eject", "The merge queue can take a pull request out without merging it, and its approval stays",
      ("P-2",), None, None),
     ("the_timeline_shows_each_act", "Each approval, enqueue, dequeue and label a Factory identity makes is on the "
      "timeline, with its actor, so the acts since a person with write access acted can be counted",
-     ("P-8",), None, None),
+     ("P-2", "P-41"), None, None),
     ("a_lens_review_opens_a_thread", "A Lens's review can open a review thread on the pull request",
      ("P-5",), None, None),
     ("an_app_resolves_a_lens_thread", "The reviewer's App can resolve a thread a Lens opened", ("P-5",), None, None),
@@ -119,7 +130,7 @@ RULES = (
      ("P-43",), "trials/P-43.json", None),
     ("a_killed_job_times_out", "A job killed part way concludes timed_out", ("P-18",), None, None),
     ("a_superseded_run_fails", "A Run whose apply refuses, or that the Kernel refuses as it starts, concludes failure",
-     ("P-17",), None, None),
+     ("P-18",), None, None),
     ("a_short_diff_says_so", "A diff read short says so, and is not mistaken for the whole",
      ("P-29",), "trials/P-29.truncated.json", None),
     # trials/P-43.json: reviews, threads, labels, timeline events, files and a head's checks, each read one to a page,
@@ -224,3 +235,163 @@ RULES = (
     ("a_public_event_starts_a_pass", "An event anyone may cause starts the poller's workflow, within a minute or two",
      ("P-20",), "trials/P-20.json", None),
 )
+
+# What each trial a rule names asks of it: the words of the trial's question in section 6 that ask the rule, at least
+# four, held there by tools/check_trials.py (issue 265). A row that does not ask a rule, or stops asking it, refuses the
+# rule; so does a quote of a trial the rule does not name.
+ASKS = {
+    "a_push_is_new_content": {"P-29": "Is the hash of a pull request's own diff stable"},
+    "the_pusher_is_the_last_pusher": {
+        "P-28": "Can the actor who last pushed a pull request's head be read as a fact?",
+    },
+    "an_app_pushes_to_the_head": {"P-7": "the last-push rule when an App pushed last"},
+    "an_approval_is_dismissed_by_a_push": {"P-7": "does an approval given before a push still stand after it"},
+    "a_persons_push_names_the_person_as_dismisser": {"P-38": "who does the timeline record as dismissing it?"},
+    "an_approval_stands_without_stale_dismissal": {
+        "P-1": "under a ruleset that does not dismiss stale approvals, does an approval given before a push still stand"
+              " after it?",
+    },
+    "a_request_for_changes_survives_a_push": {"P-41": "does a request for changes survive the push"},
+    "an_app_can_dismiss_a_review": {"P-41": "can an App with `pull_requests: write` dismiss a person's review"},
+    "a_push_restarts_the_checks": {"P-42": "after a push, is every required check pending again"},
+    "a_check_reports_on_its_own": {"P-42": "does a required check conclude"},
+    "a_check_can_time_out_or_give_no_verdict": {
+        "P-42": "does a required check conclude `timed_out`, `neutral`, `skipped`, `cancelled` or `stale` and keep "
+              "that conclusion until the content changes or a person runs it again",
+    },
+    "a_check_is_read_by_name_from_every_app": {
+        "P-42": "is every check run read with its exact name and its App's id",
+    },
+    "a_rerun_replaces_only_its_own_run": {
+        "P-42": "two workflow runs on one commit both staying, since `filter=latest` is per check suite",
+    },
+    "any_app_posts_a_check_under_any_name": {
+        "P-42": "can any App with `checks: write`, or any Actions job, post a check run under a required Lens's "
+              "check name",
+    },
+    "a_check_names_the_workflow_that_ran_it": {
+        "P-35": "Can it be read as the `path` of the check run's check suite's workflow run, with the permissions "
+              "the reader and the Controller hold",
+    },
+    "actions_runs_a_job_under_any_name": {
+        "P-35": "does a job a pull request adds in a file of its own, under a required Lens's check name, report "
+              "under GitHub Actions with that file's path?",
+    },
+    "only_codeql_gives_the_code_scanning_verdict": {
+        "P-36": "change the conclusion of the check run `CodeQL` that GitHub Advanced Security reports?",
+    },
+    "a_push_leaves_the_queue": {"P-2": "Does a push take a queued pull request out"},
+    "an_app_enters_the_queue": {"P-2": "Can an App enable auto-merge and enter the merge queue"},
+    "the_queue_merges": {"P-2": "take a pull request out of it before the queue merges it?"},
+    "a_pass_comes_before_the_merge": {"P-2": "does the poller read a change before the queue merges it?"},
+    "an_app_leaves_the_queue": {"P-2": "take a pull request out of it before the queue merges it?"},
+    "a_writer_can_dismiss_an_approval": {
+        "P-41": "a person with write access the machine user's approval, the timeline naming who dismissed and the "
+              "review's earlier state",
+    },
+    "the_merge_group_is_not_checked": {"P-2": "does the queue run the required checks on the merge group?"},
+    "the_machine_users_approval_counts": {
+        "P-7": "Does the machine user's approval satisfy code-owner review and the last-push rule",
+    },
+    "the_queue_can_eject": {"P-2": "can the queue eject one without merging it, its approval staying"},
+    "the_timeline_shows_each_act": {
+        "P-2": "Is each enqueue and dequeue on the pull request's timeline, naming its actor?",
+        "P-41": "Is every actor named on a review, a dismissal, a thread and a label event read with its account "
+              "type",
+    },
+    "a_lens_review_opens_a_thread": {"P-5": "a review thread opened by another App"},
+    "an_app_resolves_a_lens_thread": {"P-5": "Can one App resolve a review thread opened by another App"},
+    "an_app_resolves_any_thread": {
+        "P-5": "Can one App resolve a review thread opened by another App or by a third-party reviewer?",
+    },
+    "an_app_can_label": {"P-41": "can the Controller's App add and remove a control label on a pull request"},
+    "a_label_event_names_its_actor": {"P-32": "who added and who removed each label, with the time"},
+    "an_actor_has_a_kind": {
+        "P-41": "Is every actor named on a review, a dismissal, a thread and a label event read with its account "
+              "type, a User or a Bot?",
+    },
+    "a_run_waits_its_turn": {
+        "P-44": "does GitHub keep one Run running and one pending, cancel the older pending Run, and never cancel "
+              "the one running?",
+    },
+    "a_queued_run_is_listed": {"P-17": "visible for a run whose job never started?"},
+    "a_new_run_is_listed_unnamed": {"P-17": "Is a run's name set when the run is created"},
+    "a_new_run_is_listed_late": {
+        "P-22": "How soon after it is started does a Run appear in the list of run records?",
+    },
+    "a_run_list_stops_short": {"P-43": "can the list of run records stop short with the oldest Runs missing?"},
+    "a_killed_job_times_out": {"P-18": "when a job times out or is cancelled?"},
+    "a_superseded_run_fails": {
+        "P-18": "does a job whose step exits non-zero conclude `failure`, whether its Run refused before its work "
+              "or after it?",
+    },
+    "a_short_diff_says_so": {"P-29": "how does a truncated diff present?"},
+    "a_short_list_says_so": {
+        "P-43": "say when it was cut short, by a count, a last page or a next cursor that the same read gives",
+    },
+    "a_pull_request_lists_the_paths_it_changes": {
+        "P-43": "Is every file a pull request changes listed once, by its path from the top of the repo, with the "
+              "path a renamed or copied file had before?",
+    },
+    "a_path_list_can_leave_out_a_file": {"P-29": "how does a truncated diff present?"},
+    "a_short_path_list_says_so": {
+        "P-43": "acceptance results and the files a pull request changes, say when it was cut short",
+    },
+    "a_dependency_bot_updates_a_workflow_pin": {
+        "P-45": "does it open the pull request and push its head under its own `[bot]` identity",
+    },
+    "a_dependency_bot_updates_a_lens_pin": {
+        "P-45": "When a dependency bot updates an Action's pin in a workflow file",
+    },
+    "an_acceptance_result_names_its_content": {"P-42": "keep that conclusion until the content changes"},
+    "a_short_acceptance_read_says_so": {
+        "P-43": "run records, acceptance results and the files a pull request changes, say when it was cut short",
+    },
+    "a_result_can_name_a_criterion_the_contract_does_not": {
+        "P-42": "or a result for any criterion of a contract, one the contract does not name among them",
+    },
+    "a_result_expires_with_its_artifact": {
+        "P-16": "How long are run records, logs and artifacts kept in a public repo?",
+    },
+    "a_criterion_can_have_a_result_from_each_check_suite": {"P-42": "two workflow runs on one commit both staying"},
+    "an_acceptance_result_names_its_reporter": {
+        "P-35": "Where does each check run's workflow file come from",
+        "P-42": "is every check run read with its exact name and its App's id",
+    },
+    "any_app_gives_a_result_for_any_criterion": {
+        "P-42": "or any Actions job, post a check run under a required Lens's check name, or a result for any "
+              "criterion of a contract",
+    },
+    "a_contract_approval_stays_on_its_commit": {
+        "P-38": "does the review stay on the commit it approved, readable with that commit and its reviewer",
+    },
+    "a_tick_can_be_lost": {"P-8": "how often do scheduled ticks arrive in the new repo?"},
+    "a_logins_permission_is_read_from_the_collaborator_endpoint": {
+        "P-47": "Can the reader App read a login's repository permission",
+    },
+    "a_closing_reference_is_read_from_any_pull_request": {
+        "P-33": "Can the issue a pull request closes be read from a draft, an open, a merged and a closed-unmerged "
+              "pull request alike, with its opening actor; and does a pull request to a branch that is not the "
+              "default one carry it?",
+    },
+    "who_changed_the_draft_flag_is_read": {"P-33": "Can who last changed the draft flag be read?"},
+    "a_merge_closes_the_issue_it_names_and_an_edit_after_it_closes_nothing": {
+        "P-33": "Can the issue a pull request closes be read from a draft, an open, a merged and a closed-unmerged "
+              "pull request alike",
+        "P-46": "Does a merged pull request's closing reference change when its description is edited after the "
+              "merge",
+    },
+    "an_issues_content_time_is_read_apart": {
+        "P-34": "Can the time an issue's title or body last changed be read, apart from the time anything on it "
+              "changed",
+    },
+    "a_reopening_names_its_actor": {"P-34": "and each reopening, with who did it?"},
+    "an_issues_close_and_reopening_say_when": {"P-34": "and each reopening, with who did it?"},
+    "an_issues_run_record_expires": {"P-16": "How long are run records, logs and artifacts kept in a public repo?"},
+    "a_draft_is_not_merged": {"P-2": "is a draft ever merged by a person or the queue"},
+    "a_forks_run_never_counts": {"P-27": "can it never be a schedule or dispatch run?"},
+    "a_pass_starts_its_successor": {"P-9": "Can a pass start the next one with the default workflow token?"},
+    "a_public_event_starts_a_pass": {
+        "P-20": "Does an event that anyone may cause, such as starring a repo, still start a workflow",
+    },
+}

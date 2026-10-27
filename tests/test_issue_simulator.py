@@ -126,6 +126,20 @@ class IssueSimulation(unittest.TestCase):
             with mock.patch.dict(issues.PERMISSIONS, {name: permission}):
                 self.assertEqual(w.facts()["author"]["can_write"], writes, permission)
 
+    def test_every_actors_write_access_is_read_from_the_permission(self):  # issue 299
+        # Not the author's alone: a label event's actor, and whoever the world asks is a person, has the write access
+        # the permission it serves for that login gives. A colleague whose permission is only read labels as a
+        # non-writer, and the world reads it so too.
+        w = IssueWorld(2, faults=False, people=False)
+        w.events.append({"label": "factory:hold", "action": "labeled", "by": dict(issues.COLLEAGUE), "at": w.now()})
+        for permission, writes in (("write", True), ("read", False), ("none", False)):
+            with mock.patch.dict(issues.PERMISSIONS, {issues.COLLEAGUE["name"]: permission}):
+                self.assertEqual(w.facts()["label_events"][-1]["by"]["can_write"], writes, permission)
+                self.assertEqual(w.is_person(issues.COLLEAGUE), writes, permission)
+        # An App's is left as the world made it: no permission is read for one.
+        w.events.append({"label": "factory:hold", "action": "labeled", "by": dict(issues.OTHER_APP), "at": w.now()})
+        self.assertEqual(w.facts()["label_events"][-1]["by"], issues.OTHER_APP)
+
     def test_a_seed_replays_exactly(self):
         traces = [run(7, steps=200).trace for _ in range(2)]
         self.assertEqual(traces[0], traces[1])
