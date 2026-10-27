@@ -3617,6 +3617,11 @@ class Trials(unittest.TestCase):
             self.assertTrue(caught(problems, "a_request_for_changes_survives_a_push: P-41's row in section 6 does not "
                                              "ask it"), hidden)
             self.assertFalse(caught(problems, "more than one row"), hidden)
+        # An opener left unclosed hides every row after it, as a renderer reads it: those trials have no row.
+        for opener in ("<!--", "~~~", "```"):
+            unclosed = design.replace("| P-41 |", opener + "\n| P-41 |", 1)
+            self.assertTrue(caught(check_trials.run(clone({check_trials.DESIGN: unclosed})),
+                                   "a_request_for_changes_survives_a_push: P-41 has no row in section 6"), opener)
         # A row in a fenced block asks nothing, though it quotes the old question.
         row = reworded.index("\n", reworded.index("| P-41 |"))
         fenced = reworded[:row] + "\n```\n| P-41 | does a request for changes survive the push | Yes |\n```" + reworded[row:]

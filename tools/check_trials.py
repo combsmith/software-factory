@@ -90,6 +90,8 @@ QUOTED_WORDS = 4
 FENCED = re.compile(r"^```.*?^```", re.M | re.S)
 # A block fenced with tildes, and an HTML comment, hold no row either (the review of #265).
 HIDDEN = re.compile(r"(?:^~~~.*?^~~~)|(?:<!--.*?-->)", re.M | re.S)
+# An opener with no close hides the rest, as a renderer reads it: no row after it is a trial.
+OPENED = re.compile(r"(?:^(?:```|~~~))|(?:<!--)", re.M)
 MARK = re.compile(r"^\s*# GitHub: (\S+)\s*$", re.M)
 
 # A key that names a credential, however it is spelt: compared after strip(), lower() and - to _.
@@ -627,7 +629,9 @@ def _section_6(root: pathlib.Path):
     start = text.find("\n## 6. ")
     end = text.find("\n## ", start + 1) if start >= 0 else -1
     section = text[start:end if end >= 0 else len(text)] if start >= 0 else ""
-    return HIDDEN.sub("", FENCED.sub("", section))
+    section = HIDDEN.sub("", FENCED.sub("", section))
+    opened = OPENED.search(section)
+    return section[:opened.start()] if opened else section
 
 
 def section_6(root: pathlib.Path) -> set:
